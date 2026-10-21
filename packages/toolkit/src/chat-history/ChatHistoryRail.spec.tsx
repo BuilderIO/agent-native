@@ -8,7 +8,10 @@ import { ActionButton, IconButton } from "../design-system/components.js";
 import { defineDesignSystem } from "../design-system/definition.js";
 import { ToolkitProvider } from "../provider.js";
 import type { ChatHistoryItem } from "./ChatHistoryList.js";
-import { ChatHistoryRail } from "./ChatHistoryRail.js";
+import {
+  ChatHistoryRail,
+  DefaultChatHistoryRailView,
+} from "./ChatHistoryRail.js";
 
 const railLabels = {
   newChat: "New chat",
@@ -65,6 +68,24 @@ describe("ChatHistoryRail", () => {
 
     act(() => disclosure?.click());
     expect(container.querySelectorAll(".an-chat-history-row")).toHaveLength(5);
+  });
+
+  it("keeps the flat rail's list-level empty state", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryRail
+          items={[]}
+          onSelect={() => {}}
+          onNewChat={() => {}}
+          railLabels={railLabels}
+          emptyLabel="No chats yet"
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(".an-chat-history__state")?.textContent,
+    ).toBe("No chats yet");
   });
 
   it("changes the disclosure glyph with its state, even when both labels match", () => {
@@ -340,6 +361,34 @@ describe("ChatHistoryRail", () => {
 
     expect(newChat?.type).toBe("button");
     expect(document.activeElement).toBe(newChat);
+    expect(onNewChat).toHaveBeenCalledOnce();
+  });
+
+  it("renders the exported default view from the flat controller and listProps alone", () => {
+    const onNewChat = vi.fn();
+    act(() => {
+      root.render(
+        <ChatHistoryRail
+          items={makeItems(6)}
+          onSelect={() => {}}
+          onNewChat={onNewChat}
+          railLabels={railLabels}
+          renderRail={({ controller, listProps }) => (
+            <DefaultChatHistoryRailView
+              controller={controller}
+              listProps={listProps}
+            />
+          )}
+        />,
+      );
+    });
+
+    expect(container.querySelectorAll(".an-chat-history-row")).toHaveLength(5);
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(".an-chat-history-rail__new-chat")
+        ?.click(),
+    );
     expect(onNewChat).toHaveBeenCalledOnce();
   });
 

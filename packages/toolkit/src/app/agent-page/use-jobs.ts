@@ -31,12 +31,54 @@ export interface RecurringJob {
   canUpdate: boolean;
 }
 
+export type AutomationTriggerType = "event" | "schedule" | "manual" | "webhook";
+export type AutomationClassification = "automation" | "recurring-job";
+export type AutomationEffectiveRole = "owner" | "collaborate" | "view";
+export type AutomationSharingVisibility = "private" | "organization" | "shared";
+export type AutomationSharingRole = "view" | "collaborate";
+export type AutomationSharingMode = "personal" | "organization" | "specific";
+
+export interface AutomationCapabilities {
+  canEdit: boolean;
+  canOperate: boolean;
+  canDelete: boolean;
+  canManageSharing: boolean;
+}
+
+export interface AutomationSharingGrant {
+  email: string;
+  role: AutomationSharingRole;
+  name: string | null;
+  avatar: string | null;
+}
+
+export interface AutomationSharingSummary {
+  source: "explicit" | "legacy";
+  visibility: AutomationSharingVisibility;
+  organizationId: string | null;
+  grantCount: number;
+  grants?: AutomationSharingGrant[];
+}
+
+export interface AutomationCreator {
+  email: string | null;
+  label: string | null;
+}
+
+// Kept only because `manage-recurring-job` still accepts name/scope as a
+// compatibility input; every new caller should address by `resourceId`.
+export type LegacyJobLocator =
+  | { resourceId: string }
+  | { name: string; scope: "personal" | "organization" };
+
 export interface Automation {
   id: string;
+  resourceId: string;
   name: string;
   path: string;
   scope: "personal" | "organization";
-  triggerType: "event" | "schedule" | "webhook";
+  classification: AutomationClassification;
+  triggerType: AutomationTriggerType;
   event: string | null;
   webhookPath: string | null;
   schedule: string | null;
@@ -49,9 +91,14 @@ export interface Automation {
   lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
+  lastErrorCode: string | null;
   nextRun: string | null;
   createdBy: string | null;
   model: string | null;
+  reasoningEffort: string | null;
+  executionHostId: string | null;
+  executionEngine: string | null;
+  executionCwd: string | null;
   mcpTools: string[];
   originScopeId: string | null;
   deliveryPlatform: string | null;
@@ -59,7 +106,25 @@ export interface Automation {
   deliveryThreadRef: string | null;
   deliveryTenantId: string | null;
   canUpdate: boolean;
+  effectiveRole: AutomationEffectiveRole;
+  capabilities: AutomationCapabilities;
+  sharing: AutomationSharingSummary;
+  creator: AutomationCreator;
 }
+
+export type AutomationSharingGrantSubmission = {
+  email: string;
+  role: AutomationSharingRole;
+};
+
+export type AutomationSharingSubmission =
+  | { kind: "personal" }
+  | { kind: "organization"; organizationId: string }
+  | {
+      kind: "specific";
+      organizationId?: string | null;
+      grants: AutomationSharingGrantSubmission[];
+    };
 
 export type ManageJobInput = {
   operation: "update" | "delete";
@@ -70,18 +135,94 @@ export type ManageJobInput = {
   timezone?: string;
 };
 
-export type ManageAutomationInput = ManageJobInput & {
-  operation: "create" | "update" | "delete";
-  triggerType?: "event" | "schedule" | "webhook";
-  body?: string;
-  event?: string;
-};
-
-export interface RunAutomationNowInput {
-  name?: string;
-  path?: string;
-  scope: "personal" | "organization";
+export interface AutomationEvent {
+  name: string;
+  description: string;
+  payloadSchema: Record<string, unknown> | null;
+  example: Record<string, unknown> | null;
 }
+
+interface AutomationEditorFields {
+  enabled?: boolean;
+  triggerType?: AutomationTriggerType;
+  event?: string;
+  schedule?: string;
+  timezone?: string;
+  condition?: string | null;
+  body?: string;
+  model?: string | null;
+  reasoningEffort?: string | null;
+  executionHostId?: string | null;
+  executionEngine?: string | null;
+  executionCwd?: string | null;
+  mcpTools?: string[];
+  sharing?: AutomationSharingSubmission;
+  acknowledgeExternalCollaborators?: boolean;
+}
+
+export type ManageAutomationInput =
+  | ({
+      operation: "create";
+      name: string;
+      scope: "personal" | "organization";
+      triggerType: AutomationTriggerType;
+      body: string;
+    } & Omit<AutomationEditorFields, "triggerType" | "body">)
+  | ({
+      operation: "update";
+      resourceId?: string;
+      name?: string;
+      scope?: "personal" | "organization";
+    } & AutomationEditorFields)
+  | {
+      operation: "delete";
+      resourceId?: string;
+      name?: string;
+      scope?: "personal" | "organization";
+    };
+
+export interface ManageAutomationResult {
+  created?: true;
+  updated?: true;
+  deleted?: true;
+  resourceId?: string | null;
+  name: string;
+  scope?: "personal" | "organization";
+  triggerType?: AutomationTriggerType;
+  event?: string | null;
+  schedule?: string | null;
+  timezone?: string | null;
+  condition?: string | null;
+  body?: string;
+  enabled?: boolean;
+  nextRun?: string | null;
+  createdBy?: string | null;
+  model?: string | null;
+  reasoningEffort?: string | null;
+  executionHostId?: string | null;
+  executionEngine?: string | null;
+  executionCwd?: string | null;
+  webhookPath?: string | null;
+  changed?: boolean;
+  previouslyEnabled?: boolean;
+  requestedEnabled?: boolean | null;
+  mcpTools?: string[];
+}
+
+export type RunAutomationNowInput =
+  | { resourceId: string; name?: never; path?: never; scope?: never }
+  | {
+      path: string;
+      resourceId?: never;
+      name?: never;
+      scope?: "personal" | "organization";
+    }
+  | {
+      name: string;
+      scope: "personal" | "organization";
+      resourceId?: never;
+      path?: never;
+    };
 
 export interface RunAutomationNowResult {
   queued: true;
@@ -102,12 +243,42 @@ export interface AutomationRun {
   errorCode: string | null;
 }
 
+export interface AutomationAccountSearchResult {
+  email: string;
+  name: string | null;
+  avatar: string | null;
+  outsideOrganization: boolean;
+}
+
 function recurringParams(scope: JobsScope) {
   return { scope: scope === "org" ? "organization" : "personal" } as const;
 }
 
 function automationParams(scope: JobsScope) {
   return { scope: scope === "org" ? "organization" : "personal" } as const;
+}
+
+function automationQueryKey(scope?: JobsScope) {
+  return [
+    "action",
+    "list-automations",
+    scope ? automationParams(scope) : {},
+  ] as const;
+}
+
+function matchesLocator(
+  automation: {
+    id: string;
+    resourceId?: string;
+    name: string;
+    scope: string;
+  },
+  locator: { resourceId?: string; name?: string; scope?: string },
+): boolean {
+  if (locator.resourceId) {
+    return (automation.resourceId ?? automation.id) === locator.resourceId;
+  }
+  return automation.name === locator.name && automation.scope === locator.scope;
 }
 
 export type { ScheduledTriggerState, ScheduledTriggerStatus };
@@ -131,21 +302,45 @@ export function useRecurringJobs(scope: JobsScope) {
   );
 }
 
-export function useAutomations(scope: JobsScope) {
+export function useAutomations(scope?: JobsScope) {
   return useActionQuery<Automation[]>(
     "list-automations",
-    automationParams(scope),
-    { staleTime: 5_000 },
+    scope ? automationParams(scope) : {},
+    {
+      staleTime: 5_000,
+    },
   );
 }
 
+export function useAutomationEvents() {
+  return useActionQuery<AutomationEvent[]>(
+    "list-automation-events",
+    {},
+    {
+      staleTime: 30_000,
+    },
+  );
+}
+
+export function useAutomationAccountSearch(query: string, enabled: boolean) {
+  return useActionQuery<AutomationAccountSearchResult[]>(
+    "search-automation-accounts",
+    { query, limit: 10 },
+    { enabled: enabled && query.trim().length >= 2, staleTime: 10_000 },
+  );
+}
+
+/** Mutates legacy `jobs/*.md` recurring jobs; schedule/enabled/delete only. */
 export function useManageRecurringJob(scope: JobsScope) {
   const queryClient = useQueryClient();
-  const params = recurringParams(scope);
-  const queryKey = ["action", "list-recurring-jobs", params] as const;
+  const queryKey = [
+    "action",
+    "list-recurring-jobs",
+    recurringParams(scope),
+  ] as const;
 
   return useActionMutation<
-    { deleted?: boolean; name: string; enabled?: boolean },
+    { deleted?: boolean; resourceId?: string; name: string; enabled?: boolean },
     ManageJobInput
   >("manage-recurring-job", {
     onMutate: async (variables) => {
@@ -154,11 +349,11 @@ export function useManageRecurringJob(scope: JobsScope) {
       queryClient.setQueryData<RecurringJob[]>(queryKey, (current) => {
         if (!current) return current;
         if (variables.operation === "delete") {
-          return current.filter((job) => job.name !== variables.name);
+          return current.filter((job) => !matchesLocator(job, variables));
         }
         return current.map((job) =>
-          job.name === variables.name
-            ? { ...job, ...optimisticPatch(variables) }
+          matchesLocator(job, variables)
+            ? { ...job, ...optimisticJobPatch(variables) }
             : job,
         );
       });
@@ -170,43 +365,53 @@ export function useManageRecurringJob(scope: JobsScope) {
         queryClient.setQueryData(queryKey, rollback.previous);
       }
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+    },
   });
 }
 
-export function useManageAutomation(scope: JobsScope) {
+export function useManageAutomation(scope?: JobsScope) {
   const queryClient = useQueryClient();
-  const params = automationParams(scope);
-  const queryKey = ["action", "list-automations", params] as const;
+  const queryKey = automationQueryKey(scope);
 
-  return useActionMutation<
-    { deleted?: boolean; name: string; enabled?: boolean },
-    ManageAutomationInput
-  >("manage-automation", {
-    onMutate: async (variables) => {
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<Automation[]>(queryKey);
-      queryClient.setQueryData<Automation[]>(queryKey, (current) => {
-        if (!current) return current;
-        if (variables.operation === "delete") {
-          return current.filter(
-            (automation) => automation.name !== variables.name,
+  return useActionMutation<ManageAutomationResult, ManageAutomationInput>(
+    "manage-automation",
+    {
+      onMutate: async (variables) => {
+        await queryClient.cancelQueries({ queryKey });
+        const previous = queryClient.getQueryData<Automation[]>(queryKey);
+        queryClient.setQueryData<Automation[]>(queryKey, (current) => {
+          if (!current) return current;
+          if (variables.operation === "delete") {
+            return current.filter(
+              (automation) => !matchesLocator(automation, variables),
+            );
+          }
+          if (variables.operation === "create") {
+            return [...current, optimisticAutomation(variables)];
+          }
+          return current.map((automation) =>
+            matchesLocator(automation, variables)
+              ? { ...automation, ...optimisticAutomationPatch(variables) }
+              : automation,
           );
+        });
+        return { previous };
+      },
+      onError: (_error, _variables, context) => {
+        const rollback = context as { previous?: Automation[] } | undefined;
+        if (rollback && "previous" in rollback) {
+          queryClient.setQueryData(queryKey, rollback.previous);
         }
-        return current.map((automation) =>
-          automation.name === variables.name
-            ? { ...automation, ...optimisticPatch(variables) }
-            : automation,
-        );
-      });
-      return { previous };
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-automations"],
+        });
+      },
     },
-    onError: (_error, _variables, context) => {
-      const rollback = context as { previous?: Automation[] } | undefined;
-      if (rollback && "previous" in rollback) {
-        queryClient.setQueryData(queryKey, rollback.previous);
-      }
-    },
-  });
+  );
 }
 
 export function useRunAutomationNow() {
@@ -215,28 +420,37 @@ export function useRunAutomationNow() {
     "run-automation-now",
     {
       onSuccess: (_result, variables) => {
-        const scope =
-          variables.scope === "organization" ? "organization" : "personal";
-        const name =
-          variables.name ??
-          variables.path?.replace(/^jobs\//, "").replace(/\.md$/, "");
+        if ("resourceId" in variables) {
+          void queryClient.invalidateQueries({
+            queryKey: [
+              "action",
+              "list-automation-runs",
+              { resourceId: variables.resourceId },
+            ],
+          });
+        } else {
+          const scope =
+            variables.scope === "organization" ? "organization" : "personal";
+          const name =
+            "name" in variables
+              ? variables.name
+              : variables.path.replace(/^jobs\//, "").replace(/\.md$/, "");
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-automation-runs", { scope, name }],
+          });
+        }
         void queryClient.invalidateQueries({
-          queryKey: ["action", "list-automation-runs", { scope, name }],
+          queryKey: ["action", "list-automations"],
         });
         void queryClient.invalidateQueries({
-          queryKey: ["action", "list-automations", { scope }],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-recurring-jobs", { scope }],
+          queryKey: ["action", "list-recurring-jobs"],
         });
       },
     },
   );
 }
 
-function optimisticPatch(
-  variables: Pick<ManageJobInput, "enabled" | "schedule" | "timezone">,
-) {
+function optimisticJobPatch(variables: ManageJobInput) {
   const patch: {
     enabled?: boolean;
     schedule?: string;
@@ -248,17 +462,139 @@ function optimisticPatch(
   return patch;
 }
 
+function optimisticAutomation(
+  variables: Extract<ManageAutomationInput, { operation: "create" }>,
+): Automation {
+  const name = variables.name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-");
+  const visibility: AutomationSharingVisibility =
+    variables.sharing?.kind === "organization"
+      ? "organization"
+      : variables.sharing?.kind === "specific"
+        ? "shared"
+        : "private";
+  return {
+    id: `optimistic:${variables.scope}:${name}`,
+    resourceId: `optimistic:${variables.scope}:${name}`,
+    name,
+    path: `jobs/${name}.md`,
+    scope: variables.scope,
+    classification: "automation",
+    webhookPath: null,
+    triggerType: variables.triggerType,
+    event: variables.triggerType === "event" ? (variables.event ?? null) : null,
+    schedule:
+      variables.triggerType === "schedule"
+        ? (variables.schedule ?? null)
+        : null,
+    timezone:
+      variables.triggerType === "schedule"
+        ? (variables.timezone ?? null)
+        : null,
+    scheduleDescription: null,
+    condition:
+      variables.triggerType === "event" ? (variables.condition ?? null) : null,
+    body: variables.body,
+    enabled: variables.enabled ?? true,
+    lastRun: null,
+    lastCheck: null,
+    lastStatus: null,
+    lastError: null,
+    lastErrorCode: null,
+    nextRun: null,
+    createdBy: null,
+    model: variables.model ?? null,
+    reasoningEffort: variables.reasoningEffort ?? null,
+    executionHostId: variables.executionHostId ?? null,
+    executionEngine: variables.executionEngine ?? null,
+    executionCwd: variables.executionCwd ?? null,
+    mcpTools: variables.mcpTools ?? [],
+    originScopeId: null,
+    deliveryPlatform: null,
+    deliveryDestination: null,
+    deliveryThreadRef: null,
+    deliveryTenantId: null,
+    canUpdate: true,
+    effectiveRole: "owner",
+    capabilities: {
+      canEdit: true,
+      canOperate: true,
+      canDelete: true,
+      canManageSharing: true,
+    },
+    sharing: {
+      source: "explicit",
+      visibility,
+      organizationId:
+        variables.sharing && variables.sharing.kind !== "personal"
+          ? (variables.sharing.organizationId ?? null)
+          : null,
+      grantCount:
+        variables.sharing?.kind === "specific"
+          ? variables.sharing.grants.length
+          : 0,
+    },
+    creator: { email: null, label: null },
+  };
+}
+
+function optimisticAutomationPatch(
+  variables: Extract<ManageAutomationInput, { operation: "update" }>,
+): Partial<Automation> {
+  const patch: Partial<Automation> = {};
+  if (variables.enabled !== undefined) patch.enabled = variables.enabled;
+  if (variables.body !== undefined) patch.body = variables.body;
+  if (variables.model !== undefined) patch.model = variables.model;
+  if (variables.mcpTools !== undefined) patch.mcpTools = variables.mcpTools;
+  if (variables.condition !== undefined) patch.condition = variables.condition;
+
+  if (variables.triggerType !== undefined) {
+    patch.triggerType = variables.triggerType;
+    patch.event =
+      variables.triggerType === "event" ? (variables.event ?? null) : null;
+    patch.schedule =
+      variables.triggerType === "schedule"
+        ? (variables.schedule ?? null)
+        : null;
+    patch.timezone =
+      variables.triggerType === "schedule"
+        ? (variables.timezone ?? null)
+        : null;
+    patch.scheduleDescription = null;
+    patch.nextRun = null;
+    if (variables.triggerType !== "event") patch.condition = null;
+  } else {
+    if (variables.event !== undefined) patch.event = variables.event;
+    if (variables.schedule !== undefined) {
+      patch.schedule = variables.schedule;
+      patch.scheduleDescription = null;
+      patch.nextRun = null;
+    }
+    if (variables.timezone !== undefined) {
+      patch.timezone = variables.timezone;
+      patch.scheduleDescription = null;
+      patch.nextRun = null;
+    }
+  }
+  return patch;
+}
+
 export function useAutomationRuns(
-  scope: JobsScope,
-  name: string | null,
+  target: { resourceId: string } | { name: string; scope: JobsScope } | null,
   active: boolean,
 ) {
-  const params = {
-    scope: scope === "org" ? "organization" : "personal",
-    name: name || "",
-  } as const;
+  const params = target
+    ? "resourceId" in target
+      ? { resourceId: target.resourceId }
+      : {
+          name: target.name,
+          scope: target.scope === "org" ? "organization" : "personal",
+        }
+    : undefined;
   return useActionQuery<AutomationRun[]>("list-automation-runs", params, {
     staleTime: 5_000,
-    enabled: active && Boolean(name),
+    enabled: active && Boolean(target),
   });
 }

@@ -756,7 +756,12 @@ function DatabaseSettingsSourcePanel({
         canEdit={canEdit}
         pending={sourceActionPending}
         onAddDetails={() => {
-          if (!secondary || secondary.sourceType === "local-folder") return;
+          if (
+            !secondary ||
+            secondary.sourceType === "local-folder" ||
+            secondary.sourceType === "github"
+          )
+            return;
           onNavPush({
             kind: "keyConfirm",
             candidate: {
@@ -1122,6 +1127,7 @@ function DatabaseSettingsSourcePanel({
           source={source}
           canAddDetails={
             source.sourceType !== "local-folder" &&
+            source.sourceType !== "github" &&
             sources.some(
               (item) => item.id !== source.id && !sourceAddsDetails(item),
             )
@@ -1129,7 +1135,11 @@ function DatabaseSettingsSourcePanel({
           canEdit={canEdit}
           pending={sourceActionPending}
           onAddDetails={() => {
-            if (source.sourceType === "local-folder") return;
+            if (
+              source.sourceType === "local-folder" ||
+              source.sourceType === "github"
+            )
+              return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {

@@ -417,6 +417,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "Somente visualização. Esta página acompanha um arquivo no GitHub e é atualizada após cada push.",
+  githubSourceOpenFile: "Abrir no GitHub",
   textColor: "Cor do texto",
   backgroundColor: "Cor de fundo",
   defaultColor: "Padrão",
@@ -437,8 +440,8 @@ const editor = {
   registryBlockLoadError:
     "Não foi possível carregar o bloco {{type}}: {{message}}",
   registryBlockUnreadable: "Não foi possível ler a origem salva do bloco.",
-  blocksFieldRevisionConflict:
-    "Este campo de blocos foi alterado em outro lugar. Sua edição não foi salva; a versão mais recente agora está sendo exibida.",
+  blocksFieldEditMovedToEnd:
+    "Este campo de blocos também foi alterado em outro lugar. O texto que você digitou no mesmo trecho foi movido para o final do campo.",
   reconcileConflict:
     "Esta página foi alterada em outro lugar. Suas edições ainda não foram salvas.",
   reconcileFailed:
@@ -528,6 +531,7 @@ const editor = {
     imageDownloadStarted: "O download da imagem foi iniciado.",
     imageLinkHint: "Funciona com qualquer imagem da web",
     imagePreview: "Visualização da imagem",
+    imageUnavailable: "Imagem indisponível",
     imageView: "Visualização de imagem",
     link: "Ligação",
     loadingAssetsPicker: "Carregando seletor de ativos",
@@ -1026,6 +1030,10 @@ const comments = {
   accepted: "Aceitos",
   rejected: "Rejeitados",
   noFilteredComments: "Nenhum comentário correspondente.",
+  tabFilter: "Aba",
+  allTabs: "Todas as abas",
+  fieldRemoved: "{{name}} (removido)",
+  pageBody: "Corpo da página",
 };
 
 const reviewDiscussions = {
@@ -1213,6 +1221,7 @@ const history = {
   historyGroupAgent: "Execução do agente",
   historyGroupHuman: "Sessão de edição",
   historyGroupLegacy: "Edições anteriores",
+  historyGroupGitHub: "Sincronizado do GitHub",
   historyGroupOperation: "Operação",
   historyGroupRestore: "Restauração",
   historyLoadError: "Não foi possível carregar o histórico de versões.",
@@ -1448,6 +1457,9 @@ const overrides = {
     addBlockField: "Adicionar campo",
     blockFieldChanged: "Alterado desde a última vez que você viu",
     blockFieldTabs: "Campos",
+    blockFieldOpenComments_one: "{{count}} comentário aberto",
+    blockFieldOpenComments_many: "{{count}} comentários abertos",
+    blockFieldOpenComments_other: "{{count}} comentários abertos",
     blockFieldMenu: "Opções de {{name}}",
     blockFieldMenuScope: "Compartilhado por todas as linhas desta coleção",
     blockFieldName: "Nome do campo",

@@ -415,6 +415,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "Solo lectura. Esta página sigue un archivo de GitHub y se actualiza después de cada push.",
+  githubSourceOpenFile: "Abrir en GitHub",
   textColor: "Color de texto",
   backgroundColor: "Color de fondo",
   defaultColor: "Predeterminado",
@@ -434,8 +437,8 @@ const editor = {
   noDocumentSelected: "Ningún documento seleccionado",
   registryBlockLoadError: "No se pudo cargar el bloque {{type}}: {{message}}",
   registryBlockUnreadable: "No se puede leer el origen guardado del bloque.",
-  blocksFieldRevisionConflict:
-    "Este campo de bloques cambió en otro lugar. Tu edición no se guardó; ahora se muestra la versión más reciente.",
+  blocksFieldEditMovedToEnd:
+    "Este campo de bloques también cambió en otro lugar. El texto que escribiste en el mismo sitio se movió al final del campo.",
   reconcileConflict:
     "Esta página cambió en otro lugar. Tus cambios aún no se han guardado.",
   reconcileFailed:
@@ -525,6 +528,7 @@ const editor = {
     imageDownloadStarted: "Se inició la descarga de la imagen.",
     imageLinkHint: "Funciona con cualquier imagen de la web.",
     imagePreview: "Vista previa de la imagen",
+    imageUnavailable: "Imagen no disponible",
     imageView: "Vista de imagen",
     link: "Enlace",
     loadingAssetsPicker: "Cargando selector de recursos",
@@ -1284,6 +1288,10 @@ const comments = {
   accepted: "Aceptados",
   rejected: "Rechazados",
   noFilteredComments: "No hay comentarios coincidentes.",
+  tabFilter: "Pestaña",
+  allTabs: "Todas las pestañas",
+  fieldRemoved: "{{name}} (eliminado)",
+  pageBody: "Cuerpo de la página",
 };
 
 const reviewDiscussions = {
@@ -1470,6 +1478,7 @@ const history = {
   historyGroupAgent: "Ejecución del agente",
   historyGroupHuman: "Sesión de edición",
   historyGroupLegacy: "Ediciones anteriores",
+  historyGroupGitHub: "Sincronizado desde GitHub",
   historyGroupOperation: "Operación",
   historyGroupRestore: "Restauración",
   historyLoadError: "No se pudo cargar el historial de versiones.",
@@ -1703,6 +1712,9 @@ const overrides = {
     addBlockField: "Añadir campo",
     blockFieldChanged: "Ha cambiado desde la última vez que lo viste",
     blockFieldTabs: "Campos",
+    blockFieldOpenComments_one: "{{count}} comentario abierto",
+    blockFieldOpenComments_many: "{{count}} comentarios abiertos",
+    blockFieldOpenComments_other: "{{count}} comentarios abiertos",
     blockFieldMenu: "Opciones de {{name}}",
     blockFieldMenuScope: "Compartido por todas las filas de esta colección",
     blockFieldName: "Nombre del campo",

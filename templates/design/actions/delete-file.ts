@@ -33,6 +33,7 @@ import {
   lockDesignFilesTable,
   withDesignSourceMutationTransaction,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { countLockedLayers } from "../shared/locked-layers.js";
 
 const DESIGN_VERSION_CHECKPOINT_RETRIES = 2;
@@ -413,6 +414,12 @@ export default defineAction({
     "Delete one or more files from a design project. Idempotent: if a file is already gone, returns deleted=false so cleanup retries can continue. Validates ownership via the parent design's access when the file exists.",
   schema: z.object({
     id: z.string().describe("File ID to delete"),
+    designId: z
+      .string()
+      .optional()
+      .describe(
+        "Owning Design id; include it when the target may already be missing during a generation turn.",
+      ),
     fileIds: z
       .array(z.string())
       .max(100)
@@ -435,7 +442,13 @@ export default defineAction({
   needsApproval: ({ allowLockedLayers }) => allowLockedLayers,
   allowPersistentApproval: false,
   run: async (
-    { id, fileIds, allowLockedLayers, historyCheckpointId },
+    {
+      id,
+      designId: expectedDesignId,
+      fileIds,
+      allowLockedLayers,
+      historyCheckpointId,
+    },
     context,
   ) => {
     const db = getDb();
@@ -472,7 +485,23 @@ export default defineAction({
           "One or more selected screens are no longer available. Refresh and try again.",
         );
       }
-      return { id, deleted: false, alreadyMissing: true };
+      if (expectedDesignId === undefined) {
+        return { id, deleted: false, alreadyMissing: true };
+      }
+      await assertAccess("design", expectedDesignId, "editor");
+      return {
+        id,
+        deleted: false,
+        alreadyMissing: true,
+        _receipt: designOutputWriteReceipt(expectedDesignId, 0),
+      };
+    }
+
+    if (expectedDesignId !== undefined && expectedDesignId !== file.designId) {
+      fail("File does not belong to the requested design.", {
+        errorCode: "design_mismatch",
+        statusCode: 400,
+      });
     }
 
     if (requestedIds.length > 1 && scopedFiles.length !== requestedIds.length) {
@@ -854,8 +883,17 @@ export default defineAction({
             designId: file.designId,
             deleted: true,
             deletedFiles: deletion.deletedFiles,
+            _receipt: designOutputWriteReceipt(
+              file.designId,
+              deletion.deletedIds.length,
+            ),
           }
-        : { id, deleted: false, alreadyMissing: true };
+        : {
+            id,
+            deleted: false,
+            alreadyMissing: true,
+            _receipt: designOutputWriteReceipt(file.designId, 0),
+          };
     }
     return {
       id,
@@ -865,6 +903,10 @@ export default defineAction({
       ...(deletion.deletedIds.includes(id)
         ? { deletedFiles: deletion.deletedFiles }
         : { alreadyMissing: true }),
+      _receipt: designOutputWriteReceipt(
+        file.designId,
+        deletion.deletedIds.length,
+      ),
     };
   },
   changeResource: (_p, result) =>

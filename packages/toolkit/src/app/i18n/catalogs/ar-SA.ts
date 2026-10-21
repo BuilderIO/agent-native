@@ -752,6 +752,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "جارٍ البحث...",
   "history.untitledChat": "محادثة",
   "history.yesterday": "أمس",
+  "history.mine": "محادثاتي",
+  "history.sharedWithYou": "تمت مشاركتها معك",
+  "history.showAll": "عرض الكل",
+  "history.showLess": "عرض أقل",
+  "history.loadMore": "تحميل المزيد",
+  "history.loadingMore": "جارٍ التحميل...",
+  "history.retry": "إعادة المحاولة",
+  "history.loadFailed": "تعذّر تحميل المحادثات",
+  "history.loadMoreFailed": "تعذّر تحميل المزيد من المحادثات",
+  "history.emptyMine": "لا توجد محادثات بعد",
+  "history.emptyShared": "لم تتم مشاركة أي محادثات معك",
+  "history.ownedBy": "المالك: {{name}}",
+  "history.accessDirect": "تمت مشاركتها معك",
+  "history.accessOrganization": "تمت مشاركتها مع مؤسستك",
   "integrations.availableSection": "عمليات التكامل المتاحة",
   "integrations.connectedSection": "متصل",
   "integrations.goToApiKeys": "الانتقال إلى مفاتيح API",
@@ -1442,6 +1456,18 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "مشاهد",
   "share.viewerDescription": "يمكنه العرض",
   "share.userGroup": "مجموعة مستخدمين",
+  "share.ownedByAnyone": "مملوك لأي شخص",
+  "share.ownedByMe": "مملوك لي",
+  "share.sharedWithMe": "تمت مشاركته معي",
+  "share.confirmOrganizationTitle": "هل تريد المشاركة مع مؤسستك؟",
+  "share.confirmOrganizationTitleNamed":
+    "هل تريد المشاركة مع {{organization}}؟",
+  "share.confirmOrganizationDescription":
+    "سيتمكن جميع أفراد مؤسستك، بمن فيهم الأعضاء الجدد، من فتح هذا وعرض كل ما فيه، بما في ذلك أي رسائل وملفات ومحتوى آخر. يمكنك تغيير ذلك لاحقًا.",
+  "share.confirmOrganizationDescriptionNamed":
+    "سيتمكن جميع أفراد {{organization}}، بمن فيهم الأعضاء الجدد، من فتح هذا وعرض كل ما فيه، بما في ذلك أي رسائل وملفات ومحتوى آخر. يمكنك تغيير ذلك لاحقًا.",
+  "share.confirmOrganizationAction": "المشاركة مع المؤسسة",
+  "share.confirmOrganizationSharing": "جارٍ المشاركة...",
   "status.resuming": "جارٍ الاستئناف",
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",
@@ -3319,6 +3345,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "لم يتم إرفاق التقرير.",
   "reportProblem.agentMessage":
     "حدث خطأ ما في التطبيق. استخدم تقرير المشكلة المرفق لشرح ما حدث.",
+  "unsupportedDevice.title": "افتحه على شاشة أكبر",
+  "unsupportedDevice.titleDeck": "افتح هذا العرض التقديمي على شاشة أكبر",
+  "unsupportedDevice.titleDesign": "افتح هذا التصميم على شاشة أكبر",
+  "unsupportedDevice.body":
+    "يعمل {{app}} على iPad والأجهزة اللوحية وأجهزة سطح المكتب. أرسل الرابط إلى نفسك لتتابع من هناك.",
+  "unsupportedDevice.email": "أرسل الرابط إلى بريدي",
+  "unsupportedDevice.share": "مشاركة الرابط",
+  "unsupportedDevice.copy": "نسخ الرابط",
+  "unsupportedDevice.copyFailed": "تعذّر نسخ الرابط",
+  "unsupportedDevice.copied": "تم نسخ الرابط",
+  "unsupportedDevice.emailSubject": "افتح {{app}} على حاسوبك",
 };
 
 export default messages;

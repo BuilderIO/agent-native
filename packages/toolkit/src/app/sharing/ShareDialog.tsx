@@ -27,10 +27,11 @@ import {
   IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
-import { type ReactNode } from "react";
+import { useRef, type ReactNode, type RefObject } from "react";
 
 import { AccessRequestsSection } from "./AccessRequestsSection.js";
 import { AgentShareSection } from "./AgentShareSection.js";
+import { ShareVisibilityConfirmDialog } from "./ShareVisibilityConfirmDialog.js";
 
 export interface ShareDialogProps {
   open: boolean;
@@ -43,6 +44,8 @@ export interface ShareDialogProps {
   embedUrl?: string;
   embedTabContent?: ReactNode;
   linkTabExtras?: ReactNode;
+  /** Resource-specific text added to the organization confirmation. */
+  visibilityConfirmDetail?: ReactNode;
 }
 
 const BUTTON_BASE =
@@ -73,7 +76,9 @@ export function ShareDialog({
   embedUrl,
   embedTabContent,
   linkTabExtras,
+  visibilityConfirmDetail,
 }: ShareDialogProps) {
+  const visibilityRef = useRef<HTMLElement>(null);
   const controller = useShareDialogController({
     open,
     onClose,
@@ -139,6 +144,7 @@ export function ShareDialog({
             <TabsContent value="link" className="m-0">
               <LinkTab
                 controller={controller}
+                visibilityRef={visibilityRef}
                 extras={linkTabExtras}
                 accessRequests={accessRequests}
               />
@@ -147,6 +153,7 @@ export function ShareDialog({
           {!controller.tabsEnabled || controller.activeTab === "invite" ? (
             <InviteTab
               controller={controller}
+              visibilityRef={visibilityRef}
               showVisibility={!controller.tabsEnabled}
               accessRequests={accessRequests}
             />
@@ -164,16 +171,23 @@ export function ShareDialog({
           />
         </div>
       </Tabs>
+      <ShareVisibilityConfirmDialog
+        transition={controller.visibility.transition}
+        detail={visibilityConfirmDetail}
+        returnFocusRef={visibilityRef}
+      />
     </DesignSystemDialog>
   );
 }
 
 function LinkTab({
   controller,
+  visibilityRef,
   extras,
   accessRequests,
 }: {
   controller: ShareDialogController;
+  visibilityRef: RefObject<HTMLElement | null>;
   extras?: ReactNode;
   accessRequests: ReactNode;
 }) {
@@ -200,7 +214,10 @@ function LinkTab({
             <Icon size={16} strokeWidth={1.75} />
           </span>
           <div className="min-w-0 flex-1">
-            <VisibilitySelect controller={controller} />
+            <VisibilitySelect
+              controller={controller}
+              pickerRef={visibilityRef}
+            />
             <div className="sr-only text-xs text-muted-foreground">
               {controller.visibility.description}
             </div>
@@ -209,6 +226,7 @@ function LinkTab({
       </div>
       <InviteTab
         controller={controller}
+        visibilityRef={visibilityRef}
         showVisibility={false}
         accessRequests={accessRequests}
       />
@@ -219,10 +237,12 @@ function LinkTab({
 
 function InviteTab({
   controller,
+  visibilityRef,
   showVisibility,
   accessRequests,
 }: {
   controller: ShareDialogController;
+  visibilityRef: RefObject<HTMLElement | null>;
   showVisibility: boolean;
   accessRequests: ReactNode;
 }) {
@@ -242,7 +262,10 @@ function InviteTab({
               <Icon size={16} strokeWidth={1.75} />
             </span>
             <div className="min-w-0 flex-1">
-              <VisibilitySelect controller={controller} />
+              <VisibilitySelect
+                controller={controller}
+                pickerRef={visibilityRef}
+              />
               <div className="sr-only text-xs text-muted-foreground">
                 {controller.visibility.description}
               </div>
@@ -487,22 +510,35 @@ function RoleSelect({ controller }: { controller: ShareDialogController }) {
 
 function VisibilitySelect({
   controller,
+  pickerRef,
 }: {
   controller: ShareDialogController;
+  pickerRef: RefObject<HTMLElement | null>;
 }) {
   return (
-    <Picker
-      mode="select"
-      options={controller.visibility.options}
-      value={controller.visibility.value}
-      onChange={(value) => {
-        if (value === "private" || value === "org" || value === "public") {
-          controller.visibility.set(value);
-        }
+    // React events from the picker's portaled list bubble to this wrapper
+    // after the option has selected. Enter may open a confirmation that takes
+    // focus; its keypress must not land on the button there.
+    <div
+      className="contents"
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.preventDefault();
       }}
-      disabled={controller.visibility.disabled}
-      aria-label={controller.labels.generalAccess}
-      className="-ms-1 w-auto"
-    />
+    >
+      <Picker
+        mode="select"
+        options={controller.visibility.options}
+        value={controller.visibility.value}
+        onChange={(value) => {
+          if (value === "private" || value === "org" || value === "public") {
+            controller.visibility.set(value);
+          }
+        }}
+        disabled={controller.visibility.disabled}
+        aria-label={controller.labels.generalAccess}
+        pickerRef={pickerRef}
+        className="-ms-1 w-auto"
+      />
+    </div>
   );
 }

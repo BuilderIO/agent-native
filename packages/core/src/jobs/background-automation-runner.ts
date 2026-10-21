@@ -69,6 +69,7 @@ import {
 } from "../agent/tool-call-journal.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS } from "../app-config/run-lifecycle-invariants.js";
 import {
   lookupOwnerAccount,
   resolveAutomationExecutionIdentity,
@@ -133,6 +134,11 @@ import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import {
+  getJobRunner,
+  type JobRunnerContext,
+  type JobRunnerResult,
+} from "./job-runner.js";
 import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   attachAutomationRunThread,
@@ -745,6 +751,174 @@ async function recordAutomationFailureOutcome(
     !(failure.precondition && !transition.pause),
     Boolean(options.historyId),
   );
+}
+
+interface JobRunnerRunOptions {
+  runnerId: string;
+  automation: BackgroundAutomationContext;
+  ownerEmail: string;
+  orgId?: string;
+  historyId?: string;
+  requestContext?: Omit<RequestContext, "userEmail" | "orgId">;
+  assertCanStart?: () => Promise<void>;
+  resume?: AutomationResume;
+  manual?: boolean;
+}
+
+/**
+ * Runs a job's registered runner in place of the agent loop and settles its
+ * history row exactly once, with the same failure alert and pause message an
+ * agent run gets.
+ */
+export async function runJobRunner(
+  options: JobRunnerRunOptions,
+): Promise<BackgroundAutomationRunResult> {
+  const { automation, historyId, runnerId } = options;
+  if (!historyId)
+    throw new BackgroundAutomationRunError(
+      `Job runner "${runnerId}" has no run history row.`,
+      "background_automation_history_write_failed",
+    );
+  // A runner's row never gets a run id; a resumed row is the one case that has one.
+  const expectedRunId = options.resume?.previousRunId ?? null;
+  const startedAt = Date.now();
+  const hardMs = resolveBackgroundRunHardTimeoutMs();
+  // The resolver is 0 outside a hosted function, which would leave no soft budget.
+  const softMs =
+    resolveBackgroundAutomationSoftTimeoutMs() ||
+    Math.max(1_000, hardMs - BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS);
+  const controller = new AbortController();
+  let hardTimer: ReturnType<typeof setTimeout> | undefined;
+  let result: JobRunnerResult;
+  try {
+    const runner = getJobRunner(runnerId);
+    if (!runner)
+      throw new BackgroundAutomationRunError(
+        `No job runner named "${runnerId}" is registered in this app.`,
+        "job_runner_unavailable",
+      );
+    if (automation.meta.executionHostId)
+      throw new BackgroundAutomationRunError(
+        `Job runner "${runnerId}" cannot run on an execution host.`,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    if (options.resume)
+      throw new BackgroundAutomationRunError(
+        `Job runner "${runnerId}" cannot resume an agent run.`,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    const hardTimeout = new Promise<never>((_, reject) => {
+      hardTimer = setTimeout(() => {
+        controller.abort();
+        reject(
+          new BackgroundAutomationRunError(
+            `Background automation timed out after ${Math.round(hardMs / 60_000)} minutes`,
+            "background_automation_hard_timeout",
+          ),
+        );
+      }, hardMs);
+    });
+    const context: JobRunnerContext = {
+      name: automation.name,
+      path: automation.resource.path,
+      meta: automation.meta,
+      ownerEmail: options.ownerEmail,
+      ...(options.orgId ? { orgId: options.orgId } : {}),
+      historyId,
+      manual: options.manual === true,
+      scheduledFor: options.manual ? null : (automation.meta.nextRun ?? null),
+      deadlineAt: startedAt + softMs,
+      hardDeadlineAt: startedAt + hardMs,
+      signal: controller.signal,
+      assertCanContinue: options.assertCanStart ?? (async () => {}),
+      actionAutomation: {
+        triggerId: automation.resource.id,
+        triggerName: automation.name,
+        ...(automation.meta.delegatedPolicyId
+          ? { policyId: automation.meta.delegatedPolicyId }
+          : {}),
+      },
+    };
+    result = await Promise.race([
+      runWithRequestContext(
+        {
+          ...options.requestContext,
+          userEmail: options.ownerEmail,
+          orgId: options.orgId,
+        },
+        () => runner(context),
+      ),
+      hardTimeout,
+    ]);
+  } catch (err) {
+    if (
+      err instanceof AutomationSchedulerLeaseLostError ||
+      (err instanceof BackgroundAutomationRunError &&
+        err.errorCode === "background_automation_history_write_failed")
+    )
+      throw err;
+    const failure = classifyAutomationFailure(err);
+    const transition = applyAutomationFailure(
+      automation.meta,
+      failure,
+      new Date(),
+      { countTowardPause: !options.manual },
+    );
+    captureError(err, {
+      tags: {
+        area: "job-runner",
+        automation: automation.name,
+        runner: runnerId,
+        scope: options.orgId ? "organization" : "personal",
+        errorCode: failure.code,
+        failureKind: failure.precondition ? "precondition" : "runtime",
+        ownerKind: automationOwnerKind(options.ownerEmail),
+      },
+      extra: {
+        automationPath: automation.resource.path,
+        historyId,
+        errorCode: failure.code,
+        consecutiveFailures: transition.consecutiveFailures,
+        paused: transition.pause,
+      },
+    });
+    await recordRunOutcome(
+      historyId,
+      expectedRunId,
+      "error",
+      transition.pause
+        ? pausedMessage(
+            failure.code,
+            transition.consecutiveFailures,
+            failure.message,
+            failure.deliveryNote,
+          )
+        : withDeliveryNote(failure.message, failure.deliveryNote),
+      failure.code,
+      !(failure.precondition && !transition.pause),
+      true,
+    );
+    throw new BackgroundAutomationRunError(
+      failure.message,
+      failure.code,
+      failure.deliveryNote,
+    );
+  } finally {
+    if (hardTimer) clearTimeout(hardTimer);
+  }
+  await recordRunOutcome(
+    historyId,
+    expectedRunId,
+    result.status,
+    result.status === "skipped" ? result.reason : undefined,
+    undefined,
+    true,
+    true,
+  );
+  const runId = result.runId ?? historyId;
+  return result.status === "skipped"
+    ? { status: "skipped", reason: result.reason, responseText: "", runId }
+    : { status: "success", responseText: "", runId };
 }
 
 async function recordRunThread(

@@ -1870,6 +1870,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (已本地化)",
     couldNotStartRecording: "Could not start recording (已本地化)",
+    intakeStorageUnavailable:
+      "此链接的所有者需要先连接视频存储，你才能开始录制。请让所有者连接存储后重试。",
+    streamingStorageUnavailable:
+      "当前存储不支持 Clips 所需的可续传上传。请配置兼容的存储提供商，或请工作区所有者或管理员配置，然后开始新的录制。",
     couldNotStartRecorder: "Could not start recorder (已本地化)",
     openSettings: "Open settings (已本地化)",
     openedRecorderInNewTab: "Opened recorder in a new tab (已本地化)",
@@ -1903,6 +1907,8 @@ const messages = {
     sessionExpired: "Session expired (已本地化)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (已本地化)",
+    accountMismatch:
+      "开始准备录制后，登录的账号已更改。请切换回开始时使用的账号，然后重试。",
     logIn: "Log in (已本地化)",
     betterInDesktop: "Better in the desktop app (已本地化)",
     desktopAppDescription:
@@ -1916,8 +1922,7 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (已本地化)",
     retryUpload: "重试上传",
     tryAgain: "重试",
-    storageConnectedReopeningRecorder:
-      "存储空间已连接。正在重新打开录制工具...",
+    storageConnectedRecorderReady: "存储空间已连接。准备好后即可开始新的录制。",
     connectStorageToFinish:
       "在下一屏使用 Builder.io 存储（免费套餐存储和 AI），或配置 S3 兼容存储。Clips 会完成保存。",
     connectStorageToRetryLoom:

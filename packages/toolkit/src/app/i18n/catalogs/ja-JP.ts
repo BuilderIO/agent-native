@@ -769,6 +769,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "検索中...",
   "history.untitledChat": "チャット",
   "history.yesterday": "昨日",
+  "history.mine": "自分のチャット",
+  "history.sharedWithYou": "共有されたチャット",
+  "history.showAll": "すべて表示",
+  "history.showLess": "表示を減らす",
+  "history.loadMore": "さらに読み込む",
+  "history.loadingMore": "読み込み中...",
+  "history.retry": "再試行",
+  "history.loadFailed": "チャットを読み込めませんでした",
+  "history.loadMoreFailed": "チャットをさらに読み込めませんでした",
+  "history.emptyMine": "チャットはまだありません",
+  "history.emptyShared": "共有されたチャットはありません",
+  "history.ownedBy": "所有者: {{name}}",
+  "history.accessDirect": "共有されたチャット",
+  "history.accessOrganization": "組織と共有",
   "integrations.availableSection": "利用可能な連携",
   "integrations.connectedSection": "接続済み",
   "integrations.goToApiKeys": "API キーへ移動",
@@ -1462,6 +1476,17 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "閲覧者",
   "share.viewerDescription": "閲覧可能",
   "share.userGroup": "ユーザーグループ",
+  "share.ownedByAnyone": "所有者を問わない",
+  "share.ownedByMe": "自分が所有",
+  "share.sharedWithMe": "自分と共有",
+  "share.confirmOrganizationTitle": "組織と共有しますか？",
+  "share.confirmOrganizationTitleNamed": "{{organization}} と共有しますか？",
+  "share.confirmOrganizationDescription":
+    "新しいメンバーを含む、組織内のすべてのユーザーが、これを開いて、メッセージやファイルなどを含むすべての内容を見られるようになります。この設定は後から変更できます。",
+  "share.confirmOrganizationDescriptionNamed":
+    "新しいメンバーを含む、{{organization}} のすべてのユーザーが、これを開いて、メッセージやファイルなどを含むすべての内容を見られるようになります。この設定は後から変更できます。",
+  "share.confirmOrganizationAction": "組織と共有",
+  "share.confirmOrganizationSharing": "共有しています...",
   "status.resuming": "再開中",
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",
@@ -3179,6 +3204,18 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "レポートは添付されませんでした。",
   "reportProblem.agentMessage":
     "アプリで問題が発生しました。添付の問題レポートをもとに、何が起きたのか説明してください。",
+  "unsupportedDevice.title": "より大きな画面で開いてください",
+  "unsupportedDevice.titleDeck": "このデッキはより大きな画面で開いてください",
+  "unsupportedDevice.titleDesign":
+    "このデザインはより大きな画面で開いてください",
+  "unsupportedDevice.body":
+    "{{app}}はiPad、タブレット、デスクトップで使えます。リンクを自分に送って、続きはそちらで。",
+  "unsupportedDevice.email": "リンクをメールで送る",
+  "unsupportedDevice.share": "リンクを共有",
+  "unsupportedDevice.copy": "リンクをコピー",
+  "unsupportedDevice.copyFailed": "リンクをコピーできませんでした",
+  "unsupportedDevice.copied": "リンクをコピーしました",
+  "unsupportedDevice.emailSubject": "パソコンで{{app}}を開く",
 };
 
 export default messages;

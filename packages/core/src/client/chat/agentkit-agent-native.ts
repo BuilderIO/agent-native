@@ -5,6 +5,7 @@ import type {
   AgentCapabilitiesDiscovery,
   AgentCapabilityDescriptor,
   AgentCapabilityId,
+  AgentConnectionRequest,
   AgentError,
   AgentEvent,
   AgentMessage,
@@ -164,6 +165,105 @@ function mergeStoredReasoningParts(
     ...storedReasoning,
     ...withoutReasoning.slice(insertionIndex),
   ];
+}
+
+function mergeStoredAssistantTextParts(
+  messageParts: AgentMessagePart[],
+  storedParts: AgentMessagePart[],
+): AgentMessagePart[] {
+  const messageText = messageParts
+    .filter(
+      (part): part is Extract<AgentMessagePart, { type: "text" }> =>
+        part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("");
+  const storedText = storedParts
+    .filter(
+      (part): part is Extract<AgentMessagePart, { type: "text" }> =>
+        part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("");
+  if (
+    messageText &&
+    storedText.startsWith(messageText) &&
+    storedText.length > messageText.length
+  ) {
+    const snapshotPartByStoredIndex = new Map<number, AgentMessagePart>();
+    let nextSnapshotPartIndex = 0;
+    for (const [storedIndex, storedPart] of storedParts.entries()) {
+      const storedData =
+        storedPart.type === "data" ? asRecord(storedPart.data) : null;
+      const toolCallId = storedData?.toolCallId;
+      if (typeof toolCallId !== "string") continue;
+      const storedDataType = storedData?.type;
+      const snapshotIndex = messageParts.findIndex((part, index) => {
+        if (index < nextSnapshotPartIndex || part.type !== "data") return false;
+        const data = asRecord(part.data);
+        return data?.toolCallId === toolCallId && data?.type === storedDataType;
+      });
+      if (snapshotIndex < 0) continue;
+      snapshotPartByStoredIndex.set(storedIndex, messageParts[snapshotIndex]!);
+      nextSnapshotPartIndex = snapshotIndex + 1;
+    }
+
+    let storedTextOffset = 0;
+    const missingTextParts = storedParts.flatMap((part, index) => {
+      if (part.type !== "text") return [];
+      const visibleTextLength = Math.max(
+        0,
+        messageText.length - storedTextOffset,
+      );
+      storedTextOffset += part.text.length;
+      if (part.text.length <= visibleTextLength) return [];
+      return [
+        { index, part: { ...part, text: part.text.slice(visibleTextLength) } },
+      ];
+    });
+
+    for (const { index, part } of missingTextParts) {
+      const priorAnchor = [...snapshotPartByStoredIndex.entries()]
+        .filter(([storedIndex]) => storedIndex < index)
+        .at(-1)?.[1];
+      const nextAnchor = [...snapshotPartByStoredIndex.entries()].find(
+        ([storedIndex]) => storedIndex > index,
+      )?.[1];
+      const nextAnchorIndex = nextAnchor
+        ? messageParts.indexOf(nextAnchor)
+        : -1;
+      const priorAnchorIndex = priorAnchor
+        ? messageParts.indexOf(priorAnchor)
+        : -1;
+      let insertionIndex: number;
+      if (nextAnchorIndex >= 0) {
+        insertionIndex = nextAnchorIndex;
+      } else if (priorAnchorIndex >= 0) {
+        insertionIndex = priorAnchorIndex + 1;
+      } else {
+        let lastTextIndex = -1;
+        for (const [candidateIndex, candidate] of messageParts.entries()) {
+          if (candidate.type === "text") lastTextIndex = candidateIndex;
+        }
+        insertionIndex = lastTextIndex + 1;
+      }
+      const precedingPart = messageParts[insertionIndex - 1];
+      if (precedingPart?.type === "text") {
+        messageParts = messageParts.map((candidate, candidateIndex) =>
+          candidateIndex === insertionIndex - 1
+            ? { ...precedingPart, text: `${precedingPart.text}${part.text}` }
+            : candidate,
+        );
+      } else {
+        messageParts = [
+          ...messageParts.slice(0, insertionIndex),
+          part,
+          ...messageParts.slice(insertionIndex),
+        ];
+      }
+    }
+  }
+  return mergeStoredReasoningParts(messageParts, storedParts);
 }
 
 function latestSnapshotRunRecord(
@@ -1370,7 +1470,7 @@ function reconcileDurableMessages(
       ? durableById.get(representedRootId)
       : undefined;
     if (representedRoot?.role === "assistant") {
-      const parts = mergeStoredReasoningParts(
+      const parts = mergeStoredAssistantTextParts(
         message.parts,
         representedRoot.parts,
       );
@@ -1670,6 +1770,31 @@ function persistedAnnotation(annotation: AgentAnnotation): AgentAnnotation {
   };
 }
 
+function persistedConnectionRequest(
+  request: AgentConnectionRequest,
+): AgentConnectionRequest {
+  return {
+    id: request.id,
+    provider: request.provider,
+    reason: request.reason,
+    status: request.status,
+    ...(request.appId ? { appId: request.appId } : {}),
+    ...(request.detail ? { detail: request.detail } : {}),
+    ...(request.source
+      ? {
+          source: {
+            id: request.source.id,
+            ...(request.source.kind ? { kind: request.source.kind } : {}),
+            ...(request.source.label ? { label: request.source.label } : {}),
+            ...(request.source.uri ? { uri: request.source.uri } : {}),
+          },
+        }
+      : {}),
+    ...(request.createdAt ? { createdAt: request.createdAt } : {}),
+    ...(request.updatedAt ? { updatedAt: request.updatedAt } : {}),
+  };
+}
+
 function persistedAnnotations(
   annotations: AgentAnnotationSnapshot[] = [],
   messageIds: ReadonlySet<string>,
@@ -1895,6 +2020,18 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
             ? { completedAt: activity.completedAt }
             : {}),
         },
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    if (
+      event.type === "connection.requested" ||
+      event.type === "connection.updated"
+    ) {
+      persisted.push({
+        ...base(),
+        type: event.type,
+        request: persistedConnectionRequest(event.request),
       });
       lastOmissionByRun.delete(event.runId);
       continue;
@@ -2992,6 +3129,7 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<AgentRunSnapshot | null | undefined> {
     const status = value.status;
     if (typeof value.active !== "boolean") return undefined;
+    if (status === "unknown") return undefined;
     // An idle thread has no run; a run that just finished keeps its id and
     // status for replay even though it is no longer `active`.
     if (value.active === false && (status === "idle" || !value.runId)) {
@@ -3045,7 +3183,16 @@ export function createAgentNativeAgentKitTransport(
             : "The server reported that this run failed.",
         ...(terminalReason ? { metadata: { terminalReason } } : {}),
       };
-    } else if (status === "cancelled" || status === "aborted") {
+    } else if (status === "aborted") {
+      runStatus = runLifecycleStatus("aborted", terminalReason ?? null, null);
+      error = runLifecycleError(
+        runStatus,
+        "aborted",
+        null,
+        terminalReason ?? null,
+        null,
+      );
+    } else if (status === "cancelled") {
       runStatus = "cancelled";
     } else if (status === "truncated") {
       runStatus = "failed";

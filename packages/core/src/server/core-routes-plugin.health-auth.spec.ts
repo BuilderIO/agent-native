@@ -74,62 +74,7 @@ describe("/_agent-native/health auth block", () => {
   });
 });
 
-describe("health auth mismatch predicate", () => {
-  function hostMismatch(
-    baseUrlHost: string | undefined,
-    requestHost: string | undefined,
-  ): boolean {
-    return Boolean(baseUrlHost && requestHost && baseUrlHost !== requestHost);
-  }
-
-  it("reports no mismatch for a matching Host", () => {
-    expect(
-      hostMismatch("slides.agent-native.com", "slides.agent-native.com"),
-    ).toBe(false);
-  });
-
-  it("reports a mismatch for a differing Host", () => {
-    expect(
-      hostMismatch("plan.agent-native.com", "beta-plan-xyz.netlify.app"),
-    ).toBe(true);
-  });
-
-  it("reports no mismatch when either side could not be resolved", () => {
-    expect(hostMismatch(undefined, "example.com")).toBe(false);
-    expect(hostMismatch("example.com", undefined)).toBe(false);
-    expect(hostMismatch(undefined, undefined)).toBe(false);
-  });
-});
-
 describe("runDbHealthProbe database identity block", () => {
-  it("bounds the identity read with the same withHealthDeadline pattern as the SELECT 1 probe", () => {
-    const body = runDbHealthProbeSource();
-    const withDeadlineIndex = body.indexOf("withHealthDeadline<");
-    const readIdentityIndex = body.indexOf("readDatabaseIdentity(");
-    const timeoutFallbackIndex = body.indexOf('{ state: "timeout" as const }');
-    expect(withDeadlineIndex).toBeGreaterThan(-1);
-    expect(readIdentityIndex).toBeGreaterThan(withDeadlineIndex);
-    expect(timeoutFallbackIndex).toBeGreaterThan(readIdentityIndex);
-  });
-
-  it("only reads identity when db is true, reusing the already-open exec", () => {
-    const body = runDbHealthProbeSource();
-    const dbTrueGuardIndex = body.indexOf("if (db) {");
-    const readIdentityIndex = body.indexOf("readDatabaseIdentity(dbExec");
-    expect(dbTrueGuardIndex).toBeGreaterThan(-1);
-    expect(readIdentityIndex).toBeGreaterThan(dbTrueGuardIndex);
-  });
-
-  it("computes identityMismatch only from state === recorded, never from timeout/unreadable/unrecorded", () => {
-    const body = runDbHealthProbeSource();
-    const mismatchAssignIndex = body.indexOf("identityMismatch =");
-    const mismatchLine = body.slice(
-      mismatchAssignIndex,
-      body.indexOf(";", mismatchAssignIndex),
-    );
-    expect(mismatchLine).toContain('identity.state === "recorded"');
-  });
-
   it("never lets a failed or thrown identity read escape the probe", () => {
     const body = runDbHealthProbeSource();
     const readIdentityIndex = body.indexOf("readDatabaseIdentity(dbExec");

@@ -1071,14 +1071,18 @@ test("text helpers", () => {
   assert.equal(tail("0123456789", 4), "...6789");
 });
 
-test("a prompt counts as typed only when the editor still holds its opening", () => {
+test("a prompt counts as typed only when the editor still holds all of it", () => {
   const prompt =
     "Reply with exactly ABC123 and nothing else. Do not use any tools.";
   assert.equal(
-    composerHoldsPrompt(`Reply with exactly\nABC123 and nothing else.`, prompt),
+    composerHoldsPrompt(
+      `Reply with exactly\nABC123 and nothing else. Do not use any tools.`,
+      prompt,
+    ),
     true,
   );
   assert.equal(composerHoldsPrompt("", prompt), false);
+  assert.equal(composerHoldsPrompt(prompt.slice(0, 40), prompt), false);
   assert.equal(composerHoldsPrompt("ply with exactly ABC123", prompt), false);
 });
 
