@@ -16,8 +16,8 @@ This index summarizes the atomic product contracts beneath the public roadmap. E
 | Verified         |     4 |
 | Failing          |     1 |
 | Stale            |     0 |
-| In Progress      |    20 |
-| Approved Shape   |    87 |
+| In Progress      |    21 |
+| Approved Shape   |    86 |
 | Exploring        |     8 |
 | Deferred         |     0 |
 | Superseded       |     5 |
@@ -499,7 +499,7 @@ graph LR
 | [Page-linked Sources](capabilities/content.source.page-link.md)                   | Exploring      | A Page can bind to one external item while keeping Content identity and the provider's ownership clear.                                                        |
 | [Materialized multi-source Collections](capabilities/content.source.row-union.md) | Superseded     | The former multi-source row-union model remains migration evidence, while active composition moves toward source Queries.                                      |
 | [Content spaces and Files](capabilities/content.source.spaces-files.md)           | Verified       | Personal and organization-backed Content spaces and Files views keep work navigable without becoming a second permission system.                               |
-| [Source sync policy](capabilities/content.source.sync-policy.md)                  | Approved Shape | Each connected Source declares one plain-language policy for refresh and write-back: View only, Keep in sync, or Review before write-back.                     |
+| [Source sync policy](capabilities/content.source.sync-policy.md)                  | In Progress    | Each connected Source declares one plain-language policy for refresh and write-back: View only, Keep in sync, or Review before write-back.                     |
 
 ## System
 

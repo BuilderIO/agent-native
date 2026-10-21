@@ -1,5 +1,22 @@
 # @agent-native/scheduling
 
+## 0.2.38
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.213.1
+
+## 0.2.37
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [b58658d]
+  - @agent-native/toolkit@0.213.0
+
 ## 0.2.36
 
 ### Patch Changes
@@ -1115,17 +1132,5 @@
 ### Patch Changes
 
 - 6338989: Add Traditional Chinese copy for shared scheduling booking-link components.
-
-## 0.1.14
-
-### Patch Changes
-
-- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
-
-## 0.1.13
-
-### Patch Changes
-
-- fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

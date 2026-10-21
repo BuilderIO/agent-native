@@ -15,6 +15,10 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  readOrgMemberRole: vi.fn().mockResolvedValue("owner"),
+}));
+
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
@@ -66,19 +70,16 @@ beforeEach(() => {
   requireFactoryAutomationMock.mockResolvedValue(undefined);
   readCallingFactoryAutomationMock.mockResolvedValue(null);
 
-  const limit = vi
-    .fn()
-    .mockResolvedValueOnce([{ role: "owner" }])
-    .mockResolvedValueOnce([
-      {
-        id: "org-1",
-        slackWorkspace: "primary",
-        slackChannelId: "C123",
-        pollingEnabled: 1,
-        lastSlackTs: "0",
-        slackHistoryCursor: null,
-      },
-    ]);
+  const limit = vi.fn().mockResolvedValue([
+    {
+      id: "org-1",
+      slackWorkspace: "primary",
+      slackChannelId: "C123",
+      pollingEnabled: 1,
+      lastSlackTs: "0",
+      slackHistoryCursor: null,
+    },
+  ]);
   const where = vi.fn().mockReturnValue({ limit });
   const from = vi.fn().mockReturnValue({ where });
   const tx = {
@@ -273,19 +274,16 @@ describe("poll-slack-channel action", () => {
         })),
       })),
     };
-    const limit = vi
-      .fn()
-      .mockResolvedValueOnce([{ role: "owner" }])
-      .mockResolvedValueOnce([
-        {
-          id: "org-1",
-          slackWorkspace: "primary",
-          slackChannelId: "C123",
-          pollingEnabled: 1,
-          lastSlackTs: "0",
-          slackHistoryCursor: null,
-        },
-      ]);
+    const limit = vi.fn().mockResolvedValue([
+      {
+        id: "org-1",
+        slackWorkspace: "primary",
+        slackChannelId: "C123",
+        pollingEnabled: 1,
+        lastSlackTs: "0",
+        slackHistoryCursor: null,
+      },
+    ]);
     getDbMock.mockReturnValue({
       select: vi.fn(() => ({
         from: vi.fn(() => ({

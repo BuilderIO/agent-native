@@ -2155,6 +2155,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Definido. Permite que las apps de este espacio de trabajo se verifiquen entre sí.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Sin definir. Permite que las apps de este espacio de trabajo se verifiquen entre sí.",
+  "settingsOrg.auth.memberDelegation":
+    "Delegación de identidad de miembros de la organización",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Las aplicaciones conectadas que tengan este secreto compartido de la organización pueden afirmar la identidad de cualquier miembro actual al llamar a esta aplicación. Esta aplicación comprueba la lista de miembros en tiempo real y limita el acceso delegado a la organización a los permisos del rol de miembro.",
   "settingsOrg.auth.secretNotSetValue": "Sin definir",
   "settingsOrg.auth.manage": "Gestionar",
   "settingsOrg.auth.reveal": "Mostrar",

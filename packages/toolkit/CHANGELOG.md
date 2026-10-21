@@ -1,5 +1,25 @@
 # @agent-native/toolkit
 
+## 0.213.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.1
+
+## 0.213.0
+
+### Minor Changes
+
+- b58658d: Allow organization owners to opt in to current-member A2A delegation with capped member permissions and durable audit provenance. Improve app discovery and Dispatch routing for connected analytics and customer credit questions.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.0
+
 ## 0.212.1
 
 ### Patch Changes
@@ -1249,18 +1269,5 @@
 ### Patch Changes
 
 - d3f8794: Allow hosts to configure the shared composer document attachment limit and label.
-
-## 0.13.2
-
-### Patch Changes
-
-- 277be3f: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
-- 277be3f: Keep the public app-config export available to browser-safe toolkit consumers.
-
-## 0.13.1
-
-### Patch Changes
-
-- c71d383: Include the shared creative-context and toolkit updates in the next package release.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

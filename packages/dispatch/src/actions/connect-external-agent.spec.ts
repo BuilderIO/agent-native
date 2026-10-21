@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getDbExec: vi.fn(),
   resourcePutIfAbsent: vi.fn(),
   sharedResourceOwner: vi.fn(),
+  readOrgMemberRole: vi.fn(),
   currentOrgId: vi.fn(),
   currentOwnerEmail: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/db", () => ({
-  getDbExec: mocks.getDbExec,
+vi.mock("@agent-native/core/server", () => ({
+  readOrgMemberRole: mocks.readOrgMemberRole,
 }));
 
 vi.mock("@agent-native/core/resources/store", () => ({
@@ -31,11 +31,9 @@ describe("connect-external-agent action", () => {
     vi.clearAllMocks();
     mocks.currentOrgId.mockReturnValue("org_1");
     mocks.currentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.readOrgMemberRole.mockResolvedValue("admin");
     mocks.sharedResourceOwner.mockReturnValue("shared-owner");
     mocks.resourcePutIfAbsent.mockResolvedValue({ id: "resource_1" });
-    mocks.getDbExec.mockReturnValue({
-      execute: vi.fn().mockResolvedValue({ rows: [{ role: "owner" }] }),
-    });
   });
 
   it("rejects a malformed endpoint URL with a clean validation error instead of an unhandled throw", async () => {
@@ -115,16 +113,14 @@ describe("connect-external-agent action", () => {
     }
 
     expect(isActionContractError(caught)).toBe(true);
-    expect(mocks.getDbExec).not.toHaveBeenCalled();
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
     expect(mocks.sharedResourceOwner).not.toHaveBeenCalled();
     expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
   });
 
   it("requires an owner or admin actor for shared agents before writing", async () => {
     mocks.currentOrgId.mockReturnValue("org_1");
-    mocks.getDbExec.mockReturnValue({
-      execute: vi.fn().mockResolvedValue({ rows: [{ role: "member" }] }),
-    });
+    mocks.readOrgMemberRole.mockResolvedValue("member");
 
     let caught: unknown;
     try {
@@ -154,7 +150,7 @@ describe("connect-external-agent action", () => {
 
     expect(result.status).toBe("created");
     expect(result.scope).toBe("personal");
-    expect(mocks.getDbExec).not.toHaveBeenCalled();
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
     expect(mocks.resourcePutIfAbsent).toHaveBeenCalledWith(
       "member@example.com",
       "remote-agents/personal-agent.json",
@@ -171,6 +167,24 @@ describe("connect-external-agent action", () => {
 
     expect(result.status).toBe("created");
     expect(mocks.resourcePutIfAbsent).toHaveBeenCalled();
+  });
+
+  it("does not let an asserted owner register a shared agent without an admin role", async () => {
+    mocks.currentOrgId.mockReturnValue("org-1");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.readOrgMemberRole.mockResolvedValue("member");
+
+    await expect(
+      action.run({
+        url: "https://agent.example.com",
+        scope: "shared",
+      } as never),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.readOrgMemberRole).toHaveBeenCalledWith(
+      "org-1",
+      "owner@example.com",
+    );
+    expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
   });
 
   it("rejects a concurrent duplicate connect as a clean 409, not an overwrite", async () => {

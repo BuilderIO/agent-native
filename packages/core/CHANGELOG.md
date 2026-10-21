@@ -51,6 +51,29 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.213.1
+
+### Patch Changes
+
+- 513dc02: Recommend the GitHub connection for Content, which can link a collection to a GitHub folder.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.1
+  - @agent-native/recap-cli@0.5.82
+
+## 0.213.0
+
+### Minor Changes
+
+- b58658d: Allow organization owners to opt in to current-member A2A delegation with capped member permissions and durable audit provenance. Improve app discovery and Dispatch routing for connected analytics and customer credit questions.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.0
+  - @agent-native/recap-cli@0.5.81
+
 ## 0.212.1
 
 ### Patch Changes
@@ -4305,17 +4328,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
   carries two credential pairs naming different Google clients.
 
 - a1d24db: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
-
-## 0.168.6
-
-### Patch Changes
-
-- 186d913: Allow encrypted public-upload fallback blobs to delete their backing Builder or S3 assets, and fail closed when an explicitly selected private blob provider is unavailable.
-
-## 0.168.5
-
-### Patch Changes
-
-- 60aaea8: Keep app surfaces mounted when a host temporarily disables the chat sidebar.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

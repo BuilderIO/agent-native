@@ -3,6 +3,17 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-21
+
+### Improved
+
+- Analytics recognizes questions about connected data, product analytics, sessions, dashboards, and charts.
+- Onboarding journeys honor larger event row budgets with aggregate cost limits, a read deadline, and clear partial-coverage reporting.
+
+### Fixed
+
+- Preserve unknown replay availability in partial journeys
+
 ## 2026-10-20
 
 ### Fixed

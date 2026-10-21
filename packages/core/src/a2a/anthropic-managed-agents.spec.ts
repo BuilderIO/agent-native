@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
+import * as jose from "jose";
 import {
   afterAll,
   beforeAll,
@@ -388,6 +389,44 @@ describe("Anthropic Managed Agents A2A handler", () => {
         },
       ],
     });
+  });
+
+  it("rejects a signed continuation token minted for another token purpose", async () => {
+    const handler = makeHandler([]);
+    const token = await new jose.SignJWT({
+      typ: "another-typed-credential",
+      managed_session_id: "ses_fixture",
+      managed_pending_tool_use_ids: ["sevt_tool"],
+      managed_agent_id: "agt_fixture",
+      managed_environment_id: "env_fixture",
+      managed_agent_url: origin,
+      org_id: "org_fixture",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("alice@example.test")
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("anthropic-managed-fixture-secret"));
+
+    await expect(
+      withCaller(() =>
+        handler(
+          {
+            role: "user",
+            parts: [{ type: "text", text: "Approve it." }],
+            metadata: {
+              [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+                continuationToken: token,
+                pendingToolUseIds: ["sevt_tool"],
+                confirmations: [{ toolUseId: "sevt_tool", result: "allow" }],
+              },
+            },
+          },
+          context(),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "continuation_invalid" });
+    expect(requests).toHaveLength(0);
   });
 
   it("waits for the stream connection before posting and does not miss a reply", async () => {
