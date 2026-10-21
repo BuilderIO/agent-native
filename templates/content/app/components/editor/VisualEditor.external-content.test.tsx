@@ -120,7 +120,10 @@ describe("VisualEditor external content", () => {
     await act(async () => render({ key: "11:1", merge }));
     await act(async () => render({ key: "11:1", merge }));
 
-    expect(merge).toHaveBeenCalledExactlyOnceWith("One\nTwo typed");
+    expect(merge).toHaveBeenCalledExactlyOnceWith(
+      "One\nTwo typed",
+      expect.any(Function),
+    );
     expect(paragraphs(editor)).toEqual(["One edited", "Two typed"]);
     // Still right after the typing, past the longer first paragraph.
     expect(editor.state.selection.from).toBe(editor.state.doc.content.size - 1);
@@ -174,7 +177,7 @@ describe("VisualEditor external content", () => {
 
     await act(async () => render({ key: "11:1", merge }, false));
 
-    expect(merge).toHaveBeenCalledExactlyOnceWith(null);
+    expect(merge).toHaveBeenCalledExactlyOnceWith(null, expect.any(Function));
     expect(paragraphs(liveEditor())).toEqual(["Theirs"]);
   });
 
@@ -185,6 +188,22 @@ describe("VisualEditor external content", () => {
     await act(async () => render({ key: "11:1", merge }));
 
     expect(merge).toHaveBeenCalledTimes(1);
+    expect(paragraphs(liveEditor())).toEqual(["One", "Two"]);
+  });
+
+  it("tells the merge which text it can show", async () => {
+    await act(async () => render(null));
+    const held: boolean[] = [];
+    const merge = vi.fn(
+      (_live: string | null, canHold: (text: string) => boolean) => {
+        held.push(canHold(`One ${UNREADABLE}`), canHold("One edited"));
+        return null;
+      },
+    );
+
+    await act(async () => render({ key: "11:1", merge }));
+
+    expect(held).toEqual([false, true]);
     expect(paragraphs(liveEditor())).toEqual(["One", "Two"]);
   });
 });

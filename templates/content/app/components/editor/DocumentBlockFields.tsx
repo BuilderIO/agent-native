@@ -1929,20 +1929,31 @@ export function useBlockFieldEditor({
   function mergeExternalContent(
     request: NonNullable<typeof mergeRequest>,
     live: string | null,
+    canHold: (text: string) => boolean,
   ): string | null {
     const controller = controllerRef.current;
     if (!controller || mergeRequestRef.current !== request) return null;
-    mergeRequestRef.current = null;
     setMergeRequest(null);
     const revision = blockFieldRevision(key, initialRevision);
     // A save that started since can move the revision; the request comes
     // again once it settles.
-    if (request.revision <= revision.base || controller.isSaving) return null;
+    if (request.revision <= revision.base || controller.isSaving) {
+      mergeRequestRef.current = null;
+      return null;
+    }
     const { content: merged, moved } = mergeBlocksFieldEdits(
       controller.lastSaved,
       live ?? controller.pending,
       request.content,
     );
+    // Text the editor can't show isn't committed. The field holds its typing
+    // instead of saving it over the newer text, and the request stays, so it
+    // isn't asked again and closing the page saves the merge.
+    if (!canHold(merged)) {
+      revision.stale = true;
+      return null;
+    }
+    mergeRequestRef.current = null;
     controller.mark(request.content);
     revision.base = request.revision;
     revision.stale = false;
@@ -1956,8 +1967,8 @@ export function useBlockFieldEditor({
     () =>
       mergeRequest && {
         key: mergeRequest.key,
-        merge: (live: string | null) =>
-          mergeExternalContent(mergeRequest, live),
+        merge: (live: string | null, canHold: (text: string) => boolean) =>
+          mergeExternalContent(mergeRequest, live, canHold),
       },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [mergeRequest],

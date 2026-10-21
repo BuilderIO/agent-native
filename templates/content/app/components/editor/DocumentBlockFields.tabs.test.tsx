@@ -57,10 +57,16 @@ vi.mock("./VisualEditor", async () => {
       // text it holds as soon as it arrives.
       const external = props.externalContent as {
         key: string;
-        merge: (live: string | null) => string | null;
+        merge: (
+          live: string | null,
+          canHold: (text: string) => boolean,
+        ) => string | null;
       } | null;
       React.useLayoutEffect(() => {
-        external?.merge(props.editable ? String(props.content) : null);
+        external?.merge(
+          props.editable ? String(props.content) : null,
+          () => true,
+        );
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [external?.key]);
       React.useEffect(() => {

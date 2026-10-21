@@ -156,10 +156,14 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
   }
 
   // Stands in for the editor applying a merge request to what it holds.
-  function mergeLive(field: MountedField, live: string): string | null {
+  function mergeLive(
+    field: MountedField,
+    live: string,
+    canHold: (text: string) => boolean = () => true,
+  ): string | null {
     let merged: string | null = null;
     act(() => {
-      merged = field.externalContent!.merge(live);
+      merged = field.externalContent!.merge(live, canHold);
     });
     return merged;
   }
@@ -902,6 +906,58 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
         propertyId: "field",
         value: "One edited\nTwo and more, still typing",
         expectedBlocksFieldRevision: 11,
+      },
+    ]);
+  });
+
+  it("holds its typing when the editor can't show the merged text", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      return Promise.resolve(savedAt(13));
+    };
+    const keepaliveSave = vi.fn((_req: SaveCall) => true);
+    const { field, render } = mountField({
+      initialContent: "One\nTwo",
+      initialRevision: 10,
+      save,
+      keepaliveSave,
+    });
+
+    act(() => field.onChange("One\nTwo and more"));
+    render("One edited\nTwo", 11);
+    expect(mergeLive(field, "One\nTwo and more", () => false)).toBeNull();
+    expect(field.externalContent).toBeNull();
+
+    // No save goes out over the newer text, however long the typing goes on.
+    act(() => field.onChange("One\nTwo and more, still typing"));
+    await settle();
+    expect(calls).toEqual([]);
+
+    // Closing the page saves the merge at the newer revision.
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(keepaliveSave).toHaveBeenCalledExactlyOnceWith({
+      documentId: "doc",
+      propertyId: "field",
+      value: "One edited\nTwo and more, still typing",
+      expectedBlocksFieldRevision: 11,
+    });
+
+    // Newer text the editor can show is merged and saved as usual.
+    render("Zero\nOne edited\nTwo", 12);
+    expect(mergeLive(field, "One\nTwo and more, still typing")).toBe(
+      "Zero\nOne edited\nTwo and more, still typing",
+    );
+    await settle();
+    expect(calls).toEqual([
+      {
+        documentId: "doc",
+        propertyId: "field",
+        value: "Zero\nOne edited\nTwo and more, still typing",
+        expectedBlocksFieldRevision: 12,
       },
     ]);
   });

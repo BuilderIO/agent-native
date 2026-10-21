@@ -1623,11 +1623,15 @@ function writeContentSelectionState(value: unknown) {
 /**
  * Text saved elsewhere to merge into the live document, once per `key`.
  * `merge` gets the text the user has in the editor (null when it isn't
- * editable) and returns the text to show, or null to leave the editor as is.
+ * editable) and `canHold`, which says whether the editor can show a text. It
+ * returns the text to show, or null to leave the editor as is.
  */
 export interface VisualEditorExternalContent {
   key: string;
-  merge: (live: string | null) => string | null;
+  merge: (
+    live: string | null,
+    canHold: (text: string) => boolean,
+  ) => string | null;
 }
 
 interface VisualEditorProps {
@@ -3888,15 +3892,22 @@ export function VisualEditor({
         retry = setTimeout(merge, 300);
         return;
       }
-      const next = request.merge(live);
+      // Text the editor can't hold would throw here or empty the editor, so
+      // the merge checks its result before committing it.
+      const parsedTexts = new Map<string, ProseMirrorNode | null>();
+      const parse = (text: string) => {
+        if (!parsedTexts.has(text)) {
+          parsedTexts.set(text, parseNfmForCollabReconcile(editor, text));
+        }
+        return parsedTexts.get(text) ?? null;
+      };
+      const next = request.merge(live, (text) => parse(text) !== null);
       if (next === null || next === live) return;
+      const parsed = parse(next);
+      if (!parsed) return;
       // The merge holds everything typed so far, so typing that is still
       // being reported would only undo it.
       draftEmissionGenerationRef.current += 1;
-      const parsed = parseNfmForCollabReconcile(editor, next);
-      // Text the editor can't hold would throw here or empty the editor, so
-      // the editor keeps what it shows.
-      if (!parsed) return;
       if (applyDocSurgically(editor, parsed) === "failed") {
         editor
           .chain()
