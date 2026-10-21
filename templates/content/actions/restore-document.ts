@@ -15,8 +15,9 @@ import {
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
-  lockDatabasesForRestore,
+  lockLifecycleGroup,
   restoreDocumentSubtree,
+  retryRestoreOnMembershipChange,
 } from "./delete-document.js";
 
 const guardedRestoreSchema = z
@@ -50,56 +51,63 @@ async function restoreDocumentWithReceipt(
 ) {
   const access = await assertDocumentMutationAccess(input.id, "admin");
   const ownerEmail = access.resource.ownerEmail as string;
-  const result = await getDb().transaction(async (transaction) => {
-    const tx = transaction as unknown as ReturnType<typeof getDb>;
-    const lockedDatabaseIds = await lockDatabasesForRestore(
-      tx,
-      input.id,
-      ownerEmail,
-    );
-    const before = await lockLifecycleDocument(tx, input.id, ownerEmail);
-    const { claim, replay } = await claimDocumentLifecycleIntent(
-      tx,
-      "restore-document",
-      input.id,
-      input.idempotencyKey,
-      input,
-    );
-    if (replay) return replay;
-    await assertPageLifecycleTarget(tx, input.id, "restore-document");
-    if (!before.trashedAt)
-      return finishDocumentLifecycleIntent(tx, claim, "unchanged", before, []);
-    if (before.trashRootId !== input.id)
-      setupError(
-        "PARENT_IN_TRASH",
-        `This page moved to Trash with "${before.trashRootId}". Restore that Trash item instead.`,
-        400,
+  const result = await retryRestoreOnMembershipChange(() =>
+    getDb().transaction(async (transaction) => {
+      const tx = transaction as unknown as ReturnType<typeof getDb>;
+      const locks = await lockLifecycleGroup(tx, {
+        operation: "restore",
+        roots: [{ id: input.id, ownerEmail }],
+      });
+      const before = await lockLifecycleDocument(tx, input.id, ownerEmail);
+      const { claim, replay } = await claimDocumentLifecycleIntent(
+        tx,
+        "restore-document",
+        input.id,
+        input.idempotencyKey,
+        input,
       );
-    if (before.trashedAt !== input.expectedTrashedAt)
-      setupError(
-        "TRASH_REVISION_CONFLICT",
-        "The Trash item changed after you read it. List Trash again and retry with its current trashedAt.",
+      if (replay) return replay;
+      await assertPageLifecycleTarget(tx, input.id, "restore-document");
+      if (!before.trashedAt)
+        return finishDocumentLifecycleIntent(
+          tx,
+          claim,
+          "unchanged",
+          before,
+          [],
+        );
+      if (before.trashRootId !== input.id)
+        setupError(
+          "PARENT_IN_TRASH",
+          `This page moved to Trash with "${before.trashRootId}". Restore that Trash item instead.`,
+          400,
+        );
+      if (before.trashedAt !== input.expectedTrashedAt)
+        setupError(
+          "TRASH_REVISION_CONFLICT",
+          "The Trash item changed after you read it. List Trash again and retry with its current trashedAt.",
+        );
+      const restored = await restoreDocumentSubtree(
+        tx,
+        input.id,
+        ownerEmail,
+        locks,
       );
-    const restored = await restoreDocumentSubtree(
-      tx,
-      input.id,
-      ownerEmail,
-      lockedDatabaseIds,
-    );
-    const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
-    if (after.trashedAt || !restored.includes(input.id))
-      setupError(
-        "READBACK_UNAVAILABLE",
-        "The page could not be verified as restored, so the change was rolled back.",
+      const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
+      if (after.trashedAt || !restored.includes(input.id))
+        setupError(
+          "READBACK_UNAVAILABLE",
+          "The page could not be verified as restored, so the change was rolled back.",
+        );
+      return finishDocumentLifecycleIntent(
+        tx,
+        claim,
+        "restored",
+        after,
+        restored,
       );
-    return finishDocumentLifecycleIntent(
-      tx,
-      claim,
-      "restored",
-      after,
-      restored,
-    );
-  });
+    }),
+  );
   await refreshAfterDocumentLifecycle(result.receipt);
   return { success: true, ...result.value, receipt: result.receipt };
 }
@@ -130,11 +138,13 @@ export default defineAction({
     // Checked as moving it to Trash is: whoever could trash the page, or is
     // offered Restore on its access screen, must be able to restore it.
     const access = await assertDocumentMutationAccess(id, "admin");
-    const restored = await getDb().transaction((tx) =>
-      restoreDocumentSubtree(
-        tx as unknown as ReturnType<typeof getDb>,
-        id,
-        access.resource.ownerEmail as string,
+    const restored = await retryRestoreOnMembershipChange(() =>
+      getDb().transaction((tx) =>
+        restoreDocumentSubtree(
+          tx as unknown as ReturnType<typeof getDb>,
+          id,
+          access.resource.ownerEmail as string,
+        ),
       ),
     );
     if (restored.length === 0) throw new Error("Document is not in Trash");
