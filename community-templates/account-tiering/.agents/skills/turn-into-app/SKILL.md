@@ -21,7 +21,8 @@ shows progress and receives the result. Avoid form-under-stepper layouts.
 
 ### Classify the host
 
-- Local scaffolding needs Node.js (including npm/npx) and pnpm.
+- Local scaffolding needs Node.js 22.22.0 or newer (including npm/npx) and
+  pnpm.
 - **Local host**: a terminal, a filesystem, and a target checkout (Claude Code,
   Codex, Cursor, or an Agent-Native agent that can edit files). Build the app in
   that checkout with steps 1-6. Never call `start-workspace-app-creation` or
@@ -163,9 +164,8 @@ Before the first command, name the steps (install, scaffold, checks, dev server,
 headless browser) and estimate work time from the source and host. Separate
 external setup waits, so delays are expected.
 
-Choose a short slug and never overwrite an existing app. For a standalone app,
-run from the directory that should contain it (the app is its own git
-repository; say so when it sits inside another checkout):
+Choose a short slug and never overwrite an app. Run standalone creation from
+its parent directory, noting that the nested app is its own Git repository:
 
 ```bash
 npx --yes @agent-native/core@latest create <slug> --standalone --template chat
@@ -181,11 +181,10 @@ from the workspace root:
 pnpm exec agent-native add-app <slug> --template chat
 ```
 
-Read the generated `AGENTS.md`, and its `build-an-app` skill when the scaffold
-ships one. Where that guidance skips the design record, screenshots, or build,
-leaves `DESIGN.md` alone, says not to set `AUTH_DISABLED`, or says to stop the
-dev server, this skill's steps win for this run. Use another first-party
-template only when it materially fits.
+Read the generated `AGENTS.md` and any `build-an-app` skill. This skill
+overrides guidance that skips the design record, screenshots, or build; leaves
+`DESIGN.md` unchanged; omits `AUTH_DISABLED`; or stops the dev server. Use
+another first-party template only if it materially fits.
 
 If a scaffold or install step fails, times out (no output for 5 minutes), or is
 denied, the app does not exist yet. Retry once where a retry could help, then
@@ -193,6 +192,10 @@ stop and report the exact command, the failure, and what is on disk. Never
 hand-build the app in another stack, edit a pinned dependency version to force
 an install, or continue in a half-created directory; a workaround the user
 requests is named in the report.
+
+Before resuming, inspect the target and verify completed stages. Tell the user
+what exists, the next stage, and estimated active work; resume at the first
+unverified stage without rerunning scaffolding or replacing completed work.
 
 Then save the brief as `docs/brief.md`, append the domain surface's design to
 `DESIGN.md` (UI direction guide, section 4), and follow
