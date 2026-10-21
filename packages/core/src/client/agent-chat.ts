@@ -18,10 +18,8 @@ import {
   isTrustedBuilderMessage,
   sendToBuilderChat,
 } from "./builder-frame.js";
-import {
-  DEFAULT_TURN_SURFACE,
-  trackRoutedTurnSubmitted,
-} from "./chat/turn-submitted-telemetry.js";
+import { trackRoutedTurnSubmitted } from "./chat/turn-submitted-telemetry.js";
+import { DEFAULT_TURN_SURFACE } from "./chat/turn-submitted.js";
 import {
   isEmbedAuthActive,
   isEmbedMcpChatBridgeActive,

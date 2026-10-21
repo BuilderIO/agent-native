@@ -54,7 +54,10 @@ import {
   readAssistantChatComposerDraft,
   writeAssistantChatComposerDraft,
 } from "@agent-native/core/client/agent-chat";
-import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
+import {
+  createAgentNativeChatRuntime,
+  trackTurnSubmitted,
+} from "@agent-native/core/client/agent-chat";
 import type { CreateAgentNativeChatRuntimeOptions } from "@agent-native/core/client/agent-chat";
 import { useAgentDynamicSuggestionsResult } from "@agent-native/core/client/agent-chat";
 import {
@@ -2005,7 +2008,9 @@ export const AgentKitAssistantChat = forwardRef<
         apiUrl: props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
         runtime:
           injectedRuntimeRef.current ??
-          createAgentNativeChatRuntime(runtimeOptions),
+          createAgentNativeChatRuntime(runtimeOptions, {
+            onTurnSubmitted: trackTurnSubmitted,
+          }),
         browserTabId: props.browserTabId,
         get threadId() {
           return transportThreadIdRef.current;

@@ -35,9 +35,9 @@ import {
 import { runOutcomeForCode, type ServerRunState } from "./run-outcome.js";
 import {
   DEFAULT_TURN_SURFACE,
-  trackTurnSubmitted,
   type TurnInitiator,
-} from "./turn-submitted-telemetry.js";
+  type TurnSubmittedReport,
+} from "./turn-submitted.js";
 
 export type { ServerRunState } from "./run-outcome.js";
 
@@ -4916,8 +4916,17 @@ function terminalRuntimeTurn(input: {
   };
 }
 
+/**
+ * Where the runtime reports telemetry. It is injected rather than imported so
+ * the runtime stays loadable without the browser analytics module.
+ */
+export interface AgentNativeChatRuntimeTelemetry {
+  readonly onTurnSubmitted?: (report: TurnSubmittedReport) => void;
+}
+
 export function createAgentNativeChatRuntime(
   options: CreateAgentNativeChatRuntimeOptions = {},
+  telemetry: AgentNativeChatRuntimeTelemetry = {},
 ): AgentChatRuntime<AgentChatRuntimeKnownEvent> {
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const runtimeId = options.id ?? "agent-native";
@@ -5013,7 +5022,7 @@ export function createAgentNativeChatRuntime(
         metadataString(metadata, "requestMode") ??
         metadataString(metadata, "mode") ??
         options.mode;
-      trackTurnSubmitted({
+      telemetry.onTurnSubmitted?.({
         turnId: requestTurnId,
         threadId: session.threadId ?? options.threadId,
         runId,

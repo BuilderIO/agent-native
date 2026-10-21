@@ -10,10 +10,10 @@ import {
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
 import {
-  TURN_SUBMITTED_EVENT,
   trackRoutedTurnSubmitted,
   trackTurnSubmitted,
 } from "./turn-submitted-telemetry.js";
+import { TURN_SUBMITTED_EVENT } from "./turn-submitted.js";
 
 vi.mock("../analytics.js", () => ({ trackEvent: vi.fn() }));
 vi.mock("../use-agent-chat-running-threads.js", () => ({
@@ -88,11 +88,10 @@ function runtimeFor(
   fetcher: typeof fetch,
   options: CreateAgentNativeChatRuntimeOptions = {},
 ) {
-  return createAgentNativeChatRuntime({
-    apiUrl: API_URL,
-    fetch: fetcher,
-    ...options,
-  });
+  return createAgentNativeChatRuntime(
+    { apiUrl: API_URL, fetch: fetcher, ...options },
+    { onTurnSubmitted: trackTurnSubmitted },
+  );
 }
 
 async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {

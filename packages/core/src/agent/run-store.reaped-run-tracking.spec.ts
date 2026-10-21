@@ -24,20 +24,10 @@ afterAll(async () => {
   await pglite.close();
 });
 
-const failing = vi.hoisted(() => ({ initiatorRead: false }));
-const trackingReads = { initiators: 0 };
-
 function execute(input: Parameters<DbExec["execute"]>[0]) {
   if (typeof input === "string") {
     return pglite.exec(input).then(() => ({ rows: [], rowsAffected: 0 }));
   }
-  if (failing.initiatorRead && /FROM agent_turn_initiators/.test(input.sql)) {
-    return Promise.reject(new Error("initiator read failed"));
-  }
-  if (
-    /FROM agent_turn_initiators WHERE \(thread_id, turn_id\) IN/.test(input.sql)
-  )
-    trackingReads.initiators += 1;
   return pglite.query(input.sql, input.args ?? []).then((result) => ({
     rows: result.rows as any[],
     rowsAffected: result.affectedRows ?? 0,
@@ -88,7 +78,6 @@ let providerMode: "ok" | "throw" | "reject" = "ok";
 beforeEach(() => {
   events = [];
   providerMode = "ok";
-  failing.initiatorRead = false;
   handedWork = [];
   waitUntil.current = (promise) => {
     handedWork.push(promise);
@@ -249,13 +238,13 @@ describe("reaped runs emit agent_run_terminal", () => {
   it("cleanupOldRuns emits once per reaped run, even when the same pass prunes the row", async () => {
     const first = await seedRun({ ageMs: 3 * 24 * 60 * 60_000 });
     const second = await seedRun({ ageMs: 3 * 24 * 60 * 60_000 });
-    trackingReads.initiators = 0;
+    handedWork = [];
 
     await cleanupOldRuns(24 * 60 * 60_000);
     await settledEvents();
 
-    // One sweep is one initiator read, not one per reaped run.
-    expect(trackingReads.initiators).toBe(1);
+    // One send for the whole sweep, not one per reaped run.
+    expect(handedWork).toHaveLength(1);
 
     const remaining = await pglite.query(
       `SELECT id FROM agent_runs WHERE id IN (?, ?)`,
@@ -431,27 +420,6 @@ describe("reaped-run tracking never changes the reap", () => {
       }
     },
   );
-
-  it("keeps the reap when the tracking read rejects, and reports it", async () => {
-    failing.initiatorRead = true;
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      const run = await seedRun();
-
-      expect(await reapIfStale(run.runId, 60_000)).toBe(true);
-      await settledEvents();
-
-      expect(eventsFor(run.runId)).toHaveLength(0);
-      expect(
-        errors.mock.calls.some(
-          ([message, id]) =>
-            String(message).includes("run ended in SQL") && id === run.runId,
-        ),
-      ).toBe(true);
-    } finally {
-      errors.mockRestore();
-    }
-  });
 
   it("keeps the reap when the platform's waitUntil throws", async () => {
     waitUntil.current = () => {

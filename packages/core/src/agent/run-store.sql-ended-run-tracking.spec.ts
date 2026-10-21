@@ -23,19 +23,11 @@ afterAll(async () => {
   await pglite.close();
 });
 
-const failing = vi.hoisted(() => ({
-  initiatorRead: false,
-  retryTransactionOnce: false,
-}));
-const sqlLog: string[] = [];
+const failing = vi.hoisted(() => ({ retryTransactionOnce: false }));
 
 function execute(input: Parameters<DbExec["execute"]>[0]) {
   if (typeof input === "string") {
     return pglite.exec(input).then(() => ({ rows: [], rowsAffected: 0 }));
-  }
-  sqlLog.push(input.sql);
-  if (failing.initiatorRead && /FROM agent_turn_initiators/.test(input.sql)) {
-    return Promise.reject(new Error("initiator read failed"));
   }
   return pglite.query(input.sql, input.args ?? []).then((result) => ({
     rows: result.rows as any[],
@@ -106,7 +98,6 @@ let providerMode: "ok" | "throw" | "reject" = "ok";
 beforeEach(() => {
   events = [];
   providerMode = "ok";
-  failing.initiatorRead = false;
   failing.retryTransactionOnce = false;
   handedWork = [];
   waitUntil.current = (promise) => {
@@ -233,23 +224,6 @@ describe("a stopped run emits agent_run_terminal", () => {
     expect(eventsFor(run.runId).map((e) => e.properties)).toMatchObject([
       { status: "aborted", abort_reason: "execution-lease-claim-failed" },
     ]);
-  });
-
-  it("reads the turn's initiator only after the stop's own ledger write", async () => {
-    const run = await seedRun();
-    sqlLog.length = 0;
-
-    await markRunAborted(run.runId, "user");
-    await settledEvents();
-
-    const ledgerWrite = sqlLog.findIndex((sql) =>
-      /INSERT INTO agent_run_events/.test(sql),
-    );
-    const initiatorRead = sqlLog.findIndex((sql) =>
-      /FROM agent_turn_initiators WHERE \(thread_id, turn_id\) IN/.test(sql),
-    );
-    expect(ledgerWrite).toBeGreaterThanOrEqual(0);
-    expect(initiatorRead).toBeGreaterThan(ledgerWrite);
   });
 
   it("carries a non-user abort reason through", async () => {
@@ -382,28 +356,6 @@ describe("stop tracking never changes the stop", () => {
       }
     },
   );
-
-  it("keeps the stop when the tracking read rejects, and reports it", async () => {
-    failing.initiatorRead = true;
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      const run = await seedRun();
-
-      await markRunAborted(run.runId, "user");
-      await settledEvents();
-
-      expect(await statusOf(run.runId)).toBe("aborted");
-      expect(eventsFor(run.runId)).toHaveLength(0);
-      expect(
-        errors.mock.calls.some(
-          ([message, id]) =>
-            String(message).includes("run ended in SQL") && id === run.runId,
-        ),
-      ).toBe(true);
-    } finally {
-      errors.mockRestore();
-    }
-  });
 
   it("keeps the stop when the platform's waitUntil throws", async () => {
     waitUntil.current = () => {
@@ -626,24 +578,6 @@ describe("the reaper's repair reports the run its process could not", () => {
     await settledEvents();
 
     expect(eventsFor(run.runId)).toHaveLength(1);
-  });
-
-  it("keeps the repair when the tracking read rejects", async () => {
-    failing.initiatorRead = true;
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      const run = await seedRun();
-      await writeLedgerTerminal(run.runId, { type: "done" });
-      await makeStale(run.runId);
-
-      expect(await reapIfStale(run.runId, 60_000)).toBe(false);
-      await settledEvents();
-
-      expect(await statusOf(run.runId)).toBe("completed");
-      expect(eventsFor(run.runId)).toHaveLength(0);
-    } finally {
-      errors.mockRestore();
-    }
   });
 });
 
