@@ -1023,6 +1023,116 @@ describe("run manager soft timeout", () => {
     consoleError.mockRestore();
   });
 
+  it.each(["completed", "errored", "truncated"] as const)(
+    "runs completion handling after a checkpoint observes persisted %s status",
+    async (persistedStatus) => {
+      const runId = `run-checkpoint-observed-${persistedStatus}`;
+      const threadId = `thread-checkpoint-observed-${persistedStatus}`;
+      const completionStatuses: string[] = [];
+      const onComplete = vi.fn((completedRun: ActiveRun) => {
+        completionStatuses.push(completedRun.status);
+      });
+      vi.mocked(persistRunCheckpointEvent).mockResolvedValueOnce();
+      vi.mocked(getRunById).mockResolvedValueOnce({
+        id: runId,
+        threadId,
+        status: persistedStatus,
+        startedAt: Date.now(),
+        errorCode: null,
+        errorDetail: null,
+        terminalReason: null,
+      });
+      vi.mocked(updateRunStatusIfRunning).mockResolvedValueOnce(false);
+
+      const run = startRun(
+        runId,
+        threadId,
+        async (_send, signal) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", resolve, { once: true });
+          });
+        },
+        onComplete,
+        { softTimeoutMs: 10 },
+      );
+
+      await vi.advanceTimersByTimeAsync(11);
+      await run.finalized;
+
+      expect(completionStatuses).toEqual([persistedStatus]);
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        runId,
+        expect.any(String),
+      );
+      expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(runId);
+      expect(run.events).not.toContainEqual(
+        expect.objectContaining({
+          event: expect.objectContaining({
+            errorCode: "run_terminal_lookup_failed",
+          }),
+        }),
+      );
+    },
+  );
+
+  it("reports an unknown checkpoint status without treating the read as failed", async () => {
+    const runId = "run-checkpoint-observed-unknown";
+    const threadId = "thread-checkpoint-observed-unknown";
+    const onComplete = vi.fn();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.mocked(persistRunCheckpointEvent).mockResolvedValueOnce();
+    vi.mocked(getRunById).mockResolvedValueOnce({
+      id: runId,
+      threadId,
+      status: "future_status",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: null,
+    });
+
+    const run = startRun(
+      runId,
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 10 },
+    );
+
+    await vi.advanceTimersByTimeAsync(11);
+    await run.finalized;
+
+    expect(getRunById).toHaveBeenCalledWith(runId);
+    expect(run.events).toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "error",
+          errorCode: UNKNOWN_RUN_STATUS_ERROR_CODE,
+        }),
+      }),
+    );
+    expect(run.events).not.toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          errorCode: RUN_TERMINAL_LOOKUP_FAILED_ERROR_CODE,
+        }),
+      }),
+    );
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      expect.any(String),
+    );
+    expect(run.status).toBe("errored");
+    consoleError.mockRestore();
+  });
+
   it("preserves a driver terminal emitted while checkpoint persistence is pending", async () => {
     const driver = Promise.withResolvers<void>();
     const checkpoint = Promise.withResolvers<void>();

@@ -232,6 +232,16 @@ const RECONNECTABLE_TERMINAL_RUN_STATUSES = new Set([
   "aborted",
 ]);
 
+function isKnownRunStatus(status: string): status is RunStatus {
+  return (
+    status === "running" ||
+    status === "completed" ||
+    status === "truncated" ||
+    status === "errored" ||
+    status === "aborted"
+  );
+}
+
 function isDuplicateSubmissionMarker(run: {
   status: string;
   terminalReason?: string | null;
@@ -1363,6 +1373,9 @@ export function startRun(
   let checkpointAbortInFlight = false;
   let checkpointPersistenceFailed = false;
   let checkpointStatusReadFailed = false;
+  let checkpointUnknownStatus: string | null = null;
+  let checkpointObservedTerminalStatus: Exclude<RunStatus, "running"> | null =
+    null;
   let runDriverSettled = false;
   let pendingTerminalEvent: RunEvent | null = null;
   const checkpointRunBoundary = (
@@ -1404,20 +1417,20 @@ export function startRun(
           );
           return;
         }
-        if (persistedRun?.status === "aborted") {
-          run.status = "aborted";
-          run.abortReason = persistedRun.terminalReason?.startsWith("aborted:")
-            ? persistedRun.terminalReason.slice("aborted:".length)
-            : undefined;
+        if (!isKnownRunStatus(persistedRun.status)) {
+          checkpointUnknownStatus = persistedRun.status;
           return;
         }
         if (persistedRun.status !== "running") {
-          checkpointStatusReadFailed = true;
-          console.error(
-            "[run-manager] run became terminal after checkpoint persistence",
-            runId,
-            persistedRun.status,
-          );
+          checkpointObservedTerminalStatus = persistedRun.status;
+          run.status = persistedRun.status;
+          if (persistedRun.status === "aborted") {
+            run.abortReason = persistedRun.terminalReason?.startsWith(
+              "aborted:",
+            )
+              ? persistedRun.terminalReason.slice("aborted:".length)
+              : undefined;
+          }
           return;
         }
         softTimedOut = true;
@@ -1953,11 +1966,13 @@ export function startRun(
       settleBoundary(false);
       if (abort.signal.aborted) {
         if (run.status !== "aborted") {
-          run.status = checkpointPersistenceFailed
-            ? "errored"
-            : softTimedOut
-              ? "completed"
-              : "aborted";
+          run.status =
+            checkpointObservedTerminalStatus ??
+            (checkpointPersistenceFailed
+              ? "errored"
+              : softTimedOut
+                ? "completed"
+                : "aborted");
         }
         return;
       }
@@ -1969,11 +1984,13 @@ export function startRun(
       settleBoundary(false);
       if (abort.signal.aborted) {
         if (run.status !== "aborted") {
-          run.status = checkpointPersistenceFailed
-            ? "errored"
-            : softTimedOut
-              ? "completed"
-              : "aborted";
+          run.status =
+            checkpointObservedTerminalStatus ??
+            (checkpointPersistenceFailed
+              ? "errored"
+              : softTimedOut
+                ? "completed"
+                : "aborted");
         }
         return;
       }
@@ -2029,6 +2046,22 @@ export function startRun(
         publishRunEvent({
           seq: peekRunEventSeq(run),
           event: { ...RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT },
+        });
+        for (const subscriber of run.subscribers) {
+          run.subscribers.delete(subscriber);
+        }
+        return;
+      }
+      if (checkpointUnknownStatus !== null) {
+        run.status = "errored";
+        console.error(
+          "[run-manager] checkpoint observed an unknown persisted run status",
+          runId,
+          checkpointUnknownStatus,
+        );
+        publishRunEvent({
+          seq: peekRunEventSeq(run),
+          event: { ...UNKNOWN_RUN_STATUS_ERROR_EVENT },
         });
         for (const subscriber of run.subscribers) {
           run.subscribers.delete(subscriber);
