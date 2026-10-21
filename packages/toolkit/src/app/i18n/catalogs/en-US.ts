@@ -1513,6 +1513,9 @@ const messages = {
   "tool.worked": "Worked",
   "tool.workedFor": "Worked for {{duration}}",
   "widget.chart": "Chart",
+  "widget.chartActions": "Chart actions",
+  "widget.dataSources": "Data sources",
+  "widget.tableActions": "Table actions",
   "widget.dataChart": "Data chart",
   "widget.dataInsights": "Data insights",
   "widget.dataTable": "Data table",
@@ -2092,6 +2095,12 @@ const messages = {
     "Check your email for instructions to confirm this change.",
   "settingsShell.account.languageAndRegion": "Language and region",
   "settingsShell.account.languageDescription": "Applies on all your devices.",
+  "settingsShell.account.appearance": "Appearance",
+  "settingsShell.account.themeFamily": "Theme family",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "Original app colors",
+  "settingsShell.account.themeFamilySaveError":
+    "Could not update the theme family. Try again.",
   "settingsShell.account.manage": "Manage",
   "settingsShell.account.name": "Name",
   "settingsShell.account.nameDescription":

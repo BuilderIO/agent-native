@@ -157,6 +157,83 @@ afterEach(async () => {
 });
 
 describe("AgentChat lifecycle", () => {
+  it("renders host-ordered text around an attached widget", async () => {
+    const threadId = "thread-host-content-order";
+    const message = {
+      id: "assistant-host-content-order",
+      role: "assistant" as const,
+      status: "complete" as const,
+      parts: [{ type: "text" as const, text: "Intro. Summary." }],
+    };
+    const widget = {
+      id: "chart-host-content-order",
+      kind: "test-chart",
+      data: {},
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      messages: [message],
+      widgets: { [widget.id]: widget },
+      widgetMessageIds: { [widget.id]: message.id },
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        resolveMessageContentOrder={({ parts, widgets }) => {
+          const part = parts[0];
+          const chart = widgets[0];
+          if (part?.type !== "text" || !chart) return [];
+          return [
+            {
+              key: "intro",
+              type: "part",
+              part: { ...part, text: "Intro." },
+            },
+            { key: chart.id, type: "widget", widget: chart },
+            {
+              key: "summary",
+              type: "part",
+              part: { ...part, text: "Summary." },
+            },
+          ];
+        }}
+        registry={{
+          widgets: {
+            "test-chart": () => <span data-chart-result>Chart</span>,
+          },
+        }}
+        slots={{
+          text: ({ value }) => <span data-chat-part>{value.text}</span>,
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    const content = tree.container.querySelector(
+      `[data-message-id="${message.id}"] .agentkit-message-content`,
+    );
+    const renderedOrder = [...(content?.children ?? [])].map((element) =>
+      element.hasAttribute("data-chat-part")
+        ? element.textContent
+        : element.hasAttribute("data-chart-result")
+          ? "chart"
+          : "other",
+    );
+    expect(renderedOrder).toEqual(["Intro.", "chart", "Summary."]);
+    await tree.unmount();
+  });
+
   it("keeps partial transcript updates out of live announcements", async () => {
     const threadId = "thread-accessible-transcript";
     const thread = {
@@ -1744,6 +1821,44 @@ describe("AgentChat lifecycle", () => {
         ".agentkit-activities-summary > .agentkit-summary-chevron",
       ),
     ).not.toBeNull();
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        registry={{
+          activities: {
+            reasoning: ({ value }) => (
+              <span data-protocol-reasoning>{value.label}</span>
+            ),
+          },
+        }}
+        slots={{
+          reasoning: ({ value, active, resetKey }) => (
+            <span data-thought={resetKey} data-active={active}>
+              {value.text}
+            </span>
+          ),
+          workedForSummary: ({ label, open, current }) => (
+            <span data-work-summary data-open={open}>
+              <span>{label}</span>
+              <span data-work-chevron aria-hidden="true">
+                ›
+              </span>
+              {current}
+            </span>
+          ),
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(work.querySelector("[data-work-summary]")?.textContent).toContain(
+      "Searching documentation",
+    );
+    expect(work.querySelector("[data-work-chevron]")).not.toBeNull();
+    expect(
+      work.querySelector("[data-work-summary]")?.getAttribute("data-open"),
+    ).toBe("false");
     thread = reduceAgentEvent(thread, {
       ...base(8, 18),
       type: "message.completed",
@@ -1765,7 +1880,7 @@ describe("AgentChat lifecycle", () => {
     await flush();
     expect(tree.container.querySelector(".agentkit-activities")).toBe(work);
     expect(work.open).toBe(false);
-    expect(work.querySelector("summary")?.textContent).toBe("Worked for 18s");
+    expect(work.querySelector("summary")?.textContent).toBe("Worked for 18s›");
     expect(work.querySelector("[data-agentkit-current-activity]")).toBeNull();
     expect(tree.container.querySelectorAll("article")).toHaveLength(1);
     const answer = tree.container.querySelector(

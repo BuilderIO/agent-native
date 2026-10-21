@@ -1424,6 +1424,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "已處理",
   "tool.workedFor": "處理了 {{duration}}",
   "widget.chart": "圖表",
+  "widget.chartActions": "圖表操作",
+  "widget.dataSources": "資料來源",
+  "widget.tableActions": "表格操作",
   "widget.dataChart": "資料圖表",
   "widget.dataInsights": "資料洞察",
   "widget.dataTable": "資料表",
@@ -1947,6 +1950,12 @@ const messages: ToolkitAgentChatTranslation = {
     "請查看您的電子郵件，依照說明確認此變更。",
   "settingsShell.account.languageAndRegion": "語言和地區",
   "settingsShell.account.languageDescription": "套用至您的所有裝置。",
+  "settingsShell.account.appearance": "外觀",
+  "settingsShell.account.themeFamily": "主題樣式",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "原始應用程式配色",
+  "settingsShell.account.themeFamilySaveError":
+    "無法更新主題樣式，請再試一次。",
   "settingsShell.account.manage": "管理",
   "settingsShell.account.name": "姓名",
   "settingsShell.account.nameDescription":

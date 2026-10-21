@@ -13,6 +13,7 @@ import {
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
 } from "@agent-native/core/client/theme";
+import { useThemeFamily } from "@agent-native/core/client/ui";
 import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
 import { useAgentEngineConfigured } from "@agent-native/core/client/use-agent-engine-configured";
 import { useSession } from "@agent-native/core/client/use-session";
@@ -397,6 +398,11 @@ function AgentEngineReadinessBootstrap() {
   return null;
 }
 
+function ThemeFamilySync() {
+  useThemeFamily();
+  return null;
+}
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -543,6 +549,7 @@ export function AppProviders({
         children
       ) : (
         <>
+          {ownsDocument ? <ThemeFamilySync /> : null}
           <AgentEngineReadinessBootstrap />
           <FirstRunOnboardingStartupGate
             suppressSurface={skipFirstRunOnboarding}

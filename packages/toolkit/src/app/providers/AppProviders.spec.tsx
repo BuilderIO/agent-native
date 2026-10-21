@@ -9,11 +9,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetAgentEngineReadinessForTests } from "../../../../core/src/client/agent-engine-readiness.js";
 
 const useSessionMock = vi.fn();
+const useThemeFamilyMock = vi.fn();
 vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/use-session")
   >()),
   useSession: () => useSessionMock(),
+}));
+vi.mock("@agent-native/core/client/ui", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/ui")>()),
+  useThemeFamily: () => useThemeFamilyMock(),
 }));
 vi.mock("@agent-native/core/client/action-query-cache", () => ({
   ActionQueryCacheGate: ({ children }: { children: React.ReactNode }) => (
@@ -183,6 +188,22 @@ const SIGNED_IN_SESSION = {
 };
 
 describe("AppProviders session gate", () => {
+  it("mounts theme-family sync in the authenticated app shell", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ skipFirstRunOnboarding: true });
+
+    expect(useThemeFamilyMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not load theme-family settings on public routes", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({ isPublicPath: true });
+
+    expect(useThemeFamilyMock).not.toHaveBeenCalled();
+  });
+
   it("uses Toolkit's theme-aware toaster by default", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 

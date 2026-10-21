@@ -10,6 +10,7 @@ import {
   createDataChartWidgetResult,
   createDataInsightsWidgetResult,
   createDataTableWidgetResult,
+  dataChartWidgetResultSchema,
   dataInsightsWidgetResultSchema,
   normalizeDataWidgetResult,
 } from "./index.js";
@@ -37,6 +38,14 @@ describe("data widget helpers", () => {
 
   it("creates explicit chart widget results", () => {
     const result = createDataChartWidgetResult({
+      display: {
+        primaryAction: { label: "Open report", href: "/reports/1" },
+        sources: [{ id: "warehouse", label: "Warehouse", href: "/sources/1" }],
+        actions: [
+          { type: "link", label: "Open source", href: "/sources/1" },
+          { type: "copy", label: "Copy query", text: "select 1" },
+        ],
+      },
       chartSeries: {
         type: "bar",
         xKey: "day",
@@ -45,10 +54,176 @@ describe("data widget helpers", () => {
       },
     });
 
+    expect(dataChartWidgetResultSchema.parse(result)).toEqual(result);
+
     expect(result.widget).toBe(DATA_CHART_WIDGET);
     expect(normalizeDataWidgetResult(result)).toMatchObject({
       widget: DATA_CHART_WIDGET,
+      display: {
+        primaryAction: { label: "Open report", href: "/reports/1" },
+        sources: [{ id: "warehouse", label: "Warehouse", href: "/sources/1" }],
+        actions: [
+          { type: "link", label: "Open source", href: "/sources/1" },
+          { type: "copy", label: "Copy query", text: "select 1" },
+        ],
+      },
     });
+  });
+
+  it("validates an explicit chart content height", () => {
+    const result = createDataChartWidgetResult({
+      chartSeries: {
+        type: "bar",
+        contentHeight: 400,
+        xKey: "category",
+        series: [{ key: "total", label: "Total" }],
+        data: [{ category: "alpha", total: 1 }],
+      },
+    });
+
+    expect(result.chartSeries.contentHeight).toBe(400);
+    expect(dataChartWidgetResultSchema.parse(result)).toEqual(result);
+  });
+
+  it("validates chart padding and label typography", () => {
+    const result = createDataChartWidgetResult({
+      chartSeries: {
+        type: "bar",
+        layout: "horizontal",
+        xAxisTitle: "Value",
+        yAxisTitle: "Category",
+        showValueLabels: true,
+        contentHeight: 400,
+        contentPadding: 16,
+        labelFontFamily: "sans",
+        labelFontSize: 14,
+        axisTitleFontSize: 11,
+        axisTitleFontWeight: 500,
+        valueLabelFontSize: 11,
+        valueLabelFontWeight: 400,
+        xKey: "category",
+        series: [{ key: "total", label: "Total" }],
+        data: [{ category: "alpha", total: 1 }],
+      },
+    });
+
+    expect(dataChartWidgetResultSchema.parse(result)).toEqual(result);
+    expect(normalizeDataWidgetResult(result)?.chartSeries).toMatchObject({
+      contentHeight: 400,
+      contentPadding: 16,
+      layout: "horizontal",
+      xAxisTitle: "Value",
+      yAxisTitle: "Category",
+      showValueLabels: true,
+      labelFontFamily: "sans",
+      labelFontSize: 14,
+      axisTitleFontSize: 11,
+      axisTitleFontWeight: 500,
+      valueLabelFontSize: 11,
+      valueLabelFontWeight: 400,
+    });
+  });
+
+  it("rejects chart presentation values outside the supported range", () => {
+    const baseChart = {
+      type: "bar" as const,
+      xKey: "category",
+      series: [{ key: "total", label: "Total" }],
+      data: [],
+    };
+
+    expect(() =>
+      createDataChartWidgetResult({
+        chartSeries: { ...baseChart, contentPadding: 65 },
+      }),
+    ).toThrow("Invalid data-chart widget payload");
+    expect(() =>
+      createDataChartWidgetResult({
+        chartSeries: { ...baseChart, labelFontFamily: "display" as never },
+      }),
+    ).toThrow("Invalid data-chart widget payload");
+    expect(
+      dataChartWidgetResultSchema.safeParse({
+        widget: DATA_CHART_WIDGET,
+        chartSeries: { ...baseChart, labelFontSize: 25 },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects invalid chart content heights", () => {
+    expect(() =>
+      createDataChartWidgetResult({
+        chartSeries: {
+          type: "bar",
+          contentHeight: 0,
+          xKey: "category",
+          series: [{ key: "total", label: "Total" }],
+          data: [],
+        },
+      }),
+    ).toThrow("Invalid data-chart widget payload");
+    expect(
+      dataChartWidgetResultSchema.safeParse({
+        widget: DATA_CHART_WIDGET,
+        chartSeries: {
+          type: "bar",
+          contentHeight: 1201,
+          xKey: "category",
+          series: [{ key: "total", label: "Total" }],
+          data: [],
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("preserves valid display actions and rejects malformed entries", () => {
+    const normalized = normalizeDataWidgetResult({
+      widget: DATA_CHART_WIDGET,
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "count", label: "Count" }],
+        data: [{ day: "Mon", count: 2 }],
+      },
+      display: {
+        title: "Counts",
+        primaryAction: { label: "Open", href: "/reports/1" },
+        sources: [{ label: "Valid source", href: "/sources/1" }],
+        actions: [
+          { type: "link", label: "Open", href: "/reports/1" },
+          { type: "copy", label: "Copy", text: "select 1" },
+        ],
+      },
+    });
+
+    expect(normalized?.display).toEqual({
+      title: "Counts",
+      description: undefined,
+      primaryAction: { label: "Open", href: "/reports/1" },
+      sources: [{ label: "Valid source", href: "/sources/1" }],
+      actions: [
+        { type: "link", label: "Open", href: "/reports/1" },
+        { type: "copy", label: "Copy", text: "select 1" },
+      ],
+    });
+    expect(
+      normalizeDataWidgetResult({
+        widget: DATA_CHART_WIDGET,
+        chartSeries: {
+          type: "line",
+          xKey: "day",
+          series: [{ key: "count", label: "Count" }],
+          data: [],
+        },
+        display: {
+          sources: [{ label: "Valid source" }, { href: "/sources/2" }],
+          actions: [
+            { type: "link", label: "Open", href: "/reports/1" },
+            { type: "copy", label: "Missing text" },
+          ],
+        },
+      }),
+    ).toBeNull();
   });
 
   it("creates insights widget results with app metadata", () => {
@@ -103,10 +278,18 @@ describe("data widget helpers", () => {
           columns: [{ key: "submittedAt", label: "Submitted" }],
           rows: [{ submittedAt: "2026-06-17T12:00:00.000Z" }],
         },
+        display: {
+          sources: [{ label: "Responses", href: "/responses" }],
+          actions: [{ type: "copy", label: "Copy ID", text: "form_1" }],
+        },
       }),
     );
 
     expect(result.scope).toEqual({ formId: "form_1" });
+    expect(result.display).toEqual({
+      sources: [{ label: "Responses", href: "/responses" }],
+      actions: [{ type: "copy", label: "Copy ID", text: "form_1" }],
+    });
   });
 
   it("clamps oversized table rows and reports the real total", () => {
