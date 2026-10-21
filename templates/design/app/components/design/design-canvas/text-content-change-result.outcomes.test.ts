@@ -86,6 +86,28 @@ describe("text edit outcomes", () => {
     expect(totals()).toEqual({ "text_retry/succeeded/none": 1 });
   });
 
+  it("counts a retry under the design it was queued in", () => {
+    let settle: ((outcome: "accepted" | "failed") => void) | undefined;
+    setCanvasOutcomeContext({ designId: "design-a", signedIn: true });
+    commitTextContentChange(
+      commitArgs({
+        isPendingTextCreation: true,
+        commit: () => "refused" as const,
+        queueHostCommit: vi.fn((_owner, _node, _text, onSettled) => {
+          settle = onSettled;
+          return true;
+        }),
+      }),
+    );
+    setCanvasOutcomeContext({ designId: "design-b", signedIn: true });
+    settle!("failed");
+    flushCanvasOutcomeCounts();
+    const retries = mocks.trackDesignRelay.mock.calls
+      .map(([, props]) => props as Record<string, unknown>)
+      .filter((props) => props.operation === "text_retry");
+    expect(retries.map((props) => props.design_id)).toEqual(["design-a"]);
+  });
+
   it("counts a retry that could not write the text as failed", () => {
     commitTextContentChange(
       commitArgs({

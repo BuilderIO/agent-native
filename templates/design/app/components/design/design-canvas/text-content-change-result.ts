@@ -1,4 +1,5 @@
 import {
+  currentCanvasOutcomeDesignId,
   recordCanvasOutcome,
   runCanvasOperation,
   type CanvasOperationHandle,
@@ -198,12 +199,15 @@ function commitTextContentChangeWithOutcome(
   );
   const queueFallback = () => {
     if (!canFallback || !owner || !nodeId || value.length === 0) return false;
+    // The retry can settle after the user opened another design.
+    const designId = currentCanvasOutcomeDesignId();
     const queued = queueHostCommit(owner, nodeId, value, (outcome) => {
       if (outcome === "accepted") requestSnapshot();
       recordCanvasOutcome(
         "text_retry",
         outcome === "accepted" ? "succeeded" : "failed",
         outcome === "accepted" ? "none" : "not_written",
+        { designId },
       );
     });
     // A queued retry can be cancelled or replaced without settling, so the

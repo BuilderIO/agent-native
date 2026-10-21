@@ -462,6 +462,11 @@ export function setCanvasOutcomeContext(context: {
   }
 }
 
+/** The design new counts belong to, for work that reports later. */
+export function currentCanvasOutcomeDesignId(): string | undefined {
+  return currentDesignId;
+}
+
 /**
  * The editor closed its design: send what is pending and stop attributing new
  * counts to it. The viewer stays known, so late saves still go out.
