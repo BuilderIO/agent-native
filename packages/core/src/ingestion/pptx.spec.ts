@@ -1504,6 +1504,48 @@ describe("parsePptxPresentation", () => {
       undefined,
     ]);
   });
+
+  it("does not fall back to numbered notes when a slide's relationships cannot be read", async () => {
+    // Slide 1 is hidden, so its own relationships are never read again, and
+    // that part is cut off: which notes part it names is unknown. Here it
+    // names notesSlide2.xml, which slide 2 must not take.
+    const notesXml = `<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+      <p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="Notes"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+        <p:txBody><a:bodyPr/><a:p><a:r><a:t>Note for slide 1</a:t></a:r></a:p></p:txBody>
+      </p:sp></p:spTree></p:cSld>
+    </p:notes>`;
+    const relsXml = pptxRelsXml([
+      {
+        id: "rId1",
+        type: "slideLayout",
+        target: "../slideLayouts/slideLayout1.xml",
+      },
+      {
+        id: "rId2",
+        type: "notesSlide",
+        target: "../notesSlides/notesSlide2.xml",
+      },
+    ]);
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [
+          textSlideXml("Slide 1", { attributes: ` show="0"` }),
+          textSlideXml("Slide 2"),
+        ],
+        files: {
+          "ppt/slides/_rels/slide1.xml.rels": relsXml.slice(
+            0,
+            relsXml.indexOf('<Relationship Id="rId2"') + 30,
+          ),
+          "ppt/notesSlides/notesSlide2.xml": notesXml,
+        },
+      }),
+    );
+
+    expect(presentation.slides.map((slide) => slide.notes)).toEqual([
+      undefined,
+    ]);
+  });
 });
 
 const TINY_PNG = Buffer.from(

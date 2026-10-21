@@ -309,8 +309,10 @@ export async function parsePptxPresentation(
   // numbered in the order the notes were written, not by slide (with notes
   // only on slide 2, they are notesSlide1.xml), so a slide without that
   // relationship falls back to the part with its own number only when no
-  // other slide's relationship names that part.
+  // other slide's relationship names that part. A relationships part that
+  // cannot be read may name any notes part, so it turns the fallback off.
   const notesPartsNamedBySlides = new Set<string>();
+  let everyNotesClaimKnown = true;
   for (const slidePath of slidePaths) {
     const relationshipsXml = await zip
       .file(relsPathForPptxPart(slidePath))
@@ -320,6 +322,7 @@ export async function parsePptxPresentation(
     try {
       relationships = parseRelationships(parseXml(relationshipsXml));
     } catch {
+      everyNotesClaimKnown = false;
       continue;
     }
     for (const relationship of relationships.values()) {
@@ -407,7 +410,7 @@ export async function parsePptxPresentation(
     const numberedNotesPath = `ppt/notesSlides/notesSlide${number}.xml`;
     const notesPath = notesRelationship
       ? resolvePptxRelationshipPath("ppt/slides", notesRelationship.target)
-      : notesPartsNamedBySlides.has(numberedNotesPath)
+      : !everyNotesClaimKnown || notesPartsNamedBySlides.has(numberedNotesPath)
         ? undefined
         : numberedNotesPath;
     const notesXml = notesPath
