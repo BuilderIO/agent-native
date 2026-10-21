@@ -45,9 +45,9 @@ actions do not expose, inspect the provider catalog/docs and call
   endpoint, call `provider-api-request` (provider `hubspot`, e.g.
   `/crm/v3/properties/deals`) via `provider-api-docs` **without `stageAs`**.
   Property definitions are read-only control metadata, not analysis rows; never
-  stage them. `stageAs` writes result rows to shared staged-dataset storage,
-  which can be at capacity and may evict existing datasets. Do not clear or
-  evict existing staged datasets to make room. If a metadata request cannot be
+  stage them. `stageAs` writes result rows to staged-dataset storage, which
+  has a per-user quota; going over it removes the user's own least recently
+  written datasets. Do not clear existing staged datasets to make room. If a metadata request cannot be
   read without staging, narrow the request or return only the required property
   names, labels, and types through a read-only path.
 - `provider-api-request` with `provider: "hubspot"` — arbitrary HubSpot HTTP
