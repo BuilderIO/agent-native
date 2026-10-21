@@ -1363,6 +1363,7 @@ export function startRun(
   let checkpointAbortInFlight = false;
   let checkpointPersistenceFailed = false;
   let runDriverSettled = false;
+  let pendingTerminalEvent: RunEvent | null = null;
   const checkpointRunBoundary = (
     event: AgentChatEvent,
     terminalReason: "no_progress" | "run_timeout",
@@ -1393,19 +1394,25 @@ export function startRun(
           engineName: options?.engineName,
           userId: options?.userId,
         });
-        send(event);
+        if (!pendingTerminalEvent) send(event);
       } catch (error) {
-        checkpointPersistenceFailed = true;
+        if (pendingTerminalEvent) {
+          softTimedOut = true;
+        } else {
+          checkpointPersistenceFailed = true;
+        }
         console.error(
           "[run-manager] could not persist run boundary checkpoint",
           runId,
           error instanceof Error ? error.message : error,
         );
-        send({
-          type: "error",
-          error: "The agent could not save its continuation checkpoint.",
-          errorCode: "run_checkpoint_persistence_failed",
-        });
+        if (!pendingTerminalEvent) {
+          send({
+            type: "error",
+            error: "The agent could not save its continuation checkpoint.",
+            errorCode: "run_checkpoint_persistence_failed",
+          });
+        }
       } finally {
         abort.abort(terminalReason);
         checkpointAbortInFlight = false;
@@ -1637,8 +1644,6 @@ export function startRun(
     };
     armChunkSoftTimeout();
   }
-  let pendingTerminalEvent: RunEvent | null = null;
-
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
     const errorCode = getRunErrorCode(error);
     const engineError = error instanceof EngineError ? error : null;

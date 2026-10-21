@@ -911,6 +911,93 @@ describe("run manager soft timeout", () => {
     expect(run.status).toBe("completed");
   });
 
+  it("preserves a driver terminal emitted while checkpoint persistence is pending", async () => {
+    const driver = Promise.withResolvers<void>();
+    const checkpoint = Promise.withResolvers<void>();
+    const sendReady =
+      Promise.withResolvers<(event: AgentChatEvent) => Promise<void>>();
+    const events: AgentChatEvent[] = [];
+    vi.mocked(persistRunCheckpointEvent).mockImplementationOnce(
+      () => checkpoint.promise,
+    );
+    const run = startRun(
+      "run-checkpoint-preserves-terminal",
+      "thread-checkpoint-preserves-terminal",
+      async (send) => {
+        sendReady.resolve(send);
+        await driver.promise;
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+    const send = await sendReady.promise;
+
+    await vi.advanceTimersByTimeAsync(11);
+    expect(persistRunCheckpointEvent).toHaveBeenCalledOnce();
+    await send({ type: "done" });
+    driver.resolve();
+    checkpoint.resolve();
+
+    await run.finalized;
+
+    expect(events).toContainEqual({ type: "done" });
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
+    expect(run.status).toBe("completed");
+    expect(insertRunEvent).toHaveBeenCalledWith(
+      "run-checkpoint-preserves-terminal",
+      0,
+      JSON.stringify({ type: "done" }),
+      { eventAt: expect.any(Number) },
+    );
+  });
+
+  it("keeps a staged driver terminal when its concurrent checkpoint fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const driver = Promise.withResolvers<void>();
+    const checkpoint = Promise.withResolvers<void>();
+    const sendReady =
+      Promise.withResolvers<(event: AgentChatEvent) => Promise<void>>();
+    const events: AgentChatEvent[] = [];
+    vi.mocked(persistRunCheckpointEvent).mockImplementationOnce(
+      () => checkpoint.promise,
+    );
+    const run = startRun(
+      "run-checkpoint-failure-preserves-terminal",
+      "thread-checkpoint-failure-preserves-terminal",
+      async (send) => {
+        sendReady.resolve(send);
+        await driver.promise;
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+    const send = await sendReady.promise;
+
+    await vi.advanceTimersByTimeAsync(11);
+    await send({ type: "done" });
+    driver.resolve();
+    checkpoint.reject(new Error("checkpoint database unavailable"));
+
+    await run.finalized;
+
+    expect(events).toContainEqual({ type: "done" });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "run_checkpoint_persistence_failed",
+      }),
+    );
+    expect(run.status).toBe("completed");
+    consoleError.mockRestore();
+  });
+
   it("fails the run instead of advertising continuation when checkpoint persistence fails", async () => {
     const consoleError = vi
       .spyOn(console, "error")
