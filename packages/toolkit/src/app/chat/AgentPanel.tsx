@@ -451,6 +451,20 @@ export function resolveAgentPanelPageHeaderActions({
   return { showPageTitleMenu, showShareAction: canShareActiveTab };
 }
 
+export type AgentPanelPageToolbarActions = Pick<
+  MultiTabAssistantChatHeaderCallbackProps,
+  "activeTabMessageCount" | "clearActiveTab" | "showHistory" | "toggleHistory"
+>;
+
+export function resolveAgentPanelPageToolbarSlot(
+  slot:
+    | React.ReactNode
+    | ((actions: AgentPanelPageToolbarActions) => React.ReactNode),
+  actions: AgentPanelPageToolbarActions,
+) {
+  return typeof slot === "function" ? slot(actions) : slot;
+}
+
 export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
   return cliTabs.length > 1;
 }
@@ -596,7 +610,10 @@ export interface AgentPanelProps extends Omit<
   /** Hide the default page title menu while keeping the shared page actions. */
   showPageTitleMenu?: boolean;
   pageHeaderLeadingSlot?: React.ReactNode;
-  pageToolbarSlot?: React.ReactNode;
+  /** Render host page actions alongside Share, with the active chat controls. */
+  pageToolbarSlot?:
+    | React.ReactNode
+    | ((actions: AgentPanelPageToolbarActions) => React.ReactNode);
   onPageHeaderVisibilityChange?: (visible: boolean) => void;
   chatOnly?: boolean;
   agentPageHref?: string;
@@ -1725,6 +1742,12 @@ function AgentPanelInner({
           activeTabMessageCount,
           activeTabIsPersisted,
         );
+      const toolbarSlot = resolveAgentPanelPageToolbarSlot(pageToolbarSlot, {
+        activeTabMessageCount,
+        clearActiveTab,
+        showHistory,
+        toggleHistory,
+      });
 
       return (
         <>
@@ -1818,7 +1841,7 @@ function AgentPanelInner({
                       triggerClassName="size-8 p-0 border-0 bg-transparent shadow-none hover:bg-accent/60"
                     />
                   ) : null}
-                  {pageToolbarSlot}
+                  {toolbarSlot}
                   {showNewChatAction ? (
                     <button
                       type="button"
