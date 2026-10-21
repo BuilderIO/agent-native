@@ -12,6 +12,7 @@ import {
   NPM_PUBLISH_PACKAGE_NAMES,
   ensureLocalRuntimeDependenciesAvailable,
   isAlreadyStaged,
+  preparePackagesForTagging,
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
 import { syncCommunityQrCoreLock } from "./sync-community-qr-core-lock.ts";
@@ -238,10 +239,7 @@ describe("npm package release workflow", () => {
 
   it("allows npm propagation to settle before failing a publish", () => {
     assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 30 * 60_000);
-    assert.match(
-      publisherSource,
-      /packagesNeedingTags\s*\.filter\(\(pkg\) => !fetchablePackageNames\.has\(pkg\.name\)\)\s*\.map\(\(pkg\) => waitForPackageAvailability\(pkg\)\)/,
-    );
+    assert.match(publisherSource, /preparePackagesForTagging\(/);
   });
 
   it("waits for npm staged versions to become fetchable before tagging", () => {
@@ -583,6 +581,57 @@ importers:
       /@agent-native\/toolkit depends on failed local runtime package: @agent-native\/core/,
     );
     assert.deepEqual(checks, ["@agent-native/core"]);
+  });
+
+  it("does not retry failed availability checks before tagging independent packages", async () => {
+    const core = {
+      dir: "packages/core",
+      name: "@agent-native/core",
+      version: "0.213.0",
+      packageJson: { name: "@agent-native/core", version: "0.213.0" },
+    };
+    const dispatchPackage = {
+      dir: "packages/dispatch",
+      name: "@agent-native/dispatch",
+      version: "0.40.32",
+      packageJson: { name: "@agent-native/dispatch", version: "0.40.32" },
+    };
+    const unrelatedPackage = {
+      dir: "packages/otel",
+      name: "@agent-native/otel",
+      version: "0.1.14",
+      packageJson: { name: "@agent-native/otel", version: "0.1.14" },
+    };
+    const fetchable = new Set<string>();
+    const failed = new Set(["@agent-native/core"]);
+    const checks: string[] = [];
+
+    const result = await preparePackagesForTagging(
+      [core, dispatchPackage, unrelatedPackage],
+      async (pkg) => {
+        checks.push(pkg.name);
+        if (pkg.name === "@agent-native/dispatch") {
+          throw new Error("dispatch is not fetchable");
+        }
+      },
+      fetchable,
+      failed,
+    );
+
+    assert.deepEqual(checks, ["@agent-native/dispatch", "@agent-native/otel"]);
+    assert.deepEqual(result.packages, [unrelatedPackage]);
+    assert.deepEqual(
+      result.failures.map(({ pkg, error }) => [
+        pkg.name,
+        (error as Error).message,
+      ]),
+      [["@agent-native/dispatch", "dispatch is not fetchable"]],
+    );
+    assert.deepEqual(
+      [...failed],
+      ["@agent-native/core", "@agent-native/dispatch"],
+    );
+    assert.deepEqual([...fetchable], ["@agent-native/otel"]);
   });
 
   describe("dev snapshot publishing", () => {
