@@ -403,12 +403,14 @@ them or explain absent reactions in Slack. A Slack `🎫` reaction tracks a
 distinct human action, not an external ticket, and remains as history after the
 action closes. Never imply that an external ticket was created or assigned.
 
+<!-- framework-repo-only:start -->
 ### After a PR merges
 
 For a beta-eligible app PR linked to an owned feedback thread, only the task
 that completes the merge may send the one-time update. `/ship` and `/ship-now`
 have this narrow authorization. Follow the [bounded beta update procedure](references/slack-reaction-replies.md#one-time-beta-update-after-merge);
 normal feedback sweeps do not wait for or monitor publication.
+<!-- framework-repo-only:end -->
 
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
 remaining action/owner separately; don't imply the fixed scope is open. The
@@ -457,6 +459,7 @@ otherwise draft the reply, leave the feedback unresolved, and link it in the
 recap. This exception is only for PR review feedback, not proactive PR comments
 or issue comments.
 
+<!-- framework-repo-only:start -->
 ## Publishing
 
 Use this worktree's branch. Batch fixes with one
@@ -484,6 +487,7 @@ and external failures are not shipping blockers.
 While waiting, **Clarification needed** stays open with `👀` and no `✅`; it
 must not block independent fixes unless it could affect a PR change. Later runs
 skip the eye under the ownership gate.
+<!-- framework-repo-only:end -->
 
 ## Recap
 

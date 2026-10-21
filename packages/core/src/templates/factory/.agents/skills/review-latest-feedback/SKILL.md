@@ -392,13 +392,6 @@ them or explain absent reactions in Slack. A Slack `🎫` reaction tracks a
 distinct human action, not an external ticket, and remains as history after the
 action closes. Never imply that an external ticket was created or assigned.
 
-### After a PR merges
-
-For a beta-eligible app PR linked to an owned feedback thread, only the task
-that completes the merge may send the one-time update. `/ship` and `/ship-now`
-have this narrow authorization. Follow the [bounded beta update procedure](references/slack-reaction-replies.md#one-time-beta-update-after-merge);
-normal feedback sweeps do not wait for or monitor publication.
-
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
 remaining action/owner separately; don't imply the fixed scope is open. The
 Slack reaction tracks a distinct unfinished human/team action, including an
@@ -445,34 +438,6 @@ only when the invocation explicitly authorizes comments on that exact PR;
 otherwise draft the reply, leave the feedback unresolved, and link it in the
 recap. This exception is only for PR review feedback, not proactive PR comments
 or issue comments.
-
-## Publishing
-
-Use this worktree's branch. Batch fixes with one
-`corepack pnpm ship:push -m "<specific fix>"`; each head reruns CI. Sync
-`origin/main` only for GitHub conflicts; prefer normal merges on shared
-branches. Behind/pending never justify syncing.
-
-Use `/ship` for PR ownership, push, and merge checks. Never push to another
-person's PR without explicit authorization for that exact PR in this request.
-Push-only authorization means `ship_mode=ready-only`; merging requires separate
-authorization for that PR. Without push authorization, hand off as pending.
-Carry feedback evidence and dispositions into PRs; reference only issues the
-PR fixes.
-Keep source-tested, built, deployed, and observed-live claims separate.
-
-Carry exact tracker row ids and the reproduction ledger into the PR or release
-recap; tracker status is not shipping evidence. Mark each row independently: a
-reaction, checkmark, or "reviewed" cannot cover multiple rows, including
-expected, docs-owned, cross-team, or duplicate items. Link each source/docs
-change to its exact PR or commit, and each non-coding disposition to its
-evidence or owner.
-
-If no fix is verified, recap why shipping did not start. Unavailable connectors
-and external failures are not shipping blockers.
-While waiting, **Clarification needed** stays open with `👀` and no `✅`; it
-must not block independent fixes unless it could affect a PR change. Later runs
-skip the eye under the ownership gate.
 
 ## Recap
 

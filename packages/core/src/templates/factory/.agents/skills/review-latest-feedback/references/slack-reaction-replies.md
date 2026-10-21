@@ -23,38 +23,7 @@ name its owner when known. Do not explain absent reactions or mention a closed,
 historical `🎫`. Keep scope, evidence, and handoff details in the internal
 ledger.
 
-Do not send a routine second reply just to announce a merge or publication. The
-one-time beta update in the section below is the exception.
-
-### One-time beta update after merge
-
-For a beta-eligible app PR linked to a thread already owned by
-`review-latest-feedback`, only the task that completes the merge may send this
-one update. `/ship` and `/ship-now` each have this narrow authorization; it
-does not authorize any other Slack reply or reaction. A normal feedback sweep
-does not own the update or monitor publication.
-
-After confirming the PR merge commit is in freshly fetched `origin/main`, read
-the PR's `mergeCommit.oid`. Find the run for
-`.github/workflows/deploy-beta-sites-prebuilt.yml` with event `push`, branch
-`main`, and `head_sha` equal to that commit. If a queued run was coalesced, a
-later `push` run may be used only when its head is a verified descendant of the
-merge commit. In the `Discover beta sites` job, inspect the `Build the beta site
-matrix` step and require its `Publishing ... beta sites:` line to include the
-affected site's ID. Use `scripts/netlify-beta-targets.ts` to map changed paths
-to the site ID.
-
-Check every two minutes for up to 15 minutes after the merge. If no eligible
-run reaches site selection in that window, its logs are unavailable, or the
-site is not selected, record the run and result in the ship ledger and do not
-send an ETA. Once selected, post one short sentence in the same thread with the
-PR link and say it is expected on beta within 24 hours, then add the exact bot
-disclosure. This is an expectation, not a guarantee. Selection is not proof of
-publication: do not wait for deployment to finish or say the site is live.
-Only `/ship-and-monitor` or an explicitly requested beta check verifies that
-the site is current. If a later in-scope beta check finds a publish failure or
-the site is not current after 24 hours, that check's owner handles the
-correction in the same thread.
+Do not send a routine second reply just to announce a merge or publication.
 
 For a recent unanswered reporter question, reuse the existing same-actor
 question/update as the status reply when it still reflects the disposition. If
@@ -67,6 +36,9 @@ possible, or send one status after the latest human reply.
 Keep full proof, scope, and handoff details in the internal ledger. When an
 active `🎫` action remains, record its brief plain-language summary as
 `statusReply.pendingActionSummary` and include that summary in the short reply.
+When `unfinishedScopes` is nonempty, also record a brief
+`statusReply.unfinishedScopeSummary` that names remaining work and says it is
+still open; include it in the public reply even when there is no active `🎫`.
 Do not explain absent reactions or list every scope. End with the exact bot
 disclosure and read the visible reply and root reactions back.
 
@@ -314,14 +286,6 @@ only after that person accepts; until then record the responsible team/role or
 team handoff also gets `🎫`. Do not create or promise an external tracker
 ticket without authorization. Never imply a
 partial fix resolved the whole report.
-
-For beta app fixes, keep publisher details in the recap and follow the
-[one-time beta update after merge](#one-time-beta-update-after-merge) procedure.
-Use `🎫` only when another person or team must act. Keep hashes, branch names,
-CI, workflow details, and run IDs out of reporter replies. For package work,
-distinguish the source PR from any release PR and registry proof; source merge
-alone does not establish publication. Give no ETA for a pending package
-release.
 
 For every reply in each final full-thread snapshot, record a read-back of the
 workflow reactions on that reply. If the connector shows `👀`, `✅`, or `🎫`,

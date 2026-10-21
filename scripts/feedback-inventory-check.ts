@@ -63,6 +63,7 @@ type StatusReply = {
   disposition: string;
   evidence: string;
   publicEvidenceSummary?: string;
+  unfinishedScopeSummary?: string;
   text: string;
   pendingActionSummary?: string;
 };
@@ -1434,6 +1435,21 @@ function hasPublicEvidenceSummary(
   scopedProofs: Array<{ scope: string; verification: string }>,
 ): boolean {
   if (scopedProofs.length === 0) return true;
+  return (
+    hasConcisePublicEvidenceSummary(reply) &&
+    scopedProofs.every(({ scope, verification }) =>
+      verification
+        .split(/[.;!?\n]+/)
+        .some(
+          (clause) =>
+            replyContainsPhrase(clause, scope) &&
+            replyContainsPhrase(clause, reply.publicEvidenceSummary),
+        ),
+    )
+  );
+}
+
+function hasConcisePublicEvidenceSummary(reply: StatusReply): boolean {
   const summary = reply.publicEvidenceSummary;
   const summaryWordCount =
     typeof summary === "string"
@@ -1442,15 +1458,6 @@ function hasPublicEvidenceSummary(
   return (
     summaryWordCount >= 2 &&
     summaryWordCount <= 12 &&
-    scopedProofs.every(({ scope, verification }) =>
-      verification
-        .split(/[.;!?\n]+/)
-        .some(
-          (clause) =>
-            replyContainsPhrase(clause, scope) &&
-            replyContainsPhrase(clause, summary),
-        ),
-    ) &&
     replyContainsPhrase(reply.evidence, summary) &&
     replyContainsPhrase(reply.text, summary)
   );
@@ -2307,11 +2314,43 @@ function validateStatusReactionLanguage(
   handoffs: Handoff[],
   reporterRequests: ReporterRequest[],
   pendingActionSummary: string | undefined,
+  unfinishedScopes: Array<{ scope: string; evidence: string }> = [],
+  unfinishedScopeSummary?: string,
 ): void {
   if (!text.includes("this was sent from a bot.")) {
     throw new Error(
       `${parentName}: latest status reply must include the exact bot disclosure`,
     );
+  }
+  if (
+    unfinishedScopeSummary !== undefined &&
+    typeof unfinishedScopeSummary !== "string"
+  ) {
+    throw new Error(`${parentName}: unfinishedScopeSummary must be a string`);
+  }
+  if (unfinishedScopes.length === 0) {
+    if (unfinishedScopeSummary !== undefined) {
+      throw new Error(
+        `${parentName}: unfinishedScopeSummary is only valid when unfinished scopes remain`,
+      );
+    }
+  } else {
+    const summary = unfinishedScopeSummary ?? "";
+    const summaryWordCount = normalizeReplyPhrase(summary)
+      .split(" ")
+      .filter(Boolean).length;
+    if (
+      summaryWordCount < 3 ||
+      summaryWordCount > 12 ||
+      !/\b(?:still|remain(?:s|ing)?|ongoing|not yet|unresolved|open)\b/i.test(
+        summary,
+      ) ||
+      !replyContainsPhrase(text, summary)
+    ) {
+      throw new Error(
+        `${parentName}: unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open`,
+      );
+    }
   }
   if (
     pendingActionSummary !== undefined &&
@@ -2715,11 +2754,15 @@ function validateOtherOwnerEvidence(
     !status.evidence.trim() ||
     typeof status.text !== "string" ||
     !status.text.trim() ||
-    !replyStatesDisposition(status.text, status.disposition) ||
-    !status.text.includes(status.evidence.trim())
+    !replyStatesDisposition(status.text, status.disposition)
   ) {
     throw new Error(
       `${parentName}: Owned elsewhere needs that owner's current open status and evidence`,
+    );
+  }
+  if (!hasConcisePublicEvidenceSummary(status)) {
+    throw new Error(
+      `${parentName}: Owned elsewhere needs a concise publicEvidenceSummary present in both internal evidence and reply`,
     );
   }
 
@@ -3388,6 +3431,8 @@ function validateSupplementalRootAudit(
     handoffs,
     parent.reporterRequests ?? [],
     reply.pendingActionSummary,
+    unfinishedScopes,
+    reply.unfinishedScopeSummary,
   );
   const replyTs = slackTimestamp(reply.ts, `${parentName}.statusReply.ts`);
   if (
@@ -7300,6 +7345,8 @@ function validateInventory(
             handoffs,
             parent.reporterRequests ?? [],
             reply.pendingActionSummary,
+            unfinishedScopes,
+            reply.unfinishedScopeSummary,
           );
           if (
             fixedScopes.some(
@@ -9784,8 +9831,10 @@ if (args[0] === "--self-test" && args.length === 1) {
             threadParentTs: "10.000000",
             actorId: "UOTHER",
             disposition: "In progress",
-            evidence: "I am actively testing the new behavior",
-            text: "In progress: I am actively testing the new behavior.",
+            evidence:
+              "I am actively testing the new behavior after reviewing the reporter's reproduction",
+            publicEvidenceSummary: "testing the new behavior",
+            text: "In progress: testing the new behavior.",
           };
           return {
             ...parent,
@@ -10335,6 +10384,23 @@ if (args[0] === "--self-test" && args.length === 1) {
             disposition: "Skipped",
             evidence: "the report is no longer actionable",
             text: "Skipped: the report is no longer actionable.",
+          },
+        },
+      }),
+    },
+    {
+      name: "Owned elsewhere requires a concise public evidence summary",
+      inventory: withOtherOwnerRoot({
+        otherOwnerEvidence: {
+          actorId: "UOTHER",
+          statusReply: {
+            ts: "12.000000",
+            threadParentTs: "10.000000",
+            actorId: "UOTHER",
+            disposition: "In progress",
+            evidence:
+              "I am actively testing the new behavior after reviewing the reporter's reproduction",
+            text: "In progress: testing the new behavior.",
           },
         },
       }),
@@ -11056,7 +11122,33 @@ if (args[0] === "--self-test" && args.length === 1) {
           disposition: "Partially fixed",
           evidence:
             "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          unfinishedScopeSummary: "Paragraph selection remains broken",
           text: "Partially fixed: The start screen works now. Paragraph selection remains broken. :white_check_mark: covers the initial route screen. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "unfinished scope status needs a public remaining-work summary",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence: "paragraph selection remains broken",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          unfinishedScopeSummary: undefined,
+          text: "Partially fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.",
         },
       }),
     },
@@ -12890,6 +12982,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       "another actor owns this report; do not add this actor's 👀 or reply—record Owned elsewhere with current owner evidence",
     "Owned elsewhere needs an open latest owner status, not a historical eye":
       "Owned elsewhere needs that owner's current open status and evidence",
+    "Owned elsewhere requires a concise public evidence summary":
+      "Owned elsewhere needs a concise publicEvidenceSummary present in both internal evidence and reply",
     "Owned elsewhere needs another actor's root eye":
       "Owned elsewhere needs another actor's root 👀 and their current same-thread status",
     "Owned elsewhere status must exist in the captured thread":
@@ -12991,6 +13085,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "open work must retain this actor's eye":
       "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
+    "unfinished scope status needs a public remaining-work summary":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open",
     "reply root is missing from page rows and threadRoots":
       "threadParentTs does not resolve to an in-page root or verified threadRoots entry",
     "reply misclassified as a self-root":
@@ -13235,7 +13331,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             actorId: "USWEEPER",
             disposition: "In progress",
             evidence: "the reported behavior still needs direct verification",
-            text: "In progress: We are still checking the reported behavior. this was sent from a bot.",
+            unfinishedScopeSummary:
+              "reported behavior still needs direct verification",
+            text: "In progress: The reported behavior still needs direct verification. this was sent from a bot.",
           },
         }),
       ),
@@ -13848,7 +13946,8 @@ if (args[0] === "--self-test" && args.length === 1) {
           disposition: "In progress",
           evidence:
             "the reported interaction behavior still needs direct browser proof",
-          text: "In progress: the reported interaction behavior still needs direct browser proof. No :white_check_mark: from me — I do not have direct browser proof; the existing root checkmark belongs to another reviewer. Open scope: reported interaction behavior — replay it in the running app. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+          unfinishedScopeSummary: "reported interaction behavior remains open",
+          text: "In progress: the reported interaction behavior still needs direct browser proof. No :white_check_mark: from me — I do not have direct browser proof; the existing root checkmark belongs to another reviewer. Open scope: reported interaction behavior remains open — replay it in the running app. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
         },
         fixedScopes: [],
         unfinishedScopes: [
@@ -13872,7 +13971,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       disposition: "In progress",
       evidence:
         "a newer run still shows the create action for an existing account",
-      text: "In progress: The behavior still needs checking. this was sent from a bot.",
+      unfinishedScopeSummary: "Initial route still needs checking",
+      text: "In progress: The initial route still needs checking. this was sent from a bot.",
     };
     const historicalCheckInventory = withSweepOwnedParent({
       disposition: "In progress",
@@ -14023,6 +14123,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       actorId: "USWEEPER",
       disposition: "In progress",
       evidence: historicalTicketEvidence,
+      unfinishedScopeSummary: "Remaining design choice is still open",
       text: "In progress: The remaining design choice is still open. this was sent from a bot.",
     };
     const historicalTicketInventory = withUnownedTicket({
@@ -14917,7 +15018,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         latestRelevantHumanReply: {
           ts: "12.000000",
           actorId: "UOTHER",
-          text: "In progress: I am actively testing the new behavior.",
+          text: "In progress: testing the new behavior.",
         },
         latestOwnedReply: latestOwnedReplyFrom(ownedElsewhereStatusReply),
         reactionDecision: {
@@ -15048,6 +15149,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           evidence:
             "The initial route screen passed its focused test in the open PR and the start screen works now; merge pending; paragraph selection remains unverified",
           publicEvidenceSummary: "The start screen works now",
+          unfinishedScopeSummary: "Paragraph selection remains unverified",
           text: "Verified locally: The start screen works now. Focused behavior test passed in the open PR; merge pending; paragraph selection remains unverified. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains unverified. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
         },
         fixedScopes: [
@@ -15144,6 +15246,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           evidence:
             "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
           publicEvidenceSummary: "The start screen works now",
+          unfinishedScopeSummary: "Paragraph selection remains broken",
           text: "Partially fixed: The start screen works now. Paragraph selection remains broken. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
         },
       }),
@@ -15174,6 +15277,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Abandoned - no answer in 4 days",
           evidence: "the remaining control behavior is still unverified",
+          unfinishedScopeSummary: "Control behavior is still unverified",
           text: "Abandoned - no answer in 4 days: the reporter wait is closed; the remaining control behavior is still unverified. Open scope: recording start and stop affordance. No :white_check_mark: — no fixed scope has passed verification. No :ticket: — no named human accepted a distinct action. this was sent from a bot.",
         },
       }),
@@ -15717,7 +15821,9 @@ if (args[0] === "--self-test" && args.length === 1) {
               disposition: "Partially fixed",
               evidence,
               publicEvidenceSummary: "The start screen works now",
-              text: "Partially fixed: The start screen works now, but we're still checking where it leads. this was sent from a bot.",
+              unfinishedScopeSummary:
+                "browser redirect behavior remains unverified",
+              text: "Partially fixed: The start screen works now. Browser redirect behavior remains unverified. this was sent from a bot.",
             };
             return {
               ...parent,
@@ -15864,6 +15970,8 @@ if (args[0] === "--self-test" && args.length === 1) {
                     ...parent.statusReply!,
                     disposition: "In progress",
                     evidence: "the reported route still needs a live replay",
+                    unfinishedScopeSummary:
+                      "reported route still needs a live replay",
                     text: "In progress — the reported route still needs a live replay. Open scope: reported route. No ✅ — no fixed scope has passed verification. No 🎫 — no named human accepted a separate action. this was sent from a bot.",
                   },
                   fixedScopes: [],

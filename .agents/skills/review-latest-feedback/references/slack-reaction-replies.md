@@ -23,9 +23,9 @@ name its owner when known. Do not explain absent reactions or mention a closed,
 historical `🎫`. Keep scope, evidence, and handoff details in the internal
 ledger.
 
-Do not send a routine second reply just to announce a merge or publication. The
-one-time beta update in the section below is the exception.
+Do not send a routine second reply just to announce a merge or publication.
 
+<!-- framework-repo-only:start -->
 ### One-time beta update after merge
 
 For a beta-eligible app PR linked to a thread already owned by
@@ -47,7 +47,10 @@ to the site ID.
 Check every two minutes for up to 15 minutes after the merge. If no eligible
 run reaches site selection in that window, its logs are unavailable, or the
 site is not selected, record the run and result in the ship ledger and do not
-send an ETA. Once selected, post one short sentence in the same thread with the
+send an ETA. That timeout is terminal for this merge task: no later beta update
+is expected from it, even if a subsequent run selects the site. A separate,
+explicitly requested beta check may report its own result. If the site is
+selected within the window, post one short sentence in the same thread with the
 PR link and say it is expected on beta within 24 hours, then add the exact bot
 disclosure. This is an expectation, not a guarantee. Selection is not proof of
 publication: do not wait for deployment to finish or say the site is live.
@@ -55,6 +58,7 @@ Only `/ship-and-monitor` or an explicitly requested beta check verifies that
 the site is current. If a later in-scope beta check finds a publish failure or
 the site is not current after 24 hours, that check's owner handles the
 correction in the same thread.
+<!-- framework-repo-only:end -->
 
 For a recent unanswered reporter question, reuse the existing same-actor
 question/update as the status reply when it still reflects the disposition. If
@@ -67,6 +71,9 @@ possible, or send one status after the latest human reply.
 Keep full proof, scope, and handoff details in the internal ledger. When an
 active `🎫` action remains, record its brief plain-language summary as
 `statusReply.pendingActionSummary` and include that summary in the short reply.
+When `unfinishedScopes` is nonempty, also record a brief
+`statusReply.unfinishedScopeSummary` that names remaining work and says it is
+still open; include it in the public reply even when there is no active `🎫`.
 Do not explain absent reactions or list every scope. End with the exact bot
 disclosure and read the visible reply and root reactions back.
 
@@ -315,6 +322,7 @@ team handoff also gets `🎫`. Do not create or promise an external tracker
 ticket without authorization. Never imply a
 partial fix resolved the whole report.
 
+<!-- framework-repo-only:start -->
 For beta app fixes, keep publisher details in the recap and follow the
 [one-time beta update after merge](#one-time-beta-update-after-merge) procedure.
 Use `🎫` only when another person or team must act. Keep hashes, branch names,
@@ -322,6 +330,7 @@ CI, workflow details, and run IDs out of reporter replies. For package work,
 distinguish the source PR from any release PR and registry proof; source merge
 alone does not establish publication. Give no ETA for a pending package
 release.
+<!-- framework-repo-only:end -->
 
 For every reply in each final full-thread snapshot, record a read-back of the
 workflow reactions on that reply. If the connector shows `👀`, `✅`, or `🎫`,

@@ -330,7 +330,11 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   its canonical report. Include
   the root `threadParentTs`, reply timestamp, author ID, matching disposition,
   evidence, and read-back text. Keep exact scope, proof, and handoff details in
-  the ledger. For active `🎫` actions, add a short plain-language
+  the ledger. For `Owned elsewhere`, keep the owner's full proof in
+  `otherOwnerEvidence.statusReply.evidence`; set its `publicEvidenceSummary` to
+  a brief plain-language phrase (2–12 words) that appears in both the evidence
+  and the owner's captured reply. Do not require the full internal evidence in
+  their Slack text. For active `🎫` actions, add a short plain-language
   `pendingActionSummary` to `statusReply` that names every open action and its
   known owner, and include it in the reply. Keep the exact action in the
   internal ledger. When that wording is too technical or long for Slack, add a
@@ -380,6 +384,11 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   its `verification`. Include the summary in both `statusReply.evidence` and
   the captured `statusReply.text`; keep detailed proof in the ledger. The
   summary may paraphrase the internal scope. Record each
+  `unfinishedScopes` entry in the ledger. When any remain, set
+  `statusReply.unfinishedScopeSummary` to a brief plain-language summary
+  (3–12 words) that names the remaining work and says it is still open; include
+  it in the public status even when no separate `🎫` action exists. Omit this
+  field when no unfinished scope remains. Record each
   unfinished team/engineering action in `handoffs[]` and each outstanding
   reporter input request in `reporterRequests[]` with its scope, exact action,
   and exact `requestReply`. For
