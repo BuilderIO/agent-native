@@ -602,7 +602,7 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
               properties: {
                 contentHeight: {
                   type: "number",
-                  exclusiveMinimum: 0,
+                  minimum: 1,
                   maximum: 1200,
                   description: "Optional chart body height in pixels.",
                 },

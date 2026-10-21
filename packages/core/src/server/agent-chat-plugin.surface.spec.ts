@@ -1295,7 +1295,7 @@ describe("render-data-widget framework action", () => {
       | undefined;
     expect(toolProperties?.chartSeries?.properties).toEqual(
       expect.objectContaining({
-        contentHeight: expect.objectContaining({ maximum: 1200 }),
+        contentHeight: expect.objectContaining({ minimum: 1, maximum: 1200 }),
         contentPadding: expect.objectContaining({ maximum: 64 }),
         labelFontFamily: expect.objectContaining({
           enum: ["sans", "serif", "mono"],
