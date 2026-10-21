@@ -2142,6 +2142,36 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("falls back to a production database variable only when Netlify returns 404", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+    const environmentLookup = build.indexOf("netlify api getEnvVars");
+    const databaseLookup = build.indexOf("if netlify api getSiteDatabase");
+    const notFoundCheck = build.indexOf(
+      'if [[ "$database_lookup_error" != *404*',
+    );
+    const fallbackLookup = build.indexOf(
+      "BUILD_CONTEXT=production node --experimental-strip-types scripts/netlify-migration-url.ts",
+    );
+
+    assert.ok(environmentLookup >= 0 && environmentLookup < databaseLookup);
+    assert.ok(databaseLookup < notFoundCheck && notFoundCheck < fallbackLookup);
+    assert.match(build, /scope.*builds/);
+    assert.match(build, /::add-mask::\$build_database_url/);
+    assert.match(build, /database_lookup_error.*Not Found/);
+    assert.match(build, /database_response_file.*database_error_file/);
+  });
+
   it("keeps Analytics migrations on its app-scoped database URL", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -2347,6 +2377,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(migration, /inputs\.deploy_mode == 'production'/);
     assert.match(migration, /source_template == 'crm'/);
     assert.match(migration, /getSiteDatabase/);
+    assert.match(migration, /getEnvVars/);
+    assert.match(migration, /scope.*builds/);
+    assert.match(migration, /migration_lookup_error.*Not Found/);
+    assert.match(migration, /::add-mask::\$migration_database_url/);
     assert.match(migration, /role.*netlifydb_owner/);
     assert.match(migration, /netlify-migration-url\.ts/);
     assert.match(migration, /pnpm --filter crm migrate:production/);

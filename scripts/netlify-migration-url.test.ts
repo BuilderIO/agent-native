@@ -75,3 +75,21 @@ test("still prefers the unpooled key and the requested context", () => {
     undefined,
   );
 });
+
+test("resolves a production DATABASE_URL without crossing deploy contexts", () => {
+  const variables = [
+    {
+      key: "DATABASE_URL",
+      values: [
+        { context: "deploy-preview", value: "postgresql://preview.invalid/db" },
+        { context: "production", value: "postgresql://production.invalid/db" },
+      ],
+    },
+  ];
+
+  assert.equal(
+    resolveNetlifyMigrationUrl(variables, "production"),
+    "postgresql://production.invalid/db",
+  );
+  assert.equal(resolveNetlifyMigrationUrl(variables, "branch-deploy"), undefined);
+});
