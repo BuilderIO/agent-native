@@ -8749,12 +8749,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
             }
             recoveryMutationAttempted = true;
-            const updated = await retryQueuedSubmissionReceipt(
+            let updated = await retryQueuedSubmissionReceipt(
               receipt.threadId,
               receipt.messageId,
               Date.now() + 10_000,
               { claimId, ...(countRetry ? { countRetry: true } : {}) },
             );
+            if (!updated) {
+              updated = await retryQueuedSubmissionReceipt(
+                receipt.threadId,
+                receipt.messageId,
+                Date.now() + 10_000,
+                countRetry ? { countRetry: true } : {},
+              );
+            }
             if (updated && countRetry) retryCount += 1;
             return updated;
           };
@@ -8765,12 +8773,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
             }
             recoveryMutationAttempted = true;
-            return blockQueuedSubmissionReceipt(
+            const updated = await blockQueuedSubmissionReceipt(
               receipt.threadId,
               receipt.messageId,
               {
                 claimId,
               },
+            );
+            return (
+              updated ||
+              (await blockQueuedSubmissionReceipt(
+                receipt.threadId,
+                receipt.messageId,
+              ))
             );
           };
           const recoverClaimedReceipt = async () => {
