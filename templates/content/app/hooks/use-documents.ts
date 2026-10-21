@@ -89,6 +89,7 @@ import {
 } from "./use-content-action-mutation";
 import {
   contentDatabaseConstrainedQueryFilter,
+  contentDatabaseExcerptContainingDocumentFilter,
   contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
@@ -1566,6 +1567,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
         if (variables.title !== undefined) {
           invalidateContentQueries(queryClient, [
             contentDatabaseConstrainedQueryFilter(),
+            contentDatabaseExcerptContainingDocumentFilter(variables.id),
             ...contentRowTargets(queryClient, [variables.id]),
             ["action", "search-documents"],
           ]);

@@ -255,6 +255,29 @@ export function contentDatabaseItemsContainingDocumentFilter(
   };
 }
 
+/**
+ * Collection reads whose row for a page shows its page text. The server skips
+ * a first paragraph that repeats the title, so a rename can change that text.
+ */
+export function contentDatabaseExcerptContainingDocumentFilter(
+  documentId: string,
+) {
+  return {
+    queryKey: ["action", "get-content-database"],
+    predicate: (query: Query) => {
+      const data = query.state.data as
+        | Partial<ContentDatabaseResponse>
+        | undefined;
+      return (
+        data?.items?.some(
+          (item) =>
+            item.document.id === documentId && item.excerpt !== undefined,
+        ) === true
+      );
+    },
+  };
+}
+
 export function invalidateContentDatabaseNavigationQueries(
   queryClient: Pick<QueryClient, "invalidateQueries">,
   scope: { databaseId?: string; parentId?: string | null } = {},
