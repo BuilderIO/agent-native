@@ -297,7 +297,11 @@ jobs:
           status=0
           while IFS=$'\t' read -r name shard; do
             echo "::group::$name ($shard)"
-            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            if [[ "$name" == "slides-2" ]]; then
+              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            else
+              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            fi
             echo "::endgroup::"
           done < <(
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
@@ -423,7 +427,11 @@ jobs:
           status=0
           while IFS=$'\t' read -r name shard; do
             echo "::group::$name ($shard)"
-            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            if [[ "$name" == "slides-2" ]]; then
+              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            else
+              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            fi
             echo "::endgroup::"
           done < <(
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
@@ -1440,11 +1448,21 @@ jobs:
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform darwin
 
   slides-authoring-e2e:
-    name: Slides rich-text authoring
+    name: Slides rich-text authoring (${{ matrix.shard }})
     needs: change-scope
     if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: chromium-authoring
+            browsers: chromium
+          - shard: corpus-and-firefox
+            browsers: chromium firefox
+          - shard: webkit
+            browsers: webkit
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -1461,51 +1479,65 @@ jobs:
 
       - name: Install Playwright browsers
         run: |
-          pnpm exec playwright install --only-shell --with-deps chromium
-          pnpm exec playwright install --with-deps webkit
-          pnpm exec playwright install --with-deps firefox
+          for browser in ${{ matrix.browsers }}; do
+            if [ "$browser" = chromium ]; then
+              pnpm exec playwright install --only-shell --with-deps chromium
+            else
+              pnpm exec playwright install --with-deps "$browser"
+            fi
+          done
 
       - name: Check IME Escape preserves inline slide text editing
+        if: matrix.shard == 'chromium-authoring'
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
 
       - name: Check mobile PowerPoint import pending status
+        if: matrix.shard == 'chromium-authoring'
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
 
       - name: Check typing fidelity across Slides text surfaces in Chromium
+        if: matrix.shard == 'chromium-authoring'
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
 
       - name: Check typing fidelity across Slides text surfaces in WebKit
+        if: matrix.shard == 'webkit'
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
 
       - name: Check rich-text authoring parity in Slides
+        if: matrix.shard == 'chromium-authoring'
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
 
       - name: Check rich-text authoring parity in Slides WebKit
+        if: matrix.shard == 'webkit'
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
 
       - name: Check rich-text authoring against the committed corpus
+        if: matrix.shard == 'corpus-and-firefox'
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
 
       - name: Run deterministic authoring smoke in Chromium
+        if: matrix.shard == 'corpus-and-firefox'
         working-directory: templates/slides
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
           --seed 16 --steps 80 --browser chromium
 
       - name: Run absolute-layout authoring smoke in Chromium
+        if: matrix.shard == 'corpus-and-firefox'
         working-directory: templates/slides
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
           --seed 2 --steps 80 --browser chromium
 
       - name: Run deterministic authoring smoke in WebKit
+        if: matrix.shard == 'webkit'
         working-directory: templates/slides
         env:
           SLIDES_AUTHORING_FUZZ_TRACE: "1"
@@ -1514,6 +1546,7 @@ jobs:
           --seed 16 --steps 80 --browser webkit
 
       - name: Run deterministic authoring smoke in Firefox
+        if: matrix.shard == 'corpus-and-firefox'
         working-directory: templates/slides
         env:
           SLIDES_AUTHORING_FUZZ_TRACE: "1"

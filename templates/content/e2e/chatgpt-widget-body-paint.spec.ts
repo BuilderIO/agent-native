@@ -271,6 +271,9 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
         const storageWindow = frameWindow as Window & {
           __e2eBlockedStorageReads: string[];
         };
+        const blockedBeforeExplicitIndexedDbProbe = [
+          ...new Set(storageWindow.__e2eBlockedStorageReads),
+        ].sort();
         const memoryShimNames = ["localStorage", "sessionStorage"].filter(
           (name) => {
             const storage = Reflect.get(frameWindow, name) as
@@ -289,13 +292,13 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
               : "Error";
         }
         return {
-          blockedAtBoot: storageWindow.__e2eBlockedStorageReads,
+          blockedBeforeExplicitIndexedDbProbe,
           memoryShimNames,
           indexedDbError,
         };
       }),
     ).toEqual({
-      blockedAtBoot: ["localStorage", "sessionStorage", "indexedDB"],
+      blockedBeforeExplicitIndexedDbProbe: ["localStorage", "sessionStorage"],
       memoryShimNames: ["localStorage", "sessionStorage"],
       indexedDbError: "SecurityError",
     });
