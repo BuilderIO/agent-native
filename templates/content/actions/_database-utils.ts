@@ -279,6 +279,7 @@ function serializeExcerpt(bodyPrefix: string | undefined, title: string) {
       : bodyPrefix,
     title,
     truncated,
+    nextCharacter: characters[EXCERPT_SOURCE_CHARS],
   });
 }
 

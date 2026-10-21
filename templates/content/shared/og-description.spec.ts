@@ -208,6 +208,20 @@ const flag = true;
         truncated: true,
       }),
     ).toBe("Read the...");
+    // The character after the prefix tells whether the last word goes on.
+    for (const [nextCharacter, expected] of [
+      [" ", "One two three..."],
+      [",", "One two three..."],
+      ["s", "One two..."],
+    ]) {
+      expect(
+        buildDocumentExcerpt({
+          content: "One two three",
+          truncated: true,
+          nextCharacter,
+        }),
+      ).toBe(expected);
+    }
     // Closing markup ends a whole word.
     for (const content of [
       "One two `three`",

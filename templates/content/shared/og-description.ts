@@ -143,17 +143,20 @@ const SPACELESS_SCRIPT =
  * Plain text from the start of a page body, for a list row. Images, code,
  * dividers and a first paragraph that repeats the title drop out, and
  * headings only count when the page has no other text. `truncated` means the
- * markdown is only the body's first part, so it may end partway through.
+ * markdown is only the body's first part, so it may end partway through;
+ * `nextCharacter`, when known, tells whether its last word goes on.
  */
 export function buildDocumentExcerpt({
   content,
   title,
   truncated = false,
+  nextCharacter,
   maxLength = DEFAULT_EXCERPT_LENGTH,
 }: {
   content?: string | null;
   title?: string | null;
   truncated?: boolean;
+  nextCharacter?: string;
   maxLength?: number;
 }): string {
   let markdown = content?.replace(/\r\n?/g, "\n") ?? "";
@@ -173,7 +176,9 @@ export function buildDocumentExcerpt({
       .replace(/!?\[[^\]\n]*(?:\]\([^)\n]*)?$/, "")
       .replace(/<[A-Za-z/!][^>\n]*$/, "");
     const lastWord = /\s([\p{L}\p{M}\p{N}]+)$/u.exec(markdown)?.[1];
-    if (lastWord && !SPACELESS_SCRIPT.test(lastWord)) {
+    const wordGoesOn =
+      nextCharacter === undefined || /[\p{L}\p{M}\p{N}]/u.test(nextCharacter);
+    if (lastWord && wordGoesOn && !SPACELESS_SCRIPT.test(lastWord)) {
       markdown = markdown.slice(0, -lastWord.length);
     }
   }

@@ -346,17 +346,27 @@ describe("content database list reads", () => {
     }
   });
 
-  it("ends an excerpt with an ellipsis only when the body runs past the part read", async () => {
+  it("marks an excerpt cut off, and drops its last word, only when the body goes on", async () => {
     const fixture = await seedDatabase("prefix");
     // The sprout is one character to the database but two UTF-16 units.
     const start = "Closing words \u{1F331}\n\n![](https://example.com/";
     const end = ".png)";
     const bodyOfLength = (length: number) =>
       `${start}${"a".repeat(length - Array.from(start).length - end.length)}${end}`;
-    for (const [index, length] of [1000, 1001].entries()) {
+    // A code block pads the body so the part read ends right after "words".
+    const cutAfterWords = (tail: string) => {
+      const kept = tail.slice(0, tail.indexOf("words") + "words".length);
+      const pad = 1000 - "```\n\n```\n\n".length - kept.length;
+      return `\`\`\`\n${"x".repeat(pad)}\n\`\`\`\n\n${tail}`;
+    };
+    for (const [index, content] of [
+      bodyOfLength(1000),
+      cutAfterWords("Short ending words, then more."),
+      cutAfterWords("Short ending wordsmith here."),
+    ].entries()) {
       await getDb()
         .update(schema.documents)
-        .set({ content: bodyOfLength(length) })
+        .set({ content })
         .where(eq(schema.documents.id, fixture.rows[index]!.documentId));
     }
     await showPageTextInList(fixture.databaseId);
@@ -368,8 +378,8 @@ describe("content database list reads", () => {
       ),
     ).toEqual({
       "Row prefix 0": "Closing words \u{1F331}",
-      "Row prefix 1": "Closing words \u{1F331}...",
-      "Row prefix 2": "",
+      "Row prefix 1": "Short ending words...",
+      "Row prefix 2": "Short ending...",
     });
   });
 
