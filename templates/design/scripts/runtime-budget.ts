@@ -3,16 +3,19 @@
 // runtime-budget.json. Exit 0 within budget, 1 over budget, 2 when a step did
 // not take effect.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { chromium, errors, type CDPSession, type Page } from "@playwright/test";
 
+import { OVERVIEW_FRAME_WIDTH } from "../app/components/design/multi-screen/overview-layout.ts";
+import { DEVICE_FRAME_VIEWPORTS } from "../app/components/design/types.ts";
 import {
-  expectedCanvasScaleAtZoomPercent,
-  readZoomUntilAvailable,
-} from "./runtime-budget-zoom.ts";
+  finalizeRuntimeBudget,
+  writeRuntimeBudgetReceipt,
+} from "./_runtime-budget-finalize.ts";
+import { runRuntimeZoomBrowserAttempt } from "./_runtime-budget-zoom-browser.ts";
 
 type BudgetFile = {
   copies: number;
@@ -371,79 +374,26 @@ function worstFrameSince(since: number) {
   );
 }
 
-const zoomOf = () =>
-  page.evaluate(() => {
-    const transform =
-      document.querySelector<HTMLElement>("[data-multi-screen-canvas-world]")
-        ?.style.transform ?? "";
-    const match = /scale\(([0-9.]+)\)/.exec(transform);
-    return match ? Number(match[1]) * 100 : null;
-  });
-const zoomPercentFromUrl = () =>
-  page.evaluate(() => {
-    const raw = new URLSearchParams(location.search).get("zoom");
-    const zoom = raw === null ? Number.NaN : Number(raw);
-    return Number.isFinite(zoom) && zoom > 0 ? zoom : null;
-  });
+const zoomMeasurements: Awaited<
+  ReturnType<typeof runRuntimeZoomBrowserAttempt>
+>[] = [];
 async function zoomTo(target: number): Promise<boolean> {
-  const startedAt = Date.now();
-  const deadline = startedAt + 10_000;
-  const remainingTimeout = () => Math.max(1, deadline - Date.now());
   // This benchmark measures camera-driven rendering and preview churn; wheel
   // forwarding is covered by interaction-pan-zoom-mouse.spec.ts.
-  const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
-  const currentZoomPercent = await readZoomUntilAvailable(
-    zoomPercentFromUrl,
-    (ms) => page.waitForTimeout(ms),
-    deadline,
-    () => cdp.send("Runtime.terminateExecution"),
-  );
-  if (currentZoomPercent === null) return false;
-  // Overview zoom is normalized by board geometry, so compare the world
-  // transform with the exact route zoom instead of the rounded toolbar label.
-  const currentCanvasScale = await readZoomUntilAvailable(
-    zoomOf,
-    (ms) => page.waitForTimeout(ms),
-    deadline,
-    () => cdp.send("Runtime.terminateExecution"),
-  );
-  const expectedScale = expectedCanvasScaleAtZoomPercent(
-    currentCanvasScale,
-    currentZoomPercent,
-    target,
-  );
-  if (expectedScale === null) return false;
-  await readout.click({ timeout: remainingTimeout() });
-  const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
-  await zoomInput.fill(`${target}%`, { timeout: remainingTimeout() });
-  await zoomInput.press("Enter", { timeout: remainingTimeout() });
-  const actual = await readZoomUntilAvailable(
-    async () => {
-      const zoom = await zoomOf();
-      const routeZoom = await zoomPercentFromUrl();
-      const label = (await readout.textContent())?.trim();
-      return zoom !== null &&
-        routeZoom === target &&
-        Math.abs(zoom - expectedScale) <=
-          Math.max(0.005, expectedScale * 0.001) &&
-        label === `${target}%`
-        ? zoom
-        : null;
-    },
-    (ms) => page.waitForTimeout(ms),
-    deadline,
-    () => cdp.send("Runtime.terminateExecution"),
-  );
-  const arrived = actual !== null;
-  if (!arrived) {
-    const actualZoom = await zoomOf();
-    const actualText =
-      actualZoom === null ? "unavailable" : `${actualZoom.toFixed(1)}%`;
-    console.log(
-      `  zoom ${target}% ended at ${actualText} with readout ${(await readout.textContent())?.trim() ?? "unavailable"} after ${Date.now() - startedAt}ms`,
-    );
-  }
-  return arrived;
+  const measurement = await runRuntimeZoomBrowserAttempt(target, page, cdp, {
+    defaultFrameWidth: OVERVIEW_FRAME_WIDTH,
+    defaultSourceWidth: 1280,
+    deviceWidths: Object.fromEntries(
+      Object.entries(DEVICE_FRAME_VIEWPORTS).map(([name, size]) => [
+        name,
+        size.width,
+      ]),
+    ),
+  });
+  zoomMeasurements.push(measurement);
+  if (!measurement.arrived)
+    console.log(`  zoom measurement failed: ${JSON.stringify(measurement)}`);
+  return measurement.arrived;
 }
 
 async function until(check: () => Promise<boolean>, timeoutMs = 30_000) {
@@ -971,12 +921,6 @@ metrics.totalHeapGrowthPerIterationMB = growthPerIteration(
 for (const [name, worst] of Object.entries(worstFrameByStep)) {
   metrics[`${name}WorstFrameMs`] = worst;
 }
-await browser.close();
-await deleteSeededDesign();
-console.log(
-  `session took ${Math.round((Date.now() - sessionStartedAt) / 1000)}s`,
-);
-
 const format = (value: number | undefined) =>
   value === undefined || Number.isNaN(value)
     ? "missing"
@@ -1010,34 +954,56 @@ const verdict = failedSteps.length
 const refreshLines = refreshes.map(
   (refresh) => `- ${refresh.step}: ${refresh.screen} (${refresh.change})`,
 );
-console.log(`\n${table}\n\n${verdict}`);
-if (refreshLines.length)
-  console.log(`\nRefreshes:\n${refreshLines.join("\n")}`);
-if (values.out) {
-  writeFileSync(
-    values.out,
-    JSON.stringify(
-      {
-        designId,
-        browser: {
-          channel: values.channel,
-          version: browserVersion,
-          frameProcesses,
-        },
-        metrics,
-        heapSeries,
-        failedSteps,
-        refreshes,
-      },
-      null,
-      2,
-    ),
+const result = await finalizeRuntimeBudget(
+  {
+    designId,
+    browser: {
+      channel: values.channel,
+      version: browserVersion,
+      frameProcesses,
+    },
+    metrics,
+    heapSeries,
+    zoomMeasurements,
+    failedSteps,
+    refreshes,
+  },
+  failedSteps.length ? 2 : overBudget.length ? 1 : 0,
+  `## Design runtime budget\n\n${table}\n\n${verdict}\n`,
+  {
+    writeReceipt: values.out
+      ? (receipt) =>
+          writeRuntimeBudgetReceipt(
+            values.out!,
+            JSON.stringify(receipt, null, 2),
+          )
+      : undefined,
+    printReceipt: (receipt) =>
+      console.log(
+        `runtime budget measurement receipt: ${JSON.stringify(receipt)}`,
+      ),
+    printSummary: (text) => {
+      console.log(text);
+      if (refreshLines.length)
+        console.log(`\nRefreshes:\n${refreshLines.join("\n")}`);
+    },
+    appendSummary: values.summary
+      ? (text) => appendFileSync(values.summary!, text)
+      : undefined,
+    closeBrowser: () => browser.close(),
+    deleteSeed: deleteSeededDesign,
+  },
+);
+console.log(
+  `session took ${Math.round((Date.now() - sessionStartedAt) / 1000)}s`,
+);
+if (
+  result.receipt.finalization.operations.some(
+    (operation) => operation.status === "failed",
+  )
+) {
+  console.error(
+    `runtime budget finalization failed: ${JSON.stringify(result.receipt)}`,
   );
 }
-if (values.summary) {
-  appendFileSync(
-    values.summary,
-    `## Design runtime budget\n\n${table}\n\n${verdict}\n`,
-  );
-}
-process.exitCode = failedSteps.length ? 2 : overBudget.length ? 1 : 0;
+process.exitCode = result.exitCode;
