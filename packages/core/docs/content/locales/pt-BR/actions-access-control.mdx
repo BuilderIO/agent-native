@@ -165,9 +165,9 @@ Um punhado de actions é consequencial demais para deixar o agente executar por 
 
 Quando `needsApproval` é omitido, o comportamento permanece idêntico byte a byte. Não há custo extra no caminho comum.
 
-Isso funciona da mesma forma para actions legadas no estilo `parameters` e para actions baseadas em schema. Também funciona da mesma forma para o agente dentro do app, sub-agentes, A2A e chamadores MCP, porque toda superfície de agente passa pelo mesmo loop.
+Isso funciona da mesma forma para actions legadas no estilo `parameters` e para actions baseadas em schema. O agente do app e seus subagentes pausam no loop do agente. MCP e A2A usam seus próprios fluxos de aprovação.
 
-Chamadas pela [API HTTP](/docs/http-api) não podem dar aprovação. Quando uma chamada precisa dela, a rota a recusa com um `409` e `errorCode: "approval_required"`, seja qual for a credencial do chamador: bearer token, chave de API, token OAuth do MCP, token de serviço da organização ou identidade A2A. Uma identidade de serviço nunca pode aprovar. Só a própria interface do app, com sessão iniciada, executa essa chamada diretamente, porque a pessoa que a usa é quem aprova. Uma chamada do navegador prova que vem dessa interface com uma capacidade de UI de curta duração. Uma chamada que diz ser o app sem ela recebe um `403` com `errorCode: "ui_capability_required"`, e o cliente do app obtém a capacidade e tenta de novo uma vez. Para que as chamadas de um agente sejam aprovadas, conecte-o via [MCP](/docs/external-agents) ou faça-o pedir no chat do agente do app.
+Chamadas diretas pela [API HTTP](/docs/http-api) não podem fornecer aprovação humana. A rota executa uma ação protegida somente quando a chamada vem da interface verificada do app ou do widget de diretório MCP do app. As demais chamadas HTTP diretas recebem `409` com `errorCode: "approval_required"`. Uma identidade de serviço não pode aprovar. O cliente compartilhado envia uma capacidade de UI de curta duração junto às gravações de uma sessão conectada. Uma chamada sem essa prova recebe `403` com `errorCode: "ui_capability_required"`; depois, o cliente obtém a capacidade e tenta novamente uma vez. Tarefas A2A usam seu próprio fluxo de aprovação, não esta resposta HTTP. A tarefa aguarda a aprovação do responsável e depois repete a chamada de ferramenta aprovada. O comando local `pnpm action ...` chama `handler.run()` diretamente e não avalia `needsApproval`. Trate este campo como um fluxo de aprovação, não como um limite de autorização.
 
 ### Como o loop pausa {#loop}
 
@@ -405,12 +405,12 @@ Uma action de create não chama nenhum dos dois helpers. Ela só precisa carimba
 
 Os quatro mecanismos não são intercambiáveis:
 
-| Mecanismo                         | Pergunta que responde                                      | Se aplica a                              |
-| --------------------------------- | ---------------------------------------------------------- | ---------------------------------------- |
-| `access`                          | O chamador tem a função ou a associação declarada?         | Todos os seis pontos de despacho         |
-| `authorize`                       | Este chamador pode executar a operação?                    | Todos os seis pontos de despacho         |
-| `needsApproval`                   | Um humano deve aprovar esta chamada permitida específica?  | Todas as superfícies                     |
-| `accessFilter()`/`assertAccess()` | Quais linhas este chamador permitido pode ver ou escrever? | Dentro de `run()`, por consulta ou linha |
+| Mecanismo                         | Pergunta que responde                                      | Se aplica a                                                                                                 |
+| --------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `access`                          | O chamador tem a função ou a associação declarada?         | Todos os seis pontos de despacho                                                                            |
+| `authorize`                       | Este chamador pode executar a operação?                    | Todos os seis pontos de despacho                                                                            |
+| `needsApproval`                   | Um humano deve aprovar esta chamada permitida específica?  | fluxos de aprovação do agente, MCP e A2A. HTTP bloqueia chamadas sem comprovação. A CLI local não verifica. |
+| `accessFilter()`/`assertAccess()` | Quais linhas este chamador permitido pode ver ou escrever? | Dentro de `run()`, por consulta ou linha                                                                    |
 
 Uma action de escrita restrita tipicamente precisa tanto de `authorize` quanto de uma verificação de linha. O primeiro mantém não-coaches fora da operação. O segundo mantém um coach fora do plano de outra org. A verificação de linha é `assertAccess()`, ou `access` quando o id da linha é um campo de entrada. `needsApproval` é um eixo separado. Ele nunca restringe quem pode chamar, apenas se o agente pode prosseguir sem supervisão.
 
