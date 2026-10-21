@@ -18,7 +18,9 @@ import {
   prepareServicePrincipalRunStart,
   recordServicePrincipalDenial,
 } from "../org/service-principal-guard.js";
+import { platformWaitUntil } from "../server/background-work.js";
 import { captureError } from "../server/capture-error.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   assertNoInlineImageBytes,
   stripInlineBytes,
@@ -52,6 +54,10 @@ import {
   AGENT_RUN_MIGRATIONS_TABLE,
 } from "./run-migrations.js";
 import { lockThreadRunSlot } from "./run-slot-lock.js";
+import {
+  trackRunTerminal,
+  type RunTerminalTrackingFields,
+} from "./run-terminal-tracking.js";
 import {
   isConsistentToolCallInputFingerprint,
   isUnavailableToolCallInput,
@@ -2710,37 +2716,49 @@ function priorDiagStageLabel(raw: unknown): string | null {
 async function reconcileTerminalRunInRecoveryTransaction(
   tx: DbExec,
   runId: string,
-): Promise<boolean> {
+): Promise<SqlEndedRun | null> {
   const latest = await getRunEventForReconciliation(runId, tx);
-  if (!latest) return false;
+  if (!latest) return null;
   const status = terminalStatusForEvent(latest.event);
   const terminalReason = terminalReasonForEvent(latest.event);
-  if (!status || !terminalReason) return false;
+  if (!status || !terminalReason) return null;
 
-  const { rowsAffected } = await tx.execute({
+  const errorCode = errorCodeForTerminalEvent(latest.event);
+  const { rows, rowsAffected } = await tx.execute({
     sql: `UPDATE agent_runs
           SET status = ?,
               completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
               error_code = ?,
               error_detail = ?,
               terminal_reason = ?
-          WHERE id = ? AND status = 'running'`,
+          WHERE id = ? AND status = 'running'
+          ${ENDED_RUN_RETURNING}`,
     args: [
       status,
       latest.eventAt,
-      errorCodeForTerminalEvent(latest.event),
+      errorCode,
       errorDetailForTerminalEvent(latest.event),
       terminalReason,
       runId,
     ],
   });
-  return (rowsAffected ?? 0) === 1;
+  if ((rowsAffected ?? 0) !== 1) return null;
+  return {
+    runId,
+    ending: { status, terminalReason, errorCode: errorCode ?? undefined },
+    row: rows?.[0] as EndedRunRow | undefined,
+  };
 }
 
+/**
+ * `endedRuns` collects what the reap ended instead of reporting it, so a sweep
+ * can report all of its runs in one send.
+ */
 async function reapSingleStaleRun(
   runId: string,
   source: string,
   maxStaleMs?: number,
+  endedRuns?: SqlEndedRun[],
 ): Promise<{ reaped: boolean; projectionFailed: boolean }> {
   const completedAt = Date.now();
   const staleClause =
@@ -2758,7 +2776,8 @@ async function reapSingleStaleRun(
           WHERE id = ?
             AND status = 'running'
             AND ${terminalRunEventExclusionSql()}
-            AND ${staleClause}`;
+            AND ${staleClause}
+          ${ENDED_RUN_RETURNING}`;
   const updateArgs = [
     STALE_RUN_ERROR_EVENT.errorCode,
     STALE_RUN_ERROR_EVENT.details,
@@ -2808,7 +2827,8 @@ async function reapSingleStaleRun(
     if (lease?.isLive && generationMatches) {
       return { reaped: false, outcome: null };
     }
-    if (await reconcileTerminalRunInRecoveryTransaction(tx, runId)) {
+    const repaired = await reconcileTerminalRunInRecoveryTransaction(tx, runId);
+    if (repaired) {
       if (generationMatches && lease) {
         await tx.execute({
           sql: `UPDATE agent_execution_leases
@@ -2826,9 +2846,9 @@ async function reapSingleStaleRun(
           args: [runId],
         });
       }
-      return { reaped: false, outcome: null };
+      return { reaped: false, outcome: null, repaired };
     }
-    const { rowsAffected } = await tx.execute({
+    const { rows, rowsAffected } = await tx.execute({
       sql: updateSql,
       args: updateArgs,
     });
@@ -2869,94 +2889,124 @@ async function reapSingleStaleRun(
         }
       }
     }
-    return { reaped, outcome };
+    return {
+      reaped,
+      outcome,
+      reapedRow: rows?.[0] as EndedRunRow | undefined,
+    };
   });
   const { reaped, outcome } = reapResult;
-
-  let forensics = "";
-  let priorStageInfo = "";
-  if (reaped) {
-    const read = await client
-      .execute({
-        sql: `SELECT started_at, heartbeat_at, last_progress_at, in_flight_since,
+  // Taken from the committed attempt: a rolled-back one ended nothing.
+  const ended: SqlEndedRun | null =
+    "repaired" in reapResult && reapResult.repaired
+      ? reapResult.repaired
+      : reaped
+        ? {
+            runId,
+            ending: reapedRunEnding({
+              source,
+              errorCode: STALE_RUN_ERROR_EVENT.errorCode,
+              terminalReason: STALE_RUN_TERMINAL_REASON,
+              recoveryOutcome: staleRunRecoveryLabel(outcome),
+            }),
+            row: "reapedRow" in reapResult ? reapResult.reapedRow : undefined,
+          }
+        : null;
+  try {
+    let forensics = "";
+    let priorStageInfo = "";
+    if (reaped) {
+      const read = await client
+        .execute({
+          sql: `SELECT started_at, heartbeat_at, last_progress_at, in_flight_since,
                      dispatch_mode, dispatch_payload, diag_stage, worker_stage
                 FROM agent_runs WHERE id = ?`,
-        args: [runId],
-      })
-      .then((res) => {
-        const row = (res.rows as unknown as Array<Record<string, unknown>>)[0];
-        if (!row)
-          return { forensics: "forensics=row_missing", priorStageInfo: "" };
-        const num = (v: unknown) => (v == null ? null : Number(v));
-        const priorParts: string[] = [];
-        const priorDiag = priorDiagStageLabel(row.diag_stage);
-        const priorWorker = priorDiagStageLabel(row.worker_stage);
-        if (priorDiag) priorParts.push(`priorDiag=${priorDiag}`);
-        if (priorWorker) priorParts.push(`priorWorker=${priorWorker}`);
-        return {
-          forensics: describeStaleReap({
-            startedAt: num(row.started_at),
-            heartbeatAt: num(row.heartbeat_at),
-            lastProgressAt: num(row.last_progress_at),
-            inFlightSince: num(row.in_flight_since),
-            dispatchMode: (row.dispatch_mode as string | null) ?? null,
-            hasDispatchPayload: row.dispatch_payload != null,
-            ...(typeof maxStaleMs === "number" ? { maxStaleMs } : {}),
-            now: completedAt,
-          }),
-          priorStageInfo: priorParts.join(" "),
-        };
-      })
-      // Best-effort throughout: a diagnostic that could fail a reap would be
-      // strictly worse than no diagnostic. But an empty string reads as "reaped
-      // with nothing worth saying" — the exact ambiguity these forensics exist
-      // to remove — so an unreadable row says so instead of going quiet.
-      .catch((err) => ({
-        forensics: `forensics=unreadable ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
-        priorStageInfo: "",
-      }));
-    forensics = read.forensics;
-    priorStageInfo = read.priorStageInfo;
-  }
-
-  // Saved before the successor starts: a successor that folds its own reply
-  // first would have this older run's steps land after its, and take its
-  // error and status.
-  let projectionFailed = false;
-  if (reaped) {
-    // A newer generation owns the turn, so it must remain the sole thread projector.
-    projectionFailed = !(await finalizeStaleRun(
-      runId,
-      source,
-      outcome?.outcome !== "execution_lease_changed",
-    ));
-  }
-
-  if (reaped && outcome && outcome.outcome !== "not_background") {
-    const outcomeDetail =
-      outcome.outcome === "recovered"
-        ? `recovered successorRunId=${outcome.successorRunId}`
-        : `declined reason=${outcome.outcome}`;
-    const detail = priorStageInfo
-      ? `${outcomeDetail} ${priorStageInfo}`
-      : outcomeDetail;
-    await recordRunDiagnostic(
-      runId,
-      RUN_DIAG_STAGE.staleRunRecoveryAttempted,
-      forensics ? `${detail} ${forensics}` : detail,
-    ).catch(() => {});
-    if (outcome.outcome === "recovered") {
-      attemptStaleRunRecoveryDispatch(outcome.successorRunId);
+          args: [runId],
+        })
+        .then((res) => {
+          const row = (
+            res.rows as unknown as Array<Record<string, unknown>>
+          )[0];
+          if (!row)
+            return { forensics: "forensics=row_missing", priorStageInfo: "" };
+          const num = (v: unknown) => (v == null ? null : Number(v));
+          const priorParts: string[] = [];
+          const priorDiag = priorDiagStageLabel(row.diag_stage);
+          const priorWorker = priorDiagStageLabel(row.worker_stage);
+          if (priorDiag) priorParts.push(`priorDiag=${priorDiag}`);
+          if (priorWorker) priorParts.push(`priorWorker=${priorWorker}`);
+          return {
+            forensics: describeStaleReap({
+              startedAt: num(row.started_at),
+              heartbeatAt: num(row.heartbeat_at),
+              lastProgressAt: num(row.last_progress_at),
+              inFlightSince: num(row.in_flight_since),
+              dispatchMode: (row.dispatch_mode as string | null) ?? null,
+              hasDispatchPayload: row.dispatch_payload != null,
+              ...(typeof maxStaleMs === "number" ? { maxStaleMs } : {}),
+              now: completedAt,
+            }),
+            priorStageInfo: priorParts.join(" "),
+          };
+        })
+        // Best-effort throughout: a diagnostic that could fail a reap would be
+        // strictly worse than no diagnostic. But an empty string reads as "reaped
+        // with nothing worth saying" — the exact ambiguity these forensics exist
+        // to remove — so an unreadable row says so instead of going quiet.
+        .catch((err) => ({
+          forensics: `forensics=unreadable ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
+          priorStageInfo: "",
+        }));
+      forensics = read.forensics;
+      priorStageInfo = read.priorStageInfo;
     }
-  } else if (reaped && forensics) {
-    await recordRunDiagnostic(
-      runId,
-      RUN_DIAG_STAGE.staleRunReaped,
-      forensics,
-    ).catch(() => {});
-  }
 
-  return { reaped, projectionFailed };
+    // Saved before the successor starts: a successor that folds its own reply
+    // first would have this older run's steps land after its, and take its
+    // error and status.
+    let projectionFailed = false;
+    if (reaped) {
+      // A newer generation owns the turn, so it must remain the sole thread projector.
+      projectionFailed = !(await finalizeStaleRun(
+        runId,
+        source,
+        outcome?.outcome !== "execution_lease_changed",
+      ));
+    }
+
+    if (reaped && outcome && outcome.outcome !== "not_background") {
+      const outcomeDetail =
+        outcome.outcome === "recovered"
+          ? `recovered successorRunId=${outcome.successorRunId}`
+          : `declined reason=${outcome.outcome}`;
+      const detail = priorStageInfo
+        ? `${outcomeDetail} ${priorStageInfo}`
+        : outcomeDetail;
+      await recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.staleRunRecoveryAttempted,
+        forensics ? `${detail} ${forensics}` : detail,
+      ).catch(() => {});
+      if (outcome.outcome === "recovered") {
+        attemptStaleRunRecoveryDispatch(outcome.successorRunId);
+      }
+    } else if (reaped && forensics) {
+      await recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.staleRunReaped,
+        forensics,
+      ).catch(() => {});
+    }
+
+    return { reaped, projectionFailed };
+  } finally {
+    // After the reap's own follow-up writes, which a one-connection pool
+    // would otherwise queue behind the tracking read.
+    if (ended) {
+      if (endedRuns) endedRuns.push(ended);
+      else trackRunsEndedInSql([ended]);
+    }
+  }
 }
 
 export async function reapIfStale(
@@ -2983,8 +3033,8 @@ export async function reapUnclaimedBackgroundRun(
   }
   const completedAt = Date.now();
   const cutoff = completedAt - UNCLAIMED_BACKGROUND_RUN_GRACE_MS;
-  const reaped = await client.transaction(async (tx) => {
-    const { rowsAffected } = await tx.execute({
+  const { reaped, row } = await client.transaction(async (tx) => {
+    const { rows, rowsAffected } = await tx.execute({
       sql: `UPDATE agent_runs
             SET status = 'errored',
                 completed_at = ?,
@@ -2994,7 +3044,8 @@ export async function reapUnclaimedBackgroundRun(
             WHERE id = ?
               AND status = 'running'
               AND dispatch_mode = 'background'
-              AND COALESCE(heartbeat_at, started_at) < ?`,
+              AND COALESCE(heartbeat_at, started_at) < ?
+            ${ENDED_RUN_RETURNING}`,
       args: [
         completedAt,
         UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
@@ -3012,7 +3063,7 @@ export async function reapUnclaimedBackgroundRun(
         UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
       );
     }
-    return updated;
+    return { reaped: updated, row: rows?.[0] as EndedRunRow | undefined };
   });
   if (reaped) {
     try {
@@ -3030,6 +3081,15 @@ export async function reapUnclaimedBackgroundRun(
         extra: { runId },
       });
     }
+    trackReapedRun(
+      runId,
+      {
+        source: "reap-unclaimed-background",
+        errorCode: UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+        terminalReason: UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+      },
+      row,
+    );
   }
   return reaped;
 }
@@ -3150,7 +3210,7 @@ export async function finalizeClaimedBackgroundRunFailure(
   const expectedGeneration =
     scope.worker_generation == null ? null : String(scope.worker_generation);
 
-  return client.transaction(async (tx) => {
+  const ended = await client.transaction(async (tx) => {
     await lockThreadRunSlot(tx, scope.thread_id as string);
     const lease = await lockTurnExecutionLease(
       tx,
@@ -3175,7 +3235,7 @@ export async function finalizeClaimedBackgroundRunFailure(
       (run.worker_generation == null ? null : String(run.worker_generation)) !==
         expectedGeneration
     ) {
-      return false;
+      return null;
     }
     const generationMatches =
       run.worker_generation == null
@@ -3183,7 +3243,7 @@ export async function finalizeClaimedBackgroundRunFailure(
         : lease !== null &&
           lease.ownerRunId === runId &&
           String(run.worker_generation) === lease.generation;
-    if (!generationMatches) return false;
+    if (!generationMatches) return null;
 
     const updated = await tx.execute({
       sql: `UPDATE agent_runs
@@ -3191,7 +3251,8 @@ export async function finalizeClaimedBackgroundRunFailure(
                 error_detail = ?, terminal_reason = ?, dispatch_payload = NULL
             WHERE id = ? AND status = 'running'
               AND dispatch_mode = 'background-processing'
-              AND ${terminalRunEventExclusionSql()}`,
+              AND ${terminalRunEventExclusionSql()}
+            ${ENDED_RUN_RETURNING}`,
       args: [
         Date.now(),
         failure.errorCode,
@@ -3200,7 +3261,7 @@ export async function finalizeClaimedBackgroundRunFailure(
         runId,
       ],
     });
-    if ((updated.rowsAffected ?? 0) !== 1) return false;
+    if ((updated.rowsAffected ?? 0) !== 1) return null;
 
     const lastEvent = await tx.execute({
       sql: `SELECT seq FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
@@ -3221,8 +3282,19 @@ export async function finalizeClaimedBackgroundRunFailure(
     if ((inserted.rowsAffected ?? 0) !== 1) {
       throw new Error(`Failed to persist failure event for run ${runId}`);
     }
-    return true;
+    return { row: updated.rows?.[0] as EndedRunRow | undefined };
   });
+  if (!ended) return false;
+  trackRunEndedInSql(
+    runId,
+    {
+      status: "errored",
+      terminalReason: `error:${failure.errorCode}`.slice(0, 200),
+      errorCode: failure.errorCode,
+    },
+    ended.row,
+  );
+  return true;
 }
 
 export async function failRunBeforeDispatch(
@@ -3250,7 +3322,7 @@ export async function failRunBeforeDispatch(
   ) {
     return false;
   }
-  return client.transaction(async (tx) => {
+  const ended = await client.transaction(async (tx) => {
     const lease = await lockTurnExecutionLease(
       tx,
       scope.thread_id as string,
@@ -3264,7 +3336,7 @@ export async function failRunBeforeDispatch(
       | { status?: unknown; worker_generation?: number | string | null }
       | undefined;
     if (currentRun?.status !== "running") {
-      return false;
+      return null;
     }
     if (
       lease?.isLive &&
@@ -3272,13 +3344,14 @@ export async function failRunBeforeDispatch(
       (currentRun.worker_generation == null ||
         String(currentRun.worker_generation) === lease.generation)
     ) {
-      return false;
+      return null;
     }
     const updated = await tx.execute({
       sql: `UPDATE agent_runs
             SET status = 'errored', completed_at = ?, error_code = ?,
                 error_detail = ?, terminal_reason = ?, dispatch_payload = NULL
-            WHERE id = ? AND status = 'running'`,
+            WHERE id = ? AND status = 'running'
+            ${ENDED_RUN_RETURNING}`,
       args: [
         Date.now(),
         errorCode,
@@ -3287,8 +3360,22 @@ export async function failRunBeforeDispatch(
         runId,
       ],
     });
-    return (updated.rowsAffected ?? 0) === 1;
+    return (updated.rowsAffected ?? 0) === 1
+      ? { row: updated.rows?.[0] as EndedRunRow | undefined }
+      : null;
   });
+  if (!ended) return false;
+  // No run loop ever started for this row, so nothing else will report it.
+  trackRunEndedInSql(
+    runId,
+    {
+      status: "errored",
+      terminalReason: terminalReason.slice(0, 200),
+      errorCode,
+    },
+    ended.row,
+  );
+  return true;
 }
 
 /** The caller owns this claim and has not called startRun yet. */
@@ -3298,16 +3385,23 @@ export async function releaseBackgroundRunBeforeStart(
   errorDetail: string,
 ): Promise<void> {
   await ensureRunTables();
-  const { rowsAffected } = await getDbExec().execute({
+  const { rowsAffected, rows } = await getDbExec().execute({
     sql: `UPDATE agent_runs
           SET status = 'errored', completed_at = ?, error_code = ?, error_detail = ?, dispatch_payload = NULL
-          WHERE id = ? AND status = 'running' AND dispatch_mode = 'background-processing'`,
+          WHERE id = ? AND status = 'running' AND dispatch_mode = 'background-processing'
+          ${ENDED_RUN_RETURNING}`,
     args: [Date.now(), errorCode, errorDetail, runId],
   });
   if (rowsAffected !== 1)
     throw new Error(
       `Unstarted background worker ${runId} could not be released`,
     );
+  // No run loop ever started for this row, so nothing else will report it.
+  trackRunEndedInSql(
+    runId,
+    { status: "errored", terminalReason: `error:${errorCode}`, errorCode },
+    rows?.[0] as EndedRunRow | undefined,
+  );
 }
 
 export async function getRunStatus(runId: string): Promise<string | null> {
@@ -3423,7 +3517,7 @@ async function updateRunAborted(
       }
     }
     const result = await tx.execute({
-      sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'${requireSafeBoundary ? " AND in_flight_since IS NULL" : ""}`,
+      sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'${requireSafeBoundary ? " AND in_flight_since IS NULL" : ""} ${ENDED_RUN_RETURNING}`,
       args: [
         reason ?? "user",
         Date.now(),
@@ -3435,7 +3529,11 @@ async function updateRunAborted(
     if (rowsAffected > 0) {
       await revokeExecutionLeasesForRuns(tx, [runId]);
       await appendAbortTerminalRunEventInTransaction(tx, runId, abortEvent);
-      return { rowsAffected, appendTerminalEvent: true };
+      return {
+        rowsAffected,
+        appendTerminalEvent: true,
+        endedRow: result.rows?.[0] as EndedRunRow | undefined,
+      };
     }
     const terminalState = await tx.execute({
       sql: `SELECT status, terminal_reason, in_flight_since FROM agent_runs WHERE id = ?`,
@@ -3462,6 +3560,13 @@ async function updateRunAborted(
     "mark-aborted",
     () => client.transaction!(commitAbort),
   );
+  if (abortResult.rowsAffected > 0) {
+    trackAbortedRun(
+      runId,
+      reason ?? "user",
+      "endedRow" in abortResult ? abortResult.endedRow : undefined,
+    );
+  }
   return abortResult.rowsAffected > 0 || abortResult.appendTerminalEvent;
 }
 
@@ -3569,7 +3674,10 @@ export async function markTurnAborted(
   if (!client.transaction) {
     throw new Error("Atomic turn cancellation requires transaction support");
   }
+  let abortedRows: EndedRunRow[] = [];
   const commitAbort = async (tx: DbExec) => {
+    // A retried transaction runs this again; only the committed attempt counts.
+    abortedRows = [];
     const runIds: string[] = [];
     await lockThreadRunSlot(tx, threadId);
     await lockAndAssertCurrentExecutionFences(tx);
@@ -3594,9 +3702,10 @@ export async function markTurnAborted(
     await revokeExecutionLeasesForRuns(tx, candidateRunIds);
     if (candidateRunIds.length > 0) {
       const aborted = await tx.execute({
-        sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' RETURNING id`,
+        sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' ${ENDED_RUN_RETURNING}`,
         args: [reason, now, `aborted:${reason}`, threadId, turnId],
       });
+      abortedRows = aborted.rows as EndedRunRow[];
       runIds.push(
         ...aborted.rows
           .map((row) => String((row as { id?: unknown }).id ?? ""))
@@ -3720,6 +3829,18 @@ export async function markTurnAborted(
   const outcome = await retryAbortTerminalEventTransaction(
     "mark-turn-aborted",
     () => client.transaction!(commitAbort),
+  );
+  trackRunsEndedInSql(
+    abortedRows
+      .filter(
+        (row): row is EndedRunRow & { id: string } =>
+          typeof row.id === "string",
+      )
+      .map((row) => ({
+        runId: row.id,
+        ending: abortedRunEnding(reason),
+        row,
+      })),
   );
   return outcome;
 }
@@ -4976,11 +5097,17 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
     }
   }
   let reapedCount = 0;
+  const endedRuns: SqlEndedRun[] = [];
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string") continue;
     try {
-      const result = await reapSingleStaleRun(id, "reap-all-stale");
+      const result = await reapSingleStaleRun(
+        id,
+        "reap-all-stale",
+        undefined,
+        endedRuns,
+      );
       if (result.reaped) reapedCount += 1;
       if (result.projectionFailed) failedCount += 1;
     } catch (error) {
@@ -4988,6 +5115,7 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
       console.error(`[run-store] stale reap failed for run ${id}:`, error);
     }
   }
+  trackRunsEndedInSql(endedRuns);
   return { reaped: reapedCount, failed: failedCount, truncated };
 }
 
@@ -5262,6 +5390,242 @@ export async function ensureTerminalRunEvent(
   event: Record<string, unknown>,
 ): Promise<void> {
   return appendTerminalRunEvent(runId, event);
+}
+
+/**
+ * A duplicate request, or a worker that lost its turn's execution lease, is
+ * aborted before it does any work; the run it stood in for reports the turn.
+ */
+const NOT_A_RUN_ABORT_REASONS = new Set([
+  "duplicate_submission",
+  "execution-lease-busy",
+]);
+
+function trackAbortedRun(
+  runId: string,
+  abortReason: string,
+  returnedRow: EndedRunRow | undefined,
+): void {
+  if (NOT_A_RUN_ABORT_REASONS.has(abortReason)) return;
+  trackRunEndedInSql(runId, abortedRunEnding(abortReason), returnedRow);
+}
+
+function abortedRunEnding(abortReason: string): SqlRunEnding {
+  return {
+    status: "aborted",
+    terminalReason: `aborted:${abortReason}`,
+    abortReason,
+  };
+}
+
+const ENDED_RUN_RETURNING =
+  "RETURNING id, thread_id, turn_id, dispatch_mode, started_at, completed_at";
+
+interface EndedRunRow {
+  id?: unknown;
+  thread_id?: unknown;
+  turn_id?: unknown;
+  dispatch_mode?: unknown;
+  started_at?: unknown;
+  completed_at?: unknown;
+}
+
+function finiteMs(value: unknown): number | undefined {
+  if (value == null) return undefined;
+  const ms = Number(value);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/**
+ * Sends `agent_run_terminal` for a run this process ended on another
+ * process's behalf. Call it only once the reap's UPDATE has affected the run:
+ * the conditional `status = 'running'` write is what makes each run's terminal
+ * event fire once across the reaper and the run's own process.
+ *
+ * Returns synchronously; the reap never waits on tracking or sees it fail.
+ */
+function trackReapedRun(
+  runId: string,
+  reap: RunReap,
+  returnedRow: EndedRunRow | undefined,
+): void {
+  trackRunEndedInSql(runId, reapedRunEnding(reap), returnedRow);
+}
+
+interface RunReap {
+  source: string;
+  errorCode: string;
+  terminalReason: string;
+  recoveryOutcome?: string;
+}
+
+/** `recovered` and `not_background` stand alone; any other outcome declined. */
+function staleRunRecoveryLabel(
+  recovery: StaleRunRecoveryOutcome | null,
+): string | undefined {
+  if (!recovery) return undefined;
+  return recovery.outcome === "recovered" ||
+    recovery.outcome === "not_background"
+    ? recovery.outcome
+    : `declined:${recovery.outcome}`;
+}
+
+function reapedRunEnding(reap: RunReap): SqlRunEnding {
+  return {
+    status: "errored",
+    terminalReason: reap.terminalReason,
+    errorCode: reap.errorCode,
+    reap: { source: reap.source, recoveryOutcome: reap.recoveryOutcome },
+  };
+}
+
+type SqlRunEnding = Pick<
+  RunTerminalTrackingFields,
+  "status" | "terminalReason" | "errorCode" | "abortReason" | "reap"
+>;
+
+interface SqlEndedRun {
+  runId: string;
+  ending: SqlRunEnding;
+  /** The ending UPDATE's RETURNING row, when the driver returned one. */
+  row: EndedRunRow | undefined;
+}
+
+/**
+ * Sends `agent_run_terminal` for a run a SQL write ended (a reap, stop,
+ * repair, or pre-start release),
+ * which the run's own process then cannot report: its own conditional
+ * terminal write finds no running row. Call it only for runs the ending
+ * UPDATE affected, so whichever write wins is the one that reports.
+ */
+function trackRunEndedInSql(
+  runId: string,
+  ending: SqlRunEnding,
+  returnedRow: EndedRunRow | undefined,
+): void {
+  trackRunsEndedInSql([{ runId, ending, row: returnedRow }]);
+}
+
+/** One background send for a whole sweep: batched initiator reads, one flush. */
+function trackRunsEndedInSql(runs: SqlEndedRun[]): void {
+  if (runs.length === 0) return;
+  const label = () => runs.map((run) => run.runId).join(", ");
+  try {
+    // The ending request is whoever happened to sweep or stop the run: its
+    // synthetic flag, email and client platform must not decide or describe
+    // another user's run, so the send runs without them.
+    const work = Promise.resolve(
+      runWithRequestContext({ isSyntheticTraffic: false }, () =>
+        sendSqlEndedRunTerminals(runs),
+      ),
+    ).catch((error: unknown) => {
+      console.error(
+        "[run-store] agent_run_terminal was not sent for a run ended in SQL:",
+        label(),
+        error instanceof Error ? error.message : error,
+      );
+    });
+    platformWaitUntil()?.(work);
+  } catch (error) {
+    console.error(
+      "[run-store] agent_run_terminal was not sent for a run ended in SQL:",
+      label(),
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+const TURN_INITIATOR_READ_BATCH = 100;
+
+async function sendSqlEndedRunTerminals(runs: SqlEndedRun[]): Promise<void> {
+  const client = getDbExec();
+  const ended: Array<SqlEndedRun & { threadId: string; turnId: string }> = [];
+  for (const run of runs) {
+    const row =
+      run.row ??
+      ((
+        await client.execute({
+          sql: `SELECT id, thread_id, turn_id, dispatch_mode, started_at, completed_at FROM agent_runs WHERE id = ?`,
+          args: [run.runId],
+        })
+      ).rows?.[0] as EndedRunRow | undefined);
+    if (typeof row?.thread_id !== "string") {
+      console.error(
+        "[run-store] agent_run_terminal was not sent: ended run row is unreadable:",
+        run.runId,
+      );
+      continue;
+    }
+    ended.push({
+      ...run,
+      row,
+      threadId: row.thread_id,
+      // Same turn the initiator row and the run's own process key on.
+      turnId:
+        typeof row.turn_id === "string" && row.turn_id
+          ? row.turn_id
+          : run.runId,
+    });
+  }
+  const initiators = new Map<
+    string,
+    { principal_email?: unknown; auth_user_id?: unknown }
+  >();
+  const initiatorKey = (threadId: string, turnId: string) =>
+    `${threadId}\u0000${turnId}`;
+  for (let i = 0; i < ended.length; i += TURN_INITIATOR_READ_BATCH) {
+    const batch = ended.slice(i, i + TURN_INITIATOR_READ_BATCH);
+    const { rows } = await client.execute({
+      sql: `SELECT thread_id, turn_id, principal_email, auth_user_id FROM agent_turn_initiators WHERE (thread_id, turn_id) IN (${batch.map(() => "(?, ?)").join(", ")})`,
+      args: batch.flatMap((run) => [run.threadId, run.turnId]),
+    });
+    for (const row of (rows ?? []) as Array<{
+      thread_id?: unknown;
+      turn_id?: unknown;
+      principal_email?: unknown;
+      auth_user_id?: unknown;
+    }>) {
+      if (typeof row.thread_id === "string" && typeof row.turn_id === "string")
+        initiators.set(initiatorKey(row.thread_id, row.turn_id), row);
+    }
+  }
+  await Promise.all(
+    ended.map((run) => {
+      const initiator = initiators.get(initiatorKey(run.threadId, run.turnId));
+      const startedAt = finiteMs(run.row?.started_at);
+      const completedAt = finiteMs(run.row?.completed_at);
+      return trackRunTerminal(
+        {
+          ...run.ending,
+          runId: run.runId,
+          threadId: run.threadId,
+          turnId: run.turnId,
+          dispatchMode:
+            typeof run.row?.dispatch_mode === "string"
+              ? run.row.dispatch_mode
+              : undefined,
+          durationMs:
+            startedAt !== undefined && completedAt !== undefined
+              ? completedAt - startedAt
+              : undefined,
+        },
+        // The turn's initiator, not the request that ended the run; `track()`
+        // drops it when it is a test identity.
+        {
+          userId:
+            typeof initiator?.principal_email === "string"
+              ? initiator.principal_email
+              : undefined,
+          authUserId:
+            typeof initiator?.auth_user_id === "string"
+              ? initiator.auth_user_id
+              : undefined,
+        },
+      );
+    }),
+  );
+  const { flushTracking } = await import("../tracking/registry.js");
+  await flushTracking();
 }
 
 /** Projects a run after its stale status and terminal event committed. */

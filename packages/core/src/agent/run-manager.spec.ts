@@ -9288,8 +9288,26 @@ describe("run manager soft timeout", () => {
       expect(properties).not.toHaveProperty("dispatch_mode");
     });
 
-    it("emits an aborted event with the abort reason, not a false completion", async () => {
+    it("attributes agent_run_terminal to the run's user", async () => {
       startRun(
+        "run-tracking-user",
+        "thread-tracking-user",
+        async (send) => {
+          send({ type: "text", text: "fast answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0, userId: "ada@acme-corp.io" },
+      );
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      const [name, , source] = vi.mocked(track).mock.calls[0];
+      expect(name).toBe("agent_run_terminal");
+      expect(source).toMatchObject({ userId: "ada@acme-corp.io" });
+    });
+
+    it("leaves an aborted run to the SQL write that ended it, never a false completion", async () => {
+      const live = startRun(
         "run-tracking-abort",
         "thread-tracking-abort",
         async (send, signal) => {
@@ -9302,17 +9320,11 @@ describe("run manager soft timeout", () => {
       );
 
       expect(abortRun("run-tracking-abort")).toBe(true);
+      await live.finalized;
 
-      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
-
-      expect(track).toHaveBeenCalledWith(
+      expect(track).not.toHaveBeenCalledWith(
         "agent_run_terminal",
-        expect.objectContaining({
-          run_id: "run-tracking-abort",
-          status: "aborted",
-          terminal_reason: "aborted:user",
-          abort_reason: "user",
-        }),
+        expect.anything(),
         expect.anything(),
       );
     });

@@ -297,6 +297,7 @@ export function httpStatusFromError(err: unknown): number | undefined {
 function emitLlmGenerationTrackingEvent(args: {
   runId: string;
   threadId: string | null;
+  turnId?: string;
   userId: string | null;
   parentSpanId: string;
   llmSpanId: string;
@@ -373,6 +374,7 @@ function emitLlmGenerationTrackingEvent(args: {
     span_type: "llm_call",
     run_id: args.runId,
     thread_id: args.threadId,
+    turn_id: args.turnId,
     parent_span_id: args.parentSpanId,
     span_id: args.llmSpanId,
     model: args.model,
@@ -580,6 +582,8 @@ export async function instrumentAgentLoop(opts: {
   };
   runId: string;
   threadId: string | null;
+  /** The agent turn this run serves; omitted from events when unknown. */
+  turnId?: string;
   userId: string | null;
   config: ObservabilityConfig;
   spanName?: string;
@@ -607,7 +611,8 @@ export async function instrumentAgentLoop(opts: {
     | null
     | undefined;
 }): Promise<AgentLoopUsage> {
-  const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
+  const { runAgentLoop, loopOpts, runId, threadId, turnId, userId, config } =
+    opts;
   const engineName =
     typeof loopOpts.engine?.name === "string"
       ? loopOpts.engine.name
@@ -1559,6 +1564,7 @@ export async function instrumentAgentLoop(opts: {
           emitLlmGenerationTrackingEvent({
             runId,
             threadId,
+            turnId,
             userId,
             parentSpanId,
             llmSpanId: generation.spanId,
@@ -1691,6 +1697,7 @@ export async function instrumentAgentLoop(opts: {
             source: "agent_observability",
             run_id: runId,
             thread_id: threadId,
+            turn_id: turnId,
             llm_calls: llmCallCount || undefined,
             follow_up_ms: usage?.followUpMs,
             follow_up_input_tokens: usage?.followUpInputTokens,

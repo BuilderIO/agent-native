@@ -22,7 +22,6 @@ import {
   describeErrorWithCauses,
   isProviderConnectionError,
 } from "./engine/error-detail.js";
-import { runErrorTelemetryProperties } from "./engine/error-telemetry.js";
 import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
@@ -78,6 +77,7 @@ import {
   RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT,
   UNKNOWN_RUN_STATUS_ERROR_EVENT,
 } from "./run-store.js";
+import { trackRunTerminal } from "./run-terminal-tracking.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 
@@ -736,42 +736,23 @@ function emitRunTerminalTrackingEvent(args: {
   } catch {
     // Metrics must never affect the agent run or its persisted status.
   }
-  const properties: Record<string, unknown> = {
-    source: "agent_run_manager",
-    run_id: args.runId,
-    thread_id: args.threadId,
-    turn_id: args.turnId,
-    status: args.status,
-    terminal_reason: args.terminalReason,
-    error_code: args.errorCode,
-    ...(args.errorCode ? runErrorTelemetryProperties(args.errorCode) : {}),
-    dispatch_mode: args.dispatchMode,
-    abort_reason: args.abortReason,
-    duration_ms: args.durationMs,
-    model: args.model,
-    engine: args.engineName,
-    attempt_count: args.attemptCount,
-  };
-  for (const key of Object.keys(properties)) {
-    if (properties[key] === undefined) delete properties[key];
-  }
-
-  try {
-    void Promise.all([
-      import("../tracking/registry.js"),
-      import("../observability/tracking-identity.js"),
-    ])
-      .then(([{ track }, { trackingIdentityProperties }]) => {
-        track(
-          "agent_run_terminal",
-          { ...properties, ...trackingIdentityProperties() },
-          { userId: args.userId },
-        );
-      })
-      .catch(() => {});
-  } catch {
-    // Tracking must never affect the agent run or its persisted status.
-  }
+  void trackRunTerminal(
+    {
+      runId: args.runId,
+      threadId: args.threadId,
+      turnId: args.turnId,
+      status: args.status,
+      terminalReason: args.terminalReason,
+      errorCode: args.errorCode,
+      dispatchMode: args.dispatchMode,
+      abortReason: args.abortReason,
+      durationMs: args.durationMs,
+      model: args.model,
+      engineName: args.engineName,
+      attemptCount: args.attemptCount,
+    },
+    { userId: args.userId },
+  );
 }
 
 function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
@@ -2503,7 +2484,14 @@ export function startRun(
       // protect. `persistedStatus` (not `finalStatus`) is used so a
       // continuation boundary reports as "truncated" rather than a false
       // "completed" — that distinction is the whole point of this event.
-      if (terminalPersistenceEstablished) {
+      // An abort is reported by the SQL write that ended the row, which may
+      // be another process's stop; this process reporting it too would
+      // double-count every stopped run.
+      if (
+        terminalPersistenceEstablished &&
+        !executionLeaseClaimFailed &&
+        finalStatus !== "aborted"
+      ) {
         emitRunTerminalTrackingEvent({
           runId,
           threadId,
