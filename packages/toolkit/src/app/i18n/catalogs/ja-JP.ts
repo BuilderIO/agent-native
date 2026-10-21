@@ -3204,6 +3204,18 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "レポートは添付されませんでした。",
   "reportProblem.agentMessage":
     "アプリで問題が発生しました。添付の問題レポートをもとに、何が起きたのか説明してください。",
+  "unsupportedDevice.title": "より大きな画面で開いてください",
+  "unsupportedDevice.titleDeck": "このデッキはより大きな画面で開いてください",
+  "unsupportedDevice.titleDesign":
+    "このデザインはより大きな画面で開いてください",
+  "unsupportedDevice.body":
+    "{{app}}はiPad、タブレット、デスクトップで使えます。リンクを自分に送って、続きはそちらで。",
+  "unsupportedDevice.email": "リンクをメールで送る",
+  "unsupportedDevice.share": "リンクを共有",
+  "unsupportedDevice.copy": "リンクをコピー",
+  "unsupportedDevice.copyFailed": "リンクをコピーできませんでした",
+  "unsupportedDevice.copied": "リンクをコピーしました",
+  "unsupportedDevice.emailSubject": "パソコンで{{app}}を開く",
 };
 
 export default messages;

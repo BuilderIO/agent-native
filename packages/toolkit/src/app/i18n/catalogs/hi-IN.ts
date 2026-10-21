@@ -3137,6 +3137,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "रिपोर्ट संलग्न नहीं हुई।",
   "reportProblem.agentMessage":
     "ऐप में कुछ गड़बड़ हो गई। संलग्न समस्या रिपोर्ट से बताइए कि क्या हुआ।",
+  "unsupportedDevice.title": "इसे बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.titleDeck": "इस डेक को बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.titleDesign": "इस डिज़ाइन को बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.body":
+    "{{app}} iPad, टैबलेट और डेस्कटॉप पर चलता है। लिंक खुद को भेजें और वहाँ से आगे बढ़ें।",
+  "unsupportedDevice.email": "मुझे लिंक ईमेल करें",
+  "unsupportedDevice.share": "लिंक शेयर करें",
+  "unsupportedDevice.copy": "लिंक कॉपी करें",
+  "unsupportedDevice.copyFailed": "लिंक कॉपी नहीं हो सका",
+  "unsupportedDevice.copied": "लिंक कॉपी हो गया",
+  "unsupportedDevice.emailSubject": "अपने कंप्यूटर पर {{app}} खोलें",
 };
 
 export default messages;
