@@ -47,7 +47,10 @@ import {
   applyContentDatabaseTableQuery,
   contentDatabaseTableQueryUsesProperties,
 } from "../shared/database-query.js";
-import { buildDocumentExcerpt } from "../shared/og-description.js";
+import {
+  buildListRowExcerpt,
+  EXCERPT_SOURCE_CHARS,
+} from "../shared/og-description.js";
 import {
   evaluatePropertyFormula,
   isBlocksPropertyType,
@@ -261,27 +264,6 @@ export const contentDatabaseListDocumentSelection = {
   createdAt: schema.documents.createdAt,
   updatedAt: schema.documents.updatedAt,
 };
-
-/**
- * How much of each page body a list read takes for its excerpt: enough
- * markdown for three lines of text once links and formatting are stripped.
- * The read takes one character more to tell a longer body from one that fits.
- */
-const EXCERPT_SOURCE_CHARS = 1000;
-
-function serializeExcerpt(bodyPrefix: string | undefined, title: string) {
-  // Count characters the way the database does, not UTF-16 units.
-  const characters = Array.from(bodyPrefix ?? "");
-  const truncated = characters.length > EXCERPT_SOURCE_CHARS;
-  return buildDocumentExcerpt({
-    content: truncated
-      ? characters.slice(0, EXCERPT_SOURCE_CHARS).join("")
-      : bodyPrefix,
-    title,
-    truncated,
-    nextCharacter: characters[EXCERPT_SOURCE_CHARS],
-  });
-}
 
 export function serializeBodyHydration(
   item: typeof schema.contentDatabaseItems.$inferSelect,
@@ -1264,6 +1246,13 @@ export async function getContentDatabasePageResponse(
   const serializedDocumentIds = new Set(
     serializedItems.map((item) => item.document.id),
   );
+  // Reading a collection doesn't open every row's page, so excerpts come only
+  // from pages the reader can view.
+  const excerptDocumentIds = includeExcerpts
+    ? serializedItems
+        .filter((item) => item.document.canView)
+        .map((item) => item.document.id)
+    : [];
   const [sourceSnapshots, bodyPrefixByDocumentId] = await Promise.all([
     options.includeSources === false
       ? []
@@ -1272,7 +1261,9 @@ export async function getContentDatabasePageResponse(
         }),
     // Only the start of each returned page's body, and only when a view
     // shows it. Filters and sorts that run here have already cut the page.
-    includeExcerpts && serializedDocumentIds.size > 0
+    // The read takes one character more to tell a longer body from one that
+    // fits.
+    excerptDocumentIds.length > 0
       ? db
           .select({
             id: schema.documents.id,
@@ -1281,7 +1272,7 @@ export async function getContentDatabasePageResponse(
             >`substr(${schema.documents.content}, 1, ${sql.raw(String(EXCERPT_SOURCE_CHARS + 1))})`,
           })
           .from(schema.documents)
-          .where(inArray(schema.documents.id, [...serializedDocumentIds]))
+          .where(inArray(schema.documents.id, excerptDocumentIds))
           .then(
             (rows) =>
               new Map(rows.map((row) => [row.id, row.bodyPrefix ?? ""])),
@@ -1291,10 +1282,12 @@ export async function getContentDatabasePageResponse(
   const pageItems = includeExcerpts
     ? serializedItems.map((item) => ({
         ...item,
-        excerpt: serializeExcerpt(
-          bodyPrefixByDocumentId.get(item.document.id),
-          item.document.title,
-        ),
+        excerpt: item.document.canView
+          ? buildListRowExcerpt({
+              content: bodyPrefixByDocumentId.get(item.document.id),
+              title: item.document.title,
+            })
+          : "",
       }))
     : serializedItems;
   const organizationVisibleDocumentIds =

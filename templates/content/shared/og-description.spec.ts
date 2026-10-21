@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentExcerpt,
+  buildListRowExcerpt,
   buildPublicDocumentDescription,
   stripMarkdownForPreview,
 } from "./og-description";
@@ -283,5 +284,24 @@ const flag = true;
       truncated: true,
     });
     expect(excerpt).toBe(`${"界".repeat(297)}...`);
+  });
+});
+
+describe("buildListRowExcerpt", () => {
+  it("reads a whole body the way a list read reads its first characters", () => {
+    // A code block pads the body so its first 1,000 characters end inside
+    // "wordsmith". The sprout is one character but two UTF-16 units.
+    const kept = "```\n\n```\n\n\u{1F331} Short ending words";
+    const pad = "x".repeat(1000 - Array.from(kept).length);
+    const cut = `\`\`\`\n${pad}\n\`\`\`\n\n\u{1F331} Short ending wordsmith here.`;
+    const late = `\`\`\`\n${"x".repeat(1000)}\n\`\`\`\n\nText the read never sees.`;
+    for (const [content, expected] of [
+      [cut, "\u{1F331} Short ending..."],
+      [late, ""],
+    ]) {
+      const prefix = Array.from(content).slice(0, 1001).join("");
+      expect(buildListRowExcerpt({ content })).toBe(expected);
+      expect(buildListRowExcerpt({ content: prefix })).toBe(expected);
+    }
   });
 });

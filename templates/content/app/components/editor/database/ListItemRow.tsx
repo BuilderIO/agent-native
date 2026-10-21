@@ -8,7 +8,7 @@ import type {
   ResolvedContentDatabaseItemLayout,
 } from "@shared/database-item-layout";
 import {
-  buildDocumentExcerpt,
+  buildListRowExcerpt,
   stripMarkdownForPreview,
 } from "@shared/og-description";
 import {
@@ -104,7 +104,7 @@ function line2Text(property: DocumentProperty) {
 function pageExcerpt(item: ContentDatabaseItem) {
   if (item.excerpt !== undefined) return item.excerpt;
   return item.document.content
-    ? buildDocumentExcerpt({
+    ? buildListRowExcerpt({
         content: item.document.content,
         title: item.document.title,
       })

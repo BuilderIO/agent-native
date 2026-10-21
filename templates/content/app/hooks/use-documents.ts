@@ -29,7 +29,7 @@ import type {
 import type { ContentSidebarSections } from "@shared/content-personal-navigation";
 import type { ContentRecentResult } from "@shared/content-personal-navigation";
 import { applyContentPersonalNavigationPatch } from "@shared/content-personal-navigation-patch";
-import { buildDocumentExcerpt } from "@shared/og-description";
+import { buildListRowExcerpt } from "@shared/og-description";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   hashKey,
@@ -462,7 +462,7 @@ export function patchDocumentInDatabaseCache<
       "excerpt" in item &&
       item.excerpt !== undefined
         ? {
-            excerpt: buildDocumentExcerpt({
+            excerpt: buildListRowExcerpt({
               content: patch.content,
               title: patch.title ?? item.document.title,
             }),

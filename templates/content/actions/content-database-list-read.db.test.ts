@@ -39,6 +39,7 @@ const TEST_DB_PATH = join(
   `content-database-list-read-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "owner@example.com";
+const VIEWER = "viewer@example.com";
 
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
@@ -153,11 +154,11 @@ async function seedDatabase(suffix: string) {
   });
 }
 
-async function readPage(databaseId: string, limit?: number) {
-  const response = await asOwner(() =>
+async function readPage(databaseId: string, limit?: number, userEmail = OWNER) {
+  const response = await runWithRequestContext({ userEmail }, () =>
     getContentDatabaseAction.run(
       { databaseId, limit },
-      { caller: "frontend", userEmail: OWNER },
+      { caller: "frontend", userEmail },
     ),
   );
   if (!("items" in response)) throw new Error("Fixture read was unavailable.");
@@ -381,6 +382,47 @@ describe("content database list reads", () => {
       "Row prefix 1": "Short ending words...",
       "Row prefix 2": "Short ending...",
     });
+  });
+
+  it("leaves out the text of pages the reader can't open", async () => {
+    const fixture = await seedDatabase("access");
+    for (const row of fixture.rows) {
+      await getDb()
+        .update(schema.documents)
+        .set({ content: `Notes for ${row.title}.` })
+        .where(eq(schema.documents.id, row.documentId));
+    }
+    // The collection and its second row are shared; the other rows aren't.
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documentShares)
+      .values(
+        [fixture.documentId, fixture.rows[1]!.documentId].map(
+          (resourceId, index) => ({
+            id: `share-access-${index}`,
+            resourceId,
+            principalType: "user" as const,
+            principalId: VIEWER,
+            role: "viewer" as const,
+            createdBy: OWNER,
+            createdAt: now,
+          }),
+        ),
+      );
+    await showPageTextInList(fixture.databaseId);
+
+    const items = await readPage(fixture.databaseId, 100, VIEWER);
+    expect(
+      items.map((item) => [
+        item.document.title,
+        item.document.canView,
+        item.excerpt,
+      ]),
+    ).toEqual([
+      ["Row access 0", false, ""],
+      ["Row access 1", true, "Notes for Row access 1."],
+      ["Row access 2", false, ""],
+    ]);
   });
 
   it("adds excerpts to the rows a filtered, paged read returns", async () => {

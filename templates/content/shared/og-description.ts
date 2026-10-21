@@ -209,3 +209,34 @@ export function buildDocumentExcerpt({
   if (text.length > maxLength) return truncateDescription(text, maxLength);
   return truncated && text ? withEllipsis(text, maxLength) : text;
 }
+
+/**
+ * How much of a page body a list row's excerpt reads: enough markdown for
+ * three lines of text once links and formatting are stripped.
+ */
+export const EXCERPT_SOURCE_CHARS = 1000;
+
+/**
+ * A list row's excerpt, from only the first `EXCERPT_SOURCE_CHARS` characters
+ * of the page body. A whole body and a list read's prefix, which takes one
+ * character more to tell a longer body from one that fits, give the same text.
+ */
+export function buildListRowExcerpt({
+  content,
+  title,
+}: {
+  content?: string | null;
+  title?: string | null;
+}): string {
+  // Count characters the way the database does, not UTF-16 units. No
+  // character takes more than two units.
+  const characters = Array.from(
+    (content ?? "").slice(0, 2 * (EXCERPT_SOURCE_CHARS + 1)),
+  );
+  return buildDocumentExcerpt({
+    content: characters.slice(0, EXCERPT_SOURCE_CHARS).join(""),
+    title,
+    truncated: characters.length > EXCERPT_SOURCE_CHARS,
+    nextCharacter: characters[EXCERPT_SOURCE_CHARS],
+  });
+}
