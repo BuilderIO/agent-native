@@ -26,6 +26,7 @@ ledger.
 Do not send a routine second reply just to announce a merge or publication.
 
 <!-- framework-repo-only:start -->
+
 ### One-time beta update after merge
 
 For a beta-eligible app PR linked to a thread already owned by
@@ -58,6 +59,7 @@ Only `/ship-and-monitor` or an explicitly requested beta check verifies that
 the site is current. If a later in-scope beta check finds a publish failure or
 the site is not current after 24 hours, that check's owner handles the
 correction in the same thread.
+
 <!-- framework-repo-only:end -->
 
 For a recent unanswered reporter question, reuse the existing same-actor
@@ -323,6 +325,7 @@ ticket without authorization. Never imply a
 partial fix resolved the whole report.
 
 <!-- framework-repo-only:start -->
+
 For beta app fixes, keep publisher details in the recap and follow the
 [one-time beta update after merge](#one-time-beta-update-after-merge) procedure.
 Use `🎫` only when another person or team must act. Keep hashes, branch names,
@@ -330,6 +333,7 @@ CI, workflow details, and run IDs out of reporter replies. For package work,
 distinguish the source PR from any release PR and registry proof; source merge
 alone does not establish publication. Give no ETA for a pending package
 release.
+
 <!-- framework-repo-only:end -->
 
 For every reply in each final full-thread snapshot, record a read-back of the
