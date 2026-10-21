@@ -1638,8 +1638,11 @@ function replyNamesRecordedAction(
       text,
       publicActionSummaryForReply(action, publicActionSummary),
     ) &&
-    (publicActionSummary === undefined ||
-      publicActionSummaryMatchesAction(action, publicActionSummary, owner))
+    publicActionSummaryMatchesAction(
+      action,
+      publicActionSummaryForReply(action, publicActionSummary),
+      owner,
+    )
   );
 }
 
