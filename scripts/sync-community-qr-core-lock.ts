@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -6,6 +8,7 @@ const templatePackagePath = "templates/community/qr/package.json";
 const lockfilePath = "pnpm-lock.yaml";
 const importerPath = "templates/community/qr";
 const workspaceCorePath = "../../../packages/core";
+const communityAppsPath = "packages/dispatch/src/server/lib/community-apps.ts";
 
 export function syncCommunityQrCoreLock(
   lockfile: string,
@@ -39,6 +42,41 @@ export function syncCommunityQrCoreLock(
   return `${lockfile.slice(0, importerStart)}${updatedImporter}${lockfile.slice(importerEnd)}`;
 }
 
+export function gitBlobSha(content: Buffer): string {
+  return createHash("sha1")
+    .update(`blob ${content.length}\0`)
+    .update(content)
+    .digest("hex");
+}
+
+// Dispatch pins each QR template file by Git blob id, so a manifest change
+// invalidates the pin until it is rewritten here.
+export function syncCommunityQrBlobPins(
+  source: string,
+  blobShaFor: (templateFile: string) => string,
+): string {
+  const sourceStart = source.indexOf(`templatePath: "${importerPath}"`);
+  if (sourceStart < 0) {
+    throw new Error(`Missing ${importerPath} source in ${communityAppsPath}.`);
+  }
+  const pin = /(path: "([^"]+)",\n\s+blobSha: ")[a-f0-9]{40}(")/g;
+  pin.lastIndex = sourceStart;
+  const sourceEnd = source.indexOf("\n    },", sourceStart);
+  let pins = 0;
+  const updated = source.replace(
+    pin,
+    (match, before: string, file: string, after: string, offset: number) => {
+      if (offset > sourceEnd) return match;
+      pins += 1;
+      return `${before}${blobShaFor(file)}${after}`;
+    },
+  );
+  if (pins === 0) {
+    throw new Error(`No blob pins found for ${importerPath}.`);
+  }
+  return updated;
+}
+
 async function main(): Promise<void> {
   const [packageSource, lockfile] = await Promise.all([
     readFile(templatePackagePath, "utf8"),
@@ -56,6 +94,12 @@ async function main(): Promise<void> {
 
   const updated = syncCommunityQrCoreLock(lockfile, coreSpecifier);
   if (updated !== lockfile) await writeFile(lockfilePath, updated);
+
+  const communityApps = await readFile(communityAppsPath, "utf8");
+  const repinned = syncCommunityQrBlobPins(communityApps, (file) =>
+    gitBlobSha(readFileSync(path.join(importerPath, file))),
+  );
+  if (repinned !== communityApps) await writeFile(communityAppsPath, repinned);
 }
 
 if (
