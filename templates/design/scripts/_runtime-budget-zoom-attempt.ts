@@ -92,21 +92,25 @@ export async function runRuntimeZoomAttempt(
     else {
       phase = "apply";
       await io.apply(deadline);
-      phase = "settle";
-      const actual = await readZoomUntilAvailable(
-        async () => {
-          const snapshot = await read("settle");
-          return measureRuntimeZoom(snapshot, target).failedChecks.length === 0
-            ? snapshot!.camera.scale
-            : null;
-        },
-        io.wait,
-        deadline,
-        io.cleanup,
-        now,
-      );
-      arrived = actual !== null;
-      if (!arrived) error = { phase, reason: "deadline-exceeded" };
+      if (now() >= deadline) error = { phase, reason: "deadline-exceeded" };
+      else {
+        phase = "settle";
+        const actual = await readZoomUntilAvailable(
+          async () => {
+            const snapshot = await read("settle");
+            return measureRuntimeZoom(snapshot, target).failedChecks.length ===
+              0
+              ? snapshot!.camera.scale
+              : null;
+          },
+          io.wait,
+          deadline,
+          io.cleanup,
+          now,
+        );
+        arrived = actual !== null;
+        if (!arrived) error = { phase, reason: "deadline-exceeded" };
+      }
     }
   } catch (cause) {
     error =

@@ -207,6 +207,88 @@ describe("runtime zoom attempt diagnostics", () => {
     });
   });
 
+  it.each([10_000, 10_001])(
+    "attributes apply completion at %i ms to apply without taking a final sample",
+    async (elapsed) => {
+      const ports = io(async () => ({
+        status: "available",
+        snapshot: snapshot(),
+      }));
+      ports.apply.mockImplementationOnce(async () => {
+        ports.advance(elapsed);
+      });
+      const result = await runRuntimeZoomAttempt(60, ports);
+      const artifact = JSON.parse(JSON.stringify(result));
+      expect(artifact.error).toEqual({
+        phase: "apply",
+        reason: "deadline-exceeded",
+      });
+      expect(artifact.final).toBeNull();
+      expect(artifact.before.status).toBe("available");
+      expect(result.arrived).toBe(false);
+      expect(result.elapsedMs).toBe(elapsed);
+      expect(ports.read).toHaveBeenCalledOnce();
+      expect(ports.wait).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows near-deadline apply completion to settle while time remains", async () => {
+    const ports = io(async () => ({
+      status: "available",
+      snapshot: snapshot(),
+    }));
+    ports.apply.mockImplementationOnce(async () => {
+      ports.advance(9_998);
+    });
+    ports.read
+      .mockImplementationOnce(async () => ({
+        status: "available",
+        snapshot: snapshot(),
+      }))
+      .mockImplementationOnce(async () => {
+        ports.advance(1);
+        return { status: "available", snapshot: snapshot() };
+      });
+    const result = await runRuntimeZoomAttempt(60, ports);
+    expect(result.arrived).toBe(true);
+    expect(result.error).toBeNull();
+    expect(result.final?.status).toBe("available");
+    expect(result.elapsedMs).toBe(9_999);
+    expect(ports.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains a late apply rejection in an immutable receipt without sampling settle", async () => {
+    const ports = io(async () => ({
+      status: "available",
+      snapshot: snapshot(),
+    }));
+    let rejectApply!: (cause: Error) => void;
+    ports.apply.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectApply = reject;
+        }),
+    );
+    const pending = runRuntimeZoomAttempt(60, ports);
+    await vi.waitFor(() => expect(ports.apply).toHaveBeenCalledOnce());
+    ports.advance(10_001);
+    rejectApply(new Error("late apply rejection"));
+    const result = await pending;
+    const artifact = JSON.stringify(result);
+    expect(result.arrived).toBe(false);
+    expect(result.error).toEqual({
+      phase: "apply",
+      reason: "attempt-failed",
+      message: "Error: late apply rejection",
+    });
+    expect(result.final).toBeNull();
+    expect(result.elapsedMs).toBe(10_001);
+    expect(ports.read).toHaveBeenCalledOnce();
+    ports.advance(1_000);
+    await Promise.resolve();
+    expect(JSON.stringify(result)).toBe(artifact);
+  });
+
   it("keeps timeout cleanup and a rejected pending read visible in the artifact", async () => {
     vi.useFakeTimers();
     try {
