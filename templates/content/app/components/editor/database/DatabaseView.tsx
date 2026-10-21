@@ -32,6 +32,7 @@ import {
   type ContentDatabaseFilterMode,
   type ContentDatabaseFilterOperator,
   type ContentDatabaseFormQuestion,
+  type ContentDatabaseItemLayout,
   type ContentDatabaseOpenPagesIn,
   type ContentDatabaseRowDensity,
   type ContentDatabaseSort,
@@ -46,6 +47,7 @@ import {
 } from "@shared/api";
 import { contentRecentHref } from "@shared/content-personal-navigation";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
+import { contentDatabaseItemLayoutField } from "@shared/database-item-layout";
 import {
   applyContentDatabaseTableQuery,
   contentDatabaseFilterDateRangeValues,
@@ -332,6 +334,7 @@ import { DatabaseGalleryView } from "./GalleryView";
 import type { GitHubCollectionPlace } from "./github-availability";
 import { GitHubSourcePanel, useGitHubSourcesRow } from "./GitHubSourcePanel";
 import { GitHubSourceStatusLine } from "./GitHubSourceStatusLine";
+import { DatabaseListRowsSetting } from "./ListItemLayout";
 import { DatabaseListView } from "./ListView";
 import {
   DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
@@ -1125,6 +1128,9 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editingListRowsViewId, setEditingListRowsViewId] = useState<
+    string | null
+  >(null);
   const settingsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [preserveSourceNavigationOnClose, setPreserveSourceNavigationOnClose] =
     useState(false);
@@ -2549,6 +2555,10 @@ function DatabaseTable({
     updateActiveView((view) => ({ ...view, formQuestions }));
   }
 
+  function setItemLayout(itemLayout: ContentDatabaseItemLayout | null) {
+    updateActiveView((view) => ({ ...view, itemLayout }));
+  }
+
   function setGroupCollapsed(groupId: string, collapsed: boolean) {
     updateActiveView((view) =>
       setDatabaseViewCollapsedGroup(view, groupId, collapsed),
@@ -3591,8 +3601,15 @@ function DatabaseTable({
         <DatabaseListView
           properties={tableProperties}
           groupableProperties={orderedProperties}
+          layoutProperties={databaseListLayoutProperties(
+            orderedProperties,
+            activeView,
+          )}
           items={visibleItems}
+          databaseId={databaseId}
           databaseDocumentId={document.id}
+          itemLayout={activeView.itemLayout ?? null}
+          editingRows={editingListRowsViewId === activeView.id}
           canEdit={effectiveCanEdit}
           canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
@@ -3610,6 +3627,10 @@ function DatabaseTable({
           onPreview={previewItemPage}
           onDeletedPreviewItem={handleDeletedPreviewItem}
           onOpenPage={openItemPage}
+          onItemLayoutChange={setItemLayout}
+          onEditingRowsChange={(editing) =>
+            setEditingListRowsViewId(editing ? activeView.id : null)
+          }
         />
       ) : activeView.type === "gallery" ? (
         <DatabaseGalleryView
@@ -4053,6 +4074,12 @@ function DatabaseTable({
         onWrapCellsChange={setWrapCells}
         onOpenPagesInChange={setOpenPagesIn}
         onFormQuestionsChange={setFormQuestions}
+        editingListRows={editingListRowsViewId === activeView.id}
+        onItemLayoutChange={setItemLayout}
+        onEditListRows={() => {
+          setEditingListRowsViewId(activeView.id);
+          closeDatabaseSettings();
+        }}
         onPropertyHiddenChange={setPropertyHiddenInActiveView}
         onPropertiesHiddenChange={setPropertiesHiddenInActiveView}
         onGroupByChange={(propertyId) =>
@@ -4180,6 +4207,7 @@ export function databaseNavigationState({
     | "tableColumnOrderIds"
     | "rowDensity"
     | "openPagesIn"
+    | "itemLayout"
   >;
   effectiveFrozenColumnIds?: string[];
   searchQuery?: string;
@@ -4294,6 +4322,8 @@ export function databaseNavigationState({
       activeView.openPagesIn === "full_page"
         ? activeView.openPagesIn
         : undefined,
+    databaseItemLayout:
+      activeView.type === "list" ? (activeView.itemLayout ?? null) : undefined,
     databaseVisibleItemCount: visibleItemCount,
     databaseTotalItemCount: totalItemCount,
     databaseVisibleItems: databaseVisibleItemSummaries(
@@ -6821,8 +6851,8 @@ function DatabaseInlineSortControl({
           size="sm"
           variant="ghost"
           className={cn(
-            "relative h-7 max-w-[16rem] rounded border border-[#2383e2]/30 bg-[#2383e2]/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-[#2383e2]/15 focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
-            open && "border-[#2383e2]/40 bg-[#2383e2]/15",
+            "relative h-7 max-w-[16rem] rounded border border-database-chip/30 bg-database-chip/10 px-2 text-xs font-normal text-database-chip-foreground shadow-none hover:bg-database-chip/15 focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
+            open && "border-database-blue/40 bg-database-blue/15",
           )}
         >
           {sort.direction === "asc" ? (
@@ -7139,8 +7169,8 @@ function DatabaseAdvancedFilterGroupControl({
           size="sm"
           variant="ghost"
           className={cn(
-            "relative h-7 rounded border border-[#2383e2]/30 bg-[#2383e2]/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-[#2383e2]/15 focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
-            open && "border-[#2383e2]/40 bg-[#2383e2]/15",
+            "relative h-7 rounded border border-database-chip/30 bg-database-chip/10 px-2 text-xs font-normal text-database-chip-foreground shadow-none hover:bg-database-chip/15 focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
+            open && "border-database-blue/40 bg-database-blue/15",
           )}
         >
           <IconFilter className="size-3.5 shrink-0" />
@@ -7640,10 +7670,10 @@ function DatabaseInlineFilterControl({
           size="sm"
           variant="ghost"
           className={cn(
-            "relative h-7 max-w-[16rem] rounded border border-border/70 bg-background px-2 text-xs font-normal text-foreground shadow-none hover:bg-muted focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25",
+            "relative h-7 max-w-[16rem] rounded border border-border/70 bg-background px-2 text-xs font-normal text-foreground shadow-none hover:bg-muted focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25",
             filterIsComplete &&
-              "border-[#2383e2]/30 bg-[#2383e2]/10 text-[#0f5ea8] hover:bg-[#2383e2]/15 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
-            open && "border-[#2383e2]/40 bg-[#2383e2]/15",
+              "border-database-chip/30 bg-database-chip/10 text-database-chip-foreground hover:bg-database-chip/15 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
+            open && "border-database-blue/40 bg-database-blue/15",
             !filterIsComplete && "text-muted-foreground",
           )}
         >
@@ -7922,6 +7952,9 @@ function DatabaseSettingsPanelSheet({
   onWrapCellsChange,
   onOpenPagesInChange,
   onFormQuestionsChange,
+  editingListRows,
+  onItemLayoutChange,
+  onEditListRows,
   onPropertyHiddenChange,
   onPropertiesHiddenChange,
   onGroupByChange,
@@ -7972,6 +8005,9 @@ function DatabaseSettingsPanelSheet({
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
   onFormQuestionsChange: (formQuestions: ContentDatabaseFormQuestion[]) => void;
+  editingListRows: boolean;
+  onItemLayoutChange: (itemLayout: ContentDatabaseItemLayout | null) => void;
+  onEditListRows: () => void;
   onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
   onGroupByChange: (propertyId: string | null) => void;
@@ -8134,10 +8170,14 @@ function DatabaseSettingsPanelSheet({
             <DatabaseSettingsLayoutPanel
               activeView={activeView}
               properties={properties}
+              items={items}
+              editingListRows={editingListRows}
               onViewTypeChange={onViewTypeChange}
               onWrapCellsChange={onWrapCellsChange}
               onOpenPagesInChange={onOpenPagesInChange}
               onFormQuestionsChange={onFormQuestionsChange}
+              onItemLayoutChange={onItemLayoutChange}
+              onEditListRows={onEditListRows}
             />
           ) : panel === "property_visibility" ? (
             <DatabaseSettingsPropertyVisibilityPanel
@@ -9081,7 +9121,7 @@ function DatabaseSettingsSourcePanel({
                     className={cn(
                       "min-w-0 rounded px-2 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
                       selected
-                        ? "bg-[#2383e2] text-white shadow-sm"
+                        ? "bg-database-blue text-database-blue-foreground shadow-sm"
                         : "text-muted-foreground hover:bg-background hover:text-foreground",
                     )}
                     onClick={() =>
@@ -9122,7 +9162,7 @@ function DatabaseSettingsSourcePanel({
                   className={cn(
                     "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded border",
                     liveWriteControl.allowPublicationTransitions
-                      ? "border-[#2383e2] bg-[#2383e2] text-white"
+                      ? "border-database-blue bg-database-blue text-database-blue-foreground"
                       : "border-muted-foreground/40 bg-background text-transparent",
                   )}
                 >
@@ -10536,7 +10576,7 @@ function SourceDetailsFieldPicker({
                   className={cn(
                     "flex size-4 shrink-0 items-center justify-center rounded border",
                     selected.has(field.id)
-                      ? "border-[#2383e2] bg-[#2383e2] text-white"
+                      ? "border-database-blue bg-database-blue text-database-blue-foreground"
                       : "border-muted-foreground/40 text-transparent",
                   )}
                 >
@@ -11229,7 +11269,7 @@ function DatabaseSettingsSwitch({
       <span
         className={cn(
           "relative h-5 w-9 rounded-full transition-colors",
-          checked ? "bg-[#2383e2]" : "bg-muted-foreground/25",
+          checked ? "bg-database-blue" : "bg-muted-foreground/25",
         )}
       >
         <span
@@ -11246,17 +11286,25 @@ function DatabaseSettingsSwitch({
 function DatabaseSettingsLayoutPanel({
   activeView,
   properties,
+  items,
+  editingListRows,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
   onFormQuestionsChange,
+  onItemLayoutChange,
+  onEditListRows,
 }: {
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
+  items: ContentDatabaseItem[];
+  editingListRows: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
   onFormQuestionsChange: (formQuestions: ContentDatabaseFormQuestion[]) => void;
+  onItemLayoutChange: (itemLayout: ContentDatabaseItemLayout | null) => void;
+  onEditListRows: () => void;
 }) {
   const wrapCells = activeView.wrapCells === true;
   const openPagesIn = activeView.openPagesIn ?? "preview";
@@ -11272,7 +11320,7 @@ function DatabaseSettingsLayoutPanel({
             className={cn(
               "flex h-16 flex-col items-center justify-center gap-1 rounded-md border text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               activeView.type === type
-                ? "border-[#2383e2] bg-[#2383e2]/5 text-[#2383e2]"
+                ? "border-database-blue bg-database-blue/5 text-database-blue"
                 : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
             onClick={() => onViewTypeChange(type)}
@@ -11299,6 +11347,18 @@ function DatabaseSettingsLayoutPanel({
           activeView={activeView}
           properties={properties}
           onChange={onFormQuestionsChange}
+        />
+      ) : null}
+      {activeView.type === "list" ? (
+        <DatabaseListRowsSetting
+          itemLayout={activeView.itemLayout ?? null}
+          properties={databaseListLayoutProperties(properties, activeView)}
+          visibleProperties={properties.filter((property) =>
+            isDatabasePropertyVisibleInView(property, items, activeView),
+          )}
+          editingOnList={editingListRows}
+          onChange={onItemLayoutChange}
+          onEditOnList={onEditListRows}
         />
       ) : null}
     </div>
@@ -13868,6 +13928,7 @@ export function createDatabaseView(
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeClientDatabaseFormQuestions(values.formQuestions),
+    ...contentDatabaseItemLayoutField(values.itemLayout),
   };
 }
 
@@ -14137,6 +14198,7 @@ export function duplicateDatabaseView(
       rowDensity: view.rowDensity,
       openPagesIn: view.openPagesIn,
       formQuestions: view.formQuestions,
+      itemLayout: view.itemLayout,
     },
     view.type,
   );
@@ -14279,6 +14341,7 @@ function normalizeClientDatabaseView(
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
       openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
       formQuestions: normalizeClientDatabaseFormQuestions(value.formQuestions),
+      itemLayout: value.itemLayout,
     },
     type,
   );
@@ -14634,6 +14697,18 @@ export function isDatabasePropertyVisibleInView(
     isTablePropertyVisible(property, items) &&
     !(view.hiddenPropertyIds ?? []).includes(property.definition.id)
   );
+}
+
+/**
+ * The properties a list's custom rows can show: all but those hidden in this
+ * view. Always-hidden properties are left out by the row layout itself.
+ */
+function databaseListLayoutProperties(
+  properties: DocumentProperty[],
+  view: Pick<ContentDatabaseView, "hiddenPropertyIds">,
+) {
+  const hidden = new Set(view.hiddenPropertyIds ?? []);
+  return properties.filter((property) => !hidden.has(property.definition.id));
 }
 
 export function setDatabaseViewHiddenPropertyIds(
@@ -17992,7 +18067,7 @@ function DatabaseFilterValueControl({
     return (
       <div className="overflow-hidden rounded-sm">
         <div className="px-1 pb-1">
-          <div className="flex min-h-9 flex-wrap items-center gap-1 rounded border border-input bg-background px-2 py-1 focus-within:border-[#2383e2] focus-within:ring-2 focus-within:ring-[#2383e2]/25">
+          <div className="flex min-h-9 flex-wrap items-center gap-1 rounded border border-input bg-background px-2 py-1 focus-within:border-database-blue focus-within:ring-2 focus-within:ring-database-blue/25">
             {showCompactOptionValueInput ? null : (
               <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
             )}
@@ -18114,7 +18189,7 @@ function DatabaseFilterValueControl({
       value={filter.value}
       placeholder={filterValuePlaceholder(filter.key, properties)}
       onChange={(event) => onValueChange(event.target.value)}
-      className="h-9 text-sm focus-visible:border-[#2383e2] focus-visible:ring-[#2383e2]/25"
+      className="h-9 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
     />
   );
 }
@@ -18255,7 +18330,7 @@ function DatabaseBetweenDateFilterValueControl({
         value={start}
         aria-label={`Start ${filter.label} filter date`}
         onChange={(event) => updateRange(event.target.value, end)}
-        className="h-9 text-sm focus-visible:border-[#2383e2] focus-visible:ring-[#2383e2]/25"
+        className="h-9 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
       />
       <span className="text-xs text-muted-foreground">to</span>
       <Input
@@ -18263,7 +18338,7 @@ function DatabaseBetweenDateFilterValueControl({
         value={end}
         aria-label={`End ${filter.label} filter date`}
         onChange={(event) => updateRange(start, event.target.value)}
-        className="h-9 text-sm focus-visible:border-[#2383e2] focus-visible:ring-[#2383e2]/25"
+        className="h-9 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
       />
     </div>
   );
