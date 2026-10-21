@@ -5,7 +5,10 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import { describe, expect, it } from "vitest";
 
-import { orderMessageContent } from "./message-content-order.js";
+import {
+  orderMessageContent,
+  type AgentMessageContentOrderResolver,
+} from "./message-content-order.js";
 
 const widget: AgentWidget = {
   id: "chart-1",
@@ -118,7 +121,7 @@ describe("orderMessageContent", () => {
           {
             key: "intro",
             type: "part",
-            part: { ...part, text: "Intro." },
+            part: { ...part, text: "Intro. " },
           },
           { key: chart.id, type: "widget", widget: chart },
           {
@@ -131,9 +134,57 @@ describe("orderMessageContent", () => {
     );
 
     expect(result.map((item) => item.type)).toEqual(["part", "widget", "part"]);
-    expect(result[0]).toMatchObject({ part: { text: "Intro." } });
+    expect(result[0]).toMatchObject({ part: { text: "Intro. " } });
     expect(result[1]).toMatchObject({ type: "widget", widget });
     expect(result[2]).toMatchObject({ part: { text: "Summary." } });
     expect(textPart.text).toBe("Intro. Summary.");
+  });
+
+  it("falls back when the host ordering result drops all visible content", () => {
+    const message: AgentMessage = {
+      id: "assistant-4",
+      role: "assistant",
+      parts: [{ type: "text", text: "A saved answer" }],
+    };
+
+    const result = orderMessageContent(
+      message,
+      message.parts,
+      [widget],
+      [],
+      () => [],
+    );
+
+    expect(result).toEqual([
+      {
+        key: "assistant-4-0",
+        type: "part",
+        part: message.parts[0],
+      },
+      { key: widget.id, type: "widget", widget },
+    ]);
+  });
+
+  it("falls back when the host ordering result loses text or a widget", () => {
+    const message: AgentMessage = {
+      id: "assistant-5",
+      role: "assistant",
+      parts: [{ type: "text", text: "Visible answer" }],
+    };
+    const incompleteOrders: AgentMessageContentOrderResolver[] = [
+      () => [{ key: widget.id, type: "widget" as const, widget }],
+      ({ defaultOrder }) => defaultOrder.slice(0, 1),
+    ];
+
+    for (const resolveOrder of incompleteOrders) {
+      const result = orderMessageContent(
+        message,
+        message.parts,
+        [widget],
+        [],
+        resolveOrder,
+      );
+      expect(result.map((item) => item.type)).toEqual(["part", "widget"]);
+    }
   });
 });

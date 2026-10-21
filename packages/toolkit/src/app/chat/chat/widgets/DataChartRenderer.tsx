@@ -12,6 +12,7 @@ const DEFAULT_COLORS = [
 const WIDTH = 640;
 const HEIGHT = 360;
 const MARGIN = { top: 14, right: 18, bottom: 34, left: 46 };
+const MAX_LABEL_LENGTH = 16;
 const LABEL_FONT_FAMILIES = {
   sans: "var(--font-sans, ui-sans-serif, system-ui, sans-serif)",
   serif: "ui-serif, Georgia, Cambria, serif",
@@ -38,8 +39,17 @@ function formatTick(value: number): string {
 }
 
 function labelFor(value: unknown): string {
-  const label = value == null ? "" : String(value);
-  return label.length > 16 ? `${label.slice(0, 15)}...` : label;
+  const characters = Array.from(value == null ? "" : String(value));
+  return characters.length > MAX_LABEL_LENGTH
+    ? `${characters.slice(0, MAX_LABEL_LENGTH - 3).join("")}...`
+    : characters.join("");
+}
+
+function estimateTextWidth(text: string, fontSize: number): number {
+  return Array.from(text).reduce((width, character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return width + (codePoint >= 0x2e80 ? fontSize : fontSize * 0.65);
+  }, 0);
 }
 
 function rangeFor(chart: DataChartWidgetData) {
@@ -73,9 +83,37 @@ function ChartBody({
 }) {
   const { min, max } = rangeFor(chart);
   const isHorizontalBar = chart.type === "bar" && chart.layout === "horizontal";
+  const horizontalCategoryWidth = isHorizontalBar
+    ? Math.max(
+        0,
+        ...chart.data.map((row) =>
+          estimateTextWidth(labelFor(row[chart.xKey]), labelFontSize),
+        ),
+      )
+    : 0;
+  const horizontalValueWidth =
+    isHorizontalBar && chart.showValueLabels
+      ? Math.max(
+          0,
+          ...chart.data.flatMap((row) =>
+            chart.series
+              .map((series) => numericValue(row, series.key))
+              .filter((value): value is number => value !== null && value > 0)
+              .map((value) =>
+                estimateTextWidth(
+                  formatTick(value),
+                  chart.valueLabelFontSize ?? 11,
+                ),
+              ),
+          ),
+        )
+      : 0;
   const margin = {
     ...MARGIN,
-    left: MARGIN.left + (chart.yAxisTitle ? 20 : 0),
+    left:
+      Math.max(MARGIN.left, horizontalCategoryWidth + 14) +
+      (chart.yAxisTitle ? 20 : 0),
+    right: Math.max(MARGIN.right, horizontalValueWidth + 13),
     bottom: MARGIN.bottom + (chart.xAxisTitle ? 16 : 0),
   };
   const plotWidth = WIDTH - margin.left - margin.right;
@@ -264,11 +302,7 @@ function ChartBody({
                 />
                 {chart.showValueLabels ? (
                   <text
-                    x={
-                      isHorizontalBar
-                        ? valueX + (value >= 0 ? 5 : -5)
-                        : x + width / 2
-                    }
+                    x={isHorizontalBar ? valueX + 5 : x + width / 2}
                     y={
                       isHorizontalBar
                         ? y + height / 2 + valueLabelFontSize * 0.35
@@ -277,13 +311,7 @@ function ChartBody({
                     fill="hsl(var(--muted-foreground))"
                     fontSize={valueLabelFontSize}
                     fontWeight={valueLabelFontWeight}
-                    textAnchor={
-                      isHorizontalBar
-                        ? value >= 0
-                          ? "start"
-                          : "end"
-                        : "middle"
-                    }
+                    textAnchor={isHorizontalBar ? "start" : "middle"}
                   >
                     {formatTick(value)}
                   </text>
@@ -302,9 +330,12 @@ function ChartBody({
         const value = numericValue(row, series.key);
         return value === null
           ? null
-          : { x: xForPoint(rowIndex), y: yForValue(value) };
+          : { x: xForPoint(rowIndex), y: yForValue(value), value };
       })
-      .filter((point): point is { x: number; y: number } => point !== null);
+      .filter(
+        (point): point is { x: number; y: number; value: number } =>
+          point !== null,
+      );
     const color =
       series.color ?? DEFAULT_COLORS[seriesIndex % DEFAULT_COLORS.length];
     const linePath = points
@@ -352,6 +383,29 @@ function ChartBody({
               strokeWidth="2"
             />
           ))}
+          {chart.showValueLabels
+            ? points.map((point, index) => {
+                const abovePoint =
+                  point.y - valueLabelFontSize - 5 >= margin.top;
+                return (
+                  <text
+                    key={`value-${index}`}
+                    x={point.x}
+                    y={
+                      abovePoint
+                        ? point.y - 5
+                        : point.y + valueLabelFontSize + 5
+                    }
+                    fill="hsl(var(--muted-foreground))"
+                    fontSize={valueLabelFontSize}
+                    fontWeight={valueLabelFontWeight}
+                    textAnchor="middle"
+                  >
+                    {formatTick(point.value)}
+                  </text>
+                );
+              })
+            : null}
         </g>
       ))}
     </>

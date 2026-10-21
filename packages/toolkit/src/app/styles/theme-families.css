@@ -2,7 +2,8 @@
  * The agent-native family uses the shared Tailwind/shadcn palette from the
  * Design template. App styles remain the original family by default.
  */
-:root[data-theme-family="agent-native"] {
+:root[data-theme-family="agent-native"],
+:root[data-theme-family="agent-native"][data-appearance] {
   --background: 0 0% 100%;
   --foreground: 0 0% 10%;
   --card: 0 0% 100%;
@@ -33,7 +34,8 @@
   --sidebar-ring: 0 0% 40%;
 }
 
-.dark[data-theme-family="agent-native"] {
+.dark[data-theme-family="agent-native"],
+.dark[data-theme-family="agent-native"][data-appearance] {
   --background: 0 0% 13%;
   --foreground: 0 0% 90%;
   --card: 0 0% 15%;

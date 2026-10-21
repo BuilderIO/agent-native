@@ -21,6 +21,82 @@ export type AgentMessageContentOrderResolver = (
   input: AgentMessageContentOrderInput,
 ) => AgentMessageContentItem[];
 
+type TextContentOrderItem = Extract<
+  AgentMessageContentItem,
+  { type: "part" }
+> & {
+  part: Extract<AgentMessagePart, { type: "text" }>;
+};
+
+function isTextContentOrderItem(
+  item: AgentMessageContentItem | null | undefined,
+): item is TextContentOrderItem {
+  return (
+    item?.type === "part" &&
+    typeof item.key === "string" &&
+    item.part?.type === "text" &&
+    typeof item.part.text === "string"
+  );
+}
+
+function resolvedItemsPreserveContent(
+  defaultOrder: AgentMessageContentItem[],
+  resolvedOrder: AgentMessageContentItem[],
+): AgentMessageContentItem[] | undefined {
+  if (!Array.isArray(resolvedOrder)) return undefined;
+
+  const defaultText = defaultOrder
+    .filter(isTextContentOrderItem)
+    .map((item) => item.part.text)
+    .join("");
+  const resolvedText = resolvedOrder
+    .filter(isTextContentOrderItem)
+    .map((item) => item.part.text)
+    .join("");
+  if (defaultText !== resolvedText) return undefined;
+
+  const expectedItems = new Map<string, AgentMessageContentItem[]>();
+  for (const item of defaultOrder) {
+    if (item.type === "part" && item.part.type === "text") continue;
+    const identity = `${item.type}:${item.key}`;
+    const matchingItems = expectedItems.get(identity) ?? [];
+    matchingItems.push(item);
+    expectedItems.set(identity, matchingItems);
+  }
+
+  const preservedItems: AgentMessageContentItem[] = [];
+  for (const item of resolvedOrder) {
+    if (!item || typeof item !== "object") return undefined;
+    if (item.type === "part" && item.part?.type === "text") {
+      if (typeof item.key !== "string" || typeof item.part.text !== "string") {
+        return undefined;
+      }
+      preservedItems.push(item);
+      continue;
+    }
+
+    if (
+      (item.type !== "part" && item.type !== "widget") ||
+      typeof item.key !== "string"
+    ) {
+      return undefined;
+    }
+
+    const identity = `${item.type}:${item.key}`;
+    const matchingItems = expectedItems.get(identity);
+    const original = matchingItems?.shift();
+    if (!original) return undefined;
+    preservedItems.push(original);
+  }
+
+  if (
+    [...expectedItems.values()].some((matchingItems) => matchingItems.length)
+  ) {
+    return undefined;
+  }
+  return preservedItems;
+}
+
 /** Uses the stream timeline only when it reconstructs the saved text exactly. */
 export function orderMessageContent(
   message: AgentMessage,
@@ -41,14 +117,19 @@ export function orderMessageContent(
       widget,
     })),
   ];
-  const resolve = (defaultOrder: AgentMessageContentItem[]) =>
-    resolveOrder?.({
+  const resolve = (defaultOrder: AgentMessageContentItem[]) => {
+    const resolvedOrder = resolveOrder?.({
       message,
       parts: visibleParts,
       widgets: attachedWidgets,
       events,
       defaultOrder,
-    }) ?? defaultOrder;
+    });
+    if (resolvedOrder == null) return defaultOrder;
+    return (
+      resolvedItemsPreserveContent(defaultOrder, resolvedOrder) ?? defaultOrder
+    );
+  };
 
   if (
     attachedWidgets.length === 0 ||

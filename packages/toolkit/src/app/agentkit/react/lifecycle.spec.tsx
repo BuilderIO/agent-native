@@ -197,7 +197,7 @@ describe("AgentChat lifecycle", () => {
             {
               key: "intro",
               type: "part",
-              part: { ...part, text: "Intro." },
+              part: { ...part, text: "Intro. " },
             },
             { key: chart.id, type: "widget", widget: chart },
             {
@@ -230,7 +230,7 @@ describe("AgentChat lifecycle", () => {
           ? "chart"
           : "other",
     );
-    expect(renderedOrder).toEqual(["Intro.", "chart", "Summary."]);
+    expect(renderedOrder).toEqual(["Intro. ", "chart", "Summary."]);
     await tree.unmount();
   });
 

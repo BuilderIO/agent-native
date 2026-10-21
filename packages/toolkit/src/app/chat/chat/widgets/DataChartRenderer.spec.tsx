@@ -97,4 +97,62 @@ describe("DataChartRenderer theme colors", () => {
     expect(markup).toContain('text-anchor="start"');
     expect(markup).toContain('viewBox="0 0 640 360"');
   });
+
+  it("reserves space for long horizontal category and value labels", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          ...chart,
+          layout: "horizontal",
+          showValueLabels: true,
+          labelFontSize: 10,
+          valueLabelFontSize: 11,
+          data: [
+            {
+              day: "A very long category label",
+              first: 123456,
+              second: 2,
+              third: 3,
+              fourth: 4,
+            },
+          ],
+        }}
+      />,
+    );
+    const categoryLabel = markup.match(
+      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="10" text-anchor="end">A very long c\.\.\.<\/text>/,
+    );
+    const largestValueLabel = markup.match(
+      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">123,456<\/text>/,
+    );
+
+    expect(categoryLabel).not.toBeNull();
+    expect(Number(categoryLabel?.[1])).toBeGreaterThan(100);
+    expect(largestValueLabel).not.toBeNull();
+    expect(Number(largestValueLabel?.[1])).toBeLessThan(590);
+  });
+
+  it.each(["line", "area"] as const)(
+    "renders requested value labels for %s charts",
+    (type) => {
+      const markup = renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type,
+            xKey: "day",
+            series: [{ key: "value", label: "Value" }],
+            data: [
+              { day: "Monday", value: 4 },
+              { day: "Tuesday", value: 11 },
+              { day: "Wednesday", value: 7 },
+            ],
+            showValueLabels: true,
+          }}
+        />,
+      );
+
+      expect(markup).toContain(">7</text>");
+      expect(markup).toContain('font-weight="400"');
+    },
+  );
 });
