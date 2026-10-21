@@ -157,6 +157,7 @@ export function PlayerControls(props: PlayerControlsProps) {
       }
     >
       <Scrubber
+        hoverPreviews={!docked}
         currentMs={currentMs}
         durationMs={durationMs}
         onSeek={onSeek}

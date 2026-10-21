@@ -714,6 +714,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "搜尋中...",
   "history.untitledChat": "聊天",
   "history.yesterday": "昨天",
+  "history.mine": "我的聊天",
+  "history.sharedWithYou": "與您共用",
+  "history.showAll": "顯示全部",
+  "history.showLess": "收合",
+  "history.loadMore": "載入更多",
+  "history.loadingMore": "載入中...",
+  "history.retry": "重試",
+  "history.loadFailed": "無法載入聊天",
+  "history.loadMoreFailed": "無法載入更多聊天",
+  "history.emptyMine": "還沒有聊天",
+  "history.emptyShared": "尚無聊天與您共用",
+  "history.ownedBy": "擁有者：{{name}}",
+  "history.accessDirect": "與您共用",
+  "history.accessOrganization": "與您的組織共用",
   "integrations.availableSection": "可用整合",
   "integrations.connectedSection": "已連線",
   "integrations.goToApiKeys": "前往 API 金鑰",
@@ -939,7 +953,24 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM、聯絡人、公司、交易、工單、客戶分析",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "設定由工作區管理的 HubSpot MCP Auth App 後，任何成員都可以使用 OAuth 和 PKCE 連線個人 HubSpot 帳戶。否則，請在連線前於 HubSpot Developer Platform 建立應用程式；現有的 HubSpot OAuth 連接器仍可供應用程式操作使用。",
+    "工作區擁有者設定 HubSpot MCP Auth App 後，每位成員都可以連結自己的 HubSpot 帳戶。",
+  "mcpIntegrations.hubspot.setupTitle": "設定 HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "工作區擁有者只需設定一次 HubSpot MCP。之後每位成員都可以連結自己的帳戶。",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "需要設定工作區",
+  "mcpIntegrations.hubspot.setupChecking": "正在檢查工作區設定…",
+  "mcpIntegrations.hubspot.setupUnavailable": "無法取得設定狀態",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "無法檢查工作區 OAuth 設定，請重試。",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "建立 HubSpot MCP Auth App，然後在 Agent-Native settings → API keys 中新增用戶端 ID 和密鑰。",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "請工作區擁有者建立 HubSpot MCP Auth App，並在 Agent-Native settings → API keys 中新增用戶端 ID 和密鑰。設定完成後，你可以連結自己的 HubSpot 帳戶。",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "請先加入工作區，再連結 HubSpot MCP。",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials": "新增工作區憑證",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "重新檢查",
+  "mcpIntegrations.hubspot.retrySetupStatus": "重試",
   "mcpIntegrations.catalog.pylon.description": "搜尋及更新 Pylon 支援資料。",
   "mcpIntegrations.catalog.pylon.useCase": "客戶支援、議題、客戶、聯絡人、對話",
   "mcpIntegrations.catalog.pylon.setupNote":
@@ -1334,6 +1365,17 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "檢視者",
   "share.viewerDescription": "可以檢視",
   "share.userGroup": "使用者群組",
+  "share.ownedByAnyone": "任何人擁有",
+  "share.ownedByMe": "我擁有",
+  "share.sharedWithMe": "與我共用",
+  "share.confirmOrganizationTitle": "與您的組織共用？",
+  "share.confirmOrganizationTitleNamed": "與 {{organization}} 共用？",
+  "share.confirmOrganizationDescription":
+    "您組織中的所有人（包括新成員）都能開啟並查看其中的所有內容，包括任何訊息、檔案和其他內容。您可以稍後變更。",
+  "share.confirmOrganizationDescriptionNamed":
+    "{{organization}} 中的所有人（包括新成員）都能開啟並查看其中的所有內容，包括任何訊息、檔案和其他內容。您可以稍後變更。",
+  "share.confirmOrganizationAction": "與組織共用",
+  "share.confirmOrganizationSharing": "正在共用...",
   "status.resuming": "正在繼續",
   "status.stillWorking": "仍在處理",
   "status.thinking": "正在思考",
@@ -1382,6 +1424,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "已處理",
   "tool.workedFor": "處理了 {{duration}}",
   "widget.chart": "圖表",
+  "widget.chartActions": "圖表操作",
+  "widget.dataSources": "資料來源",
+  "widget.tableActions": "表格操作",
   "widget.dataChart": "資料圖表",
   "widget.dataInsights": "資料洞察",
   "widget.dataTable": "資料表",
@@ -1833,9 +1878,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "更多資訊",
   "settingsOrg.general.workspaceUrl": "工作區 URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "將其他部署中的成員引導到此工作區。",
+    "跨部署連結此組織的應用程式目錄。",
   "settingsOrg.general.workspaceUrlHelp":
-    "進入其他部署的成員會前往此工作區，而不是空白的應用程式。",
+    "其他部署會使用此 URL 尋找工作區應用程式。此設定不會自動重新導向成員。",
   "settingsOrg.general.editWorkspaceUrl": "編輯工作區 URL",
   "settingsOrg.general.removeWorkspaceUrl": "移除工作區 URL",
   "settingsOrg.general.setWorkspaceUrl": "設定 URL",
@@ -1852,6 +1897,9 @@ const messages: ToolkitAgentChatTranslation = {
     "已設定。讓此工作區中的應用程式互相驗證。",
   "settingsOrg.auth.sharedSecretNotSet":
     "未設定。讓此工作區中的應用程式互相驗證。",
+  "settingsOrg.auth.memberDelegation": "組織成員身分委派",
+  "settingsOrg.auth.memberDelegationHelp":
+    "持有此組織共用密鑰的已連結應用程式在呼叫此應用程式時，可以聲稱是任何一位現任成員。此應用程式會檢查即時成員名單，並將受委派的組織存取權限制為成員層級的權限。",
   "settingsOrg.auth.secretNotSetValue": "未設定",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "顯示",
@@ -1905,6 +1953,12 @@ const messages: ToolkitAgentChatTranslation = {
     "請查看您的電子郵件，依照說明確認此變更。",
   "settingsShell.account.languageAndRegion": "語言和地區",
   "settingsShell.account.languageDescription": "套用至您的所有裝置。",
+  "settingsShell.account.appearance": "外觀",
+  "settingsShell.account.themeFamily": "主題樣式",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "原始應用程式配色",
+  "settingsShell.account.themeFamilySaveError":
+    "無法更新主題樣式，請再試一次。",
   "settingsShell.account.manage": "管理",
   "settingsShell.account.name": "姓名",
   "settingsShell.account.nameDescription":
@@ -2885,6 +2939,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "回報未能附加。",
   "reportProblem.agentMessage":
     "應用程式出了問題。請根據附上的問題回報說明發生了什麼事。",
+  "unsupportedDevice.title": "請在較大的螢幕上開啟",
+  "unsupportedDevice.titleDeck": "請在較大的螢幕上開啟此簡報",
+  "unsupportedDevice.titleDesign": "請在較大的螢幕上開啟此設計",
+  "unsupportedDevice.body":
+    "{{app}}支援 iPad、平板與桌面裝置。將連結傳給自己，即可在那裡繼續。",
+  "unsupportedDevice.email": "將連結寄給我",
+  "unsupportedDevice.share": "分享連結",
+  "unsupportedDevice.copy": "複製連結",
+  "unsupportedDevice.copyFailed": "無法複製連結",
+  "unsupportedDevice.copied": "已複製連結",
+  "unsupportedDevice.emailSubject": "在電腦上開啟{{app}}",
 };
 
 export default messages;

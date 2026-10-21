@@ -20,7 +20,7 @@ import {
   EMBED_SESSION_COOKIE,
 } from "../../../packages/core/src/shared/embed-auth";
 import { CHATGPT_DIRECTORY_PROFILE } from "../server/lib/chatgpt-directory-tools.js";
-import { postAction } from "./helpers";
+import { postAction, presentUiCapability } from "./helpers";
 
 async function removeDocument(page: Page, id: string) {
   await postAction(page, "delete-document", { id });
@@ -32,6 +32,7 @@ async function removeDocument(page: Page, id: string) {
     documentIds: [id],
   });
   if (!plan.planId || !plan.scopeToken) return;
+  await presentUiCapability(page);
   await postAction(page, "permanently-delete-document", {
     id,
     planId: plan.planId,
@@ -270,6 +271,9 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
         const storageWindow = frameWindow as Window & {
           __e2eBlockedStorageReads: string[];
         };
+        const blockedBeforeExplicitIndexedDbProbe = [
+          ...new Set(storageWindow.__e2eBlockedStorageReads),
+        ].sort();
         const memoryShimNames = ["localStorage", "sessionStorage"].filter(
           (name) => {
             const storage = Reflect.get(frameWindow, name) as
@@ -288,13 +292,13 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
               : "Error";
         }
         return {
-          blockedAtBoot: storageWindow.__e2eBlockedStorageReads,
+          blockedBeforeExplicitIndexedDbProbe,
           memoryShimNames,
           indexedDbError,
         };
       }),
     ).toEqual({
-      blockedAtBoot: ["localStorage", "sessionStorage", "indexedDB"],
+      blockedBeforeExplicitIndexedDbProbe: ["localStorage", "sessionStorage"],
       memoryShimNames: ["localStorage", "sessionStorage"],
       indexedDbError: "SecurityError",
     });

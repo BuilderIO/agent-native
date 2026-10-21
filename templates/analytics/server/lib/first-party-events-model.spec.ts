@@ -26,6 +26,7 @@ import {
   queryFirstPartyAnalyticsInBigQuery,
   renderFirstPartyAnalyticsBigQuerySql,
 } from "./first-party-analytics-backend.js";
+import { getMetric } from "./first-party-metric-catalog.js";
 
 const MODEL = "example-project.dbt_mart.fact_events";
 const table = {
@@ -200,6 +201,54 @@ describe("events model eligibility", () => {
       "SELECT n FROM (SELECT COUNT(*) AS n FROM analytics_events) WHERE n > 0 AND TRUE",
       "http_response_not_excluded",
     ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE (event_name = 'signup' OR app = 'mail')",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE event_name = 'a' OR (app = 'mail')",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE app = 'mail' AND NOT (event_name = 'a')",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE (NOT event_name = 'a')",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE ((event_name = 'a' AND app = 'x') OR (app = 'y'))",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE (event_name = 'a' OR event_name = 'b') = FALSE",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE CASE WHEN app = 'x' THEN TRUE ELSE app = 'y' AND event_name = 'a' END",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE (SELECT LOGICAL_AND(ok) FROM checks WHERE ok AND event_name = 'a')",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE FALSE BETWEEN FALSE AND (event_name = 'signup')",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE (FALSE BETWEEN FALSE AND event_name = 'signup')",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE [TRUE AND (event_name = 'signup') AND TRUE] IS NOT NULL",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) AS n FROM analytics_events WHERE TRUE |> EXTEND 'signup' AS event_name |> WHERE TRUE AND (event_name = 'signup')",
+      "http_response_not_excluded",
+    ],
   ])("keeps %s on the raw table", (sql, reason) => {
     expect(firstPartyEventsModelIneligibility(sql)).toBe(reason);
   });
@@ -213,8 +262,43 @@ describe("events model eligibility", () => {
     "SELECT COUNT(*) FROM analytics_events e WHERE e.event_name = 'a' AND (app = 'mail' AND template = 'mail')",
     "WITH runs AS (SELECT session_id FROM analytics_events WHERE event_name = 'a') SELECT COUNT(*) FROM runs",
     "SELECT COUNT(*) FROM analytics_events a JOIN analytics_events b USING (session_id) WHERE a.event_name = 'x' AND b.event_name = 'y'",
+    "SELECT COUNT(*) FROM analytics_events WHERE event_name = 'signup' AND ('30d' IN ('', 'all') OR ('30d' = '7d' AND event_date >= '2026-10-01')) AND ('exclude_builder' IN ('', 'all') OR ('exclude_builder' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io')) AND ('all' IN ('', 'all') OR lower(template) = lower('all'))",
+    "SELECT COUNT(DISTINCT user_key) FROM analytics_events WHERE ((event_name IN ('session status', 'session_status') AND signed_in = 'true') OR (event_name = 'app_entered' AND user_id IS NOT NULL)) AND (app = 'x' OR TRUE)",
+    "SELECT COUNT(*) FROM analytics_events WHERE (event_name = 'a' OR event_name IN ('b', 'c'))",
+    "SELECT COUNT(*) FROM analytics_events WHERE event_date BETWEEN '2026-10-01' AND '2026-10-07' AND event_name = 'a'",
   ])("lets %s read the model", (sql) => {
     expect(firstPartyEventsModelIneligibility(sql)).toBeNull();
+  });
+
+  // Their dashboard time, email, and app filters carry OR and NOT LIKE inside
+  // parentheses, which must not keep them off the model.
+  it.each([
+    "total-signups",
+    "signups-over-time",
+    "sessions-over-time",
+    "pageviews-over-time",
+    "dau-over-time",
+    "wau-over-time",
+    "repeat-users",
+    "total-template-clicks",
+    "clicks-by-template",
+  ])("plans the built-in %s chart on the model", (key) => {
+    const metric = getMetric(key)!;
+    expect(
+      planFirstPartyEventsSource(
+        metric.buildSql(metric.windowed ? "30d" : undefined),
+        MODEL,
+      ),
+    ).toEqual({ source: "model", table: MODEL });
+  });
+
+  // Its identity step reads every event to map users to emails.
+  it("keeps the built-in retention chart on the raw table", () => {
+    const metric = getMetric("retention-over-time")!;
+    expect(planFirstPartyEventsSource(metric.buildSql(), MODEL)).toEqual({
+      source: "raw",
+      modelSkipped: "http_response_not_excluded",
+    });
   });
 
   it("plans the model only when it is configured and the SQL fits", () => {

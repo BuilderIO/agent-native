@@ -1,5 +1,5 @@
 import { fail, type ActionRunContext } from "../action.js";
-import { getDbExec } from "../db/client.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 
 export async function requireOrgMember(ctx?: ActionRunContext, admin = false) {
   const email = ctx?.userEmail?.trim();
@@ -9,11 +9,7 @@ export async function requireOrgMember(ctx?: ActionRunContext, admin = false) {
       errorCode: "unauthorized",
       statusCode: 401,
     });
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = LOWER(?) AND federation_removal_pending_at IS NULL LIMIT 1`,
-    args: [orgId, email],
-  });
-  const role = rows[0]?.role;
+  const role = await readOrgMemberRole(orgId, email);
   if (!role)
     fail("You are not a member of the active organization.", {
       errorCode: "forbidden",
@@ -24,5 +20,5 @@ export async function requireOrgMember(ctx?: ActionRunContext, admin = false) {
       errorCode: "forbidden",
       statusCode: 403,
     });
-  return { email, orgId, role: String(role) };
+  return { email, orgId, role };
 }

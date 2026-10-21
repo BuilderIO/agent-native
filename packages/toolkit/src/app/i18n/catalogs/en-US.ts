@@ -755,6 +755,20 @@ const messages = {
   "history.searching": "Searching...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Yesterday",
+  "history.mine": "My chats",
+  "history.sharedWithYou": "Shared with you",
+  "history.showAll": "Show all",
+  "history.showLess": "Show less",
+  "history.loadMore": "Load more",
+  "history.loadingMore": "Loading...",
+  "history.retry": "Retry",
+  "history.loadFailed": "Couldn't load chats",
+  "history.loadMoreFailed": "Couldn't load more chats",
+  "history.emptyMine": "No chats yet",
+  "history.emptyShared": "No chats have been shared with you",
+  "history.ownedBy": "Owner: {{name}}",
+  "history.accessDirect": "Shared with you",
+  "history.accessOrganization": "Shared with your organization",
   "integrations.availableSection": "Available integrations",
   "integrations.connectedSection": "Connected",
   "integrations.goToApiKeys": "Go to API keys",
@@ -998,7 +1012,25 @@ const messages = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, contacts, companies, deals, tickets, customer analytics",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+    "Each person connects their own HubSpot account after a workspace owner configures the HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "Set up HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "A workspace owner configures HubSpot MCP once. Each member then connects their own account.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "Workspace setup required",
+  "mcpIntegrations.hubspot.setupChecking": "Checking workspace setup…",
+  "mcpIntegrations.hubspot.setupUnavailable": "Setup status unavailable",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "Couldn't check the workspace OAuth settings. Try again.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Create a HubSpot MCP Auth App, then add its client ID and secret in Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Ask a workspace owner to create a HubSpot MCP Auth App and add its client ID and secret in Agent-Native settings → API keys. You can connect your own HubSpot account after setup.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Join a workspace before connecting HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Add workspace credentials",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Check again",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Retry",
   "mcpIntegrations.catalog.pylon.description":
     "Search and update Pylon support data.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1421,6 +1453,17 @@ const messages = {
   "share.viewer": "Viewer",
   "share.viewerDescription": "Can view",
   "share.userGroup": "User group",
+  "share.ownedByAnyone": "Owned by anyone",
+  "share.ownedByMe": "Owned by me",
+  "share.sharedWithMe": "Shared with me",
+  "share.confirmOrganizationTitle": "Share with your organization?",
+  "share.confirmOrganizationTitleNamed": "Share with {{organization}}?",
+  "share.confirmOrganizationDescription":
+    "Everyone in your organization, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
+  "share.confirmOrganizationDescriptionNamed":
+    "Everyone in {{organization}}, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
+  "share.confirmOrganizationAction": "Share with organization",
+  "share.confirmOrganizationSharing": "Sharing...",
   "status.resuming": "Resuming",
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",
@@ -1470,6 +1513,9 @@ const messages = {
   "tool.worked": "Worked",
   "tool.workedFor": "Worked for {{duration}}",
   "widget.chart": "Chart",
+  "widget.chartActions": "Chart actions",
+  "widget.dataSources": "Data sources",
+  "widget.tableActions": "Table actions",
   "widget.dataChart": "Data chart",
   "widget.dataInsights": "Data insights",
   "widget.dataTable": "Data table",
@@ -1968,9 +2014,9 @@ const messages = {
   "settingsOrg.moreInformation": "More information",
   "settingsOrg.general.workspaceUrl": "Workspace URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "Send members to this workspace from another deployment.",
+    "Connect this organization's app directory across deployments.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Members who land on another deployment go to this workspace instead of an empty app.",
+    "Other deployments use this URL to discover workspace apps. It does not automatically redirect members.",
   "settingsOrg.general.editWorkspaceUrl": "Edit workspace URL",
   "settingsOrg.general.removeWorkspaceUrl": "Remove workspace URL",
   "settingsOrg.general.setWorkspaceUrl": "Set URL",
@@ -1987,6 +2033,9 @@ const messages = {
     "Set. Lets the apps in this workspace verify each other.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Not set. Lets the apps in this workspace verify each other.",
+  "settingsOrg.auth.memberDelegation": "Org-member identity delegation",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Connected apps with this shared organization secret can claim any current member's identity when calling this app. This app checks the live member roster and limits delegated organization access to member-level permissions.",
   "settingsOrg.auth.secretNotSetValue": "Not set",
   "settingsOrg.auth.manage": "Manage",
   "settingsOrg.auth.reveal": "Reveal",
@@ -2049,6 +2098,12 @@ const messages = {
     "Check your email for instructions to confirm this change.",
   "settingsShell.account.languageAndRegion": "Language and region",
   "settingsShell.account.languageDescription": "Applies on all your devices.",
+  "settingsShell.account.appearance": "Appearance",
+  "settingsShell.account.themeFamily": "Theme family",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "Original app colors",
+  "settingsShell.account.themeFamilySaveError":
+    "Could not update the theme family. Try again.",
   "settingsShell.account.manage": "Manage",
   "settingsShell.account.name": "Name",
   "settingsShell.account.nameDescription":
@@ -3164,6 +3219,17 @@ const messages = {
   "reportProblem.notAttached": "The report was not attached.",
   "reportProblem.agentMessage":
     "Something went wrong in the app. Use the attached problem report to explain what happened.",
+  "unsupportedDevice.title": "Open this on a larger screen",
+  "unsupportedDevice.titleDeck": "Open this deck on a larger screen",
+  "unsupportedDevice.titleDesign": "Open this design on a larger screen",
+  "unsupportedDevice.body":
+    "{{app}} works on iPad, tablets, and desktops. Send yourself the link to pick it up there.",
+  "unsupportedDevice.email": "Email me the link",
+  "unsupportedDevice.share": "Share link",
+  "unsupportedDevice.copy": "Copy link",
+  "unsupportedDevice.copyFailed": "Couldn't copy the link",
+  "unsupportedDevice.copied": "Link copied",
+  "unsupportedDevice.emailSubject": "Open {{app}} on your computer",
 } as const;
 
 export default messages;

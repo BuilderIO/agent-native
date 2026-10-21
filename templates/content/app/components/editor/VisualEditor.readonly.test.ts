@@ -55,6 +55,8 @@ describe("VisualEditor read-only mode", () => {
     expect(source).toContain(
       'session.sourceBlock.classList.add("notion-block--dragging");',
     );
-    expect(source).toContain("session.view.dispatch(tr.scrollIntoView());");
+    expect(source).toContain(
+      "session.view.dispatch(markUserAction(tr).scrollIntoView());",
+    );
   });
 });

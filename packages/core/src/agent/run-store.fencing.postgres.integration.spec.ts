@@ -26,6 +26,7 @@ import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
   beginAgentExecutionStep,
+  CHECKPOINT_TERMINAL_EVENT_SEQ,
   claimTaskExecutionLease,
   claimTurnExecutionLease,
   completeAgentExecutionStep,
@@ -34,6 +35,7 @@ import {
   insertRunEvent,
   markAgentExecutionStepDispatched,
   markTurnAborted,
+  persistRunCheckpointEvent,
   reapIfStale,
   recordLateAgentExecutionStepOutcome,
   renewTaskExecutionLease,
@@ -93,6 +95,7 @@ interface WorkerResult {
   exitCode: number | null;
   stdout: string;
   stderr: string;
+  error?: string;
 }
 
 interface BarrierWorkerResult extends WorkerResult {
@@ -106,7 +109,10 @@ interface BarrierWorker {
   output: { stdout: string; stderr: string };
 }
 
-function runWorker(...args: string[]): Promise<WorkerResult> {
+function runWorkerWithTimeout(
+  timeout: number,
+  ...args: string[]
+): Promise<WorkerResult> {
   return new Promise((resolveResult) => {
     execFile(
       process.execPath,
@@ -115,15 +121,33 @@ function runWorker(...args: string[]): Promise<WorkerResult> {
         cwd: repositoryRoot,
         env: process.env,
         maxBuffer: 1024 * 1024,
-        timeout: 30_000,
+        timeout,
       },
       (error, stdout, stderr) => {
         const exitCode =
           typeof error?.code === "number" ? error.code : error ? 1 : 0;
-        resolveResult({ exitCode, stdout, stderr });
+        resolveResult({
+          exitCode,
+          stdout,
+          stderr,
+          ...(error
+            ? {
+                error: [
+                  error.message,
+                  `code=${String(error.code)}`,
+                  `signal=${String(error.signal)}`,
+                  `killed=${String(error.killed)}`,
+                ].join("; "),
+              }
+            : {}),
+        });
       },
     );
   });
+}
+
+function runWorker(...args: string[]): Promise<WorkerResult> {
+  return runWorkerWithTimeout(30_000, ...args);
 }
 
 function startBarrierWorker(...args: string[]): BarrierWorker {
@@ -431,6 +455,243 @@ describe.skipIf(!databaseUrl)(
       });
     }, 45_000);
 
+    it("rolls back a failed abort and retries terminal persistence across workers", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:abort-thread`;
+        const turnId = `${prefix}:abort-turn`;
+        const runId = `${prefix}:abort-run`;
+        const suffix = randomUUID().replaceAll("-", "");
+        const trigger = `abort_event_gate_${suffix}`;
+        const sequence = `abort_event_failures_${suffix}`;
+
+        await withDbExec(executor(sql), () =>
+          insertRun(runId, threadId, turnId),
+        );
+        try {
+          await sql.unsafe(`CREATE SEQUENCE ${sequence} START WITH 1`);
+          await sql.unsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+              IF NEW.run_id = '${runId}'
+                AND (NEW.event_data::jsonb ->> 'type') = 'done'
+                AND (NEW.event_data::jsonb ->> 'reason') = 'user' THEN
+                IF nextval('${sequence}') <= 2 THEN
+                  RAISE EXCEPTION 'injected terminal event failure';
+                END IF;
+              END IF;
+              RETURN NEW;
+            END $$`);
+          await sql.unsafe(`CREATE TRIGGER ${trigger} BEFORE INSERT ON agent_run_events
+            FOR EACH ROW EXECUTE FUNCTION ${trigger}()`);
+
+          const failedAttempt = await runWorker(
+            "durable-abort",
+            threadId,
+            turnId,
+            runId,
+            "user",
+          );
+          expect(failedAttempt.exitCode).toBe(1);
+          const failed = workerJson<{
+            error: string;
+            aborted?: boolean;
+            processId: number;
+            databaseBackendPid: number;
+          }>(failedAttempt);
+          expect(failed.error).toContain("injected terminal event failure");
+          expect(failed.aborted).not.toBe(true);
+
+          const [afterFailure] = await sql`
+            SELECT status, terminal_reason FROM agent_runs WHERE id = ${runId}
+          `;
+          expect(afterFailure).toMatchObject({
+            status: "running",
+            terminal_reason: null,
+          });
+          const missingTerminal = await sql`
+            SELECT seq FROM agent_run_events
+            WHERE run_id = ${runId}
+              AND (event_data::jsonb ->> 'type') = 'done'
+              AND (event_data::jsonb ->> 'reason') = 'user'
+          `;
+          expect(missingTerminal).toHaveLength(0);
+
+          const retry = await runWorker(
+            "durable-abort",
+            threadId,
+            turnId,
+            runId,
+            "user",
+          );
+          expect(retry.exitCode).toBe(0);
+          const repaired = workerJson<{
+            aborted: boolean;
+            processId: number;
+            databaseBackendPid: number;
+          }>(retry);
+          expect(repaired.aborted).toBe(true);
+          expect(repaired.processId).not.toBe(failed.processId);
+          expect(repaired.databaseBackendPid).not.toBe(
+            failed.databaseBackendPid,
+          );
+
+          const terminalEvents = await sql`
+            SELECT seq, event_data::text AS event_data FROM agent_run_events
+            WHERE run_id = ${runId}
+              AND (event_data::jsonb ->> 'type') = 'done'
+              AND (event_data::jsonb ->> 'reason') = 'user'
+          `;
+          expect(terminalEvents).toHaveLength(1);
+          expect(JSON.parse(terminalEvents[0]!.event_data)).toMatchObject({
+            type: "done",
+            reason: "user",
+          });
+        } finally {
+          await sql.unsafe(
+            `DROP TRIGGER IF EXISTS ${trigger} ON agent_run_events`,
+          );
+          await sql.unsafe(`DROP FUNCTION IF EXISTS ${trigger}()`);
+          await sql.unsafe(`DROP SEQUENCE IF EXISTS ${sequence}`);
+        }
+      });
+    }, 45_000);
+
+    it.each([
+      { outcome: "committed", failCheckpoint: false },
+      { outcome: "rolled back", failCheckpoint: true },
+    ])(
+      "keeps durable Stop authoritative when a concurrent checkpoint is $outcome",
+      async ({ failCheckpoint }) => {
+        await withTestDatabase(async (sql, prefix) => {
+          const threadId = `${prefix}:checkpoint-stop-thread`;
+          const turnId = `${prefix}:checkpoint-stop-turn`;
+          const runId = `${prefix}:checkpoint-stop-run`;
+          const checkpointDb = postgres(databaseUrl!, { max: 1 });
+          const stopDb = postgres(databaseUrl!, { max: 1 });
+          const gateKey = Math.floor(Math.random() * 2_000_000_000) + 1;
+          const suffix = randomUUID().replaceAll("-", "");
+          const trigger = `checkpoint_stop_gate_${suffix}`;
+          let checkpoint: Promise<void> | undefined;
+          let stop: Promise<"aborted" | "already_terminal"> | undefined;
+
+          try {
+            await createThread("checkpoint-stop@example.com", {
+              id: threadId,
+            });
+            await insertRun(runId, threadId, turnId);
+            await sql.unsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$
+              BEGIN
+                IF NEW.id = '${runId}' AND NEW.terminal_reason = 'auto_continue' THEN
+                  PERFORM pg_advisory_xact_lock(${gateKey});
+                  IF current_setting('agent.harness_fail_checkpoint', true) = 'true' THEN
+                    RAISE EXCEPTION 'injected checkpoint transaction failure';
+                  END IF;
+                END IF;
+                RETURN NEW;
+              END $$`);
+            await sql.unsafe(`CREATE TRIGGER ${trigger} BEFORE UPDATE OF terminal_reason ON agent_runs
+              FOR EACH ROW EXECUTE FUNCTION ${trigger}()`);
+
+            if (failCheckpoint) {
+              await checkpointDb.unsafe(
+                "SET agent.harness_fail_checkpoint = 'true'",
+              );
+            }
+            await sql`SELECT pg_advisory_lock(${gateKey})`;
+            const [{ pid: checkpointPid }] =
+              await checkpointDb`SELECT pg_backend_pid() AS pid`;
+            const [{ pid: stopPid }] =
+              await stopDb`SELECT pg_backend_pid() AS pid`;
+
+            checkpoint = withDbExec(executor(checkpointDb), () =>
+              persistRunCheckpointEvent(
+                runId,
+                { type: "auto_continue", reason: "no_progress" },
+                "auto_continue",
+              ),
+            );
+            await expect
+              .poll(async () => {
+                const [activity] = await sql`
+                  SELECT wait_event FROM pg_stat_activity WHERE pid = ${checkpointPid}
+                `;
+                return activity?.wait_event;
+              })
+              .toBe("advisory");
+
+            stop = withDbExec(executor(stopDb), () =>
+              markTurnAborted(threadId, turnId),
+            );
+            await expect
+              .poll(async () => {
+                const [activity] = await sql`
+                  SELECT ${checkpointPid} = ANY(pg_blocking_pids(${stopPid})) AS blocked
+                `;
+                return activity?.blocked;
+              })
+              .toBe(true);
+
+            await sql`SELECT pg_advisory_unlock(${gateKey})`;
+            if (failCheckpoint) {
+              await expect(checkpoint).rejects.toThrow(
+                "injected checkpoint transaction failure",
+              );
+            } else {
+              await expect(checkpoint).resolves.toBeUndefined();
+            }
+            await expect(stop).resolves.toBe("aborted");
+
+            const [run] = await sql`
+              SELECT status, abort_reason, terminal_reason, thread_projection_pending
+              FROM agent_runs WHERE id = ${runId}
+            `;
+            expect(run).toMatchObject({
+              status: "aborted",
+              abort_reason: "user",
+              terminal_reason: "aborted:user",
+              thread_projection_pending: false,
+            });
+
+            const events = await sql`
+              SELECT seq, event_data::jsonb AS event_data
+              FROM agent_run_events WHERE run_id = ${runId} ORDER BY seq
+            `;
+            expect(
+              events.some((event) => event.event_data.type === "auto_continue"),
+            ).toBe(false);
+            expect(
+              events.some(
+                (event) =>
+                  event.event_data.type === "done" &&
+                  event.event_data.reason === "done",
+              ),
+            ).toBe(false);
+            expect(events).toHaveLength(1);
+            expect(events[0]?.event_data).toMatchObject({
+              type: "done",
+              reason: "user",
+            });
+            expect(Number(events[0]?.seq)).not.toBe(
+              CHECKPOINT_TERMINAL_EVENT_SEQ,
+            );
+
+            const projectedThread = await getThread(threadId);
+            expect(projectedThread).toMatchObject({
+              threadData: "{}",
+              preview: "",
+              messageCount: 0,
+            });
+          } finally {
+            await sql`SELECT pg_advisory_unlock(${gateKey})`;
+            await Promise.allSettled([checkpoint, stop]);
+            await sql.unsafe(`DROP TRIGGER IF EXISTS ${trigger} ON agent_runs`);
+            await sql.unsafe(`DROP FUNCTION IF EXISTS ${trigger}()`);
+            await Promise.all([checkpointDb.end(), stopDb.end()]);
+          }
+        });
+      },
+      45_000,
+    );
+
     it("serializes stale reapers across two PostgreSQL sessions", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const threadId = `${prefix}:reaper-thread`;
@@ -629,7 +890,11 @@ describe.skipIf(!databaseUrl)(
                 { requireInserted: true },
               ),
             ),
-          ).rejects.toMatchObject({ code: "stale_execution_fence" });
+          ).rejects.toMatchObject({
+            name: "AgentRunEventNotPersistedError",
+            terminalRun: true,
+            cause: { code: "stale_execution_fence" },
+          });
         } finally {
           await sql`SELECT pg_advisory_unlock(${gateKey})`;
           await Promise.allSettled([claim, cancel]);
@@ -846,6 +1111,226 @@ describe.skipIf(!databaseUrl)(
           expect(afterRecovery.effect_count).toBe(1);
         });
       },
+    );
+
+    it.each([
+      {
+        name: "keeps an unsafe effect unknown after it may have run",
+        replayPolicy: "never" as const,
+        phase: "after-effect" as const,
+        expectedStepStatus: "unknown",
+        expectedOutcomeUnknown: true,
+        expectedReplayed: false,
+        expectedStepOwner: "successor" as const,
+      },
+      {
+        name: "retries a retry-safe action after dispatch but before its effect",
+        replayPolicy: "retry-safe" as const,
+        phase: "before-effect" as const,
+        expectedStepStatus: "completed",
+        expectedOutcomeUnknown: false,
+        expectedReplayed: false,
+        expectedStepOwner: "successor" as const,
+      },
+      {
+        name: "replays a completed receipt when tool_done was not persisted",
+        replayPolicy: "never" as const,
+        phase: "after-receipt" as const,
+        expectedStepStatus: "completed",
+        expectedOutcomeUnknown: false,
+        expectedReplayed: true,
+        expectedStepOwner: "original" as const,
+      },
+    ])(
+      "replays the production run loop across a PostgreSQL process crash: $name",
+      async ({
+        replayPolicy,
+        phase,
+        expectedStepStatus,
+        expectedOutcomeUnknown,
+        expectedReplayed,
+        expectedStepOwner,
+      }) => {
+        await withTestDatabase(async (sql, prefix) => {
+          const threadId = `${prefix}:production-loop-thread`;
+          const turnId = `${prefix}:production-loop-turn`;
+          const originalRunId = `${prefix}:production-loop-run`;
+          const stepId = `${prefix}:production-loop-effect`;
+          const worker = startBarrierWorker(
+            "production-loop-crash",
+            threadId,
+            turnId,
+            originalRunId,
+            stepId,
+            JSON.stringify({
+              replayPolicy,
+              providerCallId: `${prefix}:provider-call-before-restart`,
+              phase,
+            }),
+          );
+          let originalFence: ExecutionFence | undefined;
+          let originalExecutionStepId: string | undefined;
+          try {
+            const ready = await worker.ready;
+            originalFence = ready.fence as ExecutionFence;
+            expect(ready.stage).toBe(phase);
+            const [dispatched] = await sql`
+              SELECT status, run_id, generation FROM agent_execution_steps
+              WHERE thread_id = ${threadId} AND turn_id = ${turnId}
+                AND tool_name = 'test-external-effect'
+            `;
+            expect(dispatched).toMatchObject({
+              status: phase === "after-receipt" ? "completed" : "dispatched",
+              run_id: originalRunId,
+              generation: originalFence.generation,
+            });
+            expect(originalFence).toMatchObject({
+              threadId,
+              turnId,
+              runId: originalRunId,
+            });
+            const originalEvents = await sql`
+              SELECT event_data::jsonb ->> 'type' AS type,
+                     event_data::jsonb ->> 'id' AS id,
+                     event_data::jsonb ->> 'executionStepId' AS execution_step_id
+              FROM agent_run_events
+              WHERE run_id = ${originalRunId}
+              ORDER BY seq
+            `;
+            const originalToolStart = originalEvents.find(
+              (event) => event.type === "tool_start",
+            );
+            expect(originalToolStart).toMatchObject({
+              id: `${prefix}:provider-call-before-restart`,
+            });
+            expect(originalToolStart?.execution_step_id).toEqual(
+              expect.any(String),
+            );
+            originalExecutionStepId = String(
+              originalToolStart!.execution_step_id,
+            );
+            expect(
+              originalEvents.some((event) => event.type === "tool_done"),
+            ).toBe(false);
+            if (phase === "after-receipt") {
+              expect(dispatched.status).toBe("completed");
+            }
+            worker.child.kill("SIGKILL");
+            const stopped = await worker.closed;
+            expect(stopped.signal).toBe("SIGKILL");
+          } finally {
+            await stopBarrierWorker(worker);
+          }
+
+          const [effectBeforeRecovery] = await sql`
+            SELECT effect_count FROM agent_harness_test_effects
+            WHERE effect_id = ${stepId}
+          `;
+          expect(effectBeforeRecovery?.effect_count ?? 0).toBe(
+            phase === "before-effect" ? 0 : 1,
+          );
+
+          const staleAt = Date.now() - 60 * 60_000;
+          await sql`
+            UPDATE agent_runs
+            SET started_at = ${staleAt}, heartbeat_at = ${staleAt},
+                last_progress_at = ${staleAt}, in_flight_since = ${staleAt}
+            WHERE id = ${originalRunId}
+          `;
+          await forceLeaseExpiry(sql, threadId, turnId);
+          fireInternalDispatchMock.mockClear();
+          await expect(reapIfStale(originalRunId, 1)).resolves.toBe(true);
+          const successors = await sql`
+            SELECT id, status FROM agent_runs
+            WHERE thread_id = ${threadId}
+              AND COALESCE(turn_id, id) = ${turnId}
+              AND id <> ${originalRunId}
+              AND dispatch_mode = 'background'
+          `;
+          expect(successors).toHaveLength(1);
+          expect(successors[0]?.status).toBe("running");
+          const successorRunId = String(successors[0]!.id);
+          expect(successorRunId).not.toBe(originalRunId);
+          await vi.waitFor(() =>
+            expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1),
+          );
+
+          const recovered = await runWorkerWithTimeout(
+            60_000,
+            "production-loop-resume",
+            threadId,
+            turnId,
+            successorRunId,
+            stepId,
+            JSON.stringify({
+              replayPolicy,
+              providerCallId: `${prefix}:provider-call-after-restart`,
+            }),
+          );
+          if (recovered.exitCode !== 0) {
+            throw new Error(
+              [
+                `Production-loop resume worker failed (${recovered.exitCode}): ${recovered.error ?? "unknown error"}`,
+                recovered.stderr,
+                recovered.stdout,
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            );
+          }
+          const result = workerJson<{
+            fence: ExecutionFence;
+            providerCallId: string;
+            toolDone?: Record<string, unknown>;
+            status: string;
+          }>(recovered);
+          expect(result.status).toBe("completed");
+          expect(result.providerCallId).toBe(
+            `${prefix}:provider-call-after-restart`,
+          );
+          expect(result.fence.runId).toBe(successorRunId);
+          expect(BigInt(result.fence.generation)).toBeGreaterThan(
+            BigInt(originalFence!.generation),
+          );
+
+          const [executionStep] = await sql`
+            SELECT status, run_id, generation FROM agent_execution_steps
+            WHERE thread_id = ${threadId} AND turn_id = ${turnId}
+              AND tool_name = 'test-external-effect'
+          `;
+          expect(executionStep).toMatchObject({
+            status: expectedStepStatus,
+          });
+          if (expectedStepStatus === "completed") {
+            if (expectedStepOwner === "successor") {
+              expect(executionStep.run_id).toBe(successorRunId);
+              expect(String(executionStep.generation)).toBe(
+                result.fence.generation,
+              );
+            } else {
+              expect(executionStep.run_id).toBe(originalRunId);
+              expect(String(executionStep.generation)).toBe(
+                originalFence!.generation,
+              );
+            }
+          }
+          expect(result.toolDone?.outcomeUnknown === true).toBe(
+            expectedOutcomeUnknown,
+          );
+          expect(result.toolDone).toMatchObject({
+            id: `${prefix}:provider-call-after-restart`,
+            executionStepId: originalExecutionStepId,
+          });
+          expect(result.toolDone?.replayed === true).toBe(expectedReplayed);
+
+          const [effectAfterRecovery] = await sql`
+            SELECT effect_count FROM agent_harness_test_effects
+            WHERE effect_id = ${stepId}
+          `;
+          expect(effectAfterRecovery?.effect_count ?? 0).toBe(1);
+        });
+      },
+      75_000,
     );
 
     it("permits retry-safe replay but keeps a failed receipt commit ambiguous", async () => {

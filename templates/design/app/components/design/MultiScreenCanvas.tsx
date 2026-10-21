@@ -99,7 +99,18 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { attachNativePreviewViewportPublisher } from "@/components/design/bridge/native-preview-viewport-transport";
 import { installNativeWorkerBroker } from "@/components/design/bridge/native-worker-broker";
+import {
+  connectNativePublicAssetPreview,
+  prepareNativePublicAssetPreviewDocument,
+  type NativePublicAssetPreviewDocument,
+} from "@/components/design/design-canvas/native-public-asset-preview";
+import {
+  connectNativePublicWorkerPreview,
+  prepareNativePublicWorkerPreviewDocument,
+  type NativePublicWorkerPreviewDocument,
+} from "@/components/design/design-canvas/native-public-worker-preview";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -881,6 +892,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 }: MultiScreenCanvasGroupedProps) {
   const { resolvedTheme } = useTheme();
   const t = useT();
+  const browserOrigin = useBrowserOrigin();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const panHitTestShieldRef = useRef<HTMLDivElement | null>(null);
   const panGestureActiveRef = useRef(false);
@@ -1101,6 +1113,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     () => screens.filter((screen) => !hiddenScreenIdSet.has(screen.id)),
     [hiddenScreenIdSet, screens],
   );
+  const needsLiveEditorAdmission =
+    renderedScreens.length > OVERVIEW_LIVE_SCREEN_BUDGET && !interactMode;
   // A widget keeps its opened screen fit and centered until the viewer moves
   // the camera; the fit itself is widgetFitCamera below.
   const widgetFit = fitFocusedViewport && initialFitScreenId !== undefined;
@@ -1282,6 +1296,36 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     boardStaticPreviewViewport,
     resolvedTheme,
   ]);
+  const {
+    syncFrame: syncBoardNativeShaderApprovals,
+    approvedDefinitionHashes: boardApprovedDefinitionHashes,
+  } = useNativeShaderApprovals({
+    designId: reviewResourceId,
+    fileId: boardFileId ?? undefined,
+    enabled: Boolean(
+      boardStaticPreviewContent?.includes("application/x-agent-native-effects"),
+    ),
+  });
+  const boardNativePublicWorkerPreview = useMemo(
+    () =>
+      browserOrigin && boardStaticPreviewContent
+        ? prepareNativePublicWorkerPreviewDocument(
+            boardStaticPreviewContent,
+            boardApprovedDefinitionHashes,
+          )
+        : null,
+    [boardApprovedDefinitionHashes, boardStaticPreviewContent, browserOrigin],
+  );
+  const boardNativePublicAssetPreview = useMemo(
+    () =>
+      browserOrigin && boardStaticPreviewContent
+        ? prepareNativePublicAssetPreviewDocument(
+            boardNativePublicWorkerPreview?.html ?? boardStaticPreviewContent,
+            window.location.href,
+          )
+        : null,
+    [boardNativePublicWorkerPreview, boardStaticPreviewContent, browserOrigin],
+  );
   const showBoardStaticPreview = Boolean(
     boardFrameGeometry &&
     boardViewportGeometry &&
@@ -1294,6 +1338,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       renderGeometry: boardSurfaceRenderGeometry,
     }),
   );
+  useEffect(() => {
+    const frame = boardStaticPreviewRef.current;
+    if (!frame || !boardNativePublicAssetPreview) return;
+    const stopViewportPublisher = attachNativePreviewViewportPublisher(frame);
+    const stopPublicAssetPreview = connectNativePublicAssetPreview(
+      frame,
+      boardNativePublicAssetPreview,
+    );
+    const stopPublicWorkerPreview = boardNativePublicWorkerPreview
+      ? connectNativePublicWorkerPreview(
+          frame,
+          boardNativePublicWorkerPreview,
+          boardNativePublicAssetPreview.html,
+        )
+      : null;
+    return () => {
+      stopPublicWorkerPreview?.();
+      stopPublicAssetPreview();
+      stopViewportPublisher();
+    };
+  }, [
+    boardNativePublicAssetPreview,
+    boardNativePublicWorkerPreview,
+    showBoardStaticPreview,
+  ]);
   const boardStaticPrimitives = useMemo(() => {
     if (!boardFileId || !boardFileContent) return [];
     return parsePrimitivesFromScreen({
@@ -9863,7 +9932,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (focusedInteractRef.current) return;
-      if (isCanvasOverlayInteractionTarget(e.target)) return;
+      // Middle-button pan may start on the comment click plane, but never on a popover over the canvas.
+      if (isCanvasOverlayInteractionTarget(e.target)) {
+        const onClickPlane =
+          e.target instanceof Element &&
+          !!e.target.closest("[data-review-click-plane]");
+        if (e.button !== 1 || !onClickPlane) return;
+        // Claiming canvas focus here would blur the open composer.
+        beginPan(e);
+        return;
+      }
       claimKeyboardFocus();
       suppressNextPick.current = false;
       setAltHoverMeasurement(null);
@@ -10086,6 +10164,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      // Popover mouse moves bubble here through React; they must not measure the design underneath.
+      if (isCanvasOverlayInteractionTarget(e.target)) {
+        setAltHoverMeasurement(null);
+        return;
+      }
       updateAltHoverMeasurement(e);
       const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
       if (tool !== "pen" || dragState.current?.type === "pen-node") return;
@@ -10115,10 +10198,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (cameraSettleTimerRef.current !== null) {
       window.clearTimeout(cameraSettleTimerRef.current);
     }
-    cameraSettleTimerRef.current = window.setTimeout(() => {
+    if (needsLiveEditorAdmission) {
+      cameraSettleTimerRef.current = window.setTimeout(() => {
+        cameraSettleTimerRef.current = null;
+        setCameraSettledTick((tick) => tick + 1);
+      }, LIVE_EDITOR_ADMIT_IDLE_MS);
+    } else {
       cameraSettleTimerRef.current = null;
-      setCameraSettledTick((tick) => tick + 1);
-    }, LIVE_EDITOR_ADMIT_IDLE_MS);
+    }
     const nextScale = zoomRef.current / 100;
     const p = panRef.current;
     const world = worldRef.current;
@@ -10199,7 +10286,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       marqueeOverlay.style.height = `${Math.max(1, activeMarquee.height * nextScale)}px`;
     }
     syncScreenPaintSuppression();
-  }, [syncScreenPaintSuppression]);
+  }, [needsLiveEditorAdmission, syncScreenPaintSuppression]);
 
   const startChromeSettle = useCallback(() => {
     if (chromeSettleTimerRef.current !== null) {
@@ -10650,12 +10737,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
+    // The comment click plane is portaled to body, so wheels over it never reach the surface.
+    const handlePlaneWheel = (event: WheelEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-review-click-plane]")
+      ) {
+        handleWheelEvent(event);
+      }
+    };
     surface.addEventListener("wheel", handleWheelEvent, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener("wheel", handlePlaneWheel, {
       capture: true,
       passive: false,
     });
     return () => {
       surface.removeEventListener("wheel", handleWheelEvent, {
+        capture: true,
+      });
+      document.removeEventListener("wheel", handlePlaneWheel, {
         capture: true,
       });
     };
@@ -11628,7 +11731,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [canvasZoom, pan, widgetFitCamera]);
 
   const largeBoard = canvasFrames.length > OVERVIEW_LIVE_SCREEN_BUDGET;
-  const levelOfDetail = largeBoard && !interactMode;
+  const levelOfDetail = needsLiveEditorAdmission;
   const liveEditorScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const warmLiveEditorIdsRef = useRef<readonly string[]>([]);
   const liveEditorScreenIds = useMemo(() => {
@@ -12178,8 +12281,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             aria-hidden="true"
             tabIndex={-1}
             sandbox=""
-            referrerPolicy="no-referrer"
-            srcDoc={boardStaticPreviewContent}
+            referrerPolicy="strict-origin"
+            srcDoc={
+              boardNativePublicAssetPreview?.html ??
+              boardNativePublicWorkerPreview?.html ??
+              boardStaticPreviewContent
+            }
+            onLoad={(event) =>
+              syncBoardNativeShaderApprovals(event.currentTarget)
+            }
             style={{
               display: "block",
               width: boardStaticPreviewViewport.width,
@@ -14061,6 +14171,41 @@ interface ScreenProps {
   layoutGridBoardSize?: number;
 }
 
+function useNativePreviewViewportPublisherRef(
+  publicAssetPreview: NativePublicAssetPreviewDocument | null = null,
+  publicWorkerPreview: NativePublicWorkerPreviewDocument | null = null,
+) {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const assetCleanupRef = useRef<(() => void) | null>(null);
+  const workerCleanupRef = useRef<(() => void) | null>(null);
+  return useCallback(
+    (next: HTMLIFrameElement | null) => {
+      if (frameRef.current === next) return;
+      cleanupRef.current?.();
+      assetCleanupRef.current?.();
+      workerCleanupRef.current?.();
+      cleanupRef.current = next
+        ? attachNativePreviewViewportPublisher(next)
+        : null;
+      assetCleanupRef.current =
+        next && publicAssetPreview
+          ? connectNativePublicAssetPreview(next, publicAssetPreview)
+          : null;
+      workerCleanupRef.current =
+        next && publicWorkerPreview
+          ? connectNativePublicWorkerPreview(
+              next,
+              publicWorkerPreview,
+              publicAssetPreview?.html ?? publicWorkerPreview.html,
+            )
+          : null;
+      frameRef.current = next;
+    },
+    [publicAssetPreview, publicWorkerPreview],
+  );
+}
+
 const Screen = memo(function Screen({
   layoutGridBoardSize = 0,
   screen,
@@ -14124,13 +14269,14 @@ const Screen = memo(function Screen({
   const t = useT();
   const browserOrigin = useBrowserOrigin();
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
-  const syncNativeShaderApprovals = useNativeShaderApprovals({
-    designId,
-    fileId: screen.id,
-    enabled:
-      !previewUrl &&
-      screen.content.includes("application/x-agent-native-effects"),
-  });
+  const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
+    useNativeShaderApprovals({
+      designId,
+      fileId: screen.id,
+      enabled:
+        !previewUrl &&
+        screen.content.includes("application/x-agent-native-effects"),
+    });
   const display = screenDisplayName(screen, metadata);
   const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const previewViewport = getScreenPreviewViewport(
@@ -14207,6 +14353,42 @@ const Screen = memo(function Screen({
         designId,
       }),
     [designId, srcdocWithHitTest],
+  );
+  const nativePublicWorkerPreview = useMemo(
+    () =>
+      browserOrigin && showStaticPreview && !previewUrl
+        ? prepareNativePublicWorkerPreviewDocument(
+            privateScreenshotPreview.html,
+            approvedDefinitionHashes,
+          )
+        : null,
+    [
+      approvedDefinitionHashes,
+      browserOrigin,
+      privateScreenshotPreview.html,
+      previewUrl,
+      showStaticPreview,
+    ],
+  );
+  const nativePublicAssetPreview = useMemo(
+    () =>
+      browserOrigin && showStaticPreview && !previewUrl
+        ? prepareNativePublicAssetPreviewDocument(
+            nativePublicWorkerPreview?.html ?? privateScreenshotPreview.html,
+            window.location.href,
+          )
+        : null,
+    [
+      browserOrigin,
+      privateScreenshotPreview.html,
+      nativePublicWorkerPreview?.html,
+      previewUrl,
+      showStaticPreview,
+    ],
+  );
+  const setStaticPreviewFrameRef = useNativePreviewViewportPublisherRef(
+    nativePublicAssetPreview,
+    nativePublicWorkerPreview,
   );
   useEffect(() => {
     if (!showStaticPreview || previewUrl) return;
@@ -14525,13 +14707,20 @@ const Screen = memo(function Screen({
             )
           ) : externalPreviewPendingOrigin ? null : (
             <iframe
+              ref={setStaticPreviewFrameRef}
               {...{
                 [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl ? undefined : "",
               }}
               data-screen-iframe-id={screen.id}
               data-screen-static-preview={previewUrl ? undefined : ""}
               src={previewUrl}
-              srcDoc={previewUrl ? undefined : privateScreenshotPreview.html}
+              srcDoc={
+                previewUrl
+                  ? undefined
+                  : (nativePublicAssetPreview?.html ??
+                    nativePublicWorkerPreview?.html ??
+                    privateScreenshotPreview.html)
+              }
               sandbox={getDesignCanvasIframeSandbox({
                 externalPreview: Boolean(previewUrl),
                 readOnly: true,
@@ -14884,13 +15073,14 @@ function BreakpointPreviewRow({
 }) {
   const t = useT();
   const browserOrigin = useBrowserOrigin();
-  const syncNativeShaderApprovals = useNativeShaderApprovals({
-    designId,
-    fileId: screen.id,
-    enabled:
-      !previewUrl &&
-      screen.content.includes("application/x-agent-native-effects"),
-  });
+  const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
+    useNativeShaderApprovals({
+      designId,
+      fileId: screen.id,
+      enabled:
+        !previewUrl &&
+        screen.content.includes("application/x-agent-native-effects"),
+    });
   const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const primaryWidthPx = metadata.width ?? primaryGeometry.width;
   const breakpointWidths = visibleBreakpointWidths(
@@ -14910,6 +15100,42 @@ function BreakpointPreviewRow({
         designId,
       }),
     [designId, srcdocWithHitTest],
+  );
+  const nativePublicWorkerPreview = useMemo(
+    () =>
+      browserOrigin && !previewUrl && srcdocWithHitTest
+        ? prepareNativePublicWorkerPreviewDocument(
+            privateScreenshotPreview.html,
+            approvedDefinitionHashes,
+          )
+        : null,
+    [
+      approvedDefinitionHashes,
+      browserOrigin,
+      privateScreenshotPreview.html,
+      previewUrl,
+      srcdocWithHitTest,
+    ],
+  );
+  const nativePublicAssetPreview = useMemo(
+    () =>
+      browserOrigin && !previewUrl && srcdocWithHitTest
+        ? prepareNativePublicAssetPreviewDocument(
+            nativePublicWorkerPreview?.html ?? privateScreenshotPreview.html,
+            window.location.href,
+          )
+        : null,
+    [
+      browserOrigin,
+      privateScreenshotPreview.html,
+      nativePublicWorkerPreview?.html,
+      previewUrl,
+      srcdocWithHitTest,
+    ],
+  );
+  const setBreakpointPreviewFrameRef = useNativePreviewViewportPublisherRef(
+    nativePublicAssetPreview,
+    nativePublicWorkerPreview,
   );
 
   return (
@@ -15235,6 +15461,7 @@ function BreakpointPreviewRow({
                   editableContent
                 ) : externalPreviewPendingOrigin ? null : (
                   <iframe
+                    ref={setBreakpointPreviewFrameRef}
                     data-screen-iframe-id={getBreakpointIframeId(
                       screen.id,
                       widthPx,
@@ -15247,7 +15474,11 @@ function BreakpointPreviewRow({
                     data-screen-static-preview={previewUrl ? undefined : ""}
                     src={previewUrl}
                     srcDoc={
-                      previewUrl ? undefined : privateScreenshotPreview.html
+                      previewUrl
+                        ? undefined
+                        : (nativePublicAssetPreview?.html ??
+                          nativePublicWorkerPreview?.html ??
+                          privateScreenshotPreview.html)
                     }
                     sandbox={getDesignCanvasIframeSandbox({
                       externalPreview: Boolean(previewUrl),

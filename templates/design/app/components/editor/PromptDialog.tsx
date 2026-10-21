@@ -951,7 +951,12 @@ export default function PromptPopover({
         skipLabel &&
         (!inline || showInlineSkip) &&
         !offerStartChoice && (
-          <div className="flex justify-end border-t border-border px-3.5 py-2">
+          <div
+            className={cn(
+              "flex justify-end px-3.5 py-2",
+              !inline && "border-t border-border",
+            )}
+          >
             <Button
               type="button"
               variant="link"

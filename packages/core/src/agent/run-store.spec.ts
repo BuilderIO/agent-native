@@ -40,9 +40,20 @@ let runListRows: Array<Record<string, unknown>> = [];
 let refreshedRunListRows: Array<Record<string, unknown>> | null = null;
 let runListSelectCount = 0;
 let turnInitiatorRows: Array<Record<string, unknown>> = [];
-let priorTurnRunRows: Array<{ id: string }> = [];
+let priorTurnRunRows: Array<{
+  id: string;
+  status?: string;
+  terminal_reason?: string | null;
+  dispatch_mode?: string | null;
+}> = [];
 let turnInitiatorByRunRows: Array<Record<string, unknown>> = [];
+let requiredInsertRunRows: Array<{
+  status?: string;
+  terminal_reason?: string | null;
+  turn_aborted?: boolean | string;
+}> = [];
 let insertEventBehavior: () => void = () => {};
+let insertEventRowsAffected = 1;
 let abortRowsAffected = 1;
 let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
 let staleRecoveryRows: Array<{
@@ -95,6 +106,17 @@ const mockDb: any = {
         rows: [{ status: "running", worker_generation: null }],
         rowsAffected: 0,
       };
+    }
+    if (
+      /SELECT status, terminal_reason FROM agent_runs WHERE id/i.test(rawSql)
+    ) {
+      return {
+        rows: [{ status: "running", terminal_reason: null }],
+        rowsAffected: 0,
+      };
+    }
+    if (/SELECT run\.status, run\.terminal_reason,/i.test(rawSql)) {
+      return { rows: requiredInsertRunRows, rowsAffected: 0 };
     }
     if (
       /SELECT event_data FROM agent_run_events/i.test(rawSql) &&
@@ -155,7 +177,17 @@ const mockDb: any = {
         rawSql,
       )
     ) {
-      return { rows: priorTurnRunRows, rowsAffected: 0 };
+      const rows = priorTurnRunRows.filter(
+        (row) =>
+          (!rawSql.includes("dispatch_mode IS DISTINCT FROM 'turn-abort'") ||
+            row.dispatch_mode !== "turn-abort") &&
+          (!rawSql.includes(
+            "terminal_reason IS DISTINCT FROM 'aborted:duplicate_submission'",
+          ) ||
+            row.status !== "aborted" ||
+            row.terminal_reason !== "aborted:duplicate_submission"),
+      );
+      return { rows, rowsAffected: 0 };
     }
     if (/INSERT INTO agent_turn_initiators/i.test(rawSql)) {
       if (turnInitiatorRows.length === 0) {
@@ -236,7 +268,10 @@ const mockDb: any = {
     }
     if (/INSERT INTO agent_run_events/i.test(rawSql)) {
       insertEventBehavior();
-      return { rows: [], rowsAffected: 1 };
+      return {
+        rows: /\bRETURNING\b/i.test(rawSql) ? [{ seq: args[1] }] : [],
+        rowsAffected: insertEventRowsAffected,
+      };
     }
     if (/UPDATE agent_runs SET status = 'aborted'/i.test(rawSql)) {
       return { rows: [], rowsAffected: abortRowsAffected };
@@ -303,6 +338,7 @@ vi.mock("../server/capture-error.js", () => ({
 }));
 
 const {
+  AgentRunEventNotPersistedError,
   STALE_RUN_ERROR_EVENT,
   STALE_RUN_TERMINAL_REASON,
   markRunAborted,
@@ -340,6 +376,7 @@ const {
   getRunPendingConnectionRequestId,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnEventsForThread,
+  getCurrentTurnRunIdsForThread,
   __resetNoRunningRunsProbeForTests,
   describeStaleReap,
   staleWindowMsForRow,
@@ -414,6 +451,7 @@ describe("run store", () => {
     turnInitiatorRows = [];
     priorTurnRunRows = [];
     turnInitiatorByRunRows = [];
+    requiredInsertRunRows = [];
     ledgerRows = [];
     dispatchPayloadRows = [];
     staleRecoveryRows = [];
@@ -422,6 +460,7 @@ describe("run store", () => {
     runCountRows = [];
     prunedRunRows = [];
     insertEventBehavior = () => {};
+    insertEventRowsAffected = 1;
     abortRowsAffected = 1;
     __resetNoRunningRunsProbeForTests();
     vi.clearAllMocks();
@@ -593,7 +632,11 @@ describe("run store", () => {
     const reason = execCalls.find((call) =>
       /UPDATE agent_runs SET terminal_reason/i.test(call.sql),
     );
-    expect(reason?.args).toEqual(["run_timeout", "run-checkpoint"]);
+    expect(reason?.args).toEqual([
+      "run_timeout",
+      "run-checkpoint",
+      "run_timeout",
+    ]);
   });
 
   it("hides the reserved checkpoint band from the live event feed", async () => {
@@ -649,6 +692,80 @@ describe("run store", () => {
       '{"type":"thinking","text":"zombie"}',
       "run-terminal",
     ]);
+  });
+
+  it("reports a missing required-insert run row as a persistence failure", async () => {
+    insertEventRowsAffected = 0;
+
+    await expect(
+      insertRunEvent(
+        "run-missing-required-insert",
+        3,
+        '{"type":"thinking","text":"working"}',
+        { requireInserted: true },
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: false,
+    });
+  });
+
+  it("keeps existing non-running rows classified as terminal on insert conflict", async () => {
+    insertEventRowsAffected = 0;
+    requiredInsertRunRows = [{ status: "completed", terminal_reason: "done" }];
+
+    await expect(
+      insertRunEvent(
+        "run-completed-required-insert",
+        3,
+        '{"type":"thinking","text":"working"}',
+        { requireInserted: true },
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
+  });
+
+  it("requires a durable truncated run before inserting a continuation terminal", async () => {
+    await insertRunEvent(
+      "run-timeout-terminal",
+      8,
+      '{"type":"auto_continue","reason":"run_timeout"}',
+      {
+        eventAt: 123_456,
+        requireInserted: true,
+        allowContinuationTerminal: true,
+      },
+    );
+
+    const insert = execCalls.find((call) =>
+      /WITH eligible_run AS MATERIALIZED/i.test(call.sql),
+    );
+    expect(insert?.sql).toContain("run.status = 'truncated'");
+    expect(insert?.sql).toContain("run.terminal_reason = ?");
+    expect(insert?.sql).not.toContain("run.status = 'running'");
+    expect(insert?.args).toEqual([
+      "run-timeout-terminal",
+      "run_timeout",
+      8,
+      123_456,
+      '{"type":"auto_continue","reason":"run_timeout"}',
+    ]);
+  });
+
+  it("parses each ordinary hot-path run event once", async () => {
+    const eventData = '{"type":"thinking","text":"working"}';
+    const parse = vi.spyOn(JSON, "parse");
+
+    try {
+      await insertRunEvent("run-single-event-parse", 0, eventData);
+      expect(
+        parse.mock.calls.filter(([value]) => value === eventData),
+      ).toHaveLength(1);
+    } finally {
+      parse.mockRestore();
+    }
   });
 
   it("stores run events without inline image bytes", async () => {
@@ -727,6 +844,49 @@ describe("run store", () => {
     );
   });
 
+  it("excludes duplicate-submission and turn-abort rows from current-turn run IDs", async () => {
+    priorTurnRunRows = [
+      {
+        id: "run-current-turn",
+        status: "completed",
+        terminal_reason: "done",
+        dispatch_mode: "foreground",
+      },
+      {
+        id: "run-duplicate-marker",
+        status: "aborted",
+        terminal_reason: "aborted:duplicate_submission",
+      },
+      {
+        id: "run-turn-abort-marker",
+        status: "aborted",
+        terminal_reason: "aborted:user",
+        dispatch_mode: "turn-abort",
+      },
+      {
+        id: "run-legacy-abort",
+        status: "aborted",
+        terminal_reason: null,
+        dispatch_mode: "foreground",
+      },
+    ];
+
+    await expect(
+      getCurrentTurnRunIdsForThread("thread-current-turn", "turn-current"),
+    ).resolves.toEqual(["run-current-turn", "run-legacy-abort"]);
+
+    expect(execCalls.at(-1)?.sql).toContain(
+      "dispatch_mode IS DISTINCT FROM 'turn-abort'",
+    );
+    expect(execCalls.at(-1)?.sql).toContain(
+      "status IS DISTINCT FROM 'aborted' OR terminal_reason IS DISTINCT FROM 'aborted:duplicate_submission'",
+    );
+    expect(execCalls.at(-1)?.args).toEqual([
+      "thread-current-turn",
+      "turn-current",
+    ]);
+  });
+
   it("reports no pending connection request when the run has no request event", async () => {
     await expect(
       getRunPendingConnectionRequestId("run-without-connection"),
@@ -785,7 +945,7 @@ describe("run store", () => {
     expect(update?.args).toEqual([12_345, 12_345, "run-progress"]);
   });
 
-  it("does not append another terminal event after auto_continue", async () => {
+  it("replaces an earlier auto_continue when the abort transaction wins", async () => {
     latestEventRows = [
       {
         seq: 4,
@@ -798,10 +958,40 @@ describe("run store", () => {
 
     await markRunAborted("run-abort-after-terminal", "no_progress");
 
-    const eventInserts = execCalls.filter((call) =>
+    const deletion = execCalls.find((call) =>
+      /DELETE FROM agent_run_events/i.test(call.sql),
+    );
+    expect(deletion?.args).toEqual(["run-abort-after-terminal", 4]);
+
+    const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
     );
-    expect(eventInserts).toHaveLength(0);
+    expect(insert?.args[1]).toBe(4);
+    expect(insert?.args[3]).toBe(
+      '{"type":"auto_continue","reason":"no_progress"}',
+    );
+  });
+
+  it("replaces a stale done event when the abort transaction wins", async () => {
+    latestEventRows = [
+      {
+        seq: 7,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
+
+    await markRunAborted("run-abort-after-done", "user");
+
+    const deletion = execCalls.find((call) =>
+      /DELETE FROM agent_run_events/i.test(call.sql),
+    );
+    expect(deletion?.args).toEqual(["run-abort-after-done", 7]);
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    expect(insert?.args[1]).toBe(7);
+    expect(insert?.args[3]).toBe('{"type":"done","reason":"user"}');
   });
 
   it("does not rewrite a run that is already terminal", async () => {
@@ -832,13 +1022,20 @@ describe("run store", () => {
     expect(mockCaptureError).not.toHaveBeenCalled();
   });
 
-  it("captures to Sentry when the terminal-event retry also fails", async () => {
+  it("surfaces and captures a terminal-event failure after the retry also fails", async () => {
     insertEventBehavior = () => {
       throw new Error("DB unavailable");
     };
 
-    await markRunAborted("run-retry-fail");
+    const error = await markRunAborted("run-retry-fail").catch(
+      (failure: unknown) => failure,
+    );
 
+    expect(error).toBeInstanceOf(AgentRunEventNotPersistedError);
+    expect(error).toMatchObject({ terminalRun: false });
+    expect((error as Error & { cause?: unknown }).cause).toMatchObject({
+      message: "DB unavailable",
+    });
     expect(mockCaptureError).toHaveBeenCalledTimes(1);
     const [err, ctx] = mockCaptureError.mock.calls[0];
     expect((err as Error).message).toBe("DB unavailable");
@@ -1107,6 +1304,7 @@ describe("run store", () => {
         dispatch_mode: "background-processing",
         terminal_reason: "run_timeout",
         diag_stage: null,
+        in_flight_since: "2700",
       },
     ];
 
@@ -1119,7 +1317,9 @@ describe("run store", () => {
       status: "errored",
       errorCode: "run_timeout",
       completedAt: 2600,
+      inFlightSince: 2700,
     });
+    expect(execCalls.at(-1)?.sql).toContain("in_flight_since");
     expect(execCalls.at(-1)?.sql).toContain("AND id IN (?, ?)");
     expect(execCalls.at(-1)?.args).toEqual([
       "thread-lifecycle",

@@ -452,6 +452,8 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
+  // Connection setup UI needs the workspace prerequisite even in minimal apps.
+  "get-managed-mcp-oauth-readiness",
   "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
@@ -779,6 +781,10 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       () => import("../usage/actions/get-builder-referral-info.js"),
     ],
     [
+      "search-automation-accounts",
+      () => import("../triggers/actions/search-automation-accounts.js"),
+    ],
+    [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
     ],
@@ -822,6 +828,10 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       "get-auth-methods",
       () => import("../user-profile/actions/get-auth-methods.js"),
     ],
+    [
+      "get-managed-mcp-oauth-readiness",
+      () => import("../mcp-client/actions/get-managed-mcp-oauth-readiness.js"),
+    ],
     ["set-password", () => import("../user-profile/actions/set-password.js")],
     [
       "change-password",
@@ -834,6 +844,14 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
+    ],
+    [
+      "get-theme-family",
+      () => import("../appearance/actions/get-theme-family.js"),
+    ],
+    [
+      "set-theme-family",
+      () => import("../appearance/actions/set-theme-family.js"),
     ],
     [
       "list-audit-events",

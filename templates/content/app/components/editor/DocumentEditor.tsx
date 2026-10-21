@@ -192,6 +192,10 @@ import { cn } from "@/lib/utils";
 import { ContentIcon } from "../icons/ContentIcon";
 import { createAuthoredContentBase } from "./authored-content-base";
 import {
+  BlockFieldCommentsProvider,
+  useBlockFieldComments,
+} from "./block-field-comments";
+import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
   peekBlockFieldSaveController,
@@ -252,10 +256,7 @@ import {
   pendingSaveRetrySnapshot,
 } from "./document-save-retry";
 import { DocumentAccessScreen } from "./DocumentAccessScreen";
-import {
-  DocumentBlockFields,
-  type PrimaryBlockFieldTab,
-} from "./DocumentBlockFields";
+import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
@@ -279,7 +280,6 @@ import {
 } from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
-  clearPageDraftJournal,
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
   syncPageDraftJournalBeforePersistingRecoveryDraft,
@@ -419,6 +419,9 @@ export function restoreCapturedEditorSelection(
   return controller.restoreSelection(snapshot);
 }
 
+const NO_SUGGESTIONS: ResourceSuggestion[] = [];
+const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
+
 export function documentEditorCommentThreads(
   threads: CommentThread[] | null | undefined,
 ) {
@@ -468,12 +471,14 @@ export interface PageEditorSession {
 
 /**
  * Opens the Page with its Comments showing: one thread when `threadId` is
- * set, otherwise the list. A new `key` asks again.
+ * set, a new comment on the Property `propertyId` names, otherwise the list.
+ * A new `key` asks again.
  */
 export interface PageCommentIntent {
   key: number;
   documentId: string;
   threadId?: string | null;
+  propertyId?: string;
 }
 
 export interface PageEditorSurfaceProps extends DocumentEditorProps {
@@ -2619,6 +2624,8 @@ function PageEditorSessionBody({
   );
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
+  // Pages that follow a GitHub file are written by sync; edit the file instead.
+  const isGitHubSourceDocument = document.source?.mode === "github";
   const canComment =
     !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
@@ -2805,17 +2812,6 @@ function PageEditorSessionBody({
           ? current
           : { scope, available },
       );
-    },
-    [],
-  );
-  // Page comments anchor in the primary field, so they wait while another
-  // field's tab is open and opening one brings that tab back.
-  const [primaryBlockFieldHidden, setPrimaryBlockFieldHidden] = useState(false);
-  const showPrimaryBlockFieldRef = useRef<() => void>(() => {});
-  const handlePrimaryFieldTabChange = useCallback(
-    (tab: PrimaryBlockFieldTab) => {
-      setPrimaryBlockFieldHidden(!tab.open);
-      showPrimaryBlockFieldRef.current = tab.show;
     },
     [],
   );
@@ -3385,24 +3381,11 @@ function PageEditorSessionBody({
     [isLinkedLocalSourceDocument, isLocalFileDocument, journalScope, t],
   );
   const clearConfirmedDraftJournal = useCallback(
-    (
-      saved: Document & {
-        bodyIntentOutcome?: { status: "applied" | "displaced-preserved" };
-      },
-      editGeneration: number,
-    ) => {
+    (editGeneration: number) => {
       const scope = journalScope();
       if (!scope) return;
       try {
-        if (saved.bodyIntentOutcome) {
-          clearPageDraftJournalGeneration(scope, editGeneration);
-        } else {
-          clearPageDraftJournal(scope, {
-            editGeneration,
-            title: saved.title,
-            content: saved.content,
-          });
-        }
+        clearPageDraftJournalGeneration(scope, editGeneration);
       } catch {
         if (!recoveryWriteErrorShownRef.current) {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
@@ -3424,6 +3407,7 @@ function PageEditorSessionBody({
 
   const collabEnabled = shouldUseLiveDocumentCollaboration({
     isLocalFileDocument,
+    isGitHubSourceDocument,
     mcpDirectoryWidgetReadOnly,
   });
   const holdCollaborationForCreationSave = isDocumentCreationConfirmed(
@@ -3470,6 +3454,7 @@ function PageEditorSessionBody({
     !collabSynced;
   const editorCanEdit =
     canEdit &&
+    !isGitHubSourceDocument &&
     !bodyHydrationPending &&
     !localSourceMissing &&
     (!isLocalFileDocument || localSourceAccess === "available") &&
@@ -4430,17 +4415,13 @@ function PageEditorSessionBody({
             : null,
         });
       }
-      if (
-        contentEditVersionRef.current === contentEditVersion &&
-        contentObservationEpochRef.current === contentObservationEpoch
-      ) {
+      // Text another writer added while this save was in flight is theirs to
+      // save, so it holds back neither the confirmation nor the journal clear.
+      // An entry kept for it outlives this tab's edits, and the next tab to
+      // open the page replays it as a save of its own.
+      if (contentEditVersionRef.current === contentEditVersion) {
         confirmedContentEditVersionRef.current = contentEditVersion;
-        if (
-          saved.title === localTitleRef.current &&
-          saved.content === localContentRef.current
-        ) {
-          clearConfirmedDraftJournal(saved, editorEditGeneration);
-        }
+        clearConfirmedDraftJournal(editorEditGeneration);
       }
 
       if (autoSync) {
@@ -7554,6 +7535,7 @@ function PageEditorSessionBody({
   )
     ? pagePropertiesQuery.data.properties
     : undefined;
+  const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -7656,14 +7638,60 @@ function PageEditorSessionBody({
     commentsFetching,
     commentsError,
   ]);
+  const activateCommentThread = useCallback(
+    (threadId: string, preserveBrowseContext = false) => {
+      setSelectedSuggestionId(null);
+      setPendingComment(null);
+      setHoveredThreadId(null);
+      setSelectedThreadId(threadId);
+      setCommentsBrowseOpen(preserveBrowseContext);
+      setUtilityPanel("comments");
+    },
+    [],
+  );
+
+  // Text in another Blocks field's tab is commented in that tab.
+  const handleFieldComment = useCallback(
+    (
+      fieldId: string,
+      quotedText: string,
+      offsetTop: number,
+      anchor?: CommentTextAnchor,
+      range?: { from: number; to: number },
+    ) => {
+      setPendingComment({ quotedText, offsetTop, anchor, range, fieldId });
+      setCommentsBrowseOpen(false);
+      setUtilityPanel("comments");
+      setSelectedThreadId(null);
+      setHoveredThreadId(null);
+    },
+    [setPendingComment],
+  );
+  const blockFieldComments = useBlockFieldComments({
+    expectsBlockFields: !!document.databaseMembership && !isLocalFileDocument,
+    threads,
+    suggestions: sidebarSuggestions,
+    draftSuggestions,
+    anchoredSuggestionIds,
+    selectedThreadId,
+    selectedSuggestionId,
+    focusSuggestionId,
+    hoveredThreadId,
+    pendingComment,
+    showCommentIndicators,
+    onComment: canComment ? handleFieldComment : undefined,
+    onActivateThread: !isLocalFileDocument ? activateCommentThread : undefined,
+    scrollContainerRef,
+  });
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
     !showCommentsHistoryDrawer &&
     utilityPanel === "comments" &&
     !hasInlineCommentSpace &&
-    !primaryBlockFieldHidden &&
-    (!!pendingComment || !!selectedThreadId);
+    !blockFieldComments.tabSwitchPending &&
+    ((!!pendingComment && blockFieldComments.pendingVisible) ||
+      !!selectedThreadId);
   // A panel without a docked rail opens over the page. Only a phone gets
   // the modal Sheet: wider, the Sheet would cover a docked agent panel.
   const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet({
@@ -7773,18 +7801,6 @@ function PageEditorSessionBody({
     dismissCommentFocus();
     editorEscapeTargetRef.current?.focus({ preventScroll: true });
   }, [dismissCommentFocus]);
-
-  const activateCommentThread = useCallback(
-    (threadId: string, preserveBrowseContext = false) => {
-      setSelectedSuggestionId(null);
-      setPendingComment(null);
-      setHoveredThreadId(null);
-      setSelectedThreadId(threadId);
-      setCommentsBrowseOpen(preserveBrowseContext);
-      setUtilityPanel("comments");
-    },
-    [],
-  );
 
   const activateSuggestion = useCallback((suggestionId: string) => {
     setPendingComment(null);
@@ -7938,6 +7954,7 @@ function PageEditorSessionBody({
     ],
   );
   const handledCommentDeepLinkRef = useRef<string | null>(null);
+  const handledPropertyCommentLinkRef = useRef<string | null>(null);
 
   const startPropertyComment = useCallback(
     (property: DocumentProperty) => {
@@ -8074,6 +8091,40 @@ function PageEditorSessionBody({
     activateCommentThread(threadId, true);
   }, [activateCommentThread, documentId, location.search, threads]);
 
+  // A Collection that opens rows as full pages links here to start a comment
+  // on one Property, as the row's peek does on a touch screen.
+  useEffect(() => {
+    const propertyId = new URLSearchParams(location.search).get(
+      "commentProperty",
+    );
+    if (!propertyId) {
+      handledPropertyCommentLinkRef.current = null;
+      return;
+    }
+    const linkKey = `${documentId}:${propertyId}`;
+    // Wait for the Properties; a failed read opens the list instead.
+    if (
+      handledPropertyCommentLinkRef.current === linkKey ||
+      (!pageProperties && !pagePropertiesFailed)
+    ) {
+      return;
+    }
+    handledPropertyCommentLinkRef.current = linkKey;
+    const property = pageProperties?.find(
+      (candidate) => candidate.definition.id === propertyId,
+    );
+    if (property && canComment) startPropertyComment(property);
+    else handleUtilityPanelChange("comments");
+  }, [
+    canComment,
+    documentId,
+    handleUtilityPanelChange,
+    location.search,
+    pageProperties,
+    pagePropertiesFailed,
+    startPropertyComment,
+  ]);
+
   const handledCommentIntentRef = useRef<number | null>(null);
   useEffect(() => {
     if (
@@ -8081,7 +8132,7 @@ function PageEditorSessionBody({
       handledCommentIntentRef.current === commentIntent.key
     )
       return;
-    const threadId = commentIntent.threadId;
+    const { threadId, propertyId } = commentIntent;
     if (threadId) {
       // Wait for the thread; a thread that is gone opens the list instead.
       if (!threads) return;
@@ -8090,22 +8141,32 @@ function PageEditorSessionBody({
         activateCommentThread(threadId);
         return;
       }
+    } else if (propertyId) {
+      // Wait for the Properties; one that is gone, or a failed read, opens
+      // the list instead.
+      if (!pageProperties && !pagePropertiesFailed) return;
+      handledCommentIntentRef.current = commentIntent.key;
+      const property = pageProperties?.find(
+        (candidate) => candidate.definition.id === propertyId,
+      );
+      if (property && canComment) {
+        startPropertyComment(property);
+        return;
+      }
     }
     handledCommentIntentRef.current = commentIntent.key;
     handleUtilityPanelChange("comments");
   }, [
     activateCommentThread,
+    canComment,
     commentIntent,
     documentId,
     handleUtilityPanelChange,
+    pageProperties,
+    pagePropertiesFailed,
+    startPropertyComment,
     threads,
   ]);
-
-  useEffect(() => {
-    if (selectedThreadId || selectedSuggestionId || focusSuggestionId) {
-      showPrimaryBlockFieldRef.current();
-    }
-  }, [focusSuggestionId, selectedSuggestionId, selectedThreadId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -8474,10 +8535,18 @@ function PageEditorSessionBody({
       compact={!hasInlineCommentSpace}
       replyDrafts={replyDrafts}
       documentId={documentId}
-      threads={documentEditorCommentThreads(threads)}
+      threads={
+        presentation === "history"
+          ? documentEditorCommentThreads(threads)
+          : blockFieldComments.railThreads
+      }
       documentProperties={pageProperties}
       isLoading={commentsLoading}
-      pendingComment={pendingComment}
+      pendingComment={
+        presentation === "history" || blockFieldComments.pendingVisible
+          ? pendingComment
+          : null
+      }
       pendingTargetValid={pendingCommentTargetValid}
       onPendingChange={changePendingComment}
       onPendingDone={(id, threadId) => {
@@ -8509,8 +8578,16 @@ function PageEditorSessionBody({
       canResolve={canEdit}
       alignToAnchors={alignToAnchors}
       forceVisible
-      suggestions={sidebarSuggestions}
-      draftSuggestions={draftSuggestions}
+      suggestions={
+        presentation === "history" || blockFieldComments.railShowsSuggestions
+          ? sidebarSuggestions
+          : NO_SUGGESTIONS
+      }
+      draftSuggestions={
+        presentation === "history" || blockFieldComments.railShowsSuggestions
+          ? draftSuggestions
+          : NO_DRAFT_SUGGESTIONS
+      }
       onMaterializeDraft={async (draft) => {
         const persisted = await flushSuggestionDraft({ keepMode: true });
         if (!persisted) return null;
@@ -9211,6 +9288,29 @@ function PageEditorSessionBody({
             </div>
           ) : null}
 
+          {isGitHubSourceDocument ? (
+            <div
+              className="border-b bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground"
+              role="status"
+              data-github-source-read-only
+            >
+              {t("editor.githubSourceReadOnly")}
+              {document.source?.url ? (
+                <>
+                  {" "}
+                  <a
+                    href={document.source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 hover:text-foreground"
+                  >
+                    {t("editor.githubSourceOpenFile")}
+                  </a>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
           <div
             ref={scrollContainerRef}
             className="flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"
@@ -9692,7 +9792,9 @@ function PageEditorSessionBody({
                               commentThreads={editorCommentThreads}
                               activeThreadId={selectedThreadId}
                               hoveredThreadId={hoveredThreadId}
-                              pendingHighlight={pendingComment?.range ?? null}
+                              pendingHighlight={
+                                blockFieldComments.bodyPendingHighlight
+                              }
                               onActivateThread={
                                 !isLocalFileDocument
                                   ? activateCommentThread
@@ -9738,35 +9840,39 @@ function PageEditorSessionBody({
                       );
                       if (document.databaseMembership && !isLocalFileDocument) {
                         return (
-                          <DocumentBlockFields
-                            documentId={documentId}
-                            databaseId={
-                              databaseId ??
-                              document.databaseMembership.databaseId
-                            }
-                            databaseDocumentId={
-                              databaseDocumentId ??
-                              document.databaseMembership.databaseDocumentId
-                            }
-                            canEdit={
-                              editorCanEdit && !mcpDirectoryWidgetReadOnly
-                            }
-                            usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
-                            suggesting={isSuggesting || isStartingSuggestion}
-                            enteringSuggestion={isStartingSuggestion}
-                            onPrimaryFieldAvailabilityChange={
-                              handlePrimaryFieldAvailabilityChange
-                            }
-                            primaryEditor={primaryEditor}
-                            primaryContent={exportContent}
-                            onPrimaryFieldTabChange={
-                              handlePrimaryFieldTabChange
-                            }
-                            pageProperties={document.properties}
-                            onAdditionalContentChange={
-                              handleAdditionalBlockContentChange
-                            }
-                          />
+                          <BlockFieldCommentsProvider
+                            value={blockFieldComments.provider}
+                          >
+                            <DocumentBlockFields
+                              documentId={documentId}
+                              databaseId={
+                                databaseId ??
+                                document.databaseMembership.databaseId
+                              }
+                              databaseDocumentId={
+                                databaseDocumentId ??
+                                document.databaseMembership.databaseDocumentId
+                              }
+                              canEdit={
+                                editorCanEdit && !mcpDirectoryWidgetReadOnly
+                              }
+                              usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
+                              suggesting={isSuggesting || isStartingSuggestion}
+                              enteringSuggestion={isStartingSuggestion}
+                              onPrimaryFieldAvailabilityChange={
+                                handlePrimaryFieldAvailabilityChange
+                              }
+                              primaryEditor={primaryEditor}
+                              primaryContent={exportContent}
+                              onFieldTabChange={
+                                blockFieldComments.onFieldTabChange
+                              }
+                              pageProperties={document.properties}
+                              onAdditionalContentChange={
+                                handleAdditionalBlockContentChange
+                              }
+                            />
+                          </BlockFieldCommentsProvider>
                         );
                       }
 
@@ -9791,7 +9897,7 @@ function PageEditorSessionBody({
 
               {showDesktopRightRail ? (
                 showInlineComments ? (
-                  primaryBlockFieldHidden ? null : (
+                  blockFieldComments.tabSwitchPending ? null : (
                     <aside
                       ref={commentLaneRef}
                       className="absolute right-0 top-0 w-80"
@@ -9836,7 +9942,9 @@ function PageEditorSessionBody({
                 >
                   <div className="pointer-events-auto">
                     {renderCommentsSidebar(
-                      pendingComment ? "__pending-only__" : selectedThreadId,
+                      pendingComment && blockFieldComments.pendingVisible
+                        ? "__pending-only__"
+                        : selectedThreadId,
                       false,
                       "inline",
                       "popover",

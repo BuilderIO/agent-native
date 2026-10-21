@@ -51,6 +51,8 @@ const READ_METRIC_QUERY = `query AnalyticsMetricResult($environmentId: BigInt!, 
 
 const MAX_POLL_ATTEMPTS = 8;
 const POLL_INTERVAL_MS = 400;
+// dbt reports COMPILED while MetricFlow is still preparing the query.
+const IN_PROGRESS_QUERY_STATUSES = new Set(["COMPILED", "PENDING", "RUNNING"]);
 const MAX_METADATA_PAGES = 10;
 const MAX_METRIC_QUERY_ROWS = 1_000;
 const MAX_METRIC_QUERY_DAYS = 366;
@@ -586,6 +588,13 @@ class DbtSemanticLayerError extends Error {
     super(message);
     this.name = "DbtSemanticLayerError";
   }
+}
+
+// Type names only: dbt's values never go into an error message.
+function shapeOf(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
 }
 
 class DbtRequestTimeoutError extends Error {
@@ -1371,12 +1380,10 @@ export default defineAction({
             page.totalPages < 0 ||
             page.totalPages > 100_000
           ) {
-            fail(
-              "dbt Semantic Layer returned incomplete metric metadata pagination.",
-              {
-                errorCode: "dbt_invalid_metadata_page",
-                statusCode: 502,
-              },
+            throw new DbtSemanticLayerError(
+              "provider_error",
+              `dbt Semantic Layer returned incomplete metric metadata pagination (items ${shapeOf(page.items)}, totalItems ${shapeOf(page.totalItems)}, totalPages ${shapeOf(page.totalPages)}).`,
+              false,
             );
           }
           if (metadataCursor && page.totalItems !== metadataCursor.of) {
@@ -1442,12 +1449,10 @@ export default defineAction({
               !Number.isInteger(totalItems) ||
               totalItems < 0
             ) {
-              fail(
-                "dbt Semantic Layer returned an invalid semantic manifest count.",
-                {
-                  errorCode: "dbt_invalid_metadata_count",
-                  statusCode: 502,
-                },
+              throw new DbtSemanticLayerError(
+                "provider_error",
+                `dbt Semantic Layer returned an invalid semantic manifest count (totalItems ${shapeOf(record(manifest.metricsPaginated).totalItems)}).`,
+                false,
               );
             }
             if (totalItems === 0) {
@@ -1645,7 +1650,7 @@ export default defineAction({
             source: "dbt-semantic-layer",
           };
         }
-        if (status !== "PENDING" && status !== "RUNNING") {
+        if (!IN_PROGRESS_QUERY_STATUSES.has(status)) {
           throw new DbtSemanticLayerError(
             "provider_error",
             status

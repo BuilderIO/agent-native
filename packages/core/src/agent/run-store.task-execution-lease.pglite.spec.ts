@@ -10,14 +10,42 @@ import {
 } from "./execution-fence.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+let failNextTerminalEventInsert = false;
+let failTerminalEventInsertCount = 0;
+let failNextCheckpointReasonUpdate = false;
 
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
   getDbExec: () => getExecutor(),
 }));
 
-function getExecutor(): DbExec {
+function wrapTerminalEventFailure(executor: DbExec): DbExec {
   return {
+    async execute(input) {
+      if (
+        (failNextTerminalEventInsert || failTerminalEventInsertCount > 0) &&
+        typeof input !== "string" &&
+        input.sql.includes("INSERT INTO agent_run_events")
+      ) {
+        if (failNextTerminalEventInsert) failNextTerminalEventInsert = false;
+        else failTerminalEventInsertCount -= 1;
+        throw new Error("injected terminal event insert failure");
+      }
+      if (
+        failNextCheckpointReasonUpdate &&
+        typeof input !== "string" &&
+        input.sql.includes("UPDATE agent_runs SET terminal_reason")
+      ) {
+        failNextCheckpointReasonUpdate = false;
+        throw new Error("injected checkpoint reason update failure");
+      }
+      return executor.execute(input);
+    },
+  };
+}
+
+function getExecutor(): DbExec {
+  const direct: DbExec = {
     async execute(input) {
       if (typeof input === "string") {
         await pglite.exec(input);
@@ -29,7 +57,11 @@ function getExecutor(): DbExec {
         rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
       };
     },
-    transaction: pglite.transaction,
+  };
+  return {
+    ...wrapTerminalEventFailure(direct),
+    transaction: (fn) =>
+      pglite.transaction((tx) => fn(wrapTerminalEventFailure(tx))),
   };
 }
 
@@ -40,6 +72,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 }));
 
 const {
+  AgentRunEventNotPersistedError,
   beginAgentExecutionStep,
   claimBackgroundRun,
   claimTaskExecutionLease,
@@ -47,15 +80,26 @@ const {
   clearLedgerForThread,
   completeAgentExecutionStep,
   finalizeClaimedBackgroundRunFailure,
+  getRunById,
   getLastTerminalRunEvent,
+  CHECKPOINT_TERMINAL_EVENT_SEQ,
+  ensureTerminalRunEvent,
+  insertRunEvent,
+  insertRunEvents,
   markAgentExecutionStepDispatched,
   markRunAbortedAtSafeBoundary,
+  updateRunStatusIfRunning,
   recordLateAgentExecutionStepOutcome,
   ensureRunTables,
   insertRun,
+  persistRunCheckpointEvent,
+  markRunAborted,
+  markTurnAborted,
   readBackgroundRunClaim,
+  reapUnclaimedBackgroundRun,
   reapIfStale,
   renewTaskExecutionLease,
+  UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   updateRunTerminalStateIfRunning,
   writeLedgerEntry,
 } = await import("./run-store.js");
@@ -70,6 +114,457 @@ afterAll(async () => {
 });
 
 describe("task execution leases", () => {
+  it("writes a continuation checkpoint and terminal reason atomically", async () => {
+    const runId = "run-atomic-checkpoint";
+    await insertRun(runId, "thread-atomic-checkpoint");
+
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    const run = await getRunById(runId);
+    const event = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    );
+    expect(run?.terminalReason).toBe("run_timeout");
+    expect(event.rows).toEqual([
+      { event_data: '{"type":"auto_continue","reason":"run_timeout"}' },
+    ]);
+  });
+
+  it("replaces a checkpoint reason when atomic abort finalization follows Stop rollback", async () => {
+    const threadId = "thread-abort-finalize-checkpoint-reason";
+    const turnId = "turn-abort-finalize-checkpoint-reason";
+    const runId = "run-abort-finalize-checkpoint-reason";
+    await insertRun(runId, threadId, turnId);
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    failTerminalEventInsertCount = 2;
+    try {
+      await expect(
+        markTurnAborted(threadId, turnId, "user"),
+      ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
+    } finally {
+      failTerminalEventInsertCount = 0;
+    }
+
+    const afterStopRollback = await pglite.query(
+      `SELECT status, terminal_reason FROM agent_runs WHERE id = ?`,
+      [runId],
+    );
+    expect(afterStopRollback.rows[0]).toMatchObject({
+      status: "running",
+      terminal_reason: "run_timeout",
+    });
+
+    await expect(markRunAborted(runId, "user")).resolves.toBe(true);
+
+    const finalized = await pglite.query(
+      `SELECT status, abort_reason, terminal_reason FROM agent_runs WHERE id = ?`,
+      [runId],
+    );
+    expect(finalized.rows[0]).toMatchObject({
+      status: "aborted",
+      abort_reason: "user",
+      terminal_reason: "aborted:user",
+    });
+    await expect(getLastTerminalRunEvent(runId)).resolves.toMatchObject({
+      event: { type: "done" },
+    });
+  });
+
+  it("replaces a checkpoint reason with the final driver reason atomically", async () => {
+    const runId = "run-checkpoint-final-driver-reason";
+    await insertRun(runId, "thread-checkpoint-final-driver-reason");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    await expect(
+      updateRunStatusIfRunning(runId, "completed", {
+        terminalReason: "done",
+      }),
+    ).resolves.toBe(true);
+
+    await expect(
+      pglite.query(
+        `SELECT status, terminal_reason FROM agent_runs WHERE id = ?`,
+        [runId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ status: "completed", terminal_reason: "done" }],
+    });
+  });
+
+  it("fails terminal appends when the last persisted event is malformed", async () => {
+    const runId = "run-terminal-append-malformed-event";
+    await insertRun(runId, "thread-terminal-append-malformed-event");
+    await pglite.query(
+      `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+       VALUES (?, ?, ?, ?)`,
+      [runId, 0, Date.now(), "{"],
+    );
+
+    await expect(
+      ensureTerminalRunEvent(runId, { type: "done" }),
+    ).rejects.toBeInstanceOf(SyntaxError);
+    const events = await pglite.query(
+      "SELECT seq, event_data FROM agent_run_events WHERE run_id = ?",
+      [runId],
+    );
+    expect(events.rows).toEqual([{ seq: 0, event_data: "{" }]);
+  });
+
+  it("rejects a conflicting checkpoint while leaving its run running", async () => {
+    const runId = "run-checkpoint-running-conflict";
+    await insertRun(runId, "thread-checkpoint-running-conflict");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    await expect(
+      persistRunCheckpointEvent(
+        runId,
+        { type: "auto_continue", reason: "no_progress" },
+        "no_progress",
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
+    expect((await getRunById(runId))?.status).toBe("running");
+  });
+
+  it("retires a durable checkpoint when a later terminal event is persisted", async () => {
+    const runId = "run-checkpoint-terminal-resolution";
+    await insertRun(runId, "thread-checkpoint-terminal-resolution");
+
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+    await insertRunEvent(runId, 0, JSON.stringify({ type: "done" }));
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done" },
+    });
+    const checkpoint = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    );
+    expect(checkpoint.rows).toEqual([]);
+  });
+
+  it("persists auto_continue after its run is marked truncated", async () => {
+    const runId = "run-truncated-auto-continue";
+    await insertRun(
+      runId,
+      "thread-truncated-auto-continue",
+      "turn-truncated-auto-continue",
+    );
+    await updateRunTerminalStateIfRunning(runId, {
+      status: "truncated",
+      terminalReason: "run_timeout",
+    });
+
+    await insertRunEvent(
+      runId,
+      0,
+      JSON.stringify({ type: "auto_continue", reason: "run_timeout" }),
+      { requireInserted: true, allowContinuationTerminal: true },
+    );
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "auto_continue", reason: "run_timeout" },
+    });
+  });
+
+  it("rejects a late auto_continue after turn abort commits", async () => {
+    const threadId = "thread-truncated-auto-continue-abort";
+    const turnId = "turn-truncated-auto-continue-abort";
+    const runId = "run-truncated-auto-continue-abort";
+    await insertRun(runId, threadId, turnId);
+    await updateRunTerminalStateIfRunning(runId, {
+      status: "truncated",
+      terminalReason: "run_timeout",
+    });
+    await insertRun("run-truncated-auto-continue-successor", threadId, turnId);
+
+    await expect(markTurnAborted(threadId, turnId, "user")).resolves.toBe(
+      "aborted",
+    );
+    await expect(
+      insertRunEvent(
+        runId,
+        0,
+        JSON.stringify({ type: "auto_continue", reason: "run_timeout" }),
+        { requireInserted: true, allowContinuationTerminal: true },
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
+
+    expect((await getRunById(runId))?.status).toBe("aborted");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done", reason: "user" },
+    });
+  });
+
+  it("does not replay a stranded checkpoint as the terminal of an errored run", async () => {
+    const runId = "run-checkpoint-terminal-persistence-failure";
+    const terminalEvent = {
+      type: "error",
+      error: "Agent run ended unexpectedly",
+      errorCode: "run_event_persistence_failed",
+    };
+    await insertRun(runId, "thread-checkpoint-terminal-persistence-failure");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "no_progress" },
+      "no_progress",
+    );
+    failTerminalEventInsertCount = 2;
+
+    await expect(
+      insertRunEvent(runId, 0, JSON.stringify(terminalEvent)),
+    ).rejects.toThrow("injected terminal event insert failure");
+    await expect(
+      insertRunEvent(runId, 0, JSON.stringify(terminalEvent)),
+    ).rejects.toThrow("injected terminal event insert failure");
+    await updateRunTerminalStateIfRunning(runId, {
+      status: "errored",
+      terminalReason: "error:run_event_persistence_failed",
+      errorCode: "run_event_persistence_failed",
+      errorDetail: terminalEvent.error,
+    });
+
+    expect((await getRunById(runId))?.status).toBe("errored");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toBeNull();
+
+    await ensureTerminalRunEvent(runId, terminalEvent);
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: terminalEvent,
+    });
+    const events = await pglite.query(
+      "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      [runId],
+    );
+    expect(events.rows).toEqual([
+      { seq: 0, event_data: JSON.stringify(terminalEvent) },
+    ]);
+  });
+
+  it("replaces a durable checkpoint with an explicit abort terminal event", async () => {
+    const runId = "run-checkpoint-user-abort";
+    await insertRun(runId, "thread-checkpoint-user-abort");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    await markRunAborted(runId, "user");
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done", reason: "user" },
+    });
+    const events = await pglite.query(
+      "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      [runId],
+    );
+    expect(events.rows).toEqual([
+      { seq: 0, event_data: '{"type":"done","reason":"user"}' },
+    ]);
+  });
+
+  it("replaces a regular terminal event when an abort transaction wins", async () => {
+    const runId = "run-regular-terminal-user-abort";
+    await insertRun(runId, "thread-regular-terminal-user-abort");
+    await insertRunEvent(runId, 0, JSON.stringify({ type: "done" }));
+
+    await markRunAborted(runId, "user");
+
+    const run = await getRunById(runId);
+    expect(run?.status).toBe("aborted");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done", reason: "user" },
+    });
+    const events = await pglite.query(
+      "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      [runId],
+    );
+    expect(events.rows).toEqual([
+      { seq: 0, event_data: '{"type":"done","reason":"user"}' },
+    ]);
+  });
+
+  it("rolls back abort status and checkpoint retirement when the terminal insert fails", async () => {
+    const runId = "run-checkpoint-user-abort-insert-failure";
+    await insertRun(runId, "thread-checkpoint-user-abort-insert-failure");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+    failTerminalEventInsertCount = 2;
+
+    await expect(markRunAborted(runId, "user")).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: false,
+    });
+
+    const runAfterFailure = await getRunById(runId);
+    expect(runAfterFailure?.status).toBe("running");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toBeNull();
+    const checkpointAfterFailure = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    );
+    expect(checkpointAfterFailure.rows).toEqual([
+      { event_data: '{"type":"auto_continue","reason":"run_timeout"}' },
+    ]);
+
+    await expect(markRunAborted(runId, "user")).resolves.toBe(true);
+    const runAfterRetry = await getRunById(runId);
+    expect(runAfterRetry?.status).toBe("aborted");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done", reason: "user" },
+    });
+  });
+
+  it("rolls back turn abort markers and run status when checkpoint retirement fails", async () => {
+    const threadId = "thread-checkpoint-turn-abort-insert-failure";
+    const turnId = "turn-checkpoint-turn-abort-insert-failure";
+    const runId = "run-checkpoint-turn-abort-insert-failure";
+    await insertRun(runId, threadId, turnId);
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+    failTerminalEventInsertCount = 2;
+
+    await expect(
+      markTurnAborted(threadId, turnId, "user"),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: false,
+    });
+
+    expect((await getRunById(runId))?.status).toBe("running");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toBeNull();
+    const markersAfterFailure = await pglite.query(
+      "SELECT id FROM agent_runs WHERE thread_id = ? AND dispatch_mode = 'turn-abort'",
+      [threadId],
+    );
+    expect(markersAfterFailure.rows).toHaveLength(0);
+
+    await expect(markTurnAborted(threadId, turnId, "user")).resolves.toBe(
+      "aborted",
+    );
+    expect((await getRunById(runId))?.status).toBe("aborted");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done", reason: "user" },
+    });
+  });
+
+  it("replaces a checkpoint when an abort records a different continuation reason", async () => {
+    const runId = "run-checkpoint-continuation-abort";
+    await insertRun(runId, "thread-checkpoint-continuation-abort");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    await markRunAborted(runId, "no_progress");
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "auto_continue", reason: "no_progress" },
+    });
+    const events = await pglite.query(
+      "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      [runId],
+    );
+    expect(events.rows).toEqual([
+      {
+        seq: 0,
+        event_data: '{"type":"auto_continue","reason":"no_progress"}',
+      },
+    ]);
+  });
+
+  it("retires a checkpoint when retrying an already persisted terminal event", async () => {
+    const runId = "run-checkpoint-terminal-retry";
+    await insertRun(runId, "thread-checkpoint-terminal-retry");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+    await pglite.query(
+      "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+      [runId, 0, Date.now(), JSON.stringify({ type: "done" })],
+    );
+
+    await insertRunEvent(runId, 0, JSON.stringify({ type: "done" }));
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done" },
+    });
+    const checkpoint = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    );
+    expect(checkpoint.rows).toEqual([]);
+  });
+
+  it("rolls back the checkpoint event when the terminal reason write fails", async () => {
+    const runId = "run-rollback-checkpoint";
+    await insertRun(runId, "thread-rollback-checkpoint");
+    failNextCheckpointReasonUpdate = true;
+
+    await expect(
+      persistRunCheckpointEvent(
+        runId,
+        { type: "auto_continue", reason: "run_timeout" },
+        "run_timeout",
+      ),
+    ).rejects.toThrow("injected checkpoint reason update failure");
+
+    const run = await getRunById(runId);
+    const event = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    );
+    expect(run?.terminalReason).toBeNull();
+    expect(event.rows).toEqual([]);
+  });
+
   it("allows unleased writes without an execution fence", async () => {
     const write = vi.fn(async () => "written");
 
@@ -86,12 +581,34 @@ describe("task execution leases", () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it("rejects run aborts when an execution lease was requested without a fence", async () => {
+    await expect(
+      withExecutionLeaseRequested(() => markRunAborted("missing-abort-fence")),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
+    await expect(
+      withExecutionLeaseRequested(() =>
+        markRunAbortedAtSafeBoundary("missing-safe-abort-fence"),
+      ),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
+  });
+
   it("rejects execution-lease fence reads when the fence is missing", () => {
     expect(() =>
       withExecutionLeaseRequested(() => currentExecutionFence()),
     ).toThrowError(
       expect.objectContaining({ code: "missing_execution_fence" }),
     );
+  });
+
+  it("rejects turn aborts when an execution lease was requested without a fence", async () => {
+    await expect(
+      withExecutionLeaseRequested(() =>
+        markTurnAborted(
+          "thread-missing-turn-abort-fence",
+          "turn-missing-fence",
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
   });
 
   it("claims and renews without an agent_runs row, then fences stale generations", async () => {
@@ -197,6 +714,108 @@ describe("task execution leases", () => {
         insertRun("run-fenced-successor-current-child", threadId, turnId),
       ),
     ).resolves.toBeUndefined();
+  });
+
+  it("prevents a stale generation from aborting its same-run replacement", async () => {
+    const threadId = "thread-fenced-run-abort";
+    const turnId = "turn-fenced-run-abort";
+    const runId = "run-fenced-run-abort";
+    await insertRun(runId, threadId, turnId);
+    const firstFence = await claimTurnExecutionLease(threadId, turnId, runId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    const secondFence = await claimTurnExecutionLease(threadId, turnId, runId);
+    expect(BigInt(secondFence.generation)).toBe(
+      BigInt(firstFence.generation) + 1n,
+    );
+
+    await expect(
+      withExecutionFence(firstFence, () => markRunAborted(runId, "user")),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    const stillRunning = await pglite.query(
+      "SELECT status, worker_generation FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(stillRunning.rows[0]?.status).toBe("running");
+    expect(Number(stillRunning.rows[0]?.worker_generation)).toBe(
+      Number(secondFence.generation),
+    );
+    const terminalEvents = await pglite.query(
+      "SELECT seq FROM agent_run_events WHERE run_id = ?",
+      [runId],
+    );
+    expect(terminalEvents.rows).toHaveLength(0);
+
+    await expect(
+      withExecutionFence(secondFence, () => markRunAborted(runId, "user")),
+    ).resolves.toBe(true);
+    const aborted = await pglite.query(
+      "SELECT status FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(aborted.rows[0]).toMatchObject({ status: "aborted" });
+  });
+
+  it("prevents a stale worker from aborting its replacement generation", async () => {
+    const threadId = "thread-fenced-turn-abort";
+    const turnId = "turn-fenced-turn-abort";
+    const firstRunId = "run-fenced-turn-abort-first";
+    const secondRunId = "run-fenced-turn-abort-second";
+    await insertRun(firstRunId, threadId, turnId);
+    const firstFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      firstRunId,
+    );
+
+    await insertRun(secondRunId, threadId, turnId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    const secondFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      secondRunId,
+    );
+
+    await expect(
+      withExecutionFence(firstFence, () => markTurnAborted(threadId, turnId)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    const stillRunning = await pglite.query(
+      "SELECT id, status FROM agent_runs WHERE id IN (?, ?) ORDER BY id",
+      [firstRunId, secondRunId],
+    );
+    expect(stillRunning.rows.map((row) => row.status)).toEqual([
+      "running",
+      "running",
+    ]);
+    expect(
+      (
+        await pglite.query(
+          "SELECT id FROM agent_runs WHERE thread_id = ? AND dispatch_mode = 'turn-abort'",
+          [threadId],
+        )
+      ).rows,
+    ).toHaveLength(0);
+
+    await expect(
+      withExecutionFence(secondFence, () => markTurnAborted(threadId, turnId)),
+    ).resolves.toBe("aborted");
+    const runStatuses = await pglite.query(
+      "SELECT id, status FROM agent_runs WHERE id IN (?, ?) ORDER BY id",
+      [firstRunId, secondRunId],
+    );
+    expect(runStatuses.rows.map((row) => row.status)).toEqual([
+      "aborted",
+      "aborted",
+    ]);
   });
 
   it("keeps a parent task fence active inside a nested agent-run fence", async () => {
@@ -436,6 +1055,46 @@ describe("task execution leases", () => {
     ).rejects.toMatchObject({ code: "stale_execution_fence" });
   });
 
+  it("does not repair an already-aborted run while its in-flight marker is set", async () => {
+    const threadId = "thread-safe-abort-in-flight-marker";
+    const turnId = "turn-safe-abort-in-flight-marker";
+    const runId = "run-safe-abort-in-flight-marker";
+    await insertRun(runId, threadId, turnId);
+    const markerSince = Date.now();
+    await pglite.query(
+      `UPDATE agent_runs
+          SET status = 'aborted', abort_reason = 'user', completed_at = ?,
+              terminal_reason = 'aborted:user', in_flight_since = ?
+          WHERE id = ?`,
+      [markerSince, markerSince, runId],
+    );
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      false,
+    );
+    const eventsWhileInFlight = await pglite.query(
+      `SELECT seq FROM agent_run_events WHERE run_id = ?`,
+      [runId],
+    );
+    expect(eventsWhileInFlight.rows).toHaveLength(0);
+
+    await pglite.query(
+      `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ?`,
+      [runId],
+    );
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      true,
+    );
+    const repairedEvents = await pglite.query(
+      `SELECT seq, event_data FROM agent_run_events WHERE run_id = ?`,
+      [runId],
+    );
+    expect(repairedEvents.rows).toHaveLength(1);
+    expect(
+      JSON.parse(String(repairedEvents.rows[0]?.event_data)),
+    ).toMatchObject({ type: "done" });
+  });
+
   it("does not let a late process failure overwrite the reaper's terminal result", async () => {
     const threadId = "thread-reaper-before-process-failure";
     const turnId = "reaper-before-process-failure";
@@ -490,6 +1149,52 @@ describe("task execution leases", () => {
     });
   });
 
+  it("rolls back an unclaimed background reap when its terminal event cannot persist", async () => {
+    const threadId = "thread-unclaimed-reap-event-failure";
+    const turnId = "turn-unclaimed-reap-event-failure";
+    const runId = "run-unclaimed-reap-event-failure";
+    await insertRun(runId, threadId, turnId, { dispatchMode: "background" });
+    const staleAt = Date.now() - UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 1;
+    await pglite.query(
+      `UPDATE agent_runs
+          SET started_at = ?, heartbeat_at = ?, last_progress_at = ?
+          WHERE id = ?`,
+      [staleAt, staleAt, staleAt, runId],
+    );
+
+    failNextTerminalEventInsert = true;
+    await expect(reapUnclaimedBackgroundRun(runId)).rejects.toThrow(
+      "injected terminal event insert failure",
+    );
+
+    const runAfterFailure = await pglite.query<{ status: string }>(
+      "SELECT status FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(runAfterFailure.rows[0]?.status).toBe("running");
+    const eventsAfterFailure = await pglite.query(
+      "SELECT seq FROM agent_run_events WHERE run_id = ?",
+      [runId],
+    );
+    expect(eventsAfterFailure.rows).toHaveLength(0);
+
+    await expect(reapUnclaimedBackgroundRun(runId)).resolves.toBe(true);
+    const completed = await pglite.query<{ status: string }>(
+      "SELECT status FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(completed.rows[0]?.status).toBe("errored");
+    const terminalEvent = await pglite.query<{ event_data: string }>(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ?",
+      [runId],
+    );
+    expect(terminalEvent.rows).toHaveLength(1);
+    expect(JSON.parse(terminalEvent.rows[0]!.event_data)).toMatchObject({
+      type: "error",
+      errorCode: "background_worker_never_started",
+    });
+  });
+
   it("does not let a stale worker clear a newer tool ledger receipt", async () => {
     const threadId = "a2a-task:ledger-clear-fence";
     const turnId = "ledger-clear-fence";
@@ -530,5 +1235,154 @@ describe("task execution leases", () => {
       [threadId],
     );
     expect(cleared.rows).toHaveLength(0);
+  });
+});
+
+describe("run event batches", () => {
+  it("classifies a stale start marker as terminal only after the run ends", async () => {
+    const threadId = "thread-required-event-stale-fence";
+    const turnId = "turn-required-event-stale-fence";
+    const runId = "run-required-event-stale-fence";
+    await insertRun(runId, threadId, turnId);
+    const staleFence = await claimTurnExecutionLease(threadId, turnId, runId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    await claimTaskExecutionLease(threadId, turnId, "a2a:replacement-worker");
+
+    await expect(
+      withExecutionFence(staleFence, () =>
+        insertRunEvent(runId, 0, '{"type":"tool_start"}', {
+          requireInserted: true,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'completed' WHERE id = ?",
+      [runId],
+    );
+    await expect(
+      withExecutionFence(staleFence, () =>
+        insertRunEvent(runId, 0, '{"type":"tool_start"}', {
+          requireInserted: true,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+      cause: { code: "stale_execution_fence" },
+    });
+
+    const events = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ?",
+      [runId],
+    );
+    expect(events.rows).toHaveLength(0);
+  });
+
+  it("marks a required event insert miss terminal only after the run ends", async () => {
+    const runId = "required-run-event-persistence";
+    const eventData = '{"type":"text","text":"event"}';
+    await insertRun(runId, runId, runId);
+
+    await insertRunEvent(runId, 0, eventData, {
+      requireInserted: true,
+      eventAt: 1_000,
+    });
+    await expect(
+      insertRunEvent(runId, 0, eventData, {
+        requireInserted: true,
+        eventAt: 1_000,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      insertRunEvent(runId, 0, '{"type":"text","text":"different"}', {
+        requireInserted: true,
+        eventAt: 1_000,
+      }),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: false,
+    });
+
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'completed' WHERE id = ?",
+      [runId],
+    );
+    await expect(
+      insertRunEvent(runId, 0, eventData, {
+        requireInserted: true,
+        eventAt: 1_000,
+      }),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
+    await expect(
+      insertRunEvent(runId, 1, eventData, { requireInserted: true }),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
+  });
+
+  it("requires every batch row to be durably present and match on retry", async () => {
+    const runId = "run-event-batch-persistence";
+    await insertRun(runId, runId, runId);
+    const events = [
+      {
+        seq: 0,
+        eventAt: 1_000,
+        eventData: '{"type":"text","text":"first"}',
+      },
+      {
+        seq: 1,
+        eventAt: 1_001,
+        eventData: '{"type":"text","text":"second"}',
+      },
+    ];
+
+    await insertRunEvents(runId, events);
+    await insertRunEvents(runId, events);
+    await expect(
+      insertRunEvents(runId, [
+        { ...events[0]!, eventData: '{"type":"text","text":"changed"}' },
+        {
+          seq: 2,
+          eventAt: 1_002,
+          eventData: '{"type":"text","text":"partial insert"}',
+        },
+      ]),
+    ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
+
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'completed' WHERE id = ?",
+      [runId],
+    );
+    await expect(
+      insertRunEvents(runId, [
+        {
+          seq: 2,
+          eventAt: 1_002,
+          eventData: '{"type":"text","text":"late"}',
+        },
+      ]),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
+
+    const rows = await pglite.query(
+      "SELECT seq, event_at, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      [runId],
+    );
+    expect(rows.rows).toEqual([
+      { seq: 0, event_at: 1_000, event_data: events[0]!.eventData },
+      { seq: 1, event_at: 1_001, event_data: events[1]!.eventData },
+    ]);
   });
 });

@@ -112,68 +112,21 @@ export default {
     sigmaRetryConnection: "Überprüfe die Verbindung und versuche es erneut.",
     sigmaRetry: "Erneut versuchen",
     sigmaNoWorkbooks: "Keine Sigma-Arbeitsmappen verfügbar.",
-    sigmaWorkbook: "Arbeitsmappe",
-    sigmaChooseWorkbook: "Arbeitsmappe auswählen",
-    sigmaStatusNotImported: "Nicht importiert",
-    sigmaStatusImporting: "Wird importiert",
-    sigmaStatusImported: "Importiert",
-    sigmaStatusFailed: "Import fehlgeschlagen",
+    sigmaSearchWorkbooks: "Arbeitsmappen durchsuchen…",
+    sigmaNoMatchingWorkbooks: "Keine passenden Arbeitsmappen",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "Noch keine passenden Arbeitsmappen geladen. Laden Sie weitere Arbeitsmappen, um den Rest zu durchsuchen.",
+    sigmaOpenMigratedDashboard:
+      "Importiertes Dashboard in einem neuen Tab öffnen",
+    sigmaOwnedBy: "Eigentümer",
+    sigmaMigratingTooltip: "Wird von {{name}} migriert",
+    sigmaMigrate: "Migrieren",
+    sigmaMigrateComingSoon: "Bald verfügbar",
     sigmaArchived: "Archiviert",
-    sigmaPreviewTitle: "Inhalte der Arbeitsmappe",
-    sigmaPreviewFailed: "Diese Arbeitsmappe konnte nicht angezeigt werden",
-    sigmaRetryPreview: "Lade die Arbeitsmappenvorschau erneut.",
-    sigmaImportableCount: "{{count}} importierbar",
-    sigmaUnsupportedCount: "{{count}} nicht unterstützt",
-    sigmaImportable: "Importierbar",
-    sigmaUnsupported: "Nicht unterstützt",
-    sigmaNoElements: "In dieser Arbeitsmappe wurden keine Elemente gefunden.",
-    sigmaPreviewOnly:
-      "Vorerst nur Vorschau: Sigma stellt keine BigQuery-Projektzuordnung bereit, die Analytics überprüfen kann. Der Import bleibt deaktiviert, bis diese Zuordnung verfügbar ist.",
-    sigmaPreviewTruncated:
-      "{{shown}} von {{total}} Elementen werden angezeigt.",
-    sigmaImportWorkbook: "Arbeitsmappe importieren",
-    sigmaImporting: "Arbeitsmappe wird importiert…",
-    sigmaImportInProgress: "Der Import dieser Arbeitsmappe läuft bereits.",
-    sigmaMigrationFailed:
-      "Diese Arbeitsmappe konnte nicht importiert werden. Versuche es erneut.",
-    sigmaMigrationResultInvalid:
-      "Die Importantwort war unvollständig. Lade die Arbeitsmappenliste neu, um den Status zu prüfen.",
-    sigmaImportComplete: "Dashboard erstellt",
-    sigmaImportSummary:
-      "{{imported}} Elemente importiert; {{unsupported}} nicht unterstützte Elemente als Prüfhinweise beibehalten.",
-    sigmaAlreadyImported: "Diese Arbeitsmappe wurde bereits importiert.",
-    sigmaImportedNoDashboard:
-      "Das importierte Dashboard kann von diesem Konto aus nicht geöffnet werden.",
-    sigmaReviewRequiredCount: "{{count}} zur Überprüfung",
-    sigmaBetaRepresentationWarning:
-      "Dieser Beta-Import kann einige Visualisierungen anders als Sigma darstellen.",
-    sigmaReasonUnsupportedElement:
-      "Dieser Elementtyp wird beim Import nicht unterstützt.",
-    sigmaReasonUnsupportedSource:
-      "Dieses Element verwendet eine nicht unterstützte Quelle.",
-    sigmaReasonSourceMappingRequired:
-      "Sigma stellt keine BigQuery-Projektzuordnung bereit, die Analytics prüfen kann. Daher kann dieses SQL noch nicht importiert werden.",
-    sigmaReasonSourceUnavailable:
-      "Sigma hat den Zugriff auf diese Quellverbindung verweigert. Prüfe ihre Berechtigungen.",
-    sigmaReasonQueryUnavailable:
-      "Sigma hat für dieses Element keine importierbare Abfrage zurückgegeben.",
-    sigmaReasonUnsafeSql:
-      "Dieses Abfragemuster kann nicht sicher importiert werden.",
-    sigmaReasonVisualizationReview:
-      "Die Daten können importiert werden. Überprüfe die Visualisierung danach.",
-    sigmaRetryOwnerOnly:
-      "Nur die Person, die diesen Import gestartet hat, kann ihn erneut versuchen.",
-    sigmaImportedByTeammate: "Von einem Teammitglied importiert",
-    sigmaFlaggedCount: "{{count}} zur Überprüfung markiert",
     sigmaMoreWorkbooksFailed:
       "Weitere Arbeitsmappen konnten nicht geladen werden",
     sigmaLoadingMore: "Arbeitsmappen werden geladen…",
     sigmaLoadMore: "Weitere Arbeitsmappen laden",
-    sigmaOpenDashboard: "Dashboard öffnen",
-    sigmaReviewWithAgent: "Mit Agent überprüfen",
-    sigmaReviewContext: "Importiertes Sigma-Dashboard",
-    sigmaReviewPrompt:
-      "Überprüfe das importierte Sigma-Dashboard {{name}}. Kontrolliere die importierten Panels und nicht unterstützten Elemente und schlage Korrekturen vor.",
   },
   sidebar: {
     collapseSidebar: "Seitenleiste einklappen",
@@ -753,6 +706,45 @@ export default {
       "Vorhandene Einträge für diese Kennzahl konnten nicht geprüft werden.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Tägliche Klicks und Impressionen pro Seite für die Content-Ansicht.",
+      serviceAccount: "Dienstkonto",
+      copyEmail: "E-Mail kopieren",
+      grantHint:
+        "Füge diese E-Mail in der Search Console bei jeder Property als Nutzer hinzu, unter Einstellungen → Nutzer und Berechtigungen.",
+      noServiceAccount: "Füge zuerst einen Google-Dienstkontoschlüssel hinzu.",
+      openGoogleCloud: "Google Cloud öffnen",
+      invalidServiceAccount:
+        "Der gespeicherte Dienstkontoschlüssel kann nicht gelesen werden.",
+      properties: "Properties",
+      siteLabel: "Property",
+      pathLabel: "Pfadpräfix",
+      pathInvalid: "Das Pfadpräfix muss mit / beginnen.",
+      addProperty: "Property hinzufügen",
+      removeProperty: "Property entfernen",
+      save: "Speichern",
+      collectDaily: "Täglich erfassen",
+      adminOnly: "Nur Inhaber und Admins der Organisation können das ändern.",
+      statusCollecting: "Wird erfasst",
+      statusNeedsAccess: "Zugriff fehlt",
+      statusFailed: "Letzter Lauf fehlgeschlagen",
+      runSucceeded: "Erfasst {{when}}",
+      runNeedsAccess: "Kein Zugriff, Stand {{when}}",
+      runRunning: "Wird seit {{when}} erfasst",
+      runFailed: "Fehlgeschlagen {{when}}",
+      unavailable: "Erfassungsstatus nicht verfügbar: {{message}}",
+      keyUnreadable:
+        "Der gespeicherte Dienstkontoschlüssel konnte nicht gelesen werden. Speichere ihn unter Google Cloud erneut.",
+      propertyBareDomain: "Verwende für eine Domain-Property {{suggestion}}.",
+      propertyInvalidDomain:
+        "Nach sc-domain: steht nur die Domain, zum Beispiel {{suggestion}}.",
+      propertyMissingSlash:
+        "URL-Präfix-Properties enden auf /. Verwende {{suggestion}}.",
+      propertyUnrecognized:
+        "Verwende sc-domain:example.com oder eine URL-Präfix-Property, die auf / endet.",
+    },
     uploadFile: "Datei hochladen",
     googleSheetsExport: "Google-Sheets-Export",
     googleSheetsExportDescription:
@@ -1344,11 +1336,21 @@ export default {
     groupName: "Gruppenname",
     saveForEveryone: "Für alle speichern",
     groupNameTaken: "Eine Gruppe mit diesem Namen gibt es bereits",
+    renameGroup: "Gruppe umbenennen…",
+    deleteGroup: "Gruppe löschen",
     untitledDashboard: "Unbenanntes Dashboard",
     dashboardFallback: "Dashboard",
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",
     saveFailed: "Das Dashboard konnte nicht gespeichert werden",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: "BigQuery-Kosten für „{{title}}“",
+    panelCostOverTitle: "„{{title}}“ ist teuer zu aktualisieren",
+    panelCostScheduled:
+      "~{{size}} gescannt · {{perRun}} pro Aktualisierung · ~{{perMonth}}/Monat für E-Mail-Berichte",
+    panelCostUnscheduled:
+      "~{{size}} gescannt · {{perRun}} pro Aktualisierung · keine E-Mail-Berichte",
+    panelCostOverHint:
+      "Ein kürzerer Zeitraum oder weniger Spalten scannen weniger Daten.",
     archived: "Dashboard „{{name}}“ archiviert",
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "Das Dashboard konnte nicht archiviert werden",

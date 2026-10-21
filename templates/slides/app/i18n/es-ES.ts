@@ -279,7 +279,6 @@ const messages = {
     commentMenu: "Opciones de comentario",
     comments: "Comentarios",
     annotate: "Anotar",
-    pinComment: "Fijar comentario",
     agent: "Agente",
     agentMenu: "Opciones del agente",
     agentUnavailable:
@@ -287,6 +286,21 @@ const messages = {
     inspiration: "Inspiración",
     tightenTone: "Ajustar el tono",
     polish: "Pulir",
+    speakerNotes: "Notas del presentador",
+    speakerNotesMenu: "Opciones de notas del presentador",
+    writeScript: "Escribir guion",
+    summarizeKeyPoints: "Resumir puntos clave",
+    expandDetail: "Ampliar detalle",
+    addTimingCues: "Añadir indicaciones de tiempo",
+  },
+  speakerNotesPanel: {
+    title: "Notas del presentador",
+    resize: "Cambiar tamaño de las notas del presentador",
+    generate: "Generar notas",
+    rewrite: "Reescribir notas",
+    close: "Cerrar notas del presentador",
+    placeholder:
+      "Empieza a escribir o genera notas del presentador rápidamente con el agente",
   },
   editorToolbar: {
     layoutTitle: "Título",
@@ -385,7 +399,6 @@ const messages = {
     shapeLine: "Línea",
     shapeStar: "Estrella",
     shapePolygon: "Polígono",
-    pinComments: "Fijar comentarios",
     undo: "Deshacer",
     undoWithShortcut: "Deshacer ({{shortcut}})",
     redo: "Rehacer",

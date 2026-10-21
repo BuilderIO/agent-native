@@ -42,10 +42,7 @@ import {
 } from "../server/lib/document-body-intents.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
-import {
-  lockDocumentMetadataDatabase,
-  nextDocumentMetadataUpdatedAt,
-} from "../server/lib/document-metadata-updated-at.js";
+import { nextDocumentMetadataUpdatedAt } from "../server/lib/document-metadata-updated-at.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
@@ -91,6 +88,7 @@ import {
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
 import {
+  assertEditableDocument,
   documentContentHash,
   documentRevisionToken,
   parseDocumentRevisionToken,
@@ -99,7 +97,11 @@ import {
   assertDocumentMutationAccess,
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
-import { serializeDocumentSource } from "./_document-source.js";
+import { lockDocumentForSave } from "./_document-save-locks.js";
+import {
+  assertSourceAllowsPageEdit,
+  serializeDocumentSource,
+} from "./_document-source.js";
 import {
   lockPreviewDocumentDraftSettlement,
   readDiscardedPreviewDraftGeneration,
@@ -952,6 +954,7 @@ const updateDocumentAction = defineAction({
           );
         }
       }
+      if (!favoriteOnly) assertEditableDocument(existing);
 
       const normalizeAuthoredContent = (value: string) => {
         if (args.preserveLeadingTitleHeading) return value;
@@ -1054,6 +1057,9 @@ const updateDocumentAction = defineAction({
       const descriptionChanged =
         args.description !== undefined &&
         args.description.trim() !== existing.description;
+      if (titleChanged || contentChanged || descriptionChanged) {
+        assertSourceAllowsPageEdit(existing);
+      }
       const anyChange =
         titleChanged ||
         contentChanged ||
@@ -1111,16 +1117,16 @@ const updateDocumentAction = defineAction({
         const mutate = async (tx: any) => {
           measurement.outcome = "unchanged";
           measurement.history_effect = "none";
-          const lockedDatabaseId = await lockDocumentMetadataDatabase({
-            db: tx as unknown as ReturnType<typeof getDb>,
-            documentId: id,
-            ownerEmail,
-          });
-          await tx
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(eq(schema.documents.id, id))
-            .for("update");
+          const mayWriteBody =
+            content !== undefined || authoredCandidateContent !== undefined;
+          const {
+            databaseId: lockedDatabaseId,
+            lockedDatabaseIds,
+            lockedMembershipIds,
+          } = await lockDocumentForSave(
+            tx as unknown as ReturnType<typeof getDb>,
+            { documentId: id, ownerEmail, body: mayWriteBody },
+          );
           access = favoriteOnly
             ? await resolveDocumentAccessForMutation(id, "id")
             : await assertDocumentMutationAccess(id, "editor", "id");
@@ -1158,6 +1164,9 @@ const updateDocumentAction = defineAction({
               return;
             }
           }
+          // After the replay check, so a retried save that already landed
+          // still gets its receipt. The page lock above makes this see Trash.
+          if (!favoriteOnly) assertEditableDocument(existing);
           if (settlesPreviewDraft) {
             await lockPreviewDocumentDraftSettlement({
               db: tx,
@@ -1480,6 +1489,7 @@ const updateDocumentAction = defineAction({
             ? await lockPrimaryBlocksFields(
                 tx as unknown as ReturnType<typeof getDb>,
                 id,
+                { heldMembershipIds: lockedMembershipIds },
               )
             : [];
           const applied = await commitCanonicalDocumentBodyMutation({
@@ -1692,6 +1702,7 @@ const updateDocumentAction = defineAction({
                 content,
                 ownerEmail,
                 now: updatedAt,
+                lockedDatabaseIds,
               });
           }
           if (

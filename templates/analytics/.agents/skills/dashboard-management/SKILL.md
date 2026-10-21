@@ -125,7 +125,50 @@ explaining it.
 
 Do not use `app-db` as a dashboard source. For first-party events collected through `/track`, use `source: "first-party"` or the `query-agent-native-analytics` action rather than raw internal `db-query`.
 
+Per-article content metrics also read through `first-party`:
+`analytics_content_items` (one row per article, with author and publish date),
+`analytics_content_metric_snapshots` (one value per item, day and metric), and
+`analytics_content_collection_runs` (one row per daily collection step). A
+daily job fills them, so a panel over them never calls BigQuery or a provider.
+A missing snapshot means "not collected", never zero: show a step's latest run
+status (`failed`, `cost_limited`, `not_configured`) instead of rendering a gap
+as 0. These tables cannot be joined with `analytics_events` in one query. Turn
+collection on with `configure-content-collection`, check it with
+`get-content-collection`, and rerun a step with `run-content-collection`.
+
+Metrics are `ga4_pageviews` (per blog article) and `search_console_clicks` /
+`search_console_impressions` (per article, plus non-article pages stored as
+`search_console` items). Search Console data is two to three days late, so the
+newest days have no row yet; read them as still arriving. Search Console
+collection stays off until a property owner adds the service account that
+`get-content-collection` returns as `serviceAccount.email`; then set its
+`searchConsoleSites` and turn it on.
+
+The `signups` step writes `signups_first_touch` per article: people who
+first landed on the article and later signed up, on the day of that first
+visit, so a window's days add up to its total. It is the only step that reads
+the warehouse. It stays `not_configured` until `configure-content-collection`
+sets its `signups` tables, `signupSource`, `signupsSince` and
+`maxBytesBilled`. Measure the cap with `estimate-content-signups-cost` (a dry
+run, free) and get the spend approved before turning the step on. Each run
+dry-runs first, stops as `cost_limited` without querying when the estimate is
+over the cap, and runs the join with that cap as BigQuery's billing limit.
+
+The catalog's "Content" dashboard (`content-view`) is the reference for these
+tables: start from its panels before writing new content SQL. Its Articles
+panel shows why a metric is missing (`failed`, `not set up`, `still
+arriving`) in a column next to the blank number; keep that pattern. The
+first-party SQL policy rejects functions outside its allow-list (for example
+`concat_ws`) and reads `CASE (` as a function call, so join a status column
+instead of a scalar subquery inside `CASE`. Its trend chart uses wide rows
+(`yKeys`), not `pivot`: a pivot fills a missing series with 0, so a day a
+source didn't report would draw as a zero instead of a gap. Content is a
+built-in: turning collection on with `configure-content-collection` lists it
+in the organization's Dashboards at `content-view` (`contentDashboardId` in the
+result). It is read-only; build on it with `duplicate-dashboard`.
+
 There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
+
 
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time
@@ -332,9 +375,11 @@ its owner organization's. Read them with `list-data-notes`, passing
   inside the chart, and a hoverable title. Rows sorted by something other than
   date shade each run of the note's rows, never a row between them, under one
   title. Incidents are red; open data problems amber; fixed data problems grey.
-  Other charts flag the note by the title and write it under the chart while it
-  is ongoing or ended in the last 30 days, as does a time chart whose x values
-  aren't dates.
+  Other charts, and a time chart whose x values aren't dates, flag the note by
+  the title and write it under the chart when its dates overlap the chart's
+  time range: the panel's own range if it overrides the dashboard's. A chart
+  whose SQL has no time range, or one the app can't read such as a quarter its
+  SQL works out, does so while the note is ongoing or ended in the last 30 days.
 - A dashboard hides a note on one chart with
   `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
   listing the notes already hidden that stay hidden; `hiddenKeyDateSets` is kept.
@@ -382,7 +427,7 @@ means the list was cut to fit, so read `list-key-dates` or `list-data-notes`
 with `dashboardId` before saying a marker isn't there. `keyDatesHint` means no
 chart on the dashboard draws key dates, so don't cite one there. A note's `panelIds` are the charts it is
 on, but a time chart draws it only over the dates it plots (and, if its x
-values aren't dates, only while the note is recent), so cite it for a change
+values aren't dates, only when they overlap its time range), so cite it for a change
 only when the change falls within the note's dates. `editable: false` means
 they are the owner organization's, so cite them but don't change them.
 
@@ -448,8 +493,9 @@ visualizations outside these contracts may remain Custom Blocks.
 
 ## Sigma workbook import
 
-The dashboard menu opens the Sigma import flow, where users can browse and
-preview workbooks. Imports remain disabled for elements whose source project
+The dashboard menu opens the Sigma import flow: a searchable table of every
+workbook the user can see in Sigma, with the owner of each migrated one and a
+Migrate button on the rest. Imports remain disabled for elements whose source project
 Analytics cannot verify: Sigma's connection API reports provider type and
 metadata but does not expose a BigQuery project identifier. Do not call
 `migrate-sigma-workbook` for an unverified source or treat an Analytics
@@ -469,6 +515,16 @@ Analytics dialog. Analytics saves those values under Analytics-specific
 encrypted organization secrets and links them to an Analytics-only connection.
 Credential values must never pass through agent chat, action arguments, logs,
 source, or screenshots.
+
+Each Sigma workbook migrates to at most one Analytics dashboard per
+organization. `list-sigma-workbooks` reads migration status only for workbooks
+the caller's Sigma connection returns, so status follows Sigma access. For a
+migrated workbook it returns the dashboard id, link, and owner email and
+display name to every org member, and the title and `canOpen: true` only when the caller can open
+the dashboard. Point users at that dashboard, or its owner for access, instead
+of importing again. Anyone whose Sigma login can open a workbook may retry its
+failed import or take over an import stuck for ten minutes; only the person who
+migrated a workbook may re-import it.
 
 If Sigma adds verifiable source mapping in the future, the planned import will
 create a private snapshot in the user's personal `Sigma` folder. Other source
@@ -597,7 +653,7 @@ Use conditional blocks for optional filters:
 
 An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
 
-To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter. In Edit mode, people add presets themselves: checking two or more values that no preset matches offers Save as group at the bottom of the dropdown, which appends the same `presets` entry, so treat a preset you did not write as someone's saved choice and keep it unless asked.
+To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter. In Edit mode, people manage presets themselves at the bottom of the dropdown: checking two or more values that no preset matches offers Save as group, which appends the same `presets` entry, and a selection that matches a preset offers Rename group and Delete group for that entry. Treat a preset you did not write as someone's saved choice and keep it unless asked.
 
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
 
@@ -749,6 +805,10 @@ When the user asks to change an existing panel on the open dashboard:
    `verified: false`, an error, or the user saying the change is not visible,
    call `inspect-dashboard-panel` for that panel, fix what it reports, and
    verify again. Never describe a visible change you have not verified.
+   An edit that changes a panel's query also returns `cost`: what one refresh
+   of the changed panels scans and costs at the default filters, and per month
+   for the dashboard's email reports. The summary repeats it; when it says the
+   cost is over a threshold, tell the user the number.
    `update-dashboard`, `compose-dashboard`, and `restore-dashboard-revision`
    return the same fields. Editing a dashboard you can only view fails with
    `dashboard_forbidden` before any SQL runs.

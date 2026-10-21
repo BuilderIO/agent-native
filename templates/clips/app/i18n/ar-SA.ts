@@ -1816,7 +1816,7 @@ const messages = {
     unmuteMicrophone: "إلغاء كتم الميكروفون",
     uploadVideo: "Upload video (مترجم)",
     takeScreenshot: "التقاط لقطة شاشة",
-    importLoom: "Import Loom (مترجم)",
+    importLoom: "استيراد فيديو",
     importing: "Importing... (مترجم)",
     import: "Import (مترجم)",
     recordNew: "تسجيل جديد",
@@ -1954,6 +1954,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (مترجم)",
     couldNotStartRecording: "Could not start recording (مترجم)",
+    intakeStorageUnavailable:
+      "يجب على مالك هذا الرابط ربط مساحة تخزين الفيديو قبل أن تتمكن من التسجيل. اطلب منه ربطها ثم حاول مرة أخرى.",
+    streamingStorageUnavailable:
+      "إعداد التخزين الحالي لا يدعم الرفع القابل للاستئناف الذي يحتاجه Clips. أعد إعداد مزوّد متوافق، أو اطلب من مالك مساحة العمل أو المشرف القيام بذلك، ثم ابدأ تسجيلًا جديدًا.",
     couldNotStartRecorder: "Could not start recorder (مترجم)",
     openSettings: "Open settings (مترجم)",
     openedRecorderInNewTab: "Opened recorder in a new tab (مترجم)",
@@ -1987,6 +1991,8 @@ const messages = {
     sessionExpired: "Session expired (مترجم)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (مترجم)",
+    accountMismatch:
+      "تغيّر الحساب الذي سجلت الدخول به بعد بدء إعداد التسجيل. عُد إلى الحساب الذي بدأت به ثم حاول مرة أخرى.",
     logIn: "Log in (مترجم)",
     betterInDesktop: "Better in the desktop app (مترجم)",
     desktopAppDescription:
@@ -2000,8 +2006,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (مترجم)",
     retryUpload: "إعادة محاولة الرفع",
     tryAgain: "حاول مرة أخرى",
-    storageConnectedReopeningRecorder:
-      "تم توصيل مساحة التخزين. جارٍ إعادة فتح المسجّل...",
+    storageConnectedRecorderReady:
+      "تم ربط التخزين. ابدأ تسجيلاً جديداً عندما تكون مستعداً.",
     connectStorageToFinish:
       "في الشاشة التالية، استخدم تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو كوّن تخزينًا متوافقًا مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
@@ -2065,8 +2071,8 @@ const messages = {
       "لا يزال هذا التسجيل قيد المعالجة، لذا احتفظ Clips بنسختك هنا. انتظر اكتمالها أو ارفعه مرة أخرى.",
   },
   importRoute: {
-    pageTitle: "استيراد Loom — Clips",
-    title: "استيراد Loom",
+    pageTitle: "استيراد فيديو — Clips",
+    title: "استيراد فيديو",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "استيراد",
     helperText:

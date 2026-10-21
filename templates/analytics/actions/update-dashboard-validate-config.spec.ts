@@ -303,11 +303,16 @@ describe("validateDashboardConfig multi-select options", () => {
     expect(validateDashboardConfig(type)).toContain("type must be one of");
   });
 
-  it("rejects more than 100 options, which the read path would refuse", () => {
+  it("accepts up to 500 options and rejects larger lists", () => {
+    expect(
+      validateDashboardConfig(
+        withOptions(Array.from({ length: 500 }, (_, i) => `option_${i}`)),
+      ),
+    ).toBeNull();
     const config = withOptions(
-      Array.from({ length: 101 }, (_, i) => `option_${i}`),
+      Array.from({ length: 501 }, (_, i) => `option_${i}`),
     );
-    expect(validateDashboardConfig(config)).toContain("at most 100 entries");
+    expect(validateDashboardConfig(config)).toContain("at most 500 entries");
   });
 
   it("rejects a non-empty default when the filter has no options", () => {

@@ -1716,7 +1716,7 @@ describe("actual additional field freshness", () => {
     await act(async () => {
       expect(await fixture.fieldController!.flushLatest()).toBe(false);
     });
-    expect(fieldState().pending).toBe("Additional body");
+    expect(fieldState().pending).toBe("Additional body rejected edit");
     expect(fieldState().lastSaved).toBe("Additional body");
     expect(fieldState().lastError).toBe(failure);
     act(() => {
@@ -1729,6 +1729,9 @@ describe("actual additional field freshness", () => {
       );
     });
     expect(fixture.fieldEditor!.getText()).toBe("Additional body");
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(fieldState().pending).toBe("Additional body");
+    expect(fieldState().lastError).toBe(failure);
     fixture.lockAdditionalForSuggestions = true;
     await act(async () => renderEditor());
     expect(fixture.fieldEditor!.isEditable).toBe(false);

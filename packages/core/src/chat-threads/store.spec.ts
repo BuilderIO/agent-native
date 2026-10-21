@@ -61,6 +61,8 @@ import {
   QueuedSubmissionAdmissionError,
   renameThread,
   retryQueuedSubmissionReceipt,
+  recordQueuedSubmissionInterruptRun,
+  renewQueuedSubmissionInterruptClaim,
   resolveRunThreadScope,
   revokeThreadShareLink,
   searchThreads,
@@ -91,6 +93,7 @@ type ChatThreadRow = {
   source_url?: string | null;
   org_id?: string | null;
   visibility?: "private" | "org" | "public";
+  access_basis?: "owner" | "direct" | "organization";
 };
 
 const userMessage = {
@@ -346,6 +349,26 @@ describe("chat thread store", () => {
         Object.assign(submission, {
           move_to_top_at: args[0],
           retry_after: null,
+          updated_at: args[1],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        /UPDATE agent_chat_submission_inbox\s+SET interrupt_run_id = \?/i.test(
+          sql,
+        )
+      ) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[2] &&
+            candidate.message_id === args[3] &&
+            candidate.state === "queued" &&
+            (candidate.interrupt_run_id == null ||
+              candidate.interrupt_run_id === args[4]),
+        );
+        if (!submission) return { rows: [], rowsAffected: 0 };
+        Object.assign(submission, {
+          interrupt_run_id: args[0],
           updated_at: args[1],
         });
         return { rows: [], rowsAffected: 1 };
@@ -1510,6 +1533,139 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
+  it("counts one durable reply when folded runs share an assistant message", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Write forty lines" }],
+          },
+          {
+            id: "assistant-shared",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "First half." }],
+          },
+        ],
+        runs: [
+          {
+            id: "run-1",
+            status: "completed",
+            activeMessageId: "assistant-shared",
+          },
+          {
+            id: "run-2",
+            status: "completed",
+            activeMessageId: "assistant-shared",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts one durable reply when a continuation inherited the reply but never wrote to it", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "All forty lines." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Write forty lines" }],
+          },
+          {
+            id: "assistant-shared",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "All forty lines." }],
+          },
+        ],
+        runs: [
+          {
+            id: "run-1",
+            status: "completed",
+            activeMessageId: "assistant-shared",
+          },
+          {
+            id: "run-2",
+            status: "completed",
+            inheritedMessageId: "assistant-shared",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
   it("counts a fully projected folded reply once across its runs", async () => {
     const repository = {
       messages: [
@@ -2130,6 +2286,61 @@ describe("chat thread store", () => {
     );
 
     expect(row!.message_count).toBe(2);
+  });
+
+  it("keeps a tool-call root when a text snapshot omits the unsaved tool call", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            ...userMessage,
+            metadata: {
+              custom: {
+                submittedRunId: "run-1",
+                agentKitMessageId: "client-user",
+              },
+            },
+          },
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "lookup",
+              },
+              { type: "text", text: "Done." },
+            ],
+            metadata: { runId: "run-1" },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "client-user", role: "user", parts: [] },
+          {
+            id: "client-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
   });
 
   it("counts many root assistant mirrors once each", async () => {
@@ -3023,6 +3234,80 @@ describe("chat thread store", () => {
     expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([queued]);
   });
 
+  it("renews only a live interruption claim before its recorded run aborts", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const message = {
+      id: "queued-interrupt-claim-renewal",
+      threadId: "thread-1",
+      text: "Steer the current turn",
+      interruptActiveRun: true,
+    };
+    const actor = { email: "user@example.com", anonymous: false };
+
+    try {
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        { type: "append", message },
+        { actor },
+      );
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "claim",
+        messageId: message.id,
+        claimId: "stalled-promoter",
+      });
+      expect(
+        await recordQueuedSubmissionInterruptRun({
+          threadId: "thread-1",
+          messageId: message.id,
+          runId: "run-being-interrupted",
+          claimId: "stalled-promoter",
+        }),
+      ).toBe(true);
+
+      now.mockReturnValue(69_999);
+      expect(
+        await renewQueuedSubmissionInterruptClaim({
+          threadId: "thread-1",
+          messageId: message.id,
+          runId: "run-being-interrupted",
+          claimId: "stalled-promoter",
+        }),
+      ).toBe(true);
+      expect(JSON.parse(row!.thread_data).queuedMessages[0]).toMatchObject({
+        promotionClaim: { id: "stalled-promoter", expiresAt: 129_999 },
+      });
+
+      now.mockReturnValue(70_001);
+      const blockedRemove = await mutateThreadQueuedMessages("thread-1", {
+        type: "remove",
+        messageId: message.id,
+      });
+      expect(blockedRemove?.promotionBusy).toBe(true);
+
+      now.mockReturnValue(130_000);
+      expect(
+        await renewQueuedSubmissionInterruptClaim({
+          threadId: "thread-1",
+          messageId: message.id,
+          runId: "run-being-interrupted",
+          claimId: "stalled-promoter",
+        }),
+      ).toBe(false);
+      const removed = await mutateThreadQueuedMessages("thread-1", {
+        type: "remove",
+        messageId: message.id,
+      });
+      expect(removed?.promotionBusy).toBeUndefined();
+      expect(
+        await getQueuedSubmissionReceipt("thread-1", message.id),
+      ).toMatchObject({
+        state: "removed",
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("drops an expired retry before it can be appended or promoted", async () => {
     const submissionExpiresAt = Date.now() - 1;
     const metadata = {
@@ -3633,16 +3918,20 @@ describe("chat thread store", () => {
     expect(searchCall).toBeTruthy();
     const query = searchCall![0] as { sql: string; args: unknown[] };
     expect(query.sql).toContain("LIKE ? ESCAPE '!'");
-    expect(query.args.slice(2, 5)).toEqual([
+    const firstPattern = query.args.indexOf("%100!%!_done%");
+    expect(query.args.slice(firstPattern, firstPattern + 3)).toEqual([
       "%100!%!_done%",
       "%100!%!_done%",
       "%100!%!_done%",
     ]);
+    expect(query.args.slice(-2)).toEqual([50, 0]);
   });
 
   it("lists threads without loading the thread_data blob and filters on message_count", async () => {
     const summaryRow = {
       id: "thread-1",
+      owner_email: "user@example.com",
+      access_basis: "owner",
       title: "Thread",
       preview: "make this slide better",
       message_count: 1,
@@ -3691,6 +3980,8 @@ describe("chat thread store", () => {
   it("keeps the local history view app-scoped and excludes connected chats", async () => {
     const summaryRow = {
       id: "thread-local",
+      owner_email: "user@example.com",
+      access_basis: "owner",
       title: "Local thread",
       preview: "hello there",
       message_count: 1,
@@ -3746,6 +4037,7 @@ describe("chat thread store", () => {
     const activeRow: ChatThreadRow = {
       id: "thread-active",
       owner_email: "user@example.com",
+      access_basis: "owner",
       title: "Active Thread",
       preview: "hello there",
       thread_data: "{}",

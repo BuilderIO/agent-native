@@ -42,14 +42,21 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { LABELS_QUERY_KEY, markExternalEmailRefresh } from "@/hooks/use-emails";
-import { invalidateInboxThreads } from "@/hooks/use-inbox-threads";
+import {
+  INBOX_THREADS_QUERY_KEY,
+  invalidateInboxThreads,
+} from "@/hooks/use-inbox-threads";
 import {
   MAIL_INTEGRATION_STATUS_QUERY_KEY,
   mailIntegrationProviderFromAppStateKey,
 } from "@/lib/integration-status";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 import { TAB_ID } from "@/lib/tab-id";
-import { getThreadCacheOwner, setThreadCacheOwner } from "@/lib/thread-cache";
+import {
+  bindThreadCacheQueryClient,
+  getThreadCacheOwner,
+  setThreadCacheOwner,
+} from "@/lib/thread-cache";
 
 import { i18nCatalog } from "./i18n";
 
@@ -437,7 +444,9 @@ export function createMailSyncEventHandler(qc: QueryClient) {
           queueMicrotask(() => {
             refreshSignalInvalidationScheduled = false;
             void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
-            void invalidateInboxThreads(qc);
+            // Another session's change only needs the SQL read refreshed. It
+            // does not force a Gmail sync; that stays with explicit refresh.
+            void qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY });
           });
         }
       }
@@ -576,7 +585,11 @@ export function computeSessionBypass(): boolean {
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const [queryClient] = useState(() => {
+    const client = createAgentNativeQueryClient();
+    bindThreadCacheQueryClient(client);
+    return client;
+  });
   return (
     <AppToolkitProvider>
       <AppProviders

@@ -32,14 +32,15 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import type {
-  ContentDatabaseBodyHydration,
-  ContentDatabaseItem,
-  ContentDatabaseMembership,
-  ContentDatabaseResponse,
-  ContentDatabaseTableQuery,
-  ContentSidebarViewOrder,
-  DocumentProperty,
+import {
+  CONTENT_DATABASE_FILTER_OPERATORS,
+  type ContentDatabaseBodyHydration,
+  type ContentDatabaseItem,
+  type ContentDatabaseMembership,
+  type ContentDatabaseResponse,
+  type ContentDatabaseTableQuery,
+  type ContentSidebarViewOrder,
+  type DocumentProperty,
 } from "../shared/api.js";
 import {
   applyContentDatabaseTableQuery,
@@ -147,20 +148,7 @@ export const contentDatabaseTableQuerySchema = z
         z.object({
           key: z.string(),
           label: z.string(),
-          operator: z.enum([
-            "contains",
-            "equals",
-            "does_not_equal",
-            "greater_than",
-            "less_than",
-            "before",
-            "after",
-            "between",
-            "is_checked",
-            "is_unchecked",
-            "is_empty",
-            "is_not_empty",
-          ]),
+          operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
           value: z.string(),
           filterGroupId: z.string().optional(),
           parentFilterGroupId: z.string().optional(),
@@ -1030,23 +1018,27 @@ export async function getContentDatabasePageResponse(
                 items.map((item) => item.documentId),
               ),
               isNull(schema.documents.trashedAt),
-              database.systemRole === "workspaces"
-                ? workspacesVisibleDocumentIds?.length
-                  ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
+              database.systemRole === "favorites"
+                ? favoritesVisibleDocumentQuery
+                  ? inArray(schema.documents.id, favoritesVisibleDocumentQuery)
                   : sql`1 = 0`
-                : database.systemRole === "files" && database.orgId
-                  ? and(
-                      eq(schema.documents.orgId, database.orgId),
-                      or(
-                        eq(schema.documents.visibility, "org"),
-                        eq(schema.documents.visibility, "public"),
-                      ),
-                      or(
-                        eq(schema.documents.hideFromSearch, 0),
-                        isNull(schema.documents.hideFromSearch),
-                      ),
-                    )
-                  : eq(schema.documents.ownerEmail, database.ownerEmail),
+                : database.systemRole === "workspaces"
+                  ? workspacesVisibleDocumentIds?.length
+                    ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
+                    : sql`1 = 0`
+                  : database.systemRole === "files" && database.orgId
+                    ? and(
+                        eq(schema.documents.orgId, database.orgId),
+                        or(
+                          eq(schema.documents.visibility, "org"),
+                          eq(schema.documents.visibility, "public"),
+                        ),
+                        or(
+                          eq(schema.documents.hideFromSearch, 0),
+                          isNull(schema.documents.hideFromSearch),
+                        ),
+                      )
+                    : eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )
       : [];

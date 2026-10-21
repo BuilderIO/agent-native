@@ -109,6 +109,14 @@ afterAll(() => {
 });
 
 describe("restore-document", () => {
+  it("tells every collaborator who can read the page that it is back", () => {
+    expect(
+      restoreDocument.changeResource?.({ id: "doc-1" }, {
+        success: true,
+      } as never),
+    ).toEqual({ resourceType: "document", resourceId: "doc-1" });
+  });
+
   it("restores for a space member the access screen offers Restore to", async () => {
     expect(
       await as(MEMBER, () =>

@@ -39,6 +39,8 @@ export {
   callAction,
   callActionBlob,
   callActionWithRetry,
+  currentActionQueryCacheBinding,
+  recordActionQueryBrowserPersist,
   tryCallActionKeepalive,
   useActionQuery,
   useActionMutation,

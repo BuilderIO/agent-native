@@ -40,13 +40,18 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { verifyFederatedWorkspaceIconOwner } from "../icon-assets/workspace-transport.js";
 import { offboardMember } from "../identity/offboard.js";
-import { getAppProductionUrl } from "../server/app-url.js";
+import {
+  getAppProductionUrl,
+  resolveAppRuntimeUrl,
+} from "../server/app-url.js";
 import {
   isTrustedSelfHostedRuntime,
   resolveVercelDeploymentProtectionHeaders,
 } from "../server/credential-provider.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
+import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
+import { getRequestContext } from "../server/request-context.js";
 import { resolveDeploymentSignInMethods } from "../server/social-sign-in-providers.js";
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { isEmailDerivedName } from "../user-profile/shared.js";
@@ -94,6 +99,22 @@ import { parseWorkspaceUrl } from "./workspace-url.js";
 
 const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
 const pendingFederatedOrgSyncs = new Map<string, Promise<void>>();
+
+function isSameDeploymentWorkspaceAgent(agentUrl: string): boolean {
+  const runtimeUrl = resolveAppRuntimeUrl();
+  if (!runtimeUrl) return false;
+  try {
+    const agent = new URL(agentUrl);
+    const runtime = new URL(runtimeUrl);
+    return (
+      (agent.protocol === "https:" || agent.protocol === "http:") &&
+      agent.origin === runtime.origin
+    );
+  } catch {
+    // coercion-ok: Invalid URLs cannot be trusted as secret-sync recipients.
+    return false;
+  }
+}
 
 function parseRequiredAuthProvider(value: unknown): RequiredAuthProvider {
   if (value === null || value === undefined) return null;
@@ -190,40 +211,87 @@ async function getSessionForEvent(event: H3Event) {
 
 export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
+  const requestContext = getRequestContext();
+  const delegatedOrgMember =
+    requestContext?.a2aIdentityAssurance === "org-member";
+  const delegatedEmail = requestContext?.userEmail?.trim().toLowerCase();
+  const delegatedOrgId = delegatedOrgMember
+    ? requestContext.orgId?.trim()
+    : undefined;
+  const scopedDelegatedOrgId =
+    delegatedEmail &&
+    delegatedEmail === ctx.email.trim().toLowerCase() &&
+    delegatedOrgId &&
+    ctx.orgId === delegatedOrgId
+      ? delegatedOrgId
+      : null;
+  const visibleOrgId = delegatedOrgMember ? scopedDelegatedOrgId : ctx.orgId;
+  const visibleOrgName = visibleOrgId ? ctx.orgName : null;
+  const visibleRole = delegatedOrgMember
+    ? visibleOrgId
+      ? "member"
+      : null
+    : ctx.role;
 
   const e = await exec();
-  const allOrgsRes = await e.execute({
-    sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
-                 o.icon_json AS "iconJson", o.icon_revision AS "iconRevision"
-          FROM org_members m
-          INNER JOIN organizations o ON m.org_id = o.id
-          WHERE LOWER(m.email) = ?
-            AND m.federation_removal_pending_at IS NULL`,
-    args: [ctx.email.toLowerCase()],
+  const allOrgsRes = delegatedOrgMember
+    ? scopedDelegatedOrgId
+      ? await e.execute({
+          sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
+                       o.icon_json AS "iconJson", o.icon_revision AS "iconRevision"
+                FROM org_members m
+                INNER JOIN organizations o ON m.org_id = o.id
+                WHERE LOWER(m.email) = ? AND m.org_id = ?
+                  AND m.federation_removal_pending_at IS NULL`,
+          args: [ctx.email.toLowerCase(), scopedDelegatedOrgId],
+        })
+      : { rows: [] }
+    : await e.execute({
+        sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
+                     o.icon_json AS "iconJson", o.icon_revision AS "iconRevision"
+              FROM org_members m
+              INNER JOIN organizations o ON m.org_id = o.id
+              WHERE LOWER(m.email) = ?
+                AND m.federation_removal_pending_at IS NULL`,
+        args: [ctx.email.toLowerCase()],
+      });
+  const orgs = allOrgsRes.rows.flatMap((r: any) => {
+    const orgId = String(r.orgId ?? r.org_id);
+    const role = delegatedOrgMember
+      ? effectiveOrgMemberRole(r.role, orgId, ctx.email)
+      : (String(r.role) as OrgRole);
+    return role
+      ? [
+          {
+            orgId,
+            role,
+            orgName: String(r.orgName ?? r.org_name),
+            icon: parseOrganizationIconJson(r.iconJson ?? r.icon_json),
+            iconRevision: Number(r.iconRevision ?? r.icon_revision ?? 0),
+          },
+        ]
+      : [];
   });
-  const orgs = allOrgsRes.rows.map((r: any) => ({
-    orgId: String(r.orgId ?? r.org_id),
-    role: String(r.role) as OrgRole,
-    orgName: String(r.orgName ?? r.org_name),
-    icon: parseOrganizationIconJson(r.iconJson ?? r.icon_json),
-    iconRevision: Number(r.iconRevision ?? r.icon_revision ?? 0),
-  }));
 
-  const pendingRemovalRes = await e.execute({
-    sql: `SELECT m.org_id AS "orgId", o.name AS "orgName"
-          FROM org_members m
-          INNER JOIN organizations o ON m.org_id = o.id
-          WHERE LOWER(m.email) = ?
-            AND m.federation_removal_pending_at IS NOT NULL`,
-    args: [ctx.email.toLowerCase()],
-  });
+  const pendingRemovalRes = delegatedOrgMember
+    ? { rows: [] }
+    : await e.execute({
+        sql: `SELECT m.org_id AS "orgId", o.name AS "orgName"
+              FROM org_members m
+              INNER JOIN organizations o ON m.org_id = o.id
+              WHERE LOWER(m.email) = ?
+                AND m.federation_removal_pending_at IS NOT NULL`,
+        args: [ctx.email.toLowerCase()],
+      });
   const pendingRemovals = pendingRemovalRes.rows.map((r: any) => ({
     orgId: String(r.orgId ?? r.org_id),
     orgName: String(r.orgName ?? r.org_name),
   }));
 
   let domainMatches: Array<{ orgId: string; orgName: string }> = [];
-  const domain = ctx.email.split("@")[1]?.toLowerCase();
+  const domain = delegatedOrgMember
+    ? undefined
+    : ctx.email.split("@")[1]?.toLowerCase();
   if (domain) {
     try {
       const dmRes = await e.execute({
@@ -252,14 +320,16 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   let workspaceUrl: string | null = null;
   let requiredAuthProvider: RequiredAuthProvider = null;
   let a2aSecretSet = false;
+  let a2aMemberDelegationEnabled = false;
   let icon = null;
   let iconRevision = 0;
-  if (ctx.orgId) {
+  if (visibleOrgId) {
     const adRes = await e.execute({
-      sql: `SELECT allowed_domain, a2a_secret, workspace_url, required_auth_provider,
+      sql: `SELECT allowed_domain, a2a_secret, a2a_member_delegation_enabled,
+                   workspace_url, required_auth_provider,
                    icon_json, icon_revision
             FROM organizations WHERE id = ? LIMIT 1`,
-      args: [ctx.orgId],
+      args: [visibleOrgId],
     });
     if (adRes.rows[0]) {
       allowedDomain =
@@ -271,16 +341,18 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
       a2aSecretSet = Boolean(
         String((adRes.rows[0] as any).a2a_secret ?? "").trim(),
       );
+      a2aMemberDelegationEnabled =
+        (adRes.rows[0] as any).a2a_member_delegation_enabled === true;
       icon = parseOrganizationIconJson((adRes.rows[0] as any).icon_json);
       iconRevision = Number((adRes.rows[0] as any).icon_revision ?? 0);
     }
   }
 
-  const isOwnerOrAdmin = ctx.role === "owner" || ctx.role === "admin";
+  const isOwnerOrAdmin = visibleRole === "owner" || visibleRole === "admin";
   let workspaceAppDefaultVisibility: WorkspaceAppDefaultVisibility = "org";
-  if (ctx.orgId) {
+  if (visibleOrgId) {
     const setting = await getOrgSetting(
-      ctx.orgId,
+      visibleOrgId,
       WORKSPACE_APP_DEFAULT_VISIBILITY_KEY,
     );
     workspaceAppDefaultVisibility = normalizeWorkspaceAppDefaultVisibility(
@@ -288,13 +360,23 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     );
   }
 
-  const invitesRes = await e.execute({
-    sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
-          FROM org_invitations i
-          INNER JOIN organizations o ON i.org_id = o.id
-          WHERE LOWER(i.email) = ? AND i.status = 'pending'`,
-    args: [ctx.email.toLowerCase()],
-  });
+  const invitesRes = delegatedOrgMember
+    ? scopedDelegatedOrgId
+      ? await e.execute({
+          sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
+                FROM org_invitations i
+                INNER JOIN organizations o ON i.org_id = o.id
+                WHERE LOWER(i.email) = ? AND i.org_id = ? AND i.status = 'pending'`,
+          args: [ctx.email.toLowerCase(), scopedDelegatedOrgId],
+        })
+      : { rows: [] }
+    : await e.execute({
+        sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
+              FROM org_invitations i
+              INNER JOIN organizations o ON i.org_id = o.id
+              WHERE LOWER(i.email) = ? AND i.status = 'pending'`,
+        args: [ctx.email.toLowerCase()],
+      });
   const pendingInvitations = invitesRes.rows.map((r: any) => ({
     id: String(r.id),
     orgId: String(r.orgId ?? r.org_id),
@@ -302,13 +384,15 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     invitedBy: String(r.invitedBy ?? r.invited_by),
   }));
 
-  scheduleFederatedOrgSync(event, { ...ctx, icon, iconRevision });
+  if (!delegatedOrgMember) {
+    scheduleFederatedOrgSync(event, { ...ctx, icon, iconRevision });
+  }
 
   return {
-    email: ctx.email,
-    orgId: ctx.orgId,
-    orgName: ctx.orgName,
-    role: ctx.role,
+    email: delegatedOrgMember ? (delegatedEmail ?? "") : ctx.email,
+    orgId: visibleOrgId,
+    orgName: visibleOrgName,
+    role: visibleRole,
     icon,
     iconRevision,
     emailConfigured: await isEmailConfigured(),
@@ -334,8 +418,14 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     // so the value would sit in JSON any script on the page can read, and it
     // signs the JWTs peers accept as first-party callers. Reveal is an explicit
     // owner GET on /_agent-native/org/a2a-secret.
-    a2aSecretSet: canManageOrgA2ASecret(ctx.role) ? a2aSecretSet : undefined,
-    soloDeploymentAdmin: ctx.orgId ? undefined : isTrustedSelfHostedRuntime(),
+    a2aSecretSet: canManageOrgA2ASecret(visibleRole) ? a2aSecretSet : undefined,
+    a2aMemberDelegationEnabled:
+      visibleRole === "owner" ? a2aMemberDelegationEnabled : undefined,
+    soloDeploymentAdmin: delegatedOrgMember
+      ? undefined
+      : visibleOrgId
+        ? undefined
+        : isTrustedSelfHostedRuntime(),
   };
 });
 
@@ -1897,6 +1987,38 @@ export const setRequiredAuthProviderHandler = defineEventHandler(
   },
 );
 
+export const setA2AMemberDelegationHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No active organization" });
+    }
+    if (ctx.role !== "owner") {
+      throw createError({
+        statusCode: 403,
+        message: "Only the organization owner can manage member delegation",
+      });
+    }
+
+    const body = await readBody(event);
+    if (typeof body?.enabled !== "boolean") {
+      throw createError({
+        statusCode: 400,
+        message: "enabled must be a boolean",
+      });
+    }
+
+    const e = await exec();
+    await e.execute({
+      sql: `UPDATE organizations
+            SET a2a_member_delegation_enabled = ?
+            WHERE id = ?`,
+      args: [body.enabled, ctx.orgId],
+    });
+    return { enabled: body.enabled };
+  },
+);
+
 export const revealA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1977,6 +2099,7 @@ export const setA2ASecretHandler = defineEventHandler(
       sql: `UPDATE organizations SET a2a_secret = ? WHERE id = ?`,
       args: [secret, ctx.orgId],
     });
+    invalidateMemberOrgCaches();
 
     return { a2aSecret: secret, previousSecret };
   },
@@ -2056,14 +2179,71 @@ export const syncA2ASecretHandler = defineEventHandler(
 
     const signSecret = overrideSignSecret || secret;
 
-    const { discoverAgents } = await import("../server/agent-discovery.js");
+    const {
+      discoverAgents,
+      getBuiltinAgentsForSeeding,
+      loadWorkspaceAppsManifest,
+    } = await import("../server/agent-discovery.js");
     const [{ signA2AOrganizationToken }, { canonicalA2AAudience }] =
       await Promise.all([
         import("../a2a/client.js"),
         import("../a2a/audience.js"),
       ]);
 
-    const agents = await discoverAgents();
+    // Only first-party built-ins and apps mounted on this deployment may receive
+    // the organization secret. A workspace manifest can contain external URLs.
+    const [discoveredAgents, builtins, workspaceApps] = await Promise.all([
+      discoverAgents(),
+      Promise.resolve(getBuiltinAgentsForSeeding()),
+      loadWorkspaceAppsManifest(),
+    ]);
+    const registeredBuiltins = new Map(
+      builtins.map((agent) => [agent.id, agent.url]),
+    );
+    const registeredWorkspacePaths = new Map<string, string>();
+    for (const app of workspaceApps ?? []) {
+      try {
+        const path = app.path;
+        if (path) registeredWorkspacePaths.set(app.id, path);
+      } catch (error) {
+        console.warn(
+          "[org] skipped malformed workspace app during A2A secret sync",
+          { errorType: error instanceof Error ? error.name : "unknown" },
+        );
+      }
+    }
+    const matchesPath = (url: string, registeredPath: string): boolean => {
+      try {
+        const actual = new URL(url);
+        const expectedPath = new URL(
+          registeredPath,
+          `${resolveAppRuntimeUrl()?.replace(/\/$/, "") ?? ""}/`,
+        );
+        return (
+          actual.origin === expectedPath.origin &&
+          actual.pathname.replace(/\/$/, "") ===
+            expectedPath.pathname.replace(/\/$/, "")
+        );
+      } catch (error) {
+        console.warn("[org] skipped invalid A2A secret sync recipient URL", {
+          errorType: error instanceof Error ? error.name : "unknown",
+        });
+        return false;
+      }
+    };
+    const agents = discoveredAgents.filter((agent) => {
+      if (agent.source === "builtin") {
+        const trustedUrl = registeredBuiltins.get(agent.id);
+        return Boolean(trustedUrl && matchesPath(agent.url, trustedUrl));
+      }
+      if (
+        agent.source !== "workspace" ||
+        !isSameDeploymentWorkspaceAgent(agent.url)
+      )
+        return false;
+      const registeredPath = registeredWorkspacePaths.get(agent.id);
+      return Boolean(registeredPath && matchesPath(agent.url, registeredPath));
+    });
 
     const results: Array<{
       id: string;
@@ -2241,6 +2421,7 @@ export const receiveA2ASecretHandler = defineEventHandler(
     }
     if (
       !verified ||
+      verified.identityAssurance !== "organization" ||
       verified.orgId !== localOrgId ||
       verified.orgDomain?.trim().toLowerCase() !== orgDomain
     ) {
@@ -2264,6 +2445,7 @@ export const receiveA2ASecretHandler = defineEventHandler(
       sql: `UPDATE organizations SET a2a_secret = ? WHERE id = ?`,
       args: [newSecret, localOrgId],
     });
+    invalidateMemberOrgCaches();
 
     return { ok: true, orgId: localOrgId };
   },

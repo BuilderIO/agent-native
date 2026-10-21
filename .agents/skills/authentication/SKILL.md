@@ -126,6 +126,10 @@ same path as Settings > Members. It emails a real person, so it sets
 user, and "always allow" is not offered. It cannot grant admin; owners invite
 admins from settings. Role changes, removal, and revoking an invitation have no
 agent tool. Keep it that way unless the new tool follows the same approval rule.
+Actions that create, change, or revoke a credential, or change who may use an
+app or what they may do in it, follow the same rule. The gate holds on every
+surface: over HTTP only the signed-in app UI runs such a call (see the `actions`
+skill, `references/action-fields.md`).
 
 The active org flows automatically: `session.orgId` — resolved by `getOrgContext` from `org_members` plus the user's `active-org-id` setting (_not_ from a Better Auth session field) — → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
 
@@ -255,20 +259,29 @@ names an accountable `ownerEmail`, `team`, `riskTier`, `purpose`, a `lifecycle`
   agent's tools. Suspending or retiring also aborts the principal's in-flight
   runs. Never let the agent or a service token mint a credential or widen its
   own grant.
+- `revoke-org-service-token` stays an agent and MCP tool, gated like
+  `invite-organization-member`: `needsApproval: true` with
+  `allowPersistentApproval: false`. A service identity can never give approval,
+  so any approval-gated action it calls is refused (`409 approval_required`
+  over HTTP).
 
 ## A2A Identity
 
 Set a distinct `A2A_SECRET` (same value) on apps that must verify each other's
-user identity. Only this deployment secret may sign a per-user A2A assertion;
-mint it from the authenticated request context. The shared organization
-`a2a_secret` proves organization scope only. Its subject/email claims are
-ignored, so it cannot impersonate a member or carry human approval into A2A or
-MCP. Keep each organization's secret different from `A2A_SECRET`.
+deployment-secret user assertions; mint those from the authenticated request
+context. The shared organization `a2a_secret` normally proves organization
+scope only. A separate `agent-native-org-member-delegation` assertion can carry
+a current member's identity only when the receiver's owner explicitly enables
+it, the org secret differs from `A2A_SECRET`, the audience and short expiry
+verify, and the receiver's current roster contains that email. Its org role is
+capped at `member`, so it cannot carry owner/admin authority or human approval.
+Keep each organization's secret different from `A2A_SECRET`.
 
 - Outbound calls sign user assertions with `A2A_SECRET` and verify them
   cryptographically at the receiver.
-- Organization-secret calls run as an organization principal without a user
-  email; user-owned reads, tasks, and approvals need a verified user assertion.
+- Ordinary organization-secret calls run as an organization principal without
+  a user email. Opted-in member delegation may access that member's user-scoped
+  data, but does not grant org owner/admin actions or approval authority.
 - Without a verifiable credential, production rejects A2A calls; local dev can
   remain open.
 

@@ -2836,6 +2836,17 @@ describe("app changelog raw imports", () => {
     expect(ignored(path.join(app, ".claude", "settings.json"))).toBe(true);
     expect(ignored(path.join(app, "node_modules", "x", "index.js"))).toBe(true);
     expect(ignored(path.join(app, ".data", "base", "1"))).toBe(true);
+    expect(ignored(path.join(app, ".generated"))).toBe(false);
+    expect(ignored(path.join(app, ".generated", "bridge"))).toBe(false);
+    expect(
+      ignored(path.join(app, ".generated", "bridge", "runtime.generated.ts")),
+    ).toBe(false);
+    expect(
+      ignored(path.join(app, ".generated", "bridge", "node_modules", "x.ts")),
+    ).toBe(true);
+    expect(ignored(path.join(app, ".generated", "actions-registry.ts"))).toBe(
+      true,
+    );
   });
 });
 
@@ -2844,9 +2855,13 @@ describe("Vite runtime data watcher", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-watch-"));
     const database = path.join(root, ".data", "base", "5", "16453");
     const source = path.join(root, "app.ts");
+    const bridgeDir = path.join(root, ".generated", "bridge");
+    const bridge = path.join(bridgeDir, "runtime.generated.ts");
     fs.mkdirSync(path.dirname(database), { recursive: true });
+    fs.mkdirSync(bridgeDir, { recursive: true });
     fs.writeFileSync(database, "initial database page");
     fs.writeFileSync(source, "export const value = 1;");
+    fs.writeFileSync(bridge, "export const bridge = 1;");
     const server = await createServer({
       root,
       configFile: false,
@@ -2855,6 +2870,7 @@ describe("Vite runtime data watcher", () => {
         ws: false,
         watch: {
           ...defineConfig().server?.watch,
+          ignored: [defaultViteWatchIgnored(root)],
           usePolling: true,
           interval: 20,
         },
@@ -2866,11 +2882,16 @@ describe("Vite runtime data watcher", () => {
     try {
       await vi.waitFor(() => {
         expect(server.watcher.getWatched()[root]).toContain("app.ts");
+        expect(server.watcher.getWatched()[bridgeDir]).toContain(
+          "runtime.generated.ts",
+        );
       });
       fs.writeFileSync(database, "updated database page");
       fs.writeFileSync(path.join(path.dirname(database), "16454"), "new page");
       fs.writeFileSync(source, "export const value = 2;");
+      fs.writeFileSync(bridge, "export const bridge = 2;");
       await vi.waitFor(() => expect(changes).toContain(source));
+      await vi.waitFor(() => expect(changes).toContain(bridge));
       expect(
         changes.filter((file) => file.includes(`${path.sep}.data${path.sep}`)),
       ).toEqual([]);
@@ -3188,6 +3209,35 @@ describe("Vite connection reset noise", () => {
     expect(() =>
       socketErrorHandler?.(Object.assign(new Error("real socket failure"), {})),
     ).toThrow("real socket failure");
+  });
+
+  it("keeps the dev server up when Windows cancels a write to a closed request", () => {
+    const plugin = findPlugin("agent-native-silence-connection-resets");
+    let connectionHandler: ((socket: { on: Function }) => void) | undefined;
+    let socketErrorHandler: ((err: Error) => void) | undefined;
+    const server = {
+      httpServer: {
+        on: vi.fn((event: string, handler: typeof connectionHandler) => {
+          if (event === "connection") connectionHandler = handler;
+        }),
+      },
+      config: { logger: { error: vi.fn() } },
+    };
+
+    plugin.configureServer(server);
+    connectionHandler?.({
+      on: vi.fn((event: string, handler: typeof socketErrorHandler) => {
+        if (event === "error") socketErrorHandler = handler;
+      }),
+    });
+
+    const err = Object.assign(new Error("write ECANCELED"), {
+      errno: -4081,
+      code: "ECANCELED",
+      syscall: "write",
+    });
+
+    expect(() => socketErrorHandler?.(err)).not.toThrow();
   });
 });
 
@@ -4334,6 +4384,22 @@ describe("local-core dev aliases and router dedupe", () => {
         },
       }),
     );
+    const corePackageDir = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    fs.mkdirSync(corePackageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(corePackageDir, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        main: "index.js",
+        dependencies: { "cron-parser": "^5.5.0", ajv: "^8.20.0" },
+      }),
+    );
+    fs.writeFileSync(path.join(corePackageDir, "index.js"), "export {};\n");
 
     try {
       process.chdir(tmpDir);
@@ -4399,6 +4465,9 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/ui/sheet",
           "@agent-native/toolkit/ui/sonner",
           "@agent-native/toolkit/ui/tooltip",
+          "@agent-native/core/jobs/cron",
+          "@agent-native/core > ajv",
+          "@agent-native/core > ajv/dist/2020.js",
           "@agent-native/toolkit > lowlight > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/languages/bash",

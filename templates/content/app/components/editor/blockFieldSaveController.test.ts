@@ -36,7 +36,6 @@ describe("blockFieldSaveController", () => {
     controller.change("Failed");
     await controller.flush();
     expect(controller.lastError).toBe(failure);
-    controller.discardPending();
     controller.change("Pending");
     await controller.flush();
     expect(controller.lastSaved).toBe("Pending");
@@ -249,5 +248,37 @@ describe("blockFieldSaveController", () => {
 
     expect(c.lastSaved).toBe("second");
     expect(order).toEqual(["first", "second"]);
+  });
+
+  it("tells subscribers each time a save settles, whether it saved or failed", async () => {
+    const save = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("offline"));
+    const c = createBlockFieldSaveController({
+      initialContent: "",
+      save,
+      onError: () => {},
+    });
+    const listener = vi.fn();
+    const unsubscribe = c.subscribe(listener);
+
+    c.change("saved");
+    vi.advanceTimersByTime(500);
+    await flushTicks();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(c.isSaving).toBe(false);
+
+    c.change("not saved");
+    vi.advanceTimersByTime(500);
+    await flushTicks();
+    await flushTicks();
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+    c.change("unheard");
+    vi.advanceTimersByTime(500);
+    await flushTicks();
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 });

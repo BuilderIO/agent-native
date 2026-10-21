@@ -752,6 +752,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "جارٍ البحث...",
   "history.untitledChat": "محادثة",
   "history.yesterday": "أمس",
+  "history.mine": "محادثاتي",
+  "history.sharedWithYou": "تمت مشاركتها معك",
+  "history.showAll": "عرض الكل",
+  "history.showLess": "عرض أقل",
+  "history.loadMore": "تحميل المزيد",
+  "history.loadingMore": "جارٍ التحميل...",
+  "history.retry": "إعادة المحاولة",
+  "history.loadFailed": "تعذّر تحميل المحادثات",
+  "history.loadMoreFailed": "تعذّر تحميل المزيد من المحادثات",
+  "history.emptyMine": "لا توجد محادثات بعد",
+  "history.emptyShared": "لم تتم مشاركة أي محادثات معك",
+  "history.ownedBy": "المالك: {{name}}",
+  "history.accessDirect": "تمت مشاركتها معك",
+  "history.accessOrganization": "تمت مشاركتها مع مؤسستك",
   "integrations.availableSection": "عمليات التكامل المتاحة",
   "integrations.connectedSection": "متصل",
   "integrations.goToApiKeys": "الانتقال إلى مفاتيح API",
@@ -999,7 +1013,25 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM، وجهات الاتصال، والشركات، والصفقات، والتذاكر، وتحليلات العملاء",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "عند إعداد HubSpot MCP Auth App تديره مساحة العمل، يمكن لأي عضو ربط حساب HubSpot شخصي باستخدام OAuth وPKCE. وإلا، فأنشئ التطبيق في HubSpot Developer Platform قبل الربط؛ ويظل موصل HubSpot OAuth الحالي متاحًا لإجراءات التطبيق.",
+    "يربط كل شخص حساب HubSpot الخاص به بعد أن يهيّئ مالك مساحة العمل تطبيق HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "إعداد HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "يهيّئ مالك مساحة العمل HubSpot MCP مرة واحدة، ثم يربط كل عضو حسابه الخاص.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "إعداد مساحة العمل مطلوب",
+  "mcpIntegrations.hubspot.setupChecking": "جارٍ التحقق من إعداد مساحة العمل…",
+  "mcpIntegrations.hubspot.setupUnavailable": "حالة الإعداد غير متاحة",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "تعذّر التحقق من إعدادات OAuth لمساحة العمل. حاول مرة أخرى.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "أنشئ HubSpot MCP Auth App، ثم أضف معرّف العميل وسرّه ضمن Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "اطلب من مالك مساحة العمل إنشاء HubSpot MCP Auth App وإضافة معرّف العميل وسرّه ضمن Agent-Native settings → API keys. بعد الإعداد، يمكنك ربط حساب HubSpot الخاص بك.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "انضم إلى مساحة عمل قبل ربط HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "إضافة بيانات اعتماد مساحة العمل",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "تحقق مرة أخرى",
+  "mcpIntegrations.hubspot.retrySetupStatus": "إعادة المحاولة",
   "mcpIntegrations.catalog.pylon.description":
     "البحث في بيانات الدعم في Pylon وتحديثها.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1424,6 +1456,18 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "مشاهد",
   "share.viewerDescription": "يمكنه العرض",
   "share.userGroup": "مجموعة مستخدمين",
+  "share.ownedByAnyone": "مملوك لأي شخص",
+  "share.ownedByMe": "مملوك لي",
+  "share.sharedWithMe": "تمت مشاركته معي",
+  "share.confirmOrganizationTitle": "هل تريد المشاركة مع مؤسستك؟",
+  "share.confirmOrganizationTitleNamed":
+    "هل تريد المشاركة مع {{organization}}؟",
+  "share.confirmOrganizationDescription":
+    "سيتمكن جميع أفراد مؤسستك، بمن فيهم الأعضاء الجدد، من فتح هذا وعرض كل ما فيه، بما في ذلك أي رسائل وملفات ومحتوى آخر. يمكنك تغيير ذلك لاحقًا.",
+  "share.confirmOrganizationDescriptionNamed":
+    "سيتمكن جميع أفراد {{organization}}، بمن فيهم الأعضاء الجدد، من فتح هذا وعرض كل ما فيه، بما في ذلك أي رسائل وملفات ومحتوى آخر. يمكنك تغيير ذلك لاحقًا.",
+  "share.confirmOrganizationAction": "المشاركة مع المؤسسة",
+  "share.confirmOrganizationSharing": "جارٍ المشاركة...",
   "status.resuming": "جارٍ الاستئناف",
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",
@@ -1478,6 +1522,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "عمل",
   "tool.workedFor": "عمل لمدة {{duration}}",
   "widget.chart": "مخطط",
+  "widget.chartActions": "إجراءات المخطط",
+  "widget.dataSources": "مصادر البيانات",
+  "widget.tableActions": "إجراءات الجدول",
   "widget.dataChart": "مخطط بيانات",
   "widget.dataInsights": "رؤى البيانات",
   "widget.dataTable": "جدول بيانات",
@@ -2094,9 +2141,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "مزيد من المعلومات",
   "settingsOrg.general.workspaceUrl": "عنوان URL لمساحة العمل",
   "settingsOrg.general.workspaceUrlDescription":
-    "وجّه الأعضاء إلى مساحة العمل هذه من نشر آخر.",
+    "اربط دليل تطبيقات هذه المؤسسة بين عمليات النشر.",
   "settingsOrg.general.workspaceUrlHelp":
-    "ينتقل الأعضاء الذين يصلون إلى نشر آخر إلى مساحة العمل هذه بدلًا من تطبيق فارغ.",
+    "تستخدم عمليات النشر الأخرى عنوان URL هذا لاكتشاف تطبيقات مساحة العمل. لا يعيد توجيه الأعضاء تلقائيًا.",
   "settingsOrg.general.editWorkspaceUrl": "تعديل عنوان URL لمساحة العمل",
   "settingsOrg.general.removeWorkspaceUrl": "إزالة عنوان URL لمساحة العمل",
   "settingsOrg.general.setWorkspaceUrl": "تعيين عنوان URL",
@@ -2113,6 +2160,9 @@ const messages: ToolkitAgentChatTranslation = {
     "معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
   "settingsOrg.auth.sharedSecretNotSet":
     "غير معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
+  "settingsOrg.auth.memberDelegation": "تفويض هوية أعضاء المؤسسة",
+  "settingsOrg.auth.memberDelegationHelp":
+    "يمكن للتطبيقات المتصلة التي تستخدم السر المشترك لهذه المؤسسة ادّعاء هوية أي عضو حالي عند الاتصال بهذا التطبيق. يتحقق هذا التطبيق من قائمة الأعضاء الحالية ويقيّد الوصول المفوّض إلى المؤسسة بصلاحيات مستوى العضو.",
   "settingsOrg.auth.secretNotSetValue": "غير معيّن",
   "settingsOrg.auth.manage": "إدارة",
   "settingsOrg.auth.reveal": "إظهار",
@@ -2199,6 +2249,12 @@ const messages: ToolkitAgentChatTranslation = {
     "تحقق من بريدك الإلكتروني للاطلاع على تعليمات تأكيد هذا التغيير.",
   "settingsShell.account.languageAndRegion": "اللغة والمنطقة",
   "settingsShell.account.languageDescription": "يُطبَّق على جميع أجهزتك.",
+  "settingsShell.account.appearance": "المظهر",
+  "settingsShell.account.themeFamily": "نمط السمة",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "الألوان الأصلية للتطبيق",
+  "settingsShell.account.themeFamilySaveError":
+    "تعذّر تحديث نمط السمة. حاول مرة أخرى.",
   "settingsShell.account.manage": "إدارة",
   "settingsShell.account.name": "الاسم",
   "settingsShell.account.nameDescription":
@@ -3301,6 +3357,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "لم يتم إرفاق التقرير.",
   "reportProblem.agentMessage":
     "حدث خطأ ما في التطبيق. استخدم تقرير المشكلة المرفق لشرح ما حدث.",
+  "unsupportedDevice.title": "افتحه على شاشة أكبر",
+  "unsupportedDevice.titleDeck": "افتح هذا العرض التقديمي على شاشة أكبر",
+  "unsupportedDevice.titleDesign": "افتح هذا التصميم على شاشة أكبر",
+  "unsupportedDevice.body":
+    "يعمل {{app}} على iPad والأجهزة اللوحية وأجهزة سطح المكتب. أرسل الرابط إلى نفسك لتتابع من هناك.",
+  "unsupportedDevice.email": "أرسل الرابط إلى بريدي",
+  "unsupportedDevice.share": "مشاركة الرابط",
+  "unsupportedDevice.copy": "نسخ الرابط",
+  "unsupportedDevice.copyFailed": "تعذّر نسخ الرابط",
+  "unsupportedDevice.copied": "تم نسخ الرابط",
+  "unsupportedDevice.emailSubject": "افتح {{app}} على حاسوبك",
 };
 
 export default messages;

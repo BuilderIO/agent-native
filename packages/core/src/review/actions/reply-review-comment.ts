@@ -46,6 +46,11 @@ export default defineAction({
   description:
     "Reply to an existing review comment thread with inline Markdown text without headings.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const scope = {

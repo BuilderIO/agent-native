@@ -1091,11 +1091,11 @@ export function useEditorExportAndHandoff({
 
   useNativeLocalExportRequests({
     designId: id,
-    enabled: Boolean(id),
+    isSignedIn,
+    enabled: Boolean(id && isSignedIn),
     onExport: handleNativeLocalPng,
     onError: (error) => {
-      console.error("Local native PNG failed:", error);
-      toast.error(t("designEditor.toasts.pngExportError"));
+      console.error("Native export request watcher failed:", error);
     },
   });
 

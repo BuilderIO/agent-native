@@ -1,4 +1,4 @@
-import { DEFAULT_FACTORY_ID } from "../factory-graph/store.js";
+import { DEFAULT_FACTORY_ID } from "./factory-ids.js";
 import { factoryConfigRowId } from "./factory-scope.js";
 
 export type FactoryConfigSqlRow = {
