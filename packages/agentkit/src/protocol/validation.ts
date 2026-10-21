@@ -47,6 +47,7 @@ import {
   type AgentSubmissionPayload,
   type AgentQueuedMessage,
   type AgentQueuedSubmissionReceipt,
+  type AgentQueuedSubmissionStatus,
   type AgentSubmissionReference,
   type AgentReplayCheckpoint,
   type RunId,
@@ -706,6 +707,43 @@ export function parseAgentQueuedSubmissionReceipt(
   parseAgentQueuedMessage(receipt.message, `${path}.message`);
   optionalString(receipt.activeRunId, `${path}.activeRunId`);
   return value as AgentQueuedSubmissionReceipt;
+}
+
+export function parseAgentQueuedSubmissionStatus(
+  value: unknown,
+  path = "queuedSubmissionStatus",
+): AgentQueuedSubmissionStatus {
+  const status = record(value, path);
+  knownKeys(status, ["state", "submittedRunId"], path);
+  if (
+    status.state !== "queued" &&
+    status.state !== "submitted" &&
+    status.state !== "removed" &&
+    status.state !== "expired" &&
+    status.state !== "blocked"
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.state`,
+      "expected a queued submission state",
+    );
+  }
+  if (status.submittedRunId !== undefined) {
+    string(status.submittedRunId, `${path}.submittedRunId`);
+  }
+  if (status.state === "submitted" && status.submittedRunId === undefined) {
+    throw new AgentProtocolValidationError(
+      `${path}.submittedRunId`,
+      "is required for a submitted receipt",
+    );
+  }
+  return value as AgentQueuedSubmissionStatus;
+}
+
+export function parseNullableAgentQueuedSubmissionStatus(
+  value: unknown,
+  path = "queuedSubmissionStatus",
+): AgentQueuedSubmissionStatus | null {
+  return value === null ? null : parseAgentQueuedSubmissionStatus(value, path);
 }
 
 export function parseAgentQueuedMessages(

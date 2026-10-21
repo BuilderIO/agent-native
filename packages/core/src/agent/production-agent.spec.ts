@@ -6566,6 +6566,75 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("refuses an unqueueable busy attachment before pre-upload", async () => {
+    mockGetSlotHoldingRunId.mockResolvedValueOnce("run-active");
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockResolvedValue({
+        attachments: [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A legacy attachment send",
+          threadId: "thread-1",
+          attachments: [
+            {
+              type: "image",
+              name: "chart.png",
+              contentType: "image/png",
+              data: "data:image/png;base64,AA==",
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(409);
+      expect(result).toMatchObject({ code: "run_slot_busy" });
+      expect(preUpload).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      preUpload.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
   it("returns a typed conflict when another run owns the thread slot", async () => {
     mockTryClaimRunSlot.mockResolvedValueOnce({
       claimed: false,
@@ -8874,7 +8943,7 @@ describe("runAgentLoop", () => {
     const defer = vi.fn(async () => true);
 
     await expect(confirmQueuedRunInterrupt({ abort, defer })).resolves.toBe(
-      false,
+      "pending",
     );
     expect(abort).toHaveBeenCalledOnce();
     expect(defer).toHaveBeenCalledOnce();
@@ -8889,7 +8958,7 @@ describe("runAgentLoop", () => {
       },
       interruptRequestedAtBoundary: async () => {
         order.push("interrupt");
-        return true;
+        return "pending";
       },
     });
     const dispatch = vi.fn(() => "dispatched");

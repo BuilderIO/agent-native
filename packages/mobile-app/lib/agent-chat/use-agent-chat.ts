@@ -65,6 +65,22 @@ const NAVIGATE_POLL_TIMEOUT_MS = Math.max(
   10_000,
   NAVIGATE_POLL_INTERVAL_MS * 4,
 );
+const QUEUED_RECEIPT_POLL_INTERVAL_MS = 1_000;
+
+function waitForQueuedReceiptPoll(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    timer = setTimeout(finish, QUEUED_RECEIPT_POLL_INTERVAL_MS);
+    signal.addEventListener("abort", finish, { once: true });
+    if (signal.aborted) finish();
+  });
+}
 /**
  * Bounds `call` so a hung request can't pin the poll's `inFlight` guard
  * forever. `call` keeps running if it loses the race, but nothing awaits it
@@ -140,6 +156,7 @@ interface ActiveTurnBuffer {
   generation: number;
   assistantId: string;
   runId: string | null;
+  processedEventIds?: Set<string>;
   queuedMessageId?: string;
   queuedRunCompleted?: () => void;
   awaitingQueuedHandle?: boolean;
@@ -388,6 +405,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       ) {
         return;
       }
+      if (active.processedEventIds?.has(event.id)) return;
       if (active.awaitingQueuedHandle) {
         const eventQueuedMessageId = queuedMessageIdFromEvent(event);
         const queuedMessageId =
@@ -449,6 +467,8 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       ) {
         pendingApprovalRef.current = null;
       }
+      active.processedEventIds ??= new Set();
+      active.processedEventIds.add(event.id);
       active.runId = event.runId;
       if (event.type === "connection.requested") {
         connectionSessionByRequestRef.current.set(event.request.id, {
@@ -849,6 +869,79 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             )?.[0] ?? null;
           turnBuffer.sawTerminal = false;
           turnBuffer.acceptEvents = true;
+          const earlyRunEvents = turnBuffer.earlyRunEvents;
+          for (const [earlyRunId, events] of earlyRunEvents ?? []) {
+            let priorAssistantId = assistantIdsByRunRef.current.get(earlyRunId);
+            if (!priorAssistantId) {
+              priorAssistantId = turnBuffer.state.messages.find(
+                (message) =>
+                  message.role === "assistant" &&
+                  messageRunId(message) === earlyRunId,
+              )?.id;
+            }
+            for (const event of events) {
+              if (turnBuffer.processedEventIds?.has(event.id)) continue;
+              const wireEvent = mobileAgentKitEventToWireEvent(event);
+              if (!wireEvent) continue;
+              priorAssistantId ??= nextLocalId("assistant");
+              if (
+                !turnBuffer.state.messages.some(
+                  (message) => message.id === priorAssistantId,
+                ) &&
+                wireEvent.type !== "activity" &&
+                wireEvent.type !== "done" &&
+                wireEvent.type !== "loop_limit" &&
+                wireEvent.type !== "auto_continue"
+              ) {
+                const messages = [...turnBuffer.state.messages];
+                const queuedUserIndex = messages.findIndex(
+                  (message) => message.id === userMessage.id,
+                );
+                messages.splice(
+                  queuedUserIndex < 0 ? messages.length : queuedUserIndex,
+                  0,
+                  {
+                    id: priorAssistantId,
+                    role: "assistant",
+                    parts: [],
+                    createdAt: Date.now(),
+                    metadata: { runId: earlyRunId },
+                  },
+                );
+                turnBuffer.state = { ...turnBuffer.state, messages };
+              }
+              if (
+                !turnBuffer.state.messages.some(
+                  (message) => message.id === priorAssistantId,
+                )
+              ) {
+                continue;
+              }
+              turnBuffer.processedEventIds ??= new Set();
+              turnBuffer.processedEventIds.add(event.id);
+              assistantIdsByRunRef.current.set(earlyRunId, priorAssistantId);
+              runIdsRef.current.set(priorAssistantId, earlyRunId);
+              const scopeValue = mobileChatScope(event.metadata);
+              const wire = scopeValue
+                ? { ...wireEvent, scope: scopeValue }
+                : wireEvent;
+              const current = turnBuffer.state;
+              const next = applyWireEvent(current, wire, priorAssistantId);
+              turnBuffer.state = annotateBufferedAssistantMessage(
+                {
+                  ...next,
+                  isStreaming: current.isStreaming,
+                  activity: current.activity,
+                  error: current.error,
+                  errorCode: current.errorCode,
+                  runId: turnBuffer.runId,
+                },
+                priorAssistantId,
+                event,
+              );
+              turnBuffer.dirty = true;
+            }
+          }
           turnBuffer.earlyRunEvents = undefined;
           turnBuffer.earlyQueuedRunIds = undefined;
           const queuedEvents =
@@ -872,11 +965,144 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             );
           }
           void runHandle.completed.catch(() => {});
+          let stopReceiptPolling = false;
+          const failQueueReceiptStatus = (error: string, errorCode: string) => {
+            if (
+              activeGenerationRef.current !== currentGeneration ||
+              controller.signal.aborted
+            ) {
+              return;
+            }
+            turnBuffer.state = applyWireEvent(
+              turnBuffer.state,
+              { type: "error", error, errorCode },
+              assistantId,
+            );
+            turnBuffer.sawTerminal = true;
+            turnBuffer.dirty = true;
+            turnBuffer.queuedRunCompleted?.();
+          };
+          const pollQueuedReceipt = async () => {
+            const getStatus = session.client.getQueuedSubmissionStatus;
+            if (!getStatus) return;
+            while (!stopReceiptPolling && !controller.signal.aborted) {
+              let receipt;
+              try {
+                receipt = await getStatus.call(
+                  session.client,
+                  {
+                    threadId: activeThreadId,
+                    messageId: runHandle.queuedMessageId,
+                  },
+                  { signal: controller.signal },
+                );
+              } catch (error) {
+                if (controller.signal.aborted) return;
+                const status =
+                  error && typeof error === "object" && "status" in error
+                    ? error.status
+                    : undefined;
+                if (status === 404 || status === 501) return;
+                const retryable =
+                  error && typeof error === "object" && "retryable" in error
+                    ? error.retryable
+                    : error instanceof TypeError;
+                if (retryable !== true) {
+                  if (status === 401) setAuthRequired(true);
+                  failQueueReceiptStatus(
+                    "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                    "queued_submission_status_unavailable",
+                  );
+                  return;
+                }
+                await waitForQueuedReceiptPoll(controller.signal);
+                continue;
+              }
+              if (receipt === undefined) return;
+              if (receipt === null) {
+                failQueueReceiptStatus(
+                  "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                  "queued_submission_status_unavailable",
+                );
+                return;
+              }
+              if (receipt?.state === "submitted") {
+                const submittedRunId = receipt.submittedRunId;
+                if (!submittedRunId) {
+                  failQueueReceiptStatus(
+                    "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                    "queued_submission_status_unavailable",
+                  );
+                  return;
+                }
+                turnBuffer.runId = submittedRunId;
+                assistantIdsByRunRef.current.set(submittedRunId, assistantId);
+                runIdsRef.current.set(assistantId, submittedRunId);
+                const submittedEvents = session.client
+                  .getThread(activeThreadId)
+                  .events.filter((event) => event.runId === submittedRunId)
+                  .sort((left, right) => left.sequence - right.sequence);
+                for (const event of submittedEvents) {
+                  processSessionEvent(
+                    session,
+                    event,
+                    targetBaseUrl,
+                    activeThreadId,
+                  );
+                  if (stopReceiptPolling) return;
+                }
+                try {
+                  await session.client.resubscribeRun(
+                    activeThreadId,
+                    submittedRunId,
+                  );
+                } catch {
+                  if (!controller.signal.aborted && !stopReceiptPolling) {
+                    failQueueReceiptStatus(
+                      "The connection to the agent dropped before it finished. Retry to continue.",
+                      "stream_dropped",
+                    );
+                  }
+                  return;
+                }
+                if (controller.signal.aborted || stopReceiptPolling) return;
+                if (turnBuffer.sawTerminal || turnBuffer.sawApproval) {
+                  turnBuffer.queuedRunCompleted?.();
+                } else {
+                  failQueueReceiptStatus(
+                    "The connection to the agent dropped before it finished. Retry to continue.",
+                    "stream_dropped",
+                  );
+                }
+                return;
+              }
+              if (
+                receipt?.state === "expired" ||
+                receipt?.state === "blocked" ||
+                receipt?.state === "removed"
+              ) {
+                const error =
+                  receipt.state === "expired"
+                    ? "This queued message expired before it could run."
+                    : receipt.state === "removed"
+                      ? "This queued message was removed before it could run."
+                      : "This queued message could not be started.";
+                failQueueReceiptStatus(
+                  error,
+                  `queued_submission_${receipt.state}`,
+                );
+                return;
+              }
+              await waitForQueuedReceiptPoll(controller.signal);
+            }
+          };
+          void pollQueuedReceipt();
           await new Promise<void>((resolve) => {
             let settled = false;
             const finish = () => {
               if (settled) return;
               settled = true;
+              stopReceiptPolling = true;
               controller.signal.removeEventListener("abort", finish);
               if (turnBuffer.queuedRunCompleted === finish) {
                 turnBuffer.queuedRunCompleted = undefined;
@@ -1777,4 +2003,28 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     refreshChatEligibility: () => void refreshChatEligibility(),
     getRunId,
   };
+}
+
+function annotateBufferedAssistantMessage(
+  state: ChatTurnState,
+  assistantId: string,
+  event: AgentEvent,
+): ChatTurnState {
+  const index = state.messages.findIndex(
+    (message) => message.id === assistantId,
+  );
+  if (index < 0) return state;
+  const scope = mobileChatScope(event.metadata);
+  const turnId = eventTurnId(event);
+  const messages = [...state.messages];
+  messages[index] = {
+    ...messages[index]!,
+    metadata: {
+      ...messages[index]!.metadata,
+      runId: event.runId,
+      ...(turnId ? { turnId } : {}),
+      ...(scope ? { chatScope: scope } : {}),
+    },
+  };
+  return { ...state, messages };
 }

@@ -6923,10 +6923,12 @@ function notifyModelInputObserver(
   }
 }
 
+export type QueuedRunInterruptBoundaryResult = "none" | "aborted" | "pending";
+
 export function createRunSafeBoundaryGuards(input: {
   signal: AbortSignal;
   flushEvents: () => Promise<void>;
-  interruptRequestedAtBoundary: () => Promise<boolean>;
+  interruptRequestedAtBoundary: () => Promise<QueuedRunInterruptBoundaryResult>;
 }): {
   beforeModelDispatch: BeforeModelDispatch;
   beforeWrite: () => Promise<void>;
@@ -6934,16 +6936,16 @@ export function createRunSafeBoundaryGuards(input: {
   return {
     beforeModelDispatch: async <T>(dispatch: () => T) => {
       await input.flushEvents();
-      const interruptRequested = await input.interruptRequestedAtBoundary();
-      if (input.signal.aborted || interruptRequested) {
+      const interruptResult = await input.interruptRequestedAtBoundary();
+      if (input.signal.aborted || interruptResult !== "none") {
         return { started: false as const };
       }
       return { started: true as const, value: dispatch() };
     },
     beforeWrite: async () => {
       await input.flushEvents();
-      const interruptRequested = await input.interruptRequestedAtBoundary();
-      if (interruptRequested && !input.signal.aborted) {
+      const interruptResult = await input.interruptRequestedAtBoundary();
+      if (input.signal.aborted || interruptResult !== "none") {
         throw new Error("Run aborted at a safe boundary");
       }
     },
@@ -6953,10 +6955,10 @@ export function createRunSafeBoundaryGuards(input: {
 export async function confirmQueuedRunInterrupt(input: {
   abort: () => Promise<boolean>;
   defer: () => Promise<unknown>;
-}): Promise<boolean> {
-  if (await input.abort()) return true;
+}): Promise<Exclude<QueuedRunInterruptBoundaryResult, "none">> {
+  if (await input.abort()) return "aborted";
   await input.defer();
-  return false;
+  return "pending";
 }
 
 export async function runAgentLoop(opts: {
@@ -12879,6 +12881,31 @@ export function createProductionAgentHandler(
           anonymous: runRequestContext?.agentRunAnonymous === true,
         }
       : undefined;
+    const busySubmissionQueueEligible = Boolean(
+      submissionPayload &&
+      agentKitMessageId &&
+      threadId &&
+      ownerEmail &&
+      !internalContinuation &&
+      !continueOf &&
+      !queuedMessageId &&
+      !queuedMessageClaimId &&
+      !isBackgroundWorker &&
+      submittedInternalContinuation !== true &&
+      typeof requestedAutoContinueOfRunId !== "string" &&
+      typeof requestedContinueOfRunId !== "string" &&
+      !hasOwn(body, "approvedToolCalls") &&
+      !hasOwn(body, "approvedToolCallAskIds") &&
+      !hasOwn(body, "resume"),
+    );
+    const busySubmissionAttachmentsAreQueueable = requestAttachments.every(
+      (attachment) =>
+        attachment.displayOnly === true ||
+        ((attachment.type === "image" ||
+          attachment.type === "file" ||
+          attachment.type === "document") &&
+          typeof attachment.name === "string"),
+    );
     const tryAdmitBusySubmission = async (): Promise<unknown | null> => {
       if (
         !submissionPayload ||
@@ -13739,6 +13766,27 @@ export function createProductionAgentHandler(
       }
     }
     workerStep("db_request_ctx");
+
+    if (
+      hasAttachments &&
+      threadId &&
+      !isBackgroundWorker &&
+      requestAttachments.some(
+        (attachment) =>
+          attachment.displayOnly !== true &&
+          (attachment.type === "image" ||
+            attachment.type === "file" ||
+            attachment.type === "document"),
+      )
+    ) {
+      const activeRunId = await getSlotHoldingRunId(threadId);
+      if (
+        activeRunId &&
+        (!busySubmissionQueueEligible || !busySubmissionAttachmentsAreQueueable)
+      ) {
+        return runSlotBusy(event, activeRunId);
+      }
+    }
 
     workerStep("attach_start");
     if (
@@ -15519,78 +15567,84 @@ export function createProductionAgentHandler(
           rawSend(event);
           updateTrackedProgressFromEvent(event);
         };
-        const interruptQueuedRunAtBoundary = async () => {
-          if (!threadId) return false;
-          const {
-            clearQueuedSubmissionInterruptRun,
-            listQueuedSubmissionReceipts,
-            mutateThreadQueuedMessages,
-            recordQueuedSubmissionInterruptRun,
-            retryQueuedSubmissionReceipt,
-          } = await import("../chat-threads/store.js");
-          const pending = await listQueuedSubmissionReceipts({
-            limit: 25,
-            threadId,
-            interruptActiveRun: true,
-          });
-          for (const receipt of pending) {
-            if (receipt.message?.interruptActiveRun !== true) continue;
-            const claimId = randomUUID();
-            let claimed = false;
-            try {
-              const claim = await mutateThreadQueuedMessages(threadId, {
-                type: "claimFromInbox",
-                receipt,
-                claimId,
-              });
-              if (!claim?.claimedMessage) continue;
-              claimed = true;
-              if (receipt.interruptRunId && receipt.interruptRunId !== runId) {
-                const { getRunById } = await import("./run-store.js");
-                const interruptedRun = await getRunById(receipt.interruptRunId);
-                if (interruptedRun?.status === "running") continue;
-                const cleared = await clearQueuedSubmissionInterruptRun({
-                  threadId,
-                  messageId: receipt.messageId,
-                  runId: receipt.interruptRunId,
+        const interruptQueuedRunAtBoundary =
+          async (): Promise<QueuedRunInterruptBoundaryResult> => {
+            if (!threadId) return "none";
+            const {
+              clearQueuedSubmissionInterruptRun,
+              listQueuedSubmissionReceipts,
+              mutateThreadQueuedMessages,
+              recordQueuedSubmissionInterruptRun,
+              retryQueuedSubmissionReceipt,
+            } = await import("../chat-threads/store.js");
+            const pending = await listQueuedSubmissionReceipts({
+              limit: 25,
+              threadId,
+              interruptActiveRun: true,
+            });
+            for (const receipt of pending) {
+              if (receipt.message?.interruptActiveRun !== true) continue;
+              const claimId = randomUUID();
+              let claimed = false;
+              try {
+                const claim = await mutateThreadQueuedMessages(threadId, {
+                  type: "claimFromInbox",
+                  receipt,
                   claimId,
                 });
-                if (!cleared) continue;
-              }
-              if (
-                !(await recordQueuedSubmissionInterruptRun({
-                  threadId,
-                  messageId: receipt.messageId,
-                  runId,
-                  claimId,
-                }))
-              ) {
-                continue;
-              }
-              const aborted = await confirmQueuedRunInterrupt({
-                abort: () => abortRunAtSafeBoundaryDurably(runId, "user"),
-                defer: () =>
-                  retryQueuedSubmissionReceipt(
+                if (!claim?.claimedMessage) continue;
+                claimed = true;
+                if (
+                  receipt.interruptRunId &&
+                  receipt.interruptRunId !== runId
+                ) {
+                  const { getRunById } = await import("./run-store.js");
+                  const interruptedRun = await getRunById(
+                    receipt.interruptRunId,
+                  );
+                  if (interruptedRun?.status === "running") continue;
+                  const cleared = await clearQueuedSubmissionInterruptRun({
                     threadId,
-                    receipt.messageId,
-                    Date.now() + 10_000,
-                    { claimId },
-                  ),
-              });
-              if (!aborted) return false;
-            } finally {
-              if (claimed) {
-                await mutateThreadQueuedMessages(threadId, {
-                  type: "release",
-                  messageId: receipt.messageId,
-                  claimId,
+                    messageId: receipt.messageId,
+                    runId: receipt.interruptRunId,
+                    claimId,
+                  });
+                  if (!cleared) continue;
+                }
+                if (
+                  !(await recordQueuedSubmissionInterruptRun({
+                    threadId,
+                    messageId: receipt.messageId,
+                    runId,
+                    claimId,
+                  }))
+                ) {
+                  continue;
+                }
+                const aborted = await confirmQueuedRunInterrupt({
+                  abort: () => abortRunAtSafeBoundaryDurably(runId, "user"),
+                  defer: () =>
+                    retryQueuedSubmissionReceipt(
+                      threadId,
+                      receipt.messageId,
+                      Date.now() + 10_000,
+                      { claimId },
+                    ),
                 });
+                if (aborted === "pending") return "pending";
+              } finally {
+                if (claimed) {
+                  await mutateThreadQueuedMessages(threadId, {
+                    type: "release",
+                    messageId: receipt.messageId,
+                    claimId,
+                  });
+                }
               }
+              return "aborted";
             }
-            return true;
-          }
-          return false;
-        };
+            return "none";
+          };
         const { beforeModelDispatch, beforeWrite } =
           createRunSafeBoundaryGuards({
             signal,

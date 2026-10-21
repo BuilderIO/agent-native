@@ -273,6 +273,30 @@ async function assistantPartsAfterToolHistory(input: {
 }
 
 describe("AgentKitClient", () => {
+  it("reads the durable receipt status without exposing receipt payloads", async () => {
+    const getQueuedSubmissionStatus = vi.fn(async () => ({
+      state: "blocked" as const,
+    }));
+    const client = new AgentKitClientImplementation({
+      transport: {
+        ...createTransport([]),
+        getQueuedSubmissionStatus,
+      },
+    });
+
+    await expect(
+      client.getQueuedSubmissionStatus({
+        threadId: "thread-1",
+        messageId: "queued-1",
+      }),
+    ).resolves.toEqual({ state: "blocked" });
+    expect(getQueuedSubmissionStatus.mock.calls[0]?.[0]).toEqual({
+      threadId: "thread-1",
+      messageId: "queued-1",
+    });
+    await client.shutdown();
+  });
+
   it("refuses dispatch when a transport has no AI readiness validator", async () => {
     const startRun = vi.fn(async () => ({ runId: "run-1" }));
     const transport: AgentTransport = {

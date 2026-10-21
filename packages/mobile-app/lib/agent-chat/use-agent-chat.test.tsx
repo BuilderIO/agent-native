@@ -776,6 +776,351 @@ describe("useAgentChat readiness gate", () => {
     ).toBe(true);
   });
 
+  it.each([true, false])(
+    "replays early active-run events with a prior assistant message: %s",
+    async (hasPriorAssistant) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const threads = new Map<
+        string,
+        ReturnType<typeof createAgentThreadState>
+      >();
+      const listeners = new Set<() => void>();
+      const queuedHandle = deferred<{
+        queuedMessageId: string;
+        activeRunId: string;
+        completed: Promise<void>;
+        cancel: () => Promise<void>;
+      }>();
+      let sequence = 0;
+      const threadId = "thread-active-mobile";
+      const getThread = (threadId: string) => {
+        let thread = threads.get(threadId);
+        if (!thread) {
+          thread = createAgentThreadState(threadId);
+          threads.set(threadId, thread);
+        }
+        return thread;
+      };
+      threads.set(threadId, {
+        ...createAgentThreadState(threadId),
+        messages: hasPriorAssistant
+          ? [
+              {
+                id: "assistant-active-mobile",
+                role: "assistant",
+                parts: [{ type: "text", text: "Active reply" }],
+                metadata: { runId: "run-active-mobile" },
+              },
+            ]
+          : [],
+      });
+      const appendEvent = (event: AgentEvent) => {
+        const current = getThread(event.threadId);
+        threads.set(event.threadId, {
+          ...current,
+          events: [...current.events, event],
+        });
+        listeners.forEach((listener) => listener());
+      };
+      const client = {
+        subscribe: vi.fn((listener: () => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        }),
+        getThread: vi.fn(getThread),
+        loadThread: vi.fn(async (threadId: string) => getThread(threadId)),
+        sendMessage: vi.fn(
+          (_input: { threadId: string }) => queuedHandle.promise,
+        ),
+        cancelRun: vi.fn(async () => {}),
+      };
+      createSessionMock.mockReturnValue({
+        client,
+        dispose: vi.fn(async () => {}),
+      });
+      mounted = mountAgentChat();
+      await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+      await act(async () => {
+        mounted?.chat?.openThread(threadId);
+        await Promise.resolve();
+      });
+      if (hasPriorAssistant) {
+        await vi.waitFor(() =>
+          expect(
+            mounted?.chat?.messages.some(
+              (message) =>
+                message.id === "assistant-active-mobile" &&
+                message.parts.some(
+                  (part) =>
+                    part.type === "text" && part.text === "Active reply",
+                ),
+            ),
+          ).toBe(true),
+        );
+      } else {
+        expect(
+          mounted?.chat?.messages.some(
+            (message) => message.id === "assistant-active-mobile",
+          ),
+        ).toBe(false);
+      }
+
+      let queuedDispatch: Promise<boolean> | undefined;
+      await act(async () => {
+        queuedDispatch = mounted?.chat?.send("Queue this prompt");
+        await Promise.resolve();
+      });
+      await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+
+      await act(async () => {
+        appendEvent({
+          ...eventBase(
+            "message.delta",
+            "event-active-run-late-delta",
+            threadId,
+            "run-active-mobile",
+            ++sequence,
+          ),
+          type: "message.delta",
+          messageId: "assistant-active-mobile",
+          text: " continued",
+        } as AgentEvent);
+        appendEvent({
+          ...eventBase(
+            "run.completed",
+            "event-active-run-late-complete",
+            threadId,
+            "run-active-mobile",
+            ++sequence,
+          ),
+          type: "run.completed",
+        } as AgentEvent);
+      });
+      expect(mounted?.chat?.isStreaming).toBe(true);
+
+      await act(async () => {
+        appendEvent({
+          ...eventBase(
+            "run.started",
+            "event-queued-run-started-late-replay",
+            threadId,
+            "run-queued-mobile",
+            ++sequence,
+          ),
+          type: "run.started",
+          metadata: {
+            custom: { agentNativeQueuedMessageId: "queued-mobile-reply" },
+          },
+        } as AgentEvent);
+        appendEvent({
+          ...eventBase(
+            "message.delta",
+            "event-queued-run-reply-late-replay",
+            threadId,
+            "run-queued-mobile",
+            ++sequence,
+          ),
+          type: "message.delta",
+          messageId: "assistant-queued-mobile",
+          text: "Queued reply",
+        } as AgentEvent);
+        appendEvent({
+          ...eventBase(
+            "run.completed",
+            "event-queued-run-complete-late-replay",
+            threadId,
+            "run-queued-mobile",
+            ++sequence,
+          ),
+          type: "run.completed",
+        } as AgentEvent);
+        queuedHandle.resolve({
+          queuedMessageId: "queued-mobile-reply",
+          activeRunId: "run-active-mobile",
+          completed: Promise.resolve(),
+          cancel: vi.fn(async () => {}),
+        });
+        await queuedDispatch;
+      });
+
+      await expect(queuedDispatch!).resolves.toBe(true);
+      await vi.waitFor(() => expect(mounted?.chat?.isStreaming).toBe(false));
+      const activeAssistant = mounted?.chat?.messages.find(
+        (message) =>
+          message.role === "assistant" &&
+          message.parts.some(
+            (part) => part.type === "text" && part.text.includes("continued"),
+          ),
+      );
+      expect(activeAssistant).toBeDefined();
+      expect(
+        activeAssistant?.parts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join(""),
+      ).toBe(hasPriorAssistant ? "Active reply continued" : " continued");
+      expect(
+        mounted?.chat?.messages.some((message) =>
+          message.parts.some(
+            (part) => part.type === "text" && part.text === "Queued reply",
+          ),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it("reattaches to the submitted run from its durable receipt", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const threads = new Map<
+      string,
+      ReturnType<typeof createAgentThreadState>
+    >();
+    const listeners = new Set<() => void>();
+    let sequence = 0;
+    const getThread = (threadId: string) => {
+      let thread = threads.get(threadId);
+      if (!thread) {
+        thread = createAgentThreadState(threadId);
+        threads.set(threadId, thread);
+      }
+      return thread;
+    };
+    const appendEvent = (event: AgentEvent) => {
+      const current = getThread(event.threadId);
+      threads.set(event.threadId, {
+        ...current,
+        events: [...current.events, event],
+      });
+      listeners.forEach((listener) => listener());
+    };
+    const client = {
+      subscribe: vi.fn((listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      }),
+      getThread: vi.fn(getThread),
+      loadThread: vi.fn(async (threadId: string) => getThread(threadId)),
+      sendMessage: vi.fn(async (_input: { threadId: string }) => ({
+        queuedMessageId: "queued-recovered-mobile",
+        activeRunId: "run-active-before-recovery",
+        completed: Promise.resolve(),
+        cancel: vi.fn(async () => {}),
+      })),
+      getQueuedSubmissionStatus: vi.fn(async () => ({
+        state: "submitted" as const,
+        submittedRunId: "run-queued-recovered",
+      })),
+      resubscribeRun: vi.fn(async (threadId: string, runId: string) => {
+        await act(async () => {
+          appendEvent({
+            ...eventBase(
+              "run.started",
+              "event-queued-recovered-started",
+              threadId,
+              runId,
+              ++sequence,
+            ),
+            type: "run.started",
+          } as AgentEvent);
+          appendEvent({
+            ...eventBase(
+              "message.delta",
+              "event-queued-recovered-reply",
+              threadId,
+              runId,
+              ++sequence,
+            ),
+            type: "message.delta",
+            messageId: "assistant-queued-recovered",
+            text: "Recovered queued reply",
+          } as AgentEvent);
+          appendEvent({
+            ...eventBase(
+              "run.completed",
+              "event-queued-recovered-complete",
+              threadId,
+              runId,
+              ++sequence,
+            ),
+            type: "run.completed",
+          } as AgentEvent);
+        });
+      }),
+      cancelRun: vi.fn(async () => {}),
+    };
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+    const dispatchPromise = mounted?.chat?.send("Queue this prompt");
+    await vi.waitFor(() =>
+      expect(client.resubscribeRun).toHaveBeenCalledOnce(),
+    );
+    await expect(dispatchPromise!).resolves.toBe(true);
+    expect(client.resubscribeRun).toHaveBeenCalledWith(
+      expect.any(String),
+      "run-queued-recovered",
+    );
+    expect(mounted?.chat?.isStreaming).toBe(false);
+    expect(
+      mounted?.chat?.messages.some((message) =>
+        message.parts.some(
+          (part) =>
+            part.type === "text" && part.text === "Recovered queued reply",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it.each(["expired", "blocked"] as const)(
+    "settles a queued turn when its durable receipt is %s",
+    async (receiptState) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const client = {
+        ...createSendClient(),
+        getQueuedSubmissionStatus: vi.fn(async () => ({ state: receiptState })),
+      };
+      client.sendMessage.mockResolvedValueOnce({
+        queuedMessageId: "queued-expired-mobile",
+        activeRunId: "run-active-expired",
+        completed: Promise.resolve(),
+        cancel: vi.fn(async () => {}),
+      } as never);
+      createSessionMock.mockReturnValue({
+        client,
+        dispose: vi.fn(async () => {}),
+      });
+      mounted = mountAgentChat();
+      await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+      let dispatchPromise: Promise<boolean> | undefined;
+      await act(async () => {
+        dispatchPromise = mounted?.chat?.send("Queue this prompt");
+        await Promise.resolve();
+      });
+      await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+      await expect(dispatchPromise!).resolves.toBe(true);
+      expect(client.getQueuedSubmissionStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: "queued-expired-mobile",
+        }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+      expect(mounted?.chat?.isStreaming).toBe(false);
+      expect(mounted?.chat?.errorCode).toBe(
+        `queued_submission_${receiptState}`,
+      );
+      expect(mounted?.chat?.error).toContain(
+        receiptState === "expired"
+          ? "expired before it could run"
+          : "could not be started",
+      );
+    },
+  );
+
   it("waits for a fresh readiness check after an unavailable boot result", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fetchEligibilityMock.mockRejectedValueOnce(new Error("status unavailable"));

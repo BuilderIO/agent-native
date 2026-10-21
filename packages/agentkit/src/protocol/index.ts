@@ -1115,6 +1115,11 @@ export interface AgentQueuedSubmissionReceipt {
   activeRunId?: RunId;
 }
 
+export interface AgentQueuedSubmissionStatus {
+  state: "queued" | "submitted" | "removed" | "expired" | "blocked";
+  submittedRunId?: RunId;
+}
+
 export interface ListThreadsInput {
   limit?: number;
   cursor?: string;
@@ -1251,6 +1256,10 @@ export interface AgentTransportThreadOperations {
     input: ThreadIdInput,
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage[]>;
+  getQueuedSubmissionStatus?(
+    input: ThreadMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<AgentQueuedSubmissionStatus | null>;
   queueMessage?(
     input: QueueMessageInput,
     context?: AgentRequestContext,

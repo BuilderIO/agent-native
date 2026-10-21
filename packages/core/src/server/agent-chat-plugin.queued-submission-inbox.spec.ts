@@ -121,7 +121,11 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
       }
       return {};
     },
-    getActiveRunForThreadAsync: vi.fn(async () => inboxHarness.activeRun),
+    getActiveRunForThreadAsync: vi.fn(async (threadId: string) =>
+      inboxHarness.activeRun?.threadId === threadId
+        ? inboxHarness.activeRun
+        : null,
+    ),
     abortRunAtSafeBoundaryDurably: vi.fn(
       async (runId: string, reason: string) => {
         const aborted = await inboxHarness.safeAbort?.(runId, reason);
@@ -315,6 +319,107 @@ describe("queued submission inbox recurring sweep", () => {
       { messageId: "later-receipt" },
       { messageId: "other-thread" },
     ]);
+  }, 20_000);
+
+  it("does not promote a later receipt from a thread deferred during the sweep", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const otherThreadId = `thread-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await createThread(actor.email, { id: otherThreadId });
+    for (const [receiptThreadId, message] of [
+      [threadId, { id: "interrupt-head", interruptActiveRun: true }],
+      [threadId, { id: "later-same-thread" }],
+      [otherThreadId, { id: "independent-thread" }],
+    ] as const) {
+      await mutateThreadQueuedMessages(
+        receiptThreadId,
+        {
+          type: "append",
+          message: {
+            ...message,
+            threadId: receiptThreadId,
+            text: message.id,
+          },
+        },
+        { actor },
+      );
+    }
+    inboxHarness.activeRun = {
+      runId: "active-run-with-dispatched-tool",
+      threadId,
+      turnId: "active-turn",
+      status: "running",
+      inFlight: true,
+      hasInFlightWork: true,
+    };
+    inboxHarness.safeAbort = vi.fn(async () => false);
+    inboxHarness.admit = async (body) => {
+      const receipt = await getQueuedSubmissionReceipt(
+        String(body.threadId),
+        String(body.agentKitMessageId),
+      );
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId: receipt.threadId,
+          messageId: receipt.messageId,
+          runId: `run-${receipt.messageId}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${receipt.messageId}`;
+    };
+
+    const h3App = createApp();
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: {
+        hook(name, callback) {
+          if (name === "close") sweepHarness.closeHooks.push(callback);
+        },
+      },
+    });
+    await sweepHarness.initPromises.at(-1);
+
+    const response = await h3App.fetch(
+      new Request(`http://example.test${RECURRING_JOBS_SWEEP_PATH}`, {
+        method: "GET",
+        headers: { authorization: "Bearer sweep-test-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: {
+        scanned: 3,
+        claimed: 2,
+        submitted: 1,
+        deferred: 2,
+        failed: 0,
+      },
+    });
+    expect(
+      inboxHarness.admissions.map((body) => body.agentKitMessageId),
+    ).toEqual(["independent-thread"]);
+    await expect(
+      getQueuedSubmissionReceipt(threadId, "interrupt-head"),
+    ).resolves.toMatchObject({ state: "queued" });
+    await expect(
+      getQueuedSubmissionReceipt(threadId, "later-same-thread"),
+    ).resolves.toMatchObject({ state: "queued" });
+    await expect(
+      getQueuedSubmissionReceipt(otherThreadId, "independent-thread"),
+    ).resolves.toMatchObject({ state: "submitted" });
   }, 20_000);
 
   it("admits a queued receipt once through the authenticated sweep", async () => {

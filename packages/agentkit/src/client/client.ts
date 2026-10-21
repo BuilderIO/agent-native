@@ -12,6 +12,7 @@ import type {
   AgentEvent,
   AgentMessage,
   AgentQueuedMessage,
+  AgentQueuedSubmissionStatus,
   AgentSubmissionReference,
   AgentRequestAttachment,
   AgentRequestContext,
@@ -563,6 +564,10 @@ export interface AgentKitController {
     input: SendMessageInput,
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessageSubmission>;
+  getQueuedSubmissionStatus?(
+    input: { threadId: ThreadId; messageId: string },
+    context?: AgentRequestContext,
+  ): Promise<AgentQueuedSubmissionStatus | null | undefined>;
   /** Adds a text-only local queue row before the host starts async preparation. */
   reserveQueuedMessage(
     input: Pick<SendMessageInput, "threadId" | "text">,
@@ -3957,6 +3962,20 @@ export class AgentKitClient implements AgentKitController {
       );
     }
     return queued;
+  }
+
+  public async getQueuedSubmissionStatus(
+    input: { threadId: ThreadId; messageId: string },
+    context?: AgentRequestContext,
+  ): Promise<AgentQueuedSubmissionStatus | null | undefined> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    const getQueuedSubmissionStatus = this.transport.getQueuedSubmissionStatus;
+    if (!getQueuedSubmissionStatus) return undefined;
+    await this.requireCapability("messageQueue", requestContext);
+    return this.invokeRequest(requestContext, (context) =>
+      getQueuedSubmissionStatus(input, context),
+    );
   }
 
   private markQueueMessageSubmitted(

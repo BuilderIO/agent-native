@@ -8599,6 +8599,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           ...(drainOptions.threadId ? { threadId: drainOptions.threadId } : {}),
         });
         result.scanned = pending.length;
+        const deferredThreads = new Set<string>();
+        const deferReceipt = (threadId: string) => {
+          result.deferred += 1;
+          deferredThreads.add(threadId);
+        };
         const deadlineAt = Date.now() + 30_000;
         const maxAdmissions = 5;
 
@@ -8620,6 +8625,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         };
 
         for (const receipt of pending) {
+          if (deferredThreads.has(receipt.threadId)) {
+            result.deferred += 1;
+            continue;
+          }
           if (Date.now() >= deadlineAt || result.submitted >= maxAdmissions) {
             break;
           }
@@ -8627,7 +8636,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             drainOptions.threadId &&
             !(await waitForStableIdle(drainOptions.threadId))
           ) {
-            result.deferred += 1;
+            deferReceipt(receipt.threadId);
             break;
           }
           let claimId: string | undefined;
@@ -8644,7 +8653,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 receipt.messageId,
               );
               if (blocked) result.blocked += 1;
-              else result.deferred += 1;
+              else deferReceipt(receipt.threadId);
               continue;
             }
 
@@ -8660,7 +8669,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 receipt.messageId,
               );
               if (blocked) result.blocked += 1;
-              else result.deferred += 1;
+              else deferReceipt(receipt.threadId);
               continue;
             }
 
@@ -8678,14 +8687,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error.code !== "queued_message_id_conflict"
               ) {
                 claimId = undefined;
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
                 continue;
               }
               throw error;
             }
             if (claim?.receiptUnavailable) {
               claimId = undefined;
-              result.deferred += 1;
+              deferReceipt(receipt.threadId);
               continue;
             }
             if (claim?.receiptConflict) {
@@ -8694,7 +8703,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               continue;
             }
             if (claim?.claimBusy) {
-              result.deferred += 1;
+              deferReceipt(receipt.threadId);
               continue;
             }
             if (claim?.submissionExpired) {
@@ -8708,7 +8717,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 { claimId },
               );
               if (blocked) result.blocked += 1;
-              else result.deferred += 1;
+              else deferReceipt(receipt.threadId);
               continue;
             }
             const claimedMessage = claim.claimedMessage;
@@ -8722,7 +8731,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (claimedReceipt?.state === "submitted") {
                 result.submitted += 1;
               } else {
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
               }
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
@@ -8792,7 +8801,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   claimId,
                 });
                 claimId = undefined;
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
                 continue;
               }
             }
@@ -8812,7 +8821,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   claimId,
                 });
                 claimId = undefined;
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
                 continue;
               }
               const recorded = await recordQueuedSubmissionInterruptRun({
@@ -8834,7 +8843,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   claimId,
                 });
                 claimId = undefined;
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
                 continue;
               }
               if (!(await finishInterrupt(active.runId))) {
@@ -8850,7 +8859,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   claimId,
                 });
                 claimId = undefined;
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
                 continue;
               }
             }
@@ -8949,7 +8958,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimId,
               });
               claimId = undefined;
-              result.deferred += 1;
+              deferReceipt(receipt.threadId);
               console.error(
                 `[agent-chat] queued submission admission failed for ${receipt.messageId}:`,
                 error,
@@ -9049,7 +9058,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimId,
               });
               claimId = undefined;
-              result.deferred += 1;
+              deferReceipt(receipt.threadId);
               await stream?.cancel().catch(() => {});
               continue;
             }
@@ -9066,7 +9075,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             });
             claimId = undefined;
             if (blocked) result.blocked += 1;
-            else result.deferred += 1;
+            else deferReceipt(receipt.threadId);
             await stream?.cancel().catch(() => {});
           } catch (error) {
             result.failed += 1;

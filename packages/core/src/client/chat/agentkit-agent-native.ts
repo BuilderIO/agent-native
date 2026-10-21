@@ -4351,6 +4351,19 @@ export function createAgentNativeAgentKitTransport(
       getThreadSnapshot: ({ threadId }) =>
         threadSnapshotWithActiveRun(threadId),
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
+      getQueuedSubmissionStatus: async ({ threadId, messageId }) => {
+        if (!(await snapshot(threadId))) return null;
+        const { getQueuedSubmissionReceipt } =
+          await import("../../chat-threads/store.js");
+        const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+        if (!receipt) return null;
+        return {
+          state: receipt.state,
+          ...(receipt.submittedRunId
+            ? { submittedRunId: receipt.submittedRunId }
+            : {}),
+        };
+      },
       queueMessage: async ({
         threadId,
         id,
