@@ -1,3 +1,9 @@
+## 0.1.11
+
+### Patch Changes
+
+- 3c1d3eb: Update dispatch provider APIs and scheduling internals for the runtime refresh.
+
 ## 0.1.10
 
 ### Patch Changes
