@@ -4155,6 +4155,89 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("drains discarded replay streams when the runtime has no close hook", async () => {
+    let startCount = 0;
+    const discardedQueue: AgentChatRuntimeEvent[] = [];
+    const discardedWaiters: Array<
+      (result: IteratorResult<AgentChatRuntimeEvent>) => void
+    > = [];
+    let discardedClosed = false;
+    const discardedIteratorNext = vi.fn(
+      (): Promise<IteratorResult<AgentChatRuntimeEvent>> => {
+        const value = discardedQueue.shift();
+        if (value) return Promise.resolve({ done: false, value });
+        if (discardedClosed) {
+          return Promise.resolve({ done: true, value: undefined });
+        }
+        return new Promise((resolve) => discardedWaiters.push(resolve));
+      },
+    );
+    const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
+      [Symbol.asyncIterator]: () => ({ next: discardedIteratorNext }),
+    };
+    const pushDiscardedEvent = (event: AgentChatRuntimeEvent) => {
+      const waiter = discardedWaiters.shift();
+      if (waiter) waiter({ done: false, value: event });
+      else discardedQueue.push(event);
+    };
+    const finishDiscardedEvents = () => {
+      discardedClosed = true;
+      while (discardedWaiters.length > 0) {
+        discardedWaiters.shift()?.({ done: true, value: undefined });
+      }
+    };
+    const cancelled = vi.fn(async () => ({ status: "cancelled" as const }));
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async () => {
+      startCount += 1;
+      return {
+        id: "turn-replayed",
+        runId: "runtime-run-replayed",
+        sessionId: "thread-1",
+        events: startCount === 1 ? events() : discardedEvents,
+        ...(startCount === 1 ? {} : { cancel: cancelled }),
+      };
+    });
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    try {
+      const first = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Start")],
+      });
+      const replay = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Replay")],
+      });
+
+      expect(replay.runId).toBe(first.runId);
+      expect(startTurn).toHaveBeenCalledTimes(2);
+      expect(discardedIteratorNext).toHaveBeenCalledOnce();
+      pushDiscardedEvent({ type: "done", reason: "complete" });
+      pushDiscardedEvent({ type: "done", reason: "complete" });
+      await vi.waitFor(() => {
+        expect(discardedIteratorNext).toHaveBeenCalledTimes(3);
+        expect(discardedQueue).toHaveLength(0);
+        expect(discardedWaiters).toHaveLength(1);
+      });
+      expect(cancelled).not.toHaveBeenCalled();
+    } finally {
+      finishDiscardedEvents();
+      await transport.dispose();
+    }
+  });
+
   it("attaches an exact run ID replay when the runtime turn changes", async () => {
     let turn = 0;
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {

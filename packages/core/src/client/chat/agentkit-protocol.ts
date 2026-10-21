@@ -2238,6 +2238,19 @@ export function createAgentKitProtocolAdapter(
     turn: AgentChatRuntimeTurn,
   ): Promise<void> {
     const iterator = turn.events[Symbol.asyncIterator]();
+    if (!turn.closeEvents && !iterator.return) {
+      void (async () => {
+        try {
+          while (!(await iterator.next()).done) {}
+        } catch (error) {
+          console.warn(
+            "[agentkit] Could not drain a discarded runtime event stream",
+            error,
+          );
+        }
+      })();
+      return;
+    }
     await Promise.all([turn.closeEvents?.(), iterator.return?.()]);
   }
 
