@@ -1935,6 +1935,43 @@ describe("shared worker GPU batches", () => {
     expect(items[0]!.gpu.publish).toHaveBeenCalledTimes(2);
   });
 
+  it("releases earlier leases when a later flight acquisition throws", async () => {
+    const { runtime, device, queue, items, post } = fixture();
+    const acquisitionError = new Error("later scene acquisition failed");
+    items[1]!.gpu.tryAcquireFlight.mockImplementationOnce(() => {
+      throw acquisitionError;
+    });
+    const recordFlight = (
+      runtime as unknown as {
+        recordFlight(due: unknown[], now: number): Promise<unknown>;
+      }
+    ).recordFlight.bind(runtime);
+    const due = items.map(({ sceneId, state, scene }) => ({
+      sceneId,
+      state,
+      scene,
+      staged: false,
+    }));
+
+    await expect(recordFlight(due, 16)).rejects.toBe(acquisitionError);
+    expect(items[0]!.gpu.releaseFlight).toHaveBeenCalledExactlyOnceWith(
+      items[0]!.gpu.tryAcquireFlight.mock.results[0]!.value.lease,
+    );
+    expect(items[1]!.gpu.releaseFlight).not.toHaveBeenCalled();
+    expect(device.pushErrorScope).not.toHaveBeenCalled();
+    expect(queue.submit).not.toHaveBeenCalled();
+    expect(post).not.toHaveBeenCalled();
+
+    await (
+      runtime as unknown as { pumpAll(now: number): Promise<void> }
+    ).pumpAll(33.4);
+    await (
+      runtime as unknown as { waitForFlights(): Promise<void> }
+    ).waitForFlights();
+    expect(items[0]!.gpu.publish).toHaveBeenCalledTimes(1);
+    expect(items[1]!.gpu.publish).toHaveBeenCalledTimes(1);
+  });
+
   it("waits for a flight fence before starting an immutable export", async () => {
     const { runtime, queue, items } = fixture(false, 1);
     let finishA!: () => void;

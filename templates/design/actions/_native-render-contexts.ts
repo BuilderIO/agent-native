@@ -79,6 +79,7 @@ export async function registerNativeRenderContext(
     const context: NativeRenderContext = {
       tabId: parsedTabId.data,
       designId,
+      documentId,
       expiresAt: now + NATIVE_RENDER_CONTEXT_TTL_MS,
     };
     const contexts = [
@@ -112,6 +113,7 @@ export async function registerNativeRenderContext(
 
 export async function listNativeRenderContexts(
   designId: string,
+  targetTabId?: string,
 ): Promise<NativeRenderContext[]> {
   await assertAccess("design", designId, "viewer");
   const ledger = readLedger(
@@ -119,7 +121,10 @@ export async function listNativeRenderContexts(
   );
   const now = Date.now();
   const candidates = ledger.contexts.filter(
-    (entry) => entry.designId === designId && entry.expiresAt > now,
+    (entry) =>
+      entry.designId === designId &&
+      entry.expiresAt > now &&
+      (!targetTabId || entry.tabId === targetTabId),
   );
   const active = await Promise.all(
     candidates.map(async (entry) =>
@@ -132,7 +137,7 @@ export async function listNativeRenderContexts(
 export async function resolveNativeRenderContextTarget(
   designId: string,
   targetTabId: string,
-): Promise<string> {
+): Promise<NativeRenderContext> {
   const parsedTabId =
     nativeRenderContextSchema.shape.tabId.safeParse(targetTabId);
   if (!parsedTabId.success)
@@ -140,11 +145,12 @@ export async function resolveNativeRenderContextTarget(
       errorCode: "native_export_context_not_found",
       statusCode: 404,
     });
-  const active = await listNativeRenderContexts(designId);
-  if (!active.some((entry) => entry.tabId === targetTabId))
+  const active = await listNativeRenderContexts(designId, targetTabId);
+  const target = active.find((entry) => entry.tabId === targetTabId);
+  if (!target)
     fail("No live matching Design editor context was found.", {
       errorCode: "native_export_context_not_found",
       statusCode: 404,
     });
-  return targetTabId;
+  return target;
 }

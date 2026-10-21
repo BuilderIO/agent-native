@@ -16,7 +16,10 @@ import {
   readNativeLocalExportVersion,
   requireNativeLocalExportTabId,
 } from "./_native-local-export-server.js";
-import { resolveNativeRenderContextTarget } from "./_native-render-contexts.js";
+import {
+  listNativeRenderContexts,
+  resolveNativeRenderContextTarget,
+} from "./_native-render-contexts.js";
 
 export default defineAction({
   mcpAnnotations: {
@@ -35,10 +38,13 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async ({ targetTabId, ...args }) => {
-    const tabId = targetTabId
-      ? await resolveNativeRenderContextTarget(args.designId, targetTabId)
-      : requireNativeLocalExportTabId();
+    const tabId = targetTabId ?? requireNativeLocalExportTabId();
     if (!targetTabId) await assertNativeLocalExportEditor(args.designId);
+    const context = targetTabId
+      ? await resolveNativeRenderContextTarget(args.designId, targetTabId)
+      : (await listNativeRenderContexts(args.designId, tabId)).find(
+          (entry) => entry.tabId === tabId,
+        );
     const liveSource = await readNativeLocalExportVersion(
       args.designId,
       args.fileId,
@@ -78,6 +84,7 @@ export default defineAction({
       schemaVersion: 1,
       requestId: crypto.randomUUID(),
       tabId,
+      ...(context?.documentId ? { targetDocumentId: context.documentId } : {}),
       status: "pending",
       issuedAt: now,
       expiresAt: now + NATIVE_LOCAL_EXPORT_PENDING_MS,

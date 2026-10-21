@@ -60,6 +60,7 @@ export default defineAction({
     const pendingClaimFailure =
       current.status === "pending" &&
       current.ownerDocumentId === undefined &&
+      current.targetDocumentId === documentId &&
       result.status === "failed" &&
       result.code === "client-unavailable";
     if (!pendingClaimFailure && current.ownerDocumentId !== documentId)

@@ -328,4 +328,7 @@ export function closeOpaquePublicAssets(): void {
 }
 
 if (typeof window !== "undefined")
-  window.addEventListener("pagehide", closeOpaquePublicAssets, { once: true });
+  window.addEventListener("pagehide", (event) => {
+    if ((event as PageTransitionEvent).persisted) return;
+    closeOpaquePublicAssets();
+  });

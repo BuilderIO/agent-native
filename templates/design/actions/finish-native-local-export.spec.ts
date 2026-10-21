@@ -116,6 +116,7 @@ describe("native export claim failure", () => {
   it("records a typed failure for the exact pending request", async () => {
     delete mocks.state.ownerDocumentId;
     mocks.state.status = "pending";
+    mocks.state.targetDocumentId = input.documentId;
     await expect(
       (finish as unknown as { run(args: unknown): Promise<unknown> }).run(
         failed,
@@ -145,9 +146,33 @@ describe("native export claim failure", () => {
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
+  it("cannot fail a pending request bound to another editor document", async () => {
+    delete mocks.state.ownerDocumentId;
+    mocks.state.status = "pending";
+    mocks.state.targetDocumentId = "22222222-2222-4222-8222-222222222222";
+    await expect(
+      (finish as unknown as { run(args: unknown): Promise<unknown> }).run(
+        failed,
+      ),
+    ).rejects.toMatchObject({ errorCode: "native_export_document_replaced" });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("cannot fail an unbound legacy pending request", async () => {
+    delete mocks.state.ownerDocumentId;
+    mocks.state.status = "pending";
+    await expect(
+      (finish as unknown as { run(args: unknown): Promise<unknown> }).run(
+        failed,
+      ),
+    ).rejects.toMatchObject({ errorCode: "native_export_document_replaced" });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
   it("cannot fail a request another document claims during the state change", async () => {
     delete mocks.state.ownerDocumentId;
     mocks.state.status = "pending";
+    mocks.state.targetDocumentId = input.documentId;
     mocks.save.mockImplementationOnce(async () => {
       mocks.state = {
         ...mocks.state,

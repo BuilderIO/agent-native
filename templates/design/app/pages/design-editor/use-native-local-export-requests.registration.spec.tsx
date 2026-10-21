@@ -6,7 +6,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useNativeLocalExportRequests } from "./use-native-local-export-requests";
+import {
+  nativeLocalExportDocumentId,
+  useNativeLocalExportRequests,
+} from "./use-native-local-export-requests";
 
 const client = vi.hoisted(() => ({
   navigation: null as unknown,
@@ -260,6 +263,7 @@ describe("native render-context registration", () => {
       requestId: "00000000-0000-4000-8000-000000000001",
       tabId: "tab-1",
       status: "pending",
+      targetDocumentId: nativeLocalExportDocumentId(document),
       issuedAt: Date.now(),
       expiresAt: Date.now() + 60_000,
     };

@@ -338,21 +338,26 @@ export function connectNativePublicAssetPreview(
             waiting.shift()?.();
           }
         })().then(({ blob, pixels }) => {
-          if (cachedPixels + pixels > MAX_TOTAL_PIXELS)
+          const nextPixels = cachedPixels + pixels;
+          const nextBytes = cachedBytes + blob.size;
+          if (nextPixels > MAX_TOTAL_PIXELS)
             throw new NativePublicAssetPreviewError(
               "source-public-asset-too-large",
               "The preview public images exceed the pixel limit.",
             );
-          cachedBytes += blob.size;
-          if (cachedBytes > MAX_TOTAL_BYTES)
+          if (nextBytes > MAX_TOTAL_BYTES)
             throw new NativePublicAssetPreviewError(
               "source-public-asset-too-large",
               "The preview public images exceed the byte limit.",
             );
-          cachedPixels += pixels;
+          cachedBytes = nextBytes;
+          cachedPixels = nextPixels;
           return blob;
         });
         cached.set(request.index, image);
+        void image.catch(() => {
+          if (cached.get(request.index) === image) cached.delete(request.index);
+        });
       }
       void image.then(
         (blob) => send({ blob }),

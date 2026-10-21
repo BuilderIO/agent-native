@@ -83,6 +83,11 @@ export async function executeNativeLocalExportRequest(args: {
       "client-unavailable",
       "The local export request does not match this editor tab.",
     );
+  if (request.targetDocumentId && request.targetDocumentId !== documentId)
+    throw new NativeLocalExportClientError(
+      "client-unavailable",
+      "This editor document no longer owns the local export.",
+    );
   if (signal.aborted)
     throw new NativeLocalExportClientError("canceled", "Export was canceled.");
   let claimed: NativeLocalExportState;
@@ -101,7 +106,8 @@ export async function executeNativeLocalExportRequest(args: {
       "errorCode" in claimError
         ? claimError.errorCode
         : undefined;
-    if (code === "native_export_source_stale") throw claimError;
+    if (typeof code === "string" || request.targetDocumentId !== documentId)
+      throw claimError;
     try {
       await invoke("finish-native-local-export", {
         designId,

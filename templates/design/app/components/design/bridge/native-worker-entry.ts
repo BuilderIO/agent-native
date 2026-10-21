@@ -2034,27 +2034,35 @@ export class NativeWorkerRuntime {
       );
     const acquired: Array<DueScene & { lease: NativeWorkerGpuFlightLease }> =
       [];
-    for (const item of due) {
-      if (
-        item.state.disposed ||
-        (item.staged
-          ? item.state.staged !== item.scene
-          : item.state.current !== item.scene)
-      )
-        continue;
-      const result = item.state.gpu.tryAcquireFlight(
-        item.scene,
-        item.staged ? item.state.stagedSignature : item.state.currentSignature,
-      );
-      if (result.status === "capacity") {
-        for (const held of acquired) held.state.gpu.releaseFlight(held.lease);
-        if (this.flights.length) return null;
-        throw new NativeWorkerSceneError(
-          "gpu-flight-capacity",
-          `The first GPU flight could not acquire a candidate: ${result.reason}`,
+    let acquisitionComplete = false;
+    try {
+      for (const item of due) {
+        if (
+          item.state.disposed ||
+          (item.staged
+            ? item.state.staged !== item.scene
+            : item.state.current !== item.scene)
+        )
+          continue;
+        const result = item.state.gpu.tryAcquireFlight(
+          item.scene,
+          item.staged
+            ? item.state.stagedSignature
+            : item.state.currentSignature,
         );
+        if (result.status === "capacity") {
+          if (this.flights.length) return null;
+          throw new NativeWorkerSceneError(
+            "gpu-flight-capacity",
+            `The first GPU flight could not acquire a candidate: ${result.reason}`,
+          );
+        }
+        acquired.push({ ...item, lease: result.lease });
       }
-      acquired.push({ ...item, lease: result.lease });
+      acquisitionComplete = true;
+    } finally {
+      if (!acquisitionComplete)
+        for (const held of acquired) held.state.gpu.releaseFlight(held.lease);
     }
     if (!acquired.length) return null;
 

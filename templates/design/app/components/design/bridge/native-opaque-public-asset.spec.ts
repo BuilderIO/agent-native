@@ -10,6 +10,8 @@ import {
 } from "./native-opaque-public-asset";
 import { nativeDocumentOrigin } from "./native-source-provider";
 
+const pageWindow = window;
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -122,5 +124,78 @@ describe("opaque public source assets", () => {
     expect(() =>
       resolveOpaquePublicAsset("https://design.example.test/images/paint.png"),
     ).toThrowError(NativeOpaquePublicAssetError);
+  });
+
+  it("keeps its authorized channel through BFCache and closes it on final pagehide", async () => {
+    vi.resetModules();
+    const {
+      resolveOpaquePublicAsset: resolveImage,
+      NativeOpaquePublicAssetError: OpaqueAssetError,
+    } = await import("./native-opaque-public-asset");
+    const nonce = "01234567-89ab-4cde-8fab-0123456789ab";
+    const urls = [
+      "https://design.example.test/images/one.png",
+      "https://design.example.test/images/two.png",
+    ];
+    let hostPort: MessagePort | undefined;
+    const postMessage = vi.fn(
+      (_message: unknown, _origin: string, ports: MessagePort[]) => {
+        hostPort = ports[0];
+      },
+    );
+    vi.stubGlobal("location", { origin: "null" });
+    vi.stubGlobal("window", {
+      frameElement: null,
+      parent: { postMessage },
+    });
+    vi.stubGlobal("document", {
+      baseURI: "https://design.example.test/editor",
+      referrer: "https://design.example.test/viewer",
+      querySelector: () => ({ content: nonce }),
+    });
+    const firstImage = resolveImage(urls[0]!);
+    expect(hostPort).toBeDefined();
+    let requestCount = 0;
+    hostPort!.onmessage = (event) => {
+      if (event.data?.type !== "native-public-asset-request") return;
+      requestCount += 1;
+      hostPort!.postMessage({
+        type: "native-public-asset-result",
+        requestId: event.data.requestId,
+        error: {
+          code: "source-public-asset-unavailable",
+          message: "The test parent did not load the image.",
+        },
+      });
+    };
+    hostPort!.start();
+    hostPort!.postMessage({
+      type: "native-public-asset-connect",
+      nonce,
+      urls,
+    });
+    await expect(firstImage).rejects.toMatchObject({
+      code: "source-public-asset-unavailable",
+    });
+
+    const pageTransition = (
+      type: "pagehide" | "pageshow",
+      persisted: boolean,
+    ) => {
+      const event = new Event(type);
+      Object.defineProperty(event, "persisted", { value: persisted });
+      pageWindow.dispatchEvent(event);
+    };
+    pageTransition("pagehide", true);
+    pageTransition("pageshow", true);
+    await expect(resolveImage(urls[1]!)).rejects.toMatchObject({
+      code: "source-public-asset-unavailable",
+    });
+    expect(postMessage).toHaveBeenCalledOnce();
+    expect(requestCount).toBe(2);
+
+    pageTransition("pagehide", false);
+    expect(() => resolveImage(urls[1]!)).toThrowError(OpaqueAssetError);
+    hostPort?.close();
   });
 });
