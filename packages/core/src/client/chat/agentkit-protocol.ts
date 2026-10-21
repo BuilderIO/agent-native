@@ -2251,24 +2251,56 @@ export function createAgentKitProtocolAdapter(
     await session.dispose?.();
   }
 
+  function drainDiscardedTurnEventIterator(
+    iterator: AsyncIterator<AgentChatRuntimeEvent>,
+  ): void {
+    void (async () => {
+      try {
+        while (!(await iterator.next()).done) {}
+      } catch (error) {
+        console.warn(
+          "[agentkit] Could not drain a discarded runtime event stream",
+          error,
+        );
+      }
+    })();
+  }
+
   async function closeDiscardedTurnEvents(
     turn: AgentChatRuntimeTurn,
   ): Promise<void> {
     const iterator = turn.events[Symbol.asyncIterator]();
+    let drainStarted = false;
+    const drain = () => {
+      if (drainStarted) return;
+      drainStarted = true;
+      drainDiscardedTurnEventIterator(iterator);
+    };
     if (!turn.closeEvents && !iterator.return) {
-      void (async () => {
-        try {
-          while (!(await iterator.next()).done) {}
-        } catch (error) {
-          console.warn(
-            "[agentkit] Could not drain a discarded runtime event stream",
-            error,
-          );
-        }
-      })();
+      drain();
       return;
     }
-    await Promise.all([turn.closeEvents?.(), iterator.return?.()]);
+
+    const attemptCleanup = (cleanup: () => unknown) => {
+      try {
+        void Promise.resolve(cleanup()).catch((error) => {
+          console.warn(
+            "[agentkit] Could not close a discarded runtime event stream",
+            error,
+          );
+          drain();
+        });
+      } catch (error) {
+        console.warn(
+          "[agentkit] Could not close a discarded runtime event stream",
+          error,
+        );
+        drain();
+      }
+    };
+
+    if (turn.closeEvents) attemptCleanup(() => turn.closeEvents?.());
+    if (iterator.return) attemptCleanup(() => iterator.return?.());
   }
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {

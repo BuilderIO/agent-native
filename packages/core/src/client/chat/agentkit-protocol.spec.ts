@@ -4156,6 +4156,78 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("preserves replay results and duplicate errors when discarded cleanup fails", async () => {
+    let startCount = 0;
+    const cleanupFailure = new Error("discarded stream cleanup failed");
+    const discardedIteratorNext = vi.fn(async () => ({
+      done: true as const,
+      value: undefined,
+    }));
+    const discardedIteratorReturn = vi.fn(() => {
+      throw cleanupFailure;
+    });
+    const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
+      [Symbol.asyncIterator]: () => ({
+        next: discardedIteratorNext,
+        return: discardedIteratorReturn,
+      }),
+    };
+    const closeEvents = vi.fn(async () => {
+      throw cleanupFailure;
+    });
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn: async () => {
+            startCount += 1;
+            return {
+              id: "turn-replayed",
+              runId: "runtime-run-replayed",
+              sessionId: "thread-1",
+              events: startCount === 1 ? events() : discardedEvents,
+              ...(startCount === 1 ? {} : { closeEvents }),
+            };
+          },
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const first = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Start", "user-start")],
+      });
+      const replay = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Start", "user-start")],
+      });
+
+      expect(replay.runId).toBe(first.runId);
+      await expect(
+        transport.startRun({
+          threadId: "thread-1",
+          messages: [userMessage("Different submission", "user-different")],
+        }),
+      ).rejects.toThrow("Duplicate AgentKit run id: runtime-run-replayed");
+      await vi.waitFor(() => {
+        expect(discardedIteratorNext).toHaveBeenCalledTimes(2);
+        expect(discardedIteratorReturn).toHaveBeenCalledTimes(2);
+        expect(closeEvents).toHaveBeenCalledTimes(2);
+      });
+      expect(consoleWarn).toHaveBeenCalled();
+    } finally {
+      consoleWarn.mockRestore();
+      await transport.dispose();
+    }
+  });
+
   it("drains discarded replay streams when the runtime has no close hook", async () => {
     let startCount = 0;
     const discardedQueue: AgentChatRuntimeEvent[] = [];
