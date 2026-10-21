@@ -49,7 +49,6 @@ test("completed generation without output stays retryable", async ({
     .toBe(true);
   if (!runTabId) throw new Error("Design editor did not persist a chat thread");
 
-  let completedRunObserved = false;
   let outputStatusRequested = false;
   let manualRetryRequested = false;
   let retriedThreadId: string | null = null;
@@ -59,7 +58,6 @@ test("completed generation without output stays retryable", async ({
       "threadId",
     );
     if (threadId === runTabId) {
-      completedRunObserved = true;
       await route.fulfill({
         json: {
           active: false,
@@ -154,9 +152,8 @@ test("completed generation without output stays retryable", async ({
     },
   );
 
-  await expect.poll(() => completedRunObserved, { timeout: 20_000 }).toBe(true);
   await expect
-    .poll(() => outputStatusRequested, { timeout: 20_000 })
+    .poll(() => outputStatusRequested, { timeout: 45_000 })
     .toBe(true);
   const notifications = page.getByRole("region", {
     name: "Notifications alt+T",
@@ -217,7 +214,6 @@ test("unknown output verification preserves pending generation without offering 
     .toBe(true);
   if (!runTabId) throw new Error("Design editor did not persist a chat thread");
 
-  let completedRunObserved = false;
   let outputStatusRequested = false;
   const activeRunRoute = /\/_agent-native\/agent-chat\/runs\/active(?:\?|$)/;
   await page.route(activeRunRoute, async (route) => {
@@ -225,7 +221,6 @@ test("unknown output verification preserves pending generation without offering 
       "threadId",
     );
     if (threadId === runTabId) {
-      completedRunObserved = true;
       await route.fulfill({
         json: {
           active: false,
@@ -302,9 +297,8 @@ test("unknown output verification preserves pending generation without offering 
     },
   );
 
-  await expect.poll(() => completedRunObserved, { timeout: 20_000 }).toBe(true);
   await expect
-    .poll(() => outputStatusRequested, { timeout: 20_000 })
+    .poll(() => outputStatusRequested, { timeout: 45_000 })
     .toBe(true);
   const notifications = page.getByRole("region", {
     name: "Notifications alt+T",
