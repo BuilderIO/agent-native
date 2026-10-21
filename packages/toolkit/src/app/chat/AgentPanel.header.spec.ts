@@ -31,6 +31,7 @@ import {
   shouldHandleAgentSidebarToggle,
   shouldHandleAgentPanelChatShortcut,
   shouldShowAgentPanelFullViewAction,
+  resolveAgentPanelPageHeaderActions,
   shouldShowAgentPanelPageHeader,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
@@ -1200,21 +1201,16 @@ describe("AgentChatSurface chrome defaults", () => {
       showPageTitleMenu: false,
     });
     const panel = surface.props.children[1];
-    const source = readSource("src/app/chat/AgentPanel.tsx", "utf8").replace(
-      /\s+/g,
-      " ",
-    );
-    const titleMenuStart = source.indexOf("{showPageTitleMenu ? (");
-    const titleMenuEnd = source.indexOf(
-      '{activeTab?.status === "running"',
-      titleMenuStart,
-    );
-    const shareAction = source.indexOf("{canShareActiveTab ? (", titleMenuEnd);
+    const headerActions = resolveAgentPanelPageHeaderActions({
+      showPageTitleMenu: false,
+      canShareActiveTab: true,
+    });
 
     expect(panel.props.showPageTitleMenu).toBe(false);
-    expect(titleMenuStart).toBeGreaterThan(-1);
-    expect(titleMenuEnd).toBeGreaterThan(titleMenuStart);
-    expect(shareAction).toBeGreaterThan(titleMenuEnd);
+    expect(headerActions).toEqual({
+      showPageTitleMenu: false,
+      showShareAction: true,
+    });
   });
 });
 

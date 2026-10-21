@@ -441,6 +441,16 @@ export function shouldShowAgentPanelPageHeader(
   );
 }
 
+export function resolveAgentPanelPageHeaderActions({
+  showPageTitleMenu = true,
+  canShareActiveTab,
+}: {
+  showPageTitleMenu?: boolean;
+  canShareActiveTab: boolean;
+}) {
+  return { showPageTitleMenu, showShareAction: canShareActiveTab };
+}
+
 export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
   return cliTabs.length > 1;
 }
@@ -1697,11 +1707,16 @@ function AgentPanelInner({
         showPageHeaderWhenEmpty,
         activeTabIsPersisted,
       );
-      const canShareActiveTab =
+      const canShareActiveTab = Boolean(
         activeTab &&
         (activeTabIsPersisted ||
           activeTabMessageCount > 0 ||
-          activeTab.status !== "idle");
+          activeTab.status !== "idle"),
+      );
+      const pageHeaderActions = resolveAgentPanelPageHeaderActions({
+        showPageTitleMenu,
+        canShareActiveTab,
+      });
       const showNewChatAction =
         showPageNewChatButton &&
         shouldShowAgentPanelPageNewChatButton(
@@ -1733,7 +1748,7 @@ function AgentPanelInner({
                   <h1 className="truncate text-xs font-medium text-foreground">
                     {activeTab?.label || t("agentPanel.newChat")}
                   </h1>
-                  {showPageTitleMenu ? (
+                  {pageHeaderActions.showPageTitleMenu ? (
                     <DropdownMenu
                       open={headerMenuOpen}
                       onOpenChange={setHeaderMenuOpen}
@@ -1790,7 +1805,7 @@ function AgentPanelInner({
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  {canShareActiveTab ? (
+                  {pageHeaderActions.showShareAction ? (
                     <ShareButton
                       resourceType="chat_thread"
                       resourceId={activeTab.id}
