@@ -152,9 +152,15 @@ export function buildPublicDocumentDescription({
 }
 
 /** A line frontmatter holds: a key, list item, indented value, comment or blank. */
-const FRONTMATTER_LINE =
-  /^(?:[ \t]*(?:#.*)?|[ \t]+\S.*|-(?:[ \t].*)?|[^\s#:-][^:]*:(?:[ \t].*)?)$/;
-const FRONTMATTER_KEY = /^[^\s#:-][^:]*:(?:[ \t]|$)/;
+/** A frontmatter key and its colon. A quoted key can hold colons. */
+const FRONTMATTER_KEY_SOURCE = String.raw`(?:"[^"\n]*"|'[^'\n]*'|[^\s#:-][^:\n]*):(?=\s|$)`;
+const FRONTMATTER_KEY = new RegExp(`^${FRONTMATTER_KEY_SOURCE}`);
+const FRONTMATTER_LINE = new RegExp(
+  String.raw`^(?:[ \t]*(?:#.*)?|[ \t]+\S.*|-(?:[ \t].*)?|${FRONTMATTER_KEY_SOURCE}.*)$`,
+);
+const FRONTMATTER_START = new RegExp(
+  String.raw`^---[ \t]*\n(?:#|${FRONTMATTER_KEY_SOURCE})`,
+);
 
 /**
  * The markdown after its frontmatter, or null when a prefix ends inside it.
@@ -166,9 +172,7 @@ function stripExcerptFrontmatter(
   markdown: string,
   truncated: boolean,
 ): string | null {
-  if (!/^---[ \t]*\n(?:#|[^\s#:-][^:\n]*:(?:[ \t]|\n|$))/.test(markdown)) {
-    return markdown;
-  }
+  if (!FRONTMATTER_START.test(markdown)) return markdown;
   const lines = markdown.split("\n");
   let hasKey = false;
   for (let index = 1; index < lines.length; index++) {

@@ -119,6 +119,13 @@ const flag = true;
         content: "---\n# Metadata\ntags:\n  - news\n---\n\nBody.",
       }),
     ).toBe("Body.");
+    // A quoted key can hold a colon.
+    expect(
+      buildDocumentExcerpt({
+        content:
+          "---\n\"og:title\": Launch\n'og:type': article\n\n---\n\nBody.",
+      }),
+    ).toBe("Body.");
     // Text that isn't YAML after a top divider is page text, colon or not.
     expect(
       buildDocumentExcerpt({
