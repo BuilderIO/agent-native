@@ -77,7 +77,10 @@ describe("describe-workspace-apps", () => {
 
   it("limits peer discovery to relevant cross-app needs", () => {
     expect(tool.description).toContain(
-      "Use only when the current request needs another app's data or capability",
+      "Use when the current request needs another app's data or capability",
+    );
+    expect(tool.description).toContain(
+      "pass `app` to see the read-only actions it publishes",
     );
     expect(tool.description).toContain(
       "cannot tell which peer owns it or whether a known peer can provide it",

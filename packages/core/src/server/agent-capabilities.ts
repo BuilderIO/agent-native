@@ -245,7 +245,7 @@ export function formatCapabilitySummary(
     "",
     lines.join("\n\n"),
     "",
-    "Delegate with call-agent using a natural-language message by default. The receiving app owns interpretation and its local tools. Use action + input only for an exact bounded read with a fully known schema, never as a workaround for failed delegation. Prefer the app that owns the data over rebuilding its capability here.",
+    "When a listed read-only action fits a bounded read, call it with call-agent action + input; that skips a full agent run in the target. Otherwise delegate with a natural-language message; the receiving app owns interpretation and its local tools. Use message for creates, updates, deletes, sends, saves, publishes, or any other side effect. Prefer the app that owns the data over rebuilding its capability here.",
   ]
     .filter(Boolean)
     .join("\n");
