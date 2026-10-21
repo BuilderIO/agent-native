@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { setImmediate } from "node:timers/promises";
+import { compileFunction, createContext } from "node:vm";
 
 import type { BrowserContext, Page } from "@playwright/test";
 import { expect, it, vi } from "vitest";
@@ -38,10 +39,24 @@ const body = "Synthetic fixture body";
 
 class FixturePage extends EventEmitter {
   closed = false;
+  readonly client = createContext({
+    __pendingSaves: 0,
+    __setHidden: vi.fn(),
+    localStorage: {
+      length: 0,
+      key: () => null,
+      getItem: () => null,
+    },
+  });
   goto = vi.fn(async () => {});
   reload = vi.fn(async () => {});
   bringToFront = vi.fn(async () => {});
-  evaluate = vi.fn(async () => {});
+  evaluate = vi.fn(
+    async (read: (argument: unknown) => unknown, argument?: unknown) =>
+      compileFunction(`return (${read.toString()})(argument);`, ["argument"], {
+        parsingContext: this.client,
+      })(argument),
+  );
   close = vi.fn(async () => {
     this.closed = true;
   });
@@ -90,6 +105,7 @@ async function fixture(navigation: "reload" | "close") {
   const started = Promise.withResolvers<void>();
   first[navigation].mockImplementation(async () => {
     if (navigation === "close") first.closed = true;
+    second.client.__pendingSaves++;
     context.emit("request", request);
     started.resolve();
   });
@@ -98,7 +114,10 @@ async function fixture(navigation: "reload" | "close") {
     first,
     second,
     started: started.promise,
-    complete: () => context.emit("response", response),
+    complete: () => {
+      second.client.__pendingSaves--;
+      context.emit("response", response);
+    },
     observe: () =>
       observeIntegrity(
         tabs,
@@ -132,10 +151,10 @@ it.each(["reload", "close"] as const)(
 it("fails an incomplete observation without navigating B or clearing its pending save", async () => {
   const run = await fixture("reload");
   await expect(run.observe()).rejects.toThrow(
-    "saves still in flight after the scenario ended",
+    "a client, outbox or save answer is still pending after the scenario ended",
   );
   expect(run.second.reload).not.toHaveBeenCalled();
   await expect(run.tabs.quiet()).rejects.toThrow(
-    "saves still in flight after the scenario ended",
+    "a client, outbox or save answer is still pending after the scenario ended",
   );
 });
