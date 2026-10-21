@@ -3,6 +3,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDbExec } from "../db/client.js";
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
+import { ForbiddenError } from "../sharing/access.js";
+import { createChatScriptEntries } from "./agent-chat/script-entries.js";
 
 const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
@@ -842,6 +844,258 @@ describe("agent chat queued-message route", () => {
   });
 });
 
+describe("chat thread owner-only history mutations", () => {
+  const owner = "synthetic-thread-owner@example.test";
+  const editor = "synthetic-thread-editor@example.test";
+  const orgId = "synthetic-thread-mutation-org";
+  const operations = [
+    { route: "pin", body: { pinned: true }, action: "pin" },
+    { route: "pin", body: { pinned: false }, action: "unpin" },
+    { route: "archive", body: { archived: true }, action: "archive" },
+    { route: "archive", body: { archived: false } },
+    { route: "rename", body: { title: "New title" }, action: "rename" },
+  ];
+
+  it.each([
+    ["owner", "owner"],
+    ["user", "editor"],
+    ["org", "editor"],
+    ["user", "viewer"],
+    ["org", "viewer"],
+    ["user", "admin"],
+    ["org", "admin"],
+  ] as const)(
+    "guards HTTP and agent mutations for %s %s access with the real store",
+    async (access, role) => {
+      const store = await vi.importActual<
+        typeof import("../chat-threads/store.js")
+      >("../chat-threads/store.js");
+      const { orgStore } = await import("../org/schema-store.js");
+      await orgStore.ready();
+      const h3App = await mountResourceRoutes({ resolveOrgId: () => orgId });
+      const email = access === "owner" ? owner.toUpperCase() : editor;
+      const threadId = `synthetic-thread-mutation-${access}`;
+      const exec = getDbExec();
+      mocks.getSession.mockResolvedValue({ email, orgId });
+      threadStoreMocks.resolveThreadAccess.mockImplementation(
+        store.resolveThreadAccess,
+      );
+      threadStoreMocks.updateThreadData.mockImplementation(
+        store.updateThreadData,
+      );
+      try {
+        await exec.execute({
+          sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Synthetic', ?, 0)",
+          args: [orgId, owner],
+        });
+        await exec.execute({
+          sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', 0)",
+          args: [orgId, orgId, email],
+        });
+        await store.createThread(owner, {
+          id: threadId,
+          title: "Original title",
+          orgId,
+        });
+        if (access !== "owner") {
+          await exec.execute({
+            sql: "INSERT INTO chat_thread_shares (id, resource_id, principal_type, principal_id, role, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+            args: [
+              threadId,
+              threadId,
+              access,
+              access === "org" ? orgId : email,
+              role,
+              owner,
+            ],
+          });
+        }
+        expect(
+          await store.resolveThreadAccess(email, threadId, role, { orgId }),
+        ).not.toBeNull();
+        const entries = await createChatScriptEntries();
+        expect(entries["chat-history"]).toBeDefined();
+        for (const operation of operations) {
+          // Begin set and clear operations from opposite values so a forbidden
+          // unpin or unarchive cannot pass as an unchanged empty value.
+          await exec.execute({
+            sql: "UPDATE chat_threads SET pinned_at = ?, archived_at = ? WHERE id = ?",
+            args: [
+              operation.body.pinned === false ? 1 : null,
+              operation.body.archived === false ? 1 : null,
+              threadId,
+            ],
+          });
+          const before = await store.getThread(threadId);
+          const response = await fetchWithRequestContext(
+            h3App,
+            `/_agent-native/agent-chat/threads/${threadId}/${operation.route}`,
+            { userEmail: email, orgId },
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(operation.body),
+            },
+          );
+          expect(response.status).toBe(
+            access === "owner" || operation.route === "pin" ? 200 : 403,
+          );
+          if (access !== "owner" && operation.route === "pin") {
+            expect(await response.json()).toEqual({ ok: true });
+            expect(
+              (
+                await store.resolveThreadAccess(email, threadId, "viewer", {
+                  orgId,
+                })
+              )?.pinnedAt,
+            ).toEqual(operation.body.pinned ? expect.any(Number) : null);
+            expect(await store.getThread(threadId)).toEqual(before);
+          } else if (access === "owner") {
+            expect(await response.json()).toEqual({ ok: true });
+            const after = await store.getThread(threadId);
+            if (operation.route === "pin")
+              expect(after?.pinnedAt).toEqual(
+                operation.body.pinned ? expect.any(Number) : null,
+              );
+            if (operation.route === "archive")
+              expect(after?.archivedAt).toEqual(
+                operation.body.archived ? expect.any(Number) : null,
+              );
+            if (operation.route === "rename") {
+              expect(after?.title).toBe("New title");
+              expect(JSON.parse(after!.threadData)._titleOverride).toBe(
+                "New title",
+              );
+            }
+          } else {
+            expect(await response.json()).toMatchObject({ status: 403 });
+            expect(await store.getThread(threadId)).toEqual(before);
+          }
+          if (operation.action) {
+            const result = runWithRequestContext(
+              { userEmail: email, orgId, run: { owner: email } },
+              () =>
+                entries["chat-history"].run({
+                  action: operation.action!,
+                  id: threadId,
+                  title: "Tool title",
+                }),
+            );
+            if (access === "owner" || operation.route === "pin") {
+              expect(await result).toMatch(
+                /^(Pinned|Unpinned|Archived|Renamed) chat/,
+              );
+              if (operation.action === "rename")
+                expect((await store.getThread(threadId))?.title).toBe(
+                  "Tool title",
+                );
+            } else {
+              await expect(result).rejects.toBeInstanceOf(ForbiddenError);
+              await expect(result).rejects.toMatchObject({ statusCode: 403 });
+              expect(await store.getThread(threadId)).toEqual(before);
+            }
+          }
+        }
+        for (const body of [
+          { title: "Snapshot title" },
+          {
+            threadData: JSON.stringify({ _titleOverride: "Snapshot override" }),
+          },
+          {
+            threadData: JSON.stringify({
+              _titleOverride: "Delta override",
+              agentKit: { _snapshotDelta: true },
+            }),
+          },
+        ]) {
+          const before = await store.getThread(threadId);
+          const response = await fetchWithRequestContext(
+            h3App,
+            `/_agent-native/agent-chat/threads/${threadId}`,
+            { userEmail: email, orgId },
+            {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            },
+          );
+          expect(response.status).toBe(
+            access === "owner" ? 200 : role === "viewer" ? 404 : 403,
+          );
+          if (access === "owner") {
+            expect(await response.json()).toMatchObject({ ok: true });
+          } else {
+            expect(await store.getThread(threadId)).toEqual(before);
+          }
+        }
+        if (role !== "viewer") {
+          await store.renameThread(threadId, "Owner title", {
+            ownerEmail: owner,
+          });
+          const before = await store.getThread(threadId);
+          await store.renameThread(threadId, "New owner title", {
+            ownerEmail: owner,
+          });
+          threadStoreMocks.updateThreadData.mockImplementationOnce(
+            async (...args: Parameters<typeof store.updateThreadData>) => {
+              // Another worker does not share this process's thread mutex.
+              await exec.execute({
+                sql: "UPDATE chat_threads SET title = ?, thread_data = jsonb_set(thread_data::jsonb, '{_titleOverride}', to_jsonb(?::text))::text, updated_at = updated_at + 1 WHERE id = ? AND owner_email = ?",
+                args: [
+                  "Concurrent owner title",
+                  "Concurrent owner title",
+                  threadId,
+                  owner,
+                ],
+              });
+              return store.updateThreadData(...args);
+            },
+          );
+          const message = {
+            id: "editor-message",
+            role: "user",
+            parts: [{ type: "text", text: "A shared reply" }],
+          };
+          const response = await fetchWithRequestContext(
+            h3App,
+            `/_agent-native/agent-chat/threads/${threadId}`,
+            { userEmail: email, orgId },
+            {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                title: before!.title,
+                threadData: JSON.stringify({
+                  agentKit: { _snapshotDelta: true, messages: [message] },
+                }),
+              }),
+            },
+          );
+          expect(response.status).toBe(200);
+          const after = await store.getThread(threadId);
+          expect(after?.title).toBe("Concurrent owner title");
+          expect(JSON.parse(after!.threadData)._titleOverride).toBe(
+            "Concurrent owner title",
+          );
+          expect(
+            JSON.parse(after!.threadData).agentKit.messages,
+          ).toContainEqual(message);
+        }
+      } finally {
+        await store.deleteThread(threadId, owner);
+        await exec.execute({
+          sql: "DELETE FROM org_members WHERE id = ?",
+          args: [orgId],
+        });
+        await exec.execute({
+          sql: "DELETE FROM organizations WHERE id = ?",
+          args: [orgId],
+        });
+      }
+    },
+  );
+});
+
 describe("agent chat thread list route", () => {
   const summary = (id: string) => ({ id, title: id });
 
@@ -1167,6 +1421,7 @@ describe("agent chat thread list route", () => {
 
 describe("agent chat thread save route", () => {
   const thread = {
+    ownerEmail: "user@example.test",
     id: "thread-save",
     scope: null,
     threadData: JSON.stringify({ messages: [] }),
@@ -2795,5 +3050,126 @@ describe("compact skills summary and the request registry", () => {
     );
     expect(absent).not.toContain("<skills-summary>");
     expect(absent).not.toContain("deep-review");
+  });
+});
+describe("shared chat hide transport", () => {
+  it("persists HTTP and tool viewer state, filters list/search, and refuses owner and outsider writes", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const owner = "hide-transport-owner@example.test";
+    const viewer = "hide-transport-viewer@example.test";
+    const outsider = "hide-transport-outsider@example.test";
+    const id = "hide-transport-thread";
+    const app = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockImplementation(
+      store.resolveThreadAccess,
+    );
+    threadStoreMocks.listThreads.mockImplementation(store.listThreads);
+    threadStoreMocks.searchThreads.mockImplementation(store.searchThreads);
+    await store.createThread(owner, {
+      id,
+      title: "Transport plan",
+      initialData: { threadData: "{}", preview: "", messageCount: 1 },
+    });
+    await store.grantThreadUserShare(id, viewer, "viewer", owner);
+    const tool = (await createChatScriptEntries())["chat-history"];
+    const request = async (email: string, path: string, body?: unknown) => {
+      mocks.getSession.mockResolvedValue({ email });
+      return fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/threads${path}`,
+        { userEmail: email },
+        body === undefined
+          ? undefined
+          : {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            },
+      );
+    };
+    const run = (email: string, action: string, rest = {}) =>
+      runWithRequestContext({ userEmail: email, run: { owner: email } }, () =>
+        tool.run({ action, id, ...rest }),
+      );
+    const state = () =>
+      getDbExec().execute({
+        sql: "SELECT user_email, pinned_at, hidden_at FROM chat_thread_viewer_state WHERE thread_id = ?",
+        args: [id],
+      });
+    try {
+      expect(
+        (await request(viewer, `/${id}/hide`, { hidden: "yes" })).status,
+      ).toBe(400);
+      expect((await state()).rows).toEqual([]);
+      for (const email of [owner, outsider]) {
+        expect(
+          (await request(email, `/${id}/hide`, { hidden: true })).status,
+        ).toBe(email === owner ? 403 : 404);
+        if (email === owner)
+          await expect(run(email, "hide")).rejects.toBeInstanceOf(
+            ForbiddenError,
+          );
+        else expect(await run(email, "hide")).toContain("not found");
+        if (email === outsider) {
+          expect(
+            (await request(email, `/${id}/pin`, { pinned: true })).status,
+          ).toBe(404);
+          expect(await run(email, "pin")).toContain("not found");
+        }
+      }
+      expect((await state()).rows).toEqual([]);
+      expect(
+        (await request(viewer, `/${id}/pin`, { pinned: true })).status,
+      ).toBe(200);
+      expect(
+        (await request(viewer, `/${id}/hide`, { hidden: true })).status,
+      ).toBe(200);
+      for (const suffix of ["", "&q=Transport"]) {
+        const visible = await request(viewer, `?ownership=shared${suffix}`);
+        expect((await visible.json()).threads).toEqual([]);
+        const included = await request(
+          viewer,
+          `?ownership=shared&includeHidden=1${suffix}`,
+        );
+        expect((await included.json()).threads).toMatchObject([
+          { id, pinnedAt: expect.any(Number), hiddenAt: expect.any(Number) },
+        ]);
+      }
+      const single = await request(viewer, `/${id}`);
+      expect(single.status).toBe(200);
+      expect(await single.json()).toMatchObject({
+        id,
+        pinnedAt: expect.any(Number),
+        hiddenAt: expect.any(Number),
+      });
+      expect(
+        await run(viewer, "search", { query: "Transport", format: "json" }),
+      ).toContain('"count": 0');
+      expect(
+        await run(viewer, "search", {
+          query: "Transport",
+          format: "json",
+          includeHidden: true,
+        }),
+      ).toContain(id);
+      expect(await run(viewer, "unhide")).toMatch(/^Unhidden chat/);
+      expect(
+        (await (await request(viewer, "?ownership=shared")).json()).threads,
+      ).toHaveLength(1);
+      expect(await run(viewer, "hide")).toMatch(/^Hidden chat/);
+      expect((await store.listThreads(viewer)).length).toBe(0);
+      expect(
+        (await request(viewer, `/${id}/hide`, { hidden: false })).status,
+      ).toBe(200);
+      expect((await store.listThreads(viewer)).length).toBe(1);
+      expect((await state()).rows).toEqual([
+        { user_email: viewer, pinned_at: expect.any(Number), hidden_at: null },
+      ]);
+      expect((await store.getThread(id))?.pinnedAt).toBeNull();
+    } finally {
+      await store.deleteThread(id, owner);
+    }
   });
 });

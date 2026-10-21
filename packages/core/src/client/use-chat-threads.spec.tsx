@@ -4277,6 +4277,62 @@ describe("useChatThreads", () => {
     });
   });
 
+  it("rolls back a refused hide update with a typed HTTP error", async () => {
+    const sourceThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Pinned candidate",
+      preview: "old preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+      pinnedAt: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/threads/thread-1/hide" && init?.method === "POST") {
+        return new Response(JSON.stringify({ error: "nope" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "hide-failure-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await expect(hook!.hideThread("thread-1", true)).rejects.toMatchObject({
+        name: "ChatThreadMutationError",
+        status: 403,
+      });
+    });
+
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1"),
+    ).toMatchObject({
+      pinnedAt: null,
+      updatedAt: 2,
+    });
+  });
+
   it("keeps the active thread when archive fails", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:archive-failure-test",

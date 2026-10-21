@@ -42,6 +42,7 @@ import {
   stripInlineBytes,
 } from "../shared/inline-bytes.js";
 import {
+  ForbiddenError,
   hasCurrentOrgMembership,
   resolveAccess,
   type AccessContext,
@@ -239,6 +240,17 @@ export const chatThreadsStore = defineStore({
       CHAT_THREAD_SCHEMA_MIGRATIONS,
       { data: [3] },
     ),
+    {
+      name: "viewer-state",
+      sql: `CREATE TABLE IF NOT EXISTS chat_thread_viewer_state (
+        thread_id TEXT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+        user_email TEXT NOT NULL,
+        pinned_at BIGINT,
+        hidden_at BIGINT,
+        updated_at BIGINT NOT NULL,
+        PRIMARY KEY (thread_id, user_email)
+      )`,
+    },
   ],
 });
 
@@ -344,6 +356,7 @@ export interface ChatThread {
   updatedAt: number;
   scope: ChatThreadScope | null;
   pinnedAt: number | null;
+  hiddenAt?: number | null;
   archivedAt: number | null;
   source: ChatThreadSource | null;
   orgId: string | null;
@@ -387,6 +400,7 @@ export interface ChatThreadSummary {
   updatedAt: number;
   scope: ChatThreadScope | null;
   pinnedAt: number | null;
+  hiddenAt?: number | null;
   archivedAt: number | null;
   source: ChatThreadSource | null;
   orgId: string | null;
@@ -864,6 +878,7 @@ function rowToThread(r: Record<string, unknown>): ChatThread {
     updatedAt: Number(r.updated_at),
     scope: readScope(r),
     pinnedAt: readNullableNumber(r.pinned_at),
+    hiddenAt: readNullableNumber(r.hidden_at),
     archivedAt: readNullableNumber(r.archived_at),
     source: readSource(r),
     orgId: (r.org_id as string | null | undefined) ?? null,
@@ -895,6 +910,7 @@ function rowToSummary(r: Record<string, unknown>): ChatThreadListRow | null {
     updatedAt: Number(r.updated_at),
     scope: readScope(r),
     pinnedAt: readNullableNumber(r.pinned_at),
+    hiddenAt: readNullableNumber(r.hidden_at),
     archivedAt: readNullableNumber(r.archived_at),
     source: readSource(r),
     orgId: (r.org_id as string | null | undefined) ?? null,
@@ -1036,7 +1052,22 @@ export async function resolveThreadAccess(
 ): Promise<ChatThread | null> {
   if (!userEmail || !threadId) return null;
   if (!(await hasThreadAccess(userEmail, threadId, minRole, ctx))) return null;
-  return await getThread(threadId);
+  const thread = await getThread(threadId);
+  if (!thread) return null;
+  if (
+    normalizeAccessEmail(thread.ownerEmail) === normalizeAccessEmail(userEmail)
+  ) {
+    return { ...thread, hiddenAt: null };
+  }
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT pinned_at, hidden_at FROM chat_thread_viewer_state WHERE thread_id = ? AND user_email = ?`,
+    args: [threadId, normalizeAccessEmail(userEmail)],
+  });
+  return {
+    ...thread,
+    pinnedAt: readNullableNumber(rows[0]?.pinned_at),
+    hiddenAt: readNullableNumber(rows[0]?.hidden_at),
+  };
 }
 
 export async function resolveThreadsAccess(
@@ -1052,9 +1083,10 @@ export async function resolveThreadsAccess(
   const access = await chatThreadAccessSql(userEmail, ctx.orgId);
   const client = getDbExec();
   const placeholders = ids.map(() => "?").join(", ");
+  const projection = chatThreadViewerSelect(THREAD_COLUMNS, userEmail);
   const { rows } = await client.execute({
-    sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE id IN (${placeholders}) AND ${access.sql}`,
-    args: [...ids, ...access.args],
+    sql: `SELECT ${projection.sql} FROM chat_threads WHERE id IN (${placeholders}) AND ${access.sql}`,
+    args: [...projection.args, ...ids, ...access.args],
   });
   for (const row of rows) {
     const thread = rowToThread(row);
@@ -1240,6 +1272,8 @@ export interface ListThreadsOptions {
    * (e.g. an "Archived" filter or restoring one via `setThreadArchived`).
    */
   includeArchived?: boolean;
+  /** Include chats hidden by this caller. Defaults to false. */
+  includeHidden?: boolean;
   /**
    * Include connected and other-app threads. The HTTP chat list defaults this
    * to false so each app shows its own local chats first; internal callers
@@ -1285,6 +1319,22 @@ function normalizeAccessEmail(userEmail: string): string {
   return userEmail.trim().toLowerCase();
 }
 
+function chatThreadViewerSelect(
+  columns: string,
+  userEmail: string,
+): {
+  sql: string;
+  args: string[];
+} {
+  const email = normalizeAccessEmail(userEmail);
+  const viewerValue = (column: string) =>
+    `(SELECT ${column} FROM chat_thread_viewer_state WHERE thread_id = chat_threads.id AND user_email = ?)`;
+  return {
+    sql: `${columns.replace("pinned_at", `CASE WHEN LOWER(owner_email) = ? THEN pinned_at ELSE ${viewerValue("pinned_at")} END AS pinned_at`)}, CASE WHEN LOWER(owner_email) = ? THEN NULL ELSE ${viewerValue("hidden_at")} END AS hidden_at`,
+    args: [email, email, email, email],
+  };
+}
+
 /**
  * Summary projection plus the caller's access basis, derived from the same
  * owner and per-user-share comparisons the ACL uses. Anything that is neither
@@ -1295,9 +1345,10 @@ function chatThreadSummarySelect(userEmail: string): {
   args: string[];
 } {
   const normalizedEmail = normalizeAccessEmail(userEmail);
+  const viewer = chatThreadViewerSelect(SUMMARY_COLUMNS, userEmail);
   return {
-    sql: `${SUMMARY_COLUMNS}, CASE WHEN LOWER(owner_email) = ? THEN 'owner' WHEN EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'user' AND LOWER(chat_thread_shares.principal_id) = ?) THEN 'direct' ELSE 'organization' END AS access_basis`,
-    args: [normalizedEmail, normalizedEmail],
+    sql: `${viewer.sql}, CASE WHEN LOWER(owner_email) = ? THEN 'owner' WHEN EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'user' AND LOWER(chat_thread_shares.principal_id) = ?) THEN 'direct' ELSE 'organization' END AS access_basis`,
+    args: [...viewer.args, normalizedEmail, normalizedEmail],
   };
 }
 
@@ -1348,6 +1399,15 @@ export async function listThreads(
     filters.push(ownershipFilter.sql);
     args.push(...ownershipFilter.args);
   }
+  if (!opts.includeHidden) {
+    filters.push(
+      `(LOWER(owner_email) = ? OR NOT EXISTS (SELECT 1 FROM chat_thread_viewer_state WHERE thread_id = chat_threads.id AND user_email = ? AND hidden_at IS NOT NULL))`,
+    );
+    args.push(
+      normalizeAccessEmail(ownerEmail),
+      normalizeAccessEmail(ownerEmail),
+    );
+  }
   if (!opts.includeArchived) {
     filters.push(`archived_at IS NULL`);
   }
@@ -1366,7 +1426,7 @@ export async function listThreads(
   }
   args.push(limit, offset);
   const { rows } = await client.execute({
-    sql: `SELECT ${select.sql} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, updated_at DESC, id ASC LIMIT ? OFFSET ?`,
+    sql: `SELECT ${select.sql} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY pinned_at DESC NULLS LAST, updated_at DESC, id ASC LIMIT ? OFFSET ?`,
     args,
   });
   return rows
@@ -1387,6 +1447,8 @@ export async function searchThreads(
     orgId?: string | null;
     /** See `ListThreadsOptions.includeArchived` — defaults to false. */
     includeArchived?: boolean;
+    /** Include chats hidden by this caller. Defaults to false. */
+    includeHidden?: boolean;
     /** See `ListThreadsOptions.includeExternal`. */
     includeExternal?: boolean;
     /** Current app id used by the local-only view. */
@@ -1424,6 +1486,15 @@ export async function searchThreads(
     filters.push(ownershipFilter.sql);
     args.push(...ownershipFilter.args);
   }
+  if (!options.includeHidden) {
+    filters.push(
+      `(LOWER(owner_email) = ? OR NOT EXISTS (SELECT 1 FROM chat_thread_viewer_state WHERE thread_id = chat_threads.id AND user_email = ? AND hidden_at IS NOT NULL))`,
+    );
+    args.push(
+      normalizeAccessEmail(ownerEmail),
+      normalizeAccessEmail(ownerEmail),
+    );
+  }
   if (!options.includeArchived) {
     filters.push(`archived_at IS NULL`);
   }
@@ -1440,7 +1511,7 @@ export async function searchThreads(
   }
   args.push(limit, options.offset ?? 0);
   const { rows } = await client.execute({
-    sql: `SELECT ${select.sql} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, updated_at DESC, id ASC LIMIT ? OFFSET ?`,
+    sql: `SELECT ${select.sql} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY pinned_at DESC NULLS LAST, updated_at DESC, id ASC LIMIT ? OFFSET ?`,
     args,
   });
   return rows
@@ -1518,81 +1589,132 @@ export async function setThreadScope(
   emitChatThreadChange(id);
 }
 
+export function assertThreadOwner(
+  thread: Pick<ChatThread, "ownerEmail">,
+  ownerEmail: string,
+): void {
+  if (
+    !ownerEmail?.trim() ||
+    thread.ownerEmail.toLowerCase() !== ownerEmail.trim().toLowerCase()
+  ) {
+    throw new ForbiddenError();
+  }
+}
+
+async function getOwnedThread(
+  id: string,
+  ownerEmail: string,
+): Promise<ChatThread | null> {
+  const thread = await getThread(id);
+  if (thread) assertThreadOwner(thread, ownerEmail);
+  return thread;
+}
+
 export async function renameThread(
   id: string,
   title: string,
-  options: { ownerEmail?: string } = {},
+  options: { ownerEmail: string },
 ): Promise<boolean> {
   const nextTitle = normalizeThreadTitle(title);
   if (!nextTitle) return false;
 
   return await withThreadDataLock(id, async () => {
-    const thread = await getThread(id);
+    const thread = await getOwnedThread(id, options.ownerEmail);
     if (!thread) return false;
-    if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
-      return false;
-    }
 
     const repo = parseThreadData(thread.threadData);
     repo._titleOverride = nextTitle;
-    await updateThreadData(
+    return await updateThreadData(
       id,
       JSON.stringify(repo),
       nextTitle,
       thread.preview,
       thread.messageCount,
     );
-    return true;
   });
+}
+
+async function setThreadViewerState(
+  id: string,
+  field: "pinned_at" | "hidden_at",
+  enabled: boolean,
+  options: { ownerEmail: string; orgId?: string | null },
+): Promise<boolean> {
+  const email = normalizeAccessEmail(options.ownerEmail);
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, owner_email FROM chat_threads WHERE id = ?`,
+    args: [id],
+  });
+  const thread = rows[0];
+  if (!thread) return false;
+  if (!email || normalizeAccessEmail(String(thread.owner_email)) === email) {
+    throw new ForbiddenError();
+  }
+  if (
+    !(await hasThreadAccess(email, id, "viewer", {
+      orgId:
+        (options.orgId === undefined ? getRequestOrgId() : options.orgId) ??
+        undefined,
+    }))
+  ) {
+    throw new ForbiddenError();
+  }
+  const now = Math.max(Date.now(), 1);
+  await getDbExec().execute({
+    sql: `INSERT INTO chat_thread_viewer_state (thread_id, user_email, ${field}, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (thread_id, user_email) DO UPDATE SET ${field} = EXCLUDED.${field}, updated_at = EXCLUDED.updated_at`,
+    args: [id, email, enabled ? now : null, now],
+  });
+  emitChatThreadChange(id);
+  return true;
 }
 
 export async function setThreadPinned(
   id: string,
   pinned: boolean,
-  options: { ownerEmail?: string } = {},
+  options: { ownerEmail: string; orgId?: string | null },
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const now = Math.max(Date.now(), 1);
-  const args: (string | number | null)[] = [pinned ? now : null, id];
-  let ownerFilter = "";
-  if (options.ownerEmail) {
-    ownerFilter = " AND owner_email = ?";
-    args.push(options.ownerEmail);
-  }
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET pinned_at = ? WHERE id = ?${ownerFilter}`,
-    args,
+    sql: `UPDATE chat_threads SET pinned_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [pinned ? now : null, id, options.ownerEmail.trim()],
   });
   if (result.rowsAffected > 0) {
     emitChatThreadChange(id);
     return true;
   }
-  return false;
+  return setThreadViewerState(id, "pinned_at", pinned, options);
+}
+
+export async function setThreadHidden(
+  id: string,
+  hidden: boolean,
+  options: { ownerEmail: string; orgId?: string | null },
+): Promise<boolean> {
+  await ensureTable();
+  return setThreadViewerState(id, "hidden_at", hidden, options);
 }
 
 export async function setThreadArchived(
   id: string,
   archived: boolean,
-  options: { ownerEmail?: string } = {},
+  options: { ownerEmail: string },
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const now = Math.max(Date.now(), 1);
-  const args: (string | number | null)[] = [archived ? now : null, id];
-  let ownerFilter = "";
-  if (options.ownerEmail) {
-    ownerFilter = " AND owner_email = ?";
-    args.push(options.ownerEmail);
-  }
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET archived_at = ? WHERE id = ?${ownerFilter}`,
-    args,
+    sql: `UPDATE chat_threads SET archived_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [archived ? now : null, id, options.ownerEmail.trim()],
   });
   if (result.rowsAffected > 0) {
     emitChatThreadChange(id);
     return true;
   }
+  await getOwnedThread(id, options.ownerEmail);
   return false;
 }
 
@@ -1600,6 +1722,8 @@ export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
+  /** Preserve the title and its override from each current CAS revision. */
+  preserveCurrentTitle?: boolean;
   preserveCurrentTitleAndPreview?: boolean;
   trustedRunSequenceResetIds?: ReadonlySet<string>;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
@@ -1692,6 +1816,18 @@ export async function updateThreadData(
             annotationConflicts.push(conflict),
         },
       );
+      if (options.preserveCurrentTitle) {
+        if (
+          Object.prototype.hasOwnProperty.call(
+            safeCurrentThreadData,
+            "_titleOverride",
+          )
+        ) {
+          merged._titleOverride = safeCurrentThreadData._titleOverride;
+        } else {
+          delete merged._titleOverride;
+        }
+      }
       // Client snapshots can predate their upload URL, so inline bytes become a
       // visible placeholder rather than failing the save; legacy rows are
       // scrubbed on their next write.
@@ -1712,13 +1848,14 @@ export async function updateThreadData(
         (!current.title.trim() || !current.preview.trim())
           ? extractThreadMeta(merged)
           : undefined;
-      const nextTitle = preserveCurrentMetadata
-        ? current.title
-        : preserveCurrentTitleAndPreview
-          ? current.title.trim()
-            ? current.title
-            : snapshotMetaForBlankFields?.title || current.title
-          : title || current.title || extractThreadMeta(merged).title;
+      const nextTitle =
+        preserveCurrentMetadata || options.preserveCurrentTitle
+          ? current.title
+          : preserveCurrentTitleAndPreview
+            ? current.title.trim()
+              ? current.title
+              : snapshotMetaForBlankFields?.title || current.title
+            : title || current.title || extractThreadMeta(merged).title;
       const nextPreview = preserveCurrentMetadata
         ? current.preview
         : preserveCurrentTitleAndPreview

@@ -75,6 +75,51 @@ describe("useChatThreadList", () => {
   const requestedUrls = () =>
     fetchMock.mock.calls.map(([url]) => new URL(String(url), "http://x"));
 
+  it("includes hidden chats explicitly and sends hide/unhide with typed refusals", async () => {
+    let hidden = false;
+    let refuse = false;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        expect(url).toBe("/chat/threads/shared/hide");
+        if (refuse) return jsonResponse({}, 403);
+        hidden = JSON.parse(String(init.body)).hidden;
+        return jsonResponse({ ok: true });
+      }
+      expect(new URL(url, "http://x").searchParams.get("includeHidden")).toBe(
+        "1",
+      );
+      return jsonResponse({
+        threads: [
+          row("shared", {
+            accessBasis: "direct",
+            hiddenAt: hidden ? 10 : null,
+          }),
+        ],
+        hasMore: false,
+      });
+    });
+    await mount({ ownership: "shared", apiUrl: "/chat", includeHidden: true });
+    await act(async () => {
+      expect(await latest.hideThread("shared", true)).toBe(true);
+    });
+    await flush();
+    expect(latest.threads[0].hiddenAt).toBe(10);
+    refuse = true;
+    await act(async () => {
+      await expect(latest.hideThread("shared", false)).rejects.toMatchObject({
+        name: "ChatThreadMutationError",
+        status: 403,
+      });
+    });
+    expect(latest.threads[0].hiddenAt).toBe(10);
+    refuse = false;
+    await act(async () => {
+      await latest.hideThread("shared", false);
+    });
+    await flush();
+    expect(latest.threads[0].hiddenAt).toBeNull();
+  });
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fetchMock = vi.fn();

@@ -6,6 +6,7 @@ import {
   CHAT_THREADS_UPDATED_EVENT,
   ChatThreadListError,
   fetchChatThreadListPage,
+  hideChatThread,
   type ChatThreadOwnership,
   type ChatThreadListRow,
   type ChatThreadScope,
@@ -20,6 +21,7 @@ export interface UseChatThreadListOptions {
   pageSize?: number;
   scope?: ChatThreadScope | null;
   includeExternal?: boolean;
+  includeHidden?: boolean;
   /** Search text. Empty lists the whole set. */
   query?: string;
   /** When false nothing is fetched and the list is empty. Defaults to true. */
@@ -48,6 +50,7 @@ export interface UseChatThreadListResult {
   refresh: () => Promise<void>;
   /** Reports whether this invocation applied the complete refreshed window. */
   refreshWithResult: () => Promise<ChatThreadListRefreshOutcome>;
+  hideThread: (id: string, hidden: boolean) => Promise<boolean>;
 }
 
 /** `pageSize` is not an integer between 1 and the server's page cap. */
@@ -113,6 +116,7 @@ export function useChatThreadList(
   const {
     ownership,
     includeExternal = false,
+    includeHidden = false,
     enabled = true,
     refreshOnThreadUpdates = true,
   } = options;
@@ -130,6 +134,7 @@ export function useChatThreadList(
     scopeId,
     pageSize,
     includeExternal,
+    includeHidden,
     enabled,
   ]);
   const [stored, setState] = useState(() => createListState(identity, enabled));
@@ -166,6 +171,7 @@ export function useChatThreadList(
         query,
         ownership,
         includeExternal,
+        includeHidden,
         scope: scopeType && scopeId ? { type: scopeType, id: scopeId } : null,
       }).then((result) => {
         if (result.hasMore === undefined) {
@@ -182,7 +188,15 @@ export function useChatThreadList(
         }
         return { threads: result.threads, hasMore: result.hasMore };
       }),
-    [apiUrl, includeExternal, ownership, query, scopeId, scopeType],
+    [
+      apiUrl,
+      includeExternal,
+      includeHidden,
+      ownership,
+      query,
+      scopeId,
+      scopeType,
+    ],
   );
 
   // Reload the first `window` server rows, one capped page at a time, and swap
@@ -294,6 +308,40 @@ export function useChatThreadList(
   }, [enabled, refresh, refreshOnThreadUpdates]);
 
   const { threads, loading, loadingMore, error, hasMore } = state;
+  const hideThread = useCallback(
+    async (id: string, hidden: boolean): Promise<boolean> => {
+      const previous = state.threads.find((thread) => thread.id === id);
+      update({
+        threads: state.threads.flatMap((thread) => {
+          if (thread.id !== id) return [thread];
+          if (hidden && !includeHidden) return [];
+          return [{ ...thread, hiddenAt: hidden ? Date.now() : null }];
+        }),
+      });
+      try {
+        return await hideChatThread(id, hidden, {
+          apiUrl,
+          scope: options.scope,
+        });
+      } catch (error) {
+        if (previous)
+          setState((current) =>
+            current.session === session
+              ? {
+                  ...current,
+                  threads: [
+                    previous,
+                    ...current.threads.filter((thread) => thread.id !== id),
+                  ],
+                }
+              : current,
+          );
+        throw error;
+      }
+    },
+    [apiUrl, includeHidden, options.scope, session, state.threads, update],
+  );
+
   return {
     threads,
     loading,
@@ -303,5 +351,6 @@ export function useChatThreadList(
     loadMore,
     refresh,
     refreshWithResult,
+    hideThread,
   };
 }
