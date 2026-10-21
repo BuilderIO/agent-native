@@ -5266,8 +5266,12 @@ async function appendTerminalRunEventInTransaction(
   tx: DbExec,
   runId: string,
   event: Record<string, unknown>,
-  replaceCheckpoint = false,
+  replaceExistingTerminal = false,
 ): Promise<void> {
+  const eventData = stripInlineBytesFromJson(
+    JSON.stringify(event),
+    "placeholder",
+  );
   const { rows } = await tx.execute({
     sql: `SELECT seq, event_data
           FROM agent_run_events
@@ -5296,37 +5300,33 @@ async function appendTerminalRunEventInTransaction(
       const lastEventIsTerminal = Boolean(
         terminalStatusForEvent(parsed as AgentChatEvent),
       );
-      const replacesCheckpoint =
-        replaceCheckpoint &&
-        Number(last.seq) === CHECKPOINT_TERMINAL_EVENT_SEQ &&
-        parsed.type === "auto_continue" &&
-        (event.type !== "auto_continue" || parsed.reason !== event.reason);
-      if (lastEventIsTerminal && !replacesCheckpoint) return;
-      if (replacesCheckpoint) {
+      if (lastEventIsTerminal && last.event_data === eventData) return;
+      if (lastEventIsTerminal && !replaceExistingTerminal) return;
+      if (lastEventIsTerminal && replaceExistingTerminal) {
         await tx.execute({
           sql: "DELETE FROM agent_run_events WHERE run_id = ? AND seq = ?",
-          args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+          args: [runId, Number(last.seq)],
         });
-        const regularEvents = await tx.execute({
-          sql: `SELECT COALESCE(MAX(seq), -1) AS seq FROM agent_run_events
-                WHERE run_id = ? AND seq < ?`,
-          args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
-        });
-        nextSeq =
-          Number(
-            (regularEvents.rows[0] as { seq?: number | string } | undefined)
-              ?.seq ?? -1,
-          ) + 1;
+        if (Number(last.seq) === CHECKPOINT_TERMINAL_EVENT_SEQ) {
+          const regularEvents = await tx.execute({
+            sql: `SELECT COALESCE(MAX(seq), -1) AS seq FROM agent_run_events
+                  WHERE run_id = ? AND seq < ?`,
+            args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+          });
+          nextSeq =
+            Number(
+              (regularEvents.rows[0] as { seq?: number | string } | undefined)
+                ?.seq ?? -1,
+            ) + 1;
+        } else {
+          nextSeq = Number(last.seq);
+        }
       }
     }
   }
   if (!Number.isSafeInteger(nextSeq)) {
     throw new Error(`Run ${runId} has no safe sequence for its terminal event`);
   }
-  const eventData = stripInlineBytesFromJson(
-    JSON.stringify(event),
-    "placeholder",
-  );
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const inserted = await tx.execute({
       sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)

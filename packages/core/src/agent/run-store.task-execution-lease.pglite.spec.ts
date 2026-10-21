@@ -338,6 +338,28 @@ describe("task execution leases", () => {
     ]);
   });
 
+  it("replaces a regular terminal event when an abort transaction wins", async () => {
+    const runId = "run-regular-terminal-user-abort";
+    await insertRun(runId, "thread-regular-terminal-user-abort");
+    await insertRunEvent(runId, 0, JSON.stringify({ type: "done" }));
+
+    await markRunAborted(runId, "user");
+
+    const run = await getRunById(runId);
+    expect(run?.status).toBe("aborted");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done", reason: "user" },
+    });
+    const events = await pglite.query(
+      "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      [runId],
+    );
+    expect(events.rows).toEqual([
+      { seq: 0, event_data: '{"type":"done","reason":"user"}' },
+    ]);
+  });
+
   it("rolls back abort status and checkpoint retirement when the terminal insert fails", async () => {
     const runId = "run-checkpoint-user-abort-insert-failure";
     await insertRun(runId, "thread-checkpoint-user-abort-insert-failure");

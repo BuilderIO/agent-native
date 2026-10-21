@@ -988,6 +988,7 @@ export function startRun(
     options?.turnInitiator &&
     parseServiceIdentityEmail(options.turnInitiator.email),
   );
+  let servicePrincipalStartRefused = false;
   const insertRunPromise = (
     options?.runRowAlreadyInserted && !servicePrincipalRunStart
       ? Promise.resolve()
@@ -996,6 +997,9 @@ export function startRun(
         : insertRun(runId, threadId, options?.turnId)
   ).catch((error) => {
     captureRunPersistenceError(error, "insert-run");
+    if (error instanceof ServicePrincipalRefusedError) {
+      servicePrincipalStartRefused = true;
+    }
     if (
       options?.executionLease ||
       error instanceof ServicePrincipalRefusedError
@@ -1798,18 +1802,20 @@ export function startRun(
     eventData: string,
     eventAt: number,
   ): Promise<void> => {
-    if (runEvent.event.type === "tool_start") await insertRunPromise;
-    const write = () =>
+    const terminal = isTerminalRunEvent(runEvent.event);
+    const requireInserted =
       runEvent.event.type === "tool_start" ||
-      runEvent.event.type === "tool_done"
-        ? insertRunEvent(runId, runEvent.seq, eventData, {
-            eventAt,
-            toolInputSource: "execution",
-            ...(runEvent.event.type === "tool_start"
-              ? { requireInserted: true }
-              : {}),
-          })
-        : insertRunEvent(runId, runEvent.seq, eventData, { eventAt });
+      (terminal && !servicePrincipalStartRefused);
+    if (requireInserted) await insertRunPromise;
+    const write = () =>
+      insertRunEvent(runId, runEvent.seq, eventData, {
+        eventAt,
+        ...(runEvent.event.type === "tool_start" ||
+        runEvent.event.type === "tool_done"
+          ? { toolInputSource: "execution" as const }
+          : {}),
+        ...(requireInserted ? { requireInserted: true } : {}),
+      });
     return withWorkerFence(() =>
       options?.persistEvent
         ? options.persistEvent(write, {

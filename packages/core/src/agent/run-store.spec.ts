@@ -874,7 +874,7 @@ describe("run store", () => {
     expect(update?.args).toEqual([12_345, 12_345, "run-progress"]);
   });
 
-  it("does not append another terminal event after auto_continue", async () => {
+  it("replaces an earlier auto_continue when the abort transaction wins", async () => {
     latestEventRows = [
       {
         seq: 4,
@@ -887,10 +887,40 @@ describe("run store", () => {
 
     await markRunAborted("run-abort-after-terminal", "no_progress");
 
-    const eventInserts = execCalls.filter((call) =>
+    const deletion = execCalls.find((call) =>
+      /DELETE FROM agent_run_events/i.test(call.sql),
+    );
+    expect(deletion?.args).toEqual(["run-abort-after-terminal", 4]);
+
+    const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
     );
-    expect(eventInserts).toHaveLength(0);
+    expect(insert?.args[1]).toBe(4);
+    expect(insert?.args[3]).toBe(
+      '{"type":"auto_continue","reason":"no_progress"}',
+    );
+  });
+
+  it("replaces a stale done event when the abort transaction wins", async () => {
+    latestEventRows = [
+      {
+        seq: 7,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
+
+    await markRunAborted("run-abort-after-done", "user");
+
+    const deletion = execCalls.find((call) =>
+      /DELETE FROM agent_run_events/i.test(call.sql),
+    );
+    expect(deletion?.args).toEqual(["run-abort-after-done", 7]);
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    expect(insert?.args[1]).toBe(7);
+    expect(insert?.args[3]).toBe('{"type":"done","reason":"user"}');
   });
 
   it("does not rewrite a run that is already terminal", async () => {

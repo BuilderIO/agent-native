@@ -976,6 +976,64 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("does not publish a terminal checkpoint when an abort wins after status read", async () => {
+    const runId = "run-checkpoint-terminal-write-abort-race";
+    const threadId = "thread-checkpoint-terminal-write-abort-race";
+    const events: AgentChatEvent[] = [];
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    let remoteAbortCommitted = false;
+
+    vi.mocked(getRunById).mockImplementation(async (id) => ({
+      id,
+      threadId,
+      status: remoteAbortCommitted ? "aborted" : "running",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: remoteAbortCommitted ? "aborted:user" : null,
+    }));
+    vi.mocked(updateRunStatusIfRunning).mockImplementation(async () => {
+      return !remoteAbortCommitted;
+    });
+    vi.mocked(insertRunEvent).mockImplementation(
+      async (persistedRunId, seq, eventData, options) => {
+        const event = JSON.parse(eventData) as AgentChatEvent;
+        if (event.type !== "auto_continue") return;
+
+        remoteAbortCommitted = true;
+        expect(options).toMatchObject({ requireInserted: true });
+        throw new AgentRunEventNotPersistedError(persistedRunId, seq, true);
+      },
+    );
+
+    const run = startRun(
+      runId,
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.advanceTimersByTimeAsync(11);
+    await expect(run.finalized).rejects.toBeInstanceOf(
+      AgentRunEventNotPersistedError,
+    );
+
+    expect(persistRunCheckpointEvent).toHaveBeenCalledOnce();
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "auto_continue" }),
+    );
+    expect(remoteAbortCommitted).toBe(true);
+    consoleError.mockRestore();
+  });
+
   it("keeps checkpoint status unreadable separate from checkpoint persistence failure", async () => {
     const runId = "run-checkpoint-status-read-failure";
     const threadId = "thread-checkpoint-status-read-failure";
@@ -1269,7 +1327,7 @@ describe("run manager soft timeout", () => {
       "run-checkpoint-preserves-terminal",
       0,
       JSON.stringify({ type: "done" }),
-      { eventAt: expect.any(Number) },
+      { eventAt: expect.any(Number), requireInserted: true },
     );
   });
 
@@ -1447,7 +1505,7 @@ describe("run manager soft timeout", () => {
         error: "The agent could not save its continuation checkpoint.",
         errorCode: "run_checkpoint_persistence_failed",
       }),
-      { eventAt: expect.any(Number) },
+      { eventAt: expect.any(Number), requireInserted: true },
     );
     consoleError.mockRestore();
   });
@@ -2091,7 +2149,7 @@ describe("run manager soft timeout", () => {
         "run-terminal-event-order",
         0,
         expect.stringContaining('"type":"error"'),
-        { eventAt: expect.any(Number) },
+        { eventAt: expect.any(Number), requireInserted: true },
       );
     });
     expect(updateRunStatusIfRunning).not.toHaveBeenCalled();
@@ -2184,7 +2242,7 @@ describe("run manager soft timeout", () => {
       "run-finalization-boundary",
       1,
       JSON.stringify({ type: "done" }),
-      { eventAt: expect.any(Number) },
+      { eventAt: expect.any(Number), requireInserted: true },
     );
     expect(finalized).toBe(false);
 
@@ -2254,7 +2312,7 @@ describe("run manager soft timeout", () => {
       "run-missing-credential-terminal",
       0,
       JSON.stringify({ type: "missing_api_key" }),
-      { eventAt: expect.any(Number) },
+      { eventAt: expect.any(Number), requireInserted: true },
     );
     expect(setRunTerminalReason).toHaveBeenCalledWith(
       "run-missing-credential-terminal",
@@ -4585,7 +4643,7 @@ describe("run manager soft timeout", () => {
       "run-terminal-after-save",
       1,
       JSON.stringify({ type: "done" }),
-      { eventAt: expect.any(Number) },
+      { eventAt: expect.any(Number), requireInserted: true },
     );
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-terminal-after-save",
@@ -4665,7 +4723,7 @@ describe("run manager soft timeout", () => {
       "run-server-continuation-terminal",
       1,
       JSON.stringify({ type: "auto_continue", reason: "stream_ended" }),
-      { eventAt: expect.any(Number) },
+      { eventAt: expect.any(Number), requireInserted: true },
     );
   });
 

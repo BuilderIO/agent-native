@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Keep run cancellation and its terminal event atomic, and preserve persisted aborts and checkpoint failures when checkpoint persistence races driver completion.
+Keep run status and terminal history consistent when an abort wins, and require terminal checkpoint writes to persist before publication.
