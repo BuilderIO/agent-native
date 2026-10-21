@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   restartTranscriptionEngine: vi.fn(),
   getMeeting: vi.fn(),
   captureStopRevision: 0,
+  initialActualEnd: null as string | null,
+  pendingStart: null as Promise<unknown> | null,
   actions: [] as Array<{ name: string; body: Record<string, unknown> }>,
 }));
 
@@ -66,10 +68,12 @@ function Harness() {
     ) => {
       mocks.actions.push({ name, body });
       if (name === "start-meeting-recording") {
+        if (mocks.pendingStart) return (await mocks.pendingStart) as T;
         return {
           meetingId: "meeting-1",
           recording: { id: "recording-1" },
           captureStopRevision: mocks.captureStopRevision,
+          actualEnd: mocks.initialActualEnd,
         } as T;
       }
       if (name === "get-meeting") {
@@ -141,6 +145,8 @@ describe("meeting transcription pause and resume", () => {
       .mockReset()
       .mockResolvedValue({ meeting: {}, transcript: null });
     mocks.captureStopRevision = 0;
+    mocks.initialActualEnd = null;
+    mocks.pendingStart = null;
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -189,8 +195,11 @@ describe("meeting transcription pause and resume", () => {
   });
 
   it("keeps restarted notes running until a newer stop, even with the same actualEnd", async () => {
+    const start = deferred<unknown>();
+    mocks.pendingStart = start.promise;
     mocks.captureStopRevision = 7;
     const actualEnd = "2026-10-20T16:00:00Z";
+    mocks.initialActualEnd = actualEnd;
     mocks.getMeeting.mockResolvedValue({
       meeting: { actualEnd, captureStopRevision: 7 },
     });
@@ -200,12 +209,49 @@ describe("meeting transcription pause and resume", () => {
     });
     await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
     await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(5_000);
+      await settle();
+    });
+    expect(mocks.stopTranscriptionEngine).not.toHaveBeenCalled();
+    await act(async () => {
+      start.resolve({
+        meetingId: "meeting-1",
+        recording: { id: "recording-1" },
+        captureStopRevision: 7,
+        actualEnd,
+      });
+      await settle();
+    });
+    await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
       await settle();
     });
     expect(mocks.stopTranscriptionEngine).not.toHaveBeenCalled();
     mocks.getMeeting.mockResolvedValue({
       meeting: { actualEnd, captureStopRevision: 8 },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+      await settle();
+    });
+    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledExactlyOnceWith(
+      "whisper",
+      mocks.startTranscriptionEngine.mock.calls[0][0].runId,
+    );
+  });
+
+  it("stops on a newly persisted server closure without a revision increment", async () => {
+    mocks.getMeeting.mockResolvedValue({
+      meeting: { actualEnd: null, captureStopRevision: 0 },
+    });
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+    mocks.getMeeting.mockResolvedValue({
+      meeting: { actualEnd: "2026-10-21T16:00:00Z", captureStopRevision: 0 },
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);

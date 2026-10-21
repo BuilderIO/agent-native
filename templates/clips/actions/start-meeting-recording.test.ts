@@ -108,7 +108,10 @@ describe("start-meeting-recording recording_created", () => {
     state.meeting.actualEnd = "2026-10-20T16:00:00Z";
     const result = await action.run({ meetingId: "meeting-1" });
 
-    expect(result).toMatchObject({ captureStopRevision: 7 });
+    expect(result).toMatchObject({
+      captureStopRevision: 7,
+      actualEnd: "2026-10-20T16:00:00Z",
+    });
     expect(state.inserted).toHaveLength(0);
     expect(state.trackRecordingCreated).not.toHaveBeenCalled();
   });

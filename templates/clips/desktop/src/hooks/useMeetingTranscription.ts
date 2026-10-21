@@ -49,7 +49,10 @@ interface MeetingTranscriptionSession {
   resumingRunId: number | null;
   settlingRunDeadlines: Map<number, number>;
   recordingId: string | null;
-  captureStopRevision: number | null;
+  captureStopState: {
+    revision: number | null;
+    actualEnd: string | null;
+  } | null;
   lines: TranscriptLine[];
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
@@ -685,7 +688,7 @@ export function useMeetingTranscription({
           historyInFlight: null,
           engineStartInFlight: null,
           startRecordingInFlight: null,
-          captureStopRevision: null,
+          captureStopState: null,
           flushInFlight: null,
           flushSeq: 0,
           dirtySeq: 0,
@@ -792,6 +795,7 @@ export function useMeetingTranscription({
               meetingId?: string;
               scheduledEnd?: string | null;
               captureStopRevision?: number;
+              actualEnd?: string | null;
               recording?: { id?: string | null } | null;
             }>("start-meeting-recording", { meetingId }, { signal }),
           MEETING_ACTION_TIMEOUT_MS,
@@ -806,7 +810,10 @@ export function useMeetingTranscription({
         const recordingId = result.recording?.id;
         session.meetingId = resolvedMeetingId;
         session.recordingId = recordingId ?? null;
-        session.captureStopRevision = result.captureStopRevision ?? null;
+        session.captureStopState = {
+          revision: result.captureStopRevision ?? null,
+          actualEnd: result.actualEnd ?? null,
+        };
         if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         if (!recordingId) {
           throw new Error("Could not create a transcript session.");
@@ -1610,6 +1617,7 @@ export function useMeetingTranscription({
         disposed ||
         inFlight ||
         !session ||
+        !session.captureStopState ||
         session.stopping ||
         session.stopPending
       )
@@ -1639,12 +1647,17 @@ export function useMeetingTranscription({
         )
           return;
         const revision = data?.meeting?.captureStopRevision;
-        // Older servers expose only actualEnd; updated servers distinguish
-        // each stop request without changing the meeting's first end time.
+        const initial = session.captureStopState;
+        // A revision catches repeated Ends; the timestamp also catches
+        // server recovery paths that close a meeting without a stop request.
         const ended =
-          session.captureStopRevision !== null && revision !== undefined
-            ? revision > session.captureStopRevision
-            : Boolean(data?.meeting?.actualEnd);
+          (initial.revision !== null &&
+            revision !== undefined &&
+            revision > initial.revision) ||
+          Boolean(
+            data?.meeting?.actualEnd &&
+            data.meeting.actualEnd !== initial.actualEnd,
+          );
         if (ended) await stopTranscription("server-ended");
       } catch (error) {
         if (!disposed)
