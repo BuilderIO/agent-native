@@ -58,6 +58,22 @@ describe("filesystemActionEntry", () => {
     expect(entry.capabilityScopes).toEqual(["messages:send"]);
   });
 
+  it("keeps the browser-persistence opt-out in the dev scan and a built registry", () => {
+    const action = defineAction({
+      description: "Reveal an API key",
+      schema: z.object({ id: z.string() }),
+      http: { method: "GET" },
+      persistInBrowser: false,
+      run: async () => ({ key: "secret" }),
+    });
+
+    expect(filesystemActionEntry(action).persistInBrowser).toBe(false);
+    expect(
+      loadActionsFromStaticRegistry({ reveal: { default: action } }).reveal!
+        .persistInBrowser,
+    ).toBe(false);
+  });
+
   it("classifies a retrySafe predicate with schema defaults applied", async () => {
     const action = defineAction({
       description: "Append or replace a row",

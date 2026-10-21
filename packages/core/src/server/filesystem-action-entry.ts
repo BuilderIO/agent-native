@@ -96,6 +96,9 @@ export function preserveActionFlags(
   if (typeof entry.changeEvents === "boolean") {
     out.changeEvents = entry.changeEvents;
   }
+  if (typeof entry.persistInBrowser === "boolean") {
+    out.persistInBrowser = entry.persistInBrowser;
+  }
   if (typeof entry.changeResource === "function") {
     out.changeResource = entry.changeResource;
   }
