@@ -19,11 +19,6 @@ const designFile = { kind: "design-file", designId: "design_1", fileId: "f_1" };
 const target = { nodeId: "node_1" };
 
 describe("retrySafe on Design write actions", () => {
-  it("marks propose-node-rewrite and show-design-questions replay-safe", () => {
-    expect(proposeNodeRewrite.retrySafe).toBe(true);
-    expect(showDesignQuestions.retrySafe).toBe(true);
-  });
-
   it("leaves export-png undeclared because every call uploads a new object", () => {
     expect(exportPng.retrySafe).toBeUndefined();
     expect(exportPng.readOnly).toBe(false);

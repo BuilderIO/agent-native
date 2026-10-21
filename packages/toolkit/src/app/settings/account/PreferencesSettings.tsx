@@ -4,6 +4,7 @@ import { LanguagePicker } from "../../shared/index.js";
 import { SchedulingTimezoneField } from "../SchedulingTimezoneField.js";
 import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { VoiceTranscriptionSection } from "../VoiceTranscriptionSection.js";
+import { ThemeFamilySettings } from "./ThemeFamilySettings.js";
 
 const key = (name: string) => `agentChat.settingsShell.account.${name}`;
 
@@ -35,6 +36,13 @@ export function PreferencesSettings() {
           label={t(key("timezone"))}
           description={t(key("timezoneDescription"))}
           control={<SchedulingTimezoneField compact />}
+        />
+      </SettingsGroup>
+      <SettingsGroup id="appearance" title={t(key("appearance"))}>
+        <SettingsRow
+          id="theme-family"
+          label={t(key("themeFamily"))}
+          control={<ThemeFamilySettings />}
         />
       </SettingsGroup>
       <SettingsGroup id="voice-input" title={t(key("voiceInput"))}>

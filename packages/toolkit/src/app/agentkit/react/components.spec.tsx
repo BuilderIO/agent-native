@@ -196,6 +196,18 @@ describe("AgentMessageActions layout", () => {
 });
 
 describe("AgentKitChat", () => {
+  it("keeps work-summary chevrons visible before the row is opened", () => {
+    const styles = readFileSync(
+      new URL("./styles.css", import.meta.url),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const rule = styles.match(
+      /\.agentkit-activities-summary > \.agentkit-summary-chevron \{([^}]*)\}/,
+    )?.[1];
+
+    expect(rule).toContain("opacity: 1;");
+  });
+
   it("renders the complete reference surface from one managed component", () => {
     const transport: AgentTransport = {
       async startRun() {

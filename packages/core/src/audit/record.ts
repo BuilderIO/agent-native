@@ -227,6 +227,7 @@ export async function recordActionAudit(
       reportedClientVersion: reportedLabel(attribution.mcpClient?.version),
       oauthClientId: attribution.mcpClient?.oauthClientId ?? null,
       approval: approvalEvidence(attribution),
+      identityAssurance: attribution.identityAssurance ?? null,
     };
     if (integration) {
       if (

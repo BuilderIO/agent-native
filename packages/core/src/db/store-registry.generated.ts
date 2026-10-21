@@ -77,6 +77,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       import("../jobs/run-history.js").then((m) => m.automationRunHistoryStore),
   ],
   [
+    "automation_sharing",
+    () =>
+      import("../automations/sharing-store.js").then(
+        (m) => m.automationSharingStore,
+      ),
+  ],
+  [
     "automation_trigger_events",
     () =>
       import("../triggers/event-queue.js").then(

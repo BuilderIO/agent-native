@@ -29,6 +29,7 @@ import {
   type ApplyEditsResult,
   type DesignEdit,
 } from "../shared/apply-edits.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 
 const editBlocksSchema = z.preprocess(
@@ -511,6 +512,7 @@ export default defineAction({
       mode: resolvedMode,
       editsApplied: applied,
       changed,
+      _receipt: designOutputWriteReceipt(designId, changed ? 1 : 0),
       bytesBefore: base.length,
       bytesAfter: nextContent.length,
       ...(creativeContext

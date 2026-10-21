@@ -1,0 +1,914 @@
+{
+  "scenarios": {
+    "owner-replies-in-the-thread-and-nothing-escalates": {
+      "description": "A hot lead gets one task and one Slack message; the owner answers in the thread before the two hours are up, so the manager and the sales channel hear nothing.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "hotLead",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.companyActivity",
+          "recording": "profile"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.ownerById",
+          "recording": "owner"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.findUserByEmail",
+          "recording": "found"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.addToList",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "score",
+          "recording": "hot"
+        },
+        {
+          "kind": "ai",
+          "node": "tellOwner",
+          "recording": "message"
+        },
+        {
+          "kind": "ai",
+          "node": "mgrEmail",
+          "recording": "body"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the lead arrives"
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "nobody has answered yet"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0OWNER",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+20m",
+          "author": "owner@example.test",
+          "text": "On it, calling them today."
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "the owner's reply is seen"
+        }
+      ]
+    },
+    "the-ack-reaction-counts-as-an-answer": {
+      "description": "A check-mark reaction from the owner on the message acknowledges the lead as well as a reply does.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "hotLead",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.companyActivity",
+          "recording": "profile"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.ownerById",
+          "recording": "owner"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.findUserByEmail",
+          "recording": "found"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.addToList",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "score",
+          "recording": "hot"
+        },
+        {
+          "kind": "ai",
+          "node": "tellOwner",
+          "recording": "message"
+        },
+        {
+          "kind": "ai",
+          "node": "mgrEmail",
+          "recording": "body"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the lead arrives"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0OWNER",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+10m",
+          "author": "owner@example.test",
+          "reaction": "white_check_mark"
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "the reaction is seen"
+        }
+      ]
+    },
+    "a-late-tick-still-counts-an-answer-given-in-time": {
+      "description": "The owner answers at 1h50, but the scheduler is late and the next look is at 2h10: the answer found then still counts, and nothing escalates.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "hotLead",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.companyActivity",
+          "recording": "profile"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.ownerById",
+          "recording": "owner"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.findUserByEmail",
+          "recording": "found"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.addToList",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "score",
+          "recording": "hot"
+        },
+        {
+          "kind": "ai",
+          "node": "tellOwner",
+          "recording": "message"
+        },
+        {
+          "kind": "ai",
+          "node": "mgrEmail",
+          "recording": "body"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the lead arrives"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0OWNER",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+1h50m",
+          "author": "owner@example.test",
+          "text": "Calling them now."
+        },
+        {
+          "kind": "tick",
+          "at": "+2h10m",
+          "label": "a late look, past the two hours"
+        }
+      ]
+    },
+    "nobody-answers-so-the-manager-is-told-and-then-the-sales-channel": {
+      "description": "Two hours of silence tell the manager by Slack and email and start a second wait; two more hours of silence post in the sales channel and hand the lead to a person.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "hotLead",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.companyActivity",
+          "recording": "profile"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.ownerById",
+          "recording": "owner"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.findUserByEmail",
+          "recording": "found"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.addToList",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "score",
+          "recording": "hot"
+        },
+        {
+          "kind": "ai",
+          "node": "tellOwner",
+          "recording": "message"
+        },
+        {
+          "kind": "ai",
+          "node": "mgrEmail",
+          "recording": "body"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the lead arrives"
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "still waiting"
+        },
+        {
+          "kind": "tick",
+          "at": "+2h",
+          "label": "two hours: the manager is told"
+        },
+        {
+          "kind": "tick",
+          "at": "+2h15m",
+          "label": "the manager's wait is checked"
+        },
+        {
+          "kind": "tick",
+          "at": "+4h",
+          "label": "four hours: the sales channel is told"
+        }
+      ]
+    },
+    "the-manager-answers-the-second-wait": {
+      "description": "After the escalation the manager (or the owner) can still answer; the second wait then ends the lead without a sales-channel post.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "hotLead",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.companyActivity",
+          "recording": "profile"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.ownerById",
+          "recording": "owner"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.findUserByEmail",
+          "recording": "found"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.addToList",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "score",
+          "recording": "hot"
+        },
+        {
+          "kind": "ai",
+          "node": "tellOwner",
+          "recording": "message"
+        },
+        {
+          "kind": "ai",
+          "node": "mgrEmail",
+          "recording": "body"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the lead arrives"
+        },
+        {
+          "kind": "tick",
+          "at": "+2h",
+          "label": "the manager is told"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0MANAGER",
+            "threadTs": "1760001000.000002"
+          },
+          "at": "+2h30m",
+          "author": "manager@example.test",
+          "text": "I will take it."
+        },
+        {
+          "kind": "tick",
+          "at": "+2h45m",
+          "label": "the manager's reply is seen"
+        }
+      ]
+    },
+    "strangers-and-bots-do-not-count-as-an-answer": {
+      "description": "A reply from someone outside the accepted people, and a bot's message, answer neither wait: the lead escalates twice and ends in the sales channel.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "hotLead",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.companyActivity",
+          "recording": "profile"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.ownerById",
+          "recording": "owner"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.findUserByEmail",
+          "recording": "found"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.addToList",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "score",
+          "recording": "hot"
+        },
+        {
+          "kind": "ai",
+          "node": "tellOwner",
+          "recording": "message"
+        },
+        {
+          "kind": "ai",
+          "node": "mgrEmail",
+          "recording": "body"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the lead arrives"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0OWNER",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+30m",
+          "author": "stranger@example.test",
+          "text": "Is this still open?"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0OWNER",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+40m",
+          "author": "alerts-bot",
+          "text": "Reminder: lead waiting.",
+          "bot": true
+        },
+        {
+          "kind": "tick",
+          "at": "+45m",
+          "label": "only a stranger and a bot have written"
+        },
+        {
+          "kind": "tick",
+          "at": "+2h",
+          "label": "two hours: the manager is told"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0MANAGER",
+            "threadTs": "1760001000.000002"
+          },
+          "at": "+2h30m",
+          "author": "stranger@example.test",
+          "text": "FYI from another team."
+        },
+        {
+          "kind": "tick",
+          "at": "+2h45m",
+          "label": "still only a stranger"
+        },
+        {
+          "kind": "tick",
+          "at": "+4h",
+          "label": "four hours: the sales channel is told"
+        }
+      ]
+    },
+    "three-leads-take-three-routes": {
+      "description": "In one run a hot lead is tasked and messaged and waits, a warm lead joins the nurture list, and a cold lead is dismissed with its reason.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "threeLeads",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.companyActivity",
+          "recording": "profile"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.ownerById",
+          "recording": "owner"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.findUserByEmail",
+          "recording": "found"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.addToList",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "score",
+          "recording": "mixed"
+        },
+        {
+          "kind": "ai",
+          "node": "tellOwner",
+          "recording": "message"
+        },
+        {
+          "kind": "ai",
+          "node": "mgrEmail",
+          "recording": "body"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "three new leads"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0OWNER",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+10m",
+          "author": "owner@example.test",
+          "text": "Got it."
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "the owner answers"
+        }
+      ]
+    },
+    "a-lead-offered-again-is-not-processed-twice": {
+      "description": "The source offers the same lead on every tick, while it waits and after it ended; it gets one task and one message, and no later escalation.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "hotLead",
+          "calls": 4
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.companyActivity",
+          "recording": "profile"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.ownerById",
+          "recording": "owner"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.findUserByEmail",
+          "recording": "found"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.addToList",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "score",
+          "recording": "hot"
+        },
+        {
+          "kind": "ai",
+          "node": "tellOwner",
+          "recording": "message"
+        },
+        {
+          "kind": "ai",
+          "node": "mgrEmail",
+          "recording": "body"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the lead arrives"
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "offered again while it waits"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0OWNER",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+20m",
+          "author": "owner@example.test",
+          "text": "On it."
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "the reply is seen; offered again in the same run"
+        },
+        {
+          "kind": "tick",
+          "at": "+45m",
+          "label": "offered again after it ended"
+        },
+        {
+          "kind": "tick",
+          "at": "+2h15m",
+          "label": "past the two hours the owner would have been escalated"
+        }
+      ]
+    },
+    "a-failed-slack-lookup-is-a-failure-and-not-no-owner": {
+      "description": "When Slack cannot find the owner the lead fails at that step: no task, no message, and a person at once, because looking the same person up again will not find them.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "hotLead",
+          "calls": 3
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.companyActivity",
+          "recording": "profile"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.ownerById",
+          "recording": "owner"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.findUserByEmail",
+          "recording": "lookupFails"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.addToList",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "score",
+          "recording": "hot"
+        },
+        {
+          "kind": "ai",
+          "node": "tellOwner",
+          "recording": "message"
+        },
+        {
+          "kind": "ai",
+          "node": "mgrEmail",
+          "recording": "body"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the lookup fails, a person is told"
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "offered again, not tried again"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "offered again, still not tried again"
+        }
+      ]
+    },
+    "a-failed-lead-behind-a-cursor-is-retried-and-then-handed-to-a-person": {
+      "description": "Slack is down when the lead's owner is looked up. The source's cursor has moved past the lead and will never offer it again, so the failed lead is set aside at that step and tried again after five and then ten minutes; the third failure hands it to a person.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "hubspot.newLeads",
+          "recording": "hotLeadOnce"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.companyActivity",
+          "recording": "profile"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.ownerById",
+          "recording": "owner"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.findUserByEmail",
+          "recording": "lookupDown"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.addToList",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "score",
+          "recording": "hot"
+        },
+        {
+          "kind": "ai",
+          "node": "tellOwner",
+          "recording": "message"
+        },
+        {
+          "kind": "ai",
+          "node": "mgrEmail",
+          "recording": "body"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the first try fails"
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "the second try"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "the third try"
+        }
+      ]
+    }
+  }
+}
