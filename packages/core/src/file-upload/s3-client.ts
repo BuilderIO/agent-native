@@ -30,6 +30,12 @@ export interface SignedS3RequestOptions {
   /** An HTTP Range header value, such as `bytes=0-1023`. */
   range?: string;
   timeoutMs: number;
+  /**
+   * The deployment configured this endpoint (not a workspace), so it may sit
+   * on a private network. Without it, only the `S3_ENDPOINT`/`R2_ENDPOINT`
+   * origin may.
+   */
+  trustedEndpoint?: boolean;
 }
 
 export interface PresignS3GetOptions {
@@ -420,7 +426,9 @@ export async function signedS3Request(
         : {}),
     },
     options.timeoutMs,
-    trustedDeploymentS3Origin(config.endpoint),
+    options.trustedEndpoint
+      ? new URL(config.endpoint).origin
+      : trustedDeploymentS3Origin(config.endpoint),
   );
 }
 

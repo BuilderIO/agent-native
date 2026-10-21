@@ -7,19 +7,18 @@ import {
 import type { PrivateBlobHandle } from "./types.js";
 
 const resolveSecretDetailedMock = vi.hoisted(() => vi.fn());
-const canUseDeployCredentialFallbackMock = vi.hoisted(() => vi.fn());
 const readAppSecretsMock = vi.hoisted(() => vi.fn());
 const s3FetchMock = vi.hoisted(() => vi.fn());
+const isBlockedUrlMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
   resolveSecretDetailed: resolveSecretDetailedMock,
-  canUseDeployCredentialFallbackForRequest: canUseDeployCredentialFallbackMock,
 }));
 vi.mock("../secrets/storage.js", () => ({
   readAppSecrets: readAppSecretsMock,
 }));
 vi.mock("../extensions/url-safety.js", () => ({
-  isBlockedExtensionUrlWithDns: vi.fn(async () => false),
+  isBlockedExtensionUrlWithDns: isBlockedUrlMock,
   ssrfSafeFetch: s3FetchMock,
 }));
 
@@ -107,11 +106,11 @@ describe("S3 private blob providers", () => {
       value: null,
       lookupFailed: false,
     });
-    canUseDeployCredentialFallbackMock.mockReset();
-    canUseDeployCredentialFallbackMock.mockReturnValue(true);
     readAppSecretsMock.mockReset();
     readAppSecretsMock.mockResolvedValue(new Map());
     s3FetchMock.mockReset();
+    isBlockedUrlMock.mockReset();
+    isBlockedUrlMock.mockResolvedValue(false);
   });
 
   afterEach(async () => {
@@ -128,7 +127,9 @@ describe("S3 private blob providers", () => {
     const { objects } = fakeBucket();
     useEnvBucket();
 
-    expect(s3PrivateBlobProvider.isConfigured()).toBe(true);
+    await expect(s3PrivateBlobProvider.isConfiguredForRequest!()).resolves.toBe(
+      true,
+    );
     const handle = await s3PrivateBlobProvider.put({
       data: new TextEncoder().encode("dashboard screenshot"),
       mimeType: "image/png",
@@ -314,12 +315,184 @@ describe("S3 private blob providers", () => {
     });
   });
 
-  it("doesn't use the deployment's bucket when this request may not", async () => {
+  it("reads configuration only per request, as put does", async () => {
     const { s3PrivateBlobProvider } = await import("./s3-private.js");
     useEnvBucket();
-    canUseDeployCredentialFallbackMock.mockReturnValue(false);
-
     expect(s3PrivateBlobProvider.isConfigured()).toBe(false);
+    await expect(s3PrivateBlobProvider.isConfiguredForRequest!()).resolves.toBe(
+      true,
+    );
+
+    // The deployment's bucket is off limits to this request.
+    resolveSecretDetailedMock.mockResolvedValue({
+      value: null,
+      lookupFailed: false,
+    });
+    await expect(s3PrivateBlobProvider.isConfiguredForRequest!()).resolves.toBe(
+      false,
+    );
+
+    // A saved bucket without its keys doesn't borrow env's.
+    resolveSecretDetailedMock.mockResolvedValue({
+      value: "user-bucket",
+      lookupFailed: false,
+      source: "user",
+      scopeId: "owner@example.test",
+    });
+    readAppSecretsMock.mockResolvedValue(
+      new Map([["S3_BUCKET", { value: "user-bucket" }]]),
+    );
+    await expect(s3PrivateBlobProvider.isConfiguredForRequest!()).resolves.toBe(
+      false,
+    );
+  });
+
+  it("fails instead of picking other storage when settings can't be read", async () => {
+    const { s3PrivateBlobProvider } = await import("./s3-private.js");
+    fakeBucket();
+    resolveSecretDetailedMock.mockResolvedValue({
+      value: null,
+      lookupFailed: true,
+      cause: new Error("database unavailable"),
+    });
+
+    await expect(
+      s3PrivateBlobProvider.isConfiguredForRequest!(),
+    ).rejects.toMatchObject({ kind: "unavailable" });
+    await expect(
+      s3PrivateBlobProvider.put({ data: new Uint8Array([1]) }),
+    ).rejects.toMatchObject({ kind: "unavailable" });
+  });
+
+  it("encrypts when the bucket's public URL is saved in another scope", async () => {
+    const { s3PrivateBlobProvider } = await import("./s3-private.js");
+    const { objects } = fakeBucket();
+    readAppSecretsMock.mockResolvedValue(
+      new Map(
+        Object.entries({
+          S3_ENDPOINT: "https://user.storage.example.test",
+          S3_BUCKET: "user-bucket",
+          S3_ACCESS_KEY_ID: "user-access",
+          S3_SECRET_ACCESS_KEY: "user-secret",
+        }).map(([key, value]) => [key, { value }]),
+      ),
+    );
+    resolveSecretDetailedMock.mockImplementation(async (key: string) => {
+      if (key === "S3_BUCKET") {
+        return {
+          value: "user-bucket",
+          lookupFailed: false,
+          source: "user",
+          scopeId: "owner@example.test",
+        };
+      }
+      if (key === "S3_PUBLIC_BASE_URL") {
+        return {
+          value: "https://files.example.test/",
+          lookupFailed: false,
+          source: "workspace",
+          scopeId: "org-1",
+        };
+      }
+      return { value: null, lookupFailed: false };
+    });
+
+    const handle = await s3PrivateBlobProvider.put({
+      data: new TextEncoder().encode("internal dashboard"),
+      mimeType: "image/png",
+    });
+
+    expect(handle.encrypted).toBe(true);
+    expect(text([...objects.values()][0].body)).not.toContain(
+      "internal dashboard",
+    );
+    await expect(
+      s3PrivateBlobProvider.getReadUrl!(handle, { expiresInSeconds: 60 }),
+    ).resolves.toBeNull();
+  });
+
+  it("reaches deployment endpoints on a private network, but not saved ones", async () => {
+    const { hostedPrivateBlobProvider, s3PrivateBlobProvider } =
+      await import("./s3-private.js");
+    fakeBucket();
+    isBlockedUrlMock.mockResolvedValue(true);
+    defineAppConfig({
+      hostedStorage: {
+        enabled: true,
+        endpoint: "http://10.0.0.5:9000",
+        bucket: "hosted-private",
+        accessKeyId: "hosted-access",
+        secretAccessKey: "hosted-secret",
+        region: "auto",
+      },
+    });
+
+    const handle = await hostedPrivateBlobProvider.put({
+      data: new TextEncoder().encode("hosted image"),
+    });
+    expect(text((await hostedPrivateBlobProvider.read(handle)).data)).toBe(
+      "hosted image",
+    );
+    expect(s3FetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^http:\/\/10\.0\.0\.5:9000\/hosted-private\//),
+      expect.anything(),
+      expect.objectContaining({
+        allowedPrivateOrigins: ["http://10.0.0.5:9000"],
+      }),
+    );
+
+    s3FetchMock.mockClear();
+    readAppSecretsMock.mockResolvedValue(
+      new Map(
+        Object.entries({
+          S3_ENDPOINT: "http://10.0.0.6:9000",
+          S3_BUCKET: "user-bucket",
+          S3_ACCESS_KEY_ID: "user-access",
+          S3_SECRET_ACCESS_KEY: "user-secret",
+        }).map(([key, value]) => [key, { value }]),
+      ),
+    );
+    resolveSecretDetailedMock.mockImplementation(async (key: string) =>
+      key === "S3_BUCKET"
+        ? {
+            value: "user-bucket",
+            lookupFailed: false,
+            source: "user",
+            scopeId: "owner@example.test",
+          }
+        : { value: null, lookupFailed: false },
+    );
+    await expect(
+      s3PrivateBlobProvider.put({ data: new Uint8Array([1]) }),
+    ).rejects.toThrow(/SSRF blocked/);
+    expect(s3FetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects partial responses that aren't the requested bytes", async () => {
+    const { s3PrivateBlobProvider } = await import("./s3-private.js");
+    fakeBucket();
+    useEnvBucket();
+    const handle = await s3PrivateBlobProvider.put({
+      data: new TextEncoder().encode("0123456789"),
+    });
+
+    for (const contentRange of [
+      "bytes 0-3/10", // wrong offset
+      "bytes 2-5/4", // ends past the total
+      "bytes 5-2/10", // backwards
+      "bytes 2-3/10", // shorter than asked, though the object has more
+    ]) {
+      const length = contentRange.includes("2-3") ? 2 : 4;
+      s3FetchMock.mockResolvedValueOnce(
+        new Response(new Uint8Array(length), {
+          status: 206,
+          headers: { "content-range": contentRange },
+        }),
+      );
+      await expect(
+        s3PrivateBlobProvider.readRange!(handle, { start: 2, end: 5 }),
+      ).rejects.toMatchObject({ kind: "unavailable" });
+    }
   });
 
   it("stores in the hosted bucket while enabled and still reads after it's off", async () => {

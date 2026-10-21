@@ -27,10 +27,7 @@ import {
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import type { SecretScope } from "../secrets/register.js";
 import { readAppSecrets } from "../secrets/storage.js";
-import {
-  canUseDeployCredentialFallbackForRequest,
-  resolveSecretDetailed,
-} from "../server/credential-provider.js";
+import { resolveSecretDetailed } from "../server/credential-provider.js";
 import {
   decryptBlobBytes,
   encryptBlobBytes,
@@ -140,16 +137,27 @@ async function readScopedBucketConfig(
   return buildBucketConfig((key) => secrets.get(key)?.value);
 }
 
-/**
- * The bucket this request stores new blobs in: the scope that holds its
- * bucket setting (user, org or workspace), else the deployment's env vars
- * when this request may use them.
- */
-async function resolveRequestBucket(): Promise<ResolvedBucket | null> {
-  let detail = await resolveSecretDetailed(STORAGE_KEYS.bucket[0]);
-  if (!detail.value)
-    detail = await resolveSecretDetailed(STORAGE_KEYS.bucket[1]);
-  if (!detail.value) return null;
+/** The first of a setting's names that resolves for this request. */
+async function resolveSetting(field: StorageField) {
+  for (const key of STORAGE_KEYS[field]) {
+    const detail = await resolveSecretDetailed(key);
+    // A settings read that failed must not quietly send the blob to other
+    // storage, such as the hosted bucket.
+    if (detail.lookupFailed && !detail.value) {
+      throw new PrivateBlobError(
+        "Storage settings could not be read",
+        "unavailable",
+        { cause: detail.cause },
+      );
+    }
+    if (detail.value) return { ...detail, value: detail.value };
+  }
+  return null;
+}
+
+async function resolveBucketScope(): Promise<ResolvedBucket | null> {
+  const detail = await resolveSetting("bucket");
+  if (!detail) return null;
   if (detail.source === "env" || !detail.source || !detail.scopeId) {
     const config = readEnvBucketConfig();
     return config ? { config, source: { kind: "env" } } : null;
@@ -165,6 +173,28 @@ async function resolveRequestBucket(): Promise<ResolvedBucket | null> {
         },
       }
     : null;
+}
+
+/**
+ * The bucket this request stores new blobs in: the scope that holds its
+ * bucket setting (user, org or workspace), else the deployment's env vars
+ * when this request may use them.
+ */
+async function resolveRequestBucket(): Promise<ResolvedBucket | null> {
+  const resolved = await resolveBucketScope();
+  if (!resolved || resolved.config.publicBaseUrl) return resolved;
+  // A public URL saved in another scope may still serve this bucket, so it
+  // counts too: the blob is then stored encrypted.
+  const publicBaseUrl = await resolveSetting("publicBaseUrl");
+  return publicBaseUrl
+    ? {
+        ...resolved,
+        config: {
+          ...resolved.config,
+          publicBaseUrl: publicBaseUrl.value.trim().replace(/\/+$/, ""),
+        },
+      }
+    : resolved;
 }
 
 function readHostedBucketConfig(options: {
@@ -231,6 +261,15 @@ function decodeDescriptor(handle: PrivateBlobHandle): S3BlobDescriptor {
   return descriptor;
 }
 
+/**
+ * Env and hosted buckets come from deployment config, so their endpoints may
+ * be on a private network. Handles can't be forged, so the endpoint a handle
+ * records for those sources came from deployment config too.
+ */
+function trustsEndpoint(source: CredentialSource): boolean {
+  return source.kind !== "secret";
+}
+
 async function clientConfigFor(
   descriptor: S3BlobDescriptor,
 ): Promise<S3ClientConfig> {
@@ -288,6 +327,7 @@ async function putBlob(
       ? "application/octet-stream"
       : input.mimeType || "application/octet-stream",
     timeoutMs: PUT_TIMEOUT_MS,
+    trustedEndpoint: trustsEndpoint(bucket.source),
   });
   if (!response.ok) throw await readFailure(response, "PutObject");
   await cancelS3ResponseBody(response);
@@ -323,7 +363,11 @@ async function readBlob(
   const response = await signedS3Request(
     await clientConfigFor(descriptor),
     descriptor.key,
-    { method: "GET", timeoutMs: GET_TIMEOUT_MS },
+    {
+      method: "GET",
+      timeoutMs: GET_TIMEOUT_MS,
+      trustedEndpoint: trustsEndpoint(descriptor.source),
+    },
   );
   if (!response.ok) throw await readFailure(response, "GetObject");
   const stored = new Uint8Array(await response.arrayBuffer());
@@ -342,11 +386,15 @@ function parseContentRange(
 ): { start: number; end: number; size: number } | null {
   const match = value?.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
   if (!match) return null;
-  return {
-    start: Number(match[1]),
-    end: Number(match[2]),
-    size: Number(match[3]),
-  };
+  const [start, end, size] = match.slice(1).map(Number);
+  if (
+    ![start, end, size].every(Number.isSafeInteger) ||
+    start > end ||
+    end >= size
+  ) {
+    return null;
+  }
+  return { start, end, size };
 }
 
 function unsatisfiableSize(value: string | null): number | undefined {
@@ -388,6 +436,7 @@ async function readBlobRange(
       method: "GET",
       range: `bytes=${range.start}-${range.end ?? ""}`,
       timeoutMs: GET_TIMEOUT_MS,
+      trustedEndpoint: trustsEndpoint(descriptor.source),
     },
   );
   if (response.status === 416) {
@@ -407,7 +456,15 @@ async function readBlobRange(
   };
   if (response.status === 206) {
     const returned = parseContentRange(response.headers.get("content-range"));
-    if (!returned || returned.end - returned.start + 1 !== data.byteLength) {
+    // The bytes must be exactly the ones asked for: the requested start,
+    // through the requested end or the last byte, whichever comes first.
+    if (
+      !returned ||
+      returned.start !== range.start ||
+      returned.end !==
+        Math.min(range.end ?? returned.size - 1, returned.size - 1) ||
+      returned.end - returned.start + 1 !== data.byteLength
+    ) {
       throw new PrivateBlobError(
         "S3 returned a partial object without a matching Content-Range",
         "unavailable",
@@ -425,7 +482,11 @@ async function deleteBlob(providerId: string, handle: PrivateBlobHandle) {
   const response = await signedS3Request(
     await clientConfigFor(descriptor),
     descriptor.key,
-    { method: "DELETE", timeoutMs: DELETE_TIMEOUT_MS },
+    {
+      method: "DELETE",
+      timeoutMs: DELETE_TIMEOUT_MS,
+      trustedEndpoint: trustsEndpoint(descriptor.source),
+    },
   );
   if (!response.ok && response.status !== 404) {
     throw await readFailure(response, "DeleteObject");
@@ -463,9 +524,10 @@ async function readUrlFor(
 export const s3PrivateBlobProvider: PrivateBlobProvider = {
   id: S3_PRIVATE_BLOB_PROVIDER_ID,
   name: "S3-compatible private storage",
-  isConfigured: () =>
-    readEnvBucketConfig() !== null &&
-    canUseDeployCredentialFallbackForRequest(STORAGE_KEYS.bucket[0]),
+  // Which bucket applies depends on the request (a workspace's saved bucket
+  // wins over env, and some requests may not use env), so only the request
+  // check below can answer.
+  isConfigured: () => false,
   isConfiguredForRequest: async () => (await resolveRequestBucket()) !== null,
   async put(input) {
     const bucket = await resolveRequestBucket();
