@@ -927,3 +927,30 @@ undoManager.redo(); // Shift+Cmd+Z
   सर्वर-साइड मर्ज।
 - [Template: Design](/docs/template-design) — `Y.UndoManager` पूर्ववत करें/फिर से करें स्कोप
   स्थानीय उपयोगकर्ता संपादनों के लिए।
+
+## सहयोगी लेखन नीति {#collab-write-policy}
+
+पुराने लेखन पथों सहित सहयोगी स्थिति सहेजते समय ऐप के स्रोत नियम लागू करने के लिए `defineCollabWritePolicy()` का उपयोग करें।
+
+**name** एक स्थिर पंजीकरण नाम है। **policy(tx, docId)** ऐप की पंक्तियों को लॉक करता है और निषिद्ध लेखन पर त्रुटि देता है। अपने ऐप से बाहर के दस्तावेज़ ID को अनदेखा करें।
+
+Content अपनी स्रोत जाँच को लाइव कॉपी की पात्रता से अलग पंजीकृत करता है:
+
+```ts
+import { defineCollabWritePolicy } from "@agent-native/core/collab";
+import { assertContentCollabWriteAllowed } from "./server/lib/collab-write-policy";
+
+defineCollabWritePolicy("content-page-source", assertContentCollabWriteAllowed);
+```
+
+परीक्षण या प्लगइन बंद करते समय लौटाया गया हटाने वाला फ़ंक्शन रखें। उसी नाम को फिर पंजीकृत करने पर उसका कॉलबैक बदल जाता है:
+
+```ts
+const removePolicy = defineCollabWritePolicy(
+  "content-page-source",
+  assertContentCollabWriteAllowed,
+);
+removePolicy();
+```
+
+नीति पंजीकृत होने पर स्वतंत्र सेव के लिए लेनदेन समर्थित एक्सिक्यूटर चाहिए। आंतरिक `WithClient` लेखन को कॉल करने वाले का वास्तविक लेनदेन मिलना चाहिए। नीति की त्रुटियाँ बिना बदलाव आगे जाती हैं। गेट की पात्रता लेखन की अनुमति नहीं देती।

@@ -283,43 +283,49 @@ async function persistMergedState(
   validateTextSnapshot?: (snapshot: string) => void,
   validatedBaseVersion?: number | null,
 ): Promise<void> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const latest = await loadYDocRecord(docId);
-    if (validatedBaseVersion !== undefined) {
-      const currentVersion = latest?.version ?? null;
-      if (currentVersion !== validatedBaseVersion) {
-        throw new CollabBaseVersionConflictError(
-          `Document ${docId} moved from version ${String(validatedBaseVersion)} to ${String(currentVersion)} while the edit was being applied.`,
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const latest = await loadYDocRecord(docId);
+      if (validatedBaseVersion !== undefined) {
+        const currentVersion = latest?.version ?? null;
+        if (currentVersion !== validatedBaseVersion) {
+          throw new CollabBaseVersionConflictError(
+            `Document ${docId} moved from version ${String(validatedBaseVersion)} to ${String(currentVersion)} while the edit was being applied.`,
+          );
+        }
+      }
+      if (latest?.state && latest.state.length > 0) {
+        Y.applyUpdate(doc, latest.state);
+      }
+
+      const stateToStore = buildStateToStore(doc, latest?.state?.length ?? 0);
+      const textSnapshot = getTextSnapshot();
+      validateTextSnapshot?.(textSnapshot);
+      const expectedVersion = latest?.version ?? null;
+      const saved = await trySaveYDocState(
+        docId,
+        stateToStore,
+        textSnapshot,
+        expectedVersion,
+      );
+      if (saved) {
+        noteCachedVersion(
+          docId,
+          doc,
+          expectedVersion === null ? 0 : expectedVersion + 1,
         );
+        return;
       }
     }
-    if (latest?.state && latest.state.length > 0) {
-      Y.applyUpdate(doc, latest.state);
-    }
 
-    const stateToStore = buildStateToStore(doc, latest?.state?.length ?? 0);
-    const textSnapshot = getTextSnapshot();
-    validateTextSnapshot?.(textSnapshot);
-    const expectedVersion = latest?.version ?? null;
-    const saved = await trySaveYDocState(
-      docId,
-      stateToStore,
-      textSnapshot,
-      expectedVersion,
+    throw new CollabBaseVersionConflictError(
+      `Document ${docId} kept changing while the edit was being applied; the write was not saved.`,
     );
-    if (saved) {
-      noteCachedVersion(
-        docId,
-        doc,
-        expectedVersion === null ? 0 : expectedVersion + 1,
-      );
-      return;
-    }
+  } catch (error) {
+    // Legacy edits mutate the cached document before attempting persistence.
+    releaseDoc(docId);
+    throw error;
   }
-
-  throw new CollabBaseVersionConflictError(
-    `Document ${docId} kept changing while the edit was being applied; the write was not saved.`,
-  );
 }
 
 function cachedVersionFor(

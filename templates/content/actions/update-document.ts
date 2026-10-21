@@ -109,7 +109,7 @@ import {
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
 import {
-  assertSourceAllowsPageEdit,
+  assertSourceAllowsPageUpdate,
   serializeDocumentSource,
 } from "./_document-source.js";
 import {
@@ -1085,9 +1085,11 @@ const updateDocumentAction = defineAction({
       const descriptionChanged =
         args.description !== undefined &&
         args.description.trim() !== existing.description;
-      if (titleChanged || contentChanged || descriptionChanged) {
-        assertSourceAllowsPageEdit(existing);
-      }
+      assertSourceAllowsPageUpdate(existing, {
+        title: args.title,
+        content,
+        description: args.description,
+      });
       const anyChange =
         titleChanged ||
         contentChanged ||
@@ -1232,11 +1234,19 @@ const updateDocumentAction = defineAction({
               description: schema.documents.description,
               icon: schema.documents.icon,
               updatedAt: schema.documents.updatedAt,
+              sourceMode: schema.documents.sourceMode,
+              sourceRootPath: schema.documents.sourceRootPath,
+              sourcePath: schema.documents.sourcePath,
             })
             .from(schema.documents)
             .where(eq(schema.documents.id, id))
             .limit(1);
           const bodyBaseStale = observeSaveBase(historyBefore);
+          assertSourceAllowsPageUpdate(historyBefore, {
+            title: args.title,
+            content,
+            description: args.description,
+          });
           if (
             isScopedWidgetDocumentWriter(ctx, id) &&
             args.content !== undefined &&
@@ -1270,7 +1280,16 @@ const updateDocumentAction = defineAction({
               // body part of its save is not written here. Comparing it with
               // the stored body would read every peer's live-copy commit as
               // an unmerged edit and divert this save to History.
-              const matchesLiveCopy = content === historyBefore.content;
+              const saveBodies = new Set(
+                [
+                  args.content,
+                  args.authoredCandidateContent,
+                  args.editorSnapshotContent,
+                ].filter((body): body is string => body !== undefined),
+              );
+              const matchesLiveCopy = [...saveBodies].every(
+                (body) => body === historyBefore.content,
+              );
               liveCopyBodySave = {
                 status: "live_copy",
                 matchesLiveCopy,
@@ -1281,20 +1300,24 @@ const updateDocumentAction = defineAction({
               // most saves from two open tabs match no stored body. Old
               // editors read an unsettled save as unsaved and send its text
               // to History when the tab reopens.
-              // The live copy keeps a title heading that SQL writes strip, so
-              // compare the editor's own bodies, not the stripped ones.
-              const hold =
-                matchesLiveCopy ||
-                !authoredBase ||
-                args.authoredCandidateContent === undefined
-                  ? undefined
-                  : await liveCopyHoldsSave({
+              // A receipt acknowledges the submitted body, authored candidate
+              // and recovery snapshot. SQL strips title headings they retain.
+              settlesLiveCopyBody = true;
+              for (const body of saveBodies) {
+                if (body === historyBefore.content) continue;
+                const hold = authoredBase
+                  ? await liveCopyHoldsSave({
                       base: args.authoredBaseContent as string,
                       stored: historyBefore.content,
-                      candidate: args.authoredCandidateContent,
-                    });
-              settlesLiveCopyBody = matchesLiveCopy || hold === "held";
-              if (hold) measurement.reason_code = `live_copy_save_${hold}`;
+                      candidate: body,
+                    })
+                  : undefined;
+                if (hold) measurement.reason_code = `live_copy_save_${hold}`;
+                if (hold !== "held") {
+                  settlesLiveCopyBody = false;
+                  break;
+                }
+              }
               if (settlesLiveCopyBody) {
                 bodyIntentOutcome = { status: "applied" };
               }
@@ -1517,6 +1540,11 @@ const updateDocumentAction = defineAction({
           const lockedDescriptionChanged =
             args.description !== undefined &&
             args.description.trim() !== historyBefore.description;
+          assertSourceAllowsPageUpdate(historyBefore, {
+            title: lockedTitleChanged ? args.title : undefined,
+            content,
+            description: args.description,
+          });
           const lockedIconChanged =
             args.icon !== undefined && args.icon !== historyBefore.icon;
           const lockedDocumentFieldsChanged =

@@ -164,8 +164,8 @@ export interface DocumentUpdateRequest {
 /**
  * The body part of a browser save on a page whose body is its live copy. The
  * body was not written: the editor's updates reach the live copy over collab.
- * `matchesLiveCopy` says whether the save's body equals the body derived from
- * the live copy at `collabVersion`.
+ * `matchesLiveCopy` says whether every submitted, authored and snapshot body
+ * equals the body derived from the live copy at `collabVersion`.
  */
 export interface LiveCopyBodySave {
   status: "live_copy";

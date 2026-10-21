@@ -433,6 +433,293 @@ describe("switching a page to its live copy", () => {
 });
 
 describe("GitHub source policy on a live copy", () => {
+  it.each([
+    "already linked",
+    "linked after eligibility",
+    "linked at transaction entry",
+  ] as const)(
+    "refuses a legacy collab update when its page is %s",
+    async (phase) => {
+      const id = `legacy-policy-${phase}`;
+      await switchedPage(id, "Canonical body");
+      const update = await appendParagraphUpdate(id, "Rejected edit");
+      const before = await page(id);
+      const version = await collabVersion(id);
+      await setFlags(false);
+      const adopt = () =>
+        getDb()
+          .update(schema.documents)
+          .set({ sourceMode: "github" })
+          .where(eq(schema.documents.id, id));
+      let adopted = phase === "already linked";
+      if (adopted) await adopt();
+      const gateModule = await import("../lib/live-body-writer.js");
+      const readGate = gateModule.liveBodyWriterGate;
+      const spy = vi
+        .spyOn(gateModule, "liveBodyWriterGate")
+        .mockImplementation(async (docId, options) => {
+          const gate = await readGate(docId, options);
+          if (
+            docId === id &&
+            !adopted &&
+            phase === "linked after eligibility"
+          ) {
+            adopted = true;
+            await adopt();
+          }
+          return gate;
+        });
+      try {
+        const exec = getDbExec();
+        const transaction = exec.transaction?.bind(exec);
+        if (!transaction)
+          throw new Error("The policy test needs transactions.");
+        await expect(
+          withDbExec(
+            {
+              execute: exec.execute.bind(exec),
+              transaction: async (run) => {
+                if (!adopted) {
+                  adopted = true;
+                  await adopt();
+                }
+                return transaction(run);
+              },
+            },
+            () => asOwner(() => collab.applyUpdate(id, update)),
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "SOURCE_READ_ONLY",
+        });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(adopted).toBe(true);
+      expect(await page(id)).toEqual(before);
+      expect(await collabVersion(id)).toBe(version);
+      const [stored] = await getDb()
+        .select({ sourceMode: schema.documents.sourceMode })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      expect(stored.sourceMode).toBe("github");
+      await getDb()
+        .update(schema.documents)
+        .set({ sourceMode: null })
+        .where(eq(schema.documents.id, id));
+      const state = await collab.getState(id);
+      const clean = new Y.Doc();
+      Y.applyUpdate(clean, state);
+      expect(clean.getXmlFragment("default").toString()).not.toContain(
+        "Rejected edit",
+      );
+      clean.destroy();
+    },
+  );
+
+  it.each([
+    "body",
+    "title",
+    "description",
+    "icon",
+    "changed source body",
+  ] as const)(
+    "rechecks GitHub policy on the locked SQL save for %s",
+    async (kind) => {
+      const id = `sql-policy-${kind}`;
+      await insertPage(id, "Canonical body");
+      await setFlags(false);
+      const action = (await import("../../actions/update-document.js")).default;
+      const { documentRevisionToken } =
+        await import("../../actions/_document-edit-mutation.js");
+      const revision = documentRevisionToken(3, "Canonical body");
+      const db = getDb();
+      const transaction = db.transaction.bind(db);
+      const spy = vi
+        .spyOn(db, "transaction")
+        .mockImplementationOnce(async (mutate) => {
+          await db
+            .update(schema.documents)
+            .set({
+              sourceMode: "github",
+              ...(kind === "changed source body"
+                ? { content: "Provider body" }
+                : {}),
+            })
+            .where(eq(schema.documents.id, id));
+          return transaction(mutate);
+        });
+      const args = {
+        id,
+        ...(kind === "body"
+          ? {
+              content: "Rejected edit",
+              baseRevision: revision,
+              authoredBaseRevision: revision,
+              authoredBaseContent: "Canonical body",
+              authoredCandidateContent: "Rejected edit",
+              editorSessionId: "policy-sql-tab",
+              editorEditGeneration: 1,
+              browserSaveAttemptId: `${id}-attempt`,
+            }
+          : {}),
+        ...(kind === "title" ? { title: "Rejected title" } : {}),
+        ...(kind === "description"
+          ? { description: "Rejected description" }
+          : {}),
+        ...(kind === "icon"
+          ? {
+              icon: {
+                version: 1,
+                kind: "library",
+                library: "tabler",
+                name: "file",
+              },
+            }
+          : {}),
+        ...(kind === "changed source body"
+          ? { content: "Canonical body", browserSaveAttemptId: `${id}-attempt` }
+          : {}),
+      };
+      try {
+        const save = asOwner(async () =>
+          action.run(
+            args as never,
+            { caller: "frontend", userEmail: OWNER } as never,
+          ),
+        );
+        if (kind === "icon")
+          await expect(save).resolves.toMatchObject({
+            icon: JSON.stringify({
+              version: 1,
+              kind: "library",
+              library: "tabler",
+              name: "file",
+            }),
+          });
+        else
+          await expect(save).rejects.toMatchObject({
+            errorCode: "SOURCE_READ_ONLY",
+          });
+        expect(spy).toHaveBeenCalledOnce();
+      } finally {
+        spy.mockRestore();
+      }
+      const [adopted] = await db
+        .select({ sourceMode: schema.documents.sourceMode })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      expect(adopted.sourceMode).toBe("github");
+      expect((await page(id)).content).toBe(
+        kind === "changed source body" ? "Provider body" : "Canonical body",
+      );
+      if (kind !== "icon") expect(await history(id)).toEqual([]);
+    },
+  );
+
+  it.each(["already linked", "adopted before lock", "mutable"] as const)(
+    "checks the resolved authored SQL body when its page is %s",
+    async (phase) => {
+      const id = `authored-policy-${phase}`;
+      await insertPage(id, "Canonical body");
+      await setFlags(false);
+      const action = (await import("../../actions/update-document.js")).default;
+      const { documentRevisionToken } =
+        await import("../../actions/_document-edit-mutation.js");
+      const revision = documentRevisionToken(3, "Canonical body");
+      const db = getDb();
+      const adopt = () =>
+        db
+          .update(schema.documents)
+          .set({ sourceMode: "github" })
+          .where(eq(schema.documents.id, id));
+      if (phase === "already linked") await adopt();
+      const transaction = db.transaction.bind(db);
+      const spy =
+        phase === "adopted before lock"
+          ? vi
+              .spyOn(db, "transaction")
+              .mockImplementationOnce(async (mutate) => {
+                await adopt();
+                return transaction(mutate);
+              })
+          : undefined;
+      try {
+        const save = asOwner(async () =>
+          action.run(
+            {
+              id,
+              content: "Canonical body",
+              baseRevision: revision,
+              authoredBaseRevision: revision,
+              authoredBaseContent: "Canonical body",
+              authoredCandidateContent: "Resolved authored edit",
+              editorSessionId: "authored-policy-tab",
+              editorEditGeneration: 1,
+              browserSaveAttemptId: `${id}-attempt`,
+            } as never,
+            { caller: "frontend", userEmail: OWNER } as never,
+          ),
+        );
+        if (phase === "mutable") {
+          await expect(save).resolves.toMatchObject({
+            content: "Resolved authored edit",
+          });
+        } else {
+          await expect(save).rejects.toMatchObject({
+            errorCode: "SOURCE_READ_ONLY",
+            statusCode: 409,
+          });
+        }
+      } finally {
+        spy?.mockRestore();
+      }
+      expect((await page(id)).content).toBe(
+        phase === "mutable" ? "Resolved authored edit" : "Canonical body",
+      );
+      if (phase !== "mutable") {
+        expect(await history(id)).toEqual([]);
+        expect(await bodyIntents(id)).toEqual([]);
+        expect(
+          await db
+            .select({ id: schema.documentBrowserSaveAttempts.id })
+            .from(schema.documentBrowserSaveAttempts)
+            .where(eq(schema.documentBrowserSaveAttempts.documentId, id)),
+        ).toEqual([]);
+        const [stored] = await db
+          .select({ sourceMode: schema.documents.sourceMode })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id));
+        expect(stored.sourceMode).toBe("github");
+      }
+    },
+  );
+
+  it("keeps mutable and missing legacy collab documents on the ordinary path", async () => {
+    await switchedPage("legacy-mutable-policy", "Canonical body");
+    const update = await appendParagraphUpdate(
+      "legacy-mutable-policy",
+      "Allowed edit",
+    );
+    const version = await collabVersion("legacy-mutable-policy");
+    await setFlags(false);
+    await expect(
+      collab.applyUpdate("legacy-mutable-policy", update),
+    ).resolves.toMatchObject({ liveCopy: "not_derived" });
+    expect((await page("legacy-mutable-policy")).content).toBe(
+      "Canonical body",
+    );
+    expect(await collabVersion("legacy-mutable-policy")).toBe(
+      (version as number) + 1,
+    );
+    await expect(gateFor("missing-policy-page")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "no_page",
+    });
+    await expect(
+      collab.applyText("missing-policy-page", "Other app body"),
+    ).resolves.toBe("Other app body");
+  });
+
   it("refuses to switch a GitHub page without changing its body or live copy", async () => {
     await switchedPage("github-store-fixture", "Other body");
     await insertPage("github-switch", "Canonical body");
@@ -1401,6 +1688,62 @@ describe("a browser save to a switched page's body", () => {
     });
   });
 
+  it.each(["authored candidate", "submitted body", "snapshot"] as const)(
+    "keeps an unheld draft when only the %s differs from the live copy",
+    async (kind) => {
+      const id = `unheld-${kind}`;
+      await switchedPage(id, "Canonical body");
+      const loaded = await page(id);
+      const unsent = "Unsent body";
+      await keepDraft(id, unsent);
+      const version = await collabVersion(id);
+      const previousHistory = await history(id);
+      const saved = await browserSave(
+        id,
+        loaded,
+        kind === "submitted body" ? unsent : loaded.content,
+        {
+          authoredCandidateContent:
+            kind === "authored candidate" ? unsent : loaded.content,
+          editorSnapshotTitle: id,
+          editorSnapshotContent: unsent,
+        },
+      );
+      expect(saved).toMatchObject({ bodySave: { matchesLiveCopy: false } });
+      expect(saved).not.toHaveProperty("bodyIntentOutcome");
+      expect(saved).not.toHaveProperty("browserSaveAttempt");
+      expect(await drafts(id)).toEqual([{ content: unsent }]);
+      expect(await receipts(id)).toEqual([]);
+      expect(await bodyIntents(id)).toEqual([]);
+      expect(await page(id)).toEqual(loaded);
+      expect(await collabVersion(id)).toBe(version);
+      expect(await history(id)).toEqual(previousHistory);
+    },
+  );
+
+  it("settles distinct submitted and authored bodies when the live copy holds both", async () => {
+    const id = "distinct-held";
+    await switchedPage(id, "First\n\nSecond");
+    const loaded = await page(id);
+    await typeInTab(id, ["First A\n\nSecond"]);
+    const authored = (await page(id)).content;
+    await typeInTab(id, ["First A\n\nSecond B"]);
+    const current = await page(id);
+    await keepDraft(id, current.content);
+    const saved = await browserSave(id, loaded, current.content, {
+      authoredCandidateContent: authored,
+      editorSnapshotTitle: id,
+      editorSnapshotContent: current.content,
+    });
+    expect(saved).toMatchObject({
+      bodyIntentOutcome: { status: "applied" },
+      browserSaveAttempt: { result: "live_copy" },
+    });
+    expect(await drafts(id)).toEqual([]);
+    expect(await receipts(id)).toEqual([{ attemptId: `${id}-attempt` }]);
+    expect(await page(id)).toEqual(current);
+  });
+
   it("settles a save the live copy holds, though a peer committed after it", async () => {
     await switchedPage("held", "First\n\nSecond");
     const loaded = await page("held");
@@ -1461,6 +1804,47 @@ describe("a browser save to a switched page's body", () => {
     });
     expect(await countedReason()).toBe("live_copy_save_held");
     expect(await drafts("headed")).toEqual([]);
+  });
+
+  it("settles an exact title-heading body without an authored comparison", async () => {
+    const id = "heading-exact";
+    await switchedPage(id, `# ${id}\n\nBody`);
+    const loaded = await page(id);
+    const body = loaded.content;
+    await keepDraft(id, body);
+    await expect(
+      browserSave(id, loaded, body, {
+        authoredBaseRevision: undefined,
+        authoredBaseContent: undefined,
+        authoredCandidateContent: undefined,
+        editorSnapshotTitle: id,
+        editorSnapshotContent: body,
+      }),
+    ).resolves.toMatchObject({
+      bodySave: { matchesLiveCopy: true },
+      bodyIntentOutcome: { status: "applied" },
+    });
+    expect(await drafts(id)).toEqual([]);
+    expect(await receipts(id)).toEqual([{ attemptId: `${id}-attempt` }]);
+  });
+
+  it("keeps an unsent title heading even when SQL normalization matches the stored body", async () => {
+    const id = "heading-unsent";
+    await switchedPage(id, "Body");
+    const loaded = await page(id);
+    const candidate = nfm.docToNfm(nfm.nfmToDoc(`# ${id}\n\nBody`));
+    await keepDraft(id, candidate);
+    const result = await browserSave(id, loaded, candidate, {
+      editorSnapshotTitle: id,
+      editorSnapshotContent: candidate,
+    });
+    expect(result).toMatchObject({
+      content: "Body",
+      bodySave: { matchesLiveCopy: false },
+    });
+    expect(result).not.toHaveProperty("bodyIntentOutcome");
+    expect(await drafts(id)).toEqual([{ content: candidate }]);
+    expect(await receipts(id)).toEqual([]);
   });
 
   it("keeps a tab's draft when only part of its typing reached the live copy", async () => {

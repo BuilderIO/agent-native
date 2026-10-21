@@ -1,4 +1,9 @@
 export {
+  defineCollabWritePolicy,
+  type CollabWritePolicy,
+} from "./write-policy.js";
+
+export {
   loadYDocState,
   loadYDocVersion,
   hasCollabState,

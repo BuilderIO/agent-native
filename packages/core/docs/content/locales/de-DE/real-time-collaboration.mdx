@@ -940,3 +940,30 @@ Ebenen über dem gleichen Bewusstseinszustand.
   serverseitige Zusammenführung.
 - [Template: Design](/docs/template-design) – `Y.UndoManager` rückgängig machen/wiederholen
   zu lokalen Benutzerbearbeitungen.
+
+## Schreibregeln für Zusammenarbeit {#collab-write-policy}
+
+Mit `defineCollabWritePolicy()` erzwingen Sie die Quellenregeln der App beim Speichern kollaborativer Zustände, auch bei bisherigen Schreibpfaden.
+
+**name** ist ein stabiler Registrierungsname. **policy(tx, docId)** sperrt die App-Zeilen und wirft bei verbotenen Schreibvorgängen einen Fehler. Ignorieren Sie Dokument-IDs außerhalb Ihrer App.
+
+Content registriert seine Quellenprüfung unabhängig von der Live-Copy-Eignung:
+
+```ts
+import { defineCollabWritePolicy } from "@agent-native/core/collab";
+import { assertContentCollabWriteAllowed } from "./server/lib/collab-write-policy";
+
+defineCollabWritePolicy("content-page-source", assertContentCollabWriteAllowed);
+```
+
+Bewahren Sie für das Aufräumen nach Tests oder Plugins die zurückgegebene Entfernungsfunktion auf. Eine erneute Registrierung ersetzt den Callback:
+
+```ts
+const removePolicy = defineCollabWritePolicy(
+  "content-page-source",
+  assertContentCollabWriteAllowed,
+);
+removePolicy();
+```
+
+Mit registrierter Regel benötigen eigenständige Speichervorgänge einen Executor mit Transaktionsunterstützung. Interne `WithClient`-Schreibvorgänge müssen die tatsächliche Transaktion des Aufrufers erhalten. Regelfehler werden unverändert weitergegeben. Die Gate-Eignung erteilt keine Schreibberechtigung.

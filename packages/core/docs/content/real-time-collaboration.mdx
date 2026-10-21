@@ -905,3 +905,30 @@ Key properties:
   to local user edits.
 - [Toolkit piece: Collaboration Kit](/docs/toolkit-collaboration) — the presence,
   live-cursor, and undo components built on this transport.
+
+## Collaboration write policy {#collab-write-policy}
+
+Use `defineCollabWritePolicy()` to enforce app source rules when saving collaborative state, including legacy writes.
+
+**name** is a stable declaration name. **policy(tx, docId)** locks the app's rows and throws when a write is forbidden. Ignore document IDs outside your app.
+
+Content registers its source-policy check independently of live-copy eligibility:
+
+```ts
+import { defineCollabWritePolicy } from "@agent-native/core/collab";
+import { assertContentCollabWriteAllowed } from "./server/lib/collab-write-policy";
+
+defineCollabWritePolicy("content-page-source", assertContentCollabWriteAllowed);
+```
+
+For test or plugin teardown, retain the returned removal function. Redeclaring a name replaces its callback:
+
+```ts
+const removePolicy = defineCollabWritePolicy(
+  "content-page-source",
+  assertContentCollabWriteAllowed,
+);
+removePolicy();
+```
+
+With a policy registered, standalone state saves require a transaction-capable executor. Internal `WithClient` writes must receive the caller's actual transaction. Policy errors propagate unchanged. Gate eligibility does not grant write permission.

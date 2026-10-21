@@ -1,13 +1,17 @@
 import {
   createBoundedTaskRunner,
+  defineCollabWritePolicy,
   defineLiveCopy,
 } from "@agent-native/core/collab";
 
 import { LIVE_BODY_FIELD } from "../../shared/live-body.js";
+import { assertContentCollabWriteAllowed } from "../lib/collab-write-policy.js";
 import { liveBodyWriterGate } from "../lib/live-body-writer.js";
 import { persistContentLiveCopy } from "./persist.js";
 import source from "./tasks.ts?bounded-task";
 import { liveBodyConversionFor } from "./write-cause.js";
+
+defineCollabWritePolicy("content-page-source", assertContentCollabWriteAllowed);
 
 /** Edits `tasks.ts` defines, by name. */
 export const CONTENT_LIVE_COPY_EDITS = {

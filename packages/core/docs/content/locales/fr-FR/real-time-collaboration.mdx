@@ -943,3 +943,30 @@ couches au-dessus du même état de conscience.
   fusion côté serveur.
 - [Template: Design](/docs/template-design) – `Y.UndoManager` avec portée d'annulation/rétablissement
   aux modifications des utilisateurs locaux.
+
+## Politique d’écriture collaborative {#collab-write-policy}
+
+Utilisez `defineCollabWritePolicy()` pour appliquer les règles des sources lors de l’enregistrement de l’état collaboratif, y compris les écritures historiques.
+
+**name** est un nom de déclaration stable. **policy(tx, docId)** verrouille les lignes de l’application et lève une erreur si l’écriture est interdite. Ignorez les identifiants de documents extérieurs à votre application.
+
+Content enregistre son contrôle des sources indépendamment de l’éligibilité de la copie active :
+
+```ts
+import { defineCollabWritePolicy } from "@agent-native/core/collab";
+import { assertContentCollabWriteAllowed } from "./server/lib/collab-write-policy";
+
+defineCollabWritePolicy("content-page-source", assertContentCollabWriteAllowed);
+```
+
+Pour terminer un test ou décharger un plugin, conservez la fonction de suppression renvoyée. Une nouvelle déclaration remplace le rappel du même nom :
+
+```ts
+const removePolicy = defineCollabWritePolicy(
+  "content-page-source",
+  assertContentCollabWriteAllowed,
+);
+removePolicy();
+```
+
+Avec une politique enregistrée, les enregistrements autonomes exigent un exécuteur transactionnel. Les écritures internes `WithClient` doivent recevoir la transaction réelle de l’appelant. Les erreurs sont propagées sans modification. L’éligibilité de la porte ne donne pas le droit d’écrire.
