@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -272,5 +273,69 @@ describe("content database list reads", () => {
       "Row rollups 1": 11,
       "Row rollups 2": null,
     });
+  });
+
+  it("adds each row's excerpt only while a List view shows page text", async () => {
+    const fixture = await seedDatabase("excerpts");
+    await asOwner(() =>
+      setDocumentPropertyAction.run({
+        documentId: fixture.rows[0]!.documentId,
+        databaseId: fixture.databaseId,
+        propertyId: fixture.primaryBlocksId,
+        value: "## Plan\n\n**Ship** the [list read](https://example.com).\n",
+      }),
+    );
+    const read = async () => {
+      const response = await asOwner(() =>
+        getContentDatabaseAction.run(
+          { databaseId: fixture.databaseId },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+      if (!("items" in response)) {
+        throw new Error("Fixture read was unavailable.");
+      }
+      return response.items;
+    };
+
+    for (const item of await read()) {
+      expect(item).not.toHaveProperty("excerpt");
+    }
+
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "notes",
+          views: [
+            {
+              id: "notes",
+              name: "Notes",
+              type: "list",
+              itemLayout: {
+                leading: { kind: "page_icon", propertyId: null },
+                titleWeight: "bold",
+                line2: { source: "page", propertyId: null, lines: 2 },
+                line3: [],
+                trailing: [],
+              },
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, fixture.databaseId));
+
+    const items = await read();
+    expect(
+      Object.fromEntries(
+        items.map((item) => [item.document.title, item.excerpt]),
+      ),
+    ).toEqual({
+      "Row excerpts 0": "Ship the list read.",
+      "Row excerpts 1": "",
+      "Row excerpts 2": "",
+    });
+    // The rest of each body still stays out of row reads.
+    for (const item of items) expect(item.document.content).toBe("");
   });
 });

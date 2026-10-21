@@ -213,6 +213,7 @@ const database = {
   listRowsMedium: "Media",
   listRowsBold: "Negrita",
   listRowsNothing: "Nada",
+  listRowsPageText: "Texto de la página",
   listRowsOneLine: "1 línea",
   listRowsLineCount: "{{count}} líneas",
   listRowsNoStatus: "Sin estado",

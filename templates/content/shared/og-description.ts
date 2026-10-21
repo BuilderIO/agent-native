@@ -126,3 +126,56 @@ export function buildPublicDocumentDescription({
     ? truncateDescription(fallback, maxLength)
     : DEFAULT_DESCRIPTION;
 }
+
+const DEFAULT_EXCERPT_LENGTH = 300;
+
+/**
+ * Plain text from the start of a page body, for a list row. Images, code,
+ * dividers and a first paragraph that repeats the title drop out, and
+ * headings only count when the page has no other text. `truncated` means the
+ * markdown is only the body's first part, so its last word may be cut short.
+ */
+export function buildDocumentExcerpt({
+  content,
+  title,
+  truncated = false,
+  maxLength = DEFAULT_EXCERPT_LENGTH,
+}: {
+  content?: string | null;
+  title?: string | null;
+  truncated?: boolean;
+  maxLength?: number;
+}): string {
+  let markdown = content?.replace(/\r\n?/g, "\n") ?? "";
+  // Frontmatter puts a key on the line after its opening `---`; a divider at
+  // the top of a page is followed by a blank line.
+  if (/^---[ \t]*\n\S/.test(markdown)) {
+    const body = stripFrontmatter(markdown);
+    // A prefix that ends inside the frontmatter has no body text yet.
+    if (body !== markdown) markdown = body;
+    else if (truncated) return "";
+  }
+  const paragraphs: string[] = [];
+  const headings: string[] = [];
+  let length = 0;
+  for (const block of stripFencedCode(markdown).split(/\n{2,}/)) {
+    if (length > maxLength) break;
+    if (!block.trim() || isDividerBlock(block)) continue;
+    const text = stripMarkdownForPreview(
+      block.replace(/!\[[^\]]*\]\([^)]*\)/g, " "),
+    );
+    if (!text) continue;
+    if (isHeadingBlock(block)) {
+      headings.push(text);
+    } else if (paragraphs.length > 0 || !isTitleRepeat(text, title ?? "")) {
+      paragraphs.push(text);
+      length += text.length + 1;
+    }
+  }
+  const text = (paragraphs.length > 0 ? paragraphs : headings).join(" ");
+  if (text.length > maxLength) return truncateDescription(text, maxLength);
+  if (!truncated || !text) return text;
+  const wordBoundary = text.lastIndexOf(" ");
+  const whole = wordBoundary > 0 ? text.slice(0, wordBoundary) : text;
+  return `${whole.replace(/[.,;:!?\s-]+$/g, "")}...`;
+}

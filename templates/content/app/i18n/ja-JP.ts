@@ -211,6 +211,7 @@ const database = {
   listRowsMedium: "中",
   listRowsBold: "太字",
   listRowsNothing: "なし",
+  listRowsPageText: "ページのテキスト",
   listRowsOneLine: "1行",
   listRowsLineCount: "{{count}}行",
   listRowsNoStatus: "ステータスなし",

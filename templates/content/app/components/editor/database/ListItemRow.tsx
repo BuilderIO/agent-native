@@ -7,7 +7,10 @@ import type {
   ContentDatabaseItemLayoutSlot,
   ResolvedContentDatabaseItemLayout,
 } from "@shared/database-item-layout";
-import { stripMarkdownForPreview } from "@shared/og-description";
+import {
+  buildDocumentExcerpt,
+  stripMarkdownForPreview,
+} from "@shared/og-description";
 import {
   isEmptyPropertyValue,
   type DocumentPropertyOptionColor,
@@ -93,11 +96,27 @@ function line2Text(property: DocumentProperty) {
     : value.trim();
 }
 
+/**
+ * The first lines of a row's page. The list read sends an excerpt; once this
+ * tab has saved the page's body, the row's copy of it is newer.
+ */
+function pageExcerpt(item: ContentDatabaseItem) {
+  return item.document.content
+    ? buildDocumentExcerpt({
+        content: item.document.content,
+        title: item.document.title,
+      })
+    : (item.excerpt ?? "");
+}
+
 /** The fields a slot shows, which can be set but blank on a given row. */
 function slotFieldNames(
   resolved: ResolvedContentDatabaseItemLayout<DocumentProperty>,
   slot: ContentDatabaseItemLayoutSlot,
 ) {
+  if (slot === "line2" && resolved.line2.pageText) {
+    return [dbText("listRowsPageText")];
+  }
   const fields =
     slot === "line2"
       ? resolved.line2.property
@@ -305,7 +324,11 @@ export function DatabaseLayoutListRow({
   const line2Property = resolved.line2.property
     ? itemValue(item, resolved.line2.property)
     : null;
-  const line2 = line2Property ? line2Text(line2Property) : "";
+  const line2 = resolved.line2.pageText
+    ? pageExcerpt(item)
+    : line2Property
+      ? line2Text(line2Property)
+      : "";
   const filled = (properties: DocumentProperty[]) =>
     properties
       .map((property) => itemValue(item, property))

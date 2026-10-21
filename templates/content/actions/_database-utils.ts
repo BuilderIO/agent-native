@@ -42,10 +42,12 @@ import {
   type ContentSidebarViewOrder,
   type DocumentProperty,
 } from "../shared/api.js";
+import { contentDatabaseViewsShowPageText } from "../shared/database-item-layout.js";
 import {
   applyContentDatabaseTableQuery,
   contentDatabaseTableQueryUsesProperties,
 } from "../shared/database-query.js";
+import { buildDocumentExcerpt } from "../shared/og-description.js";
 import {
   evaluatePropertyFormula,
   isBlocksPropertyType,
@@ -82,6 +84,7 @@ import {
 import {
   listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
+  parseDatabaseViewConfig,
   readDatabasePropertySchema,
   serializeDatabase,
   type DatabasePropertySchema,
@@ -258,6 +261,20 @@ export const contentDatabaseListDocumentSelection = {
   createdAt: schema.documents.createdAt,
   updatedAt: schema.documents.updatedAt,
 };
+
+/**
+ * How much of each page body a list read takes for its excerpt: enough
+ * markdown for three lines of text once links and formatting are stripped.
+ */
+const EXCERPT_SOURCE_CHARS = 1000;
+
+function serializeExcerpt(bodyPrefix: string | undefined, title: string) {
+  return buildDocumentExcerpt({
+    content: bodyPrefix,
+    title,
+    truncated: (bodyPrefix?.length ?? 0) >= EXCERPT_SOURCE_CHARS,
+  });
+}
 
 export function serializeBodyHydration(
   item: typeof schema.contentDatabaseItems.$inferSelect,
@@ -1006,6 +1023,9 @@ export async function getContentDatabasePageResponse(
     });
   }
 
+  const includeExcerpts = contentDatabaseViewsShowPageText(
+    parseDatabaseViewConfig(database.viewConfigJson).views,
+  );
   const documents =
     items.length > 0
       ? await db
@@ -1069,6 +1089,7 @@ export async function getContentDatabasePageResponse(
     queuedBodyHydrationItemIds,
     workspaceMemberships,
     commentSummaries,
+    bodyPrefixByDocumentId,
   ] = await Promise.all([
     database.systemRole === "favorites"
       ? new Set(documentIds)
@@ -1137,6 +1158,22 @@ export async function getContentDatabasePageResponse(
           )
       : [],
     readOpenCommentSummaries(documentIds),
+    // Only the start of each body, and only when a view shows it.
+    includeExcerpts && documents.length > 0
+      ? db
+          .select({
+            id: schema.documents.id,
+            bodyPrefix: sql<
+              string | null
+            >`substr(${schema.documents.content}, 1, ${sql.raw(String(EXCERPT_SOURCE_CHARS))})`,
+          })
+          .from(schema.documents)
+          .where(inArray(schema.documents.id, documentIds))
+          .then(
+            (rows) =>
+              new Map(rows.map((row) => [row.id, row.bodyPrefix ?? ""])),
+          )
+      : new Map<string, string>(),
   ]);
   const shareRoleByDocumentId = new Map<string, ShareRole>();
   for (const row of shareRows) {
@@ -1196,6 +1233,14 @@ export async function getContentDatabasePageResponse(
       bodyHydration: serializeBodyHydration(item, {
         queued: bodyHydrationQueued,
       }),
+      ...(includeExcerpts
+        ? {
+            excerpt: serializeExcerpt(
+              bodyPrefixByDocumentId.get(document.id),
+              document.title,
+            ),
+          }
+        : {}),
       properties: propertiesByDocumentId.get(document.id) ?? [],
       rowRevision: databaseRowRevision({
         itemId: item.id,

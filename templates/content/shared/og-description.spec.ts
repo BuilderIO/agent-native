@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildDocumentExcerpt,
   buildPublicDocumentDescription,
   stripMarkdownForPreview,
 } from "./og-description";
@@ -63,5 +64,71 @@ Quarterly Launch Plan
 
     expect(description).toBe("This document walks through positioning...");
     expect(description.length).toBeLessThanOrEqual(48);
+  });
+});
+
+describe("buildDocumentExcerpt", () => {
+  it("joins the first paragraphs as plain text, leaving out headings, images, and code", () => {
+    expect(
+      buildDocumentExcerpt({
+        title: "Launch plan",
+        content: `# Launch plan
+
+Launch plan
+
+![Hero](https://example.com/hero.png)
+
+**Partners** go first, then a [small beta](https://example.com).
+
+\`\`\`ts
+const flag = true;
+\`\`\`
+
+- Write the announcement
+- Brief support`,
+      }),
+    ).toBe(
+      "Partners go first, then a small beta. Write the announcement Brief support",
+    );
+  });
+
+  it("uses headings only when the page has nothing else", () => {
+    expect(buildDocumentExcerpt({ content: "## Agenda\n\n### Notes" })).toBe(
+      "Agenda Notes",
+    );
+  });
+
+  it("tells frontmatter from a divider at the top of the page", () => {
+    expect(
+      buildDocumentExcerpt({ content: "---\ntitle: Draft\n---\n\nThe body." }),
+    ).toBe("The body.");
+    expect(
+      buildDocumentExcerpt({
+        content: "---\n\nAfter the rule.\n\n---\n\nMore after another.",
+      }),
+    ).toBe("After the rule. More after another.");
+  });
+
+  it("is empty for an empty page or a prefix cut off inside its frontmatter", () => {
+    expect(buildDocumentExcerpt({ content: "" })).toBe("");
+    expect(buildDocumentExcerpt({ content: "<empty-block/>" })).toBe("");
+    expect(
+      buildDocumentExcerpt({
+        content: "---\ntitle: Draft\nstatus: open",
+        truncated: true,
+      }),
+    ).toBe("");
+  });
+
+  it("ends with an ellipsis when the text stops early", () => {
+    expect(
+      buildDocumentExcerpt({ content: "One two three fou", truncated: true }),
+    ).toBe("One two three...");
+    const long = buildDocumentExcerpt({
+      content: "word ".repeat(200),
+      maxLength: 40,
+    });
+    expect(long).toMatch(/^word( word)*\.\.\.$/);
+    expect(long.length).toBeLessThanOrEqual(40);
   });
 });

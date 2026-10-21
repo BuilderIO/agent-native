@@ -233,9 +233,12 @@ supports searching property types by label or machine name.
 List views can save an item layout (`itemLayout`) that decides what each row
 shows: a start slot (page icon, a checkbox property, a status property, or
 nothing), the title weight, line 2 (a text, URL, or non-body Blocks property,
-clamped to 1-3 lines), and ordered property IDs for line 3 and the end of the
-row; end values move under the title on narrow screens and empty values take
-no space. Ticking a row's checkbox writes the property through
+or with `source: "page"` the first lines of each row's page, clamped to 1-3
+lines), and ordered property IDs for line 3 and the end of the row; end values
+move under the title on narrow screens and empty values take no space. While
+any list view shows page text, collection reads give each item an `excerpt`
+with the start of its page as plain text; other collections leave page bodies
+out of row reads. Ticking a row's checkbox writes the property through
 `set-document-property` and strikes the title through without moving the row.
 A view without `itemLayout` keeps the default rows. Agents update it with an
 `update-content-database-view` `update` patch on the list view: pass
