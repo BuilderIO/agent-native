@@ -62,6 +62,11 @@ function runtimeWith(startTurn: () => Promise<unknown>): AgentChatRuntime {
 describe("createAgentKitProtocolAdapter replayed start", () => {
   it("attaches to the live run when a start returns its runtime run id", async () => {
     let replayDrained = false;
+    const queuePromotion = {
+      messageId: "queued-message",
+      claimId: "claim-1",
+      turnId: "turn-queued-message",
+    };
     const startTurn = vi
       .fn()
       .mockResolvedValueOnce({
@@ -84,10 +89,12 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
       const first = await transport.startRun({
         threadId: "thread-1",
         messages: [userMessage("Publish this")],
+        queuePromotion,
       });
       const replay = await transport.startRun({
         threadId: "thread-1",
         messages: [userMessage("Publish this")],
+        queuePromotion,
       });
 
       expect(startTurn).toHaveBeenCalledTimes(2);
@@ -100,6 +107,11 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
 
   it("rejects a replayed start that resolves after the adapter began disposing", async () => {
     const replayed = Promise.withResolvers<unknown>();
+    const queuePromotion = {
+      messageId: "queued-message",
+      claimId: "claim-1",
+      turnId: "turn-queued-message",
+    };
     const startTurn = vi
       .fn()
       .mockResolvedValueOnce({
@@ -114,10 +126,12 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
     await transport.startRun({
       threadId: "thread-1",
       messages: [userMessage("Publish this")],
+      queuePromotion,
     });
     const replay = transport.startRun({
       threadId: "thread-1",
       messages: [userMessage("Publish this")],
+      queuePromotion,
     });
     await vi.waitFor(() => expect(startTurn).toHaveBeenCalledTimes(2));
 

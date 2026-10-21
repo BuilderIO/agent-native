@@ -30,6 +30,7 @@ import {
 import { getRotatedFrameCorners } from "../shared/canvas-math.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
 import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import {
   makeLocalhostRouteId,
@@ -1533,6 +1534,7 @@ export default defineAction({
 
     return {
       designId,
+      _receipt: designOutputWriteReceipt(designId, savedScreens.length),
       connectionId: connection.id,
       devServerUrl,
       bridgeUrl: connection.bridgeUrl ?? null,

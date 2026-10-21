@@ -7270,14 +7270,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             // Only reveal a thread's active run to viewers/editors of the
-            // thread. Present unauthorized users (or unknown threads) as idle
-            // rather than 404 so thread existence isn't leaked and the client
-            // polls benignly.
+            // thread. Present unauthorized users (or unknown threads) as
+            // unreadable rather than 404 so thread existence isn't leaked.
             if (!(await canViewThread(threadId))) {
               return {
                 active: false,
                 threadId,
-                status: "idle",
+                status: "unknown",
                 heartbeatAt: null,
                 lastProgressAt: null,
               };
@@ -7311,6 +7310,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               threadId: run.threadId,
               turnId: run.turnId,
               status: run.status,
+              ...(run.successorOfRunId
+                ? { successorOfRunId: run.successorOfRunId }
+                : {}),
               heartbeatAt: run.heartbeatAt,
               lastProgressAt: run.lastProgressAt,
               // Durable-background diagnostics: how the run was dispatched and
@@ -7339,6 +7341,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // comment (run-manager.ts) and the THREE-SITE INVARIANT comments in
               // agent-chat-plugin.ts / production-agent.ts / agent-chat-adapter.ts.
               awaitingRedispatch: run.awaitingRedispatch === true,
+              // The SQL run snapshot is authoritative even if its best-effort
+              // cleanup failed; keep that partial state distinguishable.
+              reapFailed: run.reapFailed === true,
               // True exactly when this run has an open model stream, tool
               // call, or A2A `agent_call` delegation (`in_flight_since` set — the same
               // marker `reapIfStale` reads to grant its bounded stale-reap

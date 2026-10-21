@@ -16,7 +16,7 @@ describe("Design editor pending generation hydration", () => {
 
   it("reconciles pending generation storage after session hydration", () => {
     const reconciliationEffect = editorSource.match(
-      /useEffect\(\(\) => \{\n    if \(!id \|\| !sessionResolved\) return;[\s\S]*?\n  \}, \[[\s\S]*?\n  \]\);/,
+      /useEffect\(\(\) => \{\n    if \(!id \|\| !sessionResolved \|\| !designDataReady\) return;[\s\S]*?\n  \}, \[[\s\S]*?\n  \]\);/,
     )?.[0];
 
     expect(reconciliationEffect).toContain(

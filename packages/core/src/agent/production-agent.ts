@@ -9345,6 +9345,7 @@ export async function runAgentLoop(opts: {
           completedSideEffect,
           replayed: true,
           ...(artifacts.length > 0 ? { artifacts } : {}),
+          ...(receipt ? { receipt } : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(chatUI ? { chatUI } : {}),
           ...(chatUI && outcome.chatUIResult !== undefined
@@ -10273,6 +10274,7 @@ export async function runAgentLoop(opts: {
           ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
+          ...(receipt ? { receipt } : {}),
         });
         toolDonePersistenceFailed = false;
         recordToolResult(result, isError, toolArtifacts, receipt);
