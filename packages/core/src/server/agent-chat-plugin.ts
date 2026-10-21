@@ -912,6 +912,7 @@ export async function runA2AAgentLoopWithRunManager(
       reasonCode === "stale_execution_fence" ||
       reasonCode === A2A_TASK_CLAIM_LOST_ERROR_CODE
     ) {
+      run.abortReason = "execution_lease_lost";
       run.abort.abort("execution_lease_lost");
       return;
     }

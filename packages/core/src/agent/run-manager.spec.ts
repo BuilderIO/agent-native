@@ -1021,9 +1021,12 @@ describe("run manager soft timeout", () => {
       expect.objectContaining({ type: "auto_continue" }),
     );
     expect(onComplete).not.toHaveBeenCalled();
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       runId,
-      expect.any(String),
+      "errored",
+      expect.objectContaining({
+        terminalReason: "error:run_terminal_lookup_failed",
+      }),
     );
     expect(run.status).toBe("errored");
     consoleError.mockRestore();
@@ -1135,9 +1138,12 @@ describe("run manager soft timeout", () => {
       }),
     );
     expect(onComplete).not.toHaveBeenCalled();
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       runId,
-      expect.any(String),
+      "errored",
+      expect.objectContaining({
+        terminalReason: `error:${UNKNOWN_RUN_STATUS_ERROR_CODE}`,
+      }),
     );
     expect(run.status).toBe("errored");
     consoleError.mockRestore();
@@ -2941,6 +2947,7 @@ describe("run manager soft timeout", () => {
       "user_stuck_retry",
     );
     await run.finalized;
+    expect(markRunAborted).toHaveBeenCalledTimes(2);
   });
 
   it("does not persist an abort after the event flush fails", async () => {

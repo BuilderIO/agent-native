@@ -97,6 +97,7 @@ export interface ActiveRun {
   waitForPersistence?: () => Promise<void>;
   abortReason?: string;
   abortPersistenceManaged?: boolean;
+  abortPersistencePromise?: Promise<boolean>;
   continuationTerminalEvent?: Extract<
     AgentChatEvent,
     { type: "auto_continue" } | { type: "error" }
@@ -2044,6 +2045,7 @@ export function startRun(
       let terminalPersistenceEstablished = false;
       try {
         await persistenceChain;
+        await run.abortPersistencePromise;
       } catch (error) {
         eventPersistenceError = error;
         if (run.status !== "aborted") {
@@ -2058,32 +2060,22 @@ export function startRun(
           };
         }
       }
-      if (checkpointStatusReadFailed) {
+      if (checkpointStatusReadFailed || checkpointUnknownStatus !== null) {
         run.status = "errored";
-        publishRunEvent({
-          seq: peekRunEventSeq(run),
-          event: { ...RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT },
-        });
-        for (const subscriber of run.subscribers) {
-          run.subscribers.delete(subscriber);
+        const event = checkpointStatusReadFailed
+          ? RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT
+          : UNKNOWN_RUN_STATUS_ERROR_EVENT;
+        if (checkpointUnknownStatus !== null) {
+          console.error(
+            "[run-manager] checkpoint observed an unknown persisted run status",
+            runId,
+            checkpointUnknownStatus,
+          );
         }
-        return;
-      }
-      if (checkpointUnknownStatus !== null) {
-        run.status = "errored";
-        console.error(
-          "[run-manager] checkpoint observed an unknown persisted run status",
-          runId,
-          checkpointUnknownStatus,
-        );
-        publishRunEvent({
+        pendingTerminalEvent ??= {
           seq: peekRunEventSeq(run),
-          event: { ...UNKNOWN_RUN_STATUS_ERROR_EVENT },
-        });
-        for (const subscriber of run.subscribers) {
-          run.subscribers.delete(subscriber);
-        }
-        return;
+          event: { ...event },
+        };
       }
       const resolveTerminalEventForCompletion = () => {
         if (run.status === "aborted") return null;
@@ -2105,7 +2097,11 @@ export function startRun(
       };
       let terminalEventForCompletion = resolveTerminalEventForCompletion();
       let terminalEvent = terminalEventForCompletion?.event ?? null;
-      if (onComplete) {
+      if (
+        onComplete &&
+        !checkpointStatusReadFailed &&
+        checkpointUnknownStatus === null
+      ) {
         try {
           const completionStatus =
             run.status !== "aborted" &&
@@ -2151,6 +2147,8 @@ export function startRun(
       run.status = finalStatus;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
+        !checkpointStatusReadFailed &&
+        checkpointUnknownStatus === null &&
         (endsAfterToolResultWithoutAssistantFinal(run) ||
           endsDuringActionPreparation(run)) &&
         (!terminalEventForCompletion ||
@@ -2287,10 +2285,13 @@ export function startRun(
         );
       };
 
-      if (executionLeaseClaimFailed || finalStatus === "aborted") {
+      if (executionLeaseClaimFailed) {
+        terminalPersistenceEstablished = false;
+      } else if (finalStatus === "aborted") {
         if (
-          !executionLeaseClaimFailed &&
-          (run.abortPersistenceManaged || run.abortReason === "superseded")
+          run.abortPersistenceManaged ||
+          run.abortReason === "superseded" ||
+          run.abortReason === "execution_lease_lost"
         ) {
           terminalPersistenceEstablished = false;
         } else {
@@ -2301,9 +2302,7 @@ export function startRun(
                 runId,
                 run.abortReason ?? "execution-lease-claim-failed",
               );
-            const aborted = executionLeaseClaimFailed
-              ? await persistAtomicAbort()
-              : await withWorkerFence(persistAtomicAbort);
+            const aborted = await withWorkerFence(persistAtomicAbort);
             terminalPersistenceEstablished = aborted
               ? true
               : await withWorkerFence(reconcileTerminalRun);
@@ -3402,20 +3401,29 @@ export function abortRun(runId: string, reason: string = "user"): boolean {
   const run = activeRuns.get(runId);
   const abortedInMemory = abortRunInMemory(runId, reason);
   const markAborted = () => markRunAborted(runId, reason);
-  void flushRunEventsBeforeAbort(run)
+  const abortPersistence = flushRunEventsBeforeAbort(run)
     .then(markAborted, markAborted)
-    .catch((error) => {
-      captureError(error, {
-        route: "/_agent-native/agent-chat/runs/:id/abort",
-        aiTraceId: runId,
-        tags: { source: "agent-run-manager", phase: "abort-run-status" },
-        extra: { runId, threadId: run?.threadId, reason },
-      });
-      console.error(
-        "[run-manager] durable abort status write failed:",
-        error instanceof Error ? error.message : error,
-      );
-    });
+    .then(
+      (persisted) => {
+        if (run) run.abortPersistenceManaged = persisted;
+        return persisted;
+      },
+      (error) => {
+        if (run) run.abortPersistenceManaged = false;
+        captureError(error, {
+          route: "/_agent-native/agent-chat/runs/:id/abort",
+          aiTraceId: runId,
+          tags: { source: "agent-run-manager", phase: "abort-run-status" },
+          extra: { runId, threadId: run?.threadId, reason },
+        });
+        console.error(
+          "[run-manager] durable abort status write failed:",
+          error instanceof Error ? error.message : error,
+        );
+        return false;
+      },
+    );
+  if (run) run.abortPersistencePromise = abortPersistence;
   return abortedInMemory;
 }
 
@@ -3431,49 +3439,68 @@ export async function abortRunDurably(
   options?: { allowNotStarted?: boolean },
 ): Promise<boolean> {
   const run = activeRuns.get(runId);
-  if (run) run.abortPersistenceManaged = true;
   const abortedInMemory = abortRunInMemory(runId, reason);
-  try {
-    const eventFlushFailure = await flushRunEventsBeforeAbort(run);
-    const abortPersisted = await markRunAborted(runId, reason);
-    if (!abortPersisted || eventFlushFailure) {
-      const persistedStatus = await getRunStatus(runId);
-      if (persistedStatus === null) {
-        // Agent Teams persists Stop intent before run registration.
-        // Workers recheck it before dispatch.
-        if (options?.allowNotStarted && !run && !eventFlushFailure)
-          return false;
-        throw new Error(
-          `Cannot confirm durable abort for missing run ${runId}`,
-        );
-      }
-      if (!abortPersisted && persistedStatus === "running") {
-        throw new Error(`Durable abort did not transition run ${runId}`);
-      }
+  const persistence = (async () => {
+    let eventFlushFailure: AgentRunEventNotPersistedError | null;
+    try {
+      eventFlushFailure = await flushRunEventsBeforeAbort(run);
+    } catch (error) {
+      if (run) run.abortPersistenceManaged = false;
+      throw error;
     }
-    if (eventFlushFailure) throw eventFlushFailure;
-  } catch (error) {
-    captureError(error, {
-      route: "/_agent-native/agent-chat/runs/:id/abort",
-      aiTraceId: runId,
-      tags: {
-        source: "agent-run-manager",
-        phase: "abort-run",
-      },
-      extra: {
-        runId,
-        threadId: activeRuns.get(runId)?.threadId,
-        reason,
-        abortedInMemory,
-      },
-    });
-    console.error(
-      "[run-manager] durable abort persistence failed:",
-      error instanceof Error ? error.message : error,
+    let abortPersistedDurably = false;
+    try {
+      const abortPersisted = await markRunAborted(runId, reason);
+      abortPersistedDurably = abortPersisted;
+      if (!abortPersisted || eventFlushFailure) {
+        const persistedStatus = await getRunStatus(runId);
+        abortPersistedDurably ||= persistedStatus === "aborted";
+        if (persistedStatus === null) {
+          // Agent Teams persists Stop intent before run registration.
+          // Workers recheck it before dispatch.
+          if (options?.allowNotStarted && !run && !eventFlushFailure)
+            return false;
+          throw new Error(
+            `Cannot confirm durable abort for missing run ${runId}`,
+          );
+        }
+        if (!abortPersisted && persistedStatus === "running") {
+          throw new Error(`Durable abort did not transition run ${runId}`);
+        }
+      }
+      if (run) run.abortPersistenceManaged = abortPersistedDurably;
+      if (eventFlushFailure) throw eventFlushFailure;
+    } catch (error) {
+      if (run) run.abortPersistenceManaged = abortPersistedDurably;
+      captureError(error, {
+        route: "/_agent-native/agent-chat/runs/:id/abort",
+        aiTraceId: runId,
+        tags: {
+          source: "agent-run-manager",
+          phase: "abort-run",
+        },
+        extra: {
+          runId,
+          threadId: activeRuns.get(runId)?.threadId,
+          reason,
+          abortedInMemory,
+        },
+      });
+      console.error(
+        "[run-manager] durable abort persistence failed:",
+        error instanceof Error ? error.message : error,
+      );
+      throw error;
+    }
+    return abortedInMemory;
+  })();
+  if (run) {
+    run.abortPersistencePromise = persistence.then(
+      () => run.abortPersistenceManaged ?? false,
+      () => run.abortPersistenceManaged ?? false,
     );
-    throw error;
   }
-  return abortedInMemory;
+  return persistence;
 }
 
 interface SafeBoundaryAbortResult {
