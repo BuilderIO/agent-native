@@ -1068,6 +1068,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "A travaillé",
   "tool.workedFor": "A travaillé pendant {{duration}}",
   "widget.chart": "Graphique",
+  "widget.chartActions": "Actions du graphique",
+  "widget.dataSources": "Sources de données",
+  "widget.tableActions": "Actions du tableau",
   "widget.dataChart": "Graphique de données",
   "widget.dataInsights": "Informations sur les données",
   "widget.dataTable": "Tableau de données",
@@ -2245,6 +2248,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "Langue et région",
   "settingsShell.account.languageDescription":
     "S’applique sur tous vos appareils.",
+  "settingsShell.account.appearance": "Apparence",
+  "settingsShell.account.themeFamily": "Famille de thème",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal":
+    "Couleurs d’origine de l’application",
+  "settingsShell.account.themeFamilySaveError":
+    "Impossible de mettre à jour le thème. Réessayez.",
   "settingsShell.account.manage": "Gérer",
   "settingsShell.account.name": "Nom",
   "settingsShell.account.nameDescription":

@@ -3348,6 +3348,25 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.querySelector(".agentkit-home-intro")).toBeNull();
   });
 
+  it("renders the shared context banner slot alongside the existing composer slot", async () => {
+    await mount(
+      baseProps({
+        composerSlot: <div data-testid="legacy-composer-slot">Notice</div>,
+        composerContextBannerSlot: (
+          <div data-testid="composer-context-banner-slot">Add context</div>
+        ),
+      }),
+    );
+
+    const composer = container.querySelector(".agentkit-host-composer")!;
+    expect(
+      composer.querySelector('[data-testid="legacy-composer-slot"]'),
+    ).not.toBeNull();
+    expect(
+      composer.querySelector('[data-testid="composer-context-banner-slot"]'),
+    ).not.toBeNull();
+  });
+
   it("puts the beginning revert before messages inside the scrollable transcript", async () => {
     chatMocks.thread.messages = [
       { id: "first-message", role: "user", parts: [] },
