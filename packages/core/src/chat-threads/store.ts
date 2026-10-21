@@ -1042,6 +1042,31 @@ export async function resolveThreadAccess(
   return await getThread(threadId);
 }
 
+export async function resolveThreadAccessScope(
+  userEmail: string | null | undefined,
+  threadId: string | null | undefined,
+  minRole: ShareRole | "owner" = "viewer",
+  ctx: Omit<AccessContext, "userEmail"> = {},
+): Promise<{ scope: ChatThreadScope | null } | null> {
+  if (!userEmail || !threadId) return null;
+  const access = await resolveAccess(
+    "chat_thread",
+    threadId,
+    { userEmail, orgId: ctx.orgId },
+    { skipResourceBody: true },
+  );
+  if (!access || !roleSatisfies(access.role, minRole)) return null;
+
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT scope_type, scope_id, scope_label FROM chat_threads WHERE id = ?",
+    args: [threadId],
+  });
+  const row = rows[0];
+  if (!row) return null;
+  return { scope: readScope(row as Record<string, unknown>) };
+}
+
 export async function resolveThreadsAccess(
   userEmail: string | null | undefined,
   threadIds: readonly string[],

@@ -4270,6 +4270,73 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("preserves inbox ordering for a fresh start without receipt metadata", async () => {
+    const threadId = "thread-legacy-queued-order-barrier";
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: null,
+      queuedSubmissionPending: true,
+    } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A fresh direct start",
+          threadId,
+          turnId: "turn-after-accepted-queue",
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(409);
+      expect(result).toMatchObject({
+        code: "run_slot_busy",
+        retryable: true,
+      });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+      expect(
+        (mockTryClaimRunSlot.mock.calls[0] as unknown as unknown[])[3],
+      ).toEqual(
+        expect.objectContaining({
+          hasPendingQueuedSubmission: expect.any(Function),
+        }),
+      );
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      isTurnAborted.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
   it("uploads inline attachment bytes before queue commit and retries after a failed commit", async () => {
     const threadId = "thread-attachment-admission";
     const messageId = "message-attachment-admission";

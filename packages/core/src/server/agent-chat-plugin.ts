@@ -173,6 +173,7 @@ import {
   retryQueuedSubmissionReceipt,
   resolveRunThreadScope,
   resolveThreadAccess,
+  resolveThreadAccessScope,
   listThreads,
   searchThreads,
   renameThread,
@@ -7740,7 +7741,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               threadTail[2] === "receipt" &&
               threadTail.length === 3
             ) {
-              const thread = await resolveThreadAccess(
+              const thread = await resolveThreadAccessScope(
                 owner,
                 threadId,
                 "viewer",
@@ -9073,11 +9074,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               continue;
             }
 
-            if (
-              responseStatus >= 500 ||
-              responseCode === "run_slot_busy" ||
-              responseBody?.retryable === true
-            ) {
+            const retryableAdmission =
+              responseBody?.retryable === true ||
+              (responseBody?.retryable !== false &&
+                (responseStatus >= 500 || responseCode === "run_slot_busy"));
+            if (retryableAdmission) {
               await retryQueuedSubmissionReceipt(
                 receipt.threadId,
                 receipt.messageId,

@@ -14769,9 +14769,6 @@ export function createProductionAgentHandler(
       try {
         const runThreadId = threadId;
         const shouldPreserveQueuedOrder = Boolean(
-          submissionPayload &&
-          agentKitMessageId &&
-          ownerEmail &&
           !queuedMessageId &&
           !queuedMessageClaimId &&
           !internalContinuation &&
