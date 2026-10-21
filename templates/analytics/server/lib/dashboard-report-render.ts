@@ -4,7 +4,11 @@ import {
 } from "@agent-native/core/server";
 
 import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
-import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
+import {
+  interpolate,
+  panelTimeRange,
+  type PanelTimeRange,
+} from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import {
   pivotRows,
   timeRangeDays,
@@ -22,7 +26,7 @@ import {
 } from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import {
-  dataNoteIsRecent,
+  dataNoteInRange,
   dataNotesOnChart,
   dataNoteTone,
   formatDataNoteDates,
@@ -491,9 +495,10 @@ function buildChartInput(
   rows: Array<Record<string, unknown>>,
   chartType: ReportChartType,
   forcedYKeys: string[] | undefined,
-  keyDates: readonly PanelEvent[] = [],
-  dataNotes: readonly DataNote[] = [],
-  now: number = Date.now(),
+  keyDates: readonly PanelEvent[],
+  dataNotes: readonly DataNote[],
+  range: PanelTimeRange,
+  now: number,
 ): ChartInput | null {
   const config = panel.config;
   const detected = detectChartKeys(rows, config, forcedYKeys);
@@ -529,11 +534,11 @@ function buildChartInput(
           visible.map((row) => row[xKey]),
         ).map(({ index, label, color }) => ({ index, label, color }));
 
-  // A pie has no x axis to place notes on, so it lists the recent ones.
+  // A pie has no x axis to place notes on, so it lists the ones in its time range.
   const shownNotes = dataNotesOnChart(
     dataNotes,
     chartType === "pie" ? [] : visible.map((row) => row[xKey]),
-    { xKey, now },
+    { xKey, range, now },
   );
 
   return {
@@ -946,23 +951,28 @@ async function renderChartBlock(args: {
   index: number;
   description: string;
   keyDates?: readonly PanelEvent[];
-  dataNotes?: readonly DataNote[];
+  dataNotes: readonly DataNote[];
+  dataNoteRange: PanelTimeRange;
   now: number;
 }): Promise<PanelBlock> {
-  const { panel, rows, chartType, index, description, now } = args;
+  const { panel, rows, chartType, index, description, dataNoteRange, now } =
+    args;
   const input = buildChartInput(
     panel,
     rows,
     chartType,
     args.forcedYKeys,
-    args.keyDates,
+    args.keyDates ?? [],
     args.dataNotes,
+    dataNoteRange,
     now,
   );
   if (!input) {
     const table = renderTableHtml(panel, rows);
     const notes = dataNoteLines(
-      (args.dataNotes ?? []).filter((note) => dataNoteIsRecent(note, now)),
+      args.dataNotes.filter((note) =>
+        dataNoteInRange(note, dataNoteRange, now),
+      ),
     );
     return {
       panelId: panel.id,
@@ -1198,8 +1208,9 @@ export async function renderReportEmail(args: {
     );
 
     const panelNotes = snapshot.dataNotesByPanel?.[panel.id] ?? [];
-    const recentNotes = dataNoteLines(
-      panelNotes.filter((note) => dataNoteIsRecent(note, now)),
+    const dataNoteRange = panelTimeRange(panel, vars, now);
+    const notesInRange = dataNoteLines(
+      panelNotes.filter((note) => dataNoteInRange(note, dataNoteRange, now)),
     );
     const chartType: ReportChartType | undefined =
       REPORT_CHART_TYPES[panel.chartType];
@@ -1212,8 +1223,8 @@ export async function renderReportEmail(args: {
           description,
         });
         if (truncatedNote) block.html += truncatedNote;
-        block.html += recentNotes.html;
-        block.text += recentNotes.text;
+        block.html += notesInRange.html;
+        block.text += notesInRange.text;
         blocks.push(block);
         continue;
       }
@@ -1226,6 +1237,7 @@ export async function renderReportEmail(args: {
         description,
         ...(snapshot.keyDates ? { keyDates: snapshot.keyDates } : {}),
         dataNotes: panelNotes,
+        dataNoteRange,
         now,
       });
       if (truncatedNote) block.html += truncatedNote;
@@ -1246,9 +1258,9 @@ export async function renderReportEmail(args: {
       panelId: panel.id,
       html: panelCardHtml(
         panel,
-        `${rendered.html}${description ? noteHtml(description) : ""}${truncatedNote}${recentNotes.html}`,
+        `${rendered.html}${description ? noteHtml(description) : ""}${truncatedNote}${notesInRange.html}`,
       ),
-      text: `${panel.title}\n${rendered.text}${recentNotes.text}`,
+      text: `${panel.title}\n${rendered.text}${notesInRange.text}`,
     });
   }
 

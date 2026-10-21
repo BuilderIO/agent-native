@@ -409,8 +409,8 @@ const editor = {
   noDocumentSelected: "未选择文档",
   registryBlockLoadError: "无法加载 {{type}} 块：{{message}}",
   registryBlockUnreadable: "无法读取已保存的块源内容。",
-  blocksFieldRevisionConflict:
-    "此 Blocks 字段已在其他位置更改。你的编辑未保存；现已显示最新版本。",
+  blocksFieldEditMovedToEnd:
+    "此 Blocks 字段也在其他位置被更改。你在同一位置输入的文字已移到字段末尾。",
   reconcileConflict: "此页面已在其他地方更改。你的编辑尚未保存。",
   reconcileFailed: "无法合并最新更改。你的编辑尚未保存。",
   reconcileSaveFailed: "无法保存你的编辑。请检查后重试。",
@@ -1090,6 +1090,10 @@ const comments = {
   accepted: "已接受",
   rejected: "已拒绝",
   noFilteredComments: "没有匹配的评论。",
+  tabFilter: "标签页",
+  allTabs: "所有标签页",
+  fieldRemoved: "{{name}}（已删除）",
+  pageBody: "页面正文",
 };
 
 const reviewDiscussions = {
@@ -1482,6 +1486,7 @@ const overrides = {
     addBlockField: "添加字段",
     blockFieldChanged: "自你上次查看后已更改",
     blockFieldTabs: "字段",
+    blockFieldOpenComments_other: "{{count}} 条未解决的评论",
     blockFieldMenu: "{{name}} 选项",
     blockFieldMenuScope: "此集合中的每一行共用",
     blockFieldName: "字段名称",

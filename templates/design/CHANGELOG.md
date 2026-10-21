@@ -3,6 +3,13 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-21
+
+### Fixed
+
+- Design reports uncertain generation outcomes clearly and confirms completed file deletions
+- Generation offers a retry when a completed run saved no design files
+
 ## 2026-10-20
 
 ### Improved
@@ -11,6 +18,9 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Failed Design generations now show an error and retry action instead of appearing complete
+- Finished design output stays available when a generation run stops unexpectedly.
+- Reopening a design no longer reports completed generation as stopped.
 - Comments return to the prior Interact screen and device, stay open when that return is blocked, and fall back to Design if that screen was removed. Layers search toggles closed.
 - Public Design viewers no longer see repeated PNG export errors
 - Design resizes more high-resolution reference images before adding them to a prompt.

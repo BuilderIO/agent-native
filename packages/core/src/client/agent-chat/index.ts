@@ -71,6 +71,8 @@ export {
   type AgentComposerReferenceInsertOptions,
   type AgentComposerReferenceInsertPayload,
 } from "../agent-chat.js";
+export { isContinuationTerminalReason } from "../../agent/types.js";
+export { isRequestedStopAbortReason } from "../../agent/abort-reasons.js";
 export {
   fetchProviderModels,
   saveAgentEngineApiKey,
@@ -185,7 +187,22 @@ export {
   type AssistantChatHistoryVersion,
 } from "../chat/assistant-chat-history-version.js";
 export {
+  ChatThreadListConfigError,
+  useChatThreadList,
+  type UseChatThreadListOptions,
+  type UseChatThreadListResult,
+} from "../use-chat-thread-list.js";
+export {
+  ChatThreadListError,
+  fetchChatThreadListPage,
+  notifyChatThreadsUpdated,
   useChatThreads,
+  type ChatThreadAccessBasis,
+  type ChatThreadListPage,
+  type ChatThreadListRow,
+  type ChatThreadListPageRequest,
+  type ChatThreadOwnership,
+  type ChatThreadVisibility,
   type ChatThreadScope,
   type ChatThreadSnapshot,
   type ChatThreadSummary,

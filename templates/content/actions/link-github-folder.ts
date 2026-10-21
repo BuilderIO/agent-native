@@ -6,6 +6,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   getContentDatabaseSourceSnapshot,
   resolveDatabaseForSourceMutation,
@@ -202,4 +203,7 @@ export default defineAction({
             : `Linked ${preview.label}: ${sync.created} rows from commit ${sync.commitSha?.slice(0, 7) ?? "unknown"}.${sync.problem ? ` ${sync.problem.message}` : ""}`,
     };
   },
+  // Everyone reading the collection gets its new rows, not just the caller.
+  changeResource: (_input, result) =>
+    result.dryRun ? null : documentChangeResource(result.database.documentId),
 });

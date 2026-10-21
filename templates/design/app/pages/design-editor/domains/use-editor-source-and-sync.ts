@@ -789,6 +789,7 @@ export function useEditorSourceAndSync({
     if (
       !retryablePrompt ||
       !generationIssue ||
+      retryablePrompt.autoRetry === false ||
       !canEditDesign ||
       generating ||
       pendingGenerationActive

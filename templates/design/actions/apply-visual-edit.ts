@@ -32,6 +32,7 @@ import {
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import { linkedComponentRootForNode } from "../shared/component-links.js";
 import type { TailwindBreakpointPrefix } from "../shared/design-state.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   planLocalJsxVisualEdit,
   type LocalJsxLeafIntent,
@@ -1500,6 +1501,21 @@ export default defineAction({
           : aggregate;
       return {
         result,
+        _receipt: designOutputWriteReceipt(
+          file.designId,
+          persisted
+            ? Math.max(
+                1,
+                new Set(
+                  changes
+                    .map((change) => change.fileId)
+                    .filter(
+                      (fileId): fileId is string => typeof fileId === "string",
+                    ),
+                ).size,
+              )
+            : 0,
+        ),
         results,
         projection: buildCodeLayerProjection(targetContent, {
           source: file.codeLayerSource,
@@ -1543,6 +1559,7 @@ export default defineAction({
 
     return {
       result: batchResult(batch.results, changed),
+      _receipt: designOutputWriteReceipt(file.designId, changed ? 1 : 0),
       results: batch.results,
       projection: batch.projection,
       designId: file.designId,

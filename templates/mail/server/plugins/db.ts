@@ -476,6 +476,54 @@ CREATE INDEX IF NOT EXISTS mail_gmail_token_accounts_expires_idx
       name: "mail-sync-history-pending",
       sql: `ALTER TABLE mail_sync_accounts ADD COLUMN IF NOT EXISTS history_pending INTEGER`,
     },
+    {
+      version: 40,
+      name: "mail-inbox-full-sync-listed-count",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_listed_count INTEGER NOT NULL DEFAULT 0;`,
+    },
+    {
+      version: 41,
+      name: "mail-inbox-archive-pending-ids",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS archive_pending_ids_json TEXT;`,
+    },
+    {
+      version: 42,
+      name: "mail-inbox-hydrate-pending-ids",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS hydrate_pending_ids_json TEXT;`,
+    },
+    {
+      version: 43,
+      name: "mail-inbox-archive-history-id",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS archive_history_id TEXT;`,
+    },
+    {
+      version: 44,
+      name: "mail-inbox-sync-degraded",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS sync_degraded_json TEXT;`,
+    },
+    {
+      version: 45,
+      name: "mail-inbox-archive-history-pending",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS archive_history_pending INTEGER;`,
+    },
+    {
+      version: 46,
+      name: "mail-inbox-sync-corrupt",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS sync_corrupt_json TEXT;`,
+    },
+    {
+      version: 47,
+      name: "mail-inbox-capped",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS inbox_capped INTEGER;`,
+    },
   ],
   { table: "mail_migrations" },
 );

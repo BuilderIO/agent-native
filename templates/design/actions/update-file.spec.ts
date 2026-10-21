@@ -256,6 +256,7 @@ vi.mock("../server/db/index.js", () => {
 import { hasCollabState, applyText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   sourceContentHash,
   sourceContentPatch,
@@ -348,6 +349,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     expect(await hasCollabState(FILE_ID)).toBe(true);
@@ -407,6 +409,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: DESIGN_ID,
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     expect(await hasCollabState(FILE_ID)).toBe(true);
@@ -501,6 +504,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
     expect(designFilesStore.rows.get(FILE_ID)!.content).not.toContain(
@@ -546,6 +550,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     const liveText = getOrCreateDoc(FILE_ID).getText("content").toString();
@@ -571,6 +576,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.filename).toBe("renamed.html");
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
@@ -586,6 +592,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.filename).toBe(
       "renamed-only.html",
@@ -593,7 +600,37 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect("skippedStaleMirror" in result).toBe(false);
   });
 
-  it("6c. filename-only update alongside a would-be-throw case (syncCollab true) still throws for the whole call", async () => {
+  it("6c. file-type-only update counts as changed output", async () => {
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      fileType: "css",
+    } as never);
+
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)!.fileType).toBe("css");
+  });
+
+  it("6d. unchanged file metadata does not count as changed output", async () => {
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      filename: "index.html",
+      fileType: "html",
+    } as never);
+
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
+    });
+  });
+
+  it("6e. filename-only update alongside a would-be-throw case (syncCollab true) still throws for the whole call", async () => {
     await applyText(FILE_ID, buildDoc(" live-edit-"), "content", "agent");
     const staleHash = sourceContentHash(buildDoc());
 
@@ -626,6 +663,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
   });
@@ -653,6 +691,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
   });
@@ -688,6 +727,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(editTwo);
 
@@ -716,6 +756,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 0),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
     const liveText = getOrCreateDoc(FILE_ID).getText("content").toString();
@@ -745,6 +786,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       id: FILE_ID,
       designId: "design_1",
       updated: true,
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 1),
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(callerContent);
 

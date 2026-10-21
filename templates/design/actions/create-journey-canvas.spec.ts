@@ -381,6 +381,7 @@ describe("create-journey-canvas run", () => {
     );
 
     expect(Object.keys(result).sort()).toEqual([
+      "_receipt",
       "collabSyncPending",
       "designId",
       "frameCount",

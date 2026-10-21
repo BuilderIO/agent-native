@@ -119,6 +119,7 @@ vi.mock("./write-local-file.js", () => ({
   default: { run: mocks.writeLocal },
 }));
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { applyMotionHtmlSourceEdit } from "../shared/motion-html-source.js";
 import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime.js";
 import { applyMotionPathTrimSource } from "../shared/motion-path-trim-source.js";
@@ -294,6 +295,7 @@ describe("remove-motion-timeline localhost React source", () => {
       sourcePatched: true,
       versionHash: afterHash,
       deleted: true,
+      _receipt: designOutputWriteReceipt("design-1", 1),
     });
   });
 

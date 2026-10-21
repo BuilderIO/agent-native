@@ -1,15 +1,17 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { resolveAutomationAccess } from "../automations/access.js";
 import { DEFAULT_AUTOMATION_SCHEDULE } from "../automations/service.js";
 import { getDbExec } from "../db/client.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
+  organizationIdFromResourceOwner,
   resourcePutIfAbsent,
   resourceGetByPath,
   resourceList,
   resourceDelete,
-  organizationIdFromResourceOwner,
-  sharedResourceOwner,
   SHARED_OWNER,
+  sharedResourceOwner,
+  type Resource,
 } from "../resources/store.js";
 import {
   getRequestUserEmail,
@@ -77,30 +79,31 @@ async function isCurrentUserOrgAdmin(
   }
 }
 
-/**
- * Authorise a mutation (update / delete) against a job resource. When the
- * job is in the SHARED scope the caller must either be the original
- * `createdBy` user or an org owner/admin; otherwise any user could rewrite
- * another user's shared job and have it run as that user on the next cron
- * tick (the privilege-escalation chain documented in audit
- * `/tmp/security-audit/12-mcp-a2a-agent.md`, finding #3).
- *
- * Returns null when the mutation is allowed, or an error string suitable
- * for returning to the caller when not.
- */
 export async function authorizeJobMutation(
-  resourceOwner: string,
-  meta: JobFrontmatter,
+  resource: Resource,
+  operation: "edit" | "delete",
   appId?: string,
 ): Promise<string | null> {
+  const { meta } = parseJobFrontmatter(resource.content);
   if (!jobBelongsToApp(meta, appId)) {
     return "This job belongs to another app and cannot be changed here.";
   }
-  const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
-  if (resourceOwner !== SHARED_OWNER && !resourceOrgId) {
-    // Personal-scope job: owner is the request's user. resourceGetByPath is
-    // already scoped to the caller, so we know meta.createdBy must match.
-    return null;
+  const access = await resolveAutomationAccess(
+    { userEmail: getOwner() },
+    resource.id,
+  );
+  if (!access || access.classification.kind !== "job") return "Job not found.";
+  const allowed =
+    operation === "delete"
+      ? access.capabilities.canDelete
+      : access.capabilities.canEdit;
+  if (allowed) return null;
+
+  const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
+  if (resource.owner !== SHARED_OWNER && !resourceOrgId) {
+    return operation === "delete"
+      ? "Only the job owner can delete it."
+      : "Collaborate access is required to update this job.";
   }
   const caller = getOwner();
   const createdBy = meta.createdBy?.toLowerCase();
@@ -110,8 +113,9 @@ export async function authorizeJobMutation(
     resourceOrgId ?? meta.orgId ?? getRequestOrgId() ?? undefined,
   );
   if (isAdmin) return null;
-
-  return "Only the job's creator (or an org admin) can update or delete it.";
+  return operation === "delete"
+    ? "Only the job owner can delete it."
+    : "Collaborate access is required to update this job.";
 }
 
 async function runCreate(
@@ -338,7 +342,7 @@ async function runUpdate(
     });
   }
 
-  const denied = await authorizeJobMutation(resource.owner, meta, appId);
+  const denied = await authorizeJobMutation(resource, "edit", appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
@@ -511,8 +515,7 @@ async function runUpdate(
       // The retry's file must still be a job this editor may change; a same-ID
       // path that became an automation cannot be updated through manage-jobs.
       if (classifyJobResource(base.content).kind !== "job") return false;
-      const latest = parseJobFrontmatter(base.content).meta;
-      return !(await authorizeJobMutation(base.owner, latest, appId));
+      return !(await authorizeJobMutation(base, "edit", appId));
     },
     ...(instructions ? { body: instructions } : {}),
   });
@@ -566,13 +569,12 @@ async function runDelete(
     return JSON.stringify({ error: `Job "${name}" not found` });
   }
 
-  const { meta } = parseJobFrontmatter(resource.content);
   if (classifyJobResource(resource.content).kind === "automation") {
     return JSON.stringify({
       error: `"${name}" is an automation. Use manage-automations to delete it.`,
     });
   }
-  const denied = await authorizeJobMutation(resource.owner, meta, appId);
+  const denied = await authorizeJobMutation(resource, "delete", appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
