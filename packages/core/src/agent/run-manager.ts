@@ -50,6 +50,7 @@ import {
   getRunById,
   getRunByThread,
   getRunTurnRef,
+  listRunsForThread,
   markTurnAborted,
   cleanupOldRuns,
   updateRunHeartbeat,
@@ -224,6 +225,26 @@ export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 20 * 60 * 1000;
+const RECONNECTABLE_TERMINAL_RUN_STATUSES = new Set([
+  "completed",
+  "truncated",
+  "errored",
+  "aborted",
+]);
+
+function isDuplicateSubmissionMarker(run: {
+  status: string;
+  terminalReason?: string | null;
+}): boolean {
+  return (
+    run.status === "aborted" &&
+    run.terminalReason === "aborted:duplicate_submission"
+  );
+}
+
+function isTurnAbortMarker(run: { dispatchMode?: string | null }): boolean {
+  return run.dispatchMode === "turn-abort";
+}
 
 export const SQL_SUBSCRIPTION_ACTIVE_POLL_MS = 125;
 
@@ -2863,6 +2884,8 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   lastProgressAt: number | null;
   dispatchMode?: string | null;
   terminalReason?: string | null;
+  successorOfRunId?: string;
+  reapFailed?: boolean;
   diagStage?: string | null;
   /**
    * True exactly when this run is a `chainServerDrivenContinuation` deferral
@@ -2873,9 +2896,9 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
    * `agent-chat-adapter.ts`'s follow loop can tell "silently deferred,
    * server-side recovery in progress" apart from "dead" and stop counting the
    * quiet gap against its idle timeout — see the THREE-SITE INVARIANT comment
-   * below and in agent-chat-plugin.ts / production-agent.ts. Always false for
-   * an in-memory run (that isolate IS the live producer) and for any run that
-   * isn't an unclaimed background dispatch.
+   * below and in agent-chat-plugin.ts / production-agent.ts. False for a live
+   * in-memory run; the same-turn successor path can select an unclaimed SQL
+   * successor beside a stale in-memory predecessor, so it uses the same bound.
    */
   awaitingRedispatch: boolean;
   hasInFlightWork: boolean;
@@ -2888,23 +2911,26 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       memRun.status !== "running" &&
       (!sqlSnapshot || sqlSnapshot.status === "running")
     ) {
-      const successor = await fetchNewerNonTerminalRunForSameTurn(
-        threadId,
-        memRun,
-      );
+      const successor = await fetchNewerRunForSameTurn(threadId, memRun);
       if (successor) {
         return {
           runId: successor.id,
           threadId: successor.threadId,
           turnId: successor.turnId ?? successor.id,
-          status: successor.status,
-          inFlight: true,
+          status: legacyWireRunStatus(successor.status),
+          inFlight: successor.status === "running",
           heartbeatAt: successor.heartbeatAt ?? successor.startedAt,
           lastProgressAt: successor.lastProgressAt,
           dispatchMode: successor.dispatchMode,
           terminalReason: successor.terminalReason,
+          successorOfRunId: memRun.runId,
           diagStage: successor.diagStage,
-          awaitingRedispatch: false,
+          awaitingRedispatch:
+            successor.status === "running" &&
+            successor.dispatchMode === "background" &&
+            shouldRedispatchUnclaimedBackgroundRun({
+              startedAt: successor.startedAt,
+            }),
           hasInFlightWork: successor.inFlightSince != null,
         };
       }
@@ -2934,67 +2960,111 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       hasInFlightWork: sqlSnapshot?.inFlightSince != null,
     };
   }
-  try {
-    const sqlRun = await getRunByThread(threadId, { includeTerminal: true });
-    if (!sqlRun) return null;
-    if (sqlRun.status === "running") {
-      // FALLBACK HARDENING: a background-dispatched run that is still UNCLAIMED
-      // (dispatch_mode === 'background', never flipped to 'background-processing')
-      // past the tight grace means the bg-fn worker never started — a silent
-      // async-worker death that the 202-ack inline fallback can't catch. Reap it
-      // early and recoverably (background_worker_never_started) so the run no
-      // longer hangs for the full 90s window. Only fires when there is provably
-      // no live worker; a claimed/heartbeating run is left alone by the
-      // conditional SQL.
-      //
-      // REDISPATCH-BOUND GUARD (must be kept in lockstep with the "Unclaimed
-      // background-run sweep" in agent-chat-plugin.ts and with
-      // chainServerDrivenContinuation's deferral in production-agent.ts — do NOT
-      // remove this guard without reading those two sites):
-      // `chainServerDrivenContinuation` now DEFERS a dispatch-failed successor
-      // instead of erroring it — it leaves the row status='running',
-      // dispatch_mode='background' with its dispatch_payload intact so the sweep
-      // can silently redispatch it. This client poll runs every ~1s while a
-      // client is connected, so without this guard it would reap that deferred
-      // successor at the 25s unclaimed grace — long before the ~2-min sweep —
-      // converting the intended SILENT server-side recovery into a user-visible
-      // `background_worker_never_started` manual-retry error (that terminal
-      // reason does NOT auto-continue in the client follow loop; only `stale_run`
-      // does). While the successor is still inside its redispatch bound we skip
-      // this reap and leave it for the sweep. The outer backstops still bound it:
-      // `reapIfStale` below reaps a heartbeat-stale background row at 90s
-      // (BACKGROUND_RUN_STALE_MS) to the recoverable `stale_run` — which the
-      // follow loop AUTO-continues — and once the redispatch bound is exceeded
-      // this reap fires loudly as before. So recovery stays automatic in the
-      // common case and loud failure is only moved later, never removed.
-      //
-      // `isUnclaimedBackgroundDispatch` also becomes the `awaitingRedispatch`
-      // wire field below once the still-inside-the-bound check passes — see
-      // this function's doc comment and the THREE-SITE INVARIANT comment in
-      // agent-chat-plugin.ts / production-agent.ts.
-      const isUnclaimedBackgroundDispatch =
-        sqlRun.dispatchMode === "background";
-      const stillInsideRedispatchBound = shouldRedispatchUnclaimedBackgroundRun(
-        { startedAt: sqlRun.startedAt },
+  let sqlRun = await getRunByThread(threadId, { includeTerminal: true });
+  if (!sqlRun) return null;
+  if (isDuplicateSubmissionMarker(sqlRun)) {
+    // A foreground duplicate request has its own synthetic aborted row, but
+    // the accepted run remains the thread's actual work. Another isolate has
+    // no in-memory run map to disambiguate those rows, so prefer the live row.
+    const liveRun = await getRunByThread(threadId);
+    if (liveRun) {
+      sqlRun = liveRun;
+    } else {
+      const acceptedRun = (
+        await listRunsForThread(threadId, { limit: 50 })
+      ).find(
+        (run) => !isDuplicateSubmissionMarker(run) && !isTurnAbortMarker(run),
       );
-      if (isUnclaimedBackgroundDispatch && !stillInsideRedispatchBound) {
-        const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).catch(
-          (error) => {
-            captureError(error, {
-              route: "/_agent-native/agent-chat/runs/active",
-              aiTraceId: sqlRun.id,
-              tags: {
-                source: "agent-run-manager",
-                phase: "unclaimed-background-reap",
-              },
-              extra: { runId: sqlRun.id, threadId },
-            });
-            return false;
-          },
-        );
-        if (recovered) return null;
+      if (
+        !acceptedRun ||
+        !RECONNECTABLE_TERMINAL_RUN_STATUSES.has(acceptedRun.status)
+      ) {
+        return null;
       }
-      const reaped = await reapIfStale(sqlRun.id).catch((error) => {
+      const terminalAge =
+        Date.now() -
+        (acceptedRun.completedAt ??
+          acceptedRun.heartbeatAt ??
+          acceptedRun.startedAt);
+      if (terminalAge > TERMINAL_RUN_RECONNECT_WINDOW_MS) return null;
+      return {
+        runId: acceptedRun.id,
+        threadId: acceptedRun.threadId,
+        turnId: acceptedRun.turnId ?? acceptedRun.id,
+        status: legacyWireRunStatus(acceptedRun.status),
+        inFlight: false,
+        heartbeatAt: acceptedRun.heartbeatAt ?? acceptedRun.startedAt,
+        lastProgressAt: acceptedRun.lastProgressAt,
+        dispatchMode: acceptedRun.dispatchMode,
+        terminalReason: acceptedRun.terminalReason,
+        diagStage: acceptedRun.diagStage,
+        awaitingRedispatch: false,
+        hasInFlightWork: false,
+      };
+    }
+  }
+  if (sqlRun.status === "running") {
+    // FALLBACK HARDENING: a background-dispatched run that is still UNCLAIMED
+    // (dispatch_mode === 'background', never flipped to 'background-processing')
+    // past the tight grace means the bg-fn worker never started — a silent
+    // async-worker death that the 202-ack inline fallback can't catch. Reap it
+    // early and recoverably (background_worker_never_started) so the run no
+    // longer hangs for the full 90s window. Only fires when there is provably
+    // no live worker; a claimed/heartbeating run is left alone by the
+    // conditional SQL.
+    //
+    // REDISPATCH-BOUND GUARD (must be kept in lockstep with the "Unclaimed
+    // background-run sweep" in agent-chat-plugin.ts and with
+    // chainServerDrivenContinuation's deferral in production-agent.ts — do NOT
+    // remove this guard without reading those two sites):
+    // `chainServerDrivenContinuation` now DEFERS a dispatch-failed successor
+    // instead of erroring it — it leaves the row status='running',
+    // dispatch_mode='background' with its dispatch_payload intact so the sweep
+    // can silently redispatch it. This client poll runs every ~1s while a
+    // client is connected, so without this guard it would reap that deferred
+    // successor at the 25s unclaimed grace — long before the ~2-min sweep —
+    // converting the intended SILENT server-side recovery into a user-visible
+    // `background_worker_never_started` manual-retry error (that terminal
+    // reason does NOT auto-continue in the client follow loop; only `stale_run`
+    // does). While the successor is still inside its redispatch bound we skip
+    // this reap and leave it for the sweep. The outer backstops still bound it:
+    // `reapIfStale` below reaps a heartbeat-stale background row at 90s
+    // (BACKGROUND_RUN_STALE_MS) to the recoverable `stale_run` — which the
+    // follow loop AUTO-continues — and once the redispatch bound is exceeded
+    // this reap fires loudly as before. So recovery stays automatic in the
+    // common case and loud failure is only moved later, never removed.
+    //
+    // `isUnclaimedBackgroundDispatch` also becomes the `awaitingRedispatch`
+    // wire field below once the still-inside-the-bound check passes — see
+    // this function's doc comment and the THREE-SITE INVARIANT comment in
+    // agent-chat-plugin.ts / production-agent.ts.
+    const isUnclaimedBackgroundDispatch = sqlRun.dispatchMode === "background";
+    const stillInsideRedispatchBound = shouldRedispatchUnclaimedBackgroundRun({
+      startedAt: sqlRun.startedAt,
+    });
+    let reapFailed = false;
+    if (isUnclaimedBackgroundDispatch && !stillInsideRedispatchBound) {
+      const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).then(
+        (value) => ({ ok: true as const, value }),
+        (error) => {
+          captureError(error, {
+            route: "/_agent-native/agent-chat/runs/active",
+            aiTraceId: sqlRun.id,
+            tags: {
+              source: "agent-run-manager",
+              phase: "unclaimed-background-reap",
+            },
+            extra: { runId: sqlRun.id, threadId },
+          });
+          return { ok: false as const };
+        },
+      );
+      if (!recovered.ok) reapFailed = true;
+      else if (recovered.value) return null;
+    }
+    const reaped = await reapIfStale(sqlRun.id).then(
+      (value) => ({ ok: true as const, value }),
+      (error) => {
         captureError(error, {
           route: "/_agent-native/agent-chat/runs/active",
           aiTraceId: sqlRun.id,
@@ -3004,86 +3074,105 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
           },
           extra: { runId: sqlRun.id, threadId },
         });
-        return false;
-      });
-      if (reaped) return null;
-      return {
-        runId: sqlRun.id,
-        threadId: sqlRun.threadId,
-        turnId: sqlRun.turnId ?? sqlRun.id,
-        status: sqlRun.status,
-        inFlight: true,
-        heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
-        lastProgressAt: sqlRun.lastProgressAt,
-        dispatchMode: sqlRun.dispatchMode,
-        terminalReason: sqlRun.terminalReason,
-        diagStage: sqlRun.diagStage,
-        awaitingRedispatch:
-          isUnclaimedBackgroundDispatch && stillInsideRedispatchBound,
-        hasInFlightWork: sqlRun.inFlightSince != null,
-      };
-    }
-    if (
-      sqlRun.status === "completed" ||
-      sqlRun.status === "truncated" ||
-      sqlRun.status === "errored"
-    ) {
-      const referenceAt =
-        sqlRun.completedAt ?? sqlRun.heartbeatAt ?? sqlRun.startedAt;
-      const terminalAge = Date.now() - referenceAt;
-      if (terminalAge > TERMINAL_RUN_RECONNECT_WINDOW_MS) return null;
-      return {
-        runId: sqlRun.id,
-        threadId: sqlRun.threadId,
-        turnId: sqlRun.turnId ?? sqlRun.id,
-        status: legacyWireRunStatus(sqlRun.status),
-        inFlight: false,
-        heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
-        lastProgressAt: sqlRun.lastProgressAt,
-        dispatchMode: sqlRun.dispatchMode,
-        terminalReason: sqlRun.terminalReason,
-        diagStage: sqlRun.diagStage,
-        awaitingRedispatch: false,
-        hasInFlightWork: false,
-      };
-    }
-  } catch {
-    // SQL error — fall through
+        return { ok: false as const };
+      },
+    );
+    if (!reaped.ok) reapFailed = true;
+    else if (reaped.value) return null;
+    return {
+      runId: sqlRun.id,
+      threadId: sqlRun.threadId,
+      turnId: sqlRun.turnId ?? sqlRun.id,
+      status: sqlRun.status,
+      inFlight: true,
+      heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
+      lastProgressAt: sqlRun.lastProgressAt,
+      dispatchMode: sqlRun.dispatchMode,
+      terminalReason: sqlRun.terminalReason,
+      ...(reapFailed ? { reapFailed: true } : {}),
+      diagStage: sqlRun.diagStage,
+      awaitingRedispatch:
+        isUnclaimedBackgroundDispatch && stillInsideRedispatchBound,
+      hasInFlightWork: sqlRun.inFlightSince != null,
+    };
+  }
+  if (
+    sqlRun.status === "completed" ||
+    sqlRun.status === "truncated" ||
+    sqlRun.status === "errored" ||
+    sqlRun.status === "aborted"
+  ) {
+    const referenceAt =
+      sqlRun.completedAt ?? sqlRun.heartbeatAt ?? sqlRun.startedAt;
+    const terminalAge = Date.now() - referenceAt;
+    if (terminalAge > TERMINAL_RUN_RECONNECT_WINDOW_MS) return null;
+    return {
+      runId: sqlRun.id,
+      threadId: sqlRun.threadId,
+      turnId: sqlRun.turnId ?? sqlRun.id,
+      status: legacyWireRunStatus(sqlRun.status),
+      inFlight: false,
+      heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
+      lastProgressAt: sqlRun.lastProgressAt,
+      dispatchMode: sqlRun.dispatchMode,
+      terminalReason: sqlRun.terminalReason,
+      diagStage: sqlRun.diagStage,
+      awaitingRedispatch: false,
+      hasInFlightWork: false,
+    };
   }
   return null;
 }
 
 async function fetchRunThreadSnapshot(runId: string, threadId: string) {
-  try {
-    const byThread = await getRunByThread(threadId, {
-      includeTerminal: true,
-    });
-    if (byThread && byThread.id === runId) return byThread;
-    return null;
-  } catch {
-    return null;
-  }
+  const byThread = await getRunByThread(threadId, {
+    includeTerminal: true,
+  });
+  if (byThread && byThread.id === runId) return byThread;
+  return null;
 }
 
-async function fetchNewerNonTerminalRunForSameTurn(
+async function fetchNewerRunForSameTurn(
   threadId: string,
   memRun: ActiveRun,
 ): Promise<Awaited<ReturnType<typeof getRunByThread>> | null> {
-  try {
-    const latest = await getRunByThread(threadId, { includeTerminal: true });
+  const latest = await getRunByThread(threadId, { includeTerminal: true });
+  if (!latest) return null;
+
+  const isNewerReconnectableSuccessor = (run: {
+    id: string;
+    turnId?: string | null;
+    status: string;
+    startedAt: number;
+    heartbeatAt: number | null;
+    completedAt: number | null;
+    dispatchMode?: string | null;
+    terminalReason?: string | null;
+  }) => {
     if (
-      latest &&
-      latest.id !== memRun.runId &&
-      latest.status === "running" &&
-      latest.startedAt > memRun.startedAt &&
-      (latest.turnId ?? latest.id) === memRun.turnId
+      isDuplicateSubmissionMarker(run) ||
+      isTurnAbortMarker(run) ||
+      run.id === memRun.runId ||
+      run.startedAt <= memRun.startedAt ||
+      (run.turnId ?? run.id) !== memRun.turnId
     ) {
-      return latest;
+      return false;
     }
-    return null;
-  } catch {
-    return null;
+    if (run.status === "running") return true;
+    if (!RECONNECTABLE_TERMINAL_RUN_STATUSES.has(run.status)) return false;
+    const terminalAge =
+      Date.now() - (run.completedAt ?? run.heartbeatAt ?? run.startedAt);
+    return terminalAge <= TERMINAL_RUN_RECONNECT_WINDOW_MS;
+  };
+
+  if (!isDuplicateSubmissionMarker(latest)) {
+    return isNewerReconnectableSuccessor(latest) ? latest : null;
   }
+
+  const acceptedSuccessor = (
+    await listRunsForThread(threadId, { limit: 50 })
+  ).find(isNewerReconnectableSuccessor);
+  return acceptedSuccessor ?? null;
 }
 
 export function getRun(runId: string): ActiveRun | null {

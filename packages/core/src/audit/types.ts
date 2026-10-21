@@ -10,6 +10,9 @@ export type AuditActorKind = "agent" | "human" | "service" | "system";
  */
 export type AuditApproval = "agent-chat" | "a2a-review" | "mcp-client-accepted";
 
+/** Verified identity provenance for a request authenticated through A2A. */
+export type AuditIdentityAssurance = "user" | "organization" | "org-member";
+
 /**
  * Who can read an event besides its owner.
  * - `private` — the owner only (the default; personal content stays here).
@@ -91,6 +94,8 @@ export interface AuditEvent {
    * not verify who responded. Rows written before the column existed are null.
    */
   approval?: AuditApproval | null;
+  /** Verified identity provenance; null on older rows or non-A2A calls. */
+  identityAssurance?: AuditIdentityAssurance | null;
 }
 
 export interface AuditQueryFilters {

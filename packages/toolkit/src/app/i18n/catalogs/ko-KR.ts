@@ -748,6 +748,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "검색 중...",
   "history.untitledChat": "채팅",
   "history.yesterday": "어제",
+  "history.mine": "내 채팅",
+  "history.sharedWithYou": "나와 공유된 채팅",
+  "history.showAll": "모두 보기",
+  "history.showLess": "간단히 보기",
+  "history.loadMore": "더 불러오기",
+  "history.loadingMore": "불러오는 중...",
+  "history.retry": "다시 시도",
+  "history.loadFailed": "채팅을 불러올 수 없습니다",
+  "history.loadMoreFailed": "채팅을 더 불러올 수 없습니다",
+  "history.emptyMine": "아직 채팅이 없습니다",
+  "history.emptyShared": "공유된 채팅이 없습니다",
+  "history.ownedBy": "소유자: {{name}}",
+  "history.accessDirect": "나와 공유된 채팅",
+  "history.accessOrganization": "조직과 공유됨",
   "integrations.availableSection": "사용 가능한 연동",
   "integrations.connectedSection": "연결됨",
   "integrations.goToApiKeys": "API 키로 이동",
@@ -1436,6 +1450,17 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "뷰어",
   "share.viewerDescription": "보기 가능",
   "share.userGroup": "사용자 그룹",
+  "share.ownedByAnyone": "소유자 전체",
+  "share.ownedByMe": "내가 소유",
+  "share.sharedWithMe": "나와 공유됨",
+  "share.confirmOrganizationTitle": "조직과 공유할까요?",
+  "share.confirmOrganizationTitleNamed": "{{organization}}와(과) 공유할까요?",
+  "share.confirmOrganizationDescription":
+    "새 구성원을 포함한 조직의 모든 사용자가 이 항목을 열고 메시지, 파일 등 모든 내용을 볼 수 있게 됩니다. 나중에 변경할 수 있습니다.",
+  "share.confirmOrganizationDescriptionNamed":
+    "새 구성원을 포함한 {{organization}}의 모든 사용자가 이 항목을 열고 메시지, 파일 등 모든 내용을 볼 수 있게 됩니다. 나중에 변경할 수 있습니다.",
+  "share.confirmOrganizationAction": "조직과 공유",
+  "share.confirmOrganizationSharing": "공유하는 중...",
   "status.resuming": "재개 중",
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",
@@ -1954,9 +1979,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "추가 정보",
   "settingsOrg.general.workspaceUrl": "워크스페이스 URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "다른 배포에서 이 워크스페이스로 멤버를 보냅니다.",
+    "이 조직의 앱 디렉터리를 배포 간에 연결합니다.",
   "settingsOrg.general.workspaceUrlHelp":
-    "다른 배포에 도착한 멤버는 빈 앱 대신 이 워크스페이스로 이동합니다.",
+    "다른 배포에서 이 URL을 사용해 워크스페이스 앱을 찾습니다. 멤버를 자동으로 리디렉션하지 않습니다.",
   "settingsOrg.general.editWorkspaceUrl": "워크스페이스 URL 편집",
   "settingsOrg.general.removeWorkspaceUrl": "워크스페이스 URL 제거",
   "settingsOrg.general.setWorkspaceUrl": "URL 설정",
@@ -1973,6 +1998,9 @@ const messages: ToolkitAgentChatTranslation = {
     "설정됨. 이 워크스페이스의 앱이 서로를 확인할 수 있습니다.",
   "settingsOrg.auth.sharedSecretNotSet":
     "설정 안 됨. 이 워크스페이스의 앱이 서로를 확인할 수 있습니다.",
+  "settingsOrg.auth.memberDelegation": "조직 구성원 신원 위임",
+  "settingsOrg.auth.memberDelegationHelp":
+    "이 공유 조직 비밀을 보유한 연결된 앱은 이 앱을 호출할 때 현재 구성원 누구의 신원이든 주장할 수 있습니다. 이 앱은 실시간 구성원 명단을 확인하고 위임된 조직 액세스를 구성원 수준 권한으로 제한합니다.",
   "settingsOrg.auth.secretNotSetValue": "설정 안 됨",
   "settingsOrg.auth.manage": "관리",
   "settingsOrg.auth.reveal": "표시",
@@ -3126,6 +3154,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "보고서가 첨부되지 않았습니다.",
   "reportProblem.agentMessage":
     "앱에 문제가 생겼습니다. 첨부된 문제 보고서를 바탕으로 무슨 일이 있었는지 설명해 주세요.",
+  "unsupportedDevice.title": "더 큰 화면에서 열어 주세요",
+  "unsupportedDevice.titleDeck": "이 덱은 더 큰 화면에서 열어 주세요",
+  "unsupportedDevice.titleDesign": "이 디자인은 더 큰 화면에서 열어 주세요",
+  "unsupportedDevice.body":
+    "{{app}}은(는) iPad, 태블릿, 데스크톱에서 사용할 수 있어요. 링크를 자신에게 보내 그곳에서 이어서 작업하세요.",
+  "unsupportedDevice.email": "링크를 이메일로 보내기",
+  "unsupportedDevice.share": "링크 공유",
+  "unsupportedDevice.copy": "링크 복사",
+  "unsupportedDevice.copyFailed": "링크를 복사하지 못했어요",
+  "unsupportedDevice.copied": "링크를 복사했어요",
+  "unsupportedDevice.emailSubject": "컴퓨터에서 {{app}} 열기",
 };
 
 export default messages;

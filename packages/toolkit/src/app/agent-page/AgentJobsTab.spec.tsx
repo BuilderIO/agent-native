@@ -11,6 +11,8 @@ const jobMocks = vi.hoisted(() => ({
   },
   useRunAutomationNow: vi.fn(),
   useAutomations: vi.fn(),
+  useAutomationAccountSearch: vi.fn(),
+  useAutomationEvents: vi.fn(),
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
   useRecurringJobs: vi.fn(),
@@ -24,6 +26,8 @@ vi.mock("./use-jobs.js", () => ({
   useRecurringJobs: jobMocks.useRecurringJobs,
   useRunAutomationNow: jobMocks.useRunAutomationNow,
   useScheduledTriggerState: jobMocks.useScheduledTriggerState,
+  useAutomationAccountSearch: jobMocks.useAutomationAccountSearch,
+  useAutomationEvents: jobMocks.useAutomationEvents,
 }));
 
 vi.mock("../chat/index.js", () => ({
@@ -46,6 +50,10 @@ vi.mock("../chat/index.js", () => ({
       {label ?? title}
     </button>
   ),
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => ({ data: { orgId: "org-a", orgName: "Acme" } }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -131,6 +139,13 @@ describe("AgentJobsTab organization automations", () => {
                 name: "new-lead-alert",
                 path: "jobs/new-lead-alert.md",
                 scope: "organization",
+                effectiveRole: "owner",
+                sharing: {
+                  source: "explicit",
+                  visibility: "organization",
+                  organizationId: "org-a",
+                  grantCount: 0,
+                },
                 triggerType: "event",
                 event: "lead.created",
                 schedule: null,
@@ -151,6 +166,11 @@ describe("AgentJobsTab organization automations", () => {
     );
     jobMocks.useManageRecurringJob.mockReturnValue(mutationResult());
     jobMocks.useRunAutomationNow.mockReturnValue(mutationResult());
+    jobMocks.useAutomationAccountSearch.mockReturnValue({
+      data: [],
+      isFetching: false,
+    });
+    jobMocks.useAutomationEvents.mockReturnValue(queryResult([]));
     jobMocks.useManageAutomation.mockImplementation((scope: "user" | "org") =>
       mutationResult(jobMocks.manageAutomation[scope]),
     );
@@ -175,38 +195,33 @@ describe("AgentJobsTab organization automations", () => {
     expect(jobMocks.useAutomations).toHaveBeenCalledWith("org");
     expect(container.textContent).toContain("weekly report");
     expect(container.textContent).toContain("new lead alert");
-    expect(container.textContent).toContain("On lead.created");
+    expect(container.textContent).toContain("Runs when lead.created.");
+    expect(container.textContent).toContain("Organization");
     expect(container.textContent).toContain(
       "Scheduled, event-triggered, and webhook-triggered automations shared with this organization.",
     );
     expect(container.textContent).not.toContain("personal today");
   });
 
-  it("scopes organization creation drafts to the active organization", () => {
+  it("opens the organization editor with its scope fixed", async () => {
     act(() => {
-      root.render(<AgentJobsTab canManageOrg organizationId="org-a" />);
+      root.render(<AgentJobsTab canManageOrg />);
     });
 
-    expect(
-      container.querySelector(
-        '[data-draft-scope="agent-jobs:organization-create:org-a"]',
-      ),
-    ).not.toBeNull();
+    const organizationSection = container.querySelectorAll("section")[1];
+    const createButton = [
+      ...(organizationSection?.querySelectorAll("button") ?? []),
+    ].find((button) => button.textContent?.trim() === "New automation");
+    if (!createButton) throw new Error("No organization create button");
 
-    act(() => {
-      root.render(<AgentJobsTab canManageOrg organizationId="org-b" />);
+    await act(async () => {
+      createButton.click();
+      await import("./AutomationEditorDialog.js");
     });
 
-    expect(
-      container.querySelector(
-        '[data-draft-scope="agent-jobs:organization-create:org-b"]',
-      ),
-    ).not.toBeNull();
-    expect(
-      container.querySelector(
-        '[data-draft-scope="agent-jobs:organization-create:org-a"]',
-      ),
-    ).toBeNull();
+    expect(document.body.textContent).toContain(
+      "This automation is fixed to the organization scope.",
+    );
   });
 
   it("stays quiet about the scheduler when schedules actually fire", () => {
@@ -341,11 +356,10 @@ describe("AgentJobsTab organization automations", () => {
       expect(organizationSection?.lastElementChild?.textContent).toBe(
         "You can manage automations you created.",
       );
-      expect(
-        organizationSection?.querySelector(
-          '[data-draft-scope="agent-jobs:organization-create:org-a"]',
-        ),
-      ).not.toBeNull();
+      const organizationCreateButton = [
+        ...(organizationSection?.querySelectorAll("button") ?? []),
+      ].find((button) => button.textContent?.trim() === "New automation");
+      expect(organizationCreateButton).toBeDefined();
       expect(container.textContent).not.toContain(
         "Scheduled, event-triggered, and webhook-triggered automations shared with this organization.",
       );
@@ -367,6 +381,13 @@ describe("AgentJobsTab organization automations", () => {
                   name: "owner-digest",
                   path: "jobs/owner-digest.md",
                   scope: "organization",
+                  effectiveRole: "view",
+                  sharing: {
+                    source: "explicit",
+                    visibility: "organization",
+                    organizationId: "org-a",
+                    grantCount: 0,
+                  },
                   triggerType: "event",
                   event: "lead.created",
                   schedule: null,
@@ -414,7 +435,9 @@ describe("AgentJobsTab organization automations", () => {
     });
   });
 
-  it("creates organization automations through the scoped automation tool", () => {
+  it("offers an organization-scoped agent create path when the section is empty", () => {
+    jobMocks.useAutomations.mockReturnValue(queryResult([]));
+    jobMocks.useRecurringJobs.mockReturnValue(queryResult([]));
     act(() => {
       root.render(<AgentJobsTab canManageOrg />);
     });

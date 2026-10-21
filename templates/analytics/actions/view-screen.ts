@@ -229,6 +229,7 @@ export default defineAction({
                   { scope: { email, orgId }, editable: true },
                   nav.dashboardId,
                   builtin.config,
+                  url?.searchParams,
                 ),
               }),
               SCREEN_DASHBOARD_CHAR_BUDGET,
@@ -256,6 +257,7 @@ export default defineAction({
                         }),
                         dashboard.id,
                         dashboard.config as Record<string, unknown>,
+                        url?.searchParams,
                       )
                     : undefined,
               }),

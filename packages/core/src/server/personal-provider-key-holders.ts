@@ -8,9 +8,13 @@
 import { AGENT_PROVIDER_CATALOG } from "../client/agent-provider-catalog.js";
 import { getDbExec } from "../db/client.js";
 import { ensureTable as ensureAppSecretsTable } from "../secrets/storage.js";
+import { ForbiddenError } from "../sharing/access.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import { listUsersWithStoredBuilderOAuthGrant } from "./builder-oauth.js";
-import { listPersonalProviderPolicyKeys } from "./personal-provider-key-policy.js";
+import {
+  listPersonalProviderPolicyKeys,
+  readOrgMemberRole,
+} from "./personal-provider-key-policy.js";
 
 export interface PersonalProviderKeyHolderProvider {
   /** Provider id, e.g. "anthropic", or the key name for a provider outside the catalog. */
@@ -50,7 +54,14 @@ const BUILDER_KEYS: ReadonlySet<string> = new Set(BUILDER_CREDENTIAL_KEYS);
  */
 export async function listPersonalProviderKeyHolders(
   orgId: string,
+  actorEmail: string,
 ): Promise<PersonalProviderKeyHolder[]> {
+  const actorRole = await readOrgMemberRole(orgId, actorEmail);
+  if (actorRole !== "owner" && actorRole !== "admin") {
+    throw new ForbiddenError(
+      "Only organization owners and admins can view affected members.",
+    );
+  }
   const db = getDbExec();
   const { rows: memberRows } = await db.execute({
     sql: `SELECT email, role FROM org_members

@@ -5,11 +5,19 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-20
 
+### Improved
+
+- Phones now see a page that shares or emails the link to a larger screen, instead of an editor that isn't built for small screens.
+
 ### Fixed
 
 - Slides handles chat attachments more reliably, including documents with unclear filenames and image links.
 
 ## 2026-10-19
+
+### Added
+
+- Speaker notes panel under the slide canvas, with Generate notes and agent quick picks from the toolbar
 
 ### Improved
 

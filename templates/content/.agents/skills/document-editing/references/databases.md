@@ -140,8 +140,12 @@ one to rename it). Only one field shows at a time, but every field's editor
 stays open. `/page/<id>?field=<propertyId>`
 opens a given tab (no `field` means the first), so `navigate` with that path
 shows a person a specific field, and `navigation` reports the open tab as
-`fieldId`. Page comments anchor in the primary field, so their cards show only
-on its tab, and opening a comment switches back to it. The surviving lone field
+`fieldId`. Each tab has its own comments: text selected in a tab is commented
+there, the comment margin shows only the open tab's threads, and each tab shows
+its open-comment count. Opening a comment from the Comments panel or a link
+switches to its tab, and the panel groups and filters threads by tab when the
+page has two or more Blocks fields. Agents pass `fieldId` to `add-comment` (see
+Comments in SKILL.md). The surviving lone field
 keeps its stored name when fields are deleted back down to one. In table views a
 Blocks column shows a word count (e.g. "412 words"), not the body. A Blocks
 field is renamed or deleted from its tab's menu or the collection view's column

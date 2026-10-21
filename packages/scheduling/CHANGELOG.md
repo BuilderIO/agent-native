@@ -1,5 +1,38 @@
 # @agent-native/scheduling
 
+## 0.2.37
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [b58658d]
+  - @agent-native/toolkit@0.213.0
+
+## 0.2.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.212.1
+
+## 0.2.35
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [71749d3]
+- Updated dependencies [9d61445]
+- Updated dependencies [96e2cf6]
+- Updated dependencies
+- Updated dependencies [ae5a212]
+- Updated dependencies [71749d3]
+- Updated dependencies [71749d3]
+- Updated dependencies [9fcbe67]
+- Updated dependencies [66ae94a]
+  - @agent-native/toolkit@0.212.0
+
 ## 0.2.34
 
 ### Patch Changes
@@ -1097,23 +1130,5 @@
 ### Patch Changes
 
 - 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
-
-## 0.1.13
-
-### Patch Changes
-
-- fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
-
-## 0.1.12
-
-### Patch Changes
-
-- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
-
-## 0.1.11
-
-### Patch Changes
-
-- 3c1d3eb: Update dispatch provider APIs and scheduling internals for the runtime refresh.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

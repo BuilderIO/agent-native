@@ -1,10 +1,6 @@
 import { readAppState } from "@agent-native/core/application-state";
-import {
-  implicitServiceOrgRole,
-  organizations,
-  orgMembers,
-} from "@agent-native/core/org";
-import { getSession } from "@agent-native/core/server";
+import { implicitServiceOrgRole, organizations } from "@agent-native/core/org";
+import { getSession, readOrgMemberRole } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -175,20 +171,9 @@ export async function getOrganizationRoleForEmail(
   organizationId: string,
   email: string,
 ): Promise<OrganizationAccessRole | null> {
-  const lowerEmail = email.toLowerCase();
-
   try {
-    const [row] = await getDb()
-      .select({ role: orgMembers.role })
-      .from(orgMembers)
-      .where(
-        and(
-          eq(orgMembers.orgId, organizationId),
-          sql`lower(${orgMembers.email}) = ${lowerEmail}`,
-        ),
-      )
-      .limit(1);
-    if (row?.role) return normalizeOrganizationRole(row.role);
+    const role = await readOrgMemberRole(organizationId, email);
+    if (role) return normalizeOrganizationRole(role);
   } catch {
     // org_members table may not exist yet on first boot before migrations finish.
   }

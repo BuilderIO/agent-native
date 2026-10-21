@@ -2,6 +2,145 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "关联 GitHub 文件夹",
+  githubNewCollectionTitle: "从 GitHub 文件夹新建集合",
+  githubLinkDescription:
+    "文件夹中的文档会以只读页面显示在这里，GitHub 上的文件有改动时会自动更新。",
+  githubNewCollectionDescription:
+    "Content 会新建一个以文件夹命名的集合。文件夹中的文档会以只读页面显示在那里，GitHub 上的文件有改动时会自动更新。",
+  githubLinkUrlLabel: "GitHub 文件夹链接",
+  githubLinkUrlHelp: "在 GitHub 上打开该文件夹，然后复制浏览器中的地址。",
+  githubLinkCheck: "检查文件夹",
+  githubLinkReading: "正在读取 GitHub 上的文件夹…",
+  githubConnectChecking: "正在检查你的 GitHub 连接…",
+  githubConnectPrompt: "连接你的 GitHub 账户，Content 才能读取你的文件夹。",
+  githubConnect: "连接 GitHub",
+  githubPreviewPagesOne: "1 个页面",
+  githubPreviewPages: "{{count}} 个页面",
+  githubPreviewPagesUpTo: "最多 {{count}} 个页面",
+  githubLinkMore: "其他 {{count}} 个",
+  githubLinkNoFiles:
+    "此文件夹中没有 Markdown (.md) 文件，因此没有可显示的内容。",
+  githubPreviewColumnsOne: "1 列",
+  githubPreviewColumns: "{{count}} 列",
+  githubLinkNoColumns: "这些文件的开头没有详细信息，因此每个页面只有标题。",
+  githubLinkNotShownOne: "有 1 个文件暂时无法显示。",
+  githubLinkNotShown: "有 {{count}} 个文件暂时无法显示。",
+  githubLinkPicturesWaiting:
+    "在工作区管理员设置好文件存储之前，这些文件中的图片不会显示。",
+  githubShowDetails: "显示详细信息",
+  githubHideDetails: "隐藏详细信息",
+  githubDetailsPages: "页面",
+  githubDetailsColumns: "列",
+  githubDetailsColumnsSampled:
+    "读取自 {{total}} 个文件中的前 {{count}} 个。其他文件可能会添加列。",
+  githubDetailsNotShown: "暂时无法显示",
+  githubDetailsFrom: "来源",
+  githubDetailsBranchVersion: "分支 {{branch}} · 版本 {{commit}}",
+  githubYes: "是",
+  githubNo: "否",
+  githubSkipMdx: "使用了 MDX，Content 暂时无法显示",
+  githubSkipTooLarge: "文件太大，Content 无法显示",
+  githubSkipNotText: "不是 Content 能读取的文本文件",
+  githubLinkSubmitOne: "关联 1 个页面",
+  githubLinkSubmit: "关联 {{count}} 个页面",
+  githubLinkSubmitUpTo: "关联最多 {{count}} 个页面",
+  githubLinking: "正在关联…",
+  githubLinkingProgressOne: "正在从 GitHub 导入 1 个页面…",
+  githubLinkingProgress: "正在从 GitHub 导入 {{count}} 个页面…",
+  githubLinkedToastOne: "已关联。来自 {{folder}} 的 1 个页面已在这里。",
+  githubLinkedToast: "已关联。来自 {{folder}} 的 {{count}} 个页面已在这里。",
+  githubLinkedPartialToast:
+    "已关联。{{total}} 个页面中已有 {{done}} 个在这里，其余页面会在一分钟内到齐。",
+  githubLinkedSyncFailed: "已关联 {{folder}}，但暂时无法导入页面。",
+  githubLinkInvalidUrl:
+    "这不是 GitHub 文件夹链接。请在 GitHub 上打开该文件夹，然后复制浏览器中的地址。",
+  githubLinkFileUrl: "这是指向单个文件的链接。",
+  githubLinkUseFolder: "使用“{{folder}}”文件夹",
+  githubLinkRepositoryNotFound:
+    "无法打开“{{repo}}”。请检查拼写，或确认你的 GitHub 账户能看到它。",
+  githubLinkBranchNotFound:
+    "{{repo}} 中没有名为“{{branch}}”的分支。请检查链接。",
+  githubLinkFolderNotFound:
+    "{{repo}} 中没有名为“{{folder}}”的文件夹。请检查链接。",
+  githubLinkForbidden:
+    "你的 GitHub 账户无法打开“{{repo}}”。请向其所有者申请访问权限。",
+  githubLinkTooLarge:
+    "此文件夹中的文件超过 {{max}} 个。请改选它里面的一个较小的文件夹。",
+  githubLinkUnavailable: "暂时无法访问 GitHub。请过一分钟再试。",
+  githubLinkBlockedHasRows: "此集合中已有页面，因此无法用 GitHub 文件夹填充。",
+  githubLinkBlockedLinked: "此集合已从另一个应用获取页面。",
+  githubLinkBlockedSystem: "此集合无法显示 GitHub 文件夹。",
+  githubNewCollectionInstead: "从 GitHub 新建集合",
+  githubRowAvailable: "在这里显示 GitHub 文件夹中的文档",
+  githubRowConnectFirst: "请先连接你的 GitHub 账户",
+  githubRowEmptyOnly: "仅适用于空集合",
+  githubRowOtherSource: "已从 {{source}} 获取页面",
+  githubRowFiles: "不适用于“文件”",
+  githubRowSystem: "不适用于此集合",
+  githubRowEditorsOnly: "仅限编辑者",
+  githubRowLinked: "{{folder}} 文件夹 · {{time}}更新",
+  githubRowLinkedNotUpdated: "{{folder}} 文件夹 · 尚未更新",
+  githubRowUnavailableWhileLinked: "关联到 GitHub 时不可用",
+  githubExplainHasPagesOne:
+    "GitHub 文件夹会填满整个集合，因此需要一个没有页面的集合。此集合有 1 个页面。",
+  githubExplainHasPages:
+    "GitHub 文件夹会填满整个集合，因此需要一个没有页面的集合。此集合有 {{count}} 个页面。",
+  githubExplainOtherSource:
+    "一个集合只能从一个地方获取页面。此集合使用的是 {{source}}。",
+  githubExplainFiles: "“文件”集合无法显示 GitHub 文件夹。",
+  githubExplainSystem: "此集合无法显示 GitHub 文件夹。",
+  githubExplainEditorsOnly:
+    "只有能编辑此集合的人才能关联 GitHub 文件夹。请向其所有者申请编辑权限。",
+  githubExplainLinked:
+    "此集合的页面来自 GitHub。取消关联该文件夹后才能使用其他来源。",
+  githubDetailFolder: "文件夹",
+  githubDetailBranch: "分支",
+  githubDetailVersion: "版本",
+  githubDetailUpdated: "更新时间",
+  githubCheckForUpdates: "检查更新",
+  githubOpenFolder: "在 GitHub 中打开",
+  githubUnlinkFolder: "取消关联文件夹…",
+  githubUnlinkTitle: "取消关联此 GitHub 文件夹？",
+  githubUnlinkBodyOne:
+    "这 1 个页面会保留在这里，并变为可编辑的普通页面。GitHub 上的更改不会再传到这里。以后如果要再次关联此文件夹，需要使用新的集合。",
+  githubUnlinkBody:
+    "这 {{count}} 个页面会保留在这里，并变为可编辑的普通页面。GitHub 上的更改不会再传到这里。以后如果要再次关联此文件夹，需要使用新的集合。",
+  githubUnlink: "取消关联",
+  githubUnlinking: "正在取消关联…",
+  githubUnlinkedToast: "已取消关联。你的页面已保留，现在可以编辑了。",
+  githubUnlinkFailed: "无法取消关联该文件夹",
+  githubFromFolder: "来自 GitHub 上的 {{folder}} 文件夹",
+  githubFromRepo: "来自 GitHub 上的 {{repo}}",
+  githubUpdatedAgo: "{{time}}更新",
+  githubJustNow: "刚刚",
+  githubNotUpdatedYet: "尚未更新",
+  githubEditOnGitHub: "在 GitHub 上编辑",
+  githubDetails: "详细信息",
+  githubNotShownOne: "1 个文件未显示",
+  githubNotShown: "{{count}} 个文件未显示",
+  githubNotShownHeading: "未显示",
+  githubShowingAsOf: "当前显示的是{{time}}的页面。",
+  githubSyncingProgress: "正在获取更改：{{done}}/{{total}} 个文件",
+  githubPicturesWaiting: "在工作区管理员设置好文件存储之前，部分图片不会显示。",
+  githubReconnect: "重新连接 GitHub",
+  githubProblemConnection: "已停止更新：GitHub 需要你重新登录。",
+  githubProblemForbidden:
+    "已停止更新：你的 GitHub 账户现在无法打开此仓库。请向其所有者申请访问权限。",
+  githubProblemRepositoryNotFound:
+    "已停止更新：该仓库已被移动、重命名或设为私有。",
+  githubProblemBranchNotFound: "已停止更新：GitHub 上已没有“{{branch}}”分支。",
+  githubProblemFolderNotFound: "已停止更新：该分支上已没有“{{folder}}”文件夹。",
+  githubProblemPaused: "更新已暂停片刻，稍后会自动恢复。",
+  githubProblemTooLarge: "已停止更新：该文件夹中的文件现已超过 {{max}} 个。",
+  githubProblemStorageUnavailable:
+    "在工作区管理员设置好文件存储之前，图片不会显示。",
+  githubAlreadyUpToDate: "已是最新。",
+  githubSyncedToastOne: "已更新。1 个页面有更改。",
+  githubSyncedToast: "已更新。{{count}} 个页面有更改。",
+  githubSyncPartialToast: "正在更新：目前已完成 {{done}}/{{total}} 个文件。",
+  githubSyncBusy: "已在检查更新。完成后会显示更改。",
+  emptyCollectionSourceHint: "或者从来源填充",
   formChecked: "已勾选",
   formChooseOption: "选择一个选项",
   formDescription: "填写以下问题以向此集合添加页面。",
@@ -362,8 +501,7 @@ const databaseExactEnglish = {
   sortDescending: "降序排序",
   sortRowsBy: "排序行依据",
   startDate: "开始日期",
-  thisDatabaseIsLocalConnectASourceToMapIts:
-    "此集合是本地的。连接来源以将其列映射到这些行。",
+  thisDatabaseIsLocalConnectASourceToMapIts: "从其他应用将页面导入此集合。",
   thisPropertyHasNoOptionsYet: "此属性还没有选项。",
   thisSourceIsNoLongerConnected: "此来源已不再连接。",
 };
@@ -440,8 +578,8 @@ const editor = {
   noDocumentSelected: "未选择文档",
   registryBlockLoadError: "无法加载 {{type}} 块：{{message}}",
   registryBlockUnreadable: "无法读取已保存的块源内容。",
-  blocksFieldRevisionConflict:
-    "此 Blocks 字段已在其他位置更改。你的编辑未保存；现已显示最新版本。",
+  blocksFieldEditMovedToEnd:
+    "此 Blocks 字段也在其他位置被更改。你在同一位置输入的文字已移到字段末尾。",
   reconcileConflict: "此页面已在其他地方更改。你的编辑尚未保存。",
   reconcileFailed: "无法合并最新更改。你的编辑尚未保存。",
   reconcileSaveFailed: "无法保存你的编辑。请检查后重试。",
@@ -1121,6 +1259,10 @@ const comments = {
   accepted: "已接受",
   rejected: "已拒绝",
   noFilteredComments: "没有匹配的评论。",
+  tabFilter: "标签页",
+  allTabs: "所有标签页",
+  fieldRemoved: "{{name}}（已删除）",
+  pageBody: "页面正文",
 };
 
 const reviewDiscussions = {
@@ -1513,6 +1655,7 @@ const overrides = {
     addBlockField: "添加字段",
     blockFieldChanged: "自你上次查看后已更改",
     blockFieldTabs: "字段",
+    blockFieldOpenComments_other: "{{count}} 条未解决的评论",
     blockFieldMenu: "{{name}} 选项",
     blockFieldMenuScope: "此集合中的每一行共用",
     blockFieldName: "字段名称",

@@ -299,6 +299,27 @@ describe("IDENTITY_REKEY_COLUMNS offboard policy", () => {
     }
   });
 
+  it("rekeys automation recipients and scopes offboarding to their organization", () => {
+    expect(
+      IDENTITY_REKEY_COLUMNS.find(
+        (entry) =>
+          entry.table === "automation_sharing_grants" &&
+          entry.column === "user_email",
+      ),
+    ).toMatchObject({
+      emailChange: "rekey",
+      offboard: "delete",
+      orgScope: {
+        column: "resource_id",
+        references: {
+          table: "automation_sharing_overlays",
+          column: "resource_id",
+          orgColumn: "organization_id",
+        },
+      },
+    });
+  });
+
   it("never hands framework MCP credentials to the successor", () => {
     const policy = (table: string) =>
       IDENTITY_REKEY_COLUMNS.find(

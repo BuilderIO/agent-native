@@ -783,6 +783,20 @@ export function useSetA2ASecret() {
   });
 }
 
+export function useSetA2AMemberDelegation() {
+  const qc = useQueryClient();
+  return useMutation<{ enabled: boolean }, Error, boolean>({
+    mutationFn: (enabled) =>
+      apiFetch(`${orgBasePath()}/a2a-member-delegation`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
 export interface SyncA2ASecretResult {
   total: number;
   succeeded: number;

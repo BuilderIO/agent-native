@@ -70,6 +70,8 @@ export interface EngineToolCallPart {
   id: string;
   name: string;
   input: unknown;
+  executionStepId?: string;
+  inputFingerprint?: string;
 }
 
 export interface EngineToolResultImagePart {
@@ -85,6 +87,8 @@ export interface EngineToolResultPart {
   toolName: string;
   toolInput: string;
   content: string;
+  executionStepId?: string;
+  inputFingerprint?: string;
   isError?: boolean;
   approvalPause?: boolean;
   approvalAskId?: string;

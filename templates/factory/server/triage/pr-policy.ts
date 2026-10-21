@@ -437,10 +437,9 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       .toLowerCase();
     const factorySecurityPath =
       normalized.startsWith("templates/factory/server/triage/") ||
-      /^templates\/factory\/(?:server\/lib\/(?:require-factory-automation|factory-automation-(?:resources|caller|config|history|repair)|factory-scope|provider-api|github-repository|pr-babysit-prompt|slack-feedback-prompt|factory-config-reconcile|factory-poll-cursors|factory-audit-report|audit-cursor|source-reaction|safe-http-url)|server\/plugins\/factory-scheduler-job|actions\/(?:run|save|create)-factory-automation|actions\/(?:get|list|restore)-factory-automation-(?:version|versions)|actions\/list-factory-automations|actions\/(?:get-factory-automation-health|list-factory-automation-templates|govern-factory-pull-request|create-factory|(?:save|get)-factory-graph|(?:get|list|restore)-factory-graph-version(?:s)?|(?:get|save)-triage-config|save-triage-rule|get-triage-item|list-triage-items|list-factory-comments|list-triage-rules|evaluate-triage-item|factory-graph-history|provider-api-request|poll-(?:github-sources|slack-channel|sentry-errors)|dispatch-factory-item|list-factory-audit|babysit-factory-pull-request|propose-pr-babysit-status|get-slack-feedback-context))\./.test(
+      /^templates\/factory\/(?:server\/lib\/(?:require-factory-automation|factory-automation-(?:resources|caller|config|history|repair)|factory-scope|factory-ids|factory-definitions|provider-api|github-repository|factory-config-reconcile|factory-poll-cursors|factory-audit-report|audit-cursor|source-reaction|safe-http-url)|server\/plugins\/factory-scheduler-job|actions\/(?:run|save|create)-factory-automation|actions\/(?:get|list|restore)-factory-automation-(?:version|versions)|actions\/list-factory-automations|actions\/(?:get-factory-automation-health|list-factory-automation-templates|govern-factory-pull-request|create-factory|(?:get|save)-triage-config|get-triage-item|list-triage-items|provider-api-request|poll-(?:github-sources|slack-channel|sentry-errors)|list-factory-audit))\./.test(
         normalized,
       ) ||
-      normalized.startsWith("templates/factory/server/factory-graph/") ||
       normalized.startsWith("templates/factory/app/lib/safe-http-url.");
     return (
       normalized === "agents.md" ||

@@ -7,6 +7,7 @@ import {
   getContentDatabaseSourceSnapshot,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
+import { refreshGitHubSourceBeforeRead } from "./_github-source-freshness.js";
 import { getDatabaseById, serializeDatabase } from "./_property-utils.js";
 
 const sourceStatusAgentSchema = z
@@ -69,6 +70,7 @@ export default defineAction({
         statusCode: 409,
       });
 
+    await refreshGitHubSourceBeforeRead(database.id);
     const snapshot = await getContentDatabaseSourceSnapshot(database);
     if (snapshot?.sourceType === "local-table") {
       const sourceDatabase = await getDatabaseById(snapshot.sourceTable);

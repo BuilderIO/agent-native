@@ -714,6 +714,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "搜尋中...",
   "history.untitledChat": "聊天",
   "history.yesterday": "昨天",
+  "history.mine": "我的聊天",
+  "history.sharedWithYou": "與您共用",
+  "history.showAll": "顯示全部",
+  "history.showLess": "收合",
+  "history.loadMore": "載入更多",
+  "history.loadingMore": "載入中...",
+  "history.retry": "重試",
+  "history.loadFailed": "無法載入聊天",
+  "history.loadMoreFailed": "無法載入更多聊天",
+  "history.emptyMine": "還沒有聊天",
+  "history.emptyShared": "尚無聊天與您共用",
+  "history.ownedBy": "擁有者：{{name}}",
+  "history.accessDirect": "與您共用",
+  "history.accessOrganization": "與您的組織共用",
   "integrations.availableSection": "可用整合",
   "integrations.connectedSection": "已連線",
   "integrations.goToApiKeys": "前往 API 金鑰",
@@ -1351,6 +1365,17 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "檢視者",
   "share.viewerDescription": "可以檢視",
   "share.userGroup": "使用者群組",
+  "share.ownedByAnyone": "任何人擁有",
+  "share.ownedByMe": "我擁有",
+  "share.sharedWithMe": "與我共用",
+  "share.confirmOrganizationTitle": "與您的組織共用？",
+  "share.confirmOrganizationTitleNamed": "與 {{organization}} 共用？",
+  "share.confirmOrganizationDescription":
+    "您組織中的所有人（包括新成員）都能開啟並查看其中的所有內容，包括任何訊息、檔案和其他內容。您可以稍後變更。",
+  "share.confirmOrganizationDescriptionNamed":
+    "{{organization}} 中的所有人（包括新成員）都能開啟並查看其中的所有內容，包括任何訊息、檔案和其他內容。您可以稍後變更。",
+  "share.confirmOrganizationAction": "與組織共用",
+  "share.confirmOrganizationSharing": "正在共用...",
   "status.resuming": "正在繼續",
   "status.stillWorking": "仍在處理",
   "status.thinking": "正在思考",
@@ -1850,9 +1875,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "更多資訊",
   "settingsOrg.general.workspaceUrl": "工作區 URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "將其他部署中的成員引導到此工作區。",
+    "跨部署連結此組織的應用程式目錄。",
   "settingsOrg.general.workspaceUrlHelp":
-    "進入其他部署的成員會前往此工作區，而不是空白的應用程式。",
+    "其他部署會使用此 URL 尋找工作區應用程式。此設定不會自動重新導向成員。",
   "settingsOrg.general.editWorkspaceUrl": "編輯工作區 URL",
   "settingsOrg.general.removeWorkspaceUrl": "移除工作區 URL",
   "settingsOrg.general.setWorkspaceUrl": "設定 URL",
@@ -1869,6 +1894,9 @@ const messages: ToolkitAgentChatTranslation = {
     "已設定。讓此工作區中的應用程式互相驗證。",
   "settingsOrg.auth.sharedSecretNotSet":
     "未設定。讓此工作區中的應用程式互相驗證。",
+  "settingsOrg.auth.memberDelegation": "組織成員身分委派",
+  "settingsOrg.auth.memberDelegationHelp":
+    "持有此組織共用密鑰的已連結應用程式在呼叫此應用程式時，可以聲稱是任何一位現任成員。此應用程式會檢查即時成員名單，並將受委派的組織存取權限制為成員層級的權限。",
   "settingsOrg.auth.secretNotSetValue": "未設定",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "顯示",
@@ -2902,6 +2930,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "回報未能附加。",
   "reportProblem.agentMessage":
     "應用程式出了問題。請根據附上的問題回報說明發生了什麼事。",
+  "unsupportedDevice.title": "請在較大的螢幕上開啟",
+  "unsupportedDevice.titleDeck": "請在較大的螢幕上開啟此簡報",
+  "unsupportedDevice.titleDesign": "請在較大的螢幕上開啟此設計",
+  "unsupportedDevice.body":
+    "{{app}}支援 iPad、平板與桌面裝置。將連結傳給自己，即可在那裡繼續。",
+  "unsupportedDevice.email": "將連結寄給我",
+  "unsupportedDevice.share": "分享連結",
+  "unsupportedDevice.copy": "複製連結",
+  "unsupportedDevice.copyFailed": "無法複製連結",
+  "unsupportedDevice.copied": "已複製連結",
+  "unsupportedDevice.emailSubject": "在電腦上開啟{{app}}",
 };
 
 export default messages;

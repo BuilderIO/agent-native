@@ -8,7 +8,7 @@ import {
   withFencedExecutionWrite,
 } from "../agent/execution-fence.js";
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
-import { getDbExec, type DbExec } from "../db/client.js";
+import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -466,25 +466,28 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
+/**
+ * Skipped ticks ("nothing due") can outnumber real runs many times over, so
+ * they are evicted ahead of success and error rows rather than by age alone.
+ */
 async function pruneAutomationRuns(
   owner: string,
   automation: string,
 ): Promise<void> {
   await getDbExec().execute({
     sql: `DELETE FROM ${TABLE}
-          WHERE owner = ? AND automation = ?
-            AND finished_at IS NOT NULL
-            AND COALESCE(failure_alert_state, '') NOT IN ('evaluating', 'pending', 'sending')
-            AND started_at < (
-            SELECT MIN(started_at) FROM (
-              SELECT started_at FROM ${TABLE}
+          WHERE id IN (
+            SELECT id FROM (
+              SELECT id, failure_alert_state FROM ${TABLE}
               WHERE owner = ? AND automation = ?
                 AND finished_at IS NOT NULL
-              ORDER BY started_at DESC
-              LIMIT ${RUNS_RETAINED_PER_AUTOMATION}
-            ) recent
+              ORDER BY CASE WHEN status = 'skipped' THEN 1 ELSE 0 END,
+                started_at DESC, id
+              OFFSET ${RUNS_RETAINED_PER_AUTOMATION}
+            ) evictable
+            WHERE COALESCE(failure_alert_state, '') NOT IN ('evaluating', 'pending', 'sending')
           )`,
-    args: [owner, automation, owner, automation],
+    args: [owner, automation],
   });
 }
 
@@ -1004,6 +1007,36 @@ export async function attachAutomationRunThread(
     if (runGuard) throw new AutomationRunHistoryClaimLostError(id);
     throw new AutomationRunHistoryWriteError(id);
   }
+}
+
+/**
+ * Forget an automation's executions.
+ *
+ * History is keyed by the automation's name, which is reusable: deleting
+ * "digest" and creating a new "digest" would otherwise show the old
+ * definition's runs as the new one's history.
+ */
+export async function ensureAutomationRunHistoryReady(): Promise<void> {
+  await ensureTable();
+}
+
+export function prepareAutomationRunsDelete(
+  owner: string,
+  automation: string,
+  guard?: { sql: string; args: readonly unknown[] },
+): DbExecStatement {
+  return {
+    sql: `DELETE FROM ${TABLE} WHERE owner = ? AND automation = ?${guard ? ` AND EXISTS (${guard.sql})` : ""}`,
+    args: [owner, automation, ...(guard?.args ?? [])],
+  };
+}
+
+export async function deleteAutomationRunsWithDb(
+  client: DbExec,
+  owner: string,
+  automation: string,
+): Promise<void> {
+  await client.execute(prepareAutomationRunsDelete(owner, automation));
 }
 
 export async function deleteAutomationRuns(

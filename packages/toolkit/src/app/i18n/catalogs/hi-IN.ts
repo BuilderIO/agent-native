@@ -745,6 +745,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "खोजा जा रहा है...",
   "history.untitledChat": "चैट",
   "history.yesterday": "कल",
+  "history.mine": "मेरी चैट",
+  "history.sharedWithYou": "आपके साथ साझा",
+  "history.showAll": "सभी दिखाएं",
+  "history.showLess": "कम दिखाएं",
+  "history.loadMore": "और लोड करें",
+  "history.loadingMore": "लोड हो रहा है...",
+  "history.retry": "फिर से प्रयास करें",
+  "history.loadFailed": "चैट लोड नहीं की जा सकीं",
+  "history.loadMoreFailed": "और चैट लोड नहीं की जा सकीं",
+  "history.emptyMine": "अभी कोई चैट नहीं है",
+  "history.emptyShared": "आपके साथ कोई चैट साझा नहीं की गई है",
+  "history.ownedBy": "मालिक: {{name}}",
+  "history.accessDirect": "आपके साथ साझा",
+  "history.accessOrganization": "आपके संगठन के साथ साझा",
   "integrations.availableSection": "उपलब्ध इंटीग्रेशन",
   "integrations.connectedSection": "कनेक्ट किए गए",
   "integrations.goToApiKeys": "API कुंजियों पर जाएं",
@@ -1417,6 +1431,17 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "दर्शक",
   "share.viewerDescription": "देख सकता है",
   "share.userGroup": "उपयोगकर्ता समूह",
+  "share.ownedByAnyone": "किसी के भी स्वामित्व वाले",
+  "share.ownedByMe": "मेरे स्वामित्व वाले",
+  "share.sharedWithMe": "मेरे साथ साझा",
+  "share.confirmOrganizationTitle": "अपने संगठन के साथ साझा करें?",
+  "share.confirmOrganizationTitleNamed": "{{organization}} के साथ साझा करें?",
+  "share.confirmOrganizationDescription":
+    "आपके संगठन के सभी लोग, नए सदस्यों सहित, इसे खोल सकेंगे और इसमें मौजूद सब कुछ देख सकेंगे, जिसमें संदेश, फ़ाइलें और अन्य सामग्री शामिल हैं। आप इसे बाद में बदल सकते हैं।",
+  "share.confirmOrganizationDescriptionNamed":
+    "{{organization}} के सभी लोग, नए सदस्यों सहित, इसे खोल सकेंगे और इसमें मौजूद सब कुछ देख सकेंगे, जिसमें संदेश, फ़ाइलें और अन्य सामग्री शामिल हैं। आप इसे बाद में बदल सकते हैं।",
+  "share.confirmOrganizationAction": "संगठन के साथ साझा करें",
+  "share.confirmOrganizationSharing": "साझा किया जा रहा है...",
   "status.resuming": "फिर से शुरू हो रहा है",
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",
@@ -1954,9 +1979,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "अधिक जानकारी",
   "settingsOrg.general.workspaceUrl": "वर्कस्पेस URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "किसी दूसरे डिप्लॉयमेंट से सदस्यों को इस वर्कस्पेस पर भेजें।",
+    "इस संगठन की ऐप डायरेक्टरी को अलग-अलग डिप्लॉयमेंट में जोड़ें।",
   "settingsOrg.general.workspaceUrlHelp":
-    "जो सदस्य किसी दूसरे डिप्लॉयमेंट पर पहुंचते हैं, वे खाली ऐप के बजाय इस वर्कस्पेस पर जाते हैं।",
+    "दूसरे डिप्लॉयमेंट इस URL का उपयोग वर्कस्पेस ऐप खोजने के लिए करते हैं। इससे सदस्य अपने-आप रीडायरेक्ट नहीं होते।",
   "settingsOrg.general.editWorkspaceUrl": "वर्कस्पेस URL संपादित करें",
   "settingsOrg.general.removeWorkspaceUrl": "वर्कस्पेस URL हटाएं",
   "settingsOrg.general.setWorkspaceUrl": "URL सेट करें",
@@ -1973,6 +1998,9 @@ const messages: ToolkitAgentChatTranslation = {
     "सेट है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
   "settingsOrg.auth.sharedSecretNotSet":
     "सेट नहीं है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
+  "settingsOrg.auth.memberDelegation": "संगठन सदस्य की पहचान का प्रत्यायोजन",
+  "settingsOrg.auth.memberDelegationHelp":
+    "इस साझा संगठन सीक्रेट वाले कनेक्टेड ऐप्स इस ऐप को कॉल करते समय किसी भी वर्तमान सदस्य की पहचान का दावा कर सकते हैं। यह ऐप लाइव सदस्य सूची की जांच करता है और प्रत्यायोजित संगठन एक्सेस को सदस्य-स्तर की अनुमतियों तक सीमित रखता है।",
   "settingsOrg.auth.secretNotSetValue": "सेट नहीं है",
   "settingsOrg.auth.manage": "प्रबंधित करें",
   "settingsOrg.auth.reveal": "दिखाएं",
@@ -3112,6 +3140,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "रिपोर्ट संलग्न नहीं हुई।",
   "reportProblem.agentMessage":
     "ऐप में कुछ गड़बड़ हो गई। संलग्न समस्या रिपोर्ट से बताइए कि क्या हुआ।",
+  "unsupportedDevice.title": "इसे बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.titleDeck": "इस डेक को बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.titleDesign": "इस डिज़ाइन को बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.body":
+    "{{app}} iPad, टैबलेट और डेस्कटॉप पर चलता है। लिंक खुद को भेजें और वहाँ से आगे बढ़ें।",
+  "unsupportedDevice.email": "मुझे लिंक ईमेल करें",
+  "unsupportedDevice.share": "लिंक शेयर करें",
+  "unsupportedDevice.copy": "लिंक कॉपी करें",
+  "unsupportedDevice.copyFailed": "लिंक कॉपी नहीं हो सका",
+  "unsupportedDevice.copied": "लिंक कॉपी हो गया",
+  "unsupportedDevice.emailSubject": "अपने कंप्यूटर पर {{app}} खोलें",
 };
 
 export default messages;

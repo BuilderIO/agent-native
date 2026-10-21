@@ -578,20 +578,30 @@ describe("reaper successor resume context", () => {
     },
   );
 
-  it("rejects start markers for absent runs and duplicate sequences", async () => {
+  it("rejects start markers for absent runs and conflicting duplicate sequences", async () => {
     const runId = `marker-proof-${++sequence}`;
     const marker = JSON.stringify(START);
+    const eventAt = 1_000;
     await expect(
-      runStore.insertRunEvent(runId, 0, marker, { requireInserted: true }),
+      runStore.insertRunEvent(runId, 0, marker, {
+        requireInserted: true,
+        eventAt,
+      }),
     ).rejects.toThrow("Run event was not persisted");
     await insertRun(
       runId,
       `marker-thread-${sequence}`,
       `marker-turn-${sequence}`,
     );
-    await runStore.insertRunEvent(runId, 0, marker, { requireInserted: true });
+    await runStore.insertRunEvent(runId, 0, marker, {
+      requireInserted: true,
+      eventAt,
+    });
     await expect(
-      runStore.insertRunEvent(runId, 0, marker, { requireInserted: true }),
+      runStore.insertRunEvent(runId, 0, marker, {
+        requireInserted: true,
+        eventAt: eventAt + 1,
+      }),
     ).rejects.toThrow("Run event was not persisted");
     expect(await getRunEventsSince(runId, -1)).toHaveLength(1);
     await runStore.updateRunStatus(runId, "completed");

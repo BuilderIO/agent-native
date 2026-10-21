@@ -242,6 +242,7 @@ export function auditEventToOcsf(event: AuditEvent): OcsfApiActivity {
   keep("reported_client_version", event.reportedClientVersion);
   keep("oauth_client_id", event.oauthClientId);
   keep("approval", event.approval);
+  keep("identity_assurance", event.identityAssurance);
 
   const resource =
     event.targetType || event.targetId

@@ -1955,6 +1955,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (현지화됨)",
     couldNotStartRecording: "Could not start recording (현지화됨)",
+    intakeStorageUnavailable:
+      "이 링크로 녹화하려면 링크 소유자가 먼저 동영상 저장소를 연결해야 합니다. 소유자에게 연결을 요청한 뒤 다시 시도하세요.",
+    streamingStorageUnavailable:
+      "현재 저장소는 Clips에 필요한 재개 가능한 업로드를 지원하지 않습니다. 호환되는 제공업체를 설정하거나 워크스페이스 소유자 또는 관리자에게 요청한 다음 새 녹화를 시작하세요.",
     couldNotStartRecorder: "Could not start recorder (현지화됨)",
     openSettings: "Open settings (현지화됨)",
     openedRecorderInNewTab: "Opened recorder in a new tab (현지화됨)",
@@ -1988,6 +1992,8 @@ const messages = {
     sessionExpired: "Session expired (현지화됨)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (현지화됨)",
+    accountMismatch:
+      "녹화 준비를 시작한 후 로그인한 계정이 변경되었습니다. 처음 사용한 계정으로 돌아가 다시 시도하세요.",
     logIn: "Log in (현지화됨)",
     betterInDesktop: "Better in the desktop app (현지화됨)",
     desktopAppDescription:
@@ -2001,8 +2007,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (현지화됨)",
     retryUpload: "업로드 다시 시도",
     tryAgain: "다시 시도",
-    storageConnectedReopeningRecorder:
-      "저장소가 연결되었습니다. 녹화 도구를 다시 여는 중...",
+    storageConnectedRecorderReady:
+      "저장소가 연결되었습니다. 준비되면 새 녹화를 시작하세요.",
     connectStorageToFinish:
       "다음 화면에서 Builder.io 스토리지(무료 티어 스토리지 및 AI)를 사용하거나 S3 호환 스토리지를 구성하세요. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:

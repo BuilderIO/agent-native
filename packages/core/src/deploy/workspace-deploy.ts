@@ -31,6 +31,7 @@ import {
   BUILTIN_AGENTS_ENV_KEY,
   workspaceBuiltinAgentsJson,
 } from "../server/builtin-agents.js";
+import { parseAgentProfileMetadataFields } from "../shared/agent-profile.js";
 import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -126,6 +127,7 @@ interface WorkspaceAppManifestEntry {
   id: string;
   name: string;
   description: string;
+  "agent-native"?: { whenToUse?: string[]; aliases?: string[] };
   path: string;
   homePath: string;
   url?: string;
@@ -1916,10 +1918,43 @@ async function readWorkspaceAppManifest(
       packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
     const protectedPaths =
       packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
+    const agentNative = pkg?.["agent-native"];
+    const profile = parseAgentProfileMetadataFields({
+      description: pkg?.description,
+      ...(agentNative &&
+      typeof agentNative === "object" &&
+      ("whenToUse" in agentNative || "aliases" in agentNative)
+        ? {
+            ...("whenToUse" in agentNative
+              ? { whenToUse: agentNative.whenToUse }
+              : {}),
+            ...("aliases" in agentNative
+              ? { aliases: agentNative.aliases }
+              : {}),
+          }
+        : {}),
+    });
+    if (profile.invalidFields.length) {
+      console.warn(
+        `[workspace] Ignoring invalid agent profile metadata in ${app}: ${profile.invalidFields.join(", ")}`,
+      );
+    }
     entries.push({
       id: app,
       name: pkg?.displayName || titleCase(app),
-      description: pkg?.description || "",
+      description: profile.metadata.description ?? "",
+      ...(profile.metadata.whenToUse || profile.metadata.aliases
+        ? {
+            "agent-native": {
+              ...(profile.metadata.whenToUse
+                ? { whenToUse: profile.metadata.whenToUse }
+                : {}),
+              ...(profile.metadata.aliases
+                ? { aliases: profile.metadata.aliases }
+                : {}),
+            },
+          }
+        : {}),
       path: appPath,
       homePath: normalizeWorkspaceAppHomePath(
         explicit?.homePath ??

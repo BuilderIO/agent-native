@@ -24,6 +24,7 @@ describe("verifyA2ATokenWithClaims", () => {
       email: "operator@example.com",
       orgDomain: "builder.io",
       orgId: "org-1",
+      identityAssurance: "user",
     });
   });
 
@@ -56,6 +57,7 @@ describe("verifyA2ATokenWithClaims", () => {
       orgId: "org-1",
       orgDomain: "builder.io",
       jti: "call-1",
+      identityAssurance: "user",
       issuer: "https://analytics.example.com",
       scope: ["flags:write"],
     });
@@ -77,8 +79,37 @@ describe("verifyA2ATokenWithClaims", () => {
       orgId: "org-1",
       orgDomain: "builder.io",
       jti: "call-1",
+      identityAssurance: "user",
       issuer: "https://analytics.example.com",
       scope: ["flags:read"],
+    });
+  });
+
+  it("preserves verified org-member assurance on signed scoped claims", async () => {
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "operator@example.com",
+      orgDomain: "builder.io",
+      orgId: "org-1",
+      identityAssurance: "org-member",
+    });
+
+    await expect(
+      verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          iss: "https://analytics.example.com",
+          org_id: "org-1",
+          org_domain: "builder.io",
+          jti: "call-1",
+          scope: "flags:write",
+          typ: "agent-native-org-member-delegation",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      email: "operator@example.com",
+      orgId: "org-1",
+      identityAssurance: "org-member",
+      scope: ["flags:write"],
     });
   });
 

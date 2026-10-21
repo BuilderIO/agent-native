@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   REMOTE_AGENT_RESOURCE_PREFIXES,
   parseRemoteAgentManifest,
@@ -45,7 +45,12 @@ export default defineAction({
       builtins.map((agent) => [agent.id, agent.url]),
     );
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
+    if (!ownerEmail) {
+      fail("Sign in to list connected agents.", {
+        errorCode: "dispatch_user_identity_missing",
+        statusCode: 401,
+      });
+    }
     const resources: Array<{ id: string; path: string; owner: string }> = [];
     for (const prefix of [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse()) {
       resources.push(...(await resourceListAccessible(ownerEmail, prefix)));

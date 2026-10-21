@@ -1,6 +1,7 @@
 import { fail } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
@@ -21,11 +22,15 @@ export async function isBrainAdmin(
   const normalizedEmail = email?.trim();
   const normalizedOrgId = orgId?.trim();
   if (!normalizedEmail || !normalizedOrgId) return false;
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = LOWER(?) AND federation_removal_pending_at IS NULL LIMIT 1`,
-    args: [normalizedOrgId, normalizedEmail],
-  });
-  const role = (rows[0] as { role?: unknown } | undefined)?.role;
+  const request = getRequestContext();
+  if (
+    request?.a2aIdentityAssurance === "org-member" &&
+    (request.orgId?.trim() !== normalizedOrgId ||
+      request.userEmail?.trim().toLowerCase() !== normalizedEmail.toLowerCase())
+  ) {
+    return false;
+  }
+  const role = await readOrgMemberRole(normalizedOrgId, normalizedEmail);
   return role === "owner" || role === "admin";
 }
 
