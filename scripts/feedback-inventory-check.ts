@@ -1611,6 +1611,7 @@ function publicActionSummaryMatchesAction(
   action: string,
   publicActionSummary: unknown,
   owner?: string,
+  enforceSummaryWordLimit = true,
 ): boolean {
   if (typeof publicActionSummary !== "string" || !publicActionSummary.trim()) {
     return false;
@@ -1633,9 +1634,9 @@ function publicActionSummaryMatchesAction(
       !ownerWords.has(word) && !publicActionSummaryFillerWords.has(word),
   );
   return (
-    summaryWordCount <= 12 &&
+    (!enforceSummaryWordLimit || summaryWordCount <= 12) &&
     summaryWords.length >= 2 &&
-    (ownerWords.size === 0 || hasActionWord) &&
+    hasActionWord &&
     (normalizedAction === normalizedSummary ||
       normalizedAction.startsWith(`${normalizedSummary} `))
   );
@@ -1664,6 +1665,7 @@ function replyNamesRecordedAction(
       action,
       publicActionSummaryForReply(action, publicActionSummary),
       owner,
+      publicActionSummary !== undefined,
     )
   );
 }
@@ -8932,6 +8934,25 @@ if (args[0] === "--self-test" && args.length === 1) {
         `Feedback inventory checker self-test failed: a tentative handoff was accepted (${text}).`,
       );
     }
+  }
+  const longRecordedAction =
+    "review the complete scheduled feedback inventory and merge every eligible pull request after the exact head remains unchanged for ten minutes";
+  if (
+    !replyNamesRecordedAction(
+      `I will ${longRecordedAction}.`,
+      longRecordedAction,
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected a long recorded action without an explicit summary.",
+    );
+  }
+  if (
+    publicActionSummaryMatchesAction("this will be checked", "this will be")
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test accepted an ownerless filler-only action summary.",
+    );
   }
   const assignedPrHandoff: Handoff = {
     scope: "Interact scrolling",
