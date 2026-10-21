@@ -924,6 +924,114 @@ describe("Content space provisioning", () => {
     );
   });
 
+  it("shows only visible organization documents in the personal favorites database", async () => {
+    const favoritesMember = "favorites-member@example.com";
+    await addOrganization("org-favorites-a", "Favorites A");
+    await addOrganization("org-favorites-b", "Favorites B");
+    await addOrganization("org-favorites-other", "Favorites Other");
+    await addMember("owner-favorites-a", "org-favorites-a", OWNER, "owner");
+    await addMember("owner-favorites-b", "org-favorites-b", OWNER, "owner");
+    await addMember(
+      "owner-favorites-other",
+      "org-favorites-other",
+      OWNER,
+      "owner",
+    );
+    await addMember("member-favorites-a", "org-favorites-a", favoritesMember);
+    await addMember("member-favorites-b", "org-favorites-b", favoritesMember);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "favorite-org-a",
+          ownerEmail: OWNER,
+          orgId: "org-favorites-a",
+          spaceId: organizationContentSpaceId("org-favorites-a"),
+          title: "Favorite A",
+          isFavorite: 1,
+          visibility: "org",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "favorite-org-b",
+          ownerEmail: OWNER,
+          orgId: "org-favorites-b",
+          spaceId: organizationContentSpaceId("org-favorites-b"),
+          title: "Favorite B",
+          isFavorite: 1,
+          visibility: "org",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "private-org-a",
+          ownerEmail: OWNER,
+          orgId: "org-favorites-a",
+          spaceId: organizationContentSpaceId("org-favorites-a"),
+          title: "Private A",
+          isFavorite: 1,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "favorite-unrelated",
+          ownerEmail: OWNER,
+          orgId: "org-favorites-other",
+          spaceId: organizationContentSpaceId("org-favorites-other"),
+          title: "Unrelated",
+          isFavorite: 1,
+          visibility: "org",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+    const memberProvisioned = await runWithRequestContext(
+      { userEmail: favoritesMember, orgId: "org-favorites-a" },
+      () => provisionContentSpaces(getDb(), favoritesMember),
+    );
+    const favorites = await runWithRequestContext(
+      { userEmail: favoritesMember, orgId: "org-favorites-a" },
+      () =>
+        getContentDatabaseAction.run({
+          databaseId: memberProvisioned.favoritesDatabaseId,
+        }),
+    );
+    const favoriteIds =
+      "items" in favorites
+        ? favorites.items.map((item) => item.document.id)
+        : [];
+    expect(favoriteIds).toEqual(
+      expect.arrayContaining(["favorite-org-a", "favorite-org-b"]),
+    );
+    expect(favoriteIds).not.toContain("private-org-a");
+    expect(favoriteIds).not.toContain("favorite-unrelated");
+
+    const delegatedFavorites = await runWithRequestContext(
+      {
+        userEmail: favoritesMember,
+        orgId: "org-favorites-a",
+        a2aIdentityAssurance: "org-member",
+      },
+      () =>
+        getContentDatabaseAction.run({
+          databaseId: memberProvisioned.favoritesDatabaseId,
+        }),
+    );
+    const delegatedFavoriteIds =
+      "items" in delegatedFavorites
+        ? delegatedFavorites.items.map((item) => item.document.id)
+        : [];
+    expect(delegatedFavoriteIds).toContain("favorite-org-a");
+    expect(delegatedFavoriteIds).not.toContain("favorite-org-b");
+  });
+
   it("does not let a stale catalog reference grant a non-member visibility", async () => {
     await addOrganization("org-shared", "Shared");
     await addMember("owner-shared", "org-shared", OWNER, "owner");
