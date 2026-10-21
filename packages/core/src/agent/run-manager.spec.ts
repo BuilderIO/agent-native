@@ -915,6 +915,53 @@ describe("run manager soft timeout", () => {
     expect(run.status).toBe("completed");
   });
 
+  it("does not publish a checkpoint after another instance aborts after commit", async () => {
+    const runId = "run-checkpoint-cross-instance-abort";
+    const threadId = "thread-checkpoint-cross-instance-abort";
+    const events: AgentChatEvent[] = [];
+    const onComplete = vi.fn();
+    vi.mocked(getRunById).mockClear();
+    vi.mocked(getRunById).mockResolvedValueOnce({
+      id: runId,
+      threadId,
+      status: "aborted",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: "aborted:user",
+    });
+    const run = startRun(
+      runId,
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.advanceTimersByTimeAsync(11);
+    await run.finalized;
+
+    expect(persistRunCheckpointEvent).toHaveBeenCalledOnce();
+    expect(getRunById).toHaveBeenCalledWith(runId);
+    expect(persistRunCheckpointEvent.mock.invocationCallOrder[0]).toBeLessThan(
+      getRunById.mock.invocationCallOrder[0]!,
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "auto_continue" }),
+    );
+    expect(run.status).toBe("aborted");
+    expect(run.abortReason).toBe("user");
+    expect(run.abort.signal.reason).toBe("user");
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "aborted" }),
+    );
+  });
+
   it("preserves a driver terminal emitted while checkpoint persistence is pending", async () => {
     const driver = Promise.withResolvers<void>();
     const checkpoint = Promise.withResolvers<void>();

@@ -1377,10 +1377,20 @@ export function startRun(
       return checkpointRunBoundaryTask;
     checkpointAbortInFlight = true;
     const task = (async () => {
+      let checkpointPersisted = false;
       try {
         await withWorkerFence(() =>
           persistRunCheckpointEvent(runId, event, terminalReason),
         );
+        checkpointPersisted = true;
+        const persistedRun = await getRunById(runId);
+        if (persistedRun?.status === "aborted") {
+          run.status = "aborted";
+          run.abortReason = persistedRun.terminalReason?.startsWith("aborted:")
+            ? persistedRun.terminalReason.slice("aborted:".length)
+            : undefined;
+          return;
+        }
         softTimedOut = true;
         recordRunBoundaryDiagnostic(terminalReason, diagnostic, "terminal");
         emitRunBoundaryTrackingEvent({
@@ -1394,7 +1404,7 @@ export function startRun(
           engineName: options?.engineName,
           userId: options?.userId,
         });
-        if (!pendingTerminalEvent) send(event);
+        if (!pendingTerminalEvent && run.status === "running") send(event);
       } catch (error) {
         let persistedAbort = false;
         if (
@@ -1420,7 +1430,7 @@ export function startRun(
             );
           }
         }
-        if (pendingTerminalEvent || persistedAbort) {
+        if (persistedAbort || (pendingTerminalEvent && !checkpointPersisted)) {
           softTimedOut = true;
         } else {
           checkpointPersistenceFailed = true;
