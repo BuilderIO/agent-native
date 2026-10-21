@@ -1,6 +1,6 @@
 import { gzipSync } from "node:zlib";
 
-import { getTableConfig } from "drizzle-orm/pg-core";
+import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
@@ -2765,7 +2765,7 @@ describe("session replay ingest parsing", () => {
       [...keyResults.slice(0, 3), [recording], [oldChunk]],
       [[]],
     );
-    const retryUpdate = vi.fn(() => ({
+    const retryUpdate = vi.fn((_table: unknown) => ({
       set: vi.fn(() => ({ where: vi.fn(() => replaySignalCountQuery()) })),
     }));
     getDbMock.mockReturnValue({ ...retry.db, update: retryUpdate });
@@ -2785,7 +2785,15 @@ describe("session replay ingest parsing", () => {
         .map((row) => row.sessionId)
         .sort(),
     ).toEqual(["legacy-session", "new-session"]);
-    expect(retryUpdate).toHaveBeenCalledTimes(2);
+    expect(
+      retryUpdate.mock.calls.map(
+        ([table]) => getTableConfig(table as PgTable).name,
+      ),
+    ).toEqual([
+      "session_recordings",
+      "session_replay_ingests",
+      "analytics_public_keys",
+    ]);
   });
 
   it("rolls back chunks when association persistence fails so a retry can repair it", async () => {
@@ -2827,7 +2835,7 @@ describe("session replay ingest parsing", () => {
       [...keyResults.slice(0, 3), [recording], [oldChunk]],
       [[]],
     );
-    const retryUpdate = vi.fn(() => ({
+    const retryUpdate = vi.fn((_table: unknown) => ({
       set: vi.fn(() => ({ where: vi.fn(() => replaySignalCountQuery()) })),
     }));
     getDbMock.mockReturnValue({ ...retry.db, update: retryUpdate });
@@ -2850,7 +2858,15 @@ describe("session replay ingest parsing", () => {
         .map((row) => row.sessionId)
         .sort(),
     ).toEqual(["legacy-session", "new-session"]);
-    expect(retryUpdate).toHaveBeenCalledTimes(2);
+    expect(
+      retryUpdate.mock.calls.map(
+        ([table]) => getTableConfig(table as PgTable).name,
+      ),
+    ).toEqual([
+      "session_recordings",
+      "session_replay_ingests",
+      "analytics_public_keys",
+    ]);
   });
 
   it("does not associate a rotated session when an ingest only retries duplicate chunks", async () => {
@@ -3315,6 +3331,75 @@ describe("session replay ingest parsing", () => {
         sessionId: "session_1",
       }),
     ]);
+  });
+
+  it("settles the usage row at the gzipped bytes it stores", async () => {
+    // Cross-origin recorders upload uncompressed text, so the request is
+    // several times the size of the blob the server keeps.
+    putPrivateBlobMock.mockResolvedValue({
+      opaque: "blob_1",
+      provider: "test",
+    });
+    const raw = {
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      events: Array.from({ length: 200 }, (_, index) => ({
+        type: 3,
+        timestamp: index,
+        data: {
+          source: 1,
+          positions: [{ x: 10, y: 20, id: 7, timeOffset: 0 }],
+        },
+      })),
+    };
+    const input = parseSessionReplayIngestPayload(raw);
+    const requestBytes = Buffer.byteLength(JSON.stringify(raw));
+    const storedBytes = gzipSync(
+      Buffer.from(input.chunks[0]!.inlineData!, "utf8"),
+    ).byteLength;
+    expect(storedBytes).toBeLessThan(requestBytes / 4);
+    const { db, inserts, updates } = createReplayDbMock(
+      replayIngestKeyDbResults(null),
+    );
+    getDbMock.mockReturnValue(db);
+
+    await recordSessionReplayChunks(input, {
+      origin: "https://app.example.com",
+      requestBytes,
+    });
+
+    expect(
+      inserts.find((entry) => entry.table === schema.sessionReplayIngests)
+        ?.values,
+    ).toEqual(expect.objectContaining({ byteLength: requestBytes }));
+    expect(
+      updates.filter((entry) => entry.table === schema.sessionReplayIngests),
+    ).toEqual([
+      {
+        table: schema.sessionReplayIngests,
+        values: { byteLength: storedBytes },
+      },
+    ]);
+  });
+
+  it("never settles the usage row above the request's size", async () => {
+    putPrivateBlobMock.mockResolvedValue({
+      opaque: "blob_1",
+      provider: "test",
+    });
+    const { db, updates } = createReplayDbMock(replayIngestKeyDbResults(null));
+    getDbMock.mockReturnValue(db);
+
+    await recordSessionReplayChunks(replayIngestPayload(), {
+      origin: "https://app.example.com",
+      requestBytes: 10,
+    });
+
+    expect(
+      updates.filter((entry) => entry.table === schema.sessionReplayIngests),
+    ).toEqual([]);
   });
 
   it("adds signals for newly stored chunks once across batches and retries", async () => {
