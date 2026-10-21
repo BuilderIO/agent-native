@@ -877,6 +877,21 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
   return apps.length ? apps : null;
 }
 
+function parseWorkspaceAppsGatewayResponse(
+  parsed: unknown,
+): WorkspaceAppSummary[] | null {
+  const rawApps =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as { apps?: unknown }).apps
+      : parsed;
+  if (!Array.isArray(rawApps)) return null;
+  if (rawApps.length === 0) return [];
+  const apps = parseWorkspaceAppsManifest(parsed);
+  if (!apps || apps.length !== rawApps.length) return null;
+  const ids = new Set(apps.map((app) => app.id.toLowerCase()));
+  return ids.size === apps.length ? apps : null;
+}
+
 function parseDateMs(value: string | null | undefined): number | null {
   if (!value) return null;
   const ms = Date.parse(value);
@@ -1981,6 +1996,31 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
   const protectedRedirect = protectionHeaders["x-vercel-protection-bypass"]
     ? { redirect: "manual" as const }
     : {};
+  const readAppsResponse = async (response: Response) => {
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new ActionContractError(
+        "Workspace apps gateway returned an unreadable response.",
+        {
+          statusCode: 503,
+          errorCode: "workspace_gateway_invalid_response",
+        },
+      );
+    }
+    const apps = parseWorkspaceAppsGatewayResponse(payload);
+    if (!apps) {
+      throw new ActionContractError(
+        "Workspace apps gateway returned an invalid response.",
+        {
+          statusCode: 503,
+          errorCode: "workspace_gateway_invalid_response",
+        },
+      );
+    }
+    return { apps };
+  };
 
   try {
     if (isLocalGateway) {
@@ -1998,13 +2038,17 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
           "workspace_gateway_rejected",
         );
       }
-      if (localResponse.ok) {
-        const apps = parseWorkspaceAppsManifest(
-          // coercion-ok: malformed gateway JSON is an unavailable registry and
-          // must fall through to the local manifest sources.
-          await localResponse.json().catch(() => null),
+      if (localResponse.status !== 404 && localResponse.status !== 200) {
+        throw new ActionContractError(
+          `Workspace apps gateway returned HTTP ${localResponse.status}.`,
+          {
+            statusCode: 503,
+            errorCode: `workspace_gateway_http_${localResponse.status}`,
+          },
         );
-        return apps ? { apps } : null;
+      }
+      if (localResponse.status === 200) {
+        return await readAppsResponse(localResponse);
       }
     }
 
@@ -2023,16 +2067,26 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         "workspace_gateway_rejected",
       );
     }
-    if (!actionResponse.ok) return null;
-    const apps = parseWorkspaceAppsManifest(
-      // coercion-ok: malformed gateway JSON is an unavailable registry and
-      // must fall through to the local manifest sources.
-      await actionResponse.json().catch(() => null),
-    );
-    return apps ? { apps } : null;
+    if (actionResponse.status === 404) return null;
+    if (actionResponse.status !== 200) {
+      throw new ActionContractError(
+        `Workspace apps gateway returned HTTP ${actionResponse.status}.`,
+        {
+          statusCode: 503,
+          errorCode: `workspace_gateway_http_${actionResponse.status}`,
+        },
+      );
+    }
+    return await readAppsResponse(actionResponse);
   } catch (error) {
-    if (error instanceof WorkspaceAppsGatewayAuthorizationError) throw error;
-    return null;
+    if (error instanceof ActionContractError) throw error;
+    throw new ActionContractError(
+      "Workspace apps gateway could not be reached.",
+      {
+        statusCode: 503,
+        errorCode: "workspace_gateway_unavailable",
+      },
+    );
   } finally {
     clearTimeout(timeout);
   }

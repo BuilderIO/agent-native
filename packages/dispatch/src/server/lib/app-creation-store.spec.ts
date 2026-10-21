@@ -949,6 +949,122 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
   });
 
+  it("treats an empty hosted registry response as a successful empty list", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([]), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([206, 500, 502, 503])(
+    "surfaces hosted registry HTTP %i failures instead of using manifest apps",
+    async (status) => {
+      const fetchMock = vi.fn(
+        async () => new Response("gateway unavailable", { status }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        errorCode: `workspace_gateway_http_${status}`,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("surfaces hosted registry transport failures instead of using manifest apps", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("Network connection failed");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+    await expect(
+      runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_unavailable",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces malformed hosted registry responses instead of using manifest apps", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("not json", {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+    await expect(
+      runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_invalid_response",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [{ id: "dispatch", name: "Dispatch", path: "/dispatch" }, null],
+    [
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "DISPATCH", name: "Duplicate Dispatch", path: "/other" },
+    ],
+  ])("rejects incomplete hosted registry lists: %j", async (apps) => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(apps), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+    await expect(
+      runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_invalid_response",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("passes the Vercel protection bypass to the hosted workspace registry", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(
