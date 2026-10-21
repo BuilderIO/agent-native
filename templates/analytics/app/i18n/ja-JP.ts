@@ -137,6 +137,8 @@ export default {
       "このワークブックのパネルはどれも BigQuery で実行できませんでした。",
     sigmaErrorBigQueryRequired:
       "先にデータソースで BigQuery を接続してください。",
+    sigmaErrorBigQueryDenied:
+      "Analytics の BigQuery 接続はクエリを実行できません。データソースで権限を確認してください。",
     sigmaErrorBigQueryUnavailable:
       "BigQuery でこのワークブックを確認できませんでした。もう一度お試しください。",
     sigmaErrorOriginalMigrator:

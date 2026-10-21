@@ -1187,27 +1187,45 @@ async function readDryRunStatistics(
 /** A 404 naming a table or dataset the query reads. */
 export const MISSING_QUERY_RESOURCE = /\bNot found: (Table|Dataset)\b/i;
 
+/** A 403 naming a table, view, or dataset the query reads. */
+const DENIED_QUERY_RESOURCE = /\bAccess Denied: (Table|View|Dataset)\b/i;
+
 const SQL_REJECTION_REASONS: ReadonlySet<BigQueryBackendReason> = new Set([
   "invalid_query",
   "not_found",
-  "access_denied",
 ]);
 
+export type DryRunFailureKind =
+  | "rejected_sql"
+  | "credential_denied"
+  | "unavailable";
+
 /**
- * Whether a failed dry run means BigQuery rejected the SQL itself: invalid
- * SQL, or a table it reads that is missing or that the credential cannot
- * read. Every other failure (timeouts, quota, rate limits, outages, unknown
- * errors) says nothing about the query, so callers treat it as retryable.
+ * What a failed dry run says. `rejected_sql`: BigQuery rejected the SQL
+ * itself (invalid, or a table it reads is missing or unreadable).
+ * `credential_denied`: the credential cannot run queries at all, which
+ * holds for every query, not this one. `unavailable`: timeouts, quota, rate
+ * limits, outages, and unknown errors say nothing about the query, so
+ * callers treat them as retryable.
  */
-export function isDryRunSqlRejection(result: DryRunQueryResult): boolean {
-  if (result.error === null || result.timedOut === true) return false;
-  if (result.reason !== undefined && result.reason !== "other") {
-    return SQL_REJECTION_REASONS.has(result.reason);
+export function classifyDryRunFailure(
+  result: DryRunQueryResult,
+): DryRunFailureKind {
+  if (result.error === null || result.timedOut === true) return "unavailable";
+  if (result.reason === "access_denied") {
+    return DENIED_QUERY_RESOURCE.test(result.error)
+      ? "rejected_sql"
+      : "credential_denied";
   }
-  return (
-    result.status === 400 ||
+  if (result.reason !== undefined && result.reason !== "other") {
+    return SQL_REJECTION_REASONS.has(result.reason)
+      ? "rejected_sql"
+      : "unavailable";
+  }
+  return result.status === 400 ||
     (result.status === 404 && MISSING_QUERY_RESOURCE.test(result.error))
-  );
+    ? "rejected_sql"
+    : "unavailable";
 }
 
 export async function dryRunQuery(

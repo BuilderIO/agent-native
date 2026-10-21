@@ -95,7 +95,7 @@ export interface PanelVerification {
   truncated?: boolean;
   error?: string;
   note?: PanelUnverifiedNote;
-  /** The dry run's bytes, kept when they stopped the panel from running (`too_expensive`). */
+  /** The dry run's bytes, kept when they stopped the panel from running (`too_expensive`); absent when BigQuery stopped the run. */
   estimatedBytes?: number;
   /** A section or extension panel: nothing to run, so only its config was checked. */
   visualOnly?: true;
@@ -158,7 +158,7 @@ const NOTE_REASONS: Record<PanelUnverifiedNote, string> = {
     "its data source is not connected (the viewer sees a connect prompt)",
   "skipped:program": "data-program panels are not run during verification",
   too_expensive:
-    "the dry run is larger than the automatic-verification byte limit, so it was not run",
+    "it scans more than the automatic-verification byte limit, so it was not run",
   "not_executed:over_budget":
     "more panels were affected than the per-save verification cap runs",
 };
@@ -677,6 +677,8 @@ async function verifyOne(
     return finish({ status: "unverified", note: "timeout" });
   }
 
+  // The dry run is skipped when turned off or timed out, so BigQuery itself
+  // enforces the byte limit on the run.
   const data = await runResolvedPanel({
     source: source as DashboardPanelSource,
     query,
@@ -684,6 +686,9 @@ async function verifyOne(
     timeoutMs: remainingMs(),
     signal: budgetSignal(),
     forceRefresh: opts.forceRefresh,
+    ...(source === "bigquery" && Number.isFinite(state.maxBytes)
+      ? { maxBytesBilled: state.maxBytes }
+      : {}),
   });
   if (opts.signal?.aborted) throw cancelled();
   if (data.status === "missing-credential") {
@@ -692,6 +697,9 @@ async function verifyOne(
       note: "missing_credential",
       error: data.message,
     });
+  }
+  if (data.status === "query-failed" && data.overByteCap) {
+    return finish({ status: "unverified", note: "too_expensive" });
   }
   if (data.status === "query-failed") {
     return data.timedOut

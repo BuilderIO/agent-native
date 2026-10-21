@@ -123,6 +123,8 @@ export default {
     sigmaErrorNoImportable: "此工作簿没有可导入的 BigQuery 面板。",
     sigmaErrorNoRunnable: "此工作簿的面板都无法在 BigQuery 上运行。",
     sigmaErrorBigQueryRequired: "请先在数据源中连接 BigQuery。",
+    sigmaErrorBigQueryDenied:
+      "Analytics 的 BigQuery 连接无法运行查询。请在数据源中检查其权限。",
     sigmaErrorBigQueryUnavailable: "BigQuery 无法检查此工作簿，请重试。",
     sigmaErrorOriginalMigrator: "只有迁移此工作簿的人才能重新导入它。",
     sigmaErrorInProgress: "已有人在迁移此工作簿。",

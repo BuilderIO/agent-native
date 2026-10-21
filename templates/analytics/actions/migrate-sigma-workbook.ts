@@ -143,6 +143,8 @@ const REVIEW_MESSAGES: Record<SigmaSqlProofFailure | "unsupported", string> = {
     "BigQuery could not check this element's SQL during the import, so it was not imported.",
   too_expensive:
     "This element's SQL would scan more than 50 GiB on every view, so it was not imported.",
+  cost_unknown:
+    "BigQuery did not report how much data this element's SQL scans, so it was not imported.",
 };
 
 function makeReviewCallout(
@@ -223,8 +225,8 @@ function migrationDiagnostics(args: {
         diagnosticFor(element, "yellow", "manual_review_required"),
       );
     } else if (panel?.status !== "ok") {
-      // Not run within the budget, without a byte estimate, or never
-      // reported: the panel is imported but nothing has shown it renders.
+      // Not run within the budget or never reported: the panel is imported
+      // but nothing has shown it renders.
       diagnostics.push(diagnosticFor(element, "yellow", "not_verified"));
     }
   }
@@ -524,22 +526,16 @@ export default defineAction({
     });
     try {
       const installedAt = new Date().toISOString();
-      const compiled = compileSigmaDashboard({
+      const draft = compileSigmaDashboard({
         inspection,
         proofs,
         installedAt,
       });
       // Report only: a panel that dry-runs but fails or returns nothing is
-      // still imported and flagged. A panel with no byte estimate is never
-      // executed here, since nothing shows it is under the cap.
+      // still imported and flagged.
       const verification = await verifyDashboardPanels(
-        compiled.config as unknown as Record<string, unknown>,
-        [...compiled.panelIdsByElementId]
-          .filter(([elementId]) => {
-            const proof = proofs.get(elementId);
-            return proof?.ok === true && proof.estimatedBytes !== undefined;
-          })
-          .map(([, id]) => id),
+        draft.config as unknown as Record<string, unknown>,
+        [...draft.panelIdsByElementId.values()],
         {
           budgetMs: Math.max(
             MIN_VERIFICATION_BUDGET_MS,
@@ -551,6 +547,22 @@ export default defineAction({
           dryRun: false,
         },
       );
+      // BigQuery stopped the test run at the byte cap, so the panel would
+      // scan past it on every view.
+      const overCap = new Set(
+        verification.panels
+          .filter((panel) => panel.note === "too_expensive")
+          .map((panel) => panel.panelId),
+      );
+      for (const [elementId, id] of draft.panelIdsByElementId) {
+        if (overCap.has(id)) {
+          proofs.set(elementId, { ok: false, reason: "too_expensive" });
+        }
+      }
+      const compiled =
+        overCap.size > 0
+          ? compileSigmaDashboard({ inspection, proofs, installedAt })
+          : draft;
       const existing = await getDashboard(id, {
         email: context.email,
         orgId: context.orgId,

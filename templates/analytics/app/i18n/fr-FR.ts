@@ -139,6 +139,8 @@ export default {
       "Aucun panneau de ce classeur ne s’est exécuté sur BigQuery.",
     sigmaErrorBigQueryRequired:
       "Connectez d’abord BigQuery dans Sources de données.",
+    sigmaErrorBigQueryDenied:
+      "La connexion BigQuery d’Analytics ne peut pas exécuter de requêtes. Vérifiez ses autorisations dans Sources de données.",
     sigmaErrorBigQueryUnavailable:
       "BigQuery n’a pas pu vérifier ce classeur. Réessayez.",
     sigmaErrorOriginalMigrator:

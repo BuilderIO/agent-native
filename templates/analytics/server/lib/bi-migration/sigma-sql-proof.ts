@@ -2,8 +2,8 @@ import { fail, isActionContractError } from "@agent-native/core/action";
 
 import {
   BigQueryDryRunPreparationError,
+  classifyDryRunFailure,
   dryRunQuerySchema,
-  isDryRunSqlRejection,
 } from "../bigquery.js";
 import {
   DEFAULT_MAX_BYTES_TO_EXECUTE,
@@ -21,10 +21,11 @@ export type SigmaSqlProofFailure =
   | "unsafe_sql"
   | "bigquery_dry_run_failed"
   | "bigquery_dry_run_unavailable"
-  | "too_expensive";
+  | "too_expensive"
+  | "cost_unknown";
 
 export type SigmaSqlProof =
-  | { ok: true; sql: string; estimatedBytes?: number }
+  | { ok: true; sql: string; estimatedBytes: number }
   /** `skipped`: the deadline passed before this panel was dry-run. */
   | { ok: false; reason: SigmaSqlProofFailure; skipped?: true };
 
@@ -108,25 +109,32 @@ async function proveOne(
     });
   }
   if (dryRun.error === null) {
-    // Over the cap, a panel would run on every view, so it is not imported.
-    if (
-      dryRun.totalBytesProcessed !== undefined &&
-      dryRun.totalBytesProcessed > DEFAULT_MAX_BYTES_TO_EXECUTE
-    ) {
+    // A panel runs on every view, so one without a byte estimate under the
+    // cap is not imported.
+    if (dryRun.totalBytesProcessed === undefined) {
+      return { ok: false, reason: "cost_unknown" };
+    }
+    if (dryRun.totalBytesProcessed > DEFAULT_MAX_BYTES_TO_EXECUTE) {
       return { ok: false, reason: "too_expensive" };
     }
     return {
       ok: true,
       sql: query.sql,
-      ...(dryRun.totalBytesProcessed !== undefined
-        ? { estimatedBytes: dryRun.totalBytesProcessed }
-        : {}),
+      estimatedBytes: dryRun.totalBytesProcessed,
     };
+  }
+  const failure = classifyDryRunFailure(dryRun);
+  if (failure === "credential_denied") {
+    fail(
+      "Analytics' BigQuery connection can't run queries. Check its permissions in Data sources.",
+      { errorCode: "analytics_bigquery_permission_denied", statusCode: 409 },
+    );
   }
   return {
     ok: false,
-    reason: isDryRunSqlRejection(dryRun)
-      ? "bigquery_dry_run_failed"
-      : "bigquery_dry_run_unavailable",
+    reason:
+      failure === "rejected_sql"
+        ? "bigquery_dry_run_failed"
+        : "bigquery_dry_run_unavailable",
   };
 }

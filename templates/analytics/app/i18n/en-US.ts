@@ -343,6 +343,8 @@ export default {
     sigmaErrorNoImportable: "This workbook has no BigQuery panels to import.",
     sigmaErrorNoRunnable: "None of this workbook's panels ran on BigQuery.",
     sigmaErrorBigQueryRequired: "Connect BigQuery in Data sources first.",
+    sigmaErrorBigQueryDenied:
+      "Analytics' BigQuery connection can't run queries. Check its permissions in Data sources.",
     sigmaErrorBigQueryUnavailable:
       "BigQuery couldn't check this workbook. Try again.",
     sigmaErrorOriginalMigrator:

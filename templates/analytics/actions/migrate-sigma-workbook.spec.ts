@@ -342,10 +342,16 @@ describe("migrate-sigma-workbook", () => {
         ],
         ["element_2", { ok: false, reason: "unsafe_sql" }],
         ["element_3", { ok: false, reason: "too_expensive" }],
-        ["element_5", { ok: true, sql: "SELECT 5 AS bookings" }],
+        [
+          "element_5",
+          { ok: true, sql: "SELECT 5 AS bookings", estimatedBytes: 500 },
+        ],
       ]),
     );
     claimed();
+    mocks.verifyPanels.mockImplementation((config, ids) =>
+      verifiedPanels({ [ids[1]]: "unverified" })(config, ids),
+    );
 
     const result = await migrateSigmaWorkbook.run({
       workbookId,
@@ -364,9 +370,8 @@ describe("migrate-sigma-workbook", () => {
     expect(config.panels[0].sql).toBe("SELECT 1 AS revenue");
     expect(config.panels[1].sql).toContain("not a single read-only query");
     expect(config.panels[2].sql).toContain("more than 50 GiB");
-    // A panel with no byte estimate is imported but never executed.
     const [, verifiedIds] = mocks.verifyPanels.mock.calls[0];
-    expect(verifiedIds).toEqual([config.panels[0].id]);
+    expect(verifiedIds).toEqual([config.panels[0].id, config.panels[4].id]);
     expect(mocks.verifyPanels.mock.calls[0][2]).toMatchObject({
       dryRun: false,
     });
@@ -447,6 +452,54 @@ describe("migrate-sigma-workbook", () => {
       }),
     );
     expect(result).toMatchObject({ status: "completed", flaggedCount: 3 });
+  });
+
+  it("turns a panel BigQuery stopped at the byte cap into a callout", async () => {
+    workbookWith([
+      panelElement("element_1", "Revenue"),
+      panelElement("element_2", "Pipeline"),
+    ]);
+    mocks.proveSql.mockResolvedValue(
+      new Map([
+        ["element_1", { ok: true, sql: "SELECT 1", estimatedBytes: 1 }],
+        ["element_2", { ok: true, sql: "SELECT 2", estimatedBytes: 1 }],
+      ]),
+    );
+    claimed();
+    mocks.verifyPanels.mockImplementation((_config, ids: string[]) => ({
+      verified: false,
+      blocking: false,
+      filterState: "defaults",
+      budgetMs: 12_000,
+      ms: 1,
+      panels: [
+        { panelId: ids[0], status: "ok" },
+        { panelId: ids[1], status: "unverified", note: "too_expensive" },
+      ],
+    }));
+
+    const result = await migrateSigmaWorkbook.run({
+      workbookId,
+      connectionId: "connection_1",
+    });
+
+    const [, , config] = mocks.upsertDashboard.mock.calls[0];
+    expect(
+      config.panels.map((p: { chartType: string }) => p.chartType),
+    ).toEqual(["table", "callout"]);
+    expect(config.panels[1].sql).toContain("more than 50 GiB");
+    expect(mocks.completeMigration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        elementDiagnostics: [
+          expect.objectContaining({
+            id: "element_2",
+            status: "red",
+            reason: "too_expensive",
+          }),
+        ],
+      }),
+    );
+    expect(result).toMatchObject({ importedCount: 1, unsupportedCount: 1 });
   });
 
   it("cleans up through the claim when a step after the claim fails", async () => {

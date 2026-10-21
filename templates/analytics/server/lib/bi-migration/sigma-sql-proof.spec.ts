@@ -17,7 +17,7 @@ vi.mock("../bigquery.js", async () => {
   return {
     BigQueryDryRunPreparationError,
     dryRunQuerySchema: mocks.dryRun,
-    isDryRunSqlRejection: actual.isDryRunSqlRejection,
+    classifyDryRunFailure: actual.classifyDryRunFailure,
   };
 });
 vi.mock("../dashboard-panel-verification.js", () => ({
@@ -109,7 +109,7 @@ describe("proveSigmaPanelSql", () => {
         reason: "quota_exceeded",
       })
       .mockResolvedValueOnce({
-        error: "Access denied",
+        error: "Access Denied: Table p:d.t: User does not have permission",
         status: 403,
         reason: "access_denied",
       })
@@ -169,6 +169,17 @@ describe("proveSigmaPanelSql", () => {
     expect(proofs.get("a")).toEqual({ ok: false, reason: "too_expensive" });
   });
 
+  it("refuses SQL whose dry run reports no byte estimate", async () => {
+    mocks.dryRun.mockResolvedValue({ error: null });
+
+    const proofs = await proveSigmaPanelSql(
+      inspectionWith([{ elementId: "a", sql: "SELECT 1", hasError: false }]),
+      ["a"],
+    );
+
+    expect(proofs.get("a")).toEqual({ ok: false, reason: "cost_unknown" });
+  });
+
   it("stops dry-running once the run's deadline has passed", async () => {
     const proofs = await proveSigmaPanelSql(
       inspectionWith([{ elementId: "a", sql: "SELECT 1", hasError: false }]),
@@ -196,6 +207,25 @@ describe("proveSigmaPanelSql", () => {
       ),
     ).rejects.toMatchObject({
       errorCode: "analytics_bigquery_required",
+      statusCode: 409,
+    });
+  });
+
+  it("fails the whole check when the credential cannot run queries", async () => {
+    mocks.dryRun.mockResolvedValue({
+      error:
+        "Access Denied: Project p: User does not have bigquery.jobs.create permission in project p.",
+      status: 403,
+      reason: "access_denied",
+    });
+
+    await expect(
+      proveSigmaPanelSql(
+        inspectionWith([{ elementId: "a", sql: "SELECT 1", hasError: false }]),
+        ["a"],
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "analytics_bigquery_permission_denied",
       statusCode: 409,
     });
   });

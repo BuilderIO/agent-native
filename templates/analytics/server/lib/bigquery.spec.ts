@@ -28,7 +28,7 @@ const {
   BigQueryQueryTimeoutError,
   dryRunQuery,
   dryRunQuerySchema,
-  isDryRunSqlRejection,
+  classifyDryRunFailure,
   renderCurrentDateLiterals,
   runQuery,
 } = await import("./bigquery");
@@ -974,23 +974,37 @@ describe("runQuery cancellation", () => {
     expect(result).toEqual({ error: null });
   });
 
-  it("treats only invalid SQL and unreadable tables as SQL rejections", () => {
-    const failed = (fields: Record<string, unknown>) =>
-      isDryRunSqlRejection({ error: "failed", ...fields });
+  it("classifies a failed dry run as rejected SQL, a denied credential, or unavailable", () => {
+    const kind = (fields: Record<string, unknown>) =>
+      classifyDryRunFailure({ error: "failed", ...fields });
 
-    expect(failed({ status: 400 })).toBe(true);
-    expect(failed({ status: 400, reason: "invalid_query" })).toBe(true);
-    expect(failed({ status: 403, reason: "access_denied" })).toBe(true);
+    expect(kind({ status: 400 })).toBe("rejected_sql");
+    expect(kind({ status: 400, reason: "invalid_query" })).toBe("rejected_sql");
     expect(
-      isDryRunSqlRejection({ error: "Not found: Dataset p:d", status: 404 }),
-    ).toBe(true);
-    expect(failed({ status: 404 })).toBe(false);
-    expect(failed({ status: 400, reason: "timeout" })).toBe(false);
-    expect(failed({ status: 403, reason: "quota_exceeded" })).toBe(false);
-    expect(failed({ status: 429 })).toBe(false);
-    expect(failed({ status: 503 })).toBe(false);
-    expect(failed({ timedOut: true })).toBe(false);
-    expect(isDryRunSqlRejection({ error: null })).toBe(false);
+      classifyDryRunFailure({ error: "Not found: Dataset p:d", status: 404 }),
+    ).toBe("rejected_sql");
+    expect(
+      classifyDryRunFailure({
+        error:
+          "Access Denied: Table p:d.t: User does not have permission to query table p:d.t.",
+        status: 403,
+        reason: "access_denied",
+      }),
+    ).toBe("rejected_sql");
+    expect(
+      classifyDryRunFailure({
+        error:
+          "Access Denied: Project p: User does not have bigquery.jobs.create permission in project p.",
+        status: 403,
+        reason: "access_denied",
+      }),
+    ).toBe("credential_denied");
+    expect(kind({ status: 404 })).toBe("unavailable");
+    expect(kind({ status: 400, reason: "timeout" })).toBe("unavailable");
+    expect(kind({ status: 403, reason: "quota_exceeded" })).toBe("unavailable");
+    expect(kind({ status: 429 })).toBe("unavailable");
+    expect(kind({ status: 503 })).toBe("unavailable");
+    expect(kind({ timedOut: true })).toBe("unavailable");
   });
 
   it("reports BigQuery's error reason on a failed dry run", async () => {

@@ -988,6 +988,8 @@ const MIGRATE_ERROR_KEYS: Record<string, string> = {
   sigma_no_importable_elements: "dashboardOverview.sigmaErrorNoImportable",
   sigma_no_runnable_panels: "dashboardOverview.sigmaErrorNoRunnable",
   analytics_bigquery_required: "dashboardOverview.sigmaErrorBigQueryRequired",
+  analytics_bigquery_permission_denied:
+    "dashboardOverview.sigmaErrorBigQueryDenied",
   bigquery_dry_run_unavailable:
     "dashboardOverview.sigmaErrorBigQueryUnavailable",
   original_migrator_required: "dashboardOverview.sigmaErrorOriginalMigrator",

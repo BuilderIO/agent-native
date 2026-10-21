@@ -131,6 +131,8 @@ export default {
     sigmaErrorNoImportable: "لا يحتوي هذا المصنف على لوحات BigQuery لاستيرادها.",
     sigmaErrorNoRunnable: "لم تعمل أي لوحة من لوحات هذا المصنف على BigQuery.",
     sigmaErrorBigQueryRequired: "اربط BigQuery في مصادر البيانات أولًا.",
+    sigmaErrorBigQueryDenied:
+      "لا يستطيع اتصال BigQuery في Analytics تشغيل الاستعلامات. تحقّق من صلاحياته في مصادر البيانات.",
     sigmaErrorBigQueryUnavailable:
       "تعذّر على BigQuery فحص هذا المصنف. حاول مرة أخرى.",
     sigmaErrorOriginalMigrator:

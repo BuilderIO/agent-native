@@ -138,6 +138,8 @@ export default {
     sigmaErrorNoRunnable:
       "Keines der Panels dieser Arbeitsmappe lief auf BigQuery.",
     sigmaErrorBigQueryRequired: "Verbinde zuerst BigQuery unter Datenquellen.",
+    sigmaErrorBigQueryDenied:
+      "Die BigQuery-Verbindung von Analytics kann keine Abfragen ausführen. Prüfe ihre Berechtigungen unter Datenquellen.",
     sigmaErrorBigQueryUnavailable:
       "BigQuery konnte diese Arbeitsmappe nicht prüfen. Versuche es erneut.",
     sigmaErrorOriginalMigrator:

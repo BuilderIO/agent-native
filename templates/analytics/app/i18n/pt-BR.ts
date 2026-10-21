@@ -138,6 +138,8 @@ export default {
       "Nenhum painel desta pasta de trabalho rodou no BigQuery.",
     sigmaErrorBigQueryRequired:
       "Conecte o BigQuery em Fontes de dados primeiro.",
+    sigmaErrorBigQueryDenied:
+      "A conexão do BigQuery do Analytics não consegue executar consultas. Verifique as permissões dela em Fontes de dados.",
     sigmaErrorBigQueryUnavailable:
       "O BigQuery não conseguiu verificar esta pasta de trabalho. Tente novamente.",
     sigmaErrorOriginalMigrator:

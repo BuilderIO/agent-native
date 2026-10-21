@@ -136,6 +136,8 @@ export default {
     sigmaErrorNoRunnable:
       "Ninguno de los paneles de este libro se ejecutó en BigQuery.",
     sigmaErrorBigQueryRequired: "Conecta BigQuery en Fuentes de datos primero.",
+    sigmaErrorBigQueryDenied:
+      "La conexión de BigQuery de Analytics no puede ejecutar consultas. Revisa sus permisos en Fuentes de datos.",
     sigmaErrorBigQueryUnavailable:
       "BigQuery no pudo comprobar este libro. Inténtalo de nuevo.",
     sigmaErrorOriginalMigrator:

@@ -132,6 +132,8 @@ export default {
     sigmaErrorNoRunnable:
       "이 워크북의 패널 중 BigQuery에서 실행된 것이 없습니다.",
     sigmaErrorBigQueryRequired: "먼저 데이터 소스에서 BigQuery를 연결하세요.",
+    sigmaErrorBigQueryDenied:
+      "Analytics의 BigQuery 연결로 쿼리를 실행할 수 없습니다. 데이터 소스에서 권한을 확인하세요.",
     sigmaErrorBigQueryUnavailable:
       "BigQuery가 이 워크북을 확인하지 못했습니다. 다시 시도하세요.",
     sigmaErrorOriginalMigrator:

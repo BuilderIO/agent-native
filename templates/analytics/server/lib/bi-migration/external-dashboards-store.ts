@@ -80,6 +80,7 @@ export const EXTERNAL_DASHBOARD_ELEMENT_REASONS = [
   "bigquery_dry_run_failed",
   "bigquery_dry_run_unavailable",
   "too_expensive",
+  "cost_unknown",
   "no_rows",
   "query_failed",
   "not_verified",

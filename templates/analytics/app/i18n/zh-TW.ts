@@ -257,6 +257,8 @@ export default {
     sigmaErrorNoImportable: "此活頁簿沒有可匯入的 BigQuery 面板。",
     sigmaErrorNoRunnable: "此活頁簿的面板都無法在 BigQuery 上執行。",
     sigmaErrorBigQueryRequired: "請先在資料來源中連接 BigQuery。",
+    sigmaErrorBigQueryDenied:
+      "Analytics 的 BigQuery 連線無法執行查詢。請在資料來源中檢查其權限。",
     sigmaErrorBigQueryUnavailable: "BigQuery 無法檢查此活頁簿，請再試一次。",
     sigmaErrorOriginalMigrator: "只有遷移此活頁簿的人才能重新匯入。",
     sigmaErrorInProgress: "已有人在遷移此活頁簿。",

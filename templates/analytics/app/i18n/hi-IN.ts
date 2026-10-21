@@ -127,6 +127,8 @@ export default {
       "इस वर्कबुक में इंपोर्ट करने के लिए कोई BigQuery पैनल नहीं है।",
     sigmaErrorNoRunnable: "इस वर्कबुक का कोई भी पैनल BigQuery पर नहीं चला।",
     sigmaErrorBigQueryRequired: "पहले डेटा सोर्स में BigQuery कनेक्ट करें।",
+    sigmaErrorBigQueryDenied:
+      "Analytics का BigQuery कनेक्शन क्वेरी नहीं चला सकता। डेटा सोर्स में उसकी अनुमतियाँ जाँचें।",
     sigmaErrorBigQueryUnavailable:
       "BigQuery इस वर्कबुक की जाँच नहीं कर सका। फिर से कोशिश करें।",
     sigmaErrorOriginalMigrator:
