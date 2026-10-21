@@ -56,7 +56,11 @@ export function DataChartWidget({
         <div className="min-w-0 flex-1 truncate text-sm font-medium">
           {chart.title ?? t("agentChat.widget.dataChart")}
         </div>
-        <DataWidgetDisplayControls display={display} variant="secondary" />
+        <DataWidgetDisplayControls
+          display={display}
+          chartActions={chart.actions}
+          variant="secondary"
+        />
       </div>
       {!mounted ? (
         fallback

@@ -12,14 +12,19 @@ import {
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui/dropdown-menu";
 import {
+  IconCamera,
+  IconCompass,
   IconCopy,
   IconDotsVertical,
   IconExternalLink,
+  IconNotebook,
 } from "@tabler/icons-react";
 import { forwardRef } from "react";
 
 import { toast } from "../../../../hooks/use-toast.js";
 import type {
+  DataWidgetAction,
+  DataWidgetActionIcon,
   DataWidgetDataSource,
   DataWidgetDisplay,
   DataWidgetDisplayAction,
@@ -72,8 +77,13 @@ function navigateSameAppHref(href: string): void {
 
 const WidgetActionLink = forwardRef<
   HTMLAnchorElement,
-  { href: string; label: string; className: string }
->(function WidgetActionLink({ href, label, className }, ref) {
+  {
+    href: string;
+    label: string;
+    className: string;
+    icon?: DataWidgetActionIcon;
+  }
+>(function WidgetActionLink({ href, label, className, icon }, ref) {
   return (
     <a
       ref={ref}
@@ -100,7 +110,15 @@ const WidgetActionLink = forwardRef<
       className={className}
     >
       <span className="truncate">{label}</span>
-      <IconExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
+      {icon === "explore" ? (
+        <IconCompass aria-hidden="true" className="size-3.5 shrink-0" />
+      ) : icon === "camera" ? (
+        <IconCamera aria-hidden="true" className="size-3.5 shrink-0" />
+      ) : icon === "notebook" ? (
+        <IconNotebook aria-hidden="true" className="size-3.5 shrink-0" />
+      ) : (
+        <IconExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
+      )}
     </a>
   );
 });
@@ -121,10 +139,12 @@ type PreparedDisplayAction =
 
 export function DataWidgetDisplayControls({
   display,
+  chartActions = [],
   variant = "primary",
   kind = "chart",
 }: {
   display?: DataWidgetDisplay;
+  chartActions?: DataWidgetAction[];
   variant?: "primary" | "secondary";
   kind?: "chart" | "table";
 }) {
@@ -143,6 +163,10 @@ export function DataWidgetDisplayControls({
         : t("agentChat.recovery.copyFailed"),
     });
   };
+  const displayActions: DataWidgetDisplayAction[] = [
+    ...(display?.actions ?? []),
+    ...chartActions.map((action) => ({ type: "link" as const, ...action })),
+  ];
   const primary = display?.primaryAction
     ? {
         ...display.primaryAction,
@@ -150,7 +174,7 @@ export function DataWidgetDisplayControls({
       }
     : null;
   const actions: PreparedDisplayAction[] = [];
-  for (const [index, action] of (display?.actions ?? []).entries()) {
+  for (const [index, action] of displayActions.entries()) {
     if (action.type === "link") {
       const href = normalizeActionHref(action.href);
       if (href) {
@@ -181,6 +205,7 @@ export function DataWidgetDisplayControls({
         <WidgetActionLink
           href={primary.href}
           label={primary.label}
+          icon={primary.icon}
           className={
             variant === "secondary"
               ? "inline-flex max-w-44 items-center gap-1.5 truncate rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground no-underline hover:bg-muted hover:no-underline"
@@ -215,6 +240,9 @@ export function DataWidgetDisplayControls({
                   <WidgetActionLink
                     href={item.href}
                     label={item.action.label}
+                    icon={
+                      item.action.type === "link" ? item.action.icon : undefined
+                    }
                     className="flex w-full items-center justify-between gap-3"
                   />
                 </DropdownMenuItem>

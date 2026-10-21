@@ -30,6 +30,14 @@ export interface DataChartSeriesDefinition {
   color?: string;
 }
 
+export type DataWidgetActionIcon = "explore" | "camera" | "notebook";
+
+export interface DataWidgetAction {
+  label: string;
+  href: string;
+  icon?: DataWidgetActionIcon;
+}
+
 export interface DataChartWidget {
   type: "bar" | "line" | "area";
   title?: string;
@@ -53,15 +61,13 @@ export interface DataChartWidget {
   series: DataChartSeriesDefinition[];
   data: Array<Record<string, unknown>>;
   sampled?: boolean;
+  actions?: DataWidgetAction[];
 }
 
 export interface DataWidgetDisplay {
   title?: string;
   description?: string;
-  primaryAction?: {
-    label: string;
-    href: string;
-  };
+  primaryAction?: DataWidgetAction;
   sources?: DataWidgetDataSource[];
   actions?: DataWidgetDisplayAction[];
 }
@@ -78,6 +84,7 @@ export type DataWidgetDisplayAction =
       type: "link";
       label: string;
       href: string;
+      icon?: DataWidgetActionIcon;
     }
   | {
       id?: string;
@@ -234,6 +241,9 @@ export function isDataChartWidget(value: unknown): value is DataChartWidget {
         isString(series.label) &&
         (series.color === undefined || typeof series.color === "string"),
     ) &&
+    (value.actions === undefined ||
+      (Array.isArray(value.actions) &&
+        value.actions.every(isDataWidgetAction))) &&
     Array.isArray(value.data) &&
     value.data.every(isRecord)
   );
@@ -242,7 +252,20 @@ export function isDataChartWidget(value: unknown): value is DataChartWidget {
 function isPrimaryAction(
   value: unknown,
 ): value is NonNullable<DataWidgetDisplay["primaryAction"]> {
-  return isRecord(value) && isString(value.label) && isString(value.href);
+  return isDataWidgetAction(value);
+}
+
+function isDataWidgetActionIcon(value: unknown): value is DataWidgetActionIcon {
+  return value === "explore" || value === "camera" || value === "notebook";
+}
+
+function isDataWidgetAction(value: unknown): value is DataWidgetAction {
+  return (
+    isRecord(value) &&
+    isString(value.label) &&
+    isString(value.href) &&
+    (value.icon === undefined || isDataWidgetActionIcon(value.icon))
+  );
 }
 
 function isDataWidgetDataSource(value: unknown): value is DataWidgetDataSource {
@@ -264,7 +287,12 @@ function isDataWidgetDisplayAction(
   ) {
     return false;
   }
-  if (value.type === "link") return isString(value.href);
+  if (value.type === "link") {
+    return (
+      isString(value.href) &&
+      (value.icon === undefined || isDataWidgetActionIcon(value.icon))
+    );
+  }
   if (value.type === "copy") return isString(value.text);
   return false;
 }
@@ -468,6 +496,14 @@ const dataChartSeriesDefinitionSchema = z
   })
   .passthrough();
 
+const dataWidgetActionSchema = z
+  .object({
+    label: z.string().min(1),
+    href: z.string().min(1),
+    icon: z.enum(["explore", "camera", "notebook"]).optional(),
+  })
+  .passthrough();
+
 export const dataChartWidgetSchema = z
   .object({
     type: z.enum(["bar", "line", "area"]),
@@ -488,6 +524,7 @@ export const dataChartWidgetSchema = z
     series: z.array(dataChartSeriesDefinitionSchema).min(1),
     data: z.array(z.record(z.string(), z.unknown())),
     sampled: z.boolean().optional(),
+    actions: z.array(dataWidgetActionSchema).optional(),
   })
   .passthrough();
 
@@ -495,6 +532,7 @@ const primaryActionSchema = z
   .object({
     label: z.string().min(1),
     href: z.string().min(1),
+    icon: z.enum(["explore", "camera", "notebook"]).optional(),
   })
   .passthrough();
 
@@ -513,6 +551,7 @@ const dataWidgetDisplayActionSchema = z.discriminatedUnion("type", [
       type: z.literal("link"),
       label: z.string().min(1),
       href: z.string().min(1),
+      icon: z.enum(["explore", "camera", "notebook"]).optional(),
     })
     .passthrough(),
   z

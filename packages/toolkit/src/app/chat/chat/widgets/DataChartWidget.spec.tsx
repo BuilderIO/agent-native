@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolkitI18nCatalog } from "../../../i18n.js";
+import type { DataWidgetAction } from "./data-widget-types.js";
 import { DataChartWidget } from "./DataChartWidget.js";
 
 const mocks = vi.hoisted(() => ({
@@ -44,7 +45,7 @@ const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 const initialBasePath = process.env.VITE_APP_BASE_PATH;
 const roots: Root[] = [];
 
-async function renderWidget() {
+async function renderWidget(chartActions?: DataWidgetAction[]) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -63,6 +64,7 @@ async function renderWidget() {
             xKey: "day",
             series: [{ key: "count", label: "Responses" }],
             data: [{ day: "Mon", count: 2 }],
+            actions: chartActions,
           }}
           display={{
             primaryAction: {
@@ -202,6 +204,40 @@ describe("DataChartWidget display contract", () => {
 
     expect(mocks.writeClipboardText).toHaveBeenCalledWith("select count(*)");
     expect(mocks.toast).toHaveBeenCalledWith({ title: "Copied" });
+  });
+
+  it("renders actions attached to the chart payload", async () => {
+    const container = await renderWidget([
+      {
+        label: "Explore results",
+        href: "/reports/1/explore",
+        icon: "explore",
+      },
+      {
+        label: "Download image",
+        href: "/reports/1/image",
+        icon: "camera",
+      },
+      {
+        label: "Save to notebook",
+        href: "/notebooks/new",
+        icon: "notebook",
+      },
+    ]);
+    const menu = await openActionsMenu(container);
+
+    expect(menu?.textContent).toContain("Explore results");
+    expect(menu?.textContent).toContain("Download image");
+    expect(menu?.textContent).toContain("Save to notebook");
+    expect(
+      menu?.querySelector('a[href="/mounted/reports/1/explore"] svg'),
+    ).not.toBeNull();
+    expect(
+      menu?.querySelector('a[href="/mounted/reports/1/image"] svg'),
+    ).not.toBeNull();
+    expect(
+      menu?.querySelector('a[href="/mounted/notebooks/new"] svg'),
+    ).not.toBeNull();
   });
 
   it("does not render executable primary-action URLs", async () => {

@@ -51,6 +51,13 @@ describe("data widget helpers", () => {
         xKey: "day",
         series: [{ key: "responses", label: "Responses" }],
         data: [{ day: "2026-06-17", responses: 3 }],
+        actions: [
+          {
+            label: "Explore results",
+            href: "/reports/1/explore",
+            icon: "explore",
+          },
+        ],
       },
     });
 
@@ -67,6 +74,15 @@ describe("data widget helpers", () => {
           { type: "copy", label: "Copy query", text: "select 1" },
         ],
       },
+    });
+    expect(normalizeDataWidgetResult(result)?.chartSeries).toMatchObject({
+      actions: [
+        {
+          label: "Explore results",
+          href: "/reports/1/explore",
+          icon: "explore",
+        },
+      ],
     });
   });
 
