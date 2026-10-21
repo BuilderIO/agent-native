@@ -227,23 +227,23 @@ const SIGNED_IN_SESSION = {
 };
 
 describe("AppProviders session gate", () => {
-  it("does not load theme-family sync unless the app enables it", () => {
+  it("mounts theme-family sync by default in an authenticated app shell", async () => {
     useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
 
     renderProviders({ skipFirstRunOnboarding: true });
-
-    expect(useThemeFamilyMock).not.toHaveBeenCalled();
-  });
-
-  it("mounts theme-family sync in an enabled authenticated app shell", async () => {
-    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
-
-    renderProviders({ skipFirstRunOnboarding: true, enableThemeFamily: true });
     await act(async () => {
       await import("./ThemeFamilySync.js");
     });
 
     expect(useThemeFamilyMock).toHaveBeenCalledOnce();
+  });
+
+  it("allows an authenticated app shell to disable theme-family sync", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ skipFirstRunOnboarding: true, enableThemeFamily: false });
+
+    expect(useThemeFamilyMock).not.toHaveBeenCalled();
   });
 
   it("does not load theme-family settings on public routes", () => {

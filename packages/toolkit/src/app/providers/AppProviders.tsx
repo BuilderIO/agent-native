@@ -511,7 +511,7 @@ export function AppProviders({
   i18n,
   documentTitleFallback,
   ownsDocument = true,
-  enableThemeFamily = false,
+  enableThemeFamily = true,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? (
