@@ -23,6 +23,7 @@ import {
   useCommentPanelSession,
 } from "./comment-drafts";
 import {
+  agentSuggestionReason,
   CommentsSidebar,
   useCommentReplyDrafts,
   usePendingCommentDraft,
@@ -370,6 +371,56 @@ describe("comment review interactions", () => {
     );
     expect(onDecideSuggestionProposal.mock.calls[0]?.[2]).toHaveLength(2);
   });
+  it("clamps a grouped suggestion's reason only while the group is closed", () => {
+    const reason =
+      "React is a UI library, so on its own it has nowhere to centralize business logic; Rails gives you models and controllers for that.";
+    render(null, [], "inline", {
+      suggestions: [
+        { ...proposalSuggestion("one"), proposalSummary: reason },
+        { ...proposalSuggestion("two"), proposalSummary: reason },
+      ],
+    });
+    const header = container.querySelector<HTMLButtonElement>(
+      "[data-suggestion-proposal='proposal'] > button[aria-expanded]",
+    )!;
+    const text = [...header.querySelectorAll("span")].find(
+      (span) => span.textContent === reason,
+    )!;
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(text.className).toContain("line-clamp-2");
+    act(() => header.click());
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    expect(text.className).not.toContain("line-clamp-2");
+    act(() => header.click());
+    expect(text.className).toContain("line-clamp-2");
+  });
+  it.each(["inline", "history"] as const)(
+    "shows an agent's reason above its lone suggestion in %s, but not inside a group",
+    (presentation) => {
+      const agent = (id: string): ResourceSuggestion => ({
+        ...proposalSuggestion(id),
+        actorKind: "agent",
+        proposalSummary: "Rails is the framework the article compares against.",
+        summary: 'Replace "React" with "Rails"',
+      });
+      render(null, [], presentation, {
+        suggestions: [{ ...agent("one"), proposalId: "lone" }],
+      });
+      expect(
+        container.querySelector(
+          "[data-suggestion-id='one'] [data-suggestion-reason]",
+        )?.textContent,
+      ).toBe("Rails is the framework the article compares against.");
+      render(null, [], presentation, {
+        suggestions: [agent("one"), agent("two")],
+        activeSuggestionId: "one",
+      });
+      expect(
+        container.querySelector("[data-suggestion-id='two']"),
+      ).not.toBeNull();
+      expect(container.querySelector("[data-suggestion-reason]")).toBeNull();
+    },
+  );
   it("drops the conflict alert once an unplaceable suggestion is amended", () => {
     const conflictAlert = () =>
       [
@@ -922,5 +973,50 @@ describe("comment review interactions", () => {
       rects.mockRestore();
       scroll.remove();
     }
+  });
+});
+
+describe("agentSuggestionReason", () => {
+  const base = (
+    overrides: Partial<ResourceSuggestion> = {},
+  ): ResourceSuggestion => ({
+    ...proposalSuggestion("one"),
+    actorKind: "agent",
+    proposalSummary: "Use the product's name the way the docs do.",
+    summary: 'Replace "agent native" with "Agent-Native"',
+    metadata: { sourceFind: "agent native", sourceReplace: "Agent-Native" },
+    ...overrides,
+  });
+  it("returns the reason an agent wrote", () => {
+    expect(agentSuggestionReason(base())).toBe(
+      "Use the product's name the way the docs do.",
+    );
+    expect(
+      agentSuggestionReason(
+        base({ proposalId: null, proposalSummary: null, summary: "Typo." }),
+      ),
+    ).toBe("Typo.");
+  });
+  it("skips people's suggestions", () => {
+    expect(agentSuggestionReason(base({ actorKind: "human" }))).toBeNull();
+  });
+  it("skips the summary written for an agent that gave no reason", () => {
+    expect(
+      agentSuggestionReason(
+        base({
+          proposalSummary: 'Replace "agent native" with "Agent-Native"',
+          summary: 'Replace "a" with "A"',
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      agentSuggestionReason(
+        base({
+          proposalSummary: 'Delete "very "',
+          summary: 'Delete "very "',
+          metadata: { sourceFind: "very ", sourceReplace: "" },
+        }),
+      ),
+    ).toBeNull();
   });
 });

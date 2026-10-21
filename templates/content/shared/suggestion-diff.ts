@@ -973,6 +973,19 @@ export function markdownSuggestionOperationsForFindReplaceEdits(input: {
   );
 }
 
+/**
+ * The summary suggest-document-edit records when the agent gives none. The
+ * comments sidebar compares against it so it never shows this as a reason.
+ */
+export function findReplaceSuggestionSummary(
+  find: string,
+  replace: string,
+): string {
+  return replace
+    ? `Replace "${find.slice(0, 80)}" with "${replace.slice(0, 80)}"`
+    : `Delete "${find.slice(0, 80)}"`;
+}
+
 /** A one-line review label for a single operation's change. */
 export function markdownSuggestionOperationSummary(
   operation: MarkdownSuggestionOperation,
