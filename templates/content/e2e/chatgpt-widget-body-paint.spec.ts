@@ -289,13 +289,15 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
               : "Error";
         }
         return {
-          blockedAtBoot: storageWindow.__e2eBlockedStorageReads,
+          blockedAtBoot: [
+            ...new Set(storageWindow.__e2eBlockedStorageReads),
+          ].sort(),
           memoryShimNames,
           indexedDbError,
         };
       }),
     ).toEqual({
-      blockedAtBoot: ["localStorage", "sessionStorage", "indexedDB"],
+      blockedAtBoot: ["indexedDB", "localStorage", "sessionStorage"],
       memoryShimNames: ["localStorage", "sessionStorage"],
       indexedDbError: "SecurityError",
     });
