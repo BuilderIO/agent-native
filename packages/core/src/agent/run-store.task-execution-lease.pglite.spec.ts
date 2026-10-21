@@ -11,6 +11,7 @@ import {
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let failNextTerminalEventInsert = false;
+let failTerminalEventInsertCount = 0;
 let failNextCheckpointReasonUpdate = false;
 
 vi.mock("../db/client.js", async (importOriginal) => ({
@@ -22,11 +23,12 @@ function wrapTerminalEventFailure(executor: DbExec): DbExec {
   return {
     async execute(input) {
       if (
-        failNextTerminalEventInsert &&
+        (failNextTerminalEventInsert || failTerminalEventInsertCount > 0) &&
         typeof input !== "string" &&
         input.sql.includes("INSERT INTO agent_run_events")
       ) {
-        failNextTerminalEventInsert = false;
+        if (failNextTerminalEventInsert) failNextTerminalEventInsert = false;
+        else failTerminalEventInsertCount -= 1;
         throw new Error("injected terminal event insert failure");
       }
       if (
@@ -81,6 +83,7 @@ const {
   getRunById,
   getLastTerminalRunEvent,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
+  ensureTerminalRunEvent,
   insertRunEvent,
   insertRunEvents,
   markAgentExecutionStepDispatched,
@@ -131,6 +134,47 @@ describe("task execution leases", () => {
     ]);
   });
 
+  it("fails terminal appends when the last persisted event is malformed", async () => {
+    const runId = "run-terminal-append-malformed-event";
+    await insertRun(runId, "thread-terminal-append-malformed-event");
+    await pglite.query(
+      `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+       VALUES (?, ?, ?, ?)`,
+      [runId, 0, Date.now(), "{"],
+    );
+
+    await expect(
+      ensureTerminalRunEvent(runId, { type: "done" }),
+    ).rejects.toBeInstanceOf(SyntaxError);
+    const events = await pglite.query(
+      "SELECT seq, event_data FROM agent_run_events WHERE run_id = ?",
+      [runId],
+    );
+    expect(events.rows).toEqual([{ seq: 0, event_data: "{" }]);
+  });
+
+  it("rejects a conflicting checkpoint while leaving its run running", async () => {
+    const runId = "run-checkpoint-running-conflict";
+    await insertRun(runId, "thread-checkpoint-running-conflict");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    await expect(
+      persistRunCheckpointEvent(
+        runId,
+        { type: "auto_continue", reason: "no_progress" },
+        "no_progress",
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
+    expect((await getRunById(runId))?.status).toBe("running");
+  });
+
   it("retires a durable checkpoint when a later terminal event is persisted", async () => {
     const runId = "run-checkpoint-terminal-resolution";
     await insertRun(runId, "thread-checkpoint-terminal-resolution");
@@ -175,6 +219,77 @@ describe("task execution leases", () => {
     expect(events.rows).toEqual([
       { seq: 0, event_data: '{"type":"done","reason":"user"}' },
     ]);
+  });
+
+  it("rolls back abort status and checkpoint retirement when the terminal insert fails", async () => {
+    const runId = "run-checkpoint-user-abort-insert-failure";
+    await insertRun(runId, "thread-checkpoint-user-abort-insert-failure");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+    failTerminalEventInsertCount = 2;
+
+    await expect(markRunAborted(runId, "user")).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: false,
+    });
+
+    const runAfterFailure = await getRunById(runId);
+    expect(runAfterFailure?.status).toBe("running");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: CHECKPOINT_TERMINAL_EVENT_SEQ,
+      event: { type: "auto_continue", reason: "run_timeout" },
+    });
+
+    await expect(markRunAborted(runId, "user")).resolves.toBe(true);
+    const runAfterRetry = await getRunById(runId);
+    expect(runAfterRetry?.status).toBe("aborted");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done", reason: "user" },
+    });
+  });
+
+  it("rolls back turn abort markers and run status when checkpoint retirement fails", async () => {
+    const threadId = "thread-checkpoint-turn-abort-insert-failure";
+    const turnId = "turn-checkpoint-turn-abort-insert-failure";
+    const runId = "run-checkpoint-turn-abort-insert-failure";
+    await insertRun(runId, threadId, turnId);
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+    failTerminalEventInsertCount = 2;
+
+    await expect(
+      markTurnAborted(threadId, turnId, "user"),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: false,
+    });
+
+    expect((await getRunById(runId))?.status).toBe("running");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: CHECKPOINT_TERMINAL_EVENT_SEQ,
+      event: { type: "auto_continue", reason: "run_timeout" },
+    });
+    const markersAfterFailure = await pglite.query(
+      "SELECT id FROM agent_runs WHERE thread_id = ? AND dispatch_mode = 'turn-abort'",
+      [threadId],
+    );
+    expect(markersAfterFailure.rows).toHaveLength(0);
+
+    await expect(markTurnAborted(threadId, turnId, "user")).resolves.toBe(
+      "aborted",
+    );
+    expect((await getRunById(runId))?.status).toBe("aborted");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done", reason: "user" },
+    });
   });
 
   it("replaces a checkpoint when an abort records a different continuation reason", async () => {

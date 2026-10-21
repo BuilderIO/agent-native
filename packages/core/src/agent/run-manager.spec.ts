@@ -16,7 +16,10 @@ import {
   currentExecutionFence,
   withExecutionFence,
 } from "./execution-fence.js";
-import { AgentRunEventNotPersistedError } from "./run-store.js";
+import {
+  AgentRunEventNotPersistedError,
+  CHECKPOINT_TERMINAL_EVENT_SEQ,
+} from "./run-store.js";
 import type { AgentChatEvent } from "./types.js";
 
 const RUN_RECORD_MISSING_ERROR_CODE = "run_record_missing";
@@ -150,6 +153,7 @@ vi.mock("./run-store.js", () => ({
   reconcileTerminalRunFromEvents: vi.fn(() => Promise.resolve(false)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
   getLastTerminalRunEvent: vi.fn(() => Promise.resolve(null)),
+  CHECKPOINT_TERMINAL_EVENT_SEQ: 1_000_000_000,
   resolveErroredRunTerminalEvent: vi.fn((run) => {
     const code = typeof run?.errorCode === "string" ? run.errorCode.trim() : "";
     const detail =
@@ -995,6 +999,131 @@ describe("run manager soft timeout", () => {
       }),
     );
     expect(run.status).toBe("completed");
+    consoleError.mockRestore();
+  });
+
+  it.each([
+    ["aborted", "aborted"],
+    ["running", "errored"],
+  ] as const)(
+    "uses the persisted %s status after a terminal checkpoint rejection",
+    async (persistedStatus, expectedStatus) => {
+      const runId = `run-checkpoint-terminal-rejection-${persistedStatus}`;
+      const threadId = `thread-checkpoint-terminal-rejection-${persistedStatus}`;
+      const events: AgentChatEvent[] = [];
+      const onComplete = vi.fn();
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      vi.mocked(persistRunCheckpointEvent).mockRejectedValueOnce(
+        new AgentRunEventNotPersistedError(runId, 1_000_000_000, true),
+      );
+      vi.mocked(getRunById).mockResolvedValueOnce({
+        id: runId,
+        threadId,
+        status: persistedStatus,
+        startedAt: Date.now(),
+        errorCode: null,
+        errorDetail: null,
+        terminalReason: persistedStatus === "aborted" ? "aborted:user" : null,
+      });
+      const run = startRun(
+        runId,
+        threadId,
+        async (_send, signal) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        onComplete,
+        { softTimeoutMs: 10 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.advanceTimersByTimeAsync(11);
+      await run.finalized;
+
+      expect(run.status).toBe(expectedStatus);
+      if (persistedStatus === "aborted") {
+        expect(run.abortReason).toBe("user");
+        expect(run.abort.signal.reason).toBe("user");
+        expect(events).not.toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            errorCode: "run_checkpoint_persistence_failed",
+          }),
+        );
+        expect(onComplete).toHaveBeenCalledWith(
+          expect.objectContaining({ status: "aborted" }),
+        );
+      } else {
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            errorCode: "run_checkpoint_persistence_failed",
+          }),
+        );
+        expect(onComplete).toHaveBeenCalledWith(
+          expect.objectContaining({ status: "errored" }),
+        );
+      }
+      consoleError.mockRestore();
+    },
+  );
+
+  it("keeps checkpoint failure terminal when the driver sends done during unwind", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const driver = Promise.withResolvers<void>();
+    const checkpoint = Promise.withResolvers<void>();
+    const sendReady =
+      Promise.withResolvers<(event: AgentChatEvent) => Promise<void>>();
+    const events: AgentChatEvent[] = [];
+    vi.mocked(persistRunCheckpointEvent).mockImplementationOnce(
+      () => checkpoint.promise,
+    );
+    const run = startRun(
+      "run-checkpoint-failure-latches-terminal",
+      "thread-checkpoint-failure-latches-terminal",
+      async (send) => {
+        sendReady.resolve(send);
+        await driver.promise;
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+    const send = await sendReady.promise;
+    const aborted = new Promise<void>((resolve) => {
+      run.abort.signal.addEventListener("abort", () => resolve(), {
+        once: true,
+      });
+    });
+
+    await vi.advanceTimersByTimeAsync(11);
+    checkpoint.reject(new Error("checkpoint database unavailable"));
+    await aborted;
+    await send({ type: "done" });
+    driver.resolve();
+    await run.finalized;
+
+    expect(run.status).toBe("errored");
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      errorCode: "run_checkpoint_persistence_failed",
+    });
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(insertRunEvent).toHaveBeenCalledWith(
+      "run-checkpoint-failure-latches-terminal",
+      0,
+      JSON.stringify({
+        type: "error",
+        error: "The agent could not save its continuation checkpoint.",
+        errorCode: "run_checkpoint_persistence_failed",
+      }),
+      { eventAt: expect.any(Number) },
+    );
     consoleError.mockRestore();
   });
 
@@ -5085,12 +5214,12 @@ describe("run manager soft timeout", () => {
       startedAt: Date.now(),
       errorCode: null,
       errorDetail: null,
-      terminalReason: "aborted:no_progress",
+      terminalReason: "aborted:user",
     } as any);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
     vi.mocked(getLastTerminalRunEvent).mockResolvedValue({
       seq: 12,
-      event: { type: "auto_continue", reason: "run_timeout" },
+      event: { type: "done", reason: "user" },
     });
 
     const stream = subscribeToRun("run-sql-aborted-real", 20);
@@ -5105,8 +5234,41 @@ describe("run manager soft timeout", () => {
     }
 
     expect(chunks.join("")).toContain(
-      'data: {"type":"auto_continue","reason":"run_timeout","seq":12,"eventId":"run-sql-aborted-real:12"}',
+      'data: {"type":"done","reason":"user","seq":12,"eventId":"run-sql-aborted-real:12"}',
     );
+  });
+
+  it("ignores a reserved checkpoint when reconnecting to an already-aborted SQL run", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-aborted-checkpoint",
+      threadId: "thread-sql-aborted-checkpoint",
+      status: "aborted",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: "aborted:user",
+    } as any);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue({
+      seq: CHECKPOINT_TERMINAL_EVENT_SEQ,
+      event: { type: "auto_continue", reason: "run_timeout" },
+    });
+
+    const stream = subscribeToRun("run-sql-aborted-checkpoint", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-sql-aborted-checkpoint:0"}',
+    );
+    expect(chunks.join("")).not.toContain('"type":"auto_continue"');
   });
 
   it("waits for the real terminal event when an in-memory run has none buffered", async () => {

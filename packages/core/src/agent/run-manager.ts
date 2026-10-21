@@ -1396,17 +1396,43 @@ export function startRun(
         });
         if (!pendingTerminalEvent) send(event);
       } catch (error) {
-        if (pendingTerminalEvent) {
+        let persistedAbort = false;
+        if (
+          error instanceof AgentRunEventNotPersistedError &&
+          error.terminalRun
+        ) {
+          try {
+            const persistedRun = await getRunById(runId);
+            if (persistedRun?.status === "aborted") {
+              persistedAbort = true;
+              run.status = "aborted";
+              run.abortReason = persistedRun.terminalReason?.startsWith(
+                "aborted:",
+              )
+                ? persistedRun.terminalReason.slice("aborted:".length)
+                : undefined;
+            }
+          } catch (statusError) {
+            console.error(
+              "[run-manager] could not confirm run status after checkpoint rejection",
+              runId,
+              statusError instanceof Error ? statusError.message : statusError,
+            );
+          }
+        }
+        if (pendingTerminalEvent || persistedAbort) {
           softTimedOut = true;
         } else {
           checkpointPersistenceFailed = true;
         }
-        console.error(
-          "[run-manager] could not persist run boundary checkpoint",
-          runId,
-          error instanceof Error ? error.message : error,
-        );
-        if (!pendingTerminalEvent) {
+        if (!persistedAbort) {
+          console.error(
+            "[run-manager] could not persist run boundary checkpoint",
+            runId,
+            error instanceof Error ? error.message : error,
+          );
+        }
+        if (!pendingTerminalEvent && !persistedAbort) {
           send({
             type: "error",
             error: "The agent could not save its continuation checkpoint.",
@@ -1414,7 +1440,7 @@ export function startRun(
           });
         }
       } finally {
-        abort.abort(terminalReason);
+        abort.abort(run.abortReason ?? terminalReason);
         checkpointAbortInFlight = false;
       }
     })();
@@ -1841,6 +1867,14 @@ export function startRun(
       event: normalizedEvent,
     };
     if (isTerminalRunEvent(event)) {
+      if (
+        checkpointPersistenceFailed &&
+        pendingTerminalEvent?.event.type === "error" &&
+        pendingTerminalEvent.event.errorCode ===
+          "run_checkpoint_persistence_failed"
+      ) {
+        return Promise.resolve();
+      }
       pendingTerminalEvent = runEvent;
       return Promise.resolve();
     }
@@ -2706,11 +2740,13 @@ function subscribeFromSQL(
                 const existing = await getLastTerminalRunEvent(runId).catch(
                   () => null,
                 );
+                const persistedTerminal =
+                  existing?.event.type === "auto_continue" ? null : existing;
                 const abortReason = run.terminalReason?.startsWith("aborted:")
                   ? run.terminalReason.slice("aborted:".length)
                   : undefined;
-                const terminalEvent = existing
-                  ? existing.event
+                const terminalEvent = persistedTerminal
+                  ? persistedTerminal.event
                   : terminalEventForAbortReason(abortReason);
                 try {
                   controller.enqueue(
@@ -2719,7 +2755,7 @@ function subscribeFromSQL(
                         streamEventWithIdentity(
                           runId,
                           terminalEvent,
-                          existing?.seq ?? lastSeq,
+                          persistedTerminal?.seq ?? lastSeq,
                         ),
                       )}\n\n`,
                     ),
