@@ -804,6 +804,107 @@ describe("S3 private blob providers", () => {
     ).resolves.toMatchObject({ provider: "hosted-private" });
   });
 
+  it("serves blobs on plain HTTP endpoints without direct links", async () => {
+    const { s3PrivateBlobProvider } = await import("./s3-private.js");
+    fakeBucket();
+    useEnvBucket({ S3_ENDPOINT: "http://minio.example.test:9000" });
+    const handle = await s3PrivateBlobProvider.put({
+      data: new TextEncoder().encode("dashboard"),
+      mimeType: "image/png",
+    });
+
+    await expect(
+      s3PrivateBlobProvider.getReadUrl!(handle, { expiresInSeconds: 60 }),
+    ).resolves.toBeNull();
+    expect(text((await s3PrivateBlobProvider.read(handle)).data)).toBe(
+      "dashboard",
+    );
+  });
+
+  it("fails when a scope saves storage apart from the bucket in use", async () => {
+    const { s3PrivateBlobProvider } = await import("./s3-private.js");
+    const { requests } = fakeBucket();
+    const saved = (
+      scope: string,
+      scopeId: string,
+      values: Record<string, string>,
+    ) => ({ scope, scopeId, values });
+    const orgFull = saved("org", "org-1", {
+      S3_ENDPOINT: "https://org.storage.example.test",
+      S3_BUCKET: "org-bucket",
+      S3_ACCESS_KEY_ID: "org-access",
+      S3_SECRET_ACCESS_KEY: "org-secret",
+    });
+    const userPartial = saved("user", "owner@example.test", {
+      S3_ENDPOINT: "https://user.storage.example.test",
+      S3_ACCESS_KEY_ID: "user-access",
+      S3_SECRET_ACCESS_KEY: "user-secret",
+    });
+    const resolveFrom =
+      (scopes: Array<ReturnType<typeof saved>>) => async (key: string) => {
+        for (const { scope, scopeId, values } of scopes) {
+          if (values[key]) {
+            return {
+              value: values[key],
+              lookupFailed: false,
+              source: scope,
+              scopeId,
+            };
+          }
+        }
+        return process.env[key]
+          ? { value: process.env[key], lookupFailed: false, source: "env" }
+          : { value: null, lookupFailed: false };
+      };
+    readAppSecretsMock.mockImplementation(
+      async (args: { scope: string; scopeId: string }) => {
+        const match = [orgFull, userPartial].find(
+          (entry) =>
+            entry.scope === args.scope && entry.scopeId === args.scopeId,
+        );
+        return new Map(
+          Object.entries(match?.values ?? {}).map(([key, value]) => [
+            key,
+            { value },
+          ]),
+        );
+      },
+    );
+    const incomplete = {
+      kind: "not_configured",
+      message: "Storage settings are incomplete: missing S3_BUCKET",
+    };
+
+    // The deployment sets a bucket, but a workspace saved its own endpoint
+    // and keys without one.
+    Object.assign(process.env, {
+      S3_ENDPOINT: "https://env.storage.example.test",
+      S3_BUCKET: "env-bucket",
+      S3_ACCESS_KEY_ID: "env-access",
+      S3_SECRET_ACCESS_KEY: "env-secret",
+    });
+    resolveSecretDetailedMock.mockImplementation(resolveFrom([userPartial]));
+    await expect(
+      s3PrivateBlobProvider.put({ data: new Uint8Array([1]) }),
+    ).rejects.toMatchObject(incomplete);
+
+    // The org holds a full bucket, and the user saved an endpoint and keys
+    // without one.
+    resolveSecretDetailedMock.mockImplementation(
+      resolveFrom([userPartial, orgFull]),
+    );
+    await expect(
+      s3PrivateBlobProvider.put({ data: new Uint8Array([1]) }),
+    ).rejects.toMatchObject(incomplete);
+    expect(requests).toHaveLength(0);
+
+    // The org's full settings alone are fine.
+    resolveSecretDetailedMock.mockImplementation(resolveFrom([orgFull]));
+    await expect(
+      s3PrivateBlobProvider.put({ data: new Uint8Array([1]) }),
+    ).resolves.toMatchObject({ provider: "s3-private" });
+  });
+
   it("registers the workspace bucket ahead of the hosted bucket, once", async () => {
     const { ensureS3PrivateBlobProviders } = await import("./s3-private.js");
     const registry = await import("./registry.js");

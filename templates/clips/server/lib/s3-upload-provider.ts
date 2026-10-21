@@ -3,6 +3,7 @@ import {
   rfc3986,
   signedS3Request,
   type FileUploadProvider,
+  type SignedS3RequestOptions,
 } from "@agent-native/core/file-upload";
 import {
   type PrivateBlobHandle,
@@ -29,6 +30,8 @@ interface S3Config {
   secretAccessKey: string;
   endpoint: string;
   publicBaseUrl: string | null;
+  /** The deployment's hosted bucket, not one a workspace saved. */
+  hosted?: true;
 }
 
 function cleanValue(value: string | null | undefined): string | undefined {
@@ -151,13 +154,14 @@ function readHostedClipS3Config(): S3Config | null {
     enabled: true,
   });
   if (!config) return null;
-  return buildS3Config({
+  const s3Config = buildS3Config({
     bucket: config.bucket,
     accessKeyId: config.accessKeyId,
     secretAccessKey: config.secretAccessKey,
     endpoint: config.endpoint,
     region: config.region,
   });
+  return s3Config ? { ...s3Config, hosted: true } : null;
 }
 
 type ClipsS3StorageMode = "own" | "hosted";
@@ -233,6 +237,22 @@ async function readOrganizationLogoS3Config(
   });
 }
 
+/**
+ * Sends a signed request. The hosted bucket's endpoint is the deployment's
+ * own, so like an env endpoint it may use plain HTTP or a private network;
+ * endpoints a workspace saved may not.
+ */
+function s3Request(
+  cfg: S3Config,
+  key: string,
+  options: Omit<SignedS3RequestOptions, "trustedEndpoint">,
+): Promise<Response> {
+  return signedS3Request(cfg, key, {
+    ...options,
+    trustedEndpoint: cfg.hosted === true,
+  });
+}
+
 export class S3MultipartStartError extends Error {
   constructor(readonly status: number) {
     super(`S3 CreateMultipartUpload failed (${status})`);
@@ -246,7 +266,7 @@ async function putObject(
   body: Uint8Array,
   contentType: string,
 ): Promise<string> {
-  const res = await signedS3Request(cfg, key, {
+  const res = await s3Request(cfg, key, {
     method: "PUT",
     body,
     contentType,
@@ -342,7 +362,7 @@ function isLegacyUnscopedObjectKey(key: string): boolean {
 }
 
 async function deleteObject(cfg: S3Config, key: string): Promise<void> {
-  const res = await signedS3Request(cfg, key, {
+  const res = await s3Request(cfg, key, {
     method: "DELETE",
     timeoutMs: S3_DELETE_TIMEOUT_MS,
   });
@@ -357,7 +377,7 @@ async function deleteObject(cfg: S3Config, key: string): Promise<void> {
 }
 
 async function getObject(cfg: S3Config, key: string): Promise<Uint8Array> {
-  const res = await signedS3Request(cfg, key, {
+  const res = await s3Request(cfg, key, {
     method: "GET",
     timeoutMs: S3_PUT_TIMEOUT_MS,
   });
@@ -487,7 +507,7 @@ export async function fetchS3OrganizationLogoByLegacyUrl(
   if (!cfg) {
     throw new S3StorageError("S3 credentials are not configured", 503);
   }
-  return signedS3Request(cfg, key, {
+  return s3Request(cfg, key, {
     method: "GET",
     timeoutMs: S3_PUT_TIMEOUT_MS,
   });
@@ -610,7 +630,7 @@ async function uploadMultipartPart(
   if (partNumber > S3_MULTIPART_MAX_PARTS) {
     throw new Error("S3 multipart upload exceeds the 10,000 part limit");
   }
-  const res = await signedS3Request(cfg, meta.objectKey, {
+  const res = await s3Request(cfg, meta.objectKey, {
     method: "PUT",
     query: { partNumber: String(partNumber), uploadId },
     body: bytes,
@@ -638,7 +658,7 @@ async function verifyCompletedMultipartObject(
   cfg: S3Config,
   meta: S3MultipartMeta,
 ): Promise<boolean> {
-  const res = await signedS3Request(cfg, meta.objectKey, {
+  const res = await s3Request(cfg, meta.objectKey, {
     method: "HEAD",
     timeoutMs: S3_DELETE_TIMEOUT_MS,
   });
@@ -739,7 +759,7 @@ export async function fetchS3ObjectByUrl(
   ) {
     return null;
   }
-  return signedS3Request(cfg, key, {
+  return s3Request(cfg, key, {
     method: "GET",
     range: options.range,
     timeoutMs: options.timeoutMs ?? S3_PUT_TIMEOUT_MS,
@@ -819,7 +839,7 @@ function createS3FileUploadProvider(
         }
         const objectKey = `clips/${safeFilename}`;
         const stagingKey = `clips/.multipart/${safeFilename}.pending`;
-        const res = await signedS3Request(cfg, objectKey, {
+        const res = await s3Request(cfg, objectKey, {
           method: "POST",
           query: { uploads: "" },
           contentType: mimeType,
@@ -931,7 +951,7 @@ function createS3FileUploadProvider(
         let res: Response;
         let body: string;
         try {
-          res = await signedS3Request(cfg, meta.objectKey, {
+          res = await s3Request(cfg, meta.objectKey, {
             method: "POST",
             query: { uploadId: session.sessionId },
             body: new TextEncoder().encode(manifest),
@@ -992,7 +1012,7 @@ function createS3FileUploadProvider(
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
         const meta = readMultipartMeta(session.meta);
-        const abortRes = await signedS3Request(cfg, meta.objectKey, {
+        const abortRes = await s3Request(cfg, meta.objectKey, {
           method: "DELETE",
           query: { uploadId: session.sessionId },
           timeoutMs: S3_DELETE_TIMEOUT_MS,

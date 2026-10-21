@@ -6,6 +6,7 @@ const mockReadAppSecret = vi.fn();
 const mockGetRequestOrgId = vi.fn();
 const mockSsrfSafeFetch = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
+let hostedEndpoint = "https://hosted-s3.example.com";
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
@@ -15,7 +16,7 @@ vi.mock("@agent-native/core/server", () => ({
     clips: {
       hostedStorage: {
         enabled: false,
-        endpoint: "https://hosted-s3.example.com",
+        endpoint: hostedEndpoint,
         bucket: "hosted-clips",
         accessKeyId: "hosted-access",
         secretAccessKey: "hosted-secret",
@@ -54,6 +55,7 @@ describe("s3FileUploadProvider", () => {
     mockReadAppSecret.mockReset().mockResolvedValue(null);
     mockIsBlockedExtensionUrlWithDns.mockReset().mockResolvedValue(false);
     mockGetRequestOrgId.mockReset().mockReturnValue("org-1");
+    hostedEndpoint = "https://hosted-s3.example.com";
     mockSsrfSafeFetch.mockImplementation((url: string, init: RequestInit) =>
       fetch(url, init),
     );
@@ -313,7 +315,7 @@ describe("s3FileUploadProvider", () => {
       S3_BUCKET: "current-bucket",
       S3_ACCESS_KEY_ID: "access",
       S3_SECRET_ACCESS_KEY: "secret",
-      S3_ENDPOINT: "http://10.0.0.12:9000/minio/",
+      S3_ENDPOINT: "https://10.0.0.12:9000/minio/",
       S3_REGION: "us-east-1",
     };
     mockReadAppSecret.mockImplementation(
@@ -367,12 +369,12 @@ describe("s3FileUploadProvider", () => {
 
   it("rejects workspace private endpoints outside the deployment endpoint path", async () => {
     mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
-    process.env.S3_ENDPOINT = "http://10.0.0.12:9000/minio/";
+    process.env.S3_ENDPOINT = "https://10.0.0.12:9000/minio/";
     const workspaceValues: Record<string, string> = {
       S3_BUCKET: "workspace-bucket",
       S3_ACCESS_KEY_ID: "workspace-access",
       S3_SECRET_ACCESS_KEY: "workspace-secret",
-      S3_ENDPOINT: "http://10.0.0.12:9000/other-service",
+      S3_ENDPOINT: "https://10.0.0.12:9000/other-service",
       S3_REGION: "us-east-1",
     };
     mockReadAppSecret.mockImplementation(
@@ -395,6 +397,48 @@ describe("s3FileUploadProvider", () => {
 
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses plain HTTP endpoints saved in workspace settings", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "http://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+
+    await expect(
+      s3FileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "recording.webm",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toThrow("Storage endpoints saved in settings must use HTTPS");
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("lets the hosted bucket use the deployment's private HTTP endpoint", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    hostedEndpoint = "http://10.0.0.20:9000";
+    mockSsrfSafeFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    const url = "http://10.0.0.20:9000/hosted-clips/clips/rec_1/clip.mp4";
+
+    await expect(
+      deleteS3ObjectByUrl(url, {
+        storageMode: "hosted",
+        recordingId: "rec_1",
+      }),
+    ).resolves.toBe(true);
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({ method: "DELETE" }),
+      expect.objectContaining({
+        allowedPrivateOrigins: ["http://10.0.0.20:9000"],
+      }),
+    );
   });
 
   it("rejects bucket dot segments before using a trusted private endpoint", async () => {

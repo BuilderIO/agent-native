@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { presignS3GetUrl, s3ObjectUri, signS3Request } from "./s3-client.js";
+import {
+  presignS3GetUrl,
+  s3ObjectUri,
+  signedS3Request,
+  signS3Request,
+} from "./s3-client.js";
 
 // The expected signatures were produced independently by the aws4 package
 // (mhart/aws4) for the same requests.
@@ -34,6 +39,16 @@ describe("presignS3GetUrl", () => {
         "&response-content-type=image%2Fpng" +
         "&X-Amz-Signature=d8437bcbbf9a57c58e4d74a0b38aae06509843c45c10185b913ac6780da5c342",
     );
+  });
+
+  it("only signs links for HTTPS endpoints", async () => {
+    await expect(
+      presignS3GetUrl(
+        { ...r2, endpoint: "http://minio.example.test:9000" },
+        "a.png",
+        { expiresInSeconds: 60, now },
+      ),
+    ).rejects.toThrow(/need an HTTPS endpoint/);
   });
 
   it("only signs links that last between one second and seven days", async () => {
@@ -89,6 +104,18 @@ describe("signS3Request", () => {
         "SignedHeaders=host;range;x-amz-content-sha256;x-amz-date, " +
         "Signature=566abe7d99165106caa103fde9a9d8014fde9b090140530eb6469b391c73c0ea",
     );
+  });
+});
+
+describe("signedS3Request", () => {
+  it("refuses plain HTTP unless the deployment configured the endpoint", async () => {
+    await expect(
+      signedS3Request(
+        { ...r2, endpoint: "http://storage.example.test" },
+        "a.png",
+        { method: "GET", timeoutMs: 1_000 },
+      ),
+    ).rejects.toThrow(/saved in settings must use HTTPS/);
   });
 });
 

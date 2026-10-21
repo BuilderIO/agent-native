@@ -198,31 +198,43 @@ async function resolveSetting(field: StorageField) {
 }
 
 /**
- * Saved storage settings without a bucket still mean the workspace chose its
- * own storage, so the put fails rather than using the hosted bucket.
+ * An endpoint or key saved in a scope that doesn't hold the bucket (none
+ * does, or only env sets one) still means someone chose their own storage, so
+ * the put fails rather than storing the blob in another bucket.
  */
-async function assertNoSavedSettingsWithoutBucket(): Promise<void> {
+async function assertNoSettingsSavedApart(
+  source: CredentialSource | null,
+): Promise<void> {
   for (const field of ["endpoint", "accessKeyId", "secretAccessKey"] as const) {
     const detail = await resolveSetting(field);
-    if (detail?.source && detail.source !== "env") {
-      throw new PrivateBlobError(
-        `Storage settings are incomplete: missing ${STORAGE_KEYS.bucket[0]}`,
-        "not_configured",
-      );
+    if (!detail?.source || detail.source === "env") continue;
+    if (
+      source?.kind === "secret" &&
+      detail.source === source.scope &&
+      detail.scopeId === source.scopeId
+    ) {
+      continue;
     }
+    throw new PrivateBlobError(
+      `Storage settings are incomplete: missing ${STORAGE_KEYS.bucket[0]}`,
+      "not_configured",
+    );
   }
 }
 
 async function resolveBucketScope(): Promise<ResolvedBucket | null> {
   const detail = await resolveSetting("bucket");
-  if (!detail) {
-    await assertNoSavedSettingsWithoutBucket();
-    return null;
-  }
-  const source: CredentialSource =
-    detail.source && detail.source !== "env" && detail.scopeId
+  const source: CredentialSource | null = !detail
+    ? null
+    : detail.source && detail.source !== "env" && detail.scopeId
       ? { kind: "secret", scope: detail.source, scopeId: detail.scopeId }
       : { kind: "env" };
+  if (!source) {
+    await assertNoSettingsSavedApart(null);
+    return null;
+  }
+  // A saved scope's own gaps are reported first, by readScopedBucketSettings.
+  if (source.kind === "env") await assertNoSettingsSavedApart(source);
   const settings =
     source.kind === "secret"
       ? await readScopedBucketSettings(source.scope, source.scopeId)
@@ -235,6 +247,7 @@ async function resolveBucketScope(): Promise<ResolvedBucket | null> {
       "not_configured",
     );
   }
+  if (source.kind === "secret") await assertNoSettingsSavedApart(source);
   assertSecureEndpoint(source, settings.config.endpoint);
   return { config: settings.config, source };
 }
@@ -602,6 +615,9 @@ async function readUrlFor(
 ) {
   const descriptor = decodeDescriptor(handle);
   if (descriptor.encryption) return null;
+  // Over plain HTTP the link's signature and bytes would travel in the clear,
+  // so the app serves those blobs itself.
+  if (new URL(descriptor.endpoint).protocol !== "https:") return null;
   const now = new Date();
   const url = await presignS3GetUrl(
     await clientConfigFor(descriptor),

@@ -6,12 +6,7 @@ import {
   listFileUploadProviders,
   registerFileUploadProvider,
 } from "./registry.js";
-import {
-  cancelS3ResponseBody,
-  rfc3986,
-  signedS3Request,
-  trustedDeploymentS3Origin,
-} from "./s3-client.js";
+import { cancelS3ResponseBody, rfc3986, signedS3Request } from "./s3-client.js";
 import type { FileUploadProvider } from "./types.js";
 
 interface S3Config {
@@ -133,17 +128,6 @@ async function readRequestConfig(): Promise<S3Config | null> {
 const PUT_TIMEOUT_MS = 120_000;
 const DELETE_TIMEOUT_MS = 30_000;
 
-/**
- * Requests carry signed credentials and file bytes, so they need HTTPS unless
- * the endpoint is the deployment's own S3_ENDPOINT/R2_ENDPOINT (a MinIO on its
- * private network, for example).
- */
-function assertSecureEndpoint(endpoint: string): void {
-  if (new URL(endpoint).protocol === "https:") return;
-  if (trustedDeploymentS3Origin(endpoint)) return;
-  throw new Error("Storage endpoints saved in settings must use HTTPS");
-}
-
 function encodeKey(key: string): string {
   return key.split("/").map(rfc3986).join("/");
 }
@@ -154,7 +138,6 @@ async function putObject(
   data: Uint8Array,
   contentType: string,
 ): Promise<string> {
-  assertSecureEndpoint(config.endpoint);
   const response = await signedS3Request(config, key, {
     method: "PUT",
     body: data,
@@ -172,7 +155,6 @@ async function putObject(
 }
 
 async function deleteObject(config: S3Config, key: string): Promise<boolean> {
-  assertSecureEndpoint(config.endpoint);
   const response = await signedS3Request(config, key, {
     method: "DELETE",
     timeoutMs: DELETE_TIMEOUT_MS,

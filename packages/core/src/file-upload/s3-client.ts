@@ -33,8 +33,8 @@ export interface SignedS3RequestOptions {
   timeoutMs: number;
   /**
    * The deployment configured this endpoint (not a workspace), so it may sit
-   * on a private network. Without it, only the `S3_ENDPOINT`/`R2_ENDPOINT`
-   * origin may.
+   * on a private network or use plain HTTP. Without it, only the
+   * `S3_ENDPOINT`/`R2_ENDPOINT` endpoint may.
    */
   trustedEndpoint?: boolean;
 }
@@ -406,12 +406,22 @@ export async function signS3Request(
   };
 }
 
-/** Sends a SigV4-signed request through the SSRF guard. */
+/**
+ * Sends a SigV4-signed request through the SSRF guard. Requests carry signed
+ * credentials and private bytes, so only an endpoint the deployment configured
+ * may use plain HTTP.
+ */
 export async function signedS3Request(
   config: S3ClientConfig,
   key: string,
   options: SignedS3RequestOptions,
 ): Promise<Response> {
+  const trustedOrigin = options.trustedEndpoint
+    ? new URL(config.endpoint).origin
+    : trustedDeploymentS3Origin(config.endpoint);
+  if (new URL(config.endpoint).protocol !== "https:" && !trustedOrigin) {
+    throw new Error("Storage endpoints saved in settings must use HTTPS");
+  }
   const { url, headers } = await signS3Request(config, key, options);
   return fetchS3WithTimeout(
     url,
@@ -428,9 +438,7 @@ export async function signedS3Request(
         : {}),
     },
     options.timeoutMs,
-    options.trustedEndpoint
-      ? new URL(config.endpoint).origin
-      : trustedDeploymentS3Origin(config.endpoint),
+    trustedOrigin,
   );
 }
 
@@ -444,6 +452,11 @@ export async function presignS3GetUrl(
   key: string,
   options: PresignS3GetOptions,
 ): Promise<string> {
+  // Whoever opens the link fetches it directly, so the signature and bytes
+  // would cross the network in the clear over plain HTTP.
+  if (new URL(config.endpoint).protocol !== "https:") {
+    throw new Error("S3 presigned links need an HTTPS endpoint");
+  }
   const expires = Math.floor(options.expiresInSeconds);
   if (
     !Number.isFinite(expires) ||
