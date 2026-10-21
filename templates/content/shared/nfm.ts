@@ -309,13 +309,13 @@ function splitBlockAttrs(
     return { text: line, toggle: false, color: null };
   }
   const toggle = /\btoggle\s*=\s*"true"/.test(body);
-  const colorMatch = body.match(/\bcolor\s*=\s*"([^"]+)"/);
+  const colorMatch = body.match(/\bcolor\s*=\s*"([^"]*)"/);
   const color = colorMatch && isColor(colorMatch[1]) ? colorMatch[1] : null;
   if (toggle && !allowToggle)
     reportLoss("dropped-attribute", '{toggle="true"}');
   const rest = body
     .replace(/\btoggle\s*=\s*"true"/, "")
-    .replace(/\bcolor\s*=\s*"[^"]+"/, "")
+    .replace(/\bcolor\s*=\s*"[^"]*"/, "")
     .trim();
   if ((colorMatch && !color) || ((toggle || color) && rest))
     reportLoss("dropped-attribute", `{${body}}`);
@@ -2762,7 +2762,7 @@ function parseSingleBlock(
 
   const containerTag = matchContainerOpen(dedent);
   if (containerTag) {
-    return parseContainer(lines, start, indent, rel, containerTag);
+    return parseContainer(lines, start, indent, containerTag, withIndentAttr);
   }
 
   if (dedent.startsWith("![")) {
@@ -3099,19 +3099,26 @@ function containerClosesOf(
   return closes;
 }
 
+function containerOpenerAsText(
+  openLine: string,
+  start: number,
+  withIndentAttr: (node: PMNode) => PMNode,
+): ParseResult {
+  const { text, color } = splitBlockAttrs(openLine);
+  const node: PMNode = { type: "paragraph", content: parseInline(text) };
+  if (isColor(color)) node.attrs = { color };
+  return { nodes: [withIndentAttr(node)], end: start + 1 };
+}
+
 function parseContainer(
   lines: string[],
   start: number,
   indent: number,
-  rel: number,
   tagKey: string,
+  withIndentAttr: (node: PMNode) => PMNode,
 ): ParseResult {
   const closeTag = CONTAINER_CLOSE[tagKey];
   const openLine = lines[start].slice(indent);
-  const withIndentAttr = (node: PMNode): PMNode => {
-    if (rel > 0) node.attrs = { ...(node.attrs || {}), indent: rel };
-    return node;
-  };
 
   if (tagKey === "<table") {
     return parseTable(lines, start, indent, withIndentAttr);
@@ -3127,12 +3134,6 @@ function parseContainer(
     );
   }
 
-  const openerAsText = (): ParseResult => {
-    const { text, color } = splitBlockAttrs(openLine);
-    const node: PMNode = { type: "paragraph", content: parseInline(text) };
-    if (isColor(color)) node.attrs = { color };
-    return { nodes: [withIndentAttr(node)], end: start + 1 };
-  };
   // A container holds its children one tab in, so its indent bounds how many
   // containers it is inside. Each level reads its body again, a details body
   // with its whole subtree, so past this depth the opener reads as text,
@@ -3140,7 +3141,7 @@ function parseContainer(
   // the rest of the nesting.
   if (indent > MAX_CONTAINER_INDENT) {
     reportLoss("dropped-formatting", openLine);
-    return openerAsText();
+    return containerOpenerAsText(openLine, start, withIndentAttr);
   }
   const closes = containerClosesOf(lines, tagKey);
   if (!closes.has(start)) {
@@ -3168,7 +3169,8 @@ function parseContainer(
     for (const opener of openers) closes.set(opener, -1);
   }
   const closeIdx = closes.get(start)!;
-  if (closeIdx === -1) return openerAsText();
+  if (closeIdx === -1)
+    return containerOpenerAsText(openLine, start, withIndentAttr);
   const childStart = start + 1;
 
   if (tagKey === "<details") {
@@ -3309,11 +3311,11 @@ function parseRawContainer(
   }
   const i = closes.get(start)!;
   if (i === -1) {
-    const openLine = lines[start].slice(indent);
-    const { text, color } = splitBlockAttrs(openLine);
-    const node: PMNode = { type: "paragraph", content: parseInline(text) };
-    if (isColor(color)) node.attrs = { color };
-    return { nodes: [withIndentAttr(node)], end: start + 1 };
+    return containerOpenerAsText(
+      lines[start].slice(indent),
+      start,
+      withIndentAttr,
+    );
   }
   const rawLines = lines.slice(start, i + 1).map((l) => stripTabs(l, indent));
   const node: PMNode = {

@@ -420,6 +420,7 @@ type MdNode = {
  */
 type ReadProfile = {
   tokens: Map<string, number>;
+  pendingText: string[];
   backslashes: number;
   letters: string[];
   marks: Record<(typeof MARKS)[number], number[]>;
@@ -450,6 +451,7 @@ const TEXT_ATTRIBUTES = ["label", "summary", "title"] as const;
 function emptyProfile(): ReadProfile {
   return {
     tokens: new Map(),
+    pendingText: [],
     backslashes: 0,
     letters: [],
     marks: Object.fromEntries(
@@ -478,6 +480,7 @@ const PROFILE_COUNTS = [
 
 /** Adds what `part` read, as text that follows `profile`'s so far. */
 function appendProfile(profile: ReadProfile, part: ReadProfile) {
+  flushText(profile);
   const offset = profile.letters.length;
   for (const letter of part.letters) profile.letters.push(letter);
   for (const mark of MARKS)
@@ -496,8 +499,15 @@ function addTokens(profile: ReadProfile, text: string) {
 }
 
 function addText(profile: ReadProfile, text: string) {
-  addTokens(profile, text);
+  profile.pendingText.push(text);
   profile.backslashes += text.split("\\").length - 1;
+}
+
+function flushText(profile: ReadProfile) {
+  if (!profile.pendingText.length) return;
+  // Marks and links split a visible word into nodes without splitting its text.
+  addTokens(profile, profile.pendingText.join(""));
+  profile.pendingText.length = 0;
 }
 
 const gfmReader = unified().use(remarkParse).use(remarkGfm);
@@ -579,7 +589,10 @@ function withoutNfmSyntax(body: string): string {
       if (NFM_TAG_LINE.test(line))
         return line.replace(NFM_TAG_LINE, "$1<!-- -->");
       return outsideCodeSpans(line, (text) =>
-        text.replace(NFM_INLINE_TAG, " "),
+        // Keeping spans as HTML avoids joining the code delimiters around them.
+        text.replace(NFM_INLINE_TAG, (tag) =>
+          /^<\/?span(?:\s|>)/.test(tag) ? tag : " ",
+        ),
       ).replace(NFM_BLOCK_ATTRIBUTES, "$1");
     })
     .join("\n");
@@ -646,6 +659,14 @@ function gfmProfile(body: string): ReadProfile {
   const markdown = withoutNfmSyntax(body);
   const profile = emptyProfile();
   const walk = (node: MdNode, listDepth: number, marks: ReadonlySet<Mark>) => {
+    const block = [
+      "paragraph",
+      "heading",
+      "tableCell",
+      "code",
+      "break",
+    ].includes(node.type);
+    if (block) flushText(profile);
     let inner = marks;
     switch (node.type) {
       case "strong":
@@ -719,8 +740,10 @@ function gfmProfile(body: string): ReadProfile {
     }
     const childDepth = node.type === "list" ? listDepth + 1 : listDepth;
     for (const child of node.children ?? []) walk(child, childDepth, inner);
+    if (block) flushText(profile);
   };
   walk(gfmReader.parse(markdown) as MdNode, 0, new Set());
+  flushText(profile);
   return profile;
 }
 
@@ -745,6 +768,7 @@ function nfmProfile(document: PMNode): ReadProfile {
     }
   };
   const walk = (node: PMNode, listDepth: number) => {
+    if (node.type !== "text") flushText(profile);
     if (typeof node.text === "string") {
       addText(profile, node.text);
       addMarkedText(
@@ -785,8 +809,10 @@ function nfmProfile(document: PMNode): ReadProfile {
     );
     for (const child of children)
       walk(child, isList ? listDepth + 1 : listDepth);
+    if (node.type !== "text") flushText(profile);
   };
   walk(document, 0);
+  flushText(profile);
   return profile;
 }
 

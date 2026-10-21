@@ -241,6 +241,9 @@ describe("canonicalizeNfmWithFidelity", () => {
 
   it("reports invalid block colors before the literal-suffix fallback", () => {
     for (const source of [
+      'text {color=""}',
+      'text {color="" malformed}',
+      '# Heading {toggle="true" color=""}',
       'text {color="bad"}',
       'text {color="bad" malformed}',
       '# Heading {toggle="true" color="bad"}',
@@ -254,7 +257,9 @@ describe("canonicalizeNfmWithFidelity", () => {
       'text {color="red"}',
       '# Heading {toggle="true" color="red"}',
       '`text {color="bad"}`',
+      '`text {color=""}`',
       'text \\{color="bad"}',
+      'text \\{color=""}',
       "text {ordinary braces}",
     ]) {
       expect(lossKinds(source)).toEqual([]);
@@ -263,6 +268,9 @@ describe("canonicalizeNfmWithFidelity", () => {
     }
     expect(nfmToDoc('text {color="bad"}').content[0].content).toEqual([
       { type: "text", text: 'text {color="bad"}' },
+    ]);
+    expect(nfmToDoc('text {color=""}').content[0].content).toEqual([
+      { type: "text", text: 'text {color=""}' },
     ]);
   });
 

@@ -551,6 +551,8 @@ function mapStoredSourceRuns(
         if (matches(token, position)) position += token.length;
         else if (
           ASCII_PUNCTUATION.test(character) &&
+          // Emphasis must match as delimiters, not as escaped literal text.
+          !"*_~".includes(character) &&
           token === `\\${character}` &&
           matches(character, position)
         )
