@@ -410,6 +410,10 @@ it("preserves continuation order, sequence identities, and completed effects", a
       statement.sql.includes("SELECT e.run_id AS run_id"),
   )?.[0];
   expect(query.args).toEqual(["thread", "turn"]);
+  expect(query.sql).toContain("r.dispatch_mode IS DISTINCT FROM 'turn-abort'");
+  expect(query.sql).toContain(
+    "r.status IS DISTINCT FROM 'aborted' OR r.terminal_reason IS DISTINCT FROM 'aborted:duplicate_submission'",
+  );
   expect(query.sql).toMatch(
     /ORDER BY COALESCE\(r.continuation_order, 0\) ASC,/,
   );
