@@ -24,6 +24,7 @@ import {
   validateReusableWorkflowPermissions,
   validateProductionSiteConcurrency,
 } from "./guard-netlify-prebuilt-workflow.ts";
+import { netlifyApiErrorLabel } from "./netlify-api-error.ts";
 import { resolveNetlifyMigrationUrl } from "./netlify-migration-url.ts";
 import { previewEligibleSiteNames } from "./netlify-pr-preview-targets.ts";
 import { resolveNetlifyBuildEnvironment } from "./netlify-prebuilt-build.ts";
@@ -2206,6 +2207,30 @@ describe("production Netlify site concurrency guard", () => {
       ),
       false,
     );
+    for (const [message, label] of [
+      [
+        "› JSONHTTPError: Unauthorized\nrequest token=secret-value",
+        "HTTP 401 Unauthorized",
+      ],
+      [
+        "› JSONHTTPError: Forbidden\nresponse body contains secret-value",
+        "HTTP 403 Forbidden",
+      ],
+      [
+        "› JSONHTTPError: Internal Server Error\nsecret-value",
+        "HTTP 500 Internal Server Error",
+      ],
+    ]) {
+      assert.equal(netlifyApiErrorLabel(message), label);
+      assert.doesNotMatch(netlifyApiErrorLabel(message), /secret-value/);
+    }
+    assert.equal(
+      netlifyApiErrorLabel("› JSONHTTPError: Custom failure\nsecret-value"),
+      "unclassified API error",
+    );
+    assert.match(build, /scripts\/netlify-api-error\.ts/);
+    assert.match(build, /\$database_error_label/);
+    assert.doesNotMatch(build, /cat "\$database_error_file"\s*$/m);
   });
 
   it("keeps Analytics migrations on its app-scoped database URL", () => {
@@ -2420,6 +2445,8 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(migration, /migration_error_file/);
     assert.match(migration, /migration_response_file/);
+    assert.match(migration, /scripts\/netlify-api-error\.ts/);
+    assert.match(migration, /\$migration_error_label/);
     assert.match(migration, /JSONHTTPError: Not Found/);
     assert.match(migration, /::add-mask::\$migration_database_url/);
     assert.match(migration, /role.*netlifydb_owner/);

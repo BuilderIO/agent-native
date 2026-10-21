@@ -810,7 +810,11 @@ jobs:
                   else
                     if ! grep -Eq '^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found[[:space:]]*$' \
                       "$database_error_file" "$database_response_file"; then
-                      echo "::error::Netlify could not resolve the production database for $NETLIFY_SITE_ID."
+                      database_error_label="$(
+                        cat "$database_error_file" "$database_response_file" |
+                          node --experimental-strip-types scripts/netlify-api-error.ts
+                      )"
+                      echo "::error::Netlify could not resolve the production database for $NETLIFY_SITE_ID ($database_error_label)."
                       exit 1
                     fi
                     echo "Netlify returned 404 for the site database endpoint; using the site-scoped production build variable."
@@ -1208,7 +1212,11 @@ jobs:
           else
             if ! grep -Eq '^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found[[:space:]]*$' \
               "$migration_error_file" "$migration_response_file"; then
-              echo "::error::Netlify could not resolve the production database for $NETLIFY_SITE_ID."
+              migration_error_label="$(
+                cat "$migration_error_file" "$migration_response_file" |
+                  node --experimental-strip-types scripts/netlify-api-error.ts
+              )"
+              echo "::error::Netlify could not resolve the production database for $NETLIFY_SITE_ID ($migration_error_label)."
               exit 1
             fi
             migration_database_url="$(
