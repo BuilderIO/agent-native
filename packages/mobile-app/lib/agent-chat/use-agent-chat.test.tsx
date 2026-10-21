@@ -582,7 +582,11 @@ describe("useAgentChat readiness gate", () => {
 
   it("cancels a queued handle without cancelling its active run", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    const client = createSendClient();
+    const client = Object.assign(createSendClient(), {
+      getQueuedSubmissionStatus: vi.fn(async () => ({
+        state: "queued" as const,
+      })),
+    });
     const completed = deferred<void>();
     const cancelQueued = vi.fn(async () => {});
     client.sendMessage.mockResolvedValueOnce({
@@ -606,12 +610,15 @@ describe("useAgentChat readiness gate", () => {
     await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
     await expect(dispatchPromise!).resolves.toBe(true);
 
-    act(() => mounted?.chat?.stop());
+    await act(async () => {
+      mounted?.chat?.stop();
+      await Promise.resolve();
+    });
     expect(cancelQueued).toHaveBeenCalledOnce();
     expect(client.cancelRun).not.toHaveBeenCalled();
 
-    await act(async () => completed.resolve());
     await vi.waitFor(() => expect(mounted?.chat?.isStreaming).toBe(false));
+    await act(async () => completed.resolve());
     expect(mounted?.chat?.errorCode).toBeNull();
   });
 
