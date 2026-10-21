@@ -122,6 +122,94 @@ describe("native render-context registration", () => {
     }
   });
 
+  it("reports a failed poll once until a successful read", async () => {
+    vi.useFakeTimers();
+    let readError: Error | null = new Error("State read failed.");
+    client.readClientAppState.mockImplementation(async (key: string) => {
+      if (key === "native-local-export:design-a:tab-1" && readError)
+        throw readError;
+      return null;
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onError = vi.fn();
+    const onExport = vi.fn();
+    const Probe = () => {
+      useNativeLocalExportRequests({
+        designId: "design-a",
+        isSignedIn: true,
+        enabled: true,
+        onError,
+        onExport,
+      });
+      return null;
+    };
+    try {
+      await act(async () => root.render(<Probe />));
+      expect(onError).toHaveBeenCalledExactlyOnceWith(readError);
+      await act(async () => vi.advanceTimersByTimeAsync(6000));
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onExport).not.toHaveBeenCalled();
+
+      readError = null;
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      readError = new Error("State read failed again.");
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(onError).toHaveBeenCalledTimes(2);
+      expect(onError).toHaveBeenLastCalledWith(readError);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      client.readClientAppState.mockImplementation(async (key: string) =>
+        key === "navigation:tab-1" ? client.navigation : null,
+      );
+    }
+  });
+
+  it("reports an invalid state once until a valid state is read", async () => {
+    vi.useFakeTimers();
+    let state: unknown = {};
+    client.readClientAppState.mockImplementation(async (key: string) =>
+      key === "native-local-export:design-a:tab-1" ? state : null,
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onError = vi.fn();
+    const onExport = vi.fn();
+    const Probe = () => {
+      useNativeLocalExportRequests({
+        designId: "design-a",
+        isSignedIn: true,
+        enabled: true,
+        onError,
+        onExport,
+      });
+      return null;
+    };
+    try {
+      await act(async () => root.render(<Probe />));
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+      await act(async () => vi.advanceTimersByTimeAsync(6000));
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onExport).not.toHaveBeenCalled();
+
+      state = null;
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      state = {};
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(onError).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      client.readClientAppState.mockImplementation(async (key: string) =>
+        key === "navigation:tab-1" ? client.navigation : null,
+      );
+    }
+  });
+
   it("never renders from a failed idle context registration", async () => {
     vi.useFakeTimers();
     client.navigation = { view: "editor", designId: "design-a" };
@@ -215,6 +303,8 @@ describe("native render-context registration", () => {
       await act(async () => vi.advanceTimersByTimeAsync(2000));
       expect(client.callAction).toHaveBeenCalledTimes(4);
       expect(onError).toHaveBeenCalledTimes(2);
+      expect(onError).toHaveBeenNthCalledWith(1, claimError);
+      expect(onError).toHaveBeenNthCalledWith(2, claimError);
     } finally {
       await act(async () => root.unmount());
       container.remove();

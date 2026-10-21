@@ -310,6 +310,7 @@ export function useNativeLocalExportRequests(args: {
     let registering = false;
     let registered = false;
     let registrationFailures = 0;
+    let readFailureReported = false;
     let attemptedRequestId: string | undefined;
     const register = async () => {
       if (registering || controller.signal.aborted) return;
@@ -344,13 +345,19 @@ export function useNativeLocalExportRequests(args: {
     const poll = async () => {
       if (busy || controller.signal.aborted) return;
       busy = true;
+      let readingState = true;
       try {
         const raw = await readClientAppState(
           nativeLocalExportStateKey(designId, tabId),
         );
         if (controller.signal.aborted) return;
-        if (raw === null) return;
+        if (raw === null) {
+          readFailureReported = false;
+          return;
+        }
         const request = nativeLocalExportStateSchema.parse(raw);
+        readFailureReported = false;
+        readingState = false;
         if (
           request.status !== "pending" ||
           request.requestId === attemptedRequestId
@@ -375,7 +382,12 @@ export function useNativeLocalExportRequests(args: {
             }),
         });
       } catch (error) {
-        if (!controller.signal.aborted) handlers.current.onError(error);
+        if (controller.signal.aborted) return;
+        if (readingState) {
+          if (readFailureReported) return;
+          readFailureReported = true;
+        }
+        handlers.current.onError(error);
       } finally {
         busy = false;
       }
