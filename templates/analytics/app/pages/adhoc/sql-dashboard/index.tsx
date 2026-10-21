@@ -207,6 +207,7 @@ import {
   parseDashboardCertification,
   type FetchedDashboard,
 } from "./fetch-dashboard";
+import { editFilterPresets } from "./filter-vars";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import { panelCostChange, usePanelCostNotice } from "./panel-cost-notice";
 import { serializePanelSql } from "./panel-sql";
@@ -222,7 +223,7 @@ import {
   PANEL_HEIGHT_UNIT_PX,
   mergeUnchangedPanelFields,
   type DashboardFilter,
-  type FilterPreset,
+  type FilterPresetEdit,
   type SqlDashboardConfig,
   type SqlPanel,
   type TableColumnConfig,
@@ -230,6 +231,12 @@ import {
 import { ViewsMenu } from "./ViewsMenu";
 
 const TAB_ID = generateTabId();
+
+const FILTER_PRESET_EVENTS = {
+  add: "dashboard_filter_preset_saved",
+  rename: "dashboard_filter_preset_renamed",
+  delete: "dashboard_filter_preset_deleted",
+} as const satisfies Record<FilterPresetEdit["kind"], string>;
 
 type DashboardTabGroup = {
   name: string;
@@ -2243,8 +2250,8 @@ function SqlDashboardPageContent({
     setEditingName(false);
   }, [nameInput, persist]);
 
-  const handleSaveFilterPreset = useCallback(
-    (filterId: string, preset: FilterPreset) => {
+  const handleEditFilterPreset = useCallback(
+    (filterId: string, edit: FilterPresetEdit) => {
       if (!dashboard?.filters) return;
       persist((current) =>
         current.filters
@@ -2254,21 +2261,19 @@ function SqlDashboardPageContent({
                 filter.id === filterId
                   ? {
                       ...filter,
-                      // The page reads config unvalidated, and the filter bar
-                      // skips malformed preset lists.
-                      presets: Array.isArray(filter.presets)
-                        ? [...filter.presets, preset]
-                        : [preset],
+                      presets: editFilterPresets(filter.presets, edit),
                     }
                   : filter,
               ),
             }
           : current,
       );
-      trackEvent("dashboard_filter_preset_saved", {
+      trackEvent(FILTER_PRESET_EVENTS[edit.kind], {
         app_name: "analytics",
         template_name: "analytics",
-        value_count: preset.values.length,
+        ...(edit.kind === "add"
+          ? { value_count: edit.preset.values.length }
+          : {}),
       });
     },
     [dashboard, persist],
@@ -3338,7 +3343,7 @@ function SqlDashboardPageContent({
                 ? handleSaveView
                 : undefined
             }
-            onSavePreset={editing ? handleSaveFilterPreset : undefined}
+            onEditPreset={editing ? handleEditFilterPreset : undefined}
             shared={dashboardShared}
           />
         )}

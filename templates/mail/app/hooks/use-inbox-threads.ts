@@ -1,4 +1,5 @@
 import {
+  callAction,
   callActionWithRetry,
   currentActionQueryCacheBinding,
   recordActionQueryBrowserPersist,
@@ -10,6 +11,11 @@ import type {
   InboxSyncAccountStatus,
   ListInboxThreadsInput,
   ListInboxThreadsResult,
+} from "@shared/inbox-threads";
+import {
+  effectiveInboxPageLimit,
+  INBOX_MAX_PAGE_OFFSET,
+  INBOX_SYNC_POLL_MS,
 } from "@shared/inbox-threads";
 import {
   skipToken,
@@ -41,7 +47,7 @@ export function inboxThreadsQueryKey(input: ListInboxThreadsInput) {
   return ["action", "list-inbox-threads", input] as const;
 }
 
-const SYNCING_POLL_MS = 3_000;
+const SYNCING_POLL_MS = INBOX_SYNC_POLL_MS.pending;
 const IDLE_POLL_MS = 20_000;
 const INBOX_THREADS_STALE_TIME_MS = Infinity;
 const INBOX_THREADS_REQUEST_TIMEOUT_MS = 15_000;
@@ -191,7 +197,13 @@ export function inboxSyncRefetchInterval(query: {
     if (account.state === "initial" || account.pushPending) {
       return [SYNCING_POLL_MS];
     }
-    return [IDLE_POLL_MS];
+    // A steady account syncs at most once per poll window. Without an active
+    // push watch (or when it lapsed) the account keeps the short fallback poll.
+    return [
+      account.pushWatch === "active"
+        ? INBOX_SYNC_POLL_MS.pushActive
+        : INBOX_SYNC_POLL_MS.fallback,
+    ];
   });
   return intervals.length > 0 ? Math.min(...intervals) : IDLE_POLL_MS;
 }
@@ -312,12 +324,15 @@ function fetchInboxThreads(
   queryKey: QueryKey,
 ): Promise<InboxQueryResult> {
   const clientSnapshotId = ++nextInboxSnapshotId;
+  // Ask for no rows past the server's offset cap, the same clamp the action applies.
+  const offset = input.offset ?? 0;
+  const limit = effectiveInboxPageLimit(offset, input.limit ?? INBOX_PAGE_SIZE);
   const query = qc.getQueryCache().find({ queryKey, exact: true });
   const cacheBinding = currentActionQueryCacheBinding();
   let response: Response | undefined;
   return callActionWithRetry<ListInboxThreadsResult>(
     "list-inbox-threads",
-    input,
+    { ...input, offset, limit },
     {
       method: "GET",
       signal,
@@ -331,6 +346,27 @@ function fetchInboxThreads(
       recordActionQueryBrowserPersist(query, response, cacheBinding);
     }
     const incoming = { ...data, clientSnapshotId };
+    // The list read reports a Gmail push that has not been synced yet. Sync
+    // now rather than waiting for the steady poll window. An account in error
+    // or needing reauth is left to the poller's own retry schedule, so a
+    // pending push cannot bypass that backoff on every list refresh.
+    if (
+      incoming.accounts.some(
+        (account) =>
+          (account as InboxSyncAccountStatus & { pushPending?: boolean })
+            .pushPending &&
+          account.state !== "error" &&
+          account.state !== "needs_reauth",
+      )
+    ) {
+      // An in-flight sync is already working on the account and its result is
+      // kept; cancelling it would discard that result while the server keeps
+      // going. Leave it running instead of restarting it.
+      void qc.invalidateQueries(
+        { queryKey: INBOX_SYNC_QUERY_KEY, refetchType: "active" },
+        { cancelRefetch: false },
+      );
+    }
     publishInboxOverview(qc, input.accountEmails, {
       tabs: incoming.tabs,
       syncing: incoming.syncing,
@@ -548,9 +584,15 @@ export function inboxThreadsHasNextPage(
     complete?: boolean;
     lastPageLength?: number;
     pageSize?: number;
+    reachedCap?: boolean;
     totalIsLowerBound?: boolean;
   },
 ): boolean {
+  // The server will not read past its offset cap, so asking for more pages
+  // only returns schema errors. Older mail is reached through All Mail.
+  // Loaded count is checked directly: a lower-bound or unread-only total can
+  // leave `reachedCap` unset while the next offset is already at the cap.
+  if (options?.reachedCap || loadedCount >= INBOX_MAX_PAGE_OFFSET) return false;
   if (
     options?.totalIsLowerBound ||
     (options?.complete === false && options.lastPageLength !== undefined)
@@ -568,6 +610,24 @@ export function invalidateInboxThreads(qc: QueryClient) {
     qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY }),
     qc.invalidateQueries({ queryKey: INBOX_SYNC_QUERY_KEY }),
   ]).then(() => undefined);
+}
+
+/**
+ * Manual refresh, from any view: one explicit sync of every account from Gmail,
+ * then the reads are refreshed. No poller is mounted outside the inbox, so the
+ * sync is sent here directly. A failed sync goes to `onError` and the reads are
+ * still refreshed, so the sync read shows the account's error and retry state.
+ */
+export async function refreshInboxNow(
+  qc: QueryClient,
+  onError: (error: unknown) => void,
+): Promise<void> {
+  try {
+    await callAction<InboxSyncResult>("sync-inbox", { force: true });
+  } catch (error) {
+    onError(error);
+  }
+  await invalidateInboxThreads(qc);
 }
 
 export function snapshotInboxThreads(qc: QueryClient) {

@@ -21,6 +21,7 @@ import {
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
 import { sanitizeMarkup } from "../shared/capture-sanitize.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { isStandaloneHttpUrl } from "../shared/html-content.js";
 import { designConnectionIdFromData } from "../shared/source-mode.js";
 import { pathFromUrl, routeUrl } from "./add-localhost-screens.js";
@@ -423,6 +424,10 @@ export default defineAction({
       metadata: appliedMetadata,
       updatedAt: fileUpdatedAt ?? persisted.updatedAt,
       contentChanged: nextContent !== currentContent,
+      _receipt: designOutputWriteReceipt(
+        designId,
+        nextContent !== currentContent ? 1 : 0,
+      ),
       dataUpdatedAt: persisted.updatedAt,
     };
   },

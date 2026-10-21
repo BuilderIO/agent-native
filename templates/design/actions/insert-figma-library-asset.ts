@@ -15,6 +15,7 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 const schemaInput = z.object({
   renderUrl: z
@@ -240,6 +241,7 @@ export default defineAction({
       inserted: true,
       insertedNodeId,
       insertedSelector: `[data-agent-native-node-id="${insertedNodeId}"]`,
+      _receipt: designOutputWriteReceipt(file.designId, 1),
       source: "figma",
       fileKey: args.fileKey,
       nodeId: args.nodeId ?? null,

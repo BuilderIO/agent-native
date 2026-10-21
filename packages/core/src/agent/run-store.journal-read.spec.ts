@@ -5,6 +5,7 @@ import { stripInlineBytes } from "../shared/inline-bytes.js";
 import {
   getCurrentTurnEventsForThread,
   getCurrentTurnRunEventsForThread,
+  getCurrentTurnRunIdsForThread,
   insertRunEvent,
 } from "./run-store.js";
 import {
@@ -15,6 +16,7 @@ import {
 const mocks = vi.hoisted(() => ({
   events: [] as unknown[],
   latest: [] as unknown[],
+  runs: [] as unknown[],
   execute: vi.fn(),
 }));
 
@@ -50,11 +52,14 @@ const done = {
 beforeEach(() => {
   mocks.events = [];
   mocks.latest = [];
+  mocks.runs = [];
   mocks.execute.mockReset();
   mocks.execute.mockImplementation(async (statement) => {
     const sql = typeof statement === "string" ? statement : statement.sql;
     if (sql.includes("SELECT e.run_id AS run_id"))
       return { rows: mocks.events, rowsAffected: 0 };
+    if (sql.includes("SELECT id FROM agent_runs"))
+      return { rows: mocks.runs, rowsAffected: 0 };
     if (sql.includes("SELECT id, turn_id FROM agent_runs"))
       return { rows: mocks.latest, rowsAffected: 0 };
     return { rows: [], rowsAffected: 0 };
@@ -76,7 +81,9 @@ function recordPersistedEvents() {
     return {
       rows: statement.sql.includes("SELECT e.run_id AS run_id")
         ? mocks.events
-        : [],
+        : statement.sql.includes("SELECT id FROM agent_runs")
+          ? mocks.runs
+          : [],
       rowsAffected: 0,
     };
   });
@@ -403,9 +410,73 @@ it("preserves continuation order, sequence identities, and completed effects", a
       statement.sql.includes("SELECT e.run_id AS run_id"),
   )?.[0];
   expect(query.args).toEqual(["thread", "turn"]);
+  expect(query.sql).toContain("r.dispatch_mode IS DISTINCT FROM 'turn-abort'");
+  expect(query.sql).toContain(
+    "r.status IS DISTINCT FROM 'aborted' OR r.terminal_reason IS DISTINCT FROM 'aborted:duplicate_submission'",
+  );
   expect(query.sql).toMatch(
     /ORDER BY COALESCE\(r.continuation_order, 0\) ASC,/,
   );
+});
+
+it("reads compact write receipts from persisted tool completions", async () => {
+  const receipt = {
+    changed: true,
+    verified: true,
+    summary: "Design output: 2 files saved.",
+    subject: "design-1",
+  };
+  mocks.events = [
+    {
+      run_id: "run-first",
+      seq: 0,
+      event_data: JSON.stringify({
+        type: "tool_done",
+        tool: "generate-design",
+        result: "Saved two files.",
+        completedSideEffect: true,
+        receipt,
+      }),
+    },
+  ];
+
+  await expect(
+    getCurrentTurnRunEventsForThread("thread", "turn"),
+  ).resolves.toMatchObject([{ event: { type: "tool_done", receipt } }]);
+});
+
+it("lists actual runs for one turn in continuation order, excluding abort markers", async () => {
+  mocks.runs = [{ id: "run-first" }, { id: "run-next" }];
+
+  await expect(
+    getCurrentTurnRunIdsForThread("thread", "turn"),
+  ).resolves.toEqual(["run-first", "run-next"]);
+
+  expect(mocks.execute).toHaveBeenCalledWith(
+    expect.objectContaining({ args: ["thread", "turn"] }),
+  );
+  const query = mocks.execute.mock.calls.find(
+    ([statement]) =>
+      typeof statement !== "string" &&
+      statement.sql.includes("SELECT id FROM agent_runs"),
+  )?.[0];
+  expect(query.sql).toContain("COALESCE(turn_id, id) = ?");
+  expect(query.sql).toContain("dispatch_mode IS DISTINCT FROM 'turn-abort'");
+  expect(query.sql).toMatch(/ORDER BY COALESCE\(continuation_order, 0\) ASC,/);
+});
+
+it("rejects a run list with an unreadable identifier", async () => {
+  mocks.runs = [{ id: "run-first" }, { id: " " }];
+
+  await expect(
+    getCurrentTurnRunIdsForThread("thread", "turn"),
+  ).rejects.toMatchObject({
+    name: "AgentRunJournalUnreadableError",
+    threadId: "thread",
+    turnId: "turn",
+    rowIndex: 1,
+    reason: "invalid_row",
+  });
 });
 
 it.each([

@@ -2014,6 +2014,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (Lokalisiert)",
     couldNotStartRecording: "Could not start recording (Lokalisiert)",
+    intakeStorageUnavailable:
+      "Der Eigentümer dieses Links muss Videospeicher verbinden, bevor du aufnehmen kannst. Bitte ihn darum und versuche es dann erneut.",
+    streamingStorageUnavailable:
+      "Der aktuelle Speicher unterstützt den fortsetzbaren Upload für Clips nicht. Richte einen kompatiblen Anbieter ein oder bitte den Workspace-Inhaber oder Admin darum. Starte danach eine neue Aufnahme.",
     couldNotStartRecorder: "Could not start recorder (Lokalisiert)",
     openSettings: "Open settings (Lokalisiert)",
     openedRecorderInNewTab: "Opened recorder in a new tab (Lokalisiert)",
@@ -2047,6 +2051,8 @@ const messages = {
     sessionExpired: "Session expired (Lokalisiert)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (Lokalisiert)",
+    accountMismatch:
+      "Dein angemeldetes Konto hat sich nach dem Start der Aufnahmevorbereitung geändert. Wechsle zurück zum ursprünglichen Konto und versuche es erneut.",
     logIn: "Log in (Lokalisiert)",
     betterInDesktop: "Better in the desktop app (Lokalisiert)",
     desktopAppDescription:
@@ -2060,8 +2066,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (Lokalisiert)",
     retryUpload: "Upload erneut versuchen",
     tryAgain: "Erneut versuchen",
-    storageConnectedReopeningRecorder:
-      "Speicher verbunden. Recorder wird erneut geöffnet...",
+    storageConnectedRecorderReady:
+      "Speicher verbunden. Starte eine neue Aufnahme, wenn du bereit bist.",
     connectStorageToFinish:
       "Nutze im nächsten Bildschirm Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder konfiguriere S3-kompatiblen Speicher. Clips schließt das Speichern ab.",
     connectStorageToRetryLoom:

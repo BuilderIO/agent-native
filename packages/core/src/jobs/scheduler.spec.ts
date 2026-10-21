@@ -497,6 +497,84 @@ Summarize the inbox.`,
     expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
+  it("executes a manual automation through run-now", async () => {
+    const manualResource = {
+      id: "manual-run-now",
+      owner: "alice+jobs@agent-native.test",
+      path: "jobs/on-demand-report.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: manual
+mode: agentic
+createdBy: alice+jobs@agent-native.test
+---
+
+Build the report.`,
+    };
+    resourceListAllOwnersMock.mockResolvedValue([manualResource]);
+    resourceGetByPathMock.mockResolvedValueOnce(manualResource);
+
+    const result = await runJobNow(manualResource.owner, "on-demand-report", {
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(result).toMatchObject({ status: "success" });
+    expect(createThreadMock).toHaveBeenCalledWith(
+      manualResource.owner,
+      expect.objectContaining({
+        title: expect.stringContaining("Automation:"),
+      }),
+    );
+    expect(runAgentLoopMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            content: [
+              expect.objectContaining({
+                text: expect.stringContaining("[Manual Automation Run:"),
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("never acquires a manual automation even with stale schedule metadata", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "manual-automation",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/on-demand-report.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+triggerType: manual
+mode: agentic
+createdBy: alice+jobs@agent-native.test
+---
+
+Build the report.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
   it("clears a stale pause without clearing an active run marker", async () => {
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
@@ -526,6 +604,9 @@ Summarize the inbox.`,
       model: "test-model",
     });
 
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledOnce();
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
     expect(runAgentLoopMock).not.toHaveBeenCalled();
     const content: string = resourcePutMock.mock.calls.at(-1)![2];
     const { meta } = parseJobResource(content);

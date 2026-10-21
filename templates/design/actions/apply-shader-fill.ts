@@ -21,6 +21,7 @@ import {
   type CodeLayerSource,
   type StyleEditIntent,
 } from "../shared/code-layer.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   buildShaderFillBackground,
   generateShaderFillFallbackCss,
@@ -428,6 +429,7 @@ snippet (WebGL canvas / JSX component), call apply-shader.
     return {
       ok: patch.result.status === "applied",
       persisted: changed,
+      _receipt: designOutputWriteReceipt(file.designId, changed ? 1 : 0),
       descriptor,
       background,
       fallbackCss,
