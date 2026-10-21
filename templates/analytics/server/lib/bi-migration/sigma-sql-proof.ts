@@ -22,7 +22,7 @@ export type SigmaSqlProof =
   | { ok: true; sql: string; estimatedBytes?: number }
   | { ok: false; reason: SigmaSqlProofFailure };
 
-const DRY_RUN_CONCURRENCY = 4;
+const DRY_RUN_CONCURRENCY = 8;
 
 /**
  * Check each Sigma element's compiled SQL the way a panel would run it: one

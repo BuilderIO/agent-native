@@ -606,7 +606,7 @@ describe("Sigma read-only migration adapter", () => {
           entries: [
             {
               elementId: "chart-1",
-              sql: "x".repeat(64_001),
+              sql: "x".repeat(128_001),
               error: "",
             },
           ],

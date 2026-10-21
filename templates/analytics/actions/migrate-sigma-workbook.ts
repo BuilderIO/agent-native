@@ -326,7 +326,7 @@ function dashboardUrl(dashboardId: string): string {
 }
 
 /**
- * Prove every BigQuery panel's SQL before anything is claimed or written.
+ * Prove every candidate panel's SQL before anything is claimed or written.
  * Panels that fail become review callouts; a workbook with none that run is
  * refused.
  */
@@ -338,7 +338,7 @@ async function proveSigmaWorkbook(
     (element) => element.importable,
   );
   if (candidates.length === 0) {
-    fail("This Sigma workbook has no BigQuery panels to import.", {
+    fail("This Sigma workbook has no panels to import.", {
       errorCode: "sigma_no_importable_elements",
       statusCode: 422,
     });
@@ -369,7 +369,7 @@ async function proveSigmaWorkbook(
 
 export default defineAction({
   description:
-    "Import a Sigma workbook as a private Analytics dashboard. Each BigQuery panel's Sigma SQL is dry-run on Analytics' BigQuery; panels that run are imported as tables and the rest become review callouts. Called from the Import from Sigma dialog only; not available to the agent. Use list-sigma-workbooks and inspect-sigma-workbook to read workbooks.",
+    "Import a Sigma workbook as a private Analytics dashboard. Each panel's compiled Sigma SQL, including panels built on data models and joins, is dry-run on Analytics' BigQuery; panels that run are imported as tables and the rest become review callouts. Called from the Import from Sigma dialog only; not available to the agent. Use list-sigma-workbooks and inspect-sigma-workbook to read workbooks.",
   schema: migrateSchema,
   http: { method: "POST" },
   agentTool: false,

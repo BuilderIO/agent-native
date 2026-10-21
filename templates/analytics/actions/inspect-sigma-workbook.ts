@@ -31,7 +31,10 @@ export type SigmaElementReviewReason =
   | "unsupported_source"
   | "source_unavailable";
 
-/** `importable` marks a BigQuery panel; migrate proves its SQL with a dry run. */
+/**
+ * `importable` marks a panel not tied to a non-BigQuery connection; migrate
+ * proves its SQL with a dry run.
+ */
 export interface SigmaElementReview {
   id: string;
   name: string;
@@ -56,14 +59,19 @@ function reviewElement(
     };
   }
 
-  const connection = inspection.sourceConnections.find(
-    (source) => source.connectionId === element.source?.connectionId,
-  );
-  if (!connection || connection.targetProviderCandidate !== "bigquery") {
+  // Panels built on a data model, join, or union carry no connection id.
+  // Sigma still compiles their SQL, so the dry run decides whether they run.
+  const connectionId = element.source?.connectionId;
+  const connection = connectionId
+    ? inspection.sourceConnections.find(
+        (source) => source.connectionId === connectionId,
+      )
+    : undefined;
+  if (connectionId && connection?.targetProviderCandidate !== "bigquery") {
     const sourceUnavailable = inspection.diagnostics.some(
       (diagnostic) =>
         diagnostic.code === "sigma_source_connection_unavailable" &&
-        diagnostic.connectionId === element.source?.connectionId,
+        diagnostic.connectionId === connectionId,
     );
     return {
       id: element.id,
@@ -110,7 +118,7 @@ export function requireSigmaSourceInspection(
 
 export default defineAction({
   description:
-    "Preview a Sigma workbook without returning SQL or workbook payloads. `importable` marks BigQuery panels; migrate-sigma-workbook dry-runs each one's SQL on Analytics' BigQuery and flags the ones that do not run.",
+    "Preview a Sigma workbook without returning SQL or workbook payloads. `importable` marks panels not tied to a non-BigQuery connection; migrate-sigma-workbook dry-runs each one's SQL on Analytics' BigQuery and flags the ones that do not run.",
   schema: inspectSchema,
   http: { method: "GET" },
   readOnly: true,

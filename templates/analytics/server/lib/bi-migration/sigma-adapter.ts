@@ -9,8 +9,8 @@ const SIGMA_MAX_QUERY_PAGES = 100;
 const SIGMA_MAX_QUERY_COUNT = 10_000;
 const SIGMA_MAX_SOURCE_CONNECTIONS = 100;
 const SIGMA_SOURCE_CONNECTION_LOOKUP_CONCURRENCY = 5;
-const SIGMA_MAX_QUERY_SQL_CHARS = 64_000;
-const SIGMA_MAX_TOTAL_SQL_CHARS = 512_000;
+const SIGMA_MAX_QUERY_SQL_CHARS = 128_000;
+const SIGMA_MAX_TOTAL_SQL_CHARS = 2_000_000;
 
 const SIGMA_BETA_LIMITATION =
   "Sigma workbook code representations are public Beta. The representation does not include source data and Sigma documents that some workbook features and configurations are not represented, including tagged versions, comments, sharing, input-table data-entry configuration, and webhook HMAC authentication. The returned representation cannot flag behavior omitted by Sigma.";
