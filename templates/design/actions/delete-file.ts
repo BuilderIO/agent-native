@@ -883,7 +883,10 @@ export default defineAction({
             designId: file.designId,
             deleted: true,
             deletedFiles: deletion.deletedFiles,
-            _receipt: designOutputWriteReceipt(file.designId, 0),
+            _receipt: designOutputWriteReceipt(
+              file.designId,
+              deletion.deletedIds.length,
+            ),
           }
         : {
             id,
@@ -900,7 +903,10 @@ export default defineAction({
       ...(deletion.deletedIds.includes(id)
         ? { deletedFiles: deletion.deletedFiles }
         : { alreadyMissing: true }),
-      _receipt: designOutputWriteReceipt(file.designId, 0),
+      _receipt: designOutputWriteReceipt(
+        file.designId,
+        deletion.deletedIds.length,
+      ),
     };
   },
   changeResource: (_p, result) =>

@@ -242,6 +242,10 @@ function isDuplicateSubmissionMarker(run: {
   );
 }
 
+function isTurnAbortMarker(run: { dispatchMode?: string | null }): boolean {
+  return run.dispatchMode === "turn-abort";
+}
+
 export const SQL_SUBSCRIPTION_ACTIVE_POLL_MS = 125;
 
 export const SQL_SUBSCRIPTION_IDLE_POLL_MS = 500;
@@ -2968,7 +2972,9 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
     } else {
       const acceptedRun = (
         await listRunsForThread(threadId, { limit: 50 })
-      ).find((run) => !isDuplicateSubmissionMarker(run));
+      ).find(
+        (run) => !isDuplicateSubmissionMarker(run) && !isTurnAbortMarker(run),
+      );
       if (
         !acceptedRun ||
         !RECONNECTABLE_TERMINAL_RUN_STATUSES.has(acceptedRun.status)
@@ -3140,10 +3146,12 @@ async function fetchNewerRunForSameTurn(
     startedAt: number;
     heartbeatAt: number | null;
     completedAt: number | null;
+    dispatchMode?: string | null;
     terminalReason?: string | null;
   }) => {
     if (
       isDuplicateSubmissionMarker(run) ||
+      isTurnAbortMarker(run) ||
       run.id === memRun.runId ||
       run.startedAt <= memRun.startedAt ||
       (run.turnId ?? run.id) !== memRun.turnId

@@ -550,7 +550,7 @@ describe("delete-file", () => {
     ).resolves.toMatchObject({
       id: "file-b",
       deleted: true,
-      _receipt: designOutputWriteReceipt("design_123", 0),
+      _receipt: designOutputWriteReceipt("design_123", 1),
     });
   });
 
@@ -1239,6 +1239,7 @@ describe("delete-file", () => {
       id: "file-b",
       deleted: true,
       deletedIds: ["file-b", "file-c"],
+      _receipt: designOutputWriteReceipt("design_123", 2),
     });
     expect(mocks.db.transaction).toHaveBeenCalledTimes(1);
     expect(

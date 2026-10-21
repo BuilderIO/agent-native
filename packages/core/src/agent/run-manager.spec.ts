@@ -5401,6 +5401,18 @@ describe("run manager soft timeout", () => {
               : null,
         diagStage: null,
       };
+      const turnAbortMarker = {
+        id: "turn-abort-marker",
+        threadId: "thread-duplicate-terminal",
+        turnId: "turn-accepted",
+        status: "aborted",
+        startedAt: now - 500,
+        heartbeatAt: now - 500,
+        completedAt: now - 500,
+        lastProgressAt: null,
+        dispatchMode: "turn-abort",
+        terminalReason: "aborted:user",
+      };
       vi.mocked(getRunByThread)
         .mockResolvedValueOnce({
           id: duplicateMarker.id,
@@ -5416,6 +5428,7 @@ describe("run manager soft timeout", () => {
         .mockResolvedValueOnce(null);
       vi.mocked(listRunsForThread).mockResolvedValue([
         duplicateMarker,
+        turnAbortMarker,
         acceptedRun,
       ]);
 
@@ -5858,6 +5871,58 @@ describe("run manager soft timeout", () => {
       hasInFlightWork: true,
     });
     expect(listRunsForThread).toHaveBeenCalledWith(threadId, { limit: 50 });
+  });
+
+  it("does not treat a turn-abort marker as a same-turn successor", async () => {
+    const threadId = "thread-turn-abort-successor-marker";
+    const turnId = "turn-turn-abort-successor-marker";
+    const run = startRun(
+      "run-turn-abort-successor-source",
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, turnId },
+    );
+
+    await vi.advanceTimersByTimeAsync(11);
+    expect(run.status).toBe("completed");
+
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: run.runId,
+        threadId,
+        turnId,
+        status: "running",
+        startedAt: run.startedAt,
+        heartbeatAt: run.startedAt,
+        completedAt: null,
+        lastProgressAt: null,
+      })
+      .mockResolvedValueOnce({
+        id: "turn-abort-marker",
+        threadId,
+        turnId,
+        status: "aborted",
+        startedAt: run.startedAt + 1,
+        heartbeatAt: run.startedAt + 1,
+        completedAt: run.startedAt + 1,
+        lastProgressAt: null,
+        dispatchMode: "turn-abort",
+        terminalReason: "aborted:user",
+      });
+
+    const result = await getActiveRunForThreadAsync(threadId);
+
+    expect(result).toMatchObject({
+      runId: run.runId,
+      status: "completed",
+      turnId,
+    });
+    expect(result).not.toHaveProperty("successorOfRunId");
   });
 
   it("propagates run snapshot lookup failures instead of returning in-memory status", async () => {
