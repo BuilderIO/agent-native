@@ -249,12 +249,6 @@ export function isDataChartWidget(value: unknown): value is DataChartWidget {
   );
 }
 
-function isPrimaryAction(
-  value: unknown,
-): value is NonNullable<DataWidgetDisplay["primaryAction"]> {
-  return isDataWidgetAction(value);
-}
-
 function isDataWidgetActionIcon(value: unknown): value is DataWidgetActionIcon {
   return value === "explore" || value === "camera" || value === "notebook";
 }
@@ -266,6 +260,17 @@ function isDataWidgetAction(value: unknown): value is DataWidgetAction {
     isString(value.href) &&
     (value.icon === undefined || isDataWidgetActionIcon(value.icon))
   );
+}
+
+function normalizePrimaryAction(value: unknown): DataWidgetAction | undefined {
+  if (!isRecord(value) || !isString(value.label) || !isString(value.href)) {
+    return undefined;
+  }
+  return {
+    label: value.label,
+    href: value.href,
+    ...(isDataWidgetActionIcon(value.icon) ? { icon: value.icon } : {}),
+  };
 }
 
 function isDataWidgetDataSource(value: unknown): value is DataWidgetDataSource {
@@ -316,9 +321,7 @@ function normalizeDisplay(
     title: typeof value.title === "string" ? value.title : undefined,
     description:
       typeof value.description === "string" ? value.description : undefined,
-    primaryAction: isPrimaryAction(value.primaryAction)
-      ? value.primaryAction
-      : undefined,
+    primaryAction: normalizePrimaryAction(value.primaryAction),
     sources: value.sources as DataWidgetDataSource[] | undefined,
     actions: value.actions as DataWidgetDisplayAction[] | undefined,
   };

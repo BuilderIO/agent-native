@@ -258,7 +258,10 @@ describe("data widget helpers", () => {
     });
     expect(invalidOptionalAction?.widget).toBe(DATA_CHART_WIDGET);
     expect(invalidOptionalAction?.chartSeries?.data).toEqual([]);
-    expect(invalidOptionalAction?.display?.primaryAction).toBeUndefined();
+    expect(invalidOptionalAction?.display?.primaryAction).toEqual({
+      label: "Open",
+      href: "/reports/1",
+    });
   });
 
   it("creates insights widget results with app metadata", () => {
