@@ -1262,6 +1262,14 @@ describe("render-data-widget framework action", () => {
         chartSeries: {
           type: "bar",
           title: "Responses by day",
+          contentHeight: 400,
+          contentPadding: 16,
+          labelFontFamily: "sans",
+          labelFontSize: 10,
+          axisTitleFontSize: 11,
+          axisTitleFontWeight: 500,
+          valueLabelFontSize: 11,
+          valueLabelFontWeight: 400,
           xKey: "day",
           series: [{ key: "responses", label: "Responses" }],
           data: [{ day: "Mon", responses: 8 }],
@@ -1269,8 +1277,42 @@ describe("render-data-widget framework action", () => {
       }),
     ).resolves.toMatchObject({
       widget: "data-chart",
-      chartSeries: { title: "Responses by day" },
+      chartSeries: {
+        title: "Responses by day",
+        contentHeight: 400,
+        contentPadding: 16,
+        labelFontFamily: "sans",
+        labelFontSize: 10,
+        axisTitleFontSize: 11,
+        axisTitleFontWeight: 500,
+        valueLabelFontSize: 11,
+        valueLabelFontWeight: 400,
+      },
     });
+
+    const toolProperties = entry.tool?.parameters.properties as
+      | Record<string, { properties?: Record<string, unknown> }>
+      | undefined;
+    expect(toolProperties?.chartSeries?.properties).toEqual(
+      expect.objectContaining({
+        contentHeight: expect.objectContaining({ maximum: 1200 }),
+        contentPadding: expect.objectContaining({ maximum: 64 }),
+        labelFontFamily: expect.objectContaining({
+          enum: ["sans", "serif", "mono"],
+        }),
+        labelFontSize: expect.objectContaining({ minimum: 8, maximum: 24 }),
+        axisTitleFontSize: expect.objectContaining({
+          minimum: 8,
+          maximum: 24,
+        }),
+        axisTitleFontWeight: expect.objectContaining({ enum: [400, 500] }),
+        valueLabelFontSize: expect.objectContaining({
+          minimum: 8,
+          maximum: 24,
+        }),
+        valueLabelFontWeight: expect.objectContaining({ enum: [400, 500] }),
+      }),
+    );
 
     expect(entry.chatUI?.renderer).toBe("core.data-widget");
   });

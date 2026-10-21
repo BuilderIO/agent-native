@@ -598,7 +598,50 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
             chartSeries: {
               type: "object",
               description:
-                "For data-chart/data-insights: { type: 'bar'|'line'|'area', title?, xKey, series: [{ key, label, color? }], data, sampled? }.",
+                "For data-chart/data-insights: { type: 'bar'|'line'|'area', title?, xKey, series: [{ key, label, color? }], data, sampled? }. Optional display controls include contentHeight from 1 to 1200 px, contentPadding from 0 to 64 px, labelFontFamily (sans, serif, mono), and label font sizes and weights; these apply only to chart rendering.",
+              properties: {
+                contentHeight: {
+                  type: "number",
+                  exclusiveMinimum: 0,
+                  maximum: 1200,
+                  description: "Optional chart body height in pixels.",
+                },
+                contentPadding: {
+                  type: "number",
+                  minimum: 0,
+                  maximum: 64,
+                  description: "Optional inner chart body padding in pixels.",
+                },
+                labelFontFamily: {
+                  type: "string",
+                  enum: ["sans", "serif", "mono"],
+                  description:
+                    "Optional label font token; sans follows the app theme font.",
+                },
+                labelFontSize: {
+                  type: "integer",
+                  minimum: 8,
+                  maximum: 24,
+                },
+                axisTitleFontSize: {
+                  type: "integer",
+                  minimum: 8,
+                  maximum: 24,
+                },
+                axisTitleFontWeight: {
+                  type: "number",
+                  enum: [400, 500],
+                },
+                valueLabelFontSize: {
+                  type: "integer",
+                  minimum: 8,
+                  maximum: 24,
+                },
+                valueLabelFontWeight: {
+                  type: "number",
+                  enum: [400, 500],
+                },
+              },
             },
           },
           required: ["widget"],
