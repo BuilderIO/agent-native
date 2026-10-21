@@ -1430,6 +1430,91 @@ function replyContainsPhrase(text: string, phrase: unknown): boolean {
   );
 }
 
+function unfinishedScopeSummaryMatchesRecordedWork(
+  summary: string,
+  unfinishedScopes: Array<{ scope: string; evidence: string }>,
+): boolean {
+  const genericWords = new Set([
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "been",
+    "being",
+    "but",
+    "by",
+    "do",
+    "does",
+    "did",
+    "for",
+    "from",
+    "had",
+    "has",
+    "have",
+    "in",
+    "into",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "the",
+    "this",
+    "that",
+    "these",
+    "those",
+    "to",
+    "was",
+    "were",
+    "with",
+    "check",
+    "checking",
+    "still",
+    "remain",
+    "remains",
+    "remaining",
+    "ongoing",
+    "not",
+    "yet",
+    "unresolved",
+    "open",
+    "broken",
+    "unverified",
+    "need",
+    "needs",
+    "other",
+    "something",
+    "anything",
+    "work",
+    "scope",
+    "task",
+    "issue",
+    "problem",
+    "behavior",
+    "feature",
+    "fixed",
+    "done",
+    "pending",
+    "resolved",
+    "resolution",
+  ]);
+  const summaryWords = normalizeReplyPhrase(summary)
+    .split(" ")
+    .filter((word) => !genericWords.has(word));
+  const recordedWords = new Set(
+    unfinishedScopes.flatMap(({ scope, evidence }) =>
+      normalizeReplyPhrase(`${scope} ${evidence}`).split(" "),
+    ),
+  );
+  return (
+    summaryWords.length > 0 &&
+    summaryWords.every((word) => recordedWords.has(word))
+  );
+}
+
 function hasPublicEvidenceSummary(
   reply: StatusReply,
   scopedProofs: Array<{ scope: string; verification: string }>,
@@ -2345,10 +2430,11 @@ function validateStatusReactionLanguage(
       !/\b(?:still|remain(?:s|ing)?|ongoing|not yet|unresolved|open)\b/i.test(
         summary,
       ) ||
-      !replyContainsPhrase(text, summary)
+      !replyContainsPhrase(text, summary) ||
+      !unfinishedScopeSummaryMatchesRecordedWork(summary, unfinishedScopes)
     ) {
       throw new Error(
-        `${parentName}: unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open`,
+        `${parentName}: unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence`,
       );
     }
   }
@@ -11153,6 +11239,32 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     },
     {
+      name: "unfinished scope summary must match recorded work",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence: "paragraph selection remains broken",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          unfinishedScopeSummary:
+            "Paragraph selection and launch notes remain unresolved",
+          text: "Partially fixed: The start screen works now. Paragraph selection and launch notes remain unresolved. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
       name: "reply root is missing from page rows and threadRoots",
       inventory: {
         ...valid,
@@ -13086,7 +13198,9 @@ if (args[0] === "--self-test" && args.length === 1) {
     "open work must retain this actor's eye":
       "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
     "unfinished scope status needs a public remaining-work summary":
-      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open",
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "unfinished scope summary must match recorded work":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "reply root is missing from page rows and threadRoots":
       "threadParentTs does not resolve to an in-page root or verified threadRoots entry",
     "reply misclassified as a self-root":

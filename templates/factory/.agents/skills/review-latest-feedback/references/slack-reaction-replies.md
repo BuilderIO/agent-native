@@ -37,8 +37,9 @@ Keep full proof, scope, and handoff details in the internal ledger. When an
 active `🎫` action remains, record its brief plain-language summary as
 `statusReply.pendingActionSummary` and include that summary in the short reply.
 When `unfinishedScopes` is nonempty, also record a brief
-`statusReply.unfinishedScopeSummary` that names remaining work and says it is
-still open; include it in the public reply even when there is no active `🎫`.
+`statusReply.unfinishedScopeSummary` that names remaining work using wording
+grounded in its recorded scope or evidence and says it is still open; include it
+in the public reply even when there is no active `🎫`.
 Do not explain absent reactions or list every scope. End with the exact bot
 disclosure and read the visible reply and root reactions back.
 

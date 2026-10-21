@@ -386,9 +386,10 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   summary may paraphrase the internal scope. Record each
   `unfinishedScopes` entry in the ledger. When any remain, set
   `statusReply.unfinishedScopeSummary` to a brief plain-language summary
-  (3–12 words) that names the remaining work and says it is still open; include
-  it in the public status even when no separate `🎫` action exists. Omit this
-  field when no unfinished scope remains. Record each
+  (3–12 words) that names remaining work using wording grounded in its recorded
+  scope or evidence, and says it is still open; include it in the public status
+  even when no separate `🎫` action exists. Omit this field when no unfinished
+  scope remains. Record each
   unfinished team/engineering action in `handoffs[]` and each outstanding
   reporter input request in `reporterRequests[]` with its scope, exact action,
   and exact `requestReply`. For
