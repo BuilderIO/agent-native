@@ -1815,6 +1815,9 @@ export function startRun(
           ? { toolInputSource: "execution" as const }
           : {}),
         ...(requireInserted ? { requireInserted: true } : {}),
+        ...(runEvent.event.type === "auto_continue"
+          ? { allowContinuationTerminal: true }
+          : {}),
       });
     return withWorkerFence(() =>
       options?.persistEvent

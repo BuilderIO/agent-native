@@ -268,6 +268,64 @@ describe("task execution leases", () => {
     expect(checkpoint.rows).toEqual([]);
   });
 
+  it("persists auto_continue after its run is marked truncated", async () => {
+    const runId = "run-truncated-auto-continue";
+    await insertRun(
+      runId,
+      "thread-truncated-auto-continue",
+      "turn-truncated-auto-continue",
+    );
+    await updateRunTerminalStateIfRunning(runId, {
+      status: "truncated",
+      terminalReason: "run_timeout",
+    });
+
+    await insertRunEvent(
+      runId,
+      0,
+      JSON.stringify({ type: "auto_continue", reason: "run_timeout" }),
+      { requireInserted: true, allowContinuationTerminal: true },
+    );
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "auto_continue", reason: "run_timeout" },
+    });
+  });
+
+  it("rejects a late auto_continue after turn abort commits", async () => {
+    const threadId = "thread-truncated-auto-continue-abort";
+    const turnId = "turn-truncated-auto-continue-abort";
+    const runId = "run-truncated-auto-continue-abort";
+    await insertRun(runId, threadId, turnId);
+    await updateRunTerminalStateIfRunning(runId, {
+      status: "truncated",
+      terminalReason: "run_timeout",
+    });
+    await insertRun("run-truncated-auto-continue-successor", threadId, turnId);
+
+    await expect(markTurnAborted(threadId, turnId, "user")).resolves.toBe(
+      "aborted",
+    );
+    await expect(
+      insertRunEvent(
+        runId,
+        0,
+        JSON.stringify({ type: "auto_continue", reason: "run_timeout" }),
+        { requireInserted: true, allowContinuationTerminal: true },
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
+
+    expect((await getRunById(runId))?.status).toBe("aborted");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done", reason: "user" },
+    });
+  });
+
   it("does not replay a stranded checkpoint as the terminal of an errored run", async () => {
     const runId = "run-checkpoint-terminal-persistence-failure";
     const terminalEvent = {

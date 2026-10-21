@@ -78,6 +78,11 @@ export const STALE_RUN_ERROR_EVENT = {
 
 export const STALE_RUN_TERMINAL_REASON = `error:${STALE_RUN_ERROR_EVENT.errorCode}`;
 
+const CONTINUATION_TERMINAL_EVENT_REASONS = [
+  "auto_continue",
+  ...CONTINUATION_REASONS,
+] as const;
+
 export const UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT = {
   type: "error",
   error:
@@ -3648,6 +3653,38 @@ export async function markTurnAborted(
         return "already_terminal" as const;
       }
     }
+    const continuationRun = await tx.execute({
+      sql: `SELECT id FROM agent_runs
+            WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
+              AND status = 'truncated'
+              AND terminal_reason IN (${CONTINUATION_TERMINAL_EVENT_REASONS.map(() => "?").join(", ")})
+              AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+            ORDER BY started_at DESC LIMIT 1 FOR UPDATE`,
+      args: [threadId, turnId, ...CONTINUATION_TERMINAL_EVENT_REASONS],
+    });
+    const continuationRunId = String(
+      (continuationRun.rows[0] as { id?: unknown } | undefined)?.id ?? "",
+    );
+    if (continuationRunId) {
+      const abortedContinuation = await tx.execute({
+        sql: `UPDATE agent_runs
+              SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ?
+              WHERE id = ? AND status = 'truncated'
+                AND terminal_reason IN (${CONTINUATION_TERMINAL_EVENT_REASONS.map(() => "?").join(", ")})
+              RETURNING id`,
+        args: [
+          reason,
+          now,
+          `aborted:${reason}`,
+          continuationRunId,
+          ...CONTINUATION_TERMINAL_EVENT_REASONS,
+        ],
+      });
+      if (abortedContinuation.rows.length > 0) {
+        runIds.push(continuationRunId);
+        await revokeExecutionLeasesForRuns(tx, [continuationRunId]);
+      }
+    }
     const abortEvent = terminalEventForAbortReason(reason) as unknown as Record<
       string,
       unknown
@@ -3803,6 +3840,7 @@ export async function insertRunEvent(
   options?: {
     toolInputSource?: "execution";
     requireInserted?: boolean;
+    allowContinuationTerminal?: boolean;
     eventAt?: number;
   },
 ): Promise<void> {
@@ -3826,28 +3864,64 @@ export async function insertRunEvent(
     result = await withFencedExecutionWrite(
       async (tx) => {
         const writeEvent = async (writeTx: DbExec) => {
-          const { rowsAffected } = await writeTx.execute({
-            sql: options?.requireInserted
-              ? `WITH running_run AS MATERIALIZED (
-          SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
+          if (options?.allowContinuationTerminal) {
+            const runRef = await writeTx.execute({
+              sql: "SELECT thread_id FROM agent_runs WHERE id = ?",
+              args: [runId],
+            });
+            const threadId = String(
+              (runRef.rows[0] as { thread_id?: unknown } | undefined)
+                ?.thread_id ?? "",
+            );
+            if (threadId) {
+              // Serialize eligibility with turn abort's marker transaction.
+              await writeTx.execute({
+                sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+                args: [`agent-native:run-slot:${threadId}`],
+              });
+            }
+          }
+          const continuationReasonSql = CONTINUATION_TERMINAL_EVENT_REASONS.map(
+            () => "?",
+          ).join(", ");
+          const runAdmissionPredicate = options?.allowContinuationTerminal
+            ? `AND NOT EXISTS (
+                SELECT 1 FROM agent_runs AS aborted_turn
+                WHERE aborted_turn.thread_id = run.thread_id
+                  AND COALESCE(aborted_turn.turn_id, aborted_turn.id) = COALESCE(run.turn_id, run.id)
+                  AND aborted_turn.dispatch_mode = 'turn-abort'
+                  AND aborted_turn.status = 'aborted'
+              )
+              AND (
+                run.status = 'running'
+                OR (run.status = 'truncated' AND run.terminal_reason IN (${continuationReasonSql}))
+              )`
+            : "AND run.status = 'running'";
+          const runAdmissionArgs = options?.allowContinuationTerminal
+            ? [...CONTINUATION_TERMINAL_EVENT_REASONS]
+            : [];
+          const insertSql = options?.requireInserted
+            ? `WITH eligible_run AS MATERIALIZED (
+          SELECT run.id FROM agent_runs AS run
+          WHERE run.id = ? ${runAdmissionPredicate}
+          FOR UPDATE
         )
         INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
-        SELECT id, ?, ?, ? FROM running_run LIMIT 1
+        SELECT id, ?, ?, ? FROM eligible_run LIMIT 1
         ON CONFLICT (run_id, seq) DO NOTHING`
-              : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+            : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM agent_runs
         WHERE id = ? AND status <> 'running'
       )
-      ON CONFLICT (run_id, seq) DO NOTHING`,
-            args: [
-              runId,
-              seq,
-              eventAt,
-              storedEventData,
-              ...(options?.requireInserted ? [] : [runId]),
-            ],
+      ON CONFLICT (run_id, seq) DO NOTHING`;
+          const insertArgs = options?.requireInserted
+            ? [runId, ...runAdmissionArgs, seq, eventAt, storedEventData]
+            : [runId, seq, eventAt, storedEventData, runId];
+          const { rowsAffected } = await writeTx.execute({
+            sql: insertSql,
+            args: insertArgs,
           });
           if (resolvesCheckpoint) {
             let terminalPersisted = rowsAffected === 1;
@@ -3893,14 +3967,34 @@ export async function insertRunEvent(
             String(existingRow.event_data) === storedEventData;
 
           const run = await writeTx.execute({
-            sql: "SELECT status FROM agent_runs WHERE id = ?",
+            sql: `SELECT run.status, run.terminal_reason,
+                       EXISTS (
+                         SELECT 1 FROM agent_runs AS aborted_turn
+                         WHERE aborted_turn.thread_id = run.thread_id
+                           AND COALESCE(aborted_turn.turn_id, aborted_turn.id) = COALESCE(run.turn_id, run.id)
+                           AND aborted_turn.dispatch_mode = 'turn-abort'
+                           AND aborted_turn.status = 'aborted'
+                       ) AS turn_aborted
+                  FROM agent_runs AS run WHERE run.id = ?`,
             args: [runId],
           });
-          const status = (run.rows[0] as { status?: string } | undefined)
-            ?.status;
+          const runRow = run.rows[0] as
+            | {
+                status?: string;
+                terminal_reason?: string | null;
+                turn_aborted?: boolean | string;
+              }
+            | undefined;
+          const status = runRow?.status;
+          const continuationTerminalEligible =
+            options?.allowContinuationTerminal === true &&
+            status === "truncated" &&
+            isContinuationTerminalReason(runRow?.terminal_reason) &&
+            runRow?.turn_aborted !== true &&
+            runRow?.turn_aborted !== "true";
           return {
             rowsAffected,
-            terminalRun: status !== "running",
+            terminalRun: status !== "running" && !continuationTerminalEligible,
             persistedIdentically,
           };
         };

@@ -222,6 +222,23 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     );
   });
 
+  it("does not dispatch when the turn is aborted after the predecessor terminal marker", async () => {
+    const h = makeHarness();
+    h.deps.isTurnAborted = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+
+    await runChain(h);
+
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.markRunAborted).toHaveBeenCalledWith("run-next", "user");
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+  });
+
   it("PRE-INSERTS the successor row before the dispatch fires, then marks the chunk terminal", async () => {
     const h = makeHarness();
     const run = timeoutBoundaryRun();

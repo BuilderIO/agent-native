@@ -4723,7 +4723,11 @@ describe("run manager soft timeout", () => {
       "run-server-continuation-terminal",
       1,
       JSON.stringify({ type: "auto_continue", reason: "stream_ended" }),
-      { eventAt: expect.any(Number), requireInserted: true },
+      {
+        eventAt: expect.any(Number),
+        requireInserted: true,
+        allowContinuationTerminal: true,
+      },
     );
   });
 

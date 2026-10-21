@@ -11999,6 +11999,12 @@ export async function chainServerDrivenContinuation(opts: {
         `Could not release run ${runId} for continuation ${nextRunId}`,
       );
     }
+    if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
+      if (nextRowInserted)
+        await d.markRunAborted(nextRunId, "user").catch(() => {});
+      await d.markRunAborted(runId, "user").catch(() => {});
+      return;
+    }
     run.continuationTerminalEvent = continuationTerminalEvent;
     const dispatchBody = nextRowInserted
       ? {
