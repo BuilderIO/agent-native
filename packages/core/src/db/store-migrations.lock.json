@@ -221,6 +221,12 @@
       "checksum": "0ad391513d7c511c"
     }
   ],
+  "automation_sharing": [
+    {
+      "name": "baseline",
+      "checksum": "a0f55d915a8eb6dd"
+    }
+  ],
   "automation_trigger_events": [
     {
       "name": "baseline",

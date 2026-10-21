@@ -42,6 +42,7 @@ vi.mock("../secrets/crypto.js", () => ({
 }));
 
 import {
+  deleteAutomationRunsWithDb,
   finishAutomationRun,
   attachAutomationRunThread,
   listLatestAutomationRuns,
@@ -85,6 +86,26 @@ describe("automation run history", () => {
         return { status: "sent", provider: "resend" };
       },
     );
+  });
+
+  it("cleans all history for a reusable owner and automation name through the caller transaction", async () => {
+    const transactionExecute = vi.fn().mockResolvedValue({
+      rows: [],
+      rowsAffected: 3,
+    });
+
+    await deleteAutomationRunsWithDb(
+      { execute: transactionExecute },
+      "alice@example.com",
+      "digest",
+    );
+
+    expect(transactionExecute).toHaveBeenCalledWith({
+      sql: expect.stringContaining(
+        "DELETE FROM automation_runs WHERE owner = ? AND automation = ?",
+      ),
+      args: ["alice@example.com", "digest"],
+    });
   });
 
   it("reports a failed required thread attachment when no history row was written", async () => {
