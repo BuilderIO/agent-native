@@ -3271,6 +3271,19 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).not.toBeNull();
   });
 
+  it("forwards transcript layout options to the shared chat component", async () => {
+    const transcriptLayout = {
+      topInset: 5,
+      messageLaneWidth: 730,
+      messageGap: 12,
+      userBubbleMaxWidth: 600,
+      userBubblePadding: { block: 8, inline: 13 },
+    };
+    await mount(baseProps({ transcriptLayout }));
+
+    expect(chatMocks.chatProps.transcriptLayout).toBe(transcriptLayout);
+  });
+
   it("anchors the composer at the bottom while restoring a persisted thread", async () => {
     await mount(
       baseProps({
