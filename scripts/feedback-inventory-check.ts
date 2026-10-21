@@ -1329,7 +1329,7 @@ function isNamedHumanOwner(owner: string): boolean {
 
 function leadingNamedHumanOwner(action: string): string | undefined {
   const match =
-    /^((?:\p{Lu}\p{Ll}[\p{L}'’.-]*)(?:\s+\p{Lu}\p{Ll}[\p{L}'’.-]*){0,3})\s+(?:will|can|could|should|must|may|might|needs?|has\s+to|is\s+going\s+to)\b/u.exec(
+    /^((?:\p{Lu}\p{Ll}[\p{L}'’.-]*)(?:\s+\p{Lu}\p{Ll}[\p{L}'’.-]*){0,3})\s+(?:will|can|could|should|must|may|might|needs?|has\s+to|is\s+going\s+to|is\s+scheduled\s+to)\b/u.exec(
       action.trim(),
     );
   return match && isNamedHumanOwner(match[1]!) ? match[1] : undefined;
@@ -2538,7 +2538,7 @@ function validateStatusReactionLanguage(
         " ",
       )
       .replace(
-        /\b(?:no|not any)\s+(?:(?:further|more|additional)\s+)?(?:work|verification|review|follow[- ]?up|action|changes?|updates?|testing|checks?)\s+(?:(?:is|are|was|were)\s+)?(?:required|needed|necessary)\b/gi,
+        /\b(?:no|not any)\s+(?:(?:further|more|additional)\s+)?(?:work|verification|review|follow[- ]?up|action|changes?|updates?|testing|checks?)\s+(?:(?:should|must|may|might|could|would|will|can)\s+)?(?:(?:is|are|was|were|be)\s+)?(?:required|needed|necessary)\b/gi,
         " ",
       );
     if (
@@ -14004,6 +14004,26 @@ if (args[0] === "--self-test" && args.length === 1) {
       unfinishedSummaryDiagnostic,
     );
     expectStatusLanguageFailure(
+      "no further verification should be required cannot describe unfinished work",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test no-further-verification scope",
+          "Partially fixed: CSV export verification no further verification should be required. this was sent from a bot.",
+          [],
+          [],
+          undefined,
+          [
+            {
+              scope: "CSV export verification",
+              evidence:
+                "CSV export verification no further verification should be required; export remains pending",
+            },
+          ],
+          "CSV export verification no further verification should be required",
+        ),
+      unfinishedSummaryDiagnostic,
+    );
+    expectStatusLanguageFailure(
       "reporter summary cannot count an inferred owner and filler as actions",
       () =>
         validateStatusReactionLanguage(
@@ -14027,6 +14047,31 @@ if (args[0] === "--self-test" && args.length === 1) {
         ),
       "active 🎫 summary must include every pending action and known owner",
     );
+    expectStatusLanguageFailure(
+      "reporter summary cannot count a scheduled owner as an action",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          "Clarification needed: Morgan Lee is scheduled. this was sent from a bot.",
+          [],
+          [
+            {
+              scope: "choose the remaining behavior",
+              action:
+                "Morgan Lee is scheduled to choose the remaining behavior",
+              publicActionSummary: "Morgan Lee is scheduled",
+              requestReply: {
+                ts: "11.500000",
+                threadParentTs: "10.000000",
+                actorId: "USWEEPER",
+                text: "Please have Morgan Lee choose the remaining behavior.",
+              },
+            },
+          ],
+          "Morgan Lee is scheduled",
+        ),
+      "active 🎫 summary must include every pending action and known owner",
+    );
     validateStatusReactionLanguage(
       "self-test reporter summary with a named actor",
       "Clarification needed: Morgan Lee will choose the remaining behavior. this was sent from a bot.",
@@ -14045,6 +14090,26 @@ if (args[0] === "--self-test" && args.length === 1) {
         },
       ],
       "Morgan Lee will choose the remaining behavior",
+    );
+    validateStatusReactionLanguage(
+      "self-test reporter summary with a scheduled named actor",
+      "Clarification needed: Morgan Lee is scheduled to choose the remaining behavior. this was sent from a bot.",
+      [],
+      [
+        {
+          scope: "choose the remaining behavior",
+          action: "Morgan Lee is scheduled to choose the remaining behavior",
+          publicActionSummary:
+            "Morgan Lee is scheduled to choose the remaining behavior",
+          requestReply: {
+            ts: "11.500000",
+            threadParentTs: "10.000000",
+            actorId: "USWEEPER",
+            text: "Please have Morgan Lee choose the remaining behavior.",
+          },
+        },
+      ],
+      "Morgan Lee is scheduled to choose the remaining behavior",
     );
     expectStatusLanguageFailure(
       "reporter public summary cannot misrepresent its action",
@@ -19367,7 +19432,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 36} negative cases; 37 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 38} negative cases; 38 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
