@@ -3041,19 +3041,22 @@ export async function updateRunStatus(
 export async function updateRunStatusIfRunning(
   runId: string,
   status: "completed" | "truncated" | "errored" | "aborted",
-  options: { threadProjectionPending?: boolean } = {},
+  options: { threadProjectionPending?: boolean; terminalReason?: string } = {},
 ): Promise<boolean> {
   await ensureRunTables();
+  const terminalReason = options.terminalReason?.slice(0, 200);
   const { rowsAffected } = await withFencedExecutionWrite(
     (tx) =>
       tx.execute({
         sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL,
                      thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
+                     ${terminalReason === undefined ? "" : ", terminal_reason = ?"}
               WHERE id = ? AND status = 'running'`,
         args: [
           status,
           Date.now(),
           options.threadProjectionPending === true,
+          ...(terminalReason === undefined ? [] : [terminalReason]),
           runId,
         ],
       }),

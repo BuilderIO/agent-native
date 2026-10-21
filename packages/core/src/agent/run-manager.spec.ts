@@ -2571,6 +2571,33 @@ describe("run manager soft timeout", () => {
     await run.finalized;
   });
 
+  it("writes the abort reason with the final aborted status", async () => {
+    const run = startRun(
+      "run-abort-final-status-reason",
+      "thread-abort-final-status-reason",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    abortRun(run.runId, "user");
+    await run.finalized;
+
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      run.runId,
+      "aborted",
+      { terminalReason: "aborted:user" },
+    );
+    expect(setRunTerminalReason).not.toHaveBeenCalledWith(
+      run.runId,
+      "aborted:user",
+    );
+  });
+
   it("signals in memory when safe-boundary abort committed before event persistence failed", async () => {
     const run = startRun(
       "run-safe-boundary-event-failure",

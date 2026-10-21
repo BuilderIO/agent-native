@@ -88,6 +88,7 @@ const {
   insertRunEvents,
   markAgentExecutionStepDispatched,
   markRunAbortedAtSafeBoundary,
+  updateRunStatusIfRunning,
   recordLateAgentExecutionStepOutcome,
   ensureRunTables,
   insertRun,
@@ -132,6 +133,51 @@ describe("task execution leases", () => {
     expect(event.rows).toEqual([
       { event_data: '{"type":"auto_continue","reason":"run_timeout"}' },
     ]);
+  });
+
+  it("replaces a checkpoint reason when run-manager finalizes after Stop rolls back", async () => {
+    const threadId = "thread-abort-finalize-checkpoint-reason";
+    const turnId = "turn-abort-finalize-checkpoint-reason";
+    const runId = "run-abort-finalize-checkpoint-reason";
+    await insertRun(runId, threadId, turnId);
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    failTerminalEventInsertCount = 2;
+    try {
+      await expect(
+        markTurnAborted(threadId, turnId, "user"),
+      ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
+    } finally {
+      failTerminalEventInsertCount = 0;
+    }
+
+    const afterStopRollback = await pglite.query(
+      `SELECT status, terminal_reason FROM agent_runs WHERE id = ?`,
+      [runId],
+    );
+    expect(afterStopRollback.rows[0]).toMatchObject({
+      status: "running",
+      terminal_reason: "run_timeout",
+    });
+
+    await expect(
+      updateRunStatusIfRunning(runId, "aborted", {
+        terminalReason: "aborted:user",
+      }),
+    ).resolves.toBe(true);
+
+    const finalized = await pglite.query(
+      `SELECT status, terminal_reason FROM agent_runs WHERE id = ?`,
+      [runId],
+    );
+    expect(finalized.rows[0]).toMatchObject({
+      status: "aborted",
+      terminal_reason: "aborted:user",
+    });
   });
 
   it("fails terminal appends when the last persisted event is malformed", async () => {

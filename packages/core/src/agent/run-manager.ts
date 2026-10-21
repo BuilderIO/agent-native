@@ -2178,12 +2178,19 @@ export function startRun(
           ? "truncated"
           : finalStatus;
       let volatileTerminalEvent: RunEvent | null = null;
-      const persistTerminalStatus = () =>
-        completionError
+      const persistTerminalStatus = () => {
+        if (finalStatus === "aborted") {
+          return updateRunStatusIfRunning(runId, persistedStatus, {
+            ...(completionError ? { threadProjectionPending: true } : {}),
+            terminalReason,
+          });
+        }
+        return completionError
           ? updateRunStatusIfRunning(runId, persistedStatus, {
               threadProjectionPending: true,
             })
           : updateRunStatusIfRunning(runId, persistedStatus);
+      };
       const reconcileTerminalRun = () =>
         completionError
           ? reconcileTerminalRunFromEvents(runId, {
@@ -2296,9 +2303,11 @@ export function startRun(
             }
             if (statusUpdated) {
               terminalPersistenceEstablished = !terminalPersistenceError;
-              await withWorkerFence(() =>
-                setRunTerminalReason(runId, terminalReason),
-              );
+              if (finalStatus !== "aborted") {
+                await withWorkerFence(() =>
+                  setRunTerminalReason(runId, terminalReason),
+                );
+              }
             } else {
               terminalPersistenceEstablished =
                 await withWorkerFence(reconcileTerminalRun);
