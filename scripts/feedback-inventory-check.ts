@@ -1611,7 +1611,7 @@ function publicActionSummaryMatchesAction(
   action: string,
   publicActionSummary: unknown,
   owner?: string,
-  enforceSummaryWordLimit = true,
+  isPublicSummary = true,
 ): boolean {
   if (typeof publicActionSummary !== "string" || !publicActionSummary.trim()) {
     return false;
@@ -1634,8 +1634,8 @@ function publicActionSummaryMatchesAction(
       !ownerWords.has(word) && !publicActionSummaryFillerWords.has(word),
   );
   return (
-    (!enforceSummaryWordLimit || summaryWordCount <= 12) &&
-    summaryWords.length >= 2 &&
+    (!isPublicSummary || summaryWordCount <= 12) &&
+    (!isPublicSummary || summaryWords.length >= 2) &&
     hasActionWord &&
     (normalizedAction === normalizedSummary ||
       normalizedAction.startsWith(`${normalizedSummary} `))
@@ -2515,7 +2515,7 @@ function validateStatusReactionLanguage(
       .split(" ")
       .filter(Boolean).length;
     const openStateSummary = summary.replace(
-      /\b(?:no longer|not|no|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|does not|do not|did not|can't|cannot|won't|wouldn't|shouldn't|will not|would not|should not|without)\s+(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|requires?|awaiting|waiting)\b/gi,
+      /\b(?:no longer|not|no|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|does not|do not|did not|can't|cannot|won't|wouldn't|shouldn't|will not|would not|should not|without)\s+(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|requires?|awaiting|waiting)\b(?:\s*(?:,|and|or)\s*(?:(?:not|never)\s+)?(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|requires?|awaiting|waiting)\b)*/gi,
       " ",
     );
     if (
@@ -8946,11 +8946,23 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test rejected a long recorded action without an explicit summary.",
     );
   }
+  for (const shortAction of ["merge", "fix this"]) {
+    if (!replyNamesRecordedAction(`I will ${shortAction}.`, shortAction)) {
+      throw new Error(
+        `Feedback inventory checker self-test rejected the short recorded action "${shortAction}" without an explicit summary.`,
+      );
+    }
+  }
   if (
     publicActionSummaryMatchesAction("this will be checked", "this will be")
   ) {
     throw new Error(
       "Feedback inventory checker self-test accepted an ownerless filler-only action summary.",
+    );
+  }
+  if (publicActionSummaryMatchesAction("merge", "merge")) {
+    throw new Error(
+      "Feedback inventory checker self-test accepted a one-word public action summary.",
     );
   }
   const assignedPrHandoff: Handoff = {
@@ -11416,6 +11428,31 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     },
     {
+      name: "coordinated negated open-state wording is rejected",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "CSV export",
+            evidence: "CSV export review remains pending",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; CSV export review remains pending",
+          unfinishedScopeSummary: "CSV export is not open or pending",
+          text: "Partially fixed: The start screen works now. CSV export is not open or pending. :white_check_mark: covers the initial route screen. Open scope: CSV export — CSV export review remains pending. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
       name: "unfinished scope summary cannot say work remains fixed",
       inventory: withSweepOwnedParent({
         disposition: "Partially fixed",
@@ -13439,6 +13476,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     "unfinished scope summary must match recorded work":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "negated open-state wording is rejected":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "coordinated negated open-state wording is rejected":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "unfinished scope summary cannot say work remains fixed":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
