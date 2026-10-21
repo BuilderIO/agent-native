@@ -66,6 +66,7 @@ const NAVIGATE_POLL_TIMEOUT_MS = Math.max(
   NAVIGATE_POLL_INTERVAL_MS * 4,
 );
 const QUEUED_RECEIPT_POLL_INTERVAL_MS = 1_000;
+const QUEUED_RECEIPT_STATUS_TIMEOUT_MS = 10_000;
 
 function waitForQueuedReceiptPoll(signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.resolve();
@@ -95,6 +96,48 @@ function withPollTimeout<T>(call: Promise<T>, timeoutMs: number): Promise<T> {
     );
   });
   return Promise.race([call, timeout]).finally(() => clearTimeout(timer));
+}
+
+function withAbortablePollTimeout<T>(
+  call: (signal: AbortSignal) => Promise<T>,
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  let abortHandler = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    abortHandler = () => {
+      controller.abort();
+      const error = new Error("Poll aborted");
+      error.name = "AbortError";
+      reject(error);
+    };
+    if (signal.aborted) {
+      abortHandler();
+    } else {
+      signal.addEventListener("abort", abortHandler, { once: true });
+    }
+  });
+  const operation = Promise.resolve().then(() => {
+    if (controller.signal.aborted) {
+      const error = new Error("Poll aborted");
+      error.name = "AbortError";
+      throw error;
+    }
+    return call(controller.signal);
+  });
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Poll timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([operation, timeout, aborted]).finally(() => {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", abortHandler);
+    controller.abort();
+  });
 }
 
 export interface AgentChatSettings {
@@ -855,7 +898,16 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         liveTurnRef.current = {
           abort: () => {
             controller.abort();
-            void runHandle.cancel();
+            if ("queuedMessageId" in runHandle) {
+              const queuedRunId = turnBuffer.runId;
+              if (queuedRunId && queuedRunId !== runHandle.activeRunId) {
+                void session.client.cancelRun(activeThreadId, queuedRunId);
+              } else {
+                void runHandle.cancel();
+              }
+            } else {
+              void runHandle.cancel();
+            }
           },
           runId,
         };
@@ -994,13 +1046,18 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             while (!stopReceiptPolling && !controller.signal.aborted) {
               let receipt;
               try {
-                receipt = await getStatus.call(
-                  session.client,
-                  {
-                    threadId: activeThreadId,
-                    messageId: runHandle.queuedMessageId,
-                  },
-                  { signal: controller.signal },
+                receipt = await withAbortablePollTimeout(
+                  (signal) =>
+                    getStatus.call(
+                      session.client,
+                      {
+                        threadId: activeThreadId,
+                        messageId: runHandle.queuedMessageId,
+                      },
+                      { signal },
+                    ),
+                  controller.signal,
+                  QUEUED_RECEIPT_STATUS_TIMEOUT_MS,
                 );
               } catch (error) {
                 if (controller.signal.aborted) return;

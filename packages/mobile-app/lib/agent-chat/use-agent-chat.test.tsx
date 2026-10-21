@@ -124,10 +124,12 @@ function createSendClient() {
     loadThread: vi.fn(async (threadId: string) =>
       createAgentThreadState(threadId),
     ),
-    sendMessage: vi.fn(async (_request: { text: string }) => ({
-      runId: "run-1",
-      completed: Promise.resolve(),
-    })),
+    sendMessage: vi.fn(
+      async (_request: { threadId: string; text: string }) => ({
+        runId: "run-1",
+        completed: Promise.resolve(),
+      }),
+    ),
     cancelRun: vi.fn(async () => {}),
   };
 }
@@ -620,6 +622,110 @@ describe("useAgentChat readiness gate", () => {
     await vi.waitFor(() => expect(mounted?.chat?.isStreaming).toBe(false));
     await act(async () => completed.resolve());
     expect(mounted?.chat?.errorCode).toBeNull();
+  });
+
+  it("cancels the promoted queued run when Stop is pressed", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const client = Object.assign(createSendClient(), {
+      getQueuedSubmissionStatus: vi.fn(async () => ({
+        state: "submitted" as const,
+        submittedRunId: "run-queued-1",
+      })),
+      getThread: vi.fn((threadId: string) => createAgentThreadState(threadId)),
+      resubscribeRun: vi.fn(),
+    });
+    const completed = deferred<void>();
+    const resubscribed = deferred<void>();
+    client.resubscribeRun.mockReturnValueOnce(resubscribed.promise);
+    const cancelQueued = vi.fn(async () => {});
+    client.sendMessage.mockResolvedValueOnce({
+      queuedMessageId: "queued-mobile-promoted",
+      activeRunId: "run-active-1",
+      completed: completed.promise,
+      cancel: cancelQueued,
+    } as never);
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+    let dispatchPromise: Promise<boolean> | undefined;
+    await act(async () => {
+      dispatchPromise = mounted?.chat?.send("Queue this prompt");
+      await Promise.resolve();
+    });
+    await vi.waitFor(() =>
+      expect(client.resubscribeRun).toHaveBeenCalledOnce(),
+    );
+    await expect(dispatchPromise!).resolves.toBe(true);
+
+    await act(async () => {
+      mounted?.chat?.stop();
+      await Promise.resolve();
+    });
+    const threadId = client.sendMessage.mock.calls[0]![0].threadId;
+    expect(client.cancelRun).toHaveBeenCalledWith(threadId, "run-queued-1");
+    expect(client.cancelRun).not.toHaveBeenCalledWith(threadId, "run-active-1");
+    expect(cancelQueued).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resubscribed.resolve();
+      completed.resolve();
+      await Promise.resolve();
+    });
+  });
+
+  it("settles a queued turn when its receipt-status request stalls", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const requestSignals: AbortSignal[] = [];
+    const client = Object.assign(createSendClient(), {
+      getQueuedSubmissionStatus: vi.fn(
+        (
+          _input: { threadId: string; messageId: string },
+          options?: { signal?: AbortSignal },
+        ) => {
+          if (options?.signal) requestSignals.push(options.signal);
+          return new Promise<never>(() => {});
+        },
+      ),
+    });
+    client.sendMessage.mockResolvedValueOnce({
+      queuedMessageId: "queued-mobile-stalled-status",
+      activeRunId: "run-active-stalled-status",
+      completed: Promise.resolve(),
+      cancel: vi.fn(async () => {}),
+    } as never);
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+    vi.useFakeTimers();
+    try {
+      let dispatchPromise: Promise<boolean> | undefined;
+      await act(async () => {
+        dispatchPromise = mounted?.chat?.send("Queue this prompt");
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+      });
+      expect(client.getQueuedSubmissionStatus).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+      });
+      await expect(dispatchPromise!).resolves.toBe(true);
+      expect(mounted?.chat?.isStreaming).toBe(false);
+      expect(mounted?.chat?.errorCode).toBe(
+        "queued_submission_status_unavailable",
+      );
+      expect(requestSignals[0]?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("buffers queued events until a handle arrives after active completion", async () => {

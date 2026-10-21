@@ -79,6 +79,7 @@ import {
 const _threadDataLocks = new Map<string, Promise<unknown>>();
 const DEFAULT_THREAD_DATA_UPDATE_ATTEMPTS = 12;
 const THREAD_DATA_CONFLICT_BACKOFF_MS = 25;
+const MAX_QUEUED_RECEIPTS_TO_CHECK_FOR_RUN_BARRIER = 100;
 const getChatThreadsDb = createGetDb({ chatThreads, chatThreadShares });
 
 export function withThreadDataLock<T>(
@@ -2191,12 +2192,36 @@ export async function hasPendingQueuedSubmissionReceipt(
 ): Promise<boolean> {
   await ensureTable();
   const { rows } = await tx.execute({
-    sql: `SELECT 1 FROM agent_chat_submission_inbox
+    sql: `SELECT message_id, payload_json FROM agent_chat_submission_inbox
           WHERE thread_id = ? AND state = 'queued'
-          LIMIT 1`,
-    args: [threadId],
+          ORDER BY created_at ASC, message_id ASC
+          LIMIT ?`,
+    args: [threadId, MAX_QUEUED_RECEIPTS_TO_CHECK_FOR_RUN_BARRIER + 1],
   });
-  return rows.length > 0;
+  // Unread rows may still contain a live barrier, so keep admission closed.
+  if (rows.length > MAX_QUEUED_RECEIPTS_TO_CHECK_FOR_RUN_BARRIER) return true;
+  const now = Date.now();
+  return rows.some((row) => {
+    const messageId = String(row.message_id ?? "");
+    if (typeof row.payload_json !== "string") {
+      throw new TypeError("Stored queued submission receipt has no message.");
+    }
+    const parsed = JSON.parse(row.payload_json) as unknown;
+    if (
+      !messageId ||
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      typeof (parsed as Record<string, unknown>).id !== "string" ||
+      typeof (parsed as Record<string, unknown>).text !== "string" ||
+      (parsed as Record<string, unknown>).id !== messageId
+    ) {
+      throw new TypeError(
+        "Stored queued submission receipt has a malformed message.",
+      );
+    }
+    return !queuedSubmissionExpired(parsed as QueuedMessage, now);
+  });
 }
 
 /** Finds accepted queue rows in priority order for the signed server sweep. */

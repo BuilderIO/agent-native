@@ -58,6 +58,7 @@ import {
   forkThread,
   getQueuedSubmissionReceipt,
   getQueuedSubmissionReceiptStatus,
+  hasPendingQueuedSubmissionReceipt,
   getThreadByShareToken,
   hashQueuedSubmissionPayload,
   grantThreadUserShare,
@@ -3129,6 +3130,76 @@ describe("chat thread store", () => {
       claimed!.claimedMessage,
     ]);
     expect(submissionRows[0]!.payload_hash).toBe(originalPayloadHash);
+  });
+
+  it("does not let expired queued receipts block fresh run admission", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const expiresAt = Date.now() + 60_000;
+    const expiredMessage = {
+      id: "queued-expired-admission-barrier",
+      threadId: "thread-1",
+      text: "This request expired",
+      metadata: {
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: expiresAt,
+        },
+      },
+    };
+    const liveMessage = {
+      id: "queued-live-admission-barrier",
+      threadId: "thread-1",
+      text: "This request is still live",
+      metadata: {
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: expiresAt + 1,
+        },
+      },
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message: expiredMessage },
+      { actor },
+    );
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message: liveMessage },
+      { actor },
+    );
+
+    expect(
+      await hasPendingQueuedSubmissionReceipt(
+        { execute: executeMock } as any,
+        "thread-1",
+      ),
+    ).toBe(true);
+
+    const now = vi.spyOn(Date, "now").mockReturnValue(expiresAt);
+    try {
+      expect(
+        await hasPendingQueuedSubmissionReceipt(
+          { execute: executeMock } as any,
+          "thread-1",
+        ),
+      ).toBe(true);
+
+      const liveReceiptMessage = JSON.parse(
+        String(submissionRows[1]!.payload_json),
+      ) as Record<string, unknown>;
+      const metadata = liveReceiptMessage.metadata as {
+        custom: Record<string, unknown>;
+      };
+      metadata.custom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY] =
+        expiresAt;
+      submissionRows[1]!.payload_json = JSON.stringify(liveReceiptMessage);
+      expect(
+        await hasPendingQueuedSubmissionReceipt(
+          { execute: executeMock } as any,
+          "thread-1",
+        ),
+      ).toBe(false);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("expires a missing queue mirror without restoring it", async () => {
