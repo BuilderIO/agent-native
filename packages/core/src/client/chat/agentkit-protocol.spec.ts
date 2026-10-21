@@ -4091,39 +4091,20 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("drains a replayed runtime run ID stream for the same thread and turn", async () => {
+  it("closes a replayed runtime run ID stream for the same thread and turn", async () => {
     let startCount = 0;
     const discardedStreamClosed = vi.fn(async () => ({
       done: true as const,
       value: undefined,
     }));
-    const discardedStreamRead = Promise.withResolvers<void>();
-    const discardedStreamDrained = Promise.withResolvers<void>();
-    let releaseDiscardedStream!: () => void;
-    const discardedStreamGate = new Promise<void>((resolve) => {
-      releaseDiscardedStream = resolve;
-    });
     const discardedTurnClosed = vi.fn();
     const discardedTurnCancelled = vi.fn(async () => ({
       status: "cancelled" as const,
     }));
     const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
       [Symbol.asyncIterator]: () => {
-        let yieldedReplayEvent = false;
         return {
-          next: async () => {
-            if (!yieldedReplayEvent) {
-              yieldedReplayEvent = true;
-              return {
-                done: false,
-                value: { type: "done", reason: "complete" },
-              };
-            }
-            discardedStreamRead.resolve();
-            await discardedStreamGate;
-            discardedStreamDrained.resolve();
-            return { done: true, value: undefined };
-          },
+          next: vi.fn(async () => ({ done: true as const, value: undefined })),
           return: discardedStreamClosed,
         };
       },
@@ -4168,12 +4149,9 @@ describe("createAgentKitProtocolAdapter", () => {
 
     expect(replay.runId).toBe(first.runId);
     expect(startTurn).toHaveBeenCalledTimes(2);
-    await discardedStreamRead.promise;
-    expect(discardedStreamClosed).not.toHaveBeenCalled();
-    expect(discardedTurnClosed).not.toHaveBeenCalled();
+    expect(discardedStreamClosed).toHaveBeenCalledOnce();
+    expect(discardedTurnClosed).toHaveBeenCalledOnce();
     expect(discardedTurnCancelled).not.toHaveBeenCalled();
-    releaseDiscardedStream();
-    await discardedStreamDrained.promise;
     await transport.dispose();
   });
 
@@ -4182,17 +4160,30 @@ describe("createAgentKitProtocolAdapter", () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };
     }
+    const discardedTurnClosed = vi.fn();
+    const discardedTurnCancelled = vi.fn(async () => ({
+      status: "cancelled" as const,
+    }));
     const runtime = createRuntime(events, {
       async createSession() {
         return {
           id: "thread-1",
           runtimeId: "runtime-test",
-          startTurn: async () => ({
-            id: `turn-${++turn}`,
-            runId: "runtime-run-duplicate",
-            sessionId: "thread-1",
-            events: events(),
-          }),
+          startTurn: async () => {
+            turn += 1;
+            return {
+              id: `turn-${turn}`,
+              runId: "runtime-run-duplicate",
+              sessionId: "thread-1",
+              events: events(),
+              ...(turn === 1
+                ? {}
+                : {
+                    closeEvents: discardedTurnClosed,
+                    cancel: discardedTurnCancelled,
+                  }),
+            };
+          },
         };
       },
     });
@@ -4208,6 +4199,8 @@ describe("createAgentKitProtocolAdapter", () => {
     });
 
     expect(replay.runId).toBe("runtime-run-duplicate");
+    expect(discardedTurnClosed).toHaveBeenCalledOnce();
+    expect(discardedTurnCancelled).not.toHaveBeenCalled();
     await transport.dispose();
   });
 

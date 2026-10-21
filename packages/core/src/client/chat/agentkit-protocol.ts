@@ -2196,22 +2196,11 @@ export function createAgentKitProtocolAdapter(
         throw new Error(`Duplicate AgentKit run id: ${runId}`);
       }
       if (!isRuntimeAlias || isSameRuntimeTurn) {
-        // The replayed stream stays open until the run ends; closing it early
-        // needs a transport abort, because turn.cancel would cancel the run.
-        void (async () => {
-          for await (const _event of turn.events) {
-            // Discarded: the existing run delivers these events.
-          }
-        })().catch((error: unknown) => {
-          console.warn(
-            `[agentkit] replayed stream for run ${runId} failed`,
-            error,
-          );
-        });
+        await closeDiscardedTurnEvents(turn);
         touchRun(existingRun);
         ensurePump(existingRun);
-        // An alias is weaker than the protocol ID and is safe to reuse only for
-        // the turn that established it.
+        // Protocol run IDs are authoritative. Runtime aliases only match the turn that
+        // created them.
         return existingRun.runId;
       }
     }
