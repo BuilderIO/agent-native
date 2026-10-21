@@ -61,6 +61,8 @@ function reviewElement(
 
   // Panels built on a data model, join, or union carry no connection id.
   // Sigma still compiles their SQL, so the dry run decides whether they run.
+  // Neither path checks the source project: SQL naming a table without its
+  // project resolves against Analytics' project, assumed to be Sigma's too.
   const connectionId = element.source?.connectionId;
   const connection = connectionId
     ? inspection.sourceConnections.find(

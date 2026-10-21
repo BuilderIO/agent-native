@@ -184,6 +184,43 @@ describe("abandonSigmaImport", () => {
     expect(mocks.failMigration).not.toHaveBeenCalled();
   });
 
+  it("keeps a dashboard this run wrote once it has been shared", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      visibility: "org",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+    });
+
+    await abandonSigmaImport({
+      ...base,
+      wroteDashboard: true,
+      previousDashboardId: null,
+    });
+
+    expect(mocks.removeDashboard).not.toHaveBeenCalled();
+    expect(mocks.failMigration).toHaveBeenCalled();
+  });
+
+  it("keeps a shared dashboard after a teammate took over the claim", async () => {
+    mocks.holdClaim.mockResolvedValue(false);
+    mocks.listMigrations.mockResolvedValue([
+      { status: "migrating", migratedByCurrentUser: false },
+    ]);
+    mocks.getDashboard.mockResolvedValue({
+      visibility: "org",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+    });
+
+    await abandonSigmaImport({
+      ...base,
+      wroteDashboard: true,
+      previousDashboardId: null,
+    });
+
+    expect(mocks.removeDashboard).not.toHaveBeenCalled();
+  });
+
   it("keeps the dashboard when the same person took over the claim", async () => {
     // Their new run writes the same dashboard id.
     mocks.holdClaim.mockResolvedValue(false);

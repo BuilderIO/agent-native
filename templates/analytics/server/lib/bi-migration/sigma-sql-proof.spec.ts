@@ -15,6 +15,7 @@ vi.mock("../bigquery.js", async () => {
   return { BigQueryDryRunPreparationError, dryRunQuerySchema: mocks.dryRun };
 });
 vi.mock("../dashboard-panel-verification.js", () => ({
+  DEFAULT_MAX_BYTES_TO_EXECUTE: 50 * 1024 ** 3,
   runPool: async <T, R>(items: T[], _limit: number, fn: (item: T) => R) =>
     Promise.all(items.map(fn)),
 }));
@@ -92,7 +93,17 @@ describe("proveSigmaPanelSql", () => {
       .mockResolvedValueOnce({ error: "Table not found", status: 404 })
       .mockResolvedValueOnce({ error: "timed out", timedOut: true })
       .mockResolvedValueOnce({ error: "backend error", status: 503 })
-      .mockResolvedValueOnce({ error: "quota exceeded", status: 429 });
+      .mockResolvedValueOnce({ error: "quota exceeded", status: 429 })
+      .mockResolvedValueOnce({
+        error: "Quota exceeded",
+        status: 403,
+        reason: "quota_exceeded",
+      })
+      .mockResolvedValueOnce({
+        error: "Access denied",
+        status: 403,
+        reason: "access_denied",
+      });
 
     const proofs = await proveSigmaPanelSql(
       inspectionWith([
@@ -100,8 +111,10 @@ describe("proveSigmaPanelSql", () => {
         { elementId: "slow", sql: "SELECT 2", hasError: false },
         { elementId: "outage", sql: "SELECT 3", hasError: false },
         { elementId: "throttled", sql: "SELECT 4", hasError: false },
+        { elementId: "quota", sql: "SELECT 5", hasError: false },
+        { elementId: "denied", sql: "SELECT 6", hasError: false },
       ]),
-      ["rejected", "slow", "outage", "throttled"],
+      ["rejected", "slow", "outage", "throttled", "quota", "denied"],
     );
 
     expect(Object.fromEntries(proofs)).toEqual({
@@ -109,7 +122,23 @@ describe("proveSigmaPanelSql", () => {
       slow: { ok: false, reason: "bigquery_dry_run_unavailable" },
       outage: { ok: false, reason: "bigquery_dry_run_unavailable" },
       throttled: { ok: false, reason: "bigquery_dry_run_unavailable" },
+      quota: { ok: false, reason: "bigquery_dry_run_unavailable" },
+      denied: { ok: false, reason: "bigquery_dry_run_failed" },
     });
+  });
+
+  it("refuses SQL that would scan more than the execution cap", async () => {
+    mocks.dryRun.mockResolvedValue({
+      error: null,
+      totalBytesProcessed: 68 * 1024 ** 3,
+    });
+
+    const proofs = await proveSigmaPanelSql(
+      inspectionWith([{ elementId: "a", sql: "SELECT 1", hasError: false }]),
+      ["a"],
+    );
+
+    expect(proofs.get("a")).toEqual({ ok: false, reason: "too_expensive" });
   });
 
   it("stops dry-running once the run's deadline has passed", async () => {
@@ -122,6 +151,7 @@ describe("proveSigmaPanelSql", () => {
     expect(proofs.get("a")).toEqual({
       ok: false,
       reason: "bigquery_dry_run_unavailable",
+      skipped: true,
     });
     expect(mocks.dryRun).not.toHaveBeenCalled();
   });

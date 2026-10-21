@@ -495,8 +495,11 @@ The dashboard menu opens the Sigma import flow: a searchable table of every
 workbook the user can see in Sigma, with the owner of each migrated one and a
 Migrate button on the rest. Migrate builds a private dashboard in the user's
 "Sigma" folder: each panel's compiled Sigma SQL (data-model and join panels
-included) is dry-run on Analytics' BigQuery, panels that run are imported as tables, and the rest become review
-callouts. Only the dialog calls `migrate-sigma-workbook`; the agent cannot. When
+included) is dry-run on Analytics' BigQuery, panels that run under 50 GiB are
+imported as tables, and the rest become review callouts. Migrate assumes Sigma's
+BigQuery connections use Analytics' BigQuery project: the dry run resolves table
+names that omit the project against Analytics' project, so a workbook on another
+project can import cleanly while reading the wrong tables. Only the dialog calls `migrate-sigma-workbook`; the agent cannot. When
 the user asks you to review a failed migration, inspect the workbook with
 `inspect-sigma-workbook`, check the failing panels' tables with BigQuery, and
 explain what blocks them. Users can list workbooks with `list-sigma-workbooks`.

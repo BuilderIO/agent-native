@@ -973,6 +973,29 @@ describe("runQuery cancellation", () => {
     expect(result).toEqual({ error: null });
   });
 
+  it("reports BigQuery's error reason on a failed dry run", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "Quota exceeded",
+              errors: [{ reason: "quotaExceeded" }],
+            },
+          }),
+          { status: 403 },
+        ),
+      ),
+    );
+
+    await expect(dryRunQuerySchema("SELECT 1")).resolves.toEqual({
+      error: "Quota exceeded",
+      status: 403,
+      reason: "quota_exceeded",
+    });
+  });
+
   it("optionally classifies credential lookup failures as dry-run preparation errors", async () => {
     const privateDetail = new Error("private credential resolution detail");
     resolveCredential.mockRejectedValueOnce(privateDetail);

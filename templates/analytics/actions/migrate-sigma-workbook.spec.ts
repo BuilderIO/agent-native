@@ -67,7 +67,6 @@ vi.mock("../server/lib/bi-migration/unfinished-import.js", () => ({
   abandonSigmaImport: mocks.abandonImport,
 }));
 vi.mock("../server/lib/dashboard-panel-verification.js", () => ({
-  DEFAULT_MAX_BYTES_TO_EXECUTE: 1000,
   verifyDashboardPanels: mocks.verifyPanels,
 }));
 const { default: migrateSigmaWorkbook, sigmaDashboardName } =
@@ -241,6 +240,54 @@ describe("migrate-sigma-workbook", () => {
     expect(mocks.claimMigration).not.toHaveBeenCalled();
   });
 
+  it("keeps a workbook retryable when BigQuery could not check its panels", async () => {
+    workbookWith([
+      panelElement("element_1", "Revenue"),
+      panelElement("element_2", "Pipeline"),
+    ]);
+    mocks.proveSql.mockResolvedValue(
+      new Map([
+        ["element_1", { ok: false, reason: "bigquery_dry_run_failed" }],
+        ["element_2", { ok: false, reason: "bigquery_dry_run_unavailable" }],
+      ]),
+    );
+
+    await expect(
+      migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
+    ).rejects.toMatchObject({
+      errorCode: "bigquery_dry_run_unavailable",
+      statusCode: 503,
+    });
+    expect(mocks.claimMigration).not.toHaveBeenCalled();
+  });
+
+  it("does not ask for a retry that would skip the same panels again", async () => {
+    workbookWith([
+      panelElement("element_1", "Revenue"),
+      panelElement("element_2", "Pipeline"),
+    ]);
+    mocks.proveSql.mockResolvedValue(
+      new Map([
+        ["element_1", { ok: false, reason: "too_expensive" }],
+        [
+          "element_2",
+          {
+            ok: false,
+            reason: "bigquery_dry_run_unavailable",
+            skipped: true,
+          },
+        ],
+      ]),
+    );
+
+    await expect(
+      migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
+    ).rejects.toMatchObject({
+      errorCode: "sigma_no_runnable_panels",
+      statusCode: 422,
+    });
+  });
+
   it("imports proven panels and turns the rest into flagged callouts", async () => {
     workbookWith([
       panelElement("element_1", "Revenue"),
@@ -252,15 +299,17 @@ describe("migrate-sigma-workbook", () => {
         title: "Region filter",
         sigmaKind: "control-filter",
       },
+      panelElement("element_5", "Bookings"),
     ]);
     mocks.proveSql.mockResolvedValue(
       new Map([
-        ["element_1", { ok: true, sql: "SELECT 1 AS revenue" }],
-        ["element_2", { ok: false, reason: "unsafe_sql" }],
         [
-          "element_3",
-          { ok: true, sql: "SELECT 3 AS churn", estimatedBytes: 5000 },
+          "element_1",
+          { ok: true, sql: "SELECT 1 AS revenue", estimatedBytes: 100 },
         ],
+        ["element_2", { ok: false, reason: "unsafe_sql" }],
+        ["element_3", { ok: false, reason: "too_expensive" }],
+        ["element_5", { ok: true, sql: "SELECT 5 AS bookings" }],
       ]),
     );
     claimed();
@@ -272,16 +321,17 @@ describe("migrate-sigma-workbook", () => {
 
     expect(mocks.proveSql).toHaveBeenCalledWith(
       expect.anything(),
-      ["element_1", "element_2", "element_3"],
+      ["element_1", "element_2", "element_3", "element_5"],
       { deadline: expect.any(Number) },
     );
     const [, , config] = mocks.upsertDashboard.mock.calls[0];
     expect(
       config.panels.map((p: { chartType: string }) => p.chartType),
-    ).toEqual(["table", "callout", "table", "callout"]);
+    ).toEqual(["table", "callout", "callout", "callout", "table"]);
     expect(config.panels[0].sql).toBe("SELECT 1 AS revenue");
     expect(config.panels[1].sql).toContain("not a single read-only query");
-    // A panel over the byte limit is imported but never executed.
+    expect(config.panels[2].sql).toContain("more than 50 GiB");
+    // A panel with no byte estimate is imported but never executed.
     const [, verifiedIds] = mocks.verifyPanels.mock.calls[0];
     expect(verifiedIds).toEqual([config.panels[0].id]);
     expect(mocks.verifyPanels.mock.calls[0][2]).toMatchObject({
@@ -290,7 +340,7 @@ describe("migrate-sigma-workbook", () => {
     expect(mocks.completeMigration).toHaveBeenCalledWith(
       expect.objectContaining({
         claimToken: "token_1",
-        flaggedCount: 3,
+        flaggedCount: 4,
         elementDiagnostics: [
           expect.objectContaining({
             id: "element_2",
@@ -299,7 +349,7 @@ describe("migrate-sigma-workbook", () => {
           }),
           expect.objectContaining({
             id: "element_3",
-            status: "yellow",
+            status: "red",
             reason: "too_expensive",
           }),
           expect.objectContaining({
@@ -307,14 +357,19 @@ describe("migrate-sigma-workbook", () => {
             status: "red",
             reason: "unsupported_filter",
           }),
+          expect.objectContaining({
+            id: "element_5",
+            status: "yellow",
+            reason: "not_verified",
+          }),
         ],
       }),
     );
     expect(result).toMatchObject({
       status: "completed",
       importedCount: 2,
-      unsupportedCount: 2,
-      flaggedCount: 3,
+      unsupportedCount: 3,
+      flaggedCount: 4,
     });
   });
 
@@ -326,9 +381,9 @@ describe("migrate-sigma-workbook", () => {
     ]);
     mocks.proveSql.mockResolvedValue(
       new Map([
-        ["element_1", { ok: true, sql: "SELECT 1 AS revenue" }],
-        ["element_2", { ok: true, sql: "SELECT 2 AS pipeline" }],
-        ["element_3", { ok: true, sql: "SELECT 3 AS churn" }],
+        ["element_1", { ok: true, sql: "SELECT 1", estimatedBytes: 1 }],
+        ["element_2", { ok: true, sql: "SELECT 2", estimatedBytes: 1 }],
+        ["element_3", { ok: true, sql: "SELECT 3", estimatedBytes: 1 }],
       ]),
     );
     claimed();

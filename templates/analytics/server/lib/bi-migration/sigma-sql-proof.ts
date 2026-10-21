@@ -4,7 +4,10 @@ import {
   BigQueryDryRunPreparationError,
   dryRunQuerySchema,
 } from "../bigquery.js";
-import { runPool } from "../dashboard-panel-verification.js";
+import {
+  DEFAULT_MAX_BYTES_TO_EXECUTE,
+  runPool,
+} from "../dashboard-panel-verification.js";
 import { assertReadOnlySql } from "../read-only-sql.js";
 import type {
   SigmaWorkbookInspection,
@@ -16,11 +19,13 @@ export type SigmaSqlProofFailure =
   | "sql_too_large"
   | "unsafe_sql"
   | "bigquery_dry_run_failed"
-  | "bigquery_dry_run_unavailable";
+  | "bigquery_dry_run_unavailable"
+  | "too_expensive";
 
 export type SigmaSqlProof =
   | { ok: true; sql: string; estimatedBytes?: number }
-  | { ok: false; reason: SigmaSqlProofFailure };
+  /** `skipped`: the deadline passed before this panel was dry-run. */
+  | { ok: false; reason: SigmaSqlProofFailure; skipped?: true };
 
 const DRY_RUN_CONCURRENCY = 8;
 
@@ -49,7 +54,11 @@ export async function proveSigmaPanelSql(
       [
         elementId,
         options.deadline !== undefined && Date.now() >= options.deadline
-          ? ({ ok: false, reason: "bigquery_dry_run_unavailable" } as const)
+          ? ({
+              ok: false,
+              reason: "bigquery_dry_run_unavailable",
+              skipped: true,
+            } as const)
           : await proveOne(queriesByElementId.get(elementId)),
       ] as const,
   );
@@ -98,6 +107,13 @@ async function proveOne(
     });
   }
   if (dryRun.error === null) {
+    // Over the cap, a panel would run on every view, so it is not imported.
+    if (
+      dryRun.totalBytesProcessed !== undefined &&
+      dryRun.totalBytesProcessed > DEFAULT_MAX_BYTES_TO_EXECUTE
+    ) {
+      return { ok: false, reason: "too_expensive" };
+    }
     return {
       ok: true,
       sql: query.sql,
@@ -106,11 +122,15 @@ async function proveOne(
         : {}),
     };
   }
-  // A timeout, rate limit, or BigQuery outage says nothing about the SQL.
+  // A timeout, rate limit, quota, or BigQuery outage says nothing about the
+  // SQL; quota and rate limits can arrive as a 403.
   const unavailable =
     dryRun.timedOut === true ||
     dryRun.status === 429 ||
-    (dryRun.status ?? 0) >= 500;
+    (dryRun.status ?? 0) >= 500 ||
+    dryRun.reason === "quota_exceeded" ||
+    dryRun.reason === "rate_limited" ||
+    dryRun.reason === "backend_error";
   return {
     ok: false,
     reason: unavailable

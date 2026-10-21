@@ -40,7 +40,6 @@ import {
   assignDashboardToFolder,
 } from "../server/lib/dashboard-folders-store.js";
 import {
-  DEFAULT_MAX_BYTES_TO_EXECUTE,
   verifyDashboardPanels,
   type DashboardVerification,
 } from "../server/lib/dashboard-panel-verification.js";
@@ -135,6 +134,8 @@ const REVIEW_MESSAGES: Record<SigmaSqlProofFailure | "unsupported", string> = {
     "BigQuery rejected this element's SQL with Analytics' BigQuery access.",
   bigquery_dry_run_unavailable:
     "BigQuery could not check this element's SQL during the import, so it was not imported.",
+  too_expensive:
+    "This element's SQL would scan more than 50 GiB on every view, so it was not imported.",
 };
 
 function makeReviewCallout(
@@ -200,10 +201,6 @@ function migrationDiagnostics(args: {
       diagnostics.push(diagnosticFor(element, "red", proof.reason));
       continue;
     }
-    if (isTooExpensive(proof)) {
-      diagnostics.push(diagnosticFor(element, "yellow", "too_expensive"));
-      continue;
-    }
     const panel = verificationByPanelId.get(
       args.panelIdsByElementId.get(element.id) ?? "",
     );
@@ -219,20 +216,12 @@ function migrationDiagnostics(args: {
         diagnosticFor(element, "yellow", "manual_review_required"),
       );
     } else if (panel?.status !== "ok") {
-      // Not run within the budget, over the execution cap, or never
+      // Not run within the budget, without a byte estimate, or never
       // reported: the panel is imported but nothing has shown it renders.
       diagnostics.push(diagnosticFor(element, "yellow", "not_verified"));
     }
   }
   return diagnostics;
-}
-
-function isTooExpensive(proof: SigmaSqlProof): boolean {
-  return (
-    proof.ok &&
-    proof.estimatedBytes !== undefined &&
-    proof.estimatedBytes > DEFAULT_MAX_BYTES_TO_EXECUTE
-  );
 }
 
 function compileSigmaDashboard(args: {
@@ -349,7 +338,22 @@ async function proveSigmaWorkbook(
     { deadline },
   );
   if (![...proofs.values()].some((proof) => proof.ok)) {
-    fail("None of this workbook's panels ran on Analytics' BigQuery.", {
+    // A panel BigQuery could not check might still run, so the import is
+    // retryable. Deadline skips don't count: a retry would skip them again.
+    if (
+      [...proofs.values()].some(
+        (proof) =>
+          !proof.ok &&
+          proof.reason === "bigquery_dry_run_unavailable" &&
+          !proof.skipped,
+      )
+    ) {
+      fail("BigQuery could not check this workbook's SQL. Try again.", {
+        errorCode: "bigquery_dry_run_unavailable",
+        statusCode: 503,
+      });
+    }
+    fail("None of this workbook's panels can be imported.", {
       errorCode: "sigma_no_runnable_panels",
       statusCode: 422,
       details: {
@@ -507,13 +511,14 @@ export default defineAction({
         installedAt,
       });
       // Report only: a panel that dry-runs but fails or returns nothing is
-      // still imported and flagged. Too-expensive panels are never executed.
+      // still imported and flagged. A panel with no byte estimate is never
+      // executed here, since nothing shows it is under the cap.
       const verification = await verifyDashboardPanels(
         compiled.config as unknown as Record<string, unknown>,
         [...compiled.panelIdsByElementId]
           .filter(([elementId]) => {
             const proof = proofs.get(elementId);
-            return proof !== undefined && !isTooExpensive(proof);
+            return proof?.ok === true && proof.estimatedBytes !== undefined;
           })
           .map(([, id]) => id),
         {

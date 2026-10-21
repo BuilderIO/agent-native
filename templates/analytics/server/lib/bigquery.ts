@@ -1139,6 +1139,8 @@ export interface DryRunQueryResult {
   timedOut?: true;
   /** HTTP status of a failed dry-run request; 400 means BigQuery rejected the SQL. */
   status?: number;
+  /** BigQuery's error reason for a failed dry-run request. */
+  reason?: BigQueryBackendReason;
   /** Absent when BigQuery's dry-run response carried no schema. */
   schema?: { name: string; type: string }[];
   /** Absent when BigQuery's dry-run response carried no byte estimate. */
@@ -1265,7 +1267,13 @@ export async function dryRunQuerySchema(
         error?: { message?: string };
       };
       const msg = parsed.error?.message?.trim();
-      if (msg) return { error: msg, status: res.status };
+      if (msg) {
+        return {
+          error: msg,
+          status: res.status,
+          reason: bigQueryReasonFromResponse(text),
+        };
+      }
       // coercion-ok: malformed BigQuery error bodies use the status fallback below.
     } catch {
       // Fall through
@@ -1273,6 +1281,7 @@ export async function dryRunQuerySchema(
     return {
       error: `BigQuery validation failed (${res.status})`,
       status: res.status,
+      reason: bigQueryReasonFromResponse(text),
     };
   } catch (error) {
     if (timedOut) return { error: timeoutMessage, timedOut: true };
