@@ -2205,33 +2205,30 @@ export function createAgentKitProtocolAdapter(
         await closeDiscardedTurnEvents(turn);
         throw new Error(`Duplicate AgentKit run id: ${runId}`);
       }
-      if (turn.id !== undefined && existingRun.turn.id === turn.id) {
+      const isRuntimeAlias = existingRun.runId !== runId;
+      const isSameRuntimeTurn =
+        existingRun.turn.id !== undefined && existingRun.turn.id === turn.id;
+      if (isRuntimeAlias && !isSameRuntimeTurn && !existingRun.terminal) {
         await closeDiscardedTurnEvents(turn);
+        throw new Error(`Duplicate AgentKit run id: ${runId}`);
+      }
+      if (!isRuntimeAlias || isSameRuntimeTurn) {
+        await closeDiscardedTurnEvents(turn);
+        touchRun(existingRun);
+        ensurePump(existingRun);
+        // Protocol run IDs are authoritative. Runtime aliases only match the turn that
+        // created them.
         return existingRun.runId;
       }
-      // A duplicate queued submission is answered with the run that already
-      // took it, replayed from its first event. This adapter reads that run
-      // already, so the replay is drained rather than indexed a second time.
-      // The replayed stream stays open until the run ends; closing it early
-      // needs a transport abort, because turn.cancel would cancel the run.
-      void (async () => {
-        for await (const _event of turn.events) {
-          // Discarded: the existing run delivers these events.
-        }
-      })().catch((error: unknown) => {
-        console.warn(
-          `[agentkit] replayed stream for run ${runId} failed`,
-          error,
-        );
-      });
-      touchRun(existingRun);
-      ensurePump(existingRun);
-      // A runtime alias resolves to the run that owns it, which may use a
-      // different protocol id; the caller must address that run.
-      return existingRun.runId;
     }
     pruneRetainedRuns(run.lastAccessedAtMs);
-    const indexedRun = indexRun(run, turn.runId, true);
+    let indexedRun: ProtocolRun;
+    try {
+      indexedRun = indexRun(run, turn.runId, start.attachReplayedRun === true);
+    } catch (error) {
+      await closeDiscardedTurnEvents(turn);
+      throw error;
+    }
     if (indexedRun !== run) {
       await closeDiscardedTurnEvents(turn);
       return indexedRun.runId;
@@ -2254,11 +2251,56 @@ export function createAgentKitProtocolAdapter(
     await session.dispose?.();
   }
 
+  function drainDiscardedTurnEventIterator(
+    iterator: AsyncIterator<AgentChatRuntimeEvent>,
+  ): void {
+    void (async () => {
+      try {
+        while (!(await iterator.next()).done) {}
+      } catch (error) {
+        console.warn(
+          "[agentkit] Could not drain a discarded runtime event stream",
+          error,
+        );
+      }
+    })();
+  }
+
   async function closeDiscardedTurnEvents(
     turn: AgentChatRuntimeTurn,
   ): Promise<void> {
     const iterator = turn.events[Symbol.asyncIterator]();
-    await Promise.all([turn.closeEvents?.(), iterator.return?.()]);
+    let drainStarted = false;
+    const drain = () => {
+      if (drainStarted) return;
+      drainStarted = true;
+      drainDiscardedTurnEventIterator(iterator);
+    };
+    if (!turn.closeEvents && !iterator.return) {
+      drain();
+      return;
+    }
+
+    const attemptCleanup = (cleanup: () => unknown) => {
+      try {
+        void Promise.resolve(cleanup()).catch((error) => {
+          console.warn(
+            "[agentkit] Could not close a discarded runtime event stream",
+            error,
+          );
+          drain();
+        });
+      } catch (error) {
+        console.warn(
+          "[agentkit] Could not close a discarded runtime event stream",
+          error,
+        );
+        drain();
+      }
+    };
+
+    if (turn.closeEvents) attemptCleanup(() => turn.closeEvents?.());
+    if (iterator.return) attemptCleanup(() => iterator.return?.());
   }
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {

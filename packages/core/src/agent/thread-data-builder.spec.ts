@@ -6,6 +6,7 @@ import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js
 import { toolInputFingerprint } from "../shared/tool-inputs.js";
 import { approvalKeyForHistory } from "./approval-key.js";
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
+import { INTERRUPTED_TOOL_RESULT_MARKER } from "./engine/translate-anthropic.js";
 import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
@@ -719,6 +720,7 @@ describe("buildAssistantMessage", () => {
           type: "tool_done",
           id: "call_a",
           tool: "query",
+          replayed: true,
           result:
             "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n1",
         },
@@ -732,6 +734,170 @@ describe("buildAssistantMessage", () => {
 
     expect(toolCalls).toHaveLength(1);
     expect(toolCalls[0]).toMatchObject({ toolName: "query" });
+  });
+
+  it("preserves repeated identical legacy tool call occurrences and results", () => {
+    const input = { sql: "select 1" };
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: { type: "tool_start", id: "same-id", tool: "query", input },
+      },
+      {
+        seq: 1,
+        event: {
+          type: "tool_done",
+          id: "same-id",
+          tool: "query",
+          input,
+          result: "first result",
+        },
+      },
+      {
+        seq: 2,
+        event: { type: "tool_start", id: "same-id", tool: "query", input },
+      },
+      {
+        seq: 3,
+        event: {
+          type: "tool_done",
+          id: "same-id",
+          tool: "query",
+          input,
+          result: "second result",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-legacy-occurrences");
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls).toMatchObject([
+      { toolCallId: "same-id", result: "first result" },
+      { toolCallId: "same-id", result: "second result" },
+    ]);
+  });
+
+  it("leaves a legacy result unresolved when repeated starts are both pending", () => {
+    const input = { sql: "select 1" };
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: { type: "tool_start", id: "same-id", tool: "query", input },
+      },
+      {
+        seq: 1,
+        event: { type: "tool_start", id: "same-id", tool: "query", input },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_done",
+          id: "same-id",
+          tool: "query",
+          input,
+          result: "Completed retried query",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(
+      events,
+      "run-ambiguous-legacy-result",
+    );
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls).toMatchObject([
+      { result: INTERRUPTED_TOOL_RESULT_MARKER, outcome: "unknown" },
+      { result: INTERRUPTED_TOOL_RESULT_MARKER, outcome: "unknown" },
+    ]);
+  });
+
+  it("attaches a step-identified result to its unique legacy start", () => {
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: {
+          type: "tool_start",
+          id: "legacy-id",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      {
+        seq: 1,
+        event: {
+          type: "tool_done",
+          id: "resumed-id",
+          executionStepId: "stable-step",
+          tool: "query",
+          input: { sql: "select 1" },
+          result: "saved result",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-legacy-step-result");
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolCallId: "legacy-id",
+      executionStepId: "stable-step",
+      result: "saved result",
+    });
+  });
+
+  it("leaves a step-identified result unresolved when multiple legacy starts match", () => {
+    const input = { sql: "select 1" };
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: {
+          type: "tool_start",
+          id: "legacy-first",
+          tool: "query",
+          input,
+        },
+      },
+      {
+        seq: 1,
+        event: {
+          type: "tool_start",
+          id: "legacy-second",
+          tool: "query",
+          input,
+        },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_done",
+          executionStepId: "unmatched-step",
+          tool: "query",
+          input,
+          result: "ambiguous result",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-ambiguous-legacy-step");
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls.map((part: { outcome?: string }) => part.outcome)).toEqual(
+      ["unknown", "unknown"],
+    );
   });
 
   it("keeps two cards when one id is reused across different tools", () => {
@@ -754,6 +920,60 @@ describe("buildAssistantMessage", () => {
     );
 
     expect(toolCalls).toHaveLength(2);
+  });
+
+  it("keeps calls with a reused provider id when their inputs differ", () => {
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: {
+          type: "tool_start",
+          id: "reused",
+          tool: "query",
+          input: { id: "first" },
+        },
+      },
+      {
+        seq: 1,
+        event: {
+          type: "tool_done",
+          id: "reused",
+          tool: "query",
+          input: { id: "first" },
+          result: "first result",
+        },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_start",
+          id: "reused",
+          tool: "query",
+          input: { id: "second" },
+        },
+      },
+      {
+        seq: 3,
+        event: {
+          type: "tool_done",
+          id: "reused",
+          tool: "query",
+          input: { id: "second" },
+          result: "second result",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-id-reuse");
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls).toMatchObject([
+      { args: { id: "first" }, result: "first result" },
+      { args: { id: "second" }, result: "second result" },
+    ]);
   });
 
   it("clears rejected draft text while preserving completed tool results", () => {

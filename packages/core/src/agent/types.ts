@@ -420,6 +420,7 @@ export type AgentChatEvent =
       type: "tool_start";
       tool: string;
       id?: string;
+      executionStepId?: string;
       input: AgentToolInput;
       inputFingerprint?: string;
       inputStoredFingerprint?: string;
@@ -428,6 +429,7 @@ export type AgentChatEvent =
       type: "tool_done";
       tool: string;
       id?: string;
+      executionStepId?: string;
       input?: AgentToolInput;
       inputFingerprint?: string;
       inputStoredFingerprint?: string;
