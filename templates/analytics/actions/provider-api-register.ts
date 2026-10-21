@@ -1,19 +1,14 @@
-import { getDbExec } from "@agent-native/core/db";
 import {
   createCustomProviderRegistrationAction,
   CustomProviderRegistrationSchema,
 } from "@agent-native/core/provider-api/actions/custom-provider-registration";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
 async function resolveCallerOrgRole(orgId: string, email: string) {
   try {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 LIMIT 1`,
-      args: [orgId, email.toLowerCase()],
-    });
-    const role = (rows[0] as { role?: unknown } | undefined)?.role;
-    return typeof role === "string" && role ? role : null;
+    return await readOrgMemberRole(orgId, email);
   } catch {
     return null;
   }

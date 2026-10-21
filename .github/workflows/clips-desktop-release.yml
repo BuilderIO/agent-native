@@ -1,4 +1,6 @@
 name: Clips Desktop Release
+run-name: >-
+  ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
 
 on:
   push:
@@ -24,6 +26,11 @@ on:
         description: "Exact source commit to build for a coordinated release"
         required: false
         type: string
+      coordinator_run_id:
+        description: Release coordinator ID used to reconcile a transient dispatch failure
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write

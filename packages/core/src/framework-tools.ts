@@ -276,6 +276,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "change-password": "userProfile",
   "request-privacy-right": "userProfile",
   "change-appearance": "userProfile",
+  "get-theme-family": "userProfile",
+  "set-theme-family": "userProfile",
 
   "list-audit-events": "audit",
   "get-audit-event": "audit",

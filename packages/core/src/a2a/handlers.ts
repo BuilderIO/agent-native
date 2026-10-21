@@ -431,9 +431,11 @@ async function processClaimedA2ATask(
   const identityAssurance =
     processorMeta.identityAssurance === "organization"
       ? "organization"
-      : processorMeta.identityAssurance === "user"
-        ? "user"
-        : undefined;
+      : processorMeta.identityAssurance === "org-member"
+        ? "org-member"
+        : processorMeta.identityAssurance === "user"
+          ? "user"
+          : undefined;
   const orgDomainHint = processorMeta.orgDomainHint as string | undefined;
   const verifiedOrgId =
     typeof processorMeta.verifiedOrgId === "string"
@@ -505,6 +507,9 @@ async function processClaimedA2ATask(
     await runWithRequestContext(
       {
         userEmail: verifiedEmail,
+        ...(identityAssurance
+          ? { a2aIdentityAssurance: identityAssurance }
+          : {}),
         ...(resolvedOrgId
           ? { orgId: resolvedOrgId }
           : verifiedEmail
@@ -753,6 +758,13 @@ async function withA2ARequestContext<T>(
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
   const verifiedOrgId =
     (event?.context?.__a2aVerifiedOrgId as string | undefined) ?? undefined;
+  const rawIdentityAssurance = event?.context?.__a2aIdentityAssurance;
+  const identityAssurance =
+    rawIdentityAssurance === "user" ||
+    rawIdentityAssurance === "organization" ||
+    rawIdentityAssurance === "org-member"
+      ? rawIdentityAssurance
+      : undefined;
   const requestOrigin = requestOriginForContext(metadata, event);
   if (event?.context && verifiedEmail && !verifiedOrgId) {
     markExplicitPersonalOrgScope(event);
@@ -761,6 +773,7 @@ async function withA2ARequestContext<T>(
   return runWithRequestContext(
     {
       userEmail: verifiedEmail,
+      ...(identityAssurance ? { a2aIdentityAssurance: identityAssurance } : {}),
       ...(verifiedOrgId
         ? { orgId: verifiedOrgId }
         : verifiedEmail

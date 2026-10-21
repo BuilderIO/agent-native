@@ -1424,6 +1424,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "已處理",
   "tool.workedFor": "處理了 {{duration}}",
   "widget.chart": "圖表",
+  "widget.chartActions": "圖表操作",
+  "widget.dataSources": "資料來源",
+  "widget.tableActions": "表格操作",
   "widget.dataChart": "資料圖表",
   "widget.dataInsights": "資料洞察",
   "widget.dataTable": "資料表",
@@ -1875,9 +1878,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "更多資訊",
   "settingsOrg.general.workspaceUrl": "工作區 URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "將其他部署中的成員引導到此工作區。",
+    "跨部署連結此組織的應用程式目錄。",
   "settingsOrg.general.workspaceUrlHelp":
-    "進入其他部署的成員會前往此工作區，而不是空白的應用程式。",
+    "其他部署會使用此 URL 尋找工作區應用程式。此設定不會自動重新導向成員。",
   "settingsOrg.general.editWorkspaceUrl": "編輯工作區 URL",
   "settingsOrg.general.removeWorkspaceUrl": "移除工作區 URL",
   "settingsOrg.general.setWorkspaceUrl": "設定 URL",
@@ -1894,6 +1897,9 @@ const messages: ToolkitAgentChatTranslation = {
     "已設定。讓此工作區中的應用程式互相驗證。",
   "settingsOrg.auth.sharedSecretNotSet":
     "未設定。讓此工作區中的應用程式互相驗證。",
+  "settingsOrg.auth.memberDelegation": "組織成員身分委派",
+  "settingsOrg.auth.memberDelegationHelp":
+    "持有此組織共用密鑰的已連結應用程式在呼叫此應用程式時，可以聲稱是任何一位現任成員。此應用程式會檢查即時成員名單，並將受委派的組織存取權限制為成員層級的權限。",
   "settingsOrg.auth.secretNotSetValue": "未設定",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "顯示",
@@ -1947,6 +1953,12 @@ const messages: ToolkitAgentChatTranslation = {
     "請查看您的電子郵件，依照說明確認此變更。",
   "settingsShell.account.languageAndRegion": "語言和地區",
   "settingsShell.account.languageDescription": "套用至您的所有裝置。",
+  "settingsShell.account.appearance": "外觀",
+  "settingsShell.account.themeFamily": "主題樣式",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "原始應用程式配色",
+  "settingsShell.account.themeFamilySaveError":
+    "無法更新主題樣式，請再試一次。",
   "settingsShell.account.manage": "管理",
   "settingsShell.account.name": "姓名",
   "settingsShell.account.nameDescription":
@@ -2927,6 +2939,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "回報未能附加。",
   "reportProblem.agentMessage":
     "應用程式出了問題。請根據附上的問題回報說明發生了什麼事。",
+  "unsupportedDevice.title": "請在較大的螢幕上開啟",
+  "unsupportedDevice.titleDeck": "請在較大的螢幕上開啟此簡報",
+  "unsupportedDevice.titleDesign": "請在較大的螢幕上開啟此設計",
+  "unsupportedDevice.body":
+    "{{app}}支援 iPad、平板與桌面裝置。將連結傳給自己，即可在那裡繼續。",
+  "unsupportedDevice.email": "將連結寄給我",
+  "unsupportedDevice.share": "分享連結",
+  "unsupportedDevice.copy": "複製連結",
+  "unsupportedDevice.copyFailed": "無法複製連結",
+  "unsupportedDevice.copied": "已複製連結",
+  "unsupportedDevice.emailSubject": "在電腦上開啟{{app}}",
 };
 
 export default messages;

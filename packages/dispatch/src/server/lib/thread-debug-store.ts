@@ -4,7 +4,7 @@ import {
   type AgentFailureRegime,
 } from "@agent-native/core/agent/engine";
 import { createDbExec, getDbExec, type DbExec } from "@agent-native/core/db";
-import { getAppConfig } from "@agent-native/core/server";
+import { getAppConfig, readOrgMemberRole } from "@agent-native/core/server";
 import { ForbiddenError } from "@agent-native/core/sharing";
 
 import {
@@ -436,14 +436,7 @@ async function viewerOrgRole(
   viewerEmail: string,
 ): Promise<string | null> {
   if (!orgId) return null;
-  const rows = await currentDbRows<{ role?: string }>(
-    `SELECT role FROM org_members
-     WHERE org_id = ? AND LOWER(email) = ?
-       AND federation_removal_pending_at IS NULL
-     LIMIT 1`,
-    [orgId, viewerEmail.toLowerCase()],
-  );
-  return typeof rows[0]?.role === "string" ? rows[0].role : null;
+  return readOrgMemberRole(orgId, viewerEmail);
 }
 
 async function currentOrgMembers(orgId: string | null): Promise<string[]> {

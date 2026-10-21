@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.211.0",
+  "version": "0.214.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -415,6 +415,7 @@
     },
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
+    "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
     "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
     "./a2a": "./dist/a2a/index.js",
     "./mcp": "./dist/mcp/index.js",

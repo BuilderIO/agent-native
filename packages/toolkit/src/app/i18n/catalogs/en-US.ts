@@ -1513,6 +1513,9 @@ const messages = {
   "tool.worked": "Worked",
   "tool.workedFor": "Worked for {{duration}}",
   "widget.chart": "Chart",
+  "widget.chartActions": "Chart actions",
+  "widget.dataSources": "Data sources",
+  "widget.tableActions": "Table actions",
   "widget.dataChart": "Data chart",
   "widget.dataInsights": "Data insights",
   "widget.dataTable": "Data table",
@@ -2011,9 +2014,9 @@ const messages = {
   "settingsOrg.moreInformation": "More information",
   "settingsOrg.general.workspaceUrl": "Workspace URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "Send members to this workspace from another deployment.",
+    "Connect this organization's app directory across deployments.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Members who land on another deployment go to this workspace instead of an empty app.",
+    "Other deployments use this URL to discover workspace apps. It does not automatically redirect members.",
   "settingsOrg.general.editWorkspaceUrl": "Edit workspace URL",
   "settingsOrg.general.removeWorkspaceUrl": "Remove workspace URL",
   "settingsOrg.general.setWorkspaceUrl": "Set URL",
@@ -2030,6 +2033,9 @@ const messages = {
     "Set. Lets the apps in this workspace verify each other.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Not set. Lets the apps in this workspace verify each other.",
+  "settingsOrg.auth.memberDelegation": "Org-member identity delegation",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Connected apps with this shared organization secret can claim any current member's identity when calling this app. This app checks the live member roster and limits delegated organization access to member-level permissions.",
   "settingsOrg.auth.secretNotSetValue": "Not set",
   "settingsOrg.auth.manage": "Manage",
   "settingsOrg.auth.reveal": "Reveal",
@@ -2092,6 +2098,12 @@ const messages = {
     "Check your email for instructions to confirm this change.",
   "settingsShell.account.languageAndRegion": "Language and region",
   "settingsShell.account.languageDescription": "Applies on all your devices.",
+  "settingsShell.account.appearance": "Appearance",
+  "settingsShell.account.themeFamily": "Theme family",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "Original app colors",
+  "settingsShell.account.themeFamilySaveError":
+    "Could not update the theme family. Try again.",
   "settingsShell.account.manage": "Manage",
   "settingsShell.account.name": "Name",
   "settingsShell.account.nameDescription":
@@ -3207,6 +3219,17 @@ const messages = {
   "reportProblem.notAttached": "The report was not attached.",
   "reportProblem.agentMessage":
     "Something went wrong in the app. Use the attached problem report to explain what happened.",
+  "unsupportedDevice.title": "Open this on a larger screen",
+  "unsupportedDevice.titleDeck": "Open this deck on a larger screen",
+  "unsupportedDevice.titleDesign": "Open this design on a larger screen",
+  "unsupportedDevice.body":
+    "{{app}} works on iPad, tablets, and desktops. Send yourself the link to pick it up there.",
+  "unsupportedDevice.email": "Email me the link",
+  "unsupportedDevice.share": "Share link",
+  "unsupportedDevice.copy": "Copy link",
+  "unsupportedDevice.copyFailed": "Couldn't copy the link",
+  "unsupportedDevice.copied": "Link copied",
+  "unsupportedDevice.emailSubject": "Open {{app}} on your computer",
 } as const;
 
 export default messages;

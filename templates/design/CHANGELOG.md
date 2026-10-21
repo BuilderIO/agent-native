@@ -7,6 +7,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Journey canvases accept partial Analytics samples when replay counts are unknown
+- Design generation now counts file renames and type changes as saved output.
 - Design reports uncertain generation outcomes clearly and confirms completed file deletions
 - Generation offers a retry when a completed run saved no design files
 
@@ -14,10 +16,13 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Phones now see a page that shares or emails the link to a larger screen, instead of an editor that isn't built for small screens.
 - Suggested prompts and the quieter Skip prompt action now share one row.
 
 ### Fixed
 
+- Public Design previews no longer show spurious export errors
+- Screen image uploads no longer overwrite edits made during the upload.
 - Failed Design generations now show an error and retry action instead of appearing complete
 - Finished design output stays available when a generation run stops unexpectedly.
 - Reopening a design no longer reports completed generation as stopped.

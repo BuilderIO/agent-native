@@ -165,6 +165,14 @@ export function githubFolderLabel(location: GitHubFolderLocation): string {
   return `${location.owner}/${location.repo}${folder ? `/${folder}` : ""}`;
 }
 
+/** What people call the folder: its own name, or the repository's at the root. */
+export function githubFolderName(
+  location: Pick<GitHubFolderLocation, "repo" | "path">,
+): string {
+  const folder = normalizeGitHubFolderPath(location.path);
+  return folder ? folder.slice(folder.lastIndexOf("/") + 1) : location.repo;
+}
+
 /** Joins a folder-relative path back onto the folder for its repository path. */
 export function githubRepoPath(folder: string, relativePath: string): string {
   const base = normalizeGitHubFolderPath(folder);
@@ -176,6 +184,8 @@ export type GitHubSourceSkipReason = "mdx" | "too-large" | "not-text";
 /**
  * What went wrong reading a linked folder, in terms a status line can explain
  * and fix: reconnect, regain access, restore the branch or folder, or wait.
+ * `unavailable` is GitHub not answering; `sync_failed` is a failure in
+ * Content itself, like a database error.
  */
 export type GitHubSourceProblemCode =
   | "connection"
@@ -186,6 +196,7 @@ export type GitHubSourceProblemCode =
   | "rate_limited"
   | "too_large"
   | "unavailable"
+  | "sync_failed"
   | "storage_unavailable";
 
 export type GitHubSourceFileClass =
@@ -228,6 +239,31 @@ export type GitHubFieldType = Extract<
   DocumentPropertyType,
   "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select"
 >;
+
+/** What a folder would become if linked, from a dry run of the link. */
+export interface GitHubFolderPreview {
+  location: GitHubFolderLocation;
+  label: string;
+  folderUrl: string;
+  commitSha: string;
+  markdownFiles: number;
+  skipped: Array<{ path: string; reason: GitHubSourceSkipReason }>;
+  /** Columns the frontmatter would become, with the type each would get. */
+  fields: Array<{ key: string; type: GitHubFieldType; examples: string[] }>;
+  sample: Array<{ path: string; title: string }>;
+  /** How many files the field types were read from. */
+  sampledFiles: number;
+  /** Image files in the folder, which pages show from Content's file storage. */
+  images: number;
+  /** Whether file storage is set up to hold those images. */
+  storageReady: boolean;
+}
+
+/** Why a collection can't be linked: it has pages, a source, or a system role. */
+export type GitHubLinkBlockedReason =
+  | "collection-has-rows"
+  | "already-linked"
+  | "system-collection";
 
 const SELECT_KEY_RE =
   /^(status|state|stage|category|type|kind|section|level|priority|visibility|difficulty|audience)$/i;
@@ -297,6 +333,38 @@ export function inferGitHubFieldType(
     return "select";
   }
   return "text";
+}
+
+const GITHUB_EXAMPLE_LENGTH = 80;
+
+/**
+ * Up to three example values for a column, as the link preview shows them:
+ * blank values and empty lists are skipped, and a long value ends in "…".
+ */
+export function githubFieldExamples(values: readonly unknown[]): string[] {
+  const examples: string[] = [];
+  for (const value of values) {
+    if (examples.length === 3) break;
+    if (value === null || value === undefined) continue;
+    const text = (
+      typeof value === "string"
+        ? value
+        : Array.isArray(value)
+          ? value
+              .map((entry) =>
+                typeof entry === "string" ? entry : JSON.stringify(entry),
+              )
+              .join(", ")
+          : JSON.stringify(value)
+    ).trim();
+    if (!text) continue;
+    examples.push(
+      text.length > GITHUB_EXAMPLE_LENGTH
+        ? `${text.slice(0, GITHUB_EXAMPLE_LENGTH - 1).trimEnd()}…`
+        : text,
+    );
+  }
+  return examples;
 }
 
 /** Whether a frontmatter value can be stored in a column of this type unchanged. */

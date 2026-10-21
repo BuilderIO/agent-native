@@ -246,6 +246,50 @@ describe("manage-provider-key-policy", () => {
     });
   });
 
+  it("does not grant an org owner mutation rights through member delegation", async () => {
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: OWNER,
+          orgId: ORG,
+          a2aIdentityAssurance: "org-member",
+        },
+        () => action.run({ set: true }, ctx(OWNER)),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "provider_key_policy_admin_required",
+      statusCode: 403,
+    });
+
+    expect(mocks.settings.size).toBe(0);
+    expect(mocks.recordActionAudit.mock.calls[0]?.[0]).toMatchObject({
+      status: "denied",
+      ctx: { userEmail: OWNER },
+    });
+  });
+
+  it("keeps affected-member provider data behind an org-admin gate", async () => {
+    const [{ runWithRequestContext }, { listPersonalProviderKeyHolders }] =
+      await Promise.all([
+        import("../../server/request-context.js"),
+        import("../../server/personal-provider-key-holders.js"),
+      ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: OWNER,
+          orgId: ORG,
+          a2aIdentityAssurance: "org-member",
+        },
+        () => listPersonalProviderKeyHolders(ORG, OWNER),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
   it("needs a signed-in caller in an organization", async () => {
     await expect(
       action.run({}, { caller: "tool", orgId: ORG }),
