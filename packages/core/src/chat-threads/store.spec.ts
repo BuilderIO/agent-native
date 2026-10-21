@@ -93,6 +93,7 @@ type ChatThreadRow = {
   source_url?: string | null;
   org_id?: string | null;
   visibility?: "private" | "org" | "public";
+  access_basis?: "owner" | "direct" | "organization";
 };
 
 const userMessage = {
@@ -3729,16 +3730,20 @@ describe("chat thread store", () => {
     expect(searchCall).toBeTruthy();
     const query = searchCall![0] as { sql: string; args: unknown[] };
     expect(query.sql).toContain("LIKE ? ESCAPE '!'");
-    expect(query.args.slice(2, 5)).toEqual([
+    const firstPattern = query.args.indexOf("%100!%!_done%");
+    expect(query.args.slice(firstPattern, firstPattern + 3)).toEqual([
       "%100!%!_done%",
       "%100!%!_done%",
       "%100!%!_done%",
     ]);
+    expect(query.args.slice(-2)).toEqual([50, 0]);
   });
 
   it("lists threads without loading the thread_data blob and filters on message_count", async () => {
     const summaryRow = {
       id: "thread-1",
+      owner_email: "user@example.com",
+      access_basis: "owner",
       title: "Thread",
       preview: "make this slide better",
       message_count: 1,
@@ -3787,6 +3792,8 @@ describe("chat thread store", () => {
   it("keeps the local history view app-scoped and excludes connected chats", async () => {
     const summaryRow = {
       id: "thread-local",
+      owner_email: "user@example.com",
+      access_basis: "owner",
       title: "Local thread",
       preview: "hello there",
       message_count: 1,
@@ -3842,6 +3849,7 @@ describe("chat thread store", () => {
     const activeRow: ChatThreadRow = {
       id: "thread-active",
       owner_email: "user@example.com",
+      access_basis: "owner",
       title: "Active Thread",
       preview: "hello there",
       thread_data: "{}",
