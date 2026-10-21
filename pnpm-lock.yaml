@@ -8151,12 +8151,14 @@ packages:
   '@agent-native/agentkit@0.210.2':
     resolution: {integrity: sha512-OP2+TWO5NWJBbSZebEQMT2DxDpdHdtm8NBhPU0r5L8h3u4b68ULm/LJV9Xpshp3jVdRy5Jp2+CqbFSoezT/Rdg==}
 
-  '@agent-native/agentkit@0.212.0': {}
+  '@agent-native/agentkit@0.212.0':
+    resolution: {integrity: sha512-20tRARnohmr/Tl2RSU2TQNICREzqVVvj/m2O3yUFBklWAnEEqFIz0yOC3wvDLbgjRow2iHKJU5y2kxR4v00NDQ==}
 
   '@agent-native/core-corpus@0.210.2':
     resolution: {integrity: sha512-XafLUGe0yOrBEIGa8l0gaKsNOYIjxHQ96ZvzBJ2gUi8sQHaqCCfbIFFGKifHatN/B80i7bQCkWOOSMjrXUwnVQ==}
 
-  '@agent-native/core-corpus@0.212.0': {}
+  '@agent-native/core-corpus@0.212.0':
+    resolution: {integrity: sha512-mqN7+pMgGmMgfhhnkOzLA7cdRUoV33crvVukxrrsPIP4wLZxxhcuoWOf+0+IDaYbxaZSkOQ4Z0xlDxxwfSgJOw==}
 
   '@agent-native/core@0.210.2':
     resolution: {integrity: sha512-bMhyOLLzT8NFcHN79zAYCkjRBHW2S/Zh+/l9dFCmbmE/UqLSXnCmDCsLa0L+7eMxbVAT+/HeTYCIVlv7yrfQlw==}
