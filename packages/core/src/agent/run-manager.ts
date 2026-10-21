@@ -96,6 +96,7 @@ export interface ActiveRun {
   flushEvents?: () => Promise<void>;
   waitForPersistence?: () => Promise<void>;
   abortReason?: string;
+  abortPersistenceManaged?: boolean;
   continuationTerminalEvent?: Extract<
     AgentChatEvent,
     { type: "auto_continue" } | { type: "error" }
@@ -907,6 +908,7 @@ export function startRun(
     },
   };
   let softTimedOut = false;
+  let checkpointBoundaryStarted = false;
   let resolveFinalized: () => void = () => {};
   let rejectFinalized: (reason?: unknown) => void = () => {};
   const finalized = new Promise<void>((resolve, reject) => {
@@ -1414,6 +1416,7 @@ export function startRun(
     )
       return checkpointRunBoundaryTask;
     checkpointAbortInFlight = true;
+    checkpointBoundaryStarted = true;
     const task = (async () => {
       let checkpointPersisted = false;
       try {
@@ -2178,19 +2181,18 @@ export function startRun(
           ? "truncated"
           : finalStatus;
       let volatileTerminalEvent: RunEvent | null = null;
-      const persistTerminalStatus = () => {
-        if (finalStatus === "aborted") {
-          return updateRunStatusIfRunning(runId, persistedStatus, {
-            ...(completionError ? { threadProjectionPending: true } : {}),
-            terminalReason,
-          });
-        }
-        return completionError
-          ? updateRunStatusIfRunning(runId, persistedStatus, {
-              threadProjectionPending: true,
-            })
-          : updateRunStatusIfRunning(runId, persistedStatus);
+      const terminalStatusOptions = {
+        ...(completionError ? { threadProjectionPending: true } : {}),
+        ...(checkpointBoundaryStarted ? { terminalReason } : {}),
       };
+      const persistTerminalStatus = () =>
+        Object.keys(terminalStatusOptions).length === 0
+          ? updateRunStatusIfRunning(runId, persistedStatus)
+          : updateRunStatusIfRunning(
+              runId,
+              persistedStatus,
+              terminalStatusOptions,
+            );
       const reconcileTerminalRun = () =>
         completionError
           ? reconcileTerminalRunFromEvents(runId, {
@@ -2285,12 +2287,32 @@ export function startRun(
         );
       };
 
-      if (executionLeaseClaimFailed) {
-        await insertRunPromise;
-        await markRunAborted(
-          runId,
-          run.abortReason ?? "execution-lease-claim-failed",
-        );
+      if (executionLeaseClaimFailed || finalStatus === "aborted") {
+        if (
+          !executionLeaseClaimFailed &&
+          (run.abortPersistenceManaged || run.abortReason === "superseded")
+        ) {
+          terminalPersistenceEstablished = false;
+        } else {
+          try {
+            await insertRunPromise;
+            const persistAtomicAbort = () =>
+              markRunAborted(
+                runId,
+                run.abortReason ?? "execution-lease-claim-failed",
+              );
+            const aborted = executionLeaseClaimFailed
+              ? await persistAtomicAbort()
+              : await withWorkerFence(persistAtomicAbort);
+            terminalPersistenceEstablished = aborted
+              ? true
+              : await withWorkerFence(reconcileTerminalRun);
+          } catch (error) {
+            terminalPersistenceEstablished = false;
+            reportTerminalStatusPersistenceError(error);
+            throw error;
+          }
+        }
       } else {
         try {
           await insertRunPromise;
@@ -2302,12 +2324,12 @@ export function startRun(
               reportTerminalStatusPersistenceError(error);
             }
             if (statusUpdated) {
-              terminalPersistenceEstablished = !terminalPersistenceError;
-              if (finalStatus !== "aborted") {
+              if (!checkpointBoundaryStarted) {
                 await withWorkerFence(() =>
                   setRunTerminalReason(runId, terminalReason),
                 );
               }
+              terminalPersistenceEstablished = !terminalPersistenceError;
             } else {
               terminalPersistenceEstablished =
                 await withWorkerFence(reconcileTerminalRun);
@@ -3409,6 +3431,7 @@ export async function abortRunDurably(
   options?: { allowNotStarted?: boolean },
 ): Promise<boolean> {
   const run = activeRuns.get(runId);
+  if (run) run.abortPersistenceManaged = true;
   const abortedInMemory = abortRunInMemory(runId, reason);
   try {
     const eventFlushFailure = await flushRunEventsBeforeAbort(run);

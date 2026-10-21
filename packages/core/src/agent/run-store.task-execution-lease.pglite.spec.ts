@@ -135,7 +135,7 @@ describe("task execution leases", () => {
     ]);
   });
 
-  it("replaces a checkpoint reason when run-manager finalizes after Stop rolls back", async () => {
+  it("replaces a checkpoint reason when atomic abort finalization follows Stop rollback", async () => {
     const threadId = "thread-abort-finalize-checkpoint-reason";
     const turnId = "turn-abort-finalize-checkpoint-reason";
     const runId = "run-abort-finalize-checkpoint-reason";
@@ -164,19 +164,44 @@ describe("task execution leases", () => {
       terminal_reason: "run_timeout",
     });
 
-    await expect(
-      updateRunStatusIfRunning(runId, "aborted", {
-        terminalReason: "aborted:user",
-      }),
-    ).resolves.toBe(true);
+    await expect(markRunAborted(runId, "user")).resolves.toBe(true);
 
     const finalized = await pglite.query(
-      `SELECT status, terminal_reason FROM agent_runs WHERE id = ?`,
+      `SELECT status, abort_reason, terminal_reason FROM agent_runs WHERE id = ?`,
       [runId],
     );
     expect(finalized.rows[0]).toMatchObject({
       status: "aborted",
+      abort_reason: "user",
       terminal_reason: "aborted:user",
+    });
+    await expect(getLastTerminalRunEvent(runId)).resolves.toMatchObject({
+      event: { type: "done" },
+    });
+  });
+
+  it("replaces a checkpoint reason with the final driver reason atomically", async () => {
+    const runId = "run-checkpoint-final-driver-reason";
+    await insertRun(runId, "thread-checkpoint-final-driver-reason");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    await expect(
+      updateRunStatusIfRunning(runId, "completed", {
+        terminalReason: "done",
+      }),
+    ).resolves.toBe(true);
+
+    await expect(
+      pglite.query(
+        `SELECT status, terminal_reason FROM agent_runs WHERE id = ?`,
+        [runId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ status: "completed", terminal_reason: "done" }],
     });
   });
 

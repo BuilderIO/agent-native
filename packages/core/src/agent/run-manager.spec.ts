@@ -26,6 +26,14 @@ const RUN_RECORD_MISSING_ERROR_CODE = "run_record_missing";
 const UNKNOWN_RUN_STATUS_ERROR_CODE = "unknown_run_status";
 const RUN_TERMINAL_LOOKUP_FAILED_ERROR_CODE = "run_terminal_lookup_failed";
 
+function expectTerminalReasonWrite(runId: string, terminalReason: string) {
+  expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+    runId,
+    expect.any(String),
+    expect.objectContaining({ terminalReason }),
+  );
+}
+
 const runStoreTestState = vi.hoisted(() => ({ runRecordMissingGraceMs: 0 }));
 
 const mockInsertRunEvent = vi.hoisted(() =>
@@ -781,10 +789,7 @@ describe("run manager soft timeout", () => {
     );
     expect(run.status).toBe("completed");
     await vi.waitFor(() =>
-      expect(setRunTerminalReason).toHaveBeenCalledWith(
-        "run-soft-timeout",
-        "run_timeout",
-      ),
+      expectTerminalReasonWrite("run-soft-timeout", "run_timeout"),
     );
   });
 
@@ -839,6 +844,7 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-truncated-status",
         "truncated",
+        expect.objectContaining({ terminalReason: "run_timeout" }),
       ),
     );
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
@@ -1063,6 +1069,10 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         runId,
         expect.any(String),
+        expect.objectContaining({
+          terminalReason:
+            persistedStatus === "errored" ? "error:unknown" : "done",
+        }),
       );
       expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(runId);
       expect(run.events).not.toContainEqual(
@@ -1169,6 +1179,7 @@ describe("run manager soft timeout", () => {
       reason: "run_timeout",
     });
     expect(run.status).toBe("completed");
+    expectTerminalReasonWrite("run-checkpoint-preserves-terminal", "done");
     expect(insertRunEvent).toHaveBeenCalledWith(
       "run-checkpoint-preserves-terminal",
       0,
@@ -1440,6 +1451,9 @@ describe("run manager soft timeout", () => {
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-checkpoint-rejected",
       "errored",
+      expect.objectContaining({
+        terminalReason: "error:run_checkpoint_persistence_failed",
+      }),
     );
     expect(setRunError).toHaveBeenCalledWith(
       "run-checkpoint-rejected",
@@ -2587,14 +2601,11 @@ describe("run manager soft timeout", () => {
     abortRun(run.runId, "user");
     await run.finalized;
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+    expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user");
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       run.runId,
       "aborted",
-      { terminalReason: "aborted:user" },
-    );
-    expect(setRunTerminalReason).not.toHaveBeenCalledWith(
-      run.runId,
-      "aborted:user",
+      expect.anything(),
     );
   });
 
@@ -7223,11 +7234,12 @@ describe("run manager soft timeout", () => {
     expect(run.abortReason).toBe("displaced");
   });
 
-  it("uses a conditional WHERE status=running write so a reaped row is not overwritten", async () => {
+  it("uses the atomic abort write so a reaped row is not overwritten", async () => {
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(false);
     vi.mocked(getRunStatus).mockResolvedValue("errored");
+    vi.mocked(markRunAborted).mockResolvedValueOnce(false);
 
-    startRun(
+    const run = startRun(
       "run-no-clobber",
       "thread-no-clobber",
       async (_send, signal) => {
@@ -7240,7 +7252,9 @@ describe("run manager soft timeout", () => {
     );
 
     await vi.advanceTimersByTimeAsync(3001);
-    await vi.waitFor(() => expect(updateRunStatusIfRunning).toHaveBeenCalled());
+    await run.finalized;
+    expect(markRunAborted).toHaveBeenCalledWith("run-no-clobber", "displaced");
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalled();
     expect(updateRunStatus).not.toHaveBeenCalledWith(
       "run-no-clobber",
       expect.anything(),
@@ -7918,17 +7932,44 @@ describe("run manager soft timeout", () => {
       "run_event_persistence_failed",
       expect.anything(),
     );
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+    expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user");
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       run.runId,
       "aborted",
-      expect.objectContaining({
-        terminalReason: "aborted:user",
-      }),
+      expect.anything(),
     );
-    expect(setRunTerminalReason).not.toHaveBeenCalledWith(
+  });
+
+  it("does not write an aborted status when the atomic abort transaction fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.mocked(markRunAborted).mockRejectedValue(
+      new Error("abort transaction failed"),
+    );
+    const run = startRun(
+      "run-atomic-abort-failure",
+      "thread-atomic-abort-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(abortRun(run.runId, "user")).toBe(true);
+    await expect(run.finalized).rejects.toThrow("abort transaction failed");
+
+    expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user");
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       run.runId,
-      "aborted:user",
+      "aborted",
+      expect.anything(),
     );
+    expect(run.status).toBe("aborted");
+    consoleError.mockRestore();
   });
 
   describe("no-progress backstop", () => {
