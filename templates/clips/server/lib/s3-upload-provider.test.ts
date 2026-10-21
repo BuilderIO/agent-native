@@ -246,6 +246,52 @@ describe("s3FileUploadProvider", () => {
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
+  it("never mixes a workspace's saved logo storage with the deployment's", async () => {
+    Object.assign(process.env, {
+      S3_BUCKET: "deploy-bucket",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+      S3_ENDPOINT: "https://deploy-s3.example.com",
+    });
+    let saved: Record<string, string> = {
+      S3_ENDPOINT: "https://workspace-s3.example.com",
+    };
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: Record<string, string>) =>
+        scope === "workspace" && scopeId === "org-1" && saved[key]
+          ? { value: saved[key] }
+          : null,
+    );
+    const logo = () =>
+      clipsOrganizationLogoPrivateBlobProvider.put({
+        data: new TextEncoder().encode("logo-bytes"),
+        mimeType: "image/png",
+        metadata: {
+          organizationId: "org-1",
+          purpose: "organization-brand-logo",
+        },
+      });
+
+    // Only an endpoint saved: the deployment's keys must not go there.
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.isConfiguredForRequest?.(),
+    ).resolves.toBe(false);
+    await expect(logo()).rejects.toMatchObject({ statusCode: 503 });
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+
+    // Nothing saved: the deployment's own settings, all together.
+    saved = {};
+    mockSsrfSafeFetch.mockResolvedValue(new Response(null, { status: 200 }));
+    await expect(logo()).resolves.toMatchObject({
+      provider: "clips-s3-organization-logos",
+    });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      expect.stringContaining("https://deploy-s3.example.com/deploy-bucket/"),
+      expect.objectContaining({ method: "PUT" }),
+      expect.anything(),
+    );
+  });
+
   it("reads private logos with the owning workspace's S3 credentials anonymously", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "org-bucket",

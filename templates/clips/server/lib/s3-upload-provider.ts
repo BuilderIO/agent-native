@@ -172,68 +172,39 @@ function readS3ConfigForMode(
   return mode === "hosted" ? readHostedClipS3Config() : readS3Config();
 }
 
-async function resolveOrganizationLogoS3Secret(
-  organizationId: string,
-  primary: string,
-  fallback: string,
-) {
-  return (
-    cleanValue(
-      (
-        await readAppSecret({
-          key: primary,
-          scope: "workspace",
-          scopeId: organizationId,
-        })
-      )?.value,
-    ) ??
-    cleanValue(
-      (
-        await readAppSecret({
-          key: fallback,
-          scope: "workspace",
-          scopeId: organizationId,
-        })
-      )?.value,
-    ) ??
-    readS3EnvSecret(primary, fallback)
-  );
-}
-
+/**
+ * A workspace's logo storage comes from one place: the settings it saved,
+ * when it saved any, else the deployment's env. Mixing them field by field
+ * could send the deployment's keys to an endpoint the workspace chose.
+ */
 async function readOrganizationLogoS3Config(
   organizationId: string,
 ): Promise<S3Config | null> {
+  const saved = new Map<string, string>();
+  await Promise.all(
+    S3_SECRET_KEYS.map(async (key) => {
+      const value = cleanValue(
+        (
+          await readAppSecret({
+            key,
+            scope: "workspace",
+            scopeId: organizationId,
+          })
+        )?.value,
+      );
+      if (value) saved.set(key, value);
+    }),
+  );
+  if (saved.size === 0) return readS3EnvConfig();
+  const read = (primary: string, fallback: string) =>
+    saved.get(primary) ?? saved.get(fallback);
   return buildS3Config({
-    bucket: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_BUCKET",
-      "R2_BUCKET",
-    ),
-    accessKeyId: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_ACCESS_KEY_ID",
-      "R2_ACCESS_KEY_ID",
-    ),
-    secretAccessKey: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_SECRET_ACCESS_KEY",
-      "R2_SECRET_ACCESS_KEY",
-    ),
-    endpoint: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_ENDPOINT",
-      "R2_ENDPOINT",
-    ),
-    region: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_REGION",
-      "R2_REGION",
-    ),
-    publicBaseUrl: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_PUBLIC_BASE_URL",
-      "R2_PUBLIC_BASE_URL",
-    ),
+    bucket: read("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: read("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: read("S3_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
+    endpoint: read("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: read("S3_REGION", "R2_REGION"),
+    publicBaseUrl: read("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"),
   });
 }
 
