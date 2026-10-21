@@ -373,7 +373,13 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   replies and bot messages. The status reply must be newer than this human
   reply. If a human answers later, update the disposition and status before
   reconciling it.
-  Record each verified `fixedScopes` entry with its proof; record each
+  Record each verified `fixedScopes` entry with its proof. For a status with
+  fixed scopes, also set `statusReply.publicEvidenceSummary` to a brief,
+  plain-language phrase (2–12 words) that can appear in the public reply. Put
+  the exact scope and summary together in one sentence of that scope's
+  `verification`, and include the summary in both `statusReply.evidence` and
+  the captured `statusReply.text`; keep detailed proof in the ledger. The
+  summary may paraphrase the internal scope. Record each
   unfinished team/engineering action in `handoffs[]` and each outstanding
   reporter input request in `reporterRequests[]` with its scope, exact action,
   and exact `requestReply`. For
@@ -430,8 +436,10 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   decision; preserve it without presenting it as current proof or an active
   handoff. Keep detailed proof in `previousStatus.evidence` in the internal
   ledger. For a historical `✅`, also record a brief, non-sensitive
-  `publicEvidenceSummary` drawn from that proof and include it in the captured
-  `previousStatus.text`; the checker verifies the summary appears in both.
+  `publicEvidenceSummary` (2–12 words) drawn from that proof. It may paraphrase
+  the exact scope, but the scope and summary must appear together in one proof
+  sentence. Include the summary in the captured `previousStatus.text`; the
+  checker verifies that it is tied to proof for the recorded scope.
   Never put secrets, customer details, or raw logs in the summary. For a
   historical `🎫`, the prior reply must name both the accepted action and its
   owner. The checker validates these details against the captured thread. When every report scope

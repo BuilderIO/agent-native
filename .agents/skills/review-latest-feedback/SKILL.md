@@ -386,14 +386,14 @@ instruction or prompt exception.
 Thank issue reporters for opening issues and Slack reporters for sharing.
 Before posting, inspect the full thread and follow the one-reply gate in
 `address-feedback-with-replies` and the [Slack reply reference](references/slack-reaction-replies.md):
-send one short sentence in plain, non-technical language. Say what changed.
-Use `🎫` only for unresolved work; when you use it, briefly say what still needs
-investigation or what action is needed, and name its owner when known. Do not
-mention or explain absent reactions. Keep hashes, branches, CI, publisher
-details, and proof in the internal recap. Never explain workflow mechanics or
-external tracker tickets in Slack. Do not mention a closed, historical `🎫`
-mark. Never send **Open**/**pending** or a symptom recap. Ask for reporter input
-only when it changes the next step.
+send one short sentence in plain, non-technical language, then end with the
+exact bot disclosure `this was sent from a bot.` Say what changed. Use `🎫`
+only for unresolved work; when it is used, briefly say what still needs
+investigation or action and name its owner when known. Do not explain absent
+reactions or mention a closed, historical `🎫`. Keep hashes, branches, CI,
+publisher details, and proof in the internal recap. Never explain workflow
+mechanics or external tracker tickets in Slack. Never send **Open**/**pending**
+or a symptom recap. Ask for reporter input only when it changes the next step.
 
 Every root this actor marks with `👀`, `✅`, or `🎫` also needs a current
 same-actor status reply after the latest human reply. One concise reply can
@@ -407,17 +407,18 @@ action closes. Never imply that an external ticket was created or assigned.
 
 For an owned feedback thread linked to a merged app PR, treat the PR as
 beta-eligible when its changed paths map to a site selected by the matching
-main beta run. After the merge is confirmed in `origin/main` and that run
-selects the site, post one short sentence with the PR link: "[PR link] is merged
-and expected on beta within 24 hours." Say it is on beta only when
-`/ship-and-monitor` or an explicitly requested beta check verifies the site
-is current. This is an expectation, not a guarantee. A normal feedback sweep
-does not wait for publication, verify the beta site, or keep checking it. If
-a later in-scope beta check finds a publish failure or a site that is still
-not current after 24 hours, the person running that check owns the correction
-in the same thread. Do not assign a future check to the sweep after it ends. Use
-`🎫` only when another person or team must act. Keep publisher details in the
-internal recap.
+main beta run. The `/ship` task that merges a linked, beta-eligible PR owns the
+one-time update in that thread: after confirming the merge in `origin/main`,
+check the matching run's site selection and post as soon as it selects the
+affected site. Include the PR link and say it is expected on beta within 24
+hours, then add the bot disclosure. Do not wait for deployment to finish or
+claim the site is live. This is an expectation, not a guarantee. A normal
+feedback sweep does not wait for publication, verify the beta site, or keep
+checking it. If a later in-scope beta check finds a publish failure or a site
+that is still not current after 24 hours, the person running that check owns
+the correction in the same thread. Do not assign a future check to the sweep
+after it ends. Use `🎫` only when another person or team must act. Keep
+publisher details in the internal recap.
 
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
 remaining action/owner separately; don't imply the fixed scope is open. The

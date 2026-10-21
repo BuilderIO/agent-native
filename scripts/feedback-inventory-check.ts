@@ -1429,6 +1429,33 @@ function replyContainsPhrase(text: string, phrase: unknown): boolean {
   );
 }
 
+function hasPublicEvidenceSummary(
+  reply: StatusReply,
+  scopedProofs: Array<{ scope: string; verification: string }>,
+): boolean {
+  if (scopedProofs.length === 0) return true;
+  const summary = reply.publicEvidenceSummary;
+  const summaryWordCount =
+    typeof summary === "string"
+      ? normalizeReplyPhrase(summary).split(" ").filter(Boolean).length
+      : 0;
+  return (
+    summaryWordCount >= 2 &&
+    summaryWordCount <= 12 &&
+    scopedProofs.some(({ scope, verification }) =>
+      verification
+        .split(/[.;!?\n]+/)
+        .some(
+          (clause) =>
+            replyContainsPhrase(clause, scope) &&
+            replyContainsPhrase(clause, summary),
+        ),
+    ) &&
+    replyContainsPhrase(reply.evidence, summary) &&
+    replyContainsPhrase(reply.text, summary)
+  );
+}
+
 function publicActionSummaryMatchesAction(
   action: string,
   publicActionSummary: unknown,
@@ -1892,14 +1919,12 @@ function validateHistoricalReactionMarks(
     }
     if (
       mark.emoji === "white_check_mark" &&
-      (!replyContainsPhrase(
-        previous.evidence,
-        previous.publicEvidenceSummary,
-      ) ||
-        !replyContainsPhrase(previous.text, previous.publicEvidenceSummary))
+      !hasPublicEvidenceSummary(previous, [
+        { scope: mark.scope, verification: previous.evidence },
+      ])
     ) {
       throw new Error(
-        `${label}: historical ✅ needs a safe evidence summary in both its internal proof and captured prior reply`,
+        `${label}: historical ✅ needs a concise publicEvidenceSummary from proof for its recorded scope in both internal proof and captured prior reply`,
       );
     }
     if (
@@ -2264,10 +2289,15 @@ function replyStartsWithDisposition(
   disposition: string,
 ): boolean {
   const visibleText = text.replace(/[*_`]/g, "").trim();
+  const dispositionText = visibleText.replace(
+    /^(?:thanks|ty) for the feedback -\s+/i,
+    "",
+  );
   const escapedDisposition = disposition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const label = new RegExp(`^${escapedDisposition}(?=$|[\\s:—–.!?;,()-])`, "i");
   return (
-    label.test(visibleText) && replyStatesDisposition(visibleText, disposition)
+    label.test(dispositionText) &&
+    replyStatesDisposition(visibleText, disposition)
   );
 }
 
@@ -3401,6 +3431,19 @@ function validateSupplementalRootAudit(
   ) {
     throw new Error(
       `${parentName}: status evidence must include every verified root scope`,
+    );
+  }
+  if (
+    !hasPublicEvidenceSummary(
+      reply,
+      fixedScopes.map((fixedScope) => ({
+        scope: fixedScope.scope,
+        verification: fixedScope.verification,
+      })),
+    )
+  ) {
+    throw new Error(
+      `${parentName}: fixed-scope status needs a concise publicEvidenceSummary from a recorded scope verification in both internal proof and reply`,
     );
   }
   if (
@@ -7271,6 +7314,19 @@ function validateInventory(
             );
           }
           if (
+            !hasPublicEvidenceSummary(
+              reply,
+              fixedScopes.map((fixedScope) => ({
+                scope: fixedScope.scope,
+                verification: fixedScope.verification,
+              })),
+            )
+          ) {
+            throw new Error(
+              `${parentName}: fixed-scope status needs a concise publicEvidenceSummary from a recorded scope verification in both internal proof and reply`,
+            );
+          }
+          if (
             unfinishedScopes.some(
               (unfinishedScope) =>
                 !reply.evidence.includes(unfinishedScope.evidence.trim()),
@@ -8761,7 +8817,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                   ts: "12.000000",
                   threadParentTs: "10.000000",
                   actorId: "USWEEPER",
-                  text: "Fixed: focused test passed. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+                  text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
                 },
                 reactionDecision: {
                   checkmark: {
@@ -8778,13 +8834,16 @@ if (args[0] === "--self-test" && args.length === 1) {
                   threadParentTs: "10.000000",
                   actorId: "USWEEPER",
                   disposition: "Fixed",
-                  evidence: "focused test passed",
-                  text: "Fixed: focused test passed. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+                  evidence:
+                    "The initial route screen passed its focused test and the start screen works now",
+                  publicEvidenceSummary: "The start screen works now",
+                  text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
                 },
                 fixedScopes: [
                   {
                     scope: "initial route screen",
-                    verification: "focused test passed",
+                    verification:
+                      "The initial route screen passed its focused test and the start screen works now",
                   },
                 ],
               },
@@ -8821,7 +8880,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                 ts: "12.000000",
                 actorId: "USWEEPER",
                 kind: "sweep",
-                text: "Fixed: focused test passed. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+                text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
                 workflowReactionReadback: [],
                 workflowReactionSummary: "none",
                 workflowReactionOwners: {},
@@ -9366,7 +9425,9 @@ if (args[0] === "--self-test" && args.length === 1) {
           const statusReply = {
             ...parent.statusReply!,
             disposition: "Partially fixed",
-            evidence: "focused route-picker test passed; merge pending",
+            evidence:
+              "The route-picker works after the focused test passed; merge pending",
+            publicEvidenceSummary: "The route-picker works",
             text,
             pendingActionSummary,
           };
@@ -9411,8 +9472,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             ],
             fixedScopes: [
               {
-                scope: "route-picker behavior",
-                verification: "focused route-picker test passed; merge pending",
+                scope: "route-picker",
+                verification:
+                  "The route-picker works after the focused test passed; merge pending",
               },
             ],
             statusReply,
@@ -10993,8 +11055,8 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Partially fixed",
           evidence:
-            "focused test passed in the open PR; merge pending; paragraph selection remains broken",
-          text: "Partially fixed: focused test passed in the open PR; merge pending; paragraph selection remains broken. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          text: "Partially fixed: The start screen works now. Paragraph selection remains broken. :white_check_mark: covers the initial route screen. this was sent from a bot.",
         },
       }),
     },
@@ -12730,9 +12792,12 @@ if (args[0] === "--self-test" && args.length === 1) {
                 parents: [
                   {
                     ...firstPage.parents[1],
-                    statusReply: {
-                      ...firstPage.parents[1].statusReply!,
-                      evidence: "focused test passed; duplicate row differs",
+                    reactionDecision: {
+                      ...firstPage.parents[1].reactionDecision!,
+                      checkmark: {
+                        ...firstPage.parents[1].reactionDecision!.checkmark,
+                        reason: "The start screen passed focused verification",
+                      },
                     },
                   },
                   firstPage.parents[2],
@@ -13101,6 +13166,26 @@ if (args[0] === "--self-test" && args.length === 1) {
         options.scopeConfirmation ??
         scopeConfirmationForTestInventory(inventory),
     });
+  const withFixedScopeStatusUpdates = (
+    updates: Partial<StatusReply>,
+    verification?: string,
+  ): Inventory => {
+    const inventory = structuredClone(valid);
+    const parent = inventory.channels[0]!.pages[0]!.parents.find(
+      (candidate) => candidate.ts === "10.000000",
+    )!;
+    parent.statusReply = { ...parent.statusReply!, ...updates };
+    parent.latestOwnedReply = {
+      ...parent.latestOwnedReply!,
+      text: parent.statusReply.text,
+    };
+    if (verification) {
+      parent.fixedScopes = parent.fixedScopes?.map((fixedScope, index) =>
+        index === 0 ? { ...fixedScope, verification } : fixedScope,
+      );
+    }
+    return inventory;
+  };
   try {
     const validNarrowScopeSummary = validateTestInventory(valid);
     if (
@@ -13114,17 +13199,12 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Feedback inventory checker self-test failed: a separately supplied orchestrator scope confirmation was not recognized.",
       );
     }
-    const conciseStatus = structuredClone(valid);
-    conciseStatus.channels[0]!.pages[0]!.parents =
-      conciseStatus.channels[0]!.pages[0]!.parents.map((parent) => {
-        if (parent.ts !== "10.000000") return parent;
-        const text = "Fixed: The route works now. this was sent from a bot.";
-        return {
-          ...parent,
-          statusReply: { ...parent.statusReply!, text },
-          latestOwnedReply: { ...parent.latestOwnedReply!, text },
-        };
-      });
+    const conciseStatus = withFixedScopeStatusUpdates({
+      evidence:
+        "The initial route screen passed its focused test and the start screen works now",
+      publicEvidenceSummary: "The start screen works now",
+      text: "Fixed: The start screen works now. this was sent from a bot.",
+    });
     validateTestInventory(conciseStatus);
     validateTestInventory(
       withSupplementalRootAudit(
@@ -13313,7 +13393,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
     validateTestInventory(
       withHandoffReply(
-        "Partially fixed: The first route works. Alex Rivera will choose the remaining behavior. this was sent from a bot.",
+        "Partially fixed: The first route works. The route-picker works. Alex Rivera will choose the remaining behavior. this was sent from a bot.",
       ),
     );
     const requestedFeedbackChannels = [
@@ -13705,9 +13785,21 @@ if (args[0] === "--self-test" && args.length === 1) {
     caseInsensitiveRoot.fixedScopes = [
       {
         scope: "initial route screen",
-        verification: "Focused test passed",
+        verification:
+          "Focused test passed for the initial route screen and The start screen works now",
       },
     ];
+    caseInsensitiveRoot.statusReply = {
+      ...caseInsensitiveRoot.statusReply!,
+      evidence:
+        "focused test passed for the initial route screen and the start screen works now",
+      publicEvidenceSummary: "The start screen works now",
+      text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.",
+    };
+    caseInsensitiveRoot.latestOwnedReply = {
+      ...caseInsensitiveRoot.latestOwnedReply!,
+      text: caseInsensitiveRoot.statusReply.text,
+    };
     validateTestInventory(caseInsensitiveVerification);
     validateTestInventory(
       withSweepOwnedParent({
@@ -13808,9 +13900,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             ts: "10.500000",
             threadParentTs: "10.000000",
             evidence:
-              "focused test passed for the initial route screen; the initial route screen works now",
-            publicEvidenceSummary: "The initial route screen works now",
-            text: "Fixed: The initial route screen works now. this was sent from a bot.",
+              "The initial route screen passed its focused test and the start screen works now",
+            publicEvidenceSummary: "The start screen works now",
+            text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.",
           },
         },
       ],
@@ -13839,7 +13931,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                             previousStatus: {
                               ...mark.previousStatus,
                               disposition,
-                              text: `${disposition}: The initial route screen works now. this was sent from a bot.`,
+                              text: `${disposition}: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.`,
                             },
                           }
                         : mark,
@@ -13848,6 +13940,36 @@ if (args[0] === "--self-test" && args.length === 1) {
               : parent,
         );
       validateTestInventory(historicalCheckWithVerifiedDisposition);
+    }
+    for (const prefix of [
+      "Thanks for the feedback -",
+      "Ty for the feedback -",
+    ]) {
+      const historicalCheckWithFeedbackPrefix = structuredClone(
+        historicalCheckInventory,
+      );
+      historicalCheckWithFeedbackPrefix.channels[0]!.pages[0]!.parents =
+        historicalCheckWithFeedbackPrefix.channels[0]!.pages[0]!.parents.map(
+          (parent) =>
+            parent.ts === "10.000000"
+              ? {
+                  ...parent,
+                  historicalReactionMarks: parent.historicalReactionMarks?.map(
+                    (mark) =>
+                      mark.emoji === "white_check_mark"
+                        ? {
+                            ...mark,
+                            previousStatus: {
+                              ...mark.previousStatus,
+                              text: `${prefix} Fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.`,
+                            },
+                          }
+                        : mark,
+                  ),
+                }
+              : parent,
+        );
+      validateTestInventory(historicalCheckWithFeedbackPrefix);
     }
 
     const ticketHistoryBase = withUnownedTicket();
@@ -13922,6 +14044,36 @@ if (args[0] === "--self-test" && args.length === 1) {
       statusReply: historicalTicketStatus,
     });
     validateTestInventory(historicalTicketInventory);
+    for (const prefix of [
+      "Thanks for the feedback -",
+      "Ty for the feedback -",
+    ]) {
+      const historicalTicketWithFeedbackPrefix = structuredClone(
+        historicalTicketInventory,
+      );
+      historicalTicketWithFeedbackPrefix.channels[0]!.pages[0]!.parents =
+        historicalTicketWithFeedbackPrefix.channels[0]!.pages[0]!.parents.map(
+          (parent) =>
+            parent.ts === "10.000000"
+              ? {
+                  ...parent,
+                  historicalReactionMarks: parent.historicalReactionMarks?.map(
+                    (mark) =>
+                      mark.emoji === "ticket"
+                        ? {
+                            ...mark,
+                            previousStatus: {
+                              ...mark.previousStatus,
+                              text: `${prefix} In progress: Alex Rivera will choose the remaining behavior for this design choice. this was sent from a bot.`,
+                            },
+                          }
+                        : mark,
+                  ),
+                }
+              : parent,
+        );
+      validateTestInventory(historicalTicketWithFeedbackPrefix);
+    }
     const botHistoricalAcceptance = withTestThreadSnapshots(
       historicalTicketInventory,
     );
@@ -13991,6 +14143,64 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     };
+    const historicalCheckWithUnapprovedFeedbackPrefix = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithUnapprovedFeedbackPrefix.channels[0]!.pages[0]!.parents =
+      historicalCheckWithUnapprovedFeedbackPrefix.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            text: "Thanks for the helpful feedback - Fixed: The initial route screen works now. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with an unapproved feedback prefix",
+      historicalCheckWithUnapprovedFeedbackPrefix,
+      "historical ✅ needs a prior verified disposition stated in its captured reply",
+    );
+    const historicalTicketWithUnapprovedFeedbackPrefix = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithUnapprovedFeedbackPrefix.channels[0]!.pages[0]!.parents =
+      historicalTicketWithUnapprovedFeedbackPrefix.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            text: "Thanks for the helpful feedback - In progress: Alex Rivera will choose the remaining behavior for this design choice. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket with an unapproved feedback prefix",
+      historicalTicketWithUnapprovedFeedbackPrefix,
+      "historical 🎫 needs a prior disposition stated in its captured reply",
+    );
     const historicalTicketWithIncompleteAcceptance = structuredClone(
       historicalTicketInventory,
     );
@@ -14101,10 +14311,9 @@ if (args[0] === "--self-test" && args.length === 1) {
                           previousStatus: {
                             ...mark.previousStatus,
                             evidence:
-                              "focused test passed for the initial route screen; the initial route screen works now",
-                            publicEvidenceSummary:
-                              "The initial route screen works now",
-                            text: "Fixed: The initial route screen works now. this was sent from a bot.",
+                              "The initial route screen passed its focused test and the start screen works now",
+                            publicEvidenceSummary: "The start screen works now",
+                            text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.",
                           },
                         }
                       : mark,
@@ -14140,7 +14349,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     expectHistoricalMarkFailure(
       "historical checkmark with summary only in internal evidence",
       historicalCheckWithSummaryMissingFromReply,
-      "historical ✅ needs a safe evidence summary in both its internal proof and captured prior reply",
+      "historical ✅ needs a concise publicEvidenceSummary from proof for its recorded scope in both internal proof and captured prior reply",
     );
     const historicalCheckWithSummaryMissingFromEvidence = structuredClone(
       historicalCheckInventory,
@@ -14169,7 +14378,39 @@ if (args[0] === "--self-test" && args.length === 1) {
     expectHistoricalMarkFailure(
       "historical checkmark with summary only in captured reply",
       historicalCheckWithSummaryMissingFromEvidence,
-      "historical ✅ needs a safe evidence summary in both its internal proof and captured prior reply",
+      "historical ✅ needs a concise publicEvidenceSummary from proof for its recorded scope in both internal proof and captured prior reply",
+    );
+    const historicalCheckWithUnrelatedPublicSummary = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithUnrelatedPublicSummary.channels[0]!.pages[0]!.parents =
+      historicalCheckWithUnrelatedPublicSummary.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            evidence:
+                              "The initial route screen passed its focused test. Account creation works now.",
+                            publicEvidenceSummary: "Account creation works now",
+                            text: "Fixed: Account creation works now. The initial route screen works now. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with an unrelated public evidence summary",
+      historicalCheckWithUnrelatedPublicSummary,
+      "historical ✅ needs a concise publicEvidenceSummary from proof for its recorded scope in both internal proof and captured prior reply",
     );
     const historicalTicketWithActionOnlyInLedgerEvidence = structuredClone(
       historicalTicketInventory,
@@ -14766,14 +15007,15 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Verified locally",
           evidence:
-            "focused behavior test passed in the open PR; merge pending",
-          text: "Verified locally: focused behavior test passed in the open PR; merge pending. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+            "The initial route screen passed its focused test in the open PR and the start screen works now; merge pending",
+          publicEvidenceSummary: "The start screen works now",
+          text: "Verified locally: The start screen works now. Focused behavior test passed in the open PR; merge pending. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
         },
         fixedScopes: [
           {
             scope: "initial route screen",
             verification:
-              "focused behavior test passed in the open PR; merge pending",
+              "The initial route screen passed its focused test in the open PR and the start screen works now; merge pending",
           },
         ],
       }),
@@ -14790,14 +15032,15 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Verified locally",
           evidence:
-            "focused behavior test passed in the open PR; merge pending; paragraph selection remains unverified",
-          text: "Verified locally: focused behavior test passed in the open PR; merge pending; paragraph selection remains unverified. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains unverified. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+            "The initial route screen passed its focused test in the open PR and the start screen works now; merge pending; paragraph selection remains unverified",
+          publicEvidenceSummary: "The start screen works now",
+          text: "Verified locally: The start screen works now. Focused behavior test passed in the open PR; merge pending; paragraph selection remains unverified. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains unverified. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
         },
         fixedScopes: [
           {
             scope: "initial route screen",
             verification:
-              "focused behavior test passed in the open PR; merge pending",
+              "The initial route screen passed its focused test in the open PR and the start screen works now; merge pending",
           },
         ],
         unfinishedScopes: [
@@ -14829,20 +15072,22 @@ if (args[0] === "--self-test" && args.length === 1) {
         statusReply: {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Resolved elsewhere",
-          evidence: "PR #7714 merged the label correction at `829d09b196`",
-          text: "Resolved elsewhere: PR #7714 merged the label correction at `829d09b196`. :white_check_mark: covers the merged Netlify/Vercel label correction. No :ticket: — Enzo’s configuration action is complete and no separate human-owned action remains. this was sent from a bot.",
+          evidence:
+            "The Netlify/Vercel label correction was merged in PR #7714 at 829d09b196, and the provider labels are corrected",
+          publicEvidenceSummary: "The provider labels are corrected",
+          text: "Resolved elsewhere: The provider labels are corrected. :white_check_mark: covers the merged Netlify/Vercel label correction. this was sent from a bot.",
         },
         fixedScopes: [
           {
             scope: "Netlify/Vercel label correction",
             verification:
-              "PR #7714 merged the label correction at `829d09b196`",
+              "The Netlify/Vercel label correction was merged in PR #7714 at 829d09b196, and the provider labels are corrected",
           },
         ],
       }),
     );
     const reverifiedAfterReporterReply =
-      "focused route test re-tested after reporter confirmation and passed";
+      "The initial route screen was re-tested after reporter confirmation and the start screen works now";
     validateTestInventory(
       withSweepOwnedParent({
         latestRelevantHumanReply: {
@@ -14860,7 +15105,8 @@ if (args[0] === "--self-test" && args.length === 1) {
         statusReply: {
           ...firstPage.parents[1]!.statusReply!,
           evidence: reverifiedAfterReporterReply,
-          text: `Fixed: ${reverifiedAfterReporterReply}. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.`,
+          publicEvidenceSummary: "The start screen works now",
+          text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.",
         },
       }),
     );
@@ -14882,8 +15128,9 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Partially fixed",
           evidence:
-            "focused test passed in the open PR; merge pending; paragraph selection remains broken",
-          text: "Partially fixed: focused test passed in the open PR; merge pending; paragraph selection remains broken. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          publicEvidenceSummary: "The start screen works now",
+          text: "Partially fixed: The start screen works now. Paragraph selection remains broken. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
         },
       }),
     );
@@ -14965,7 +15212,8 @@ if (args[0] === "--self-test" && args.length === 1) {
         fixedScopes: [
           {
             scope: "initial route screen",
-            verification: "focused test passed",
+            verification:
+              "The initial route screen passed its focused test and the start screen works now",
           },
         ],
         unfinishedScopes: [],
@@ -14993,8 +15241,9 @@ if (args[0] === "--self-test" && args.length === 1) {
           threadParentTs: "10.000000",
           actorId: "USWEEPER",
           disposition: "Fixed",
-          evidence: `focused test passed; ${completedHandoffEvidence}`,
-          text: `Fixed: focused test passed; ${completedHandoffEvidence}. The initial route screen is verified. Handoff complete: Alex Rivera completed the remaining design choice by choosing the remaining behavior (action: choose the remaining behavior). :white_check_mark: covers the initial route screen; :ticket: stays as history for the completed accepted action. this was sent from a bot.`,
+          evidence: `The initial route screen passed its focused test and the start screen works now; ${completedHandoffEvidence}`,
+          publicEvidenceSummary: "The start screen works now",
+          text: `Fixed: The start screen works now. Handoff complete: Alex Rivera completed the remaining design choice by choosing the remaining behavior (action: choose the remaining behavior). :white_check_mark: covers the initial route screen; :ticket: stays as history for the completed accepted action. this was sent from a bot.`,
         },
       }),
     );
@@ -15178,14 +15427,14 @@ if (args[0] === "--self-test" && args.length === 1) {
                         ...parent.statusReply!,
                         disposition: "Partially fixed",
                         evidence:
-                          "the verified scope is complete; a separate handoff remains.",
-                        text: "Partially fixed: The main issue is fixed. Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout. this was sent from a bot.",
+                          "The initial route screen passed its focused test and the start screen works now; a separate handoff remains.",
+                        text: "Partially fixed: The start screen works now. Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout. this was sent from a bot.",
                         pendingActionSummary:
                           "Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout",
                       },
                       latestOwnedReply: {
                         ...parent.latestOwnedReply!,
-                        text: "Partially fixed: The main issue is fixed. Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout. this was sent from a bot.",
+                        text: "Partially fixed: The start screen works now. Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout. this was sent from a bot.",
                       },
                       reactionSummary:
                         "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",
@@ -15227,9 +15476,9 @@ if (args[0] === "--self-test" && args.length === 1) {
                       },
                       fixedScopes: [
                         {
-                          scope: "first scope",
+                          scope: "initial route screen",
                           verification:
-                            "the verified scope is complete; a separate handoff remains.",
+                            "The initial route screen passed its focused test and the start screen works now",
                         },
                       ],
                       reactionDecision: {
@@ -15446,14 +15695,15 @@ if (args[0] === "--self-test" && args.length === 1) {
             if (parent.ts !== "10.000000") return parent;
             const closedMark = parent.historicalReactionMarks![0]!;
             const fixedVerification =
-              "focused route test passed for the initial route screen";
+              "The initial route screen passed its focused route test and the start screen works now";
             const openEvidence = "browser redirect behavior remains unverified";
             const evidence = `${fixedVerification}; ${openEvidence}; no human answer arrived four days after the request`;
             const statusReply: StatusReply = {
               ...parent.statusReply!,
               disposition: "Partially fixed",
               evidence,
-              text: "Partially fixed: The first screen works, but we're still checking where it leads. this was sent from a bot.",
+              publicEvidenceSummary: "The start screen works now",
+              text: "Partially fixed: The start screen works now, but we're still checking where it leads. this was sent from a bot.",
             };
             return {
               ...parent,
@@ -16793,6 +17043,65 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     };
+    const fixedScopeSummaryDiagnostic =
+      "fixed-scope status needs a concise publicEvidenceSummary from a recorded scope verification in both internal proof and reply";
+    expectFocusedFailure(
+      "fixed-scope status with an unrelated public evidence summary",
+      () =>
+        validateTestInventory(
+          withFixedScopeStatusUpdates(
+            {
+              evidence:
+                "focused test passed for the initial route screen; account creation works now",
+              publicEvidenceSummary: "Account creation works now",
+              text: "Fixed: Account creation works now. The initial route screen works now. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+            },
+            "focused test passed for the initial route screen",
+          ),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    expectFocusedFailure(
+      "fixed-scope public evidence summary absent from internal proof",
+      () =>
+        validateTestInventory(
+          withFixedScopeStatusUpdates(
+            {
+              evidence: "focused test passed for the initial route screen",
+            },
+            "focused test passed for the initial route screen",
+          ),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    expectFocusedFailure(
+      "fixed-scope public evidence summary absent from the Slack reply",
+      () =>
+        validateTestInventory(
+          withFixedScopeStatusUpdates({
+            text: "Fixed: The initial route screen passed the focused test. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+          }),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    const verboseFixedScopeSummary =
+      "The initial route screen now works across every tab after the focused end to end browser verification finished successfully";
+    const verboseFixedScopeVerification = `The initial route screen passed a focused test and ${verboseFixedScopeSummary}`;
+    expectFocusedFailure(
+      "fixed-scope public evidence summary that is not concise",
+      () =>
+        validateTestInventory(
+          withFixedScopeStatusUpdates(
+            {
+              evidence: verboseFixedScopeVerification,
+              publicEvidenceSummary: verboseFixedScopeSummary,
+              text: `Fixed: ${verboseFixedScopeSummary}. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.`,
+            },
+            verboseFixedScopeVerification,
+          ),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
     expectFocusedFailure(
       "held source root with thread snapshot",
       () =>
@@ -18174,7 +18483,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 22} negative cases; 32 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 29} negative cases; 36 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
