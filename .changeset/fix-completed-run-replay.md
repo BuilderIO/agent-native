@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Restore duplicate-turn validation and stream cleanup for completed protocol run IDs while preserving live-run and runtime-alias attachment.
+Close rejected turn transports without masking duplicate-run errors, while preserving persisted submission validation and replay attachment.

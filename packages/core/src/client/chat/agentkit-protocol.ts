@@ -149,6 +149,7 @@ interface ProtocolRun {
   readonly runId: string;
   readonly threadId: string;
   readonly session: AgentChatRuntimeSession;
+  readonly startMessageId?: string;
   turn: AgentChatRuntimeTurn;
   events: AgentEvent[];
   firstRetainedSequence: number;
@@ -2066,6 +2067,9 @@ export function createAgentKitProtocolAdapter(
       runId: input.runId,
       threadId: input.threadId,
       session,
+      ...(state?.status !== "missing" && state?.startMessageId
+        ? { startMessageId: state.startMessageId }
+        : {}),
       turn: runAuthority
         ? turn
         : {
@@ -2129,7 +2133,10 @@ export function createAgentKitProtocolAdapter(
     turn: AgentChatRuntimeTurn,
     turnMetadata: Record<string, unknown> | undefined,
     observability?: Record<string, unknown>,
-    start: { attachReplayedRun?: boolean } = {},
+    start: {
+      attachReplayedRun?: boolean;
+      messageId?: string;
+    } = {},
   ): Promise<string> {
     const runId = turn.runId ?? turn.id ?? createId("run");
     const runMetadata = mergeTrustedProtocolMetadata(
@@ -2156,6 +2163,9 @@ export function createAgentKitProtocolAdapter(
       runId,
       threadId,
       session,
+      ...(start.messageId === undefined
+        ? {}
+        : { startMessageId: start.messageId }),
       turn,
       events: [],
       firstRetainedSequence: 1,
@@ -2187,7 +2197,21 @@ export function createAgentKitProtocolAdapter(
     const existingRun = start.attachReplayedRun
       ? findRun(threadId, runId)
       : undefined;
-    if (existingRun && (!existingRun.terminal || existingRun.runId !== runId)) {
+    if (existingRun) {
+      if (
+        start.messageId === undefined ||
+        existingRun.startMessageId !== start.messageId
+      ) {
+        return rejectDiscardedTurn(
+          turn,
+          runId,
+          new Error(`Duplicate AgentKit run id: ${runId}`),
+        );
+      }
+      if (turn.id !== undefined && existingRun.turn.id === turn.id) {
+        await closeDiscardedTurnEvents(turn);
+        return existingRun.runId;
+      }
       // A duplicate queued submission is answered with the run that already
       // took it, replayed from its first event. This adapter reads that run
       // already, so the replay is drained rather than indexed a second time.
@@ -2214,15 +2238,7 @@ export function createAgentKitProtocolAdapter(
     try {
       indexedRun = indexRun(run, turn.runId, true);
     } catch (error) {
-      try {
-        await closeDiscardedTurnEvents(turn);
-      } catch (cleanupError) {
-        console.warn(
-          `[agentkit] rejected stream for run ${runId} failed to close`,
-          cleanupError,
-        );
-      }
-      throw error;
+      return rejectDiscardedTurn(turn, runId, error);
     }
     if (indexedRun !== run) {
       await closeDiscardedTurnEvents(turn);
@@ -2244,6 +2260,22 @@ export function createAgentKitProtocolAdapter(
     if (disposedSessions.has(session)) return;
     disposedSessions.add(session);
     await session.dispose?.();
+  }
+
+  async function rejectDiscardedTurn(
+    turn: AgentChatRuntimeTurn,
+    runId: string,
+    error: unknown,
+  ): Promise<never> {
+    try {
+      await closeDiscardedTurnEvents(turn);
+    } catch (cleanupError) {
+      console.warn(
+        `[agentkit] rejected stream for run ${runId} failed to close`,
+        cleanupError,
+      );
+    }
+    throw error;
   }
 
   async function closeDiscardedTurnEvents(
@@ -3945,6 +3977,7 @@ export function createAgentKitProtocolAdapter(
           undefined,
           {
             attachReplayedRun: true,
+            messageId: latestUserMessage?.id,
           },
         );
       };
@@ -4291,6 +4324,9 @@ export function createAgentKitProtocolAdapter(
           runId: nextRunId,
           threadId: input.threadId,
           session: run.session,
+          ...(run.startMessageId === undefined
+            ? {}
+            : { startMessageId: run.startMessageId }),
           turn: nextTurn,
           events: [],
           firstRetainedSequence: 1,
@@ -4416,12 +4452,14 @@ export function createAgentKitProtocolAdapter(
         ...(attachments.length ? { attachments } : {}),
         abortSignal: readers.signal,
       });
+      const startMessageId = local?.startMessageId ?? state.startMessageId;
       const runId = await openStartedRun(
         input.threadId,
         session,
         turn,
         undefined,
         { continuedRunId: input.runId },
+        startMessageId === undefined ? {} : { messageId: startMessageId },
       );
       return { runId, capabilities };
     };
