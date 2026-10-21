@@ -1036,6 +1036,19 @@ export async function getOrgDomain(orgId: string): Promise<string | null> {
   return domain || null;
 }
 
+export async function getOrgWorkspaceUrl(
+  orgId: string,
+): Promise<string | null> {
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT workspace_url FROM organizations WHERE id = ? LIMIT 1`,
+    args: [orgId],
+  });
+  if (!rows[0]) return null;
+  const workspaceUrl = String((rows[0] as any).workspace_url ?? "").trim();
+  return workspaceUrl || null;
+}
+
 export async function getOrgA2ASecret(orgId: string): Promise<string | null> {
   const exec = getDbExec();
   const { rows } = await exec.execute({

@@ -330,6 +330,10 @@ const BRANCH_WORKTREE_ASK_REGEX_CASES = [
   [true, "Why did creating a task worktree require my confirmation?"],
   [
     true,
+    "Don't ask for approval to merge fresh origin/main into the clean PR branch during its authorized ship.",
+  ],
+  [
+    true,
     "Why did you ask for permission to create a branch in the shared checkout?",
   ],
   [false, "Stop asking permission to create a branch in a task worktree."],
@@ -3821,9 +3825,9 @@ const PATTERNS = [
   },
   {
     key: "branch-worktree-ask",
-    label: "Had to correct branch or worktree setup prompts",
+    label: "Had to correct branch, worktree, or authorized PR sync prompts",
     fixedBy:
-      "global AGENTS.md + AGENTS.md + new-branch + ship (shared-checkout isolation, 2026-09-28)",
+      "AGENTS.md + ship + babysit-pr + concurrent-agents (safe authorized PR sync, 2026-10-21)",
     re: BRANCH_WORKTREE_ASK_RE,
   },
   {
