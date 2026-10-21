@@ -37,7 +37,6 @@
     "delete-workspace-resource",
     "deny-vault-request",
     "ensure-dream-job",
-    "extension-data-get",
     "extension-data-set",
     "global-hide-extension",
     "global-unhide-extension",

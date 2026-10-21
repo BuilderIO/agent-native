@@ -62,6 +62,7 @@ const comments = {
   commentOnProperty: "留言於{{name}}",
   openPropertyComments_other: "{{name}} 有 {{count}} 則未解決的留言",
   openRowComments_other: "{{title}} 有 {{count}} 則未解決的留言",
+  openRow: "開啟列",
   suggestions: "建議",
   suggestionAdd: "新增",
   suggestionDelete: "刪除",
@@ -79,6 +80,10 @@ const comments = {
   accepted: "已接受",
   rejected: "已拒絕",
   noFilteredComments: "沒有相符的留言。",
+  tabFilter: "分頁",
+  allTabs: "所有分頁",
+  fieldRemoved: "{{name}}（已移除）",
+  pageBody: "頁面內文",
 };
 
 const reviewDiscussions = {
@@ -411,6 +416,9 @@ const overrides = {
     localFileChangedWithUnsavedEdits:
       "此頁面有未儲存的編輯時，磁碟上的檔案已變更。",
     localFileReadOnlySnapshot: "唯讀快照 · 上次由 {{device}} 於 {{date}} 同步",
+    githubSourceReadOnly:
+      "僅供檢視。此頁面跟隨 GitHub 中的檔案，每次推送後都會更新。",
+    githubSourceOpenFile: "在 GitHub 中開啟",
     copyUnsavedText: "複製我未儲存的文字",
     unsavedTextCopied: "已複製未儲存的文字",
     useDiskVersion: "使用磁碟版本",
@@ -446,6 +454,7 @@ const overrides = {
     addBlockField: "新增欄位",
     blockFieldChanged: "自你上次檢視後已變更",
     blockFieldTabs: "欄位",
+    blockFieldOpenComments_other: "{{count}} 則未解決的留言",
     blockFieldMenu: "{{name}} 選項",
     blockFieldMenuScope: "此集合中的每一列共用",
     blockFieldName: "欄位名稱",
@@ -508,6 +517,7 @@ const overrides = {
     historyGroupAgent: "代理執行",
     historyGroupHuman: "編輯工作階段",
     historyGroupLegacy: "較早的編輯",
+    historyGroupGitHub: "從 GitHub 同步",
     historyGroupOperation: "操作",
     historyGroupRestore: "還原",
     historyLoadError: "無法載入版本歷史紀錄。",
@@ -615,6 +625,7 @@ const overrides = {
       imageDownloadStarted: "圖片下載開始。",
       imageLinkHint: "適用於網路上的任何圖片",
       imagePreview: "圖片預覽",
+      imageUnavailable: "圖片無法使用",
       imageView: "圖片檢視",
       link: "連結",
       loadingAssetsPicker: "載入資產選取器",

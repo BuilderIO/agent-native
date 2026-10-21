@@ -587,6 +587,7 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     status: "open" as const,
     kind: "suggestions" as const,
     author: "reviewer@example.test",
+    tab: "notes",
   };
   try {
     await act(async () =>
@@ -606,6 +607,7 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
       status: "all",
       kind: "all",
       author: null,
+      tab: null,
     });
     await act(async () => controller.setHistoryFilters(filters));
     await act(async () => controller.revealHistory("conflict", null));
@@ -620,6 +622,7 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
       status: "open",
       kind: "all",
       author: null,
+      tab: null,
     });
     await act(async () =>
       root.render(<Harness documentId="one" layout="rail" />),

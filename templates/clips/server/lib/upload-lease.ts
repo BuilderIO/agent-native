@@ -6,6 +6,7 @@ import { WAITING_STORAGE_EXPIRED_REASON } from "../../shared/upload-interruption
 import { getDb, schema } from "../db/index.js";
 import {
   releaseHostedClipAllowanceAfterCleanup,
+  releaseOrphanedHostedClipAllowance,
   writeHostedCleanupConfirmedMarker,
 } from "./hosted-clip-allowance.js";
 import { reconcileMeetingOnRecordingFailed } from "./reconcile-meeting-on-finalize.js";
@@ -25,6 +26,7 @@ import { deleteS3ObjectByUrl } from "./s3-upload-provider.js";
  * it only once every client sends an explicit heartbeat.
  */
 export const UPLOAD_LEASE_MS = 60 * 60 * 1000;
+const ROWLESS_HOSTED_RESERVATION_GRACE_MS = UPLOAD_LEASE_MS;
 
 export const UPLOAD_LEASE_EXPIRED_REASON =
   "Upload stopped sending data before the recording finished saving.";
@@ -487,8 +489,24 @@ export async function reapExpiredUploads(
   const exec = getDbExec();
   const now = options.now ?? Date.now();
   const nowIso = new Date(now).toISOString();
+  const orphanReservationCutoff = new Date(
+    now - ROWLESS_HOSTED_RESERVATION_GRACE_MS,
+  );
   const limit = Math.max(1, Math.min(options.limit ?? 200, 1000));
   const dryRun = options.dryRun === true;
+
+  // guard:allow-unscoped — system reaper reconciles expired owner-keyed reservations.
+  const orphanedHostedReservations = await exec.execute({
+    sql: `SELECT a.recording_id, a.user_id
+          FROM clips_hosted_clip_allowances a
+          LEFT JOIN recordings r ON r.id = a.recording_id
+          WHERE a.status = 'reserved'
+            AND a.created_at < $1
+            AND r.id IS NULL
+          ORDER BY a.created_at ASC
+          LIMIT ${limit}`,
+    args: [orphanReservationCutoff.toISOString()],
+  });
 
   const pendingHostedReleases = await exec.execute({
     sql: `SELECT r.id, r.owner_email, r.video_url, r.upload_generation_id,
@@ -567,6 +585,34 @@ export async function reapExpiredUploads(
   let meetingFinalizationRetriesExhausted = 0;
   let terminatedRows: Array<Record<string, unknown>> = [];
   if (!dryRun) {
+    for (const row of (orphanedHostedReservations.rows as Array<
+      Record<string, unknown>
+    >) ?? []) {
+      const recordingId = String(row.recording_id);
+      const userId = typeof row.user_id === "string" ? row.user_id : null;
+      if (!userId) {
+        hostedCleanupFailed += 1;
+        continue;
+      }
+      try {
+        const released = await releaseOrphanedHostedClipAllowance({
+          recordingId,
+          userId,
+          createdBefore: orphanReservationCutoff,
+          now: new Date(now),
+        });
+        if (released) hostedReservationsReleased += 1;
+      } catch (error) {
+        hostedCleanupFailed += 1;
+        console.warn(
+          `[upload-reaper-${recordingId}] orphaned hosted reservation release failed`,
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+    }
+
     for (const row of (pendingHostedReleases.rows as Array<
       Record<string, unknown>
     >) ?? []) {

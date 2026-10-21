@@ -1,5 +1,6 @@
 import {
   createProviderApiRuntime,
+  defaultProviderApiCredentialResolver,
   type ProviderApiCredentialResolver,
   type ProviderApiDocsOptions,
   type ProviderApiId,
@@ -38,20 +39,32 @@ const resolveContentCredential: ProviderApiCredentialResolver = async (
   };
 };
 
+function requireCredentialContext() {
+  const ctx = getCredentialContext();
+  if (!ctx) {
+    throw new Error(
+      "Content provider API requests require an authenticated request context.",
+    );
+  }
+  return ctx;
+}
+
 const runtime = createProviderApiRuntime({
   appId: CONTENT_APP_ID,
   providerIds: CONTENT_PROVIDER_API_IDS,
   localCredentialSource: `${CONTENT_APP_ID}_local`,
-  getCredentialContext: () => {
-    const ctx = getCredentialContext();
-    if (!ctx) {
-      throw new Error(
-        "Content provider API requests require an authenticated request context.",
-      );
-    }
-    return ctx;
-  },
+  getCredentialContext: requireCredentialContext,
   resolveCredential: resolveContentCredential,
+});
+
+// GitHub folder links read through their own runtime, so linking a folder
+// doesn't add GitHub to the agent's raw provider-request tool.
+const githubSourceRuntime = createProviderApiRuntime({
+  appId: CONTENT_APP_ID,
+  providerIds: ["github"],
+  localCredentialSource: `${CONTENT_APP_ID}_local`,
+  getCredentialContext: requireCredentialContext,
+  resolveCredential: defaultProviderApiCredentialResolver,
 });
 
 export function getContentProviderApiRuntime() {
@@ -70,4 +83,8 @@ export function fetchProviderApiDocs(
 
 export function executeProviderApiRequest(args: ProviderApiRequestArgs) {
   return runtime.executeRequest(args);
+}
+
+export function executeGitHubSourceRequest(args: ProviderApiRequestArgs) {
+  return githubSourceRuntime.executeRequest(args);
 }

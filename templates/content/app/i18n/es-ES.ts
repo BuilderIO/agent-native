@@ -415,6 +415,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "Solo lectura. Esta página sigue un archivo de GitHub y se actualiza después de cada push.",
+  githubSourceOpenFile: "Abrir en GitHub",
   textColor: "Color de texto",
   backgroundColor: "Color de fondo",
   defaultColor: "Predeterminado",
@@ -525,6 +528,7 @@ const editor = {
     imageDownloadStarted: "Se inició la descarga de la imagen.",
     imageLinkHint: "Funciona con cualquier imagen de la web.",
     imagePreview: "Vista previa de la imagen",
+    imageUnavailable: "Imagen no disponible",
     imageView: "Vista de imagen",
     link: "Enlace",
     loadingAssetsPicker: "Cargando selector de recursos",
@@ -1261,6 +1265,7 @@ const comments = {
   openRowComments_one: "{{count}} comentario abierto en {{title}}",
   openRowComments_many: "{{count}} comentarios abiertos en {{title}}",
   openRowComments_other: "{{count}} comentarios abiertos en {{title}}",
+  openRow: "Abrir fila",
   suggestions: "Sugerencias",
   suggestionAdd: "Añadir",
   suggestionDelete: "Eliminar",
@@ -1283,6 +1288,10 @@ const comments = {
   accepted: "Aceptados",
   rejected: "Rechazados",
   noFilteredComments: "No hay comentarios coincidentes.",
+  tabFilter: "Pestaña",
+  allTabs: "Todas las pestañas",
+  fieldRemoved: "{{name}} (eliminado)",
+  pageBody: "Cuerpo de la página",
 };
 
 const reviewDiscussions = {
@@ -1469,6 +1478,7 @@ const history = {
   historyGroupAgent: "Ejecución del agente",
   historyGroupHuman: "Sesión de edición",
   historyGroupLegacy: "Ediciones anteriores",
+  historyGroupGitHub: "Sincronizado desde GitHub",
   historyGroupOperation: "Operación",
   historyGroupRestore: "Restauración",
   historyLoadError: "No se pudo cargar el historial de versiones.",
@@ -1702,6 +1712,9 @@ const overrides = {
     addBlockField: "Añadir campo",
     blockFieldChanged: "Ha cambiado desde la última vez que lo viste",
     blockFieldTabs: "Campos",
+    blockFieldOpenComments_one: "{{count}} comentario abierto",
+    blockFieldOpenComments_many: "{{count}} comentarios abiertos",
+    blockFieldOpenComments_other: "{{count}} comentarios abiertos",
     blockFieldMenu: "Opciones de {{name}}",
     blockFieldMenuScope: "Compartido por todas las filas de esta colección",
     blockFieldName: "Nombre del campo",

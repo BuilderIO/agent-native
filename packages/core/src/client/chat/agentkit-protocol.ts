@@ -149,6 +149,7 @@ interface ProtocolRun {
   readonly runId: string;
   readonly threadId: string;
   readonly session: AgentChatRuntimeSession;
+  readonly startMessageId?: string;
   turn: AgentChatRuntimeTurn;
   events: AgentEvent[];
   firstRetainedSequence: number;
@@ -2066,6 +2067,9 @@ export function createAgentKitProtocolAdapter(
       runId: input.runId,
       threadId: input.threadId,
       session,
+      ...(state?.status !== "missing" && state?.startMessageId
+        ? { startMessageId: state.startMessageId }
+        : {}),
       turn: runAuthority
         ? turn
         : {
@@ -2129,7 +2133,10 @@ export function createAgentKitProtocolAdapter(
     turn: AgentChatRuntimeTurn,
     turnMetadata: Record<string, unknown> | undefined,
     observability?: Record<string, unknown>,
-    start: { attachReplayedRun?: boolean } = {},
+    start: {
+      attachReplayedRun?: boolean;
+      messageId?: string;
+    } = {},
   ): Promise<string> {
     const runId = turn.runId ?? turn.id ?? createId("run");
     const runMetadata = mergeTrustedProtocolMetadata(
@@ -2156,6 +2163,9 @@ export function createAgentKitProtocolAdapter(
       runId,
       threadId,
       session,
+      ...(start.messageId === undefined
+        ? {}
+        : { startMessageId: start.messageId }),
       turn,
       events: [],
       firstRetainedSequence: 1,
@@ -2188,6 +2198,13 @@ export function createAgentKitProtocolAdapter(
       ? findRun(threadId, runId)
       : undefined;
     if (existingRun) {
+      if (
+        start.messageId === undefined ||
+        existingRun.startMessageId !== start.messageId
+      ) {
+        await closeDiscardedTurnEvents(turn);
+        throw new Error(`Duplicate AgentKit run id: ${runId}`);
+      }
       const isRuntimeAlias = existingRun.runId !== runId;
       const isSameRuntimeTurn =
         existingRun.turn.id !== undefined && existingRun.turn.id === turn.id;
@@ -3946,6 +3963,7 @@ export function createAgentKitProtocolAdapter(
           undefined,
           {
             attachReplayedRun: true,
+            messageId: latestUserMessage?.id,
           },
         );
       };
@@ -4292,6 +4310,9 @@ export function createAgentKitProtocolAdapter(
           runId: nextRunId,
           threadId: input.threadId,
           session: run.session,
+          ...(run.startMessageId === undefined
+            ? {}
+            : { startMessageId: run.startMessageId }),
           turn: nextTurn,
           events: [],
           firstRetainedSequence: 1,
@@ -4417,12 +4438,14 @@ export function createAgentKitProtocolAdapter(
         ...(attachments.length ? { attachments } : {}),
         abortSignal: readers.signal,
       });
+      const startMessageId = local?.startMessageId ?? state.startMessageId;
       const runId = await openStartedRun(
         input.threadId,
         session,
         turn,
         undefined,
         { continuedRunId: input.runId },
+        startMessageId === undefined ? {} : { messageId: startMessageId },
       );
       return { runId, capabilities };
     };

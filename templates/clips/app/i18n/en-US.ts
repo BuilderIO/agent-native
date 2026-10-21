@@ -1947,6 +1947,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}}",
     couldNotStartRecording: "Could not start recording",
+    intakeStorageUnavailable:
+      "This link needs its owner to connect video storage before you can record.",
+    streamingStorageUnavailable:
+      "The current storage setup does not support the resumable upload Clips needs. Configure a compatible provider, or ask a workspace owner or admin to do it, then start a new recording.",
     couldNotStartRecorder: "Could not start recorder",
     openSettings: "Open settings",
     openedRecorderInNewTab: "Opened recorder in a new tab",
@@ -1977,6 +1981,8 @@ const messages = {
     sessionExpired: "Session expired",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording.",
+    accountMismatch:
+      "Your signed-in account changed after recording setup started. Switch back to the account you started with, then try again.",
     logIn: "Log in",
     betterInDesktop: "Better in the desktop app",
     desktopAppDescription:
@@ -1990,8 +1996,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab",
     retryUpload: "Retry upload",
     tryAgain: "Try again",
-    storageConnectedReopeningRecorder:
-      "Storage connected. Reopening recorder...",
+    storageConnectedRecorderReady:
+      "Storage connected. Start a new recording when you're ready.",
     connectStorageToFinish:
       "On the next screen, use Builder.io storage (free tier storage + AI) or configure S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:

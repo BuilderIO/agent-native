@@ -267,6 +267,26 @@ describe("hosted Clips storage mode pinning", () => {
     expect(mockReserveHostedClipAllowance).not.toHaveBeenCalled();
   });
 
+  it("reports local SQL chunk scratch separately from connected storage", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("DATABASE_URL", "pglite:clips");
+    state.activeProvider = null;
+    mockIsFeatureFlagEnabled.mockResolvedValue(false);
+
+    await expect(
+      getClipsVideoStorageStatus({
+        email: "owner@example.com",
+        userId: "user-1",
+      }),
+    ).resolves.toMatchObject({
+      configured: false,
+      mode: "none",
+      localSqlChunkScratchAvailable: true,
+      denyReason: "disabled",
+    });
+  });
+
   it("lets a targeted user reserve a grant while keeping other users off", async () => {
     state.activeProvider = null;
     mockIsFeatureFlagEnabled.mockImplementation(
