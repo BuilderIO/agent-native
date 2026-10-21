@@ -344,6 +344,17 @@ async function cachedOrgDomain(orgId: string): Promise<string | null> {
   return domain;
 }
 
+async function cachedOrgA2ASecret(orgId: string): Promise<string | null> {
+  const key = `a2a-secret:${orgId}`;
+  const cached = getCachedWorkspaceAccess<string | null>(key);
+  if (cached !== undefined) return cached;
+  const generation = workspaceAccessGenerationNow();
+  const { getOrgA2ASecret } = await import("./context.js");
+  const secret = await getOrgA2ASecret(orgId);
+  rememberWorkspaceAccess(key, secret, generation);
+  return secret;
+}
+
 async function resolveHostedWorkspaceAppAuth(
   configuredDirectory: string,
   context: WorkspaceAppAccessContext,
@@ -354,15 +365,22 @@ async function resolveHostedWorkspaceAppAuth(
 
   const orgId = context.orgId?.trim() || null;
   const audience = canonicalA2AAudience(configuredDirectory);
-  let stage: "org-domain-lookup-failed" | "token-signing-failed" =
-    "org-domain-lookup-failed";
+  let stage:
+    | "org-domain-lookup-failed"
+    | "org-a2a-secret-lookup-failed"
+    | "token-signing-failed" = "org-domain-lookup-failed";
   try {
     const orgDomain = orgId ? await cachedOrgDomain(orgId) : null;
     const normalizedOrgDomain = orgDomain?.trim() || undefined;
     if (orgId && !normalizedOrgDomain) {
       return workspaceAppAccessUnavailable("org-domain-missing", { audience });
     }
-    const signingSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+    stage = "org-a2a-secret-lookup-failed";
+    const orgSecret = orgId
+      ? (await cachedOrgA2ASecret(orgId))?.trim() || undefined
+      : undefined;
+    const deploymentSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+    const signingSecret = orgSecret || deploymentSecret;
     if (!signingSecret) {
       return workspaceAppAccessUnavailable("a2a-secret-missing", { audience });
     }
@@ -381,14 +399,12 @@ async function resolveHostedWorkspaceAppAuth(
           detail: "Delegated member identity is missing or out of scope.",
         });
       }
-      const { getOrgA2ASecret } = await import("./context.js");
-      const orgSecret = (await getOrgA2ASecret(orgId))?.trim();
       if (!orgSecret) {
         return workspaceAppAccessUnavailable("a2a-secret-missing", {
           audience,
         });
       }
-      if (orgSecret === signingSecret) {
+      if (orgSecret === deploymentSecret) {
         return workspaceAppAccessUnavailable("token-signing-failed", {
           audience,
           detail:
@@ -402,9 +418,9 @@ async function resolveHostedWorkspaceAppAuth(
         audience,
       );
     } else {
-      token = await signA2AToken(email, normalizedOrgDomain, undefined, {
+      token = await signA2AToken(email, normalizedOrgDomain, orgSecret, {
         expiresIn: "1m",
-        preferGlobalSecret: true,
+        preferGlobalSecret: false,
         audience,
         extraClaims: {
           jti: randomUUID(),
