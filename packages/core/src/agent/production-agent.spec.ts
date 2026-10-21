@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+  fingerprintAgentSubmissionAttachment,
 } from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -92,6 +93,7 @@ import {
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
+  createRunSafeBoundaryGuards,
   appendRequestAttachmentContextToResumedHistory,
   endsAtContinuationBoundary,
   preloadPlanModeEngineTools,
@@ -3869,6 +3871,554 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("waits for the durable queue receipt and replays it after a lost acknowledgement", async () => {
+    const threadId = "thread-durable-admission";
+    const messageId = "message-durable-admission";
+    const references = [
+      {
+        type: "file" as const,
+        path: "/uploads/report.pdf",
+        name: "report.pdf",
+        source: "upload",
+      },
+    ];
+    const options = {
+      model: "test-model",
+      mode: "plan",
+      reasoningEffort: "high" as const,
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Summarize the report",
+      references,
+      options,
+    };
+    const persistedMessage = {
+      id: messageId,
+      threadId,
+      text: submissionPayload.text,
+      createdAt: "2026-10-21T00:00:00.000Z",
+      references,
+      options,
+    };
+    const receipt = {
+      threadId,
+      messageId,
+      state: "queued" as const,
+      actor: {
+        email: "alice@example.com",
+        orgId: "acme",
+        orgScope: null,
+        anonymous: false,
+      },
+      message: persistedMessage,
+      payloadHash: chatThreadStore.hashQueuedSubmissionPayload(
+        threadId,
+        submissionPayload,
+      ),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    let finishMutation!: (value: any) => void;
+    const mutationCommit = new Promise<any>((resolve) => {
+      finishMutation = resolve;
+    });
+    const append = vi
+      .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+      .mockImplementation(() => mutationCommit as never);
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-active",
+    });
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const makeEvent = () =>
+      mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: submissionPayload.text,
+            threadId,
+            turnId: "turn-durable-admission",
+            agentKitMessageId: messageId,
+            submissionPayload,
+            references,
+            options,
+          }),
+        }),
+      );
+
+    try {
+      const event = makeEvent();
+      let responseSettled = false;
+      const responsePromise = runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      ).then((response) => {
+        responseSettled = true;
+        return response;
+      });
+      await vi.waitFor(() => expect(append).toHaveBeenCalledOnce(), {
+        timeout: 10_000,
+      });
+      expect(responseSettled).toBe(false);
+      expect(append.mock.calls[0]?.[1]).toMatchObject({
+        type: "append",
+        hashInput: submissionPayload,
+        message: {
+          id: messageId,
+          threadId,
+          text: submissionPayload.text,
+          references,
+          options,
+        },
+      });
+
+      finishMutation({
+        queuedMessages: [persistedMessage],
+        message: persistedMessage,
+      });
+      await expect(responsePromise).resolves.toEqual({
+        state: "queued",
+        message: persistedMessage,
+      });
+      expect(event.res.status).toBe(202);
+
+      readReceipt.mockResolvedValueOnce(receipt as never);
+      const retryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(retryEvent),
+        ),
+      ).resolves.toEqual({
+        state: "queued",
+        message: persistedMessage,
+        activeRunId: "run-active",
+      });
+      expect(retryEvent.res.status).toBe(202);
+      expect(append).toHaveBeenCalledOnce();
+    } finally {
+      append.mockRestore();
+      readReceipt.mockRestore();
+      resolveThreadAccess.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("uploads inline attachment bytes before queue commit and retries after a failed commit", async () => {
+    const threadId = "thread-attachment-admission";
+    const messageId = "message-attachment-admission";
+    const inlineAttachment = {
+      type: "image",
+      name: "chart.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${PNG_BASE64}`,
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Review this chart",
+      requestAttachments: [
+        {
+          type: "image" as const,
+          name: "chart.png",
+          contentType: "image/png",
+          fingerprint: fingerprintAgentSubmissionAttachment(inlineAttachment),
+        },
+      ],
+    };
+    let uploadAttempt = 0;
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => {
+        uploadAttempt += 1;
+        if (attachments?.[0]) {
+          attachments[0].url = `https://files.example.test/chart-${uploadAttempt}.png`;
+          attachments[0].uploadProvider = "test-storage";
+        }
+        return {
+          attachments: attachments ?? [],
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        };
+      });
+    const append = vi
+      .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+      .mockImplementationOnce(async () => {
+        throw new Error("queue transaction interrupted before commit");
+      })
+      .mockImplementationOnce(
+        async (_id, mutation) =>
+          ({
+            queuedMessages: [
+              mutation.type === "append" ? mutation.message : {},
+            ] as never,
+            message: mutation.type === "append" ? mutation.message : undefined,
+          }) as never,
+      );
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const makeEvent = () =>
+      mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: submissionPayload.text,
+            threadId,
+            turnId: "turn-attachment-admission",
+            agentKitMessageId: messageId,
+            submissionPayload,
+            attachments: [inlineAttachment],
+          }),
+        }),
+      );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(makeEvent()),
+        ),
+      ).rejects.toThrow("queue transaction interrupted before commit");
+      expect(uploadAttempt).toBe(1);
+
+      const retryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(retryEvent),
+        ),
+      ).resolves.toMatchObject({ state: "queued", message: { id: messageId } });
+      expect(retryEvent.res.status).toBe(202);
+      expect(uploadAttempt).toBe(2);
+      expect(append).toHaveBeenCalledTimes(2);
+      const committedMutation = append.mock.calls[1]?.[1];
+      expect(committedMutation).toMatchObject({
+        type: "append",
+        hashInput: submissionPayload,
+        message: {
+          attachments: [
+            {
+              type: "file",
+              name: "chart.png",
+              mediaType: "image/png",
+              url: "https://files.example.test/chart-2.png",
+            },
+          ],
+        },
+      });
+      expect(JSON.stringify(committedMutation?.message)).not.toContain(
+        "data:image/",
+      );
+    } finally {
+      preUpload.mockRestore();
+      append.mockRestore();
+      readReceipt.mockRestore();
+      resolveThreadAccess.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("rejects mismatched attachments before a free-slot run can dispatch", async () => {
+    const threadId = "thread-attachment-identity-mismatch";
+    const messageId = "message-attachment-identity-mismatch";
+    const expectedAttachment = {
+      type: "image",
+      name: "chart.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${PNG_BASE64}`,
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Review this chart",
+      requestAttachments: [
+        {
+          type: "image" as const,
+          name: expectedAttachment.name,
+          contentType: expectedAttachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(expectedAttachment),
+        },
+      ],
+    };
+    const append = vi.spyOn(chatThreadStore, "mutateThreadQueuedMessages");
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-attachment-identity-mismatch",
+          agentKitMessageId: messageId,
+          submissionPayload,
+          attachments: [
+            {
+              ...expectedAttachment,
+              data: `data:image/png;base64,${JPEG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    mockTryClaimRunSlot.mockClear();
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).resolves.toEqual({
+        error: "submissionPayload does not match this message",
+      });
+      expect(event.res.status).toBe(400);
+      expect(append).not.toHaveBeenCalled();
+      expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+    } finally {
+      append.mockRestore();
+      preUpload.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+    }
+  });
+
+  it.each([
+    {
+      label: "a data URL in the attachment URL field",
+      attachment: {
+        type: "image",
+        name: "chart.png",
+        contentType: "image/png",
+        url: `data:image/png;base64,${PNG_BASE64}`,
+      },
+      expectsUpload: true,
+    },
+    {
+      label: "a text file",
+      attachment: {
+        type: "file",
+        name: "notes.txt",
+        contentType: "text/plain",
+        text: "Remember the agreed deadline",
+      },
+      expectsUpload: true,
+    },
+    {
+      label: "a durable URL",
+      attachment: {
+        type: "file",
+        name: "notes.txt",
+        contentType: "text/plain",
+        url: "https://files.example.test/notes.txt",
+      },
+      expectsUpload: false,
+    },
+    {
+      label: "a durable file ID",
+      attachment: {
+        type: "file",
+        name: "notes.txt",
+        contentType: "text/plain",
+        fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+      },
+      expectsUpload: false,
+    },
+  ])(
+    "queues $label as a durable reference",
+    async ({ attachment, expectsUpload }) => {
+      const threadId = `thread-attachment-${attachment.name}`;
+      const messageId = `message-attachment-${attachment.name}`;
+      const identity = {
+        name: attachment.name,
+        contentType: attachment.contentType,
+        fingerprint: fingerprintAgentSubmissionAttachment(attachment),
+      };
+      const submissionPayload = {
+        threadId,
+        id: messageId,
+        text: "Use this attachment later",
+        ...(attachment.type === "image"
+          ? { requestAttachments: [{ type: "image" as const, ...identity }] }
+          : {
+              attachments: [
+                {
+                  type: "file" as const,
+                  name: attachment.name,
+                  mediaType: attachment.contentType,
+                  fingerprint: identity.fingerprint,
+                },
+              ],
+            }),
+      };
+      const preUpload = vi
+        .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+        .mockImplementation(async ({ attachments }) => ({
+          attachments: attachments ?? [],
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        }));
+      const upload = vi
+        .spyOn(fileUploadRegistry, "uploadFile")
+        .mockResolvedValue({
+          url: "https://files.example.test/uploaded.txt",
+          provider: "test-storage",
+        });
+      const append = vi
+        .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+        .mockImplementation(
+          async (_id, mutation) =>
+            ({
+              queuedMessages: [
+                mutation.type === "append" ? mutation.message : {},
+              ],
+              message:
+                mutation.type === "append" ? mutation.message : undefined,
+            }) as never,
+        );
+      const readReceipt = vi
+        .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+        .mockResolvedValue(null);
+      const resolveThreadAccess = vi
+        .spyOn(chatThreadStore, "resolveThreadAccess")
+        .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: engineWithUncalledStream(),
+        actions: {},
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: submissionPayload.text,
+            threadId,
+            turnId: `turn-attachment-${attachment.name}`,
+            agentKitMessageId: messageId,
+            submissionPayload,
+            attachments: [attachment],
+          }),
+        }),
+      );
+
+      try {
+        const result = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+
+        expect(event.res.status).toBe(202);
+        expect(upload).toHaveBeenCalledTimes(expectsUpload ? 1 : 0);
+        expect(result).toMatchObject({
+          state: "queued",
+          message: { id: messageId },
+        });
+        const saved = append.mock.calls[0]?.[1];
+        expect(saved?.type).toBe("append");
+        if (saved?.type === "append") {
+          expect(saved.message.attachments?.[0]).toMatchObject(
+            attachment.type === "image"
+              ? { type: "file", name: attachment.name, url: expect.any(String) }
+              : attachment.fileId
+                ? {
+                    type: "file",
+                    name: attachment.name,
+                    fileId: attachment.fileId,
+                  }
+                : {
+                    type: "file",
+                    name: attachment.name,
+                    url: expect.any(String),
+                  },
+          );
+          expect(JSON.stringify(saved.message)).not.toContain("data:");
+          expect(saved.message.attachments?.[0]).not.toHaveProperty("text");
+        }
+      } finally {
+        preUpload.mockRestore();
+        upload.mockRestore();
+        append.mockRestore();
+        readReceipt.mockRestore();
+        resolveThreadAccess.mockRestore();
+        mockGetSlotHoldingRunId.mockReset();
+        mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+      }
+    },
+  );
+
   it.each([
     [
       "redacted after inline-byte scrubbing",
@@ -4947,7 +5497,6 @@ describe("createProductionAgentHandler", () => {
                   name: "notes.txt",
                   fileId: "file-1",
                   mediaType: "text/plain",
-                  data: "data:text/plain;base64,SGVsbG8=",
                   url: "https://files.example/notes.txt",
                 },
                 {
@@ -4963,7 +5512,6 @@ describe("createProductionAgentHandler", () => {
                   type: "image",
                   name: "scan.png",
                   contentType: "image/png",
-                  data: "data:image/png;base64,SGVsbG8=",
                   url: "https://files.example/scan-resized.png",
                   referenceUrl: "https://files.example/scan-original.png",
                   fileId: "file-image-1",
@@ -4972,7 +5520,6 @@ describe("createProductionAgentHandler", () => {
                   type: "image",
                   name: "scan.png",
                   contentType: "image/png",
-                  data: "data:image/png;base64,SGVsbG8=",
                   url: "https://files.example/scan-resized.png",
                   referenceUrl: "https://files.example/scan-original.png",
                   fileId: "file-image-1",
@@ -5057,7 +5604,6 @@ describe("createProductionAgentHandler", () => {
             id: "file-1",
             mediaType: "text/plain",
             contentType: "text/plain",
-            data: "data:text/plain;base64,SGVsbG8=",
             url: "https://files.example/notes.txt",
           },
           {
@@ -5073,7 +5619,6 @@ describe("createProductionAgentHandler", () => {
             type: "image",
             name: "scan.png",
             contentType: "image/png",
-            data: "data:image/png;base64,SGVsbG8=",
             url: "https://files.example/scan-resized.png",
             id: "file-image-1",
           },
@@ -7969,6 +8514,30 @@ describe("filterActionsByAllowedNames", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("blocks model and write dispatch while an interrupt waits for a safe boundary", async () => {
+    const order: string[] = [];
+    const guards = createRunSafeBoundaryGuards({
+      signal: new AbortController().signal,
+      flushEvents: async () => {
+        order.push("flush");
+      },
+      interruptRequestedAtBoundary: async () => {
+        order.push("interrupt");
+        return true;
+      },
+    });
+    const dispatch = vi.fn(() => "dispatched");
+
+    await expect(guards.beforeModelDispatch(dispatch)).resolves.toEqual({
+      started: false,
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+    await expect(guards.beforeWrite()).rejects.toThrow(
+      "Run aborted at a safe boundary",
+    );
+    expect(order).toEqual(["flush", "interrupt", "flush", "interrupt"]);
+  });
+
   it("reuses the original invocation receipt after an action mutates its arguments", async () => {
     const original = {
       destination: "fixture@example.test",

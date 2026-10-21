@@ -1667,6 +1667,16 @@ function storedQueue(
             createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
             requestAttachments: queued.requestAttachments,
           }).requestAttachments;
+    const references =
+      queued.references === undefined
+        ? undefined
+        : parseAgentQueuedMessage({
+            id: queued.id,
+            threadId,
+            text: queued.text,
+            createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
+            references: queued.references,
+          }).references;
     return {
       id: queued.id,
       threadId,
@@ -1674,6 +1684,7 @@ function storedQueue(
       createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
       ...(attachments?.length ? { attachments } : {}),
       ...(requestAttachments?.length ? { requestAttachments } : {}),
+      ...(references?.length ? { references } : {}),
       ...(asRecord(queued.metadata)
         ? { metadata: asRecord(queued.metadata)! }
         : {}),
@@ -4245,6 +4256,16 @@ export function createAgentNativeAgentKitTransport(
     });
     try {
       const run = await startRun(input, context);
+      if (!run.runId) {
+        dispatchAgentChatRunning({
+          isRunning: false,
+          phase: "idle",
+          threadId: input.threadId,
+          tabId: input.threadId,
+          reason: "submission_queued",
+        });
+        return run;
+      }
       dispatchAgentChatRunning({
         isRunning: true,
         phase: "working",
@@ -4336,6 +4357,7 @@ export function createAgentNativeAgentKitTransport(
         text,
         attachments,
         requestAttachments,
+        references,
         metadata,
         options: runOptions,
         interruptActiveRun,
@@ -4358,6 +4380,7 @@ export function createAgentNativeAgentKitTransport(
           createdAt: now(),
           attachments,
           requestAttachments,
+          references,
           metadata,
           options: runOptions,
           ...(interruptActiveRun ? { interruptActiveRun: true } : {}),
@@ -4569,6 +4592,7 @@ export function createAgentNativeAgentKitTransport(
                 },
               ],
               requestAttachments: claimedMessage.requestAttachments,
+              references: claimedMessage.references,
               options: claimedMessage.options,
               metadata: claimedMessage.metadata,
               queuePromotion: {
@@ -4579,6 +4603,11 @@ export function createAgentNativeAgentKitTransport(
             },
             undefined,
           );
+          if (!run.runId) {
+            throw new TypeError(
+              "A queue promotion cannot be acknowledged as a new queued submission.",
+            );
+          }
           const latestThread = await snapshot(threadId);
           if (!latestThread) {
             throw new Error(`Unknown agent chat thread: ${threadId}`);

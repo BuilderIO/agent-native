@@ -5338,6 +5338,7 @@ describe("createAgentKitProtocolAdapter", () => {
         type: "file",
         name: "reference-original.png",
         contentType: "image/png",
+        mediaType: "image/png",
         url: originalUrl,
         referenceOnly: true,
       },
@@ -5347,6 +5348,7 @@ describe("createAgentKitProtocolAdapter", () => {
         contentType: "image/jpeg",
         data: "data:image/jpeg;base64,UkVTSVpFRA==",
         url: resizedUrl,
+        referenceUrl: originalUrl,
       },
     ]);
     await transport.dispose();

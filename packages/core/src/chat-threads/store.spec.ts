@@ -186,10 +186,18 @@ describe("chat thread store", () => {
         return { rows: submission ? [submission] : [], rowsAffected: 0 };
       }
       if (/FROM agent_chat_submission_inbox/i.test(sql)) {
+        const interruptPoll = /interrupt_active_run = TRUE/i.test(sql);
+        const threadIdIndex = interruptPoll ? 0 : 1;
+        const threadId = /thread_id = \?/i.test(sql)
+          ? args[threadIdIndex]
+          : undefined;
         const pending = submissionRows.filter(
           (candidate) =>
             candidate.state === "queued" &&
-            (candidate.retry_after == null ||
+            (threadId === undefined || candidate.thread_id === threadId) &&
+            (!interruptPoll || candidate.interrupt_active_run === true) &&
+            (interruptPoll ||
+              candidate.retry_after == null ||
               Number(candidate.retry_after) <= Number(args[0])),
         );
         pending.sort((left, right) => {
@@ -2797,6 +2805,41 @@ describe("chat thread store", () => {
     ]);
   });
 
+  it("keeps interrupt receipts visible during the ordinary drain retry delay", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const interrupt = {
+      id: "queued-interrupt-retry",
+      threadId: "thread-1",
+      text: "Stop after the active action",
+      interruptActiveRun: true,
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message: interrupt },
+      { actor },
+    );
+    const retryAfter = Date.now() + 60_000;
+    expect(
+      await retryQueuedSubmissionReceipt("thread-1", interrupt.id, retryAfter),
+    ).toBe(true);
+
+    await expect(
+      listQueuedSubmissionReceipts({ threadId: "thread-1", now: Date.now() }),
+    ).resolves.toEqual([]);
+    await expect(
+      listQueuedSubmissionReceipts({
+        threadId: "thread-1",
+        interruptActiveRun: true,
+        now: Date.now(),
+      }),
+    ).resolves.toMatchObject([
+      {
+        messageId: interrupt.id,
+        message: { interruptActiveRun: true },
+      },
+    ]);
+  });
+
   it("rejects a reused legacy queue id when its attachment identity is unknown", async () => {
     const actor = { email: "user@example.com", anonymous: false };
     const existingMessage = {
@@ -3472,6 +3515,74 @@ describe("chat thread store", () => {
     expect(
       (stored.queuedMessages ?? []).map((item: { id: string }) => item.id),
     ).not.toContain(queued.id);
+  });
+
+  it("reconciles a same-ID retry queued before a direct run is persisted", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "message-direct-race",
+      text: "Run once",
+    };
+    const queued = {
+      id: submissionPayload.id,
+      threadId: submissionPayload.threadId,
+      text: submissionPayload.text,
+    };
+
+    // Model the retry arriving after the direct run was admitted but before
+    // its onRunPrepared callback persisted the user message.
+    await mutateThreadQueuedMessages(
+      submissionPayload.threadId,
+      {
+        type: "append",
+        message: queued,
+        hashInput: submissionPayload,
+      },
+      { actor },
+    );
+    expect(
+      await getQueuedSubmissionReceipt(
+        submissionPayload.threadId,
+        submissionPayload.id,
+      ),
+    ).toMatchObject({ state: "queued" });
+
+    const userMessage = buildUserMessage({
+      text: submissionPayload.text,
+      runId: "run-direct-race",
+      agentKitMessageId: submissionPayload.id,
+    });
+    await updateThreadData("thread-1", "{}", "", "", 0, {
+      transformThreadData: (threadData) => {
+        const result = applySubmittedUserMessage(
+          JSON.parse(threadData),
+          userMessage,
+        );
+        if (!("repo" in result)) throw new Error(result.status);
+        return JSON.stringify(result.repo);
+      },
+      afterUpdate: (tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId: submissionPayload.threadId,
+          messageId: submissionPayload.id,
+          runId: "run-direct-race",
+          actor,
+          message: queued,
+          hashInput: submissionPayload,
+        }),
+    });
+
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+    await expect(
+      getQueuedSubmissionReceipt(
+        submissionPayload.threadId,
+        submissionPayload.id,
+      ),
+    ).resolves.toMatchObject({
+      state: "submitted",
+      submittedRunId: "run-direct-race",
+    });
   });
 
   it("lets a new tab take over an expired queue promotion lease", async () => {

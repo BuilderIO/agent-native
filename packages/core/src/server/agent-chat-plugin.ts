@@ -314,6 +314,7 @@ import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
 import { startIntervalJob } from "./interval-job.js";
 import { isDirectLoopbackRequest } from "./loopback.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
+import { scheduleQueuedSubmissionInboxDrain } from "./queued-submission-inbox-drain.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
   runWithRequestContext,
@@ -3957,6 +3958,18 @@ export function createAgentChatPlugin(
           run,
           { turnContinues: endsAtContinuationBoundary(run) },
         );
+        scheduleQueuedSubmissionInboxDrain({
+          threadId: runThreadId,
+          turnContinues: endsAtContinuationBoundary(run),
+          waitUntil: getRequestRunContext()?.waitUntil,
+          drain: drainQueuedSubmissionInbox,
+          onError: (error) => {
+            console.error(
+              `[agent-chat] queued-submission follow-up drain failed for ${runThreadId}:`,
+              error,
+            );
+          },
+        });
 
         // Event triggers and local git checkpoints remain best effort and do
         // not extend the durable chat persistence gate.
@@ -8567,7 +8580,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       };
 
-      const drainQueuedSubmissionInbox = async () => {
+      const drainQueuedSubmissionInbox = async (
+        drainOptions: {
+          threadId?: string;
+        } = {},
+      ) => {
         const result = {
           scanned: 0,
           claimed: 0,
@@ -8577,7 +8594,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           expired: 0,
           failed: 0,
         };
-        const pending = await listQueuedSubmissionReceipts({ limit: 25 });
+        const pending = await listQueuedSubmissionReceipts({
+          limit: drainOptions.threadId ? 1 : 25,
+          ...(drainOptions.threadId ? { threadId: drainOptions.threadId } : {}),
+        });
         result.scanned = pending.length;
         const deadlineAt = Date.now() + 30_000;
         const maxAdmissions = 5;
@@ -8602,6 +8622,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         for (const receipt of pending) {
           if (Date.now() >= deadlineAt || result.submitted >= maxAdmissions) {
             break;
+          }
+          if (
+            drainOptions.threadId &&
+            !(await waitForStableIdle(drainOptions.threadId))
+          ) {
+            result.deferred += 1;
+            continue;
           }
           let claimId: string | undefined;
           try {
@@ -8846,6 +8873,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   : {}),
                 ...(claimedMessage.requestAttachments !== undefined
                   ? { requestAttachments: claimedMessage.requestAttachments }
+                  : {}),
+                ...(claimedMessage.references !== undefined
+                  ? { references: claimedMessage.references }
                   : {}),
                 ...(claimedMessage.metadata !== undefined
                   ? { metadata: claimedMessage.metadata }

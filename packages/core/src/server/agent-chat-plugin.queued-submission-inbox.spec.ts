@@ -297,6 +297,15 @@ describe("queued submission inbox recurring sweep", () => {
           url: "https://files.example.test/chart.png",
         },
       ],
+      references: [
+        {
+          type: "skill",
+          path: "skills/research.md",
+          name: "Research skill",
+          source: "workspace",
+          refId: "skill-research",
+        },
+      ],
       metadata: { engine: "openai", source: "queued-inbox" },
       options: {
         model: "gpt-4.1",

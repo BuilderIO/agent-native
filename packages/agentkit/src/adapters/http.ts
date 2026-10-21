@@ -39,6 +39,7 @@ import {
   parseAgentThread,
   parseAgentUploadTarget,
   parseAgentProtocolEnvelope,
+  parseAgentRunStartResult,
   parseFilePart,
   parseInvokeActionInput,
   parseListThreadsInput,
@@ -599,7 +600,7 @@ export function createAgentKitHttpTransport(
     resumeRun(input, context) {
       return request(
         `/runs/${encodeURIComponent(input.runId)}/resume`,
-        parseStartRunResult,
+        parseAgentRunStartResult,
         {
           method: "POST",
           body: JSON.stringify(createAgentProtocolEnvelope("request", input)),

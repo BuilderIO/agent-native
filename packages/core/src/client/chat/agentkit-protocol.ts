@@ -17,6 +17,7 @@ import type {
   AgentMessagePart,
   AgentObjectReference,
   AgentParticipant,
+  AgentQueuedSubmissionReceipt,
   AgentRunStatus,
   AgentRequestAttachment,
   AgentTask,
@@ -311,6 +312,23 @@ function runtimeRequestAttachments(args: {
     const originalIndex = originalUrl
       ? attachments.findIndex((attachment) => attachment.url === originalUrl)
       : -1;
+    const addReferenceOnly = (replaceOriginal: boolean) => {
+      const original = originalIndex >= 0 ? attachments[originalIndex] : null;
+      const reference: AgentChatAttachment = {
+        type: "file",
+        name: original?.name || requestAttachment.name,
+        contentType: original?.contentType || requestAttachment.contentType,
+        ...(original?.id ? { id: original.id } : {}),
+        ...(original?.mediaType ? { mediaType: original.mediaType } : {}),
+        url: originalUrl,
+        referenceOnly: true,
+      };
+      if (replaceOriginal && originalIndex >= 0) {
+        attachments.splice(originalIndex, 1, reference);
+      } else {
+        attachments.push(reference);
+      }
+    };
     if (typeof requestAttachment.data === "string") {
       const imageUrl = requestAttachment.url ?? originalUrl;
       const keepsOriginalReference =
@@ -318,16 +336,7 @@ function runtimeRequestAttachments(args: {
         imageUrl !== undefined &&
         originalUrl !== imageUrl;
       if (keepsOriginalReference) {
-        const original = originalIndex >= 0 ? attachments[originalIndex] : null;
-        const reference = {
-          type: "file",
-          name: original?.name || requestAttachment.name,
-          contentType: original?.contentType || requestAttachment.contentType,
-          url: originalUrl,
-          referenceOnly: true,
-        };
-        if (originalIndex >= 0) attachments.splice(originalIndex, 1, reference);
-        else attachments.push(reference);
+        addReferenceOnly(originalIndex >= 0);
       }
       const image = {
         type: "image",
@@ -335,24 +344,17 @@ function runtimeRequestAttachments(args: {
         contentType: requestAttachment.contentType,
         data: requestAttachment.data,
         ...(imageUrl ? { url: imageUrl } : {}),
+        ...(originalUrl ? { referenceUrl: originalUrl } : {}),
       };
-      if (originalIndex >= 0 && !keepsOriginalReference) {
-        attachments.splice(originalIndex, 1, image);
-      } else {
-        attachments.push(image);
-      }
+      attachments.push(image);
       continue;
     }
 
-    if (originalIndex >= 0 && originalUrl) {
-      const original = attachments[originalIndex]!;
-      attachments.splice(originalIndex, 1, {
-        type: "file",
-        name: original.name || requestAttachment.name,
-        contentType: original.contentType,
-        url: originalUrl,
-        referenceOnly: true,
-      });
+    if (
+      originalUrl &&
+      (originalIndex < 0 || requestAttachment.url !== originalUrl)
+    ) {
+      addReferenceOnly(originalIndex >= 0);
     }
     if (typeof requestAttachment.url === "string") {
       attachments.push({
@@ -360,6 +362,7 @@ function runtimeRequestAttachments(args: {
         name: requestAttachment.name,
         contentType: requestAttachment.contentType,
         url: requestAttachment.url,
+        ...(originalUrl ? { referenceUrl: originalUrl } : {}),
       });
     }
   }
@@ -3956,7 +3959,9 @@ export function createAgentKitProtocolAdapter(
           return { runId: await pendingRun, capabilities };
         }
       }
-      const createRun = async (): Promise<string> => {
+      const createRun = async (): Promise<
+        string | AgentQueuedSubmissionReceipt
+      > => {
         const session = await getSession(input.threadId, turnMetadata);
         const messages = input.messages.map(protocolMessageToRuntimeMessage);
         const attachments = runtimeRequestAttachments({
@@ -3966,9 +3971,11 @@ export function createAgentKitProtocolAdapter(
         const turn = await session.startTurn({
           prompt: latestUserPrompt(input.messages),
           messages,
+          ...(input.options ? { options: input.options } : {}),
           ...(input.submissionPayload
             ? { submissionPayload: input.submissionPayload }
             : {}),
+          ...(input.references?.length ? { references: input.references } : {}),
           ...(input.queuePromotion
             ? { queuePromotion: input.queuePromotion }
             : {}),
@@ -3987,6 +3994,7 @@ export function createAgentKitProtocolAdapter(
           metadata: turnMetadata,
           abortSignal: readers.signal,
         });
+        if (turn.queuedSubmission) return turn.queuedSubmission;
         return openStartedRun(
           input.threadId,
           session,
@@ -4000,9 +4008,20 @@ export function createAgentKitProtocolAdapter(
         );
       };
       if (!queuePromotionKey) {
-        return { runId: await createRun(), capabilities };
+        const started = await createRun();
+        return typeof started === "string"
+          ? { runId: started, capabilities }
+          : { queuedSubmission: started, capabilities };
       }
-      const pendingRun = Promise.resolve().then(createRun);
+      const pendingRun = Promise.resolve().then(async () => {
+        const started = await createRun();
+        if (typeof started !== "string") {
+          throw new TypeError(
+            "A queue promotion cannot be acknowledged as a new queued submission.",
+          );
+        }
+        return started;
+      });
       pendingQueuePromotionRuns.set(queuePromotionKey, pendingRun);
       try {
         return { runId: await pendingRun, capabilities };

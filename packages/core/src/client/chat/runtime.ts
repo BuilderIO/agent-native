@@ -1,5 +1,11 @@
 import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
-import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
+import {
+  parseAgentQueuedSubmissionReceipt,
+  type AgentRunOptions,
+  type AgentSubmissionReference,
+  type AgentQueuedSubmissionReceipt,
+  type AgentSuggestion,
+} from "@agent-native/agentkit/protocol";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
 import {
@@ -153,6 +159,7 @@ export interface AgentChatRuntimeAttachment {
   readonly contentType?: string;
   readonly data?: string;
   readonly url?: string;
+  readonly referenceUrl?: string;
   readonly text?: string;
   readonly metadata?: AgentChatRuntimeMetadata;
 }
@@ -311,6 +318,8 @@ export interface AgentChatRuntimeTurnInput {
   readonly prompt?: string;
   readonly messages?: readonly AgentChatRuntimeMessage[];
   readonly submissionPayload?: unknown;
+  readonly options?: AgentRunOptions;
+  readonly references?: readonly AgentSubmissionReference[];
   readonly queuePromotion?: {
     readonly messageId: string;
     readonly claimId: string;
@@ -761,6 +770,7 @@ export interface AgentChatRuntimeTurn<
   readonly sessionId: AgentChatRuntimeSessionId;
   readonly runId?: string;
   readonly metadata?: AgentChatRuntimeMetadata;
+  readonly queuedSubmission?: AgentQueuedSubmissionReceipt;
   readonly events: AsyncIterable<TEvent>;
   /** Close the local event stream without cancelling the underlying run. */
   closeEvents?(): Promise<void> | void;
@@ -1261,6 +1271,8 @@ function defaultHttpRuntimeRequest(input: {
     messages: input.turn.messages,
     attachments: input.turn.attachments,
     submissionPayload: input.turn.submissionPayload,
+    options: input.turn.options,
+    references: input.turn.references,
     tools: input.turn.tools,
     model: input.turn.model,
     reasoningEffort: input.turn.reasoningEffort,
@@ -1507,6 +1519,60 @@ export function createHttpAgentChatRuntime<
           forgetTurnContext(turnId, turn);
         }
         throw withTurnId(error, turnId);
+      }
+
+      if (response.status === 202) {
+        let queuedSubmission: AgentQueuedSubmissionReceipt;
+        try {
+          if (
+            !response.headers
+              .get("Content-Type")
+              ?.toLowerCase()
+              .includes("application/json")
+          ) {
+            throw new TypeError("Expected a JSON queued submission receipt.");
+          }
+          queuedSubmission = parseAgentQueuedSubmissionReceipt(
+            await response.json(),
+          );
+          const submission = asRecord(turn.submissionPayload);
+          const expectedThreadId = summary.threadId ?? sessionId;
+          if (
+            queuedSubmission.message.threadId !== expectedThreadId ||
+            (typeof submission?.id === "string" &&
+              queuedSubmission.message.id !== submission.id)
+          ) {
+            throw new TypeError(
+              "The queued submission receipt does not match this session turn.",
+            );
+          }
+        } catch (cause) {
+          cleanup();
+          throw withTurnId(
+            Object.assign(
+              new Error(
+                cause instanceof Error
+                  ? `Invalid queued submission response: ${cause.message}`
+                  : "Invalid queued submission response.",
+                { cause },
+              ),
+              {
+                code: "invalid_queued_submission_response",
+                status: response.status,
+                retryable: true,
+              },
+            ),
+            turnId,
+          );
+        }
+        cleanup();
+        forgetTurnContext(turnId, turn);
+        return {
+          id: turnId,
+          sessionId,
+          queuedSubmission,
+          events: (async function* () {})(),
+        };
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
@@ -5006,6 +5072,8 @@ export function createAgentNativeChatRuntime(
         ...(turn.submissionPayload !== undefined
           ? { submissionPayload: turn.submissionPayload }
           : {}),
+        ...(turn.references?.length ? { references: turn.references } : {}),
+        ...(turn.options ? { options: turn.options } : {}),
         ...(turn.queuePromotion
           ? {
               queuedMessageId: turn.queuePromotion.messageId,

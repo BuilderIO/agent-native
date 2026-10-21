@@ -2,9 +2,14 @@ import { AgentKitClient } from "@agent-native/agentkit/client";
 import {
   AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
   createAgentKitProtocolVersionOffer,
+  fingerprintAgentSubmissionAttachment,
   resumeEntryFromApproval,
+  submissionAttachmentsMatch,
 } from "@agent-native/agentkit/protocol";
-import type { AgentEvent } from "@agent-native/agentkit/protocol";
+import type {
+  AgentEvent,
+  AgentSubmissionPayload,
+} from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -29,6 +34,7 @@ import {
   createHttpAgentChatRuntime,
   type AgentChatRuntime,
   type AgentChatRuntimeKnownEvent,
+  type AgentChatRuntimeTurnInput,
 } from "./runtime.js";
 
 const runStateMocks = vi.hoisted(() => ({
@@ -6418,13 +6424,25 @@ describe("createAgentNativeAgentKitTransport", () => {
 
   it("loads durable history and promotes queued work into a real stream", async () => {
     const queueWrites: unknown[] = [];
+    const references = [
+      {
+        type: "file" as const,
+        path: "/uploads/brief.pdf",
+        name: "brief.pdf",
+        source: "upload",
+      },
+    ];
+    const options = { model: "test-model", reasoningEffort: "high" as const };
     let queuedMessages = [
       {
         id: "queued-1",
         text: "Continue after approval",
         createdAt: "2026-08-29T00:02:00.000Z",
+        references,
+        options,
       },
     ];
+    let startRunBody: Record<string, unknown> | undefined;
     let threadData = JSON.stringify({
       messages: [
         {
@@ -6486,6 +6504,10 @@ describe("createAgentNativeAgentKitTransport", () => {
           return json({ ok: true });
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
+          startRunBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
           const stream = [
             { type: "text", text: "Release continued." },
             {
@@ -6544,6 +6566,8 @@ describe("createAgentNativeAgentKitTransport", () => {
       },
     });
     expect(transport.capabilities?.suggestions).toBe(true);
+    expect(startRunBody?.references).toEqual(references);
+    expect(startRunBody?.options).toEqual(options);
     const events: AgentEvent[] = [];
     if (promoted) {
       for await (const event of transport.subscribeToRun({
@@ -9613,6 +9637,146 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("keeps submission attachment identity across host runtime mapping", async () => {
+    const file = {
+      type: "file" as const,
+      name: "report.pdf",
+      mediaType: "application/pdf",
+      fileId: "file-report",
+      url: "https://files.example.test/report.pdf",
+    };
+    const requestAttachment = {
+      type: "image" as const,
+      name: "chart.png",
+      contentType: "image/png",
+      data: "data:image/png;base64,SGVsbG8=",
+      url: "https://files.example.test/chart-resized.png",
+      referenceUrl: "https://files.example.test/chart-original.png",
+    };
+    const submissionPayload: AgentSubmissionPayload = {
+      threadId: "thread-local-attachments",
+      id: "message-local-attachments",
+      text: "Review these attachments.",
+      attachments: [
+        {
+          type: "file",
+          name: file.name,
+          mediaType: file.mediaType,
+          fingerprint: fingerprintAgentSubmissionAttachment(file, "file"),
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: requestAttachment.name,
+          contentType: requestAttachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(
+            requestAttachment,
+            "image",
+          ),
+        },
+      ],
+    };
+    let mappedAttachments: AgentChatRuntimeTurnInput["attachments"];
+    const startTurn = vi.fn(async (input: AgentChatRuntimeTurnInput) => {
+      mappedAttachments = input.attachments;
+      return {
+        id: "turn-local-attachments",
+        runId: "run-local-attachments",
+        sessionId: "thread-local-attachments",
+        events: (async function* () {
+          yield { type: "done", reason: "complete" } as const;
+        })(),
+      };
+    });
+    const runtime: AgentChatRuntime = {
+      id: "test:local-attachments",
+      kind: "external-agent",
+      label: "Local test runtime",
+      capabilities: {
+        messages: {
+          streaming: true,
+          history: true,
+          structuredContent: true,
+          attachments: true,
+        },
+        tools: {
+          events: true,
+          hostTools: true,
+          inputStreaming: true,
+          resultStreaming: true,
+        },
+        sessions: { create: true, restore: true, persistent: true },
+        cancellation: {
+          abortSignal: true,
+          explicitCancel: true,
+          interrupt: true,
+        },
+      },
+      async createSession(input) {
+        return {
+          id: input?.id ?? "thread-local-attachments",
+          threadId: input?.threadId,
+          runtimeId: "test:local-attachments",
+          startTurn,
+        };
+      },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      runtime,
+      fetch: vi.fn(async () => json({ error: "Unexpected request" }, 500)),
+    });
+
+    const { runId } = await transport.startRun({
+      threadId: submissionPayload.threadId,
+      messages: [
+        {
+          id: "user-local-attachments",
+          role: "user",
+          parts: [{ type: "text", text: submissionPayload.text }, file],
+        },
+      ],
+      requestAttachments: [requestAttachment],
+      submissionPayload,
+    });
+    for await (const _event of transport.subscribeToRun({
+      threadId: submissionPayload.threadId,
+      runId,
+    })) {
+      // Drain the local run to close its event pump.
+    }
+
+    expect(mappedAttachments).toEqual([
+      expect.objectContaining({
+        type: "file",
+        name: file.name,
+        id: file.fileId,
+        mediaType: file.mediaType,
+        contentType: file.mediaType,
+        url: file.url,
+      }),
+      expect.objectContaining({
+        type: "file",
+        name: requestAttachment.name,
+        contentType: requestAttachment.contentType,
+        url: requestAttachment.referenceUrl,
+        referenceOnly: true,
+      }),
+      expect.objectContaining({
+        type: "image",
+        name: requestAttachment.name,
+        contentType: requestAttachment.contentType,
+        data: requestAttachment.data,
+        url: requestAttachment.url,
+        referenceUrl: requestAttachment.referenceUrl,
+      }),
+    ]);
+    expect(
+      submissionAttachmentsMatch(submissionPayload, mappedAttachments ?? []),
+    ).toBe(true);
+    await transport.dispose();
+  });
+
   it("runs the supplied host runtime through AgentKit", async () => {
     const fetcher = vi.fn(async () =>
       json({ error: "Unexpected request" }, 500),
@@ -9807,6 +9971,7 @@ describe("createAgentNativeAgentKitTransport", () => {
         type: "file",
         name: "original.png",
         contentType: "image/png",
+        mediaType: "image/png",
         url: "https://storage.example.test/original.png",
         referenceOnly: true,
       },
@@ -9815,6 +9980,7 @@ describe("createAgentNativeAgentKitTransport", () => {
         name: "optimized.png",
         contentType: "image/png",
         url: "https://storage.example.test/optimized.png",
+        referenceUrl: "https://storage.example.test/original.png",
       },
     ]);
     expect(queueWrites).toHaveLength(2);

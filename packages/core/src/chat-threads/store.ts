@@ -4,6 +4,7 @@ import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   parseQueueMessageInput,
+  type AgentSubmissionReference,
   type AgentSubmissionPayload,
   type AgentRunOptions,
 } from "@agent-native/agentkit/protocol";
@@ -1865,6 +1866,7 @@ export interface QueuedMessage {
   createdAt?: string;
   attachments?: unknown[];
   requestAttachments?: unknown[];
+  references?: AgentSubmissionReference[];
   metadata?: Record<string, unknown>;
   options?: AgentRunOptions;
   interruptActiveRun?: boolean;
@@ -2157,17 +2159,32 @@ export async function listQueuedSubmissionReceipts(
   options: {
     limit?: number;
     now?: number;
+    threadId?: string;
+    interruptActiveRun?: boolean;
   } = {},
 ): Promise<QueuedSubmissionReceipt[]> {
   await ensureTable();
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 25)));
   const now = options.now ?? Date.now();
+  const where = ["state = 'queued'"];
+  const args: (number | string)[] = [];
+  if (options.interruptActiveRun !== true) {
+    where.push("(retry_after IS NULL OR retry_after <= ?)");
+    args.push(now);
+  }
+  if (options.threadId) {
+    where.push("thread_id = ?");
+    args.push(options.threadId);
+  }
+  if (options.interruptActiveRun === true) {
+    where.push("interrupt_active_run = TRUE");
+  }
   const { rows } = await getDbExec().execute({
     sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox
-          WHERE state = 'queued' AND (retry_after IS NULL OR retry_after <= ?)
+          WHERE ${where.join(" AND ")}
           ORDER BY interrupt_active_run DESC, move_to_top_at DESC NULLS LAST, queue_order ASC
           LIMIT ?`,
-    args: [now, limit],
+    args: [...args, limit],
   });
   return rows.map((row) =>
     queuedSubmissionReceiptFromRow(row as Record<string, unknown>),
