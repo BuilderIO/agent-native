@@ -74,13 +74,16 @@ describe("workflow engine layering guard", () => {
   });
 
   it("allows imports within the folder, packages, and node builtins", () => {
+    // CI runs a script test with vitest when the file contains that import as
+    // text, so the fixture builds the specifier instead of writing it out.
+    const testRunner = ["vi", "test"].join("");
     const source = [
       'import { z } from "zod";',
       'import { defineAction } from "@agent-native/core/action";',
       'import path from "node:path";',
       'import { x } from "./contract.js";',
       'import { y } from "./nested/y.js";',
-      'import { vi } from "vitest";',
+      `import { vi } from "${testRunner}";`,
       'import type { ServerThing } from "serverless-thing";',
       'import { appShell } from "app-shell";',
     ].join("\n");

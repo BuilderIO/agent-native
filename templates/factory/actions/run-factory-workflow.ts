@@ -445,21 +445,47 @@ export default defineAction({
             readScheduler: () =>
               readSchedulerOutcome(job.resource, queued.runId),
           });
+          // `cancelled` and `claimed_or_gone` leave no request a later tick could
+          // claim; `unknown` means the store threw, so the request may still run.
+          const cancelQueuedRequest = async (): Promise<
+            "cancelled" | "claimed_or_gone" | "unknown"
+          > => {
+            try {
+              return (await scoped.store.cancelRunRequest(
+                scoped.scope,
+                queued.requestId,
+              ))
+                ? "cancelled"
+                : "claimed_or_gone";
+            } catch (cancelError: unknown) {
+              console.error(
+                `[run-factory-workflow] request ${queued.requestId} could not be cancelled:`,
+                cancelError,
+              );
+              return "unknown";
+            }
+          };
+          const requestMayStillRun = () =>
+            fail(
+              `This run did not start, but its queued request could not be cancelled, so a later run may execute it in this run's mode. Check run ${queued.runId} with get-factory-workflow-run before starting another.`,
+              {
+                errorCode: "run_request_not_cancelled",
+                statusCode: 500,
+                details: {
+                  workflowId,
+                  requestId: queued.requestId,
+                  runId: queued.runId,
+                },
+              },
+            );
           if (waited.state === "finished") {
             return finishedRun(queued, waited.detail, workflow.graph);
           }
           if (waited.state === "skipped") {
             // The tick that was skipped never claimed this request; left in place,
             // the next manual run would claim it and run this one's mode instead.
-            const requestCancelled = await scoped.store
-              .cancelRunRequest(scoped.scope, queued.requestId)
-              .catch((cancelError: unknown) => {
-                console.error(
-                  `[run-factory-workflow] request ${queued.requestId} could not be cancelled after the run was skipped:`,
-                  cancelError,
-                );
-                return false;
-              });
+            const cancelOutcome = await cancelQueuedRequest();
+            const requestCancelled = cancelOutcome === "cancelled";
             const current = await findFactoryAutomationDefinition(
               scoped.orgId,
               factoryId,
@@ -474,6 +500,7 @@ export default defineAction({
               runId: queued.runId,
               details: { phase: "after_queue", mode, requestCancelled },
             });
+            if (cancelOutcome === "unknown") return requestMayStillRun();
             return skippedRun({
               requestId: queued.requestId,
               runId: queued.runId,
@@ -483,6 +510,11 @@ export default defineAction({
             });
           }
           if (waited.state === "not_started") {
+            // The scheduler ended this run without starting it. A request no tick
+            // claimed would otherwise run later, in this run's mode.
+            if ((await cancelQueuedRequest()) === "unknown") {
+              return requestMayStillRun();
+            }
             return {
               requestId: queued.requestId,
               runId: queued.runId,

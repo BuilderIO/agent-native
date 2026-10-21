@@ -548,6 +548,52 @@ describe("run-factory-workflow: two runs of one workflow at once", () => {
       errorCode: "workflow_disabled",
       message: "Workflow is switched off.",
     });
+    // A request no tick claimed would run later, in this run's mode.
+    expect((await claim(created.workflowId)).claimed).toBeNull();
+  });
+
+  it("does not report a skipped run as clean when its request could not be cancelled", async () => {
+    const created = await createWorkflow();
+    listAutomationRunsMock.mockResolvedValue([refusedRow("history-7")]);
+    getRunMock.mockResolvedValue(null);
+    vi.spyOn(kit.currentStore(), "cancelRunRequest").mockRejectedValue(
+      new Error("database is down"),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const failure = await kit.failureOf(() =>
+      request(created.workflowId, { waitSeconds: 25 }),
+    );
+
+    expect(failure).toMatchObject({
+      errorCode: "run_request_not_cancelled",
+      statusCode: 500,
+      details: { workflowId: created.workflowId, runId: "history-7" },
+    });
+    expect(failure.message).toContain("may execute it in this run's mode");
+  });
+
+  it("does not report a run the scheduler never started as clean when its request could not be cancelled", async () => {
+    const created = await createWorkflow();
+    listAutomationRunsMock.mockResolvedValue([
+      {
+        id: "history-7",
+        status: "error",
+        error: "Workflow is switched off.",
+        errorCode: "workflow_disabled",
+      },
+    ]);
+    getRunMock.mockResolvedValue(null);
+    vi.spyOn(kit.currentStore(), "cancelRunRequest").mockRejectedValue(
+      new Error("database is down"),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const failure = await kit.failureOf(() =>
+      request(created.workflowId, { waitSeconds: 25 }),
+    );
+
+    expect(failure).toMatchObject({ errorCode: "run_request_not_cancelled" });
   });
 
   it("keeps waiting the way it did when the scheduler's history cannot be read, and says why in the log", async () => {
