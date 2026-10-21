@@ -2515,7 +2515,7 @@ function validateStatusReactionLanguage(
       .split(" ")
       .filter(Boolean).length;
     const openStateSummary = summary.replace(
-      /\b(?:not|no longer|isn't|aren't|wasn't|weren't)\s+(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|remaining)\b/gi,
+      /\b(?:no longer|not|no|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|does not|do not|did not|can't|cannot|won't|wouldn't|shouldn't|will not|would not|should not|without)\s+(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|requires?|awaiting|waiting)\b/gi,
       " ",
     );
     if (
@@ -11441,6 +11441,60 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     },
     {
+      name: "unfinished scope summary cannot say verification is unnecessary",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence:
+              "paragraph selection remains broken; verification is required",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken; verification is required",
+          unfinishedScopeSummary:
+            "Paragraph selection does not need verification",
+          text: "Partially fixed: The start screen works now. Paragraph selection does not need verification. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken; verification is required. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "unfinished scope summary cannot say verification is no longer required",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence:
+              "paragraph selection remains broken; verification is required; no longer requires verification",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken; verification is required; no longer requires verification",
+          unfinishedScopeSummary:
+            "Paragraph selection no longer requires verification",
+          text: "Partially fixed: The start screen works now. Paragraph selection no longer requires verification. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken; verification is required; no longer requires verification. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
       name: "reply root is missing from page rows and threadRoots",
       inventory: {
         ...valid,
@@ -13387,6 +13441,10 @@ if (args[0] === "--self-test" && args.length === 1) {
     "negated open-state wording is rejected":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "unfinished scope summary cannot say work remains fixed":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "unfinished scope summary cannot say verification is unnecessary":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "unfinished scope summary cannot say verification is no longer required":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "reply root is missing from page rows and threadRoots":
       "threadParentTs does not resolve to an in-page root or verified threadRoots entry",
