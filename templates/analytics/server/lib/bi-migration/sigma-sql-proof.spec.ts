@@ -12,7 +12,13 @@ vi.mock("../bigquery.js", async () => {
       this.notConfigured = options.notConfigured === true;
     }
   }
-  return { BigQueryDryRunPreparationError, dryRunQuerySchema: mocks.dryRun };
+  const actual =
+    await vi.importActual<typeof import("../bigquery.js")>("../bigquery.js");
+  return {
+    BigQueryDryRunPreparationError,
+    dryRunQuerySchema: mocks.dryRun,
+    isDryRunSqlRejection: actual.isDryRunSqlRejection,
+  };
 });
 vi.mock("../dashboard-panel-verification.js", () => ({
   DEFAULT_MAX_BYTES_TO_EXECUTE: 50 * 1024 ** 3,
@@ -90,7 +96,10 @@ describe("proveSigmaPanelSql", () => {
 
   it("tells SQL BigQuery rejected from a check that could not finish", async () => {
     mocks.dryRun
-      .mockResolvedValueOnce({ error: "Table not found", status: 404 })
+      .mockResolvedValueOnce({
+        error: "Not found: Table p:d.t was not found",
+        status: 404,
+      })
       .mockResolvedValueOnce({ error: "timed out", timedOut: true })
       .mockResolvedValueOnce({ error: "backend error", status: 503 })
       .mockResolvedValueOnce({ error: "quota exceeded", status: 429 })
@@ -103,7 +112,13 @@ describe("proveSigmaPanelSql", () => {
         error: "Access denied",
         status: 403,
         reason: "access_denied",
-      });
+      })
+      .mockResolvedValueOnce({
+        error: "Job timed out",
+        status: 400,
+        reason: "timeout",
+      })
+      .mockResolvedValueOnce({ error: "Teapot", status: 418 });
 
     const proofs = await proveSigmaPanelSql(
       inspectionWith([
@@ -113,8 +128,19 @@ describe("proveSigmaPanelSql", () => {
         { elementId: "throttled", sql: "SELECT 4", hasError: false },
         { elementId: "quota", sql: "SELECT 5", hasError: false },
         { elementId: "denied", sql: "SELECT 6", hasError: false },
+        { elementId: "jobTimeout", sql: "SELECT 7", hasError: false },
+        { elementId: "unknown", sql: "SELECT 8", hasError: false },
       ]),
-      ["rejected", "slow", "outage", "throttled", "quota", "denied"],
+      [
+        "rejected",
+        "slow",
+        "outage",
+        "throttled",
+        "quota",
+        "denied",
+        "jobTimeout",
+        "unknown",
+      ],
     );
 
     expect(Object.fromEntries(proofs)).toEqual({
@@ -124,6 +150,8 @@ describe("proveSigmaPanelSql", () => {
       throttled: { ok: false, reason: "bigquery_dry_run_unavailable" },
       quota: { ok: false, reason: "bigquery_dry_run_unavailable" },
       denied: { ok: false, reason: "bigquery_dry_run_failed" },
+      jobTimeout: { ok: false, reason: "bigquery_dry_run_unavailable" },
+      unknown: { ok: false, reason: "bigquery_dry_run_unavailable" },
     });
   });
 

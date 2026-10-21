@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./bigquery.js", () => ({
   dryRunQuerySchema: mocks.dryRun,
   BigQueryDryRunPreparationError: mocks.PreparationError,
+  MISSING_QUERY_RESOURCE: /\bNot found: (Table|Dataset)\b/i,
 }));
 
 vi.mock("./dashboard-panel-runner.js", () => ({

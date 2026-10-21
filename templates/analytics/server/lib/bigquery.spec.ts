@@ -28,6 +28,7 @@ const {
   BigQueryQueryTimeoutError,
   dryRunQuery,
   dryRunQuerySchema,
+  isDryRunSqlRejection,
   renderCurrentDateLiterals,
   runQuery,
 } = await import("./bigquery");
@@ -971,6 +972,25 @@ describe("runQuery cancellation", () => {
     const result = await dryRunQuerySchema("SELECT 1");
 
     expect(result).toEqual({ error: null });
+  });
+
+  it("treats only invalid SQL and unreadable tables as SQL rejections", () => {
+    const failed = (fields: Record<string, unknown>) =>
+      isDryRunSqlRejection({ error: "failed", ...fields });
+
+    expect(failed({ status: 400 })).toBe(true);
+    expect(failed({ status: 400, reason: "invalid_query" })).toBe(true);
+    expect(failed({ status: 403, reason: "access_denied" })).toBe(true);
+    expect(
+      isDryRunSqlRejection({ error: "Not found: Dataset p:d", status: 404 }),
+    ).toBe(true);
+    expect(failed({ status: 404 })).toBe(false);
+    expect(failed({ status: 400, reason: "timeout" })).toBe(false);
+    expect(failed({ status: 403, reason: "quota_exceeded" })).toBe(false);
+    expect(failed({ status: 429 })).toBe(false);
+    expect(failed({ status: 503 })).toBe(false);
+    expect(failed({ timedOut: true })).toBe(false);
+    expect(isDryRunSqlRejection({ error: null })).toBe(false);
   });
 
   it("reports BigQuery's error reason on a failed dry run", async () => {

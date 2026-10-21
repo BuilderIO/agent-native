@@ -3,6 +3,7 @@ import { fail, isActionContractError } from "@agent-native/core/action";
 import {
   BigQueryDryRunPreparationError,
   dryRunQuerySchema,
+  isDryRunSqlRejection,
 } from "../bigquery.js";
 import {
   DEFAULT_MAX_BYTES_TO_EXECUTE,
@@ -122,19 +123,10 @@ async function proveOne(
         : {}),
     };
   }
-  // A timeout, rate limit, quota, or BigQuery outage says nothing about the
-  // SQL; quota and rate limits can arrive as a 403.
-  const unavailable =
-    dryRun.timedOut === true ||
-    dryRun.status === 429 ||
-    (dryRun.status ?? 0) >= 500 ||
-    dryRun.reason === "quota_exceeded" ||
-    dryRun.reason === "rate_limited" ||
-    dryRun.reason === "backend_error";
   return {
     ok: false,
-    reason: unavailable
-      ? "bigquery_dry_run_unavailable"
-      : "bigquery_dry_run_failed",
+    reason: isDryRunSqlRejection(dryRun)
+      ? "bigquery_dry_run_failed"
+      : "bigquery_dry_run_unavailable",
   };
 }
