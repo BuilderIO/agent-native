@@ -180,8 +180,8 @@ const CONTENT_DB_CORE_FILES = new Set([
 
 const CONTENT_DB_CORE_PATH_PREFIXES = ["packages/core/src/db/"] as const;
 
-// The two-tab convergence lane also covers its own harness and the build it
-// serves; other Content e2e specs and unit tests cannot move it.
+// This lane also runs the nested widget storage-isolation E2E. Other Content
+// e2e specs and unit tests cannot move it.
 const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/agent-native.config.ts",
   "templates/content/agent-native.json",
@@ -194,6 +194,7 @@ const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/e2e/helpers.ts",
   "templates/content/e2e/playwright.config.ts",
   "templates/content/e2e/two-tab-convergence.spec.ts",
+  "templates/content/e2e/chatgpt-widget-body-paint.spec.ts",
 ]);
 
 const CONTENT_CONVERGENCE_CORE_FILES = new Set([

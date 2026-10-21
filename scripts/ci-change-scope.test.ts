@@ -3045,6 +3045,7 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "packages/toolkit/src/editor/useCollabReconcile.ts",
     "packages/toolkit/src/collab-ui/lead-client.ts",
     "packages/toolkit/package.json",
+    "templates/content/e2e/chatgpt-widget-body-paint.spec.ts",
   ]) {
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.checks.content_convergence, true, path);
