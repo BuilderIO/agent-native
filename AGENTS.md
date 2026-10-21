@@ -155,8 +155,12 @@ for a check that inspected nothing; that is the flagship rule above, violated
 inside the thing that enforces it.
 
 Shared edits are visible in Git; read `concurrent-agents`. Batch fixes to avoid
-CI churn. Update from `origin/main` only for GitHub `CONFLICTING` PRs; merge
-shared branches.
+CI churn. During an explicitly authorized `/ship` for the same PR, merge freshly
+fetched `origin/main` without another approval when GitHub reports
+`CONFLICTING` or a failing required check is fixed on `origin/main`. First
+verify the live PR target, exact head, and a clean task-owned worktree; merge
+normally, never rebase. A behind count, pending check, or timer alone is not a
+reason to sync. Merge shared branches normally.
 
 **One hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
 `.claude/settings.json`): denies a write when another live session holds the
