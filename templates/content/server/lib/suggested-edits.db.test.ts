@@ -471,6 +471,96 @@ describe("Content suggested edits Blocks transaction", () => {
     });
   });
 
+  it("keeps each Blocks paragraph's ID when proposal edits reuse each other's text", async () => {
+    const { documentId, propertyId } = await seedSystemDatabasePage();
+    const original = "Apple\nBanana";
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({ content: original })
+      .where(eq(schema.documents.id, documentId));
+    const { persistBlocksFieldIdentity } =
+      await import("../../actions/_blocks-field-identity.js");
+    await persistBlocksFieldIdentity({
+      db,
+      ownerEmail,
+      documentId,
+      propertyId,
+      previousMarkdown: original,
+      markdown: original,
+      now: new Date().toISOString(),
+    });
+    const liveBlocks = async () => {
+      const [field] = await db
+        .select()
+        .from(schema.documentBlockFields)
+        .where(eq(schema.documentBlockFields.propertyId, propertyId));
+      const blocks = await db
+        .select({
+          id: schema.documentBlocks.id,
+          markdown: schema.documentBlocks.markdown,
+          state: schema.documentBlocks.state,
+        })
+        .from(schema.documentBlocks)
+        .where(eq(schema.documentBlocks.fieldId, field!.id))
+        .orderBy(schema.documentBlocks.sortIndex);
+      return blocks
+        .filter((block) => block.state !== "deleted")
+        .map(({ id, markdown }) => ({ id, markdown }));
+    };
+    const [apple, banana] = await liveBlocks();
+    expect([apple?.markdown, banana?.markdown]).toEqual(["Apple", "Banana"]);
+
+    const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      // Both edits are written against the original Page. The second turns
+      // Apple into the text that the first one replaces.
+      const suggestions = ["Apple\nCherry", "Banana\nBanana"].map((after) => {
+        const operations = markdownSuggestionOperations(original, after);
+        expect(operations).toHaveLength(1);
+        return { summary: after, operations };
+      });
+      const created = await (
+        await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal")
+      ).default.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind: adapter.kind,
+          baseRevision: document.revision,
+          summary: "Swap fruit",
+          idempotencyKey: `content-blocks-proposal-${documentId}`,
+          suggestions,
+        },
+        ctx,
+      );
+      await (
+        await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal")
+      ).default.run(
+        {
+          proposalId: created.proposal.id,
+          decision: "accepted",
+          idempotencyKey: `content-blocks-proposal-decision-${documentId}`,
+          members: created.suggestions.map((suggestion) => ({
+            id: suggestion.id,
+            observedRevision: suggestion.revision,
+            observedBase: suggestion.baseRevision,
+          })),
+        },
+        ctx,
+      );
+      const updated = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(updated.content).toBe("Banana\nCherry");
+    });
+    // Saved one edit at a time, Apple's paragraph becomes Banana and Banana's
+    // becomes Cherry. Matching only the first and last Page would swap them.
+    expect(await liveBlocks()).toEqual([
+      { id: apple!.id, markdown: "Banana" },
+      { id: banana!.id, markdown: "Cherry" },
+    ]);
+  });
+
   it("lets a commenter withdraw their own suggestion without touching the Page", async () => {
     sequence += 1;
     const documentId = `suggestion-withdraw-page-${sequence}`;

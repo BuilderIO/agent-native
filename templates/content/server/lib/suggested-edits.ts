@@ -246,6 +246,8 @@ type LockedSuggestionTarget = {
 // the result once: one write, one Page version, one Yjs update.
 type DeferredProposalCommit = LockedSuggestionTarget & {
   content: string;
+  /** The Page after each earlier member, kept only for Blocks identity. */
+  intermediateContents: string[];
   document: ProseMirrorNode;
   ctx: Record<string, unknown> | undefined;
   orgId: string | null;
@@ -728,6 +730,7 @@ async function commitAcceptedContent(input: {
   documentId: string;
   target: LockedSuggestionTarget;
   nextContent: string;
+  intermediateContents?: readonly string[];
   nextDocument: ProseMirrorNode;
   ydoc: PreparedYDocMutationLease;
   ctx: Record<string, unknown> | undefined;
@@ -804,6 +807,7 @@ async function commitAcceptedContent(input: {
           propertyId: field.propertyId,
           previousMarkdown: currentContent,
           markdown: nextContent,
+          intermediateMarkdown: input.intermediateContents,
           now,
         });
       }
@@ -1036,6 +1040,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       documentId: context.resourceId,
       target: proposal,
       nextContent: proposal.content,
+      intermediateContents: proposal.intermediateContents,
       nextDocument: proposal.document,
       ydoc: coordination.ydoc,
       ctx: proposal.ctx,
@@ -1095,9 +1100,16 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         nextContent,
         now,
       );
+      const intermediateContents = placed?.intermediateContents ?? [];
+      // Blocks IDs are matched edit by edit, as when each edit was saved.
+      // Matching only the first and last Page can swap blocks whose text
+      // one edit hands to another.
+      if (placed && target.primaryBlocksFields.length)
+        intermediateContents.push(currentContent);
       coordination.proposal = {
         ...target,
         content: nextContent,
+        intermediateContents,
         document: nextDocument,
         ctx: placed?.ctx ?? context.ctx,
         orgId: placed?.orgId ?? context.suggestion.orgId ?? null,

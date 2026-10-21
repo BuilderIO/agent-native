@@ -285,6 +285,11 @@ export async function persistBlocksFieldIdentity(args: {
   propertyId: string;
   previousMarkdown: string;
   markdown: string;
+  /**
+   * Markdown between previousMarkdown and markdown, in order. Block IDs follow
+   * each one in turn, as if each had been saved.
+   */
+  intermediateMarkdown?: readonly string[];
   expectedRevision?: number;
   preferredIdsByPath?: Readonly<Record<string, string>>;
   rejectCrossFieldIdRemapping?: boolean;
@@ -316,6 +321,16 @@ export async function persistBlocksFieldIdentity(args: {
       propertyId: args.propertyId,
       previous,
       markdown: args.previousMarkdown,
+      createId: () => `block_${nanoid(16)}`,
+    });
+  }
+
+  for (const markdown of args.intermediateMarkdown ?? []) {
+    previous = reconcileBlocksFieldIdentity({
+      documentId: args.documentId,
+      propertyId: args.propertyId,
+      previous,
+      markdown,
       createId: () => `block_${nanoid(16)}`,
     });
   }
