@@ -375,12 +375,15 @@ export function mergeBlocksFieldEdits(
         (other) => other.from === hunk.from && other.from === other.to,
       )
     ) {
-      // Both typed at the same spot: keep both, theirs first.
+      // Both typed at the same spot: keep both, theirs first, unless theirs
+      // starts a new paragraph there and mine continues the one before it.
       for (const other of overlaps) applied.delete(other);
+      const their = overlaps.map((other) => other.insert).join("");
+      const mineFirst = their.startsWith("\n") && !hunk.insert.startsWith("\n");
       placed.push({
         from: hunk.from,
         to: hunk.to,
-        insert: overlaps.map((other) => other.insert).join("") + hunk.insert,
+        insert: mineFirst ? hunk.insert + their : their + hunk.insert,
       });
     } else if (
       overlaps.length > 0 &&

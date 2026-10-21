@@ -718,6 +718,20 @@ describe("Blocks field edit merge", () => {
       "One\nTwo\nAgent line\nMy line",
     ],
     [
+      "typing at the end of a paragraph where theirs starts a new one",
+      "Intro",
+      "Intro more",
+      "Intro\nNew paragraph",
+      "Intro more\nNew paragraph",
+    ],
+    [
+      "typing at the start of a paragraph where theirs adds one before it",
+      "One\nTwo",
+      "One\nHey Two",
+      "One\nNew\nTwo",
+      "One\nNew\nHey Two",
+    ],
+    [
       "typing that already holds the other save",
       "Draft",
       "Draft more and more",
