@@ -42,6 +42,7 @@ import {
   stripInlineBytes,
 } from "../shared/inline-bytes.js";
 import {
+  ForbiddenError,
   hasCurrentOrgMembership,
   resolveAccess,
   type AccessContext,
@@ -1518,81 +1519,88 @@ export async function setThreadScope(
   emitChatThreadChange(id);
 }
 
+export function assertThreadOwner(
+  thread: Pick<ChatThread, "ownerEmail">,
+  ownerEmail: string,
+): void {
+  if (
+    !ownerEmail?.trim() ||
+    thread.ownerEmail.toLowerCase() !== ownerEmail.trim().toLowerCase()
+  ) {
+    throw new ForbiddenError();
+  }
+}
+
+async function getOwnedThread(
+  id: string,
+  ownerEmail: string,
+): Promise<ChatThread | null> {
+  const thread = await getThread(id);
+  if (thread) assertThreadOwner(thread, ownerEmail);
+  return thread;
+}
+
 export async function renameThread(
   id: string,
   title: string,
-  options: { ownerEmail?: string } = {},
+  options: { ownerEmail: string },
 ): Promise<boolean> {
   const nextTitle = normalizeThreadTitle(title);
   if (!nextTitle) return false;
 
   return await withThreadDataLock(id, async () => {
-    const thread = await getThread(id);
+    const thread = await getOwnedThread(id, options.ownerEmail);
     if (!thread) return false;
-    if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
-      return false;
-    }
 
     const repo = parseThreadData(thread.threadData);
     repo._titleOverride = nextTitle;
-    await updateThreadData(
+    return await updateThreadData(
       id,
       JSON.stringify(repo),
       nextTitle,
       thread.preview,
       thread.messageCount,
     );
-    return true;
   });
 }
 
 export async function setThreadPinned(
   id: string,
   pinned: boolean,
-  options: { ownerEmail?: string } = {},
+  options: { ownerEmail: string },
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const now = Math.max(Date.now(), 1);
-  const args: (string | number | null)[] = [pinned ? now : null, id];
-  let ownerFilter = "";
-  if (options.ownerEmail) {
-    ownerFilter = " AND owner_email = ?";
-    args.push(options.ownerEmail);
-  }
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET pinned_at = ? WHERE id = ?${ownerFilter}`,
-    args,
+    sql: `UPDATE chat_threads SET pinned_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [pinned ? now : null, id, options.ownerEmail.trim()],
   });
   if (result.rowsAffected > 0) {
     emitChatThreadChange(id);
     return true;
   }
+  await getOwnedThread(id, options.ownerEmail);
   return false;
 }
 
 export async function setThreadArchived(
   id: string,
   archived: boolean,
-  options: { ownerEmail?: string } = {},
+  options: { ownerEmail: string },
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const now = Math.max(Date.now(), 1);
-  const args: (string | number | null)[] = [archived ? now : null, id];
-  let ownerFilter = "";
-  if (options.ownerEmail) {
-    ownerFilter = " AND owner_email = ?";
-    args.push(options.ownerEmail);
-  }
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET archived_at = ? WHERE id = ?${ownerFilter}`,
-    args,
+    sql: `UPDATE chat_threads SET archived_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [archived ? now : null, id, options.ownerEmail.trim()],
   });
   if (result.rowsAffected > 0) {
     emitChatThreadChange(id);
     return true;
   }
+  await getOwnedThread(id, options.ownerEmail);
   return false;
 }
 
@@ -1600,6 +1608,8 @@ export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
+  /** Preserve the title and its override from each current CAS revision. */
+  preserveCurrentTitle?: boolean;
   preserveCurrentTitleAndPreview?: boolean;
   trustedRunSequenceResetIds?: ReadonlySet<string>;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
@@ -1692,6 +1702,18 @@ export async function updateThreadData(
             annotationConflicts.push(conflict),
         },
       );
+      if (options.preserveCurrentTitle) {
+        if (
+          Object.prototype.hasOwnProperty.call(
+            safeCurrentThreadData,
+            "_titleOverride",
+          )
+        ) {
+          merged._titleOverride = safeCurrentThreadData._titleOverride;
+        } else {
+          delete merged._titleOverride;
+        }
+      }
       // Client snapshots can predate their upload URL, so inline bytes become a
       // visible placeholder rather than failing the save; legacy rows are
       // scrubbed on their next write.
@@ -1712,13 +1734,14 @@ export async function updateThreadData(
         (!current.title.trim() || !current.preview.trim())
           ? extractThreadMeta(merged)
           : undefined;
-      const nextTitle = preserveCurrentMetadata
-        ? current.title
-        : preserveCurrentTitleAndPreview
-          ? current.title.trim()
-            ? current.title
-            : snapshotMetaForBlankFields?.title || current.title
-          : title || current.title || extractThreadMeta(merged).title;
+      const nextTitle =
+        preserveCurrentMetadata || options.preserveCurrentTitle
+          ? current.title
+          : preserveCurrentTitleAndPreview
+            ? current.title.trim()
+              ? current.title
+              : snapshotMetaForBlankFields?.title || current.title
+            : title || current.title || extractThreadMeta(merged).title;
       const nextPreview = preserveCurrentMetadata
         ? current.preview
         : preserveCurrentTitleAndPreview
