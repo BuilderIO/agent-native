@@ -1706,6 +1706,20 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
   }
 
   const requestContext = getRequestContext();
+  const isLocalGateway = isLocalWorkspaceGateway(baseUrl);
+  const requestOrigin = requestContext?.requestOrigin;
+  const isSameOriginGateway = requestOrigin
+    ? (() => {
+        try {
+          return new URL(requestOrigin).origin === baseUrl.origin;
+        } catch {
+          // coercion-ok: an invalid request origin cannot prove a self-fetch.
+          return false;
+        }
+      })()
+    : false;
+  if (isSameOriginGateway && !isLocalGateway) return null;
+
   const authHeaders: Record<string, string> = {};
   if (requestContext?.userEmail) {
     let orgDomain: string | undefined;
@@ -1744,7 +1758,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     }
     const globalSecret = getGlobalA2ASecret();
     const allowLocalUnauthenticatedRequest =
-      isLocalWorkspaceGateway(baseUrl) && !orgSecret && !globalSecret;
+      isLocalGateway && !orgSecret && !globalSecret;
     if (!orgSecret && !globalSecret && !allowLocalUnauthenticatedRequest) {
       throw new WorkspaceAppsGatewayAuthorizationError(
         503,
@@ -1806,7 +1820,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     : {};
 
   try {
-    if (isLocalWorkspaceGateway(baseUrl)) {
+    if (isLocalGateway) {
       const localResponse = await fetch(
         gatewayUrl(WORKSPACE_APPS_GATEWAY_PATH),
         {
@@ -1831,17 +1845,6 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       }
     }
 
-    const requestOrigin = requestContext?.requestOrigin;
-    const isSameOriginGateway = requestOrigin
-      ? (() => {
-          try {
-            return new URL(requestOrigin).origin === baseUrl.origin;
-          } catch {
-            // coercion-ok: an invalid request origin cannot prove a self-fetch.
-            return false;
-          }
-        })()
-      : false;
     if (isSameOriginGateway || !authHeaders.Authorization) return null;
     const actionUrl = gatewayUrl(WORKSPACE_APPS_ACTION_PATH);
     actionUrl.searchParams.set("includeAgentCards", "false");

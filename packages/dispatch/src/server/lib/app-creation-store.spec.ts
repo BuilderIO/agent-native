@@ -887,10 +887,10 @@ describe("listWorkspaceApps", () => {
     );
   });
 
-  it("does not recursively call the hosted registry action", async () => {
+  it("skips a same-origin hosted registry without credentials", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("A2A_SECRET", "");
     vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
 
     const apps = await runWithRequestContext(
