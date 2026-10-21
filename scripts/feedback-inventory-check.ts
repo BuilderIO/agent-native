@@ -1327,6 +1327,14 @@ function isNamedHumanOwner(owner: string): boolean {
   );
 }
 
+function leadingNamedHumanOwner(action: string): string | undefined {
+  const match =
+    /^((?:\p{Lu}\p{Ll}[\p{L}'’.-]*)(?:\s+\p{Lu}\p{Ll}[\p{L}'’.-]*){0,3})\s+(?:will|can|could|should|must|may|might|needs?|has\s+to|is\s+going\s+to)\b/u.exec(
+      action.trim(),
+    );
+  return match && isNamedHumanOwner(match[1]!) ? match[1] : undefined;
+}
+
 function validateReactionOwners(
   parentName: string,
   reactionSummary: string,
@@ -1628,7 +1636,7 @@ function publicActionSummaryMatchesAction(
     (word) => !publicActionSummaryFillerWords.has(word),
   );
   const ownerWords = new Set(
-    normalizeReplyPhrase(owner ?? "")
+    normalizeReplyPhrase(owner ?? leadingNamedHumanOwner(action) ?? "")
       .split(" ")
       .filter(Boolean),
   );
@@ -2527,6 +2535,10 @@ function validateStatusReactionLanguage(
       )
       .replace(
         /\b(?:needs?|requires?)\s+no\s+(?:(?:further|more|additional)\s+)?(?:work|verification|review|follow[- ]?up|action|changes?|updates?|testing|checks?)\b/gi,
+        " ",
+      )
+      .replace(
+        /\b(?:no|not any)\s+(?:(?:further|more|additional)\s+)?(?:work|verification|review|follow[- ]?up|action|changes?|updates?|testing|checks?)\s+(?:(?:is|are|was|were)\s+)?(?:required|needed|necessary)\b/gi,
         " ",
       );
     if (
@@ -13972,6 +13984,69 @@ if (args[0] === "--self-test" && args.length === 1) {
       unfinishedSummaryDiagnostic,
     );
     expectStatusLanguageFailure(
+      "no further verification required cannot describe unfinished work",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test no-further-verification scope",
+          "Partially fixed: CSV export verification no further verification is required. this was sent from a bot.",
+          [],
+          [],
+          undefined,
+          [
+            {
+              scope: "CSV export verification",
+              evidence:
+                "CSV export verification no further verification is required; export remains pending",
+            },
+          ],
+          "CSV export verification no further verification is required",
+        ),
+      unfinishedSummaryDiagnostic,
+    );
+    expectStatusLanguageFailure(
+      "reporter summary cannot count an inferred owner and filler as actions",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          "Clarification needed: Morgan Lee will. this was sent from a bot.",
+          [],
+          [
+            {
+              scope: "choose the remaining behavior",
+              action: "Morgan Lee will choose the remaining behavior",
+              publicActionSummary: "Morgan Lee will",
+              requestReply: {
+                ts: "11.500000",
+                threadParentTs: "10.000000",
+                actorId: "USWEEPER",
+                text: "Please have Morgan Lee choose the remaining behavior.",
+              },
+            },
+          ],
+          "Morgan Lee will",
+        ),
+      "active 🎫 summary must include every pending action and known owner",
+    );
+    validateStatusReactionLanguage(
+      "self-test reporter summary with a named actor",
+      "Clarification needed: Morgan Lee will choose the remaining behavior. this was sent from a bot.",
+      [],
+      [
+        {
+          scope: "choose the remaining behavior",
+          action: "Morgan Lee will choose the remaining behavior",
+          publicActionSummary: "Morgan Lee will choose the remaining behavior",
+          requestReply: {
+            ts: "11.500000",
+            threadParentTs: "10.000000",
+            actorId: "USWEEPER",
+            text: "Please have Morgan Lee choose the remaining behavior.",
+          },
+        },
+      ],
+      "Morgan Lee will choose the remaining behavior",
+    );
+    expectStatusLanguageFailure(
       "reporter public summary cannot misrepresent its action",
       () =>
         validateStatusReactionLanguage(
@@ -19292,7 +19367,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 34} negative cases; 37 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 36} negative cases; 37 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
