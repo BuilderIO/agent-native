@@ -43,6 +43,8 @@ import {
   type ReactNode,
 } from "react";
 
+import type { AgentMessageContentOrderResolver } from "./message-content-order.js";
+
 export interface AgentKitRenderProps<T> {
   value: T;
   threadId: ThreadId;
@@ -77,6 +79,14 @@ export interface AgentKitSuggestionsRenderProps {
   threadId: ThreadId;
   pending: boolean;
   onSelect: (suggestion: AgentSuggestion) => void;
+}
+
+export interface AgentKitWorkedForSummaryRenderProps {
+  label: string;
+  running?: boolean;
+  expandable: boolean;
+  open: boolean;
+  current?: ReactNode;
 }
 
 export interface AgentConnectionErrorRenderProps {
@@ -153,6 +163,8 @@ export interface AgentKitSlots {
   composer?: ComponentType<{ threadId: ThreadId }>;
   queue?: ComponentType<AgentKitQueueRenderProps>;
   suggestions?: ComponentType<AgentKitSuggestionsRenderProps>;
+  /** Replaces the visible work-summary row while the shared disclosure owns its semantics. */
+  workedForSummary?: ComponentType<AgentKitWorkedForSummaryRenderProps>;
 }
 
 export interface AgentKitToolSource {
@@ -482,6 +494,7 @@ export interface AgentKitProviderProps {
   ) => Promise<AgentConnectionResponse>;
   /** Receives full renderer failures while the UI shows a safe fallback. */
   onRenderError?: (failure: AgentKitRenderFailure) => void;
+  resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
     name: string;
@@ -511,6 +524,7 @@ export interface AgentKitContextValue {
   loadRunUsage?: AgentKitRunUsageLoader;
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
+  resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
   requestComposerFocus: (threadId: ThreadId) => void;
 }
@@ -531,6 +545,7 @@ export function AgentKitProvider({
   loadRunUsage,
   onConnectionRequest,
   onRenderError,
+  resolveMessageContentOrder,
   onClientEffect,
   children,
 }: AgentKitProviderProps) {
@@ -597,6 +612,7 @@ export function AgentKitProvider({
       loadRunUsage,
       onConnectionRequest,
       onRenderError,
+      resolveMessageContentOrder,
       registerComposerFocus,
       requestComposerFocus,
     }),
@@ -614,6 +630,7 @@ export function AgentKitProvider({
       loadRunUsage,
       onConnectionRequest,
       onRenderError,
+      resolveMessageContentOrder,
       registerComposerFocus,
       requestComposerFocus,
     ],

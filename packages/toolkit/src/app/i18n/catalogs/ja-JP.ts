@@ -1536,6 +1536,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "作業しました",
   "tool.workedFor": "{{duration}} 作業しました",
   "widget.chart": "チャート",
+  "widget.chartActions": "チャート操作",
+  "widget.dataSources": "データソース",
+  "widget.tableActions": "テーブル操作",
   "widget.dataChart": "データチャート",
   "widget.dataInsights": "データインサイト",
   "widget.dataTable": "データテーブル",
@@ -2093,6 +2096,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "言語と地域",
   "settingsShell.account.languageDescription":
     "すべてのデバイスに適用されます。",
+  "settingsShell.account.appearance": "外観",
+  "settingsShell.account.themeFamily": "テーマ",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "アプリのオリジナルカラー",
+  "settingsShell.account.themeFamilySaveError":
+    "テーマを更新できませんでした。もう一度お試しください。",
   "settingsShell.account.manage": "管理",
   "settingsShell.account.name": "名前",
   "settingsShell.account.nameDescription":
