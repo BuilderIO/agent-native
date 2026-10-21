@@ -5332,9 +5332,12 @@ async function appendTerminalRunEvent(
       | undefined;
     let nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
     if (last?.event_data) {
-      let parsed: { type?: unknown } | undefined;
+      let parsed: { type?: unknown; reason?: unknown } | undefined;
       try {
-        parsed = JSON.parse(last.event_data) as { type?: unknown };
+        parsed = JSON.parse(last.event_data) as {
+          type?: unknown;
+          reason?: unknown;
+        };
       } catch {
         // Ignore malformed rows and append the terminal event.
       }
@@ -5348,7 +5351,7 @@ async function appendTerminalRunEvent(
         const replacesCheckpoint =
           Number(last.seq) === CHECKPOINT_TERMINAL_EVENT_SEQ &&
           parsed?.type === "auto_continue" &&
-          event.type !== "auto_continue";
+          (event.type !== "auto_continue" || parsed.reason !== event.reason);
         if (lastEventIsTerminal && !replacesCheckpoint) return;
         if (replacesCheckpoint) {
           await tx.execute({

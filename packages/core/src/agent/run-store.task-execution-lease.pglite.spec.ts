@@ -177,6 +177,33 @@ describe("task execution leases", () => {
     ]);
   });
 
+  it("replaces a checkpoint when an abort records a different continuation reason", async () => {
+    const runId = "run-checkpoint-continuation-abort";
+    await insertRun(runId, "thread-checkpoint-continuation-abort");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    await markRunAborted(runId, "no_progress");
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "auto_continue", reason: "no_progress" },
+    });
+    const events = await pglite.query(
+      "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      [runId],
+    );
+    expect(events.rows).toEqual([
+      {
+        seq: 0,
+        event_data: '{"type":"auto_continue","reason":"no_progress"}',
+      },
+    ]);
+  });
+
   it("retires a checkpoint when retrying an already persisted terminal event", async () => {
     const runId = "run-checkpoint-terminal-retry";
     await insertRun(runId, "thread-checkpoint-terminal-retry");
