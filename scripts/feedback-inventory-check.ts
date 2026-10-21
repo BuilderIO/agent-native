@@ -2514,16 +2514,15 @@ function validateStatusReactionLanguage(
     const summaryWordCount = normalizeReplyPhrase(summary)
       .split(" ")
       .filter(Boolean).length;
-    const contradictsOpenState =
-      /\b(?:not|no longer|isn't|aren't|wasn't|weren't)\s+(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|remaining)\b/i.test(
-        summary,
-      );
+    const openStateSummary = summary.replace(
+      /\b(?:not|no longer|isn't|aren't|wasn't|weren't)\s+(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|remaining)\b/gi,
+      " ",
+    );
     if (
       summaryWordCount < 3 ||
       summaryWordCount > 12 ||
-      contradictsOpenState ||
       !/\b(?:still|remain(?:s|ing)?|ongoing|not yet|unresolved|open)\b/i.test(
-        summary,
+        openStateSummary,
       ) ||
       !replyContainsPhrase(text, summary) ||
       !unfinishedScopeSummaryMatchesRecordedWork(summary, unfinishedScopes)
@@ -13591,6 +13590,21 @@ if (args[0] === "--self-test" && args.length === 1) {
       text: "Fixed: The start screen works now. this was sent from a bot.",
     });
     validateTestInventory(conciseStatus);
+    validateStatusReactionLanguage(
+      "self-test unfinished scope",
+      "Partially fixed: The feature is no longer broken but still needs verification. this was sent from a bot.",
+      [],
+      [],
+      undefined,
+      [
+        {
+          scope: "feature verification",
+          evidence:
+            "the feature is no longer broken but still needs verification",
+        },
+      ],
+      "The feature is no longer broken but still needs verification",
+    );
     validateTestInventory(
       withSupplementalRootAudit(
         ownedSupplementalRootAudit({
