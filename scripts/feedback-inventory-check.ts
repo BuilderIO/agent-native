@@ -1632,13 +1632,13 @@ function publicActionSummaryMatchesAction(
       .split(" ")
       .filter(Boolean),
   );
-  const hasActionWord = meaningfulSummaryWords.some(
+  const actionSummaryWords = meaningfulSummaryWords.filter(
     (word) => !ownerWords.has(word),
   );
   return (
     (!isPublicSummary || summaryWordCount <= 12) &&
-    (!isPublicSummary || meaningfulSummaryWords.length >= 2) &&
-    hasActionWord &&
+    (!isPublicSummary || actionSummaryWords.length >= 2) &&
+    actionSummaryWords.length > 0 &&
     (normalizedAction === normalizedSummary ||
       normalizedAction.startsWith(`${normalizedSummary} `))
   );
@@ -2517,13 +2517,18 @@ function validateStatusReactionLanguage(
       .split(" ")
       .filter(Boolean).length;
     const unfinishedStateTerm = String.raw`(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|require(?:d|s)?|awaiting|waiting)`;
-    const openStateSummary = summary.replace(
-      new RegExp(
-        String.raw`\b(?:no longer|not|no|never|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|does not|do not|did not|can't|cannot|won't|wouldn't|shouldn't|will not|would not|should not|without)\s+(?:currently\s+|still\s+|yet\s+)?(?:remain(?:s|ing)?\s+)?${unfinishedStateTerm}\b(?:\s*(?:,|or)\s*(?:(?:not|never)\s+)?(?:currently\s+|still\s+|yet\s+)?(?:remain(?:s|ing)?\s+)?${unfinishedStateTerm}\b)*`,
-        "gi",
-      ),
-      " ",
-    );
+    const openStateSummary = summary
+      .replace(
+        new RegExp(
+          String.raw`\b(?:no longer|not|no|never|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|does not|do not|did not|can't|cannot|won't|wouldn't|shouldn't|will not|would not|should not|without)\s+(?:currently\s+|still\s+|yet\s+)?(?:remain(?:s|ing)?\s+)?${unfinishedStateTerm}\b(?:\s*(?:,|or)\s*(?:(?:not|never)\s+)?(?:currently\s+|still\s+|yet\s+)?(?:remain(?:s|ing)?\s+)?${unfinishedStateTerm}\b)*`,
+          "gi",
+        ),
+        " ",
+      )
+      .replace(
+        /\b(?:needs?|requires?)\s+no\s+(?:(?:further|more|additional)\s+)?(?:work|verification|review|follow[- ]?up|action|changes?|updates?|testing|checks?)\b/gi,
+        " ",
+      );
     if (
       summaryWordCount < 3 ||
       summaryWordCount > 12 ||
@@ -8978,6 +8983,17 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test accepted filler words toward the public action summary minimum.",
     );
   }
+  if (
+    publicActionSummaryMatchesAction(
+      "Morgan Lee chooses the remaining behavior",
+      "Morgan Lee chooses",
+      "Morgan Lee",
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test counted the owner toward the public action summary minimum.",
+    );
+  }
   const assignedPrHandoff: Handoff = {
     scope: "Interact scrolling",
     owner: "Enzo",
@@ -13932,6 +13948,26 @@ if (args[0] === "--self-test" && args.length === 1) {
             },
           ],
           "CSV export verification is not required",
+        ),
+      unfinishedSummaryDiagnostic,
+    );
+    expectStatusLanguageFailure(
+      "needs no further work cannot describe unfinished work",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test no-further-work scope",
+          "Partially fixed: CSV export needs no further work. this was sent from a bot.",
+          [],
+          [],
+          undefined,
+          [
+            {
+              scope: "CSV export",
+              evidence:
+                "CSV export needs no further work; export review remains pending",
+            },
+          ],
+          "CSV export needs no further work",
         ),
       unfinishedSummaryDiagnostic,
     );
@@ -19256,7 +19292,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 30} negative cases; 37 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 34} negative cases; 37 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
