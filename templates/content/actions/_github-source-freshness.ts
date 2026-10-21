@@ -26,6 +26,12 @@ export const GITHUB_SOURCE_STALE_MS = 60_000;
 const READ_SYNC_BUDGET_MS = 3_000;
 /** One link's share of a background sync, which has 90 seconds in all. */
 const SWEEP_SYNC_BUDGET_MS = 20_000;
+/**
+ * The share of a link partway through a push, like a big folder's first fill.
+ * It stops before the next background sync starts a minute later, so that one
+ * finds the link free and carries the push on.
+ */
+const SWEEP_PUSH_BUDGET_MS = 50_000;
 /** Links the background sync checks at once. */
 const SWEEP_CONCURRENCY = 4;
 /** The background sync skips links a read or another sync checked this recently. */
@@ -274,10 +280,24 @@ export async function runGitHubSourceSweep(context: RecurringSweepContext) {
       asc(sql`coalesce(${schema.contentDatabaseSources.lastRefreshedAt}, '')`),
     )
     .limit(SWEEP_MAX_LINKS);
+  // A link partway through a push goes after the rest, so a big folder's
+  // first fill doesn't hold up a push to a small one. Those links take turns,
+  // least recently worked on first: a run partway through doesn't count as a
+  // check, so their check times don't change.
+  const carrying = new Set(
+    due
+      .map((link) => ({ link, state: linkState(link.metadataJson) }))
+      .filter(({ state }) => state?.pendingCommitSha)
+      .sort((a, b) =>
+        (a.state?.checkedAt ?? "").localeCompare(b.state?.checkedAt ?? ""),
+      )
+      .map(({ link }) => link),
+  );
+  const order = [...due.filter((link) => !carrying.has(link)), ...carrying];
   let next = 0;
   const worker = async () => {
-    while (next < due.length) {
-      const link = due[next++]!;
+    while (next < order.length) {
+      const link = order[next++]!;
       const remaining = context.deadlineAt - Date.now();
       if (context.signal?.aborted || remaining < 2_000) return;
       const owner = linkedBy(link);
@@ -288,7 +308,12 @@ export async function runGitHubSourceSweep(context: RecurringSweepContext) {
           () =>
             syncGitHubSource({
               sourceId: link.sourceId,
-              budgetMs: Math.min(SWEEP_SYNC_BUDGET_MS, remaining - 1_000),
+              budgetMs: Math.min(
+                carrying.has(link)
+                  ? SWEEP_PUSH_BUDGET_MS
+                  : SWEEP_SYNC_BUDGET_MS,
+                remaining - 1_000,
+              ),
               signal: context.signal,
             }),
         );
@@ -303,6 +328,6 @@ export async function runGitHubSourceSweep(context: RecurringSweepContext) {
     }
   };
   await Promise.all(
-    Array.from({ length: Math.min(SWEEP_CONCURRENCY, due.length) }, worker),
+    Array.from({ length: Math.min(SWEEP_CONCURRENCY, order.length) }, worker),
   );
 }
