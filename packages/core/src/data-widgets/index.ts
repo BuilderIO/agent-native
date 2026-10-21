@@ -308,7 +308,8 @@ function normalizeDisplay(
         !value.sources.every(isDataWidgetDataSource))) ||
     (value.actions !== undefined &&
       (!Array.isArray(value.actions) ||
-        !value.actions.every(isDataWidgetDisplayAction)))
+        !value.actions.every(isDataWidgetDisplayAction))) ||
+    (value.primaryAction !== undefined && !isPrimaryAction(value.primaryAction))
   ) {
     return null;
   }
@@ -316,9 +317,7 @@ function normalizeDisplay(
     title: typeof value.title === "string" ? value.title : undefined,
     description:
       typeof value.description === "string" ? value.description : undefined,
-    primaryAction: isPrimaryAction(value.primaryAction)
-      ? value.primaryAction
-      : undefined,
+    primaryAction: value.primaryAction as DataWidgetAction | undefined,
     sources: value.sources as DataWidgetDataSource[] | undefined,
     actions: value.actions as DataWidgetDisplayAction[] | undefined,
   };

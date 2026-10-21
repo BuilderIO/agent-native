@@ -165,7 +165,7 @@ export function DataWidgetDisplayControls({
   };
   const displayActions: DataWidgetDisplayAction[] = [
     ...(display?.actions ?? []),
-    ...chartActions.map((action) => ({ type: "link" as const, ...action })),
+    ...chartActions.map((action) => ({ ...action, type: "link" as const })),
   ];
   const primary = display?.primaryAction
     ? {

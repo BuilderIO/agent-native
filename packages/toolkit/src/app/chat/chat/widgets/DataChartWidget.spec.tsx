@@ -240,6 +240,21 @@ describe("DataChartWidget display contract", () => {
     ).not.toBeNull();
   });
 
+  it("keeps chart actions as links when payload metadata includes a type", async () => {
+    const container = await renderWidget([
+      {
+        type: "copy",
+        label: "Explore results",
+        href: "/reports/1/explore",
+      } as DataWidgetAction,
+    ]);
+    const menu = await openActionsMenu(container);
+
+    expect(
+      menu?.querySelector('a[href="/mounted/reports/1/explore"]'),
+    ).not.toBeNull();
+  });
+
   it("does not render executable primary-action URLs", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);

@@ -240,6 +240,24 @@ describe("data widget helpers", () => {
         },
       }),
     ).toBeNull();
+    expect(
+      normalizeDataWidgetResult({
+        widget: DATA_CHART_WIDGET,
+        chartSeries: {
+          type: "line",
+          xKey: "day",
+          series: [{ key: "count", label: "Count" }],
+          data: [],
+        },
+        display: {
+          primaryAction: {
+            label: "Open",
+            href: "/reports/1",
+            icon: "unknown",
+          },
+        },
+      }),
+    ).toBeNull();
   });
 
   it("creates insights widget results with app metadata", () => {
