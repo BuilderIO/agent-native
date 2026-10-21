@@ -1222,6 +1222,9 @@ describe("run manager soft timeout", () => {
 
   it.each([
     ["aborted", "aborted"],
+    ["completed", "completed"],
+    ["errored", "errored"],
+    ["truncated", "completed"],
     ["running", "errored"],
   ] as const)(
     "uses the persisted %s status after a terminal checkpoint rejection",
@@ -1229,7 +1232,10 @@ describe("run manager soft timeout", () => {
       const runId = `run-checkpoint-terminal-rejection-${persistedStatus}`;
       const threadId = `thread-checkpoint-terminal-rejection-${persistedStatus}`;
       const events: AgentChatEvent[] = [];
-      const onComplete = vi.fn();
+      const completionStatuses: string[] = [];
+      const onComplete = vi.fn((completedRun: ActiveRun) => {
+        completionStatuses.push(completedRun.status);
+      });
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
@@ -1245,6 +1251,9 @@ describe("run manager soft timeout", () => {
         errorDetail: null,
         terminalReason: persistedStatus === "aborted" ? "aborted:user" : null,
       });
+      if (persistedStatus !== "aborted") {
+        vi.mocked(updateRunStatusIfRunning).mockResolvedValueOnce(false);
+      }
       const run = startRun(
         runId,
         threadId,
@@ -1265,24 +1274,26 @@ describe("run manager soft timeout", () => {
       if (persistedStatus === "aborted") {
         expect(run.abortReason).toBe("user");
         expect(run.abort.signal.reason).toBe("user");
-        expect(events).not.toContainEqual(
-          expect.objectContaining({
-            type: "error",
-            errorCode: "run_checkpoint_persistence_failed",
-          }),
-        );
-        expect(onComplete).toHaveBeenCalledWith(
-          expect.objectContaining({ status: "aborted" }),
-        );
-      } else {
+      }
+      expect(completionStatuses).toEqual([
+        persistedStatus === "running" ? "errored" : persistedStatus,
+      ]);
+      if (persistedStatus !== "aborted") {
+        expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(runId);
+      }
+      if (persistedStatus === "running") {
         expect(events).toContainEqual(
           expect.objectContaining({
             type: "error",
             errorCode: "run_checkpoint_persistence_failed",
           }),
         );
-        expect(onComplete).toHaveBeenCalledWith(
-          expect.objectContaining({ status: "errored" }),
+      } else {
+        expect(events).not.toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            errorCode: "run_checkpoint_persistence_failed",
+          }),
         );
       }
       consoleError.mockRestore();

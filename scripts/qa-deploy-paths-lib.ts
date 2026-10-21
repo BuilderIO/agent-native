@@ -151,6 +151,23 @@ export function isVercelEnvVarAbsent(output: string): boolean {
   return /Environment Variable\b.*\bwas not found/i.test(output);
 }
 
+export function schedulerCheckIsAfter(
+  value: unknown,
+  deployedAt: number,
+): boolean {
+  if (value == null) return false;
+  const checkedAt =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d+$/.test(value)
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isSafeInteger(checkedAt)) {
+    throw new Error("Scheduler health returned an invalid check timestamp.");
+  }
+  return checkedAt > deployedAt;
+}
+
 export function missingDocCommands(
   mdx: string,
   commands: readonly string[],

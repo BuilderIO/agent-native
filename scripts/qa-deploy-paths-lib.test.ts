@@ -24,6 +24,7 @@ import {
   missingDocCommands,
   PRESET_SHAPES,
   redactSecrets,
+  schedulerCheckIsAfter,
   secretsInUrl,
   selectReapable,
   vendorDockerfile,
@@ -232,6 +233,22 @@ describe("reused host projects", () => {
   it("refuses a tag it has no project for, so a dispatch cannot start a new one", () => {
     assert.throws(() => deployProjectSlot("npm", "beta"), /not "beta"/);
     assert.throws(() => deployProjectSlot("npm", "local"), /not "local"/);
+  });
+});
+
+describe("scheduled wake observation", () => {
+  it("requires a scheduler check newer than the deployed app", () => {
+    const deployedAt = 1_791_933_600_000;
+    assert.equal(schedulerCheckIsAfter(null, deployedAt), false);
+    assert.equal(schedulerCheckIsAfter("1791933599999", deployedAt), false);
+    assert.equal(schedulerCheckIsAfter("1791933600001", deployedAt), true);
+  });
+
+  it("fails loudly if the scheduler timestamp is unreadable", () => {
+    assert.throws(
+      () => schedulerCheckIsAfter("not-a-timestamp", 0),
+      /invalid check timestamp/,
+    );
   });
 });
 

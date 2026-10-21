@@ -3,7 +3,8 @@
  * Proves one documented standalone deploy path end to end: scaffold a Chat
  * app, install, migrate a real Postgres, build, run it the way the guide says,
  * then sign up, call the `hello` action, and confirm the account landed in
- * Postgres and survived a restart.
+ * Postgres and survived a restart. The Netlify path also waits for its signed
+ * scheduled wake to update scheduler health in the throwaway database.
  *
  *   pnpm qa:deploy-paths --target node|docker|netlify|vercel|presets
  *     [--source local|npm]
@@ -68,6 +69,7 @@ import {
   isVercelEnvVarAbsent,
   PRESET_SHAPES,
   redactSecrets,
+  schedulerCheckIsAfter,
   secretsInUrl,
   VENDOR_DIR,
   vendorDockerfile,
@@ -83,6 +85,7 @@ const INSTALL_TIMEOUT_MS = 10 * 60_000;
 const BUILD_TIMEOUT_MS = 10 * 60_000;
 const DOCKER_BUILD_TIMEOUT_MS = 20 * 60_000;
 const READY_TIMEOUT_MS = 3 * 60_000;
+const SCHEDULER_WAKE_TIMEOUT_MS = 5 * 60_000;
 const PASSWORD = `Dp-${randomBytes(12).toString("hex")}`;
 
 const { values } = parseArgs({
@@ -541,6 +544,8 @@ async function pullWithRetry(image: string, cwd: string): Promise<void> {
 
 interface RunningApp {
   baseUrl: string;
+  /** Time after the host served the deployment marker unique to this run. */
+  deployedAt?: number;
   /** Absent where the host gives the check no restart to perform. */
   restart?(): Promise<void>;
   logs(): string;
@@ -865,6 +870,35 @@ async function exerciseApp(
       await callHello(app.baseUrl, again);
     },
   );
+
+  if (target === "netlify") {
+    const deployedAt = app.deployedAt;
+    assert.ok(
+      deployedAt !== undefined,
+      "The Netlify app must include the time its unique deploy marker was observed.",
+    );
+    await step("a signed Netlify scheduled tick reaches the scheduler", () =>
+      withSql(databaseUrl, (sql) =>
+        waitFor(
+          "automation_scheduler_health to record a check after this deploy",
+          SCHEDULER_WAKE_TIMEOUT_MS,
+          async () => {
+            const rows = await sql`
+              select last_checked_at
+              from automation_scheduler_health
+              where runtime = 'recurring-jobs'
+                and last_checked_at is not null
+              order by last_checked_at desc
+              limit 1
+            `;
+            return rows.some((row) =>
+              schedulerCheckIsAfter(row.last_checked_at, deployedAt),
+            );
+          },
+        ),
+      ),
+    );
+  }
 }
 
 async function prepareApp(
@@ -928,7 +962,7 @@ async function buildPresets(
 
 // The guide's Step 3, against a project that is created once and reused. The
 // first run creates the site as the guide says; later runs link to it. Either
-// way the run overwrites its two variables and removes them again, because the
+// way the run overwrites its variables and removes them again, because the
 // credential that runs the check may not be allowed to delete a site, and the
 // database URL carries the CI role's password: it must not outlive the run. A
 // cleanup is registered before each write, because a write the provider accepted
@@ -940,6 +974,7 @@ async function useNetlifySite(
   appDir: string,
   databaseUrl: string,
   authSecret: string,
+  a2aSecret: string,
 ): Promise<string> {
   const name = deployProjectName("netlify", deployProjectSlot(source, npmTag));
   const netlify = (args: string[], label: string) =>
@@ -974,6 +1009,7 @@ async function useNetlifySite(
     for (const [key, value] of [
       ["DATABASE_URL", databaseUrl],
       ["BETTER_AUTH_SECRET", authSecret],
+      ["A2A_SECRET", a2aSecret],
     ] as const) {
       onCleanup(`netlify ${key} on ${name}`, () => {
         runQuiet("npx", netlifyCliArgs(["env:unset", key, "--force"]), {
@@ -1090,7 +1126,7 @@ async function deployToNetlify(
   await step("wait for the new deploy to answer", () =>
     waitForNewDeploy(baseUrl, marker, logs),
   );
-  return { baseUrl, logs };
+  return { baseUrl, deployedAt: Date.now(), logs };
 }
 
 async function deployToVercel(
@@ -1159,6 +1195,9 @@ async function runTarget(): Promise<void> {
 
   const authSecret = randomBytes(32).toString("hex");
   registerSecrets(authSecret);
+  const a2aSecret =
+    target === "netlify" ? randomBytes(32).toString("hex") : null;
+  if (a2aSecret) registerSecrets(a2aSecret);
 
   // The guides export these in Step 2, so the migrate and build that follow
   // run with them in the shell, as they do here.
@@ -1170,7 +1209,7 @@ async function runTarget(): Promise<void> {
 
   const projectName =
     target === "netlify"
-      ? await useNetlifySite(appDir, databaseUrl, authSecret)
+      ? await useNetlifySite(appDir, databaseUrl, authSecret, a2aSecret!)
       : target === "vercel"
         ? await useVercelProject(appDir, databaseUrl, authSecret)
         : null;
