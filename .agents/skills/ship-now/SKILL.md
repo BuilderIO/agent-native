@@ -39,6 +39,11 @@ after the fast merge; it does not imply that other production sites were
 promoted. If a critical fix needs another production site, explicitly run the
 manual promotion and monitor that result separately.
 
+`/ship-now` monitors the publisher after its fast merge, but does not send a
+beta timing update from that passive check. Only an explicitly requested or
+concrete-risk beta check with an assigned owner may send an update under the
+[beta update guidance](../review-latest-feedback/references/slack-reaction-replies.md#beta-updates-for-assigned-checks).
+
 Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
 `promote-netlify-deploy.yml` workflow to promote a critical fix and let it
 manage Netlify lock transitions. Do not manually remove or clear a Netlify lock
