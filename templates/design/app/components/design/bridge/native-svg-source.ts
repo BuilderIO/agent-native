@@ -835,6 +835,8 @@ export function serializeNativeSvgSource(
             "gradientTransform",
             localPaintReferences(value, ids),
           );
+      } else if (name === "transform" && (!value || value === "none")) {
+        clone.removeAttribute("transform");
       } else if (value)
         clone.setAttribute(name, localPaintReferences(value, ids));
     }
