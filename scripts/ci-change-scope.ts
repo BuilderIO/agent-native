@@ -180,8 +180,8 @@ const CONTENT_DB_CORE_FILES = new Set([
 
 const CONTENT_DB_CORE_PATH_PREFIXES = ["packages/core/src/db/"] as const;
 
-// This lane also runs the nested widget storage-isolation E2E. Other Content
-// e2e specs and unit tests cannot move it.
+// This lane also runs the nested widget storage-isolation E2E and its Core
+// embed helpers. Other Content e2e specs and unit tests cannot move it.
 const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/agent-native.config.ts",
   "templates/content/agent-native.json",
@@ -208,13 +208,18 @@ const CONTENT_CONVERGENCE_CORE_FILES = new Set([
   "packages/core/src/db/migration-policy.ts",
   "packages/core/src/db/request-pool-context.ts",
   "packages/core/src/db/store-registry.ts",
+  "packages/core/src/mcp/build-server.ts",
+  "packages/core/src/mcp/index.ts",
   "packages/core/src/server/collab-plugin.ts",
   "packages/core/src/server/core-routes-plugin.ts",
+  "packages/core/src/server/embed-route.ts",
   "packages/core/src/server/http-route.ts",
+  "packages/core/src/server/index.ts",
   "packages/core/src/server/poll-events.ts",
   "packages/core/src/server/poll.ts",
   "packages/core/src/server/request-context.ts",
   "packages/core/src/sharing/access.ts",
+  "packages/core/src/shared/embed-auth.ts",
 ]);
 
 const CONTENT_CONVERGENCE_CORE_PATH_PREFIXES = [
