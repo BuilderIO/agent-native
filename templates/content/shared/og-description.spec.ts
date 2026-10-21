@@ -257,6 +257,8 @@ const flag = true;
       [" ", "One two three..."],
       [",", "One two three..."],
       ["s", "One two..."],
+      ["'", "One two..."],
+      ["’", "One two..."],
     ]) {
       expect(
         buildDocumentExcerpt({
@@ -265,6 +267,23 @@ const flag = true;
           nextCharacter,
         }),
       ).toBe(expected);
+    }
+    // A split word goes with the markup or punctuation in front of it.
+    for (const content of [
+      "One two **three",
+      "One two (three",
+      "One two don'",
+    ]) {
+      expect(buildDocumentExcerpt({ content, truncated: true })).toBe(
+        "One two...",
+      );
+    }
+    // Markup the cut leaves open doesn't show.
+    for (const [content, expected] of [
+      ["One **two three", "One two..."],
+      ["One _two three fou", "One two three..."],
+    ]) {
+      expect(buildDocumentExcerpt({ content, truncated: true })).toBe(expected);
     }
     // Closing markup ends a whole word.
     for (const content of [

@@ -186,15 +186,17 @@ export function buildDocumentExcerpt({
     else if (truncated) return "";
   }
   if (truncated) {
-    // Drop a link, image or tag the cut leaves open, and a word it splits. A
-    // cut right after punctuation or closing markup ends a whole word, and
-    // text in a script written without spaces has no word to finish.
+    // Drop a link, image or tag the cut leaves open, and a word it splits,
+    // with any markup or punctuation in front of it. A cut right after
+    // punctuation or closing markup ends a whole word, an apostrophe after
+    // the cut means the word goes on, and text in a script written without
+    // spaces has no word to finish.
     markdown = markdown
       .replace(/!?\[[^\]\n]*(?:\]\([^)\n]*)?$/, "")
       .replace(/<[A-Za-z/!][^>\n]*$/, "");
-    const lastWord = /\s([\p{L}\p{M}\p{N}]+)$/u.exec(markdown)?.[1];
+    const lastWord = /\s(\S*[\p{L}\p{M}\p{N}'’])$/u.exec(markdown)?.[1];
     const wordGoesOn =
-      nextCharacter === undefined || /[\p{L}\p{M}\p{N}]/u.test(nextCharacter);
+      nextCharacter === undefined || /[\p{L}\p{M}\p{N}'’]/u.test(nextCharacter);
     if (lastWord && wordGoesOn && !SPACELESS_SCRIPT.test(lastWord)) {
       markdown = markdown.slice(0, -lastWord.length);
     }
@@ -224,6 +226,14 @@ export function buildDocumentExcerpt({
       paragraphs.push(text);
       length += text.length + 1;
     }
+  }
+  if (truncated && paragraphs.length > 0) {
+    // Markup the cut left open, like the `**` of a bold run it split.
+    const last = paragraphs.length - 1;
+    paragraphs[last] = paragraphs[last].replace(
+      /(^|\s)(?:\*{1,3}|_{1,3}|~~|`+)(?=[\p{L}\p{M}\p{N}])/gu,
+      "$1",
+    );
   }
   const text = (paragraphs.length > 0 ? paragraphs : headings).join(" ");
   if (text.length > maxLength) return truncateDescription(text, maxLength);
