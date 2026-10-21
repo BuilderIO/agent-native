@@ -671,6 +671,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "./native-preview-budget",
     "./native-preview-geometry",
     "./native-preview-policy",
+    "./native-preview-viewport-transport",
     "./native-raf-interval",
     "./native-receiver-distance",
     "./native-region-export",

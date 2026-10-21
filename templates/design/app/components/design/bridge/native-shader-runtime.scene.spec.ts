@@ -1579,7 +1579,7 @@ describe("native scene viewport composition", () => {
       );
     const fill = capture("fill");
     expect(fill.documentElement.getAttribute("opacity")).toBe("1");
-    expect(fill.documentElement.getAttribute("transform")).toBe("none");
+    expect(fill.documentElement.getAttribute("transform")).toBeNull();
     expect(fill.querySelector("polygon")!.getAttribute("fill")).toBe(
       "url(#paint)",
     );
