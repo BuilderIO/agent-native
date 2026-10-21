@@ -85,6 +85,13 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: vi.fn(async () => null),
 }));
 
+vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/better-auth-instance.js")
+  >()),
+  findBetterAuthUserIdForEmail: vi.fn(async () => undefined),
+}));
+
 vi.mock("../server/embed-session.js", () => ({
   createEmbedSessionTicket: vi.fn(async (input: Record<string, unknown>) => {
     trace.push({ embedTicket: input });

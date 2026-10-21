@@ -52,6 +52,7 @@ import {
   getOverviewScreenFileIds,
   isOverviewScreenFile,
 } from "../shared/design-files.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { DESIGN_GENERATION_ATTEMPT_QUERY_PARAM } from "../shared/generation-provenance.js";
 import {
   designGenerationSessionKey,
@@ -1668,6 +1669,7 @@ const generateDesignAction = defineAction({
         ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}&${DESIGN_GENERATION_ATTEMPT_QUERY_PARAM}=${encodeURIComponent(generationAttemptId)}`
         : `/design/${encodeURIComponent(designId)}?${DESIGN_GENERATION_ATTEMPT_QUERY_PARAM}=${encodeURIComponent(generationAttemptId)}`,
       renderable: true,
+      _receipt: designOutputWriteReceipt(designId, savedFiles.length),
       savedFiles,
       placedFrames,
       fileCount: savedFiles.length,

@@ -3,7 +3,7 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionBatchItemResult } from "../shared/action-batch.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
-import { getRequestContext } from "./request-context.js";
+import { getRequestContext, getRequestIsLoopback } from "./request-context.js";
 
 // Kept out of get-actions-batch.ts: that module builds a defineAction at load,
 // and action-routes.ts loads this file on every cold start.
@@ -73,10 +73,14 @@ export async function runActionBatch(
   }
   const base = `${origin}${getConfiguredAppBasePath()}${ACTION_ROUTE_PREFIX}`;
   const headers = forwardedItemHeaders(ctx?.requestHeaders);
+  // An in-process item has no socket, so h3 sees no client IP and every
+  // loopback-gated auth path (the desktop SSO dev fallback) would refuse it
+  // even though the batch request itself came over loopback.
+  const clientAddress = getRequestIsLoopback() ? "127.0.0.1" : undefined;
   const results = await mapWithConcurrency(
     input.requests,
     ITEM_CONCURRENCY,
-    (item) => dispatchItem(item, base, headers, bound),
+    (item) => dispatchItem(item, base, headers, clientAddress, bound),
   );
   return { results };
 }
@@ -117,6 +121,7 @@ async function dispatchItem(
   item: { action: string; query: string },
   base: string,
   headers: Headers,
+  clientAddress: string | undefined,
   bound: ActionBatchBinding,
 ): Promise<ActionBatchItemResult> {
   const entry = bound.actions[item.action];
@@ -134,7 +139,11 @@ async function dispatchItem(
   let response: Response;
   let text: string;
   try {
-    response = await bound.fetch(new Request(url, { method: "GET", headers }));
+    const request = new Request(url, { method: "GET", headers });
+    if (clientAddress) {
+      (request as Request & { context?: object }).context = { clientAddress };
+    }
+    response = await bound.fetch(request);
     text = await response.text();
   } catch (error) {
     const captureId = captureError(error, {

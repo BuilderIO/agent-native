@@ -16,6 +16,7 @@ const isInBackgroundFunctionRuntimeMock = vi.hoisted(() => vi.fn(() => false));
 const resolveOrgScopeForEmailMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
+const getJevContextCredentialsMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
 const filterInitialEngineToolsMock = vi.hoisted(() => vi.fn());
@@ -50,6 +51,7 @@ const reconcileTerminalA2AParentIfDisabledMock = vi.hoisted(() =>
 );
 const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const appendDurableContinuationContextMock = vi.hoisted(() => vi.fn());
+const preloadJevContextWithStatusMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -82,6 +84,10 @@ vi.mock("../agent/durable-background.js", () => ({
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   appendDurableContinuationContext: appendDurableContinuationContextMock,
   runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
+}));
+
+vi.mock("../server/agent-chat/prompt-resources.js", () => ({
+  preloadJevContextWithStatus: preloadJevContextWithStatusMock,
 }));
 
 vi.mock("./integration-campaigns-store.js", () => ({
@@ -135,6 +141,7 @@ function fakeFilterInitialEngineTools(
 }
 
 vi.mock("../agent/production-agent.js", () => ({
+  getJevContextCredentials: getJevContextCredentialsMock,
   resolveOwnerEngineApiKey: resolveOwnerEngineApiKeyMock,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
@@ -313,6 +320,12 @@ describe("integration webhook handler engine resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     insertAuditEventMock.mockResolvedValue(undefined);
+    preloadJevContextWithStatusMock.mockResolvedValue({
+      context: "",
+      relevantAppsContext:
+        '<relevant-apps><app id="qr">QR profile</app></relevant-apps>',
+      status: "ok",
+    });
     createIntegrationCampaignMock.mockResolvedValue({
       id: "campaign-qa",
       integrationTaskId: "task-qa",
@@ -359,6 +372,11 @@ describe("integration webhook handler engine resolution", () => {
     resolveOwnerEngineApiKeyMock.mockResolvedValue({
       apiKey: undefined,
       apiKeyEnvVar: undefined,
+    });
+    getJevContextCredentialsMock.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: null,
     });
     isLocalDatabaseMock.mockReturnValue(true);
     readDeployCredentialEnvMock.mockReturnValue(undefined);
@@ -695,11 +713,25 @@ describe("integration webhook handler engine resolution", () => {
         updatedAt: Date.now(),
         completedAt: null,
       };
+      getJevContextCredentialsMock.mockResolvedValueOnce({
+        apiKey: "owner-jev-key",
+        personalApiKey: "owner-jev-key",
+        builderAuth: null,
+      });
 
       await processIntegrationTask(task, {
         adapter: createAdapter(sendResponse),
         systemPrompt: "system",
-        actions: {},
+        actions: {
+          "call-agent": {
+            tool: {
+              name: "call-agent",
+              description: "delegate",
+              inputSchema: {},
+            },
+            run: vi.fn(),
+          },
+        },
         model: "claude-sonnet-4-6",
         apiKey: "",
         ownerEmail: task.ownerEmail,
@@ -722,7 +754,19 @@ describe("integration webhook handler engine resolution", () => {
           model: "claude-sonnet-4-6",
           maxOutputTokens: 64_000,
           reasoningEffort: "high",
-          systemPrompt: expect.stringContaining("<runtime-context>"),
+          systemPrompt: expect.stringContaining("QR profile"),
+        }),
+      );
+      expect(preloadJevContextWithStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appDiscoveryOnly: true,
+          appRequest: expect.stringContaining("hello from slack"),
+          owner: task.ownerEmail,
+          orgId: "org-qa",
+          workspaceAppsEnabled: true,
+          apiKey: "owner-jev-key",
+          personalApiKey: "owner-jev-key",
+          builderAuth: null,
         }),
       );
       const engineUserText =

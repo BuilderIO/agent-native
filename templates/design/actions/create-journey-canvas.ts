@@ -35,6 +35,7 @@ import {
 } from "../server/source-workspace.js";
 import { BOARD_FILENAME } from "../shared/board-file.js";
 import { nextFreeCanvasRowY } from "../shared/canvas-frames.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   enUSJourneyCanvasMessages,
   type JourneyCanvasMessages,
@@ -250,6 +251,7 @@ export default defineAction({
     let boardFileId: string | undefined;
     let previousBoardContent: string | undefined;
     let nextBoardContent: string | undefined;
+    let outputFileCount = 0;
     let removedBlobHandles: string[] = [];
     const blobOwnerEmail =
       existingAccess?.resource.ownerEmail ?? requesterEmail;
@@ -498,7 +500,7 @@ export default defineAction({
       const ownBlobHandles = new Set<string>();
       const now = new Date().toISOString();
       mutationStarted = true;
-      await mutateDesignData({
+      const mutation = await mutateDesignData({
         designId,
         lockSourceMutation: true,
         mutate: (current, { updatedAt }) => {
@@ -890,6 +892,7 @@ export default defineAction({
           });
         },
       });
+      outputFileCount = plan.screens.length + mutation.updatedFiles.length;
 
       const collabSyncPending = await reconcileCollaboration({
         boardFileId: boardFile.id,
@@ -915,6 +918,7 @@ export default defineAction({
         frameCount: plan.frameCount,
         skippedNodes: plan.skippedNodes,
         collabSyncPending,
+        _receipt: designOutputWriteReceipt(designId, outputFileCount),
       };
     } catch (error) {
       const landingStatus = mutationStarted
@@ -954,6 +958,9 @@ export default defineAction({
           );
           throw error;
         }
+        outputFileCount =
+          plan.screens.length +
+          (previousBoardContent !== nextBoardContent ? 1 : 0);
         const collabSyncPending = await reconcileCollaboration({
           boardFileId,
           previousBoardContent,
@@ -977,6 +984,7 @@ export default defineAction({
           frameCount: plan.frameCount,
           skippedNodes: plan.skippedNodes,
           collabSyncPending,
+          _receipt: designOutputWriteReceipt(designId, outputFileCount),
         };
       }
       if (landingStatus === "not_landed" || landingStatus === "unknown") {

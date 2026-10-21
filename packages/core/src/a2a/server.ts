@@ -38,7 +38,9 @@ import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
 import { isSameOriginRequest } from "../server/request-origin.js";
+import type { AgentProfileMetadata } from "../shared/agent-profile.js";
 import { generateAgentCard } from "./agent-card.js";
+import { addAgentProfileExamples } from "./app-profile.js";
 import { canonicalA2AAudience } from "./audience.js";
 import {
   hasConfiguredA2ASecret,
@@ -284,6 +286,7 @@ export async function verifyA2AToken(
     globalSecretOnly?: boolean;
     /** Only use this explicitly configured credential; never fall back. */
     verificationSecret?: string;
+    requireAudience?: boolean;
   },
 ): Promise<A2ATokenPayload> {
   return (await verifyA2ATokenInternal(token, event, audienceOptions)).payload;
@@ -430,6 +433,7 @@ async function verifyA2ATokenInternal(
     includeClaims?: boolean;
     globalSecretOnly?: boolean;
     verificationSecret?: string;
+    requireAudience?: boolean;
   },
 ): Promise<A2ATokenVerification> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
@@ -477,8 +481,14 @@ async function verifyA2ATokenInternal(
   //   it was minted from", which `jose.jwtVerify` validates exactly when
   //   `issuer` is supplied as a string. Backward-compat: when the token
   //   has no `iss`, we skip the check.
+  const hasAudience =
+    unverifiedPayload && typeof unverifiedPayload.aud !== "undefined";
+  if (audienceOptions?.requireAudience && !hasAudience) {
+    return { payload: { email: null, orgDomain: null } };
+  }
+
   const verifyOptions: jose.JWTVerifyOptions = {};
-  if (unverifiedPayload && typeof unverifiedPayload.aud !== "undefined") {
+  if (hasAudience) {
     // Fail closed: the token was minted for a specific audience, but this
     // receiver can't derive its own expected audience (no APP_URL/URL and no
     // usable request host). Accepting here would let a correctly-signed token
@@ -637,6 +647,7 @@ export function mountA2A(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
+      setResponseHeader(event, "cache-control", "private, no-store");
       const protocol =
         getRequestHeader(event, "x-forwarded-proto") ||
         (event.url?.protocol?.replace(":", "") ?? "http");
@@ -644,7 +655,13 @@ export function mountA2A(
       const baseUrl = `${protocol}://${host}`;
 
       let skills = filterPublicAgentCardSkills(config);
-      if (config.authenticatedSkills?.length) {
+      let description = config.description;
+      let profileResolved = false;
+      if (
+        config.authenticatedSkills?.length ||
+        config.resolveAuthenticatedProfile ||
+        config.resolvePublicProfile
+      ) {
         const bearer = extractBearerToken(
           getRequestHeader(event, "authorization"),
         );
@@ -655,11 +672,27 @@ export function mountA2A(
               allowBaseAudience: true,
             });
             if (payload.email) {
-              skills = tokenHasAudienceClaim(bearer)
-                ? config.authenticatedSkills
-                : config.authenticatedSkills.filter(
-                    (skill) => !isDirectReadSkill(skill),
-                  );
+              if (config.authenticatedSkills?.length) {
+                skills = tokenHasAudienceClaim(bearer)
+                  ? config.authenticatedSkills
+                  : config.authenticatedSkills.filter(
+                      (skill) => !isDirectReadSkill(skill),
+                    );
+              }
+              let profile: AgentProfileMetadata | undefined;
+              try {
+                profile = await config.resolveAuthenticatedProfile?.({
+                  userEmail: payload.email,
+                  ...(payload.orgId ? { orgId: payload.orgId } : {}),
+                });
+              } catch {
+                console.warn("[a2a] authenticated profile resolution failed");
+              }
+              if (profile) {
+                description = profile.description ?? description;
+                skills = addAgentProfileExamples(skills, profile);
+                profileResolved = true;
+              }
             }
           } catch (error) {
             if (!(error instanceof A2AIdentityVerificationUnavailableError)) {
@@ -673,8 +706,20 @@ export function mountA2A(
         }
       }
 
+      if (!profileResolved) {
+        try {
+          const profile = await config.resolvePublicProfile?.();
+          if (profile) {
+            description = profile.description ?? description;
+            skills = addAgentProfileExamples(skills, profile);
+          }
+        } catch {
+          console.warn("[a2a] public profile resolution failed");
+        }
+      }
+
       return generateAgentCard(
-        { ...config, skills },
+        { ...config, description, skills },
         baseUrl,
         publicFrameworkPath(`${routePrefix}/a2a`),
       );

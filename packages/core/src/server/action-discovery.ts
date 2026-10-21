@@ -781,6 +781,10 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       () => import("../usage/actions/get-builder-referral-info.js"),
     ],
     [
+      "search-automation-accounts",
+      () => import("../triggers/actions/search-automation-accounts.js"),
+    ],
+    [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
     ],

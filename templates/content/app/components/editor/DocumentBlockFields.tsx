@@ -1,9 +1,11 @@
+import { tryCallActionKeepalive } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type {
   DocumentPropertiesResponse,
   DocumentProperty,
   DocumentPropertyType,
 } from "@shared/api";
+import { mergeBlocksFieldEdits } from "@shared/document-intent-merge";
 import {
   blocksRenderMode,
   blocksStorageTarget,
@@ -14,6 +16,7 @@ import {
 } from "@shared/properties";
 import {
   IconGripVertical,
+  IconMessage,
   IconPencil,
   IconPlus,
   IconTrash,
@@ -72,15 +75,26 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  BODY_BLOCK_FIELD_TABS,
+  LOADING_BLOCK_FIELD_TABS,
+  soloBlockFieldTabs,
+  useBlockFieldEditorComments,
+  useBlockFieldOpenCounts,
+  type BlockFieldTabs,
+} from "./block-field-comments";
+import {
   createBlockFieldSaveController,
   type BlockFieldSaveController,
 } from "./blockFieldSaveController";
 import {
   acquireBlockFieldSaveController,
+  blockFieldRevision,
   blockFieldSaveImplRef,
   forgetBlockFieldSaveController,
+  isBlockFieldDeleting,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
+  setBlockFieldDeleting,
 } from "./blockFieldSaveRegistry";
 import {
   BLOCK_FIELD_SEARCH_PARAM,
@@ -101,7 +115,8 @@ import {
   type BlockFieldSeen,
   type BlockFieldTabDirection,
 } from "./blockFieldTabs";
-import { VisualEditor } from "./VisualEditor";
+import { dbText } from "./database/text";
+import { VisualEditor, type VisualEditorExternalContent } from "./VisualEditor";
 
 const BLOCK_FIELD_DRAG_THRESHOLD = 6;
 // The default `auto` track grows to its widest unbreakable line, which widens
@@ -136,13 +151,25 @@ interface DocumentBlockFieldsProps {
     content: string | null,
   ) => void;
   /**
-   * Whether the primary field's tab is open, and a way to open it. Page
-   * comments anchor in that field, so they step aside while another shows.
+   * Which field's tab is open and a way to open another, for comments, which
+   * sit in the field they quote. `null` once the fields are gone.
    */
-  onPrimaryFieldTabChange?: (tab: PrimaryBlockFieldTab) => void;
+  onFieldTabChange?: (tabs: BlockFieldTabs | null) => void;
 }
 
-export type PrimaryBlockFieldTab = { open: boolean; show: () => void };
+/** A save held back because the server refused its field revision as stale. */
+class StaleBlocksFieldSave extends Error {
+  constructor() {
+    super("This Blocks field save waits for the newer text it conflicts with.");
+  }
+}
+
+type BlockFieldSaveRequest = {
+  documentId: string;
+  propertyId: string;
+  value: string;
+  expectedBlocksFieldRevision: number;
+};
 
 function isBlocksFieldRevisionConflict(error: unknown): boolean {
   if (error instanceof Error) {
@@ -365,7 +392,7 @@ export function DocumentBlockFields({
   primaryContent,
   pageProperties,
   onAdditionalContentChange,
-  onPrimaryFieldTabChange,
+  onFieldTabChange,
 }: DocumentBlockFieldsProps) {
   const t = useT();
   const placeholder = useMemo(
@@ -404,6 +431,28 @@ export function DocumentBlockFields({
   useLayoutEffect(() => {
     onPrimaryFieldAvailabilityChange?.(scope, primaryAvailable);
   }, [onPrimaryFieldAvailabilityChange, primaryAvailable, scope]);
+
+  // The tabs report themselves; every other layout shows one editor or none.
+  const soloFieldId =
+    state.kind === "solo" && state.target === "block_field_store"
+      ? state.field.definition.id
+      : null;
+  const reportsTabs = hasQueryError || state.kind !== "multi";
+  useLayoutEffect(() => {
+    if (!onFieldTabChange || !reportsTabs) return;
+    // Fields that couldn't be read are still unknown, so a thread in another
+    // tab waits for them rather than being taken for a deleted tab's.
+    onFieldTabChange(
+      hasQueryError || state.kind === "loading"
+        ? LOADING_BLOCK_FIELD_TABS
+        : soloFieldId
+          ? soloBlockFieldTabs(soloFieldId)
+          : BODY_BLOCK_FIELD_TABS,
+    );
+  }, [hasQueryError, onFieldTabChange, reportsTabs, soloFieldId, state.kind]);
+  const onFieldTabChangeRef = useRef(onFieldTabChange);
+  onFieldTabChangeRef.current = onFieldTabChange;
+  useLayoutEffect(() => () => onFieldTabChangeRef.current?.(null), []);
 
   // Deleting down to one field removes the tab row, and the focused tab with
   // it. Put focus in the editor that's left instead of dropping it on the page.
@@ -473,6 +522,7 @@ export function DocumentBlockFields({
             className={cn(BLOCK_FIELDS_GRID, "gap-1")}
             ref={soloRef}
             data-block-fields-state="solo"
+            data-block-field-id={state.field.definition.id}
           >
             <AdditionalBlockEditor
               key={`${documentId}:${state.field.definition.id}`}
@@ -508,7 +558,7 @@ export function DocumentBlockFields({
           primaryEditor={primaryEditor}
           primaryContent={primaryContent}
           onAdditionalContentChange={onAdditionalContentChange}
-          onPrimaryFieldTabChange={onPrimaryFieldTabChange}
+          onFieldTabChange={onFieldTabChange}
           t={t}
         />
       );
@@ -571,7 +621,7 @@ function MultiBlockFields({
   primaryEditor,
   primaryContent,
   onAdditionalContentChange,
-  onPrimaryFieldTabChange,
+  onFieldTabChange,
   t,
 }: {
   documentId: string;
@@ -588,7 +638,7 @@ function MultiBlockFields({
     propertyId: string,
     content: string | null,
   ) => void;
-  onPrimaryFieldTabChange?: (tab: PrimaryBlockFieldTab) => void;
+  onFieldTabChange?: (tabs: BlockFieldTabs | null) => void;
   t: ReturnType<typeof useT>;
 }) {
   const reorder = useReorderDocumentProperty(
@@ -672,17 +722,33 @@ function MultiBlockFields({
     blockFields.find((property) =>
       isPrimaryBlocksField(property.definition.options),
     )?.definition.id ?? null;
-  const primaryOpen = primaryId === null || primaryId === selectedId;
+  // The primary field is the page body, which comments call `null`.
+  const openFieldId = selectedId === primaryId ? null : selectedId;
   const selectFieldRef = useRef(selectField);
   selectFieldRef.current = selectField;
-  useLayoutEffect(() => {
-    if (!onPrimaryFieldTabChange) return;
-    const show = () => {
-      if (primaryId !== null) selectFieldRef.current(primaryId);
+  const tabs = useMemo<BlockFieldTabs>(() => {
+    const ids = fieldOrderKey.split("\n");
+    const has = (fieldId: string | null) =>
+      fieldId === null
+        ? primaryId !== null
+        : fieldId !== primaryId && ids.includes(fieldId);
+    return {
+      ready: true,
+      openFieldId,
+      hasField: has,
+      showField: (fieldId) => {
+        const id = fieldId ?? primaryId;
+        if (id !== null && has(fieldId)) selectFieldRef.current(id);
+      },
     };
-    onPrimaryFieldTabChange({ open: primaryOpen, show });
-    return () => onPrimaryFieldTabChange({ open: true, show: () => {} });
-  }, [onPrimaryFieldTabChange, primaryId, primaryOpen]);
+  }, [fieldOrderKey, openFieldId, primaryId]);
+  useLayoutEffect(() => {
+    onFieldTabChange?.(tabs);
+  }, [onFieldTabChange, tabs]);
+  const onFieldTabChangeRef = useRef(onFieldTabChange);
+  onFieldTabChangeRef.current = onFieldTabChange;
+  useLayoutEffect(() => () => onFieldTabChangeRef.current?.(null), []);
+  const openComments = useBlockFieldOpenCounts();
 
   // The first tab is the one without `?field=`. When a reorder (or a deep
   // link) leaves the URL naming the first tab, or a field this row doesn't
@@ -917,12 +983,19 @@ function MultiBlockFields({
     const next = fieldIds.find((fieldId) => fieldId !== id);
     focusTabAfterDialogRef.current =
       id === selectedId && next ? next : (selectedId ?? id);
+    setBlockFieldDeleting(`${documentId}:${id}`, true);
     try {
       await remove.mutateAsync({ documentId, propertyId: id });
       // Unsaved typing in the deleted field can't save anywhere now; don't let
       // its failed save block leaving the page or suggesting.
       forgetBlockFieldSaveController(`${documentId}:${id}`);
     } catch (error) {
+      setBlockFieldDeleting(`${documentId}:${id}`, false);
+      // The field is still there, so a save that failed unreported while the
+      // delete ran goes out again, and reports if it fails again.
+      void peekBlockFieldSaveController(`${documentId}:${id}`)
+        ?.flush()
+        .catch(() => {});
       // The field is still there, so go back to it unless another tab was
       // opened while the delete was in flight.
       const current = requestedIdRef.current;
@@ -1251,6 +1324,11 @@ function MultiBlockFields({
                       content={liveContent(property)}
                       selected={propertyId === selectedId}
                       changed={changedIds.has(propertyId)}
+                      openComments={
+                        openComments?.get(
+                          propertyId === primaryId ? null : propertyId,
+                        ) ?? 0
+                      }
                       dragging={drag?.propertyId === propertyId}
                       menu={
                         manageable && propertyId === selectedId
@@ -1569,6 +1647,7 @@ function BlockFieldTab({
   content,
   selected,
   changed,
+  openComments,
   dragging,
   menu,
   dropIndicator,
@@ -1585,6 +1664,8 @@ function BlockFieldTab({
   content: string;
   selected: boolean;
   changed: boolean;
+  /** Open comment threads in the field (and suggestions, on the body). */
+  openComments: number;
   dragging: boolean;
   /** Set when a click on this tab opens its menu. */
   menu: { open: boolean } | null;
@@ -1639,6 +1720,18 @@ function BlockFieldTab({
           {t("editor.properties.wordCount", { count: words })}
         </span>
       ) : null}
+      {openComments > 0 ? (
+        <span
+          className="inline-flex items-center gap-0.5 text-xs font-normal text-muted-foreground"
+          data-block-field-comment-count={openComments}
+        >
+          <IconMessage aria-hidden="true" className="size-3.5" />
+          <span aria-hidden="true">{openComments}</span>
+          <span className="sr-only">
+            {t("editor.blockFieldOpenComments", { count: openComments })}
+          </span>
+        </span>
+      ) : null}
       {changed ? (
         <>
           <span
@@ -1666,6 +1759,10 @@ function BlockFieldTab({
  * with a fresh controller. The save target is ALSO read through a ref, so the
  * controller never captures a documentId/propertyId that could go stale — the
  * editor can never DISPLAY one field while SAVING to another (CORE alias hole).
+ *
+ * Every save names the field revision its text is from, so it can't overwrite
+ * a newer one. Newer text saved elsewhere is merged with the editor's text:
+ * `externalContent` asks the editor for what it holds when the merge runs.
  */
 export function useBlockFieldEditor({
   documentId,
@@ -1673,24 +1770,23 @@ export function useBlockFieldEditor({
   initialContent,
   initialRevision,
   save,
-  onRevisionConflict,
+  keepaliveSave,
+  onTextMoved,
   onReleaseSettled,
 }: {
   documentId: string;
   propertyId: string;
   initialContent: string;
   initialRevision: number;
-  save: (request: {
-    documentId: string;
-    propertyId: string;
-    value: string;
-    expectedBlocksFieldRevision: number;
-  }) => Promise<unknown>;
-  onRevisionConflict?: () => void;
+  save: (request: BlockFieldSaveRequest) => Promise<unknown>;
+  /** Sends a save the browser finishes after the page closes; false if it can't. */
+  keepaliveSave?: (request: BlockFieldSaveRequest) => boolean;
+  /** Typing that overlapped newer text was moved to the end of the field. */
+  onTextMoved?: () => void;
   onReleaseSettled?: (evicted: boolean) => void;
 }): {
   content: string;
-  editorResetVersion: number;
+  externalContent: VisualEditorExternalContent | null;
   onChange: (markdown: string) => void;
   onSaveContent: (markdown: string) => Promise<boolean>;
   isPendingContent: (markdown: string) => boolean;
@@ -1698,27 +1794,32 @@ export function useBlockFieldEditor({
   const key = `${documentId}:${propertyId}`;
 
   const implRef = blockFieldSaveImplRef(key);
-  const revisionRef = useRef(initialRevision);
-  const rejectedRevisionRef = useRef<number | null>(null);
-  const onRevisionConflictRef = useRef(onRevisionConflict);
-  onRevisionConflictRef.current = onRevisionConflict;
+  const onTextMovedRef = useRef(onTextMoved);
+  onTextMovedRef.current = onTextMoved;
+  const keepaliveSaveRef = useRef(keepaliveSave);
+  keepaliveSaveRef.current = keepaliveSave;
+  const saveRef = useRef(save);
+  saveRef.current = save;
   const onReleaseSettledRef = useRef(onReleaseSettled);
   onReleaseSettledRef.current = onReleaseSettled;
-  if (initialRevision > revisionRef.current) {
-    revisionRef.current = initialRevision;
-  }
   implRef.current = async (value: string) => {
+    const revision = blockFieldRevision(key, initialRevision);
+    // The server refused this text's revision as stale; it waits to be
+    // merged with the newer text instead of being refused again.
+    if (revision.stale) throw new StaleBlocksFieldSave();
     const response = await save({
       documentId,
       propertyId,
       value,
-      expectedBlocksFieldRevision: revisionRef.current,
+      expectedBlocksFieldRevision: revision.base,
     });
     const nextRevision = (
       response as DocumentPropertiesResponse
     )?.properties?.find((candidate) => candidate.definition.id === propertyId)
       ?.blocksField?.revision;
-    if (typeof nextRevision === "number") revisionRef.current = nextRevision;
+    if (typeof nextRevision === "number" && nextRevision > revision.base) {
+      revision.base = nextRevision;
+    }
     return response;
   };
 
@@ -1729,10 +1830,12 @@ export function useBlockFieldEditor({
       initialContent,
       save: (value) => implRef.current(value),
       onError: (error) => {
+        if (error instanceof StaleBlocksFieldSave) return;
         if (isBlocksFieldRevisionConflict(error)) {
-          rejectedRevisionRef.current = revisionRef.current;
-          peekBlockFieldSaveController(key)?.discardPending();
-          onRevisionConflictRef.current?.();
+          // The failed save refetches the field; its newer text is merged
+          // with this one when it arrives.
+          blockFieldRevision(key, initialRevision).stale = true;
+          return;
         }
         console.error("Failed to save Blocks field content", {
           documentId,
@@ -1742,9 +1845,15 @@ export function useBlockFieldEditor({
       },
     });
 
+  const [settledSaves, setSettledSaves] = useState(0);
   useEffect(() => {
-    controllerRef.current = acquireBlockFieldSaveController(key, factory);
+    const controller = acquireBlockFieldSaveController(key, factory);
+    controllerRef.current = controller;
+    const unsubscribe = controller.subscribe(() =>
+      setSettledSaves((count) => count + 1),
+    );
     return () => {
+      unsubscribe();
       controllerRef.current = null;
       void releaseBlockFieldSaveController(key).then((evicted) => {
         onReleaseSettledRef.current?.(evicted);
@@ -1765,23 +1874,41 @@ export function useBlockFieldEditor({
     }
     return initialContent;
   });
-  const [editorResetVersion, setEditorResetVersion] = useState(0);
+
+  const [mergeRequest, setMergeRequest] = useState<{
+    key: string;
+    revision: number;
+    content: string;
+  } | null>(null);
+  const mergeRequestRef = useRef(mergeRequest);
+  const mergeCountRef = useRef(0);
 
   useEffect(() => {
     const controller = controllerRef.current;
-    if (!controller) return;
-    const rejectedRevision = rejectedRevisionRef.current;
-    if (rejectedRevision !== null && initialRevision > rejectedRevision) {
-      if (controller.pending !== controller.lastSaved) {
-        rejectedRevisionRef.current = null;
+    // A save in flight can move the field's revision; look again once it
+    // settles.
+    if (!controller || controller.isSaving) return;
+    const revision = blockFieldRevision(key, initialRevision);
+    if (initialRevision > revision.base) {
+      const current = mergeRequestRef.current;
+      if (
+        current?.revision === initialRevision &&
+        current.content === initialContent
+      ) {
         return;
       }
-      setContent(initialContent);
-      controller.mark(initialContent);
-      rejectedRevisionRef.current = null;
-      setEditorResetVersion((version) => version + 1);
+      mergeCountRef.current += 1;
+      const next = {
+        key: `${initialRevision}:${mergeCountRef.current}`,
+        revision: initialRevision,
+        content: initialContent,
+      };
+      mergeRequestRef.current = next;
+      setMergeRequest(next);
       return;
     }
+    // Older props lag a save of this editor's.
+    if (initialRevision < revision.base) return;
     if (controller.pending !== controller.lastSaved) return;
     if (initialContent === controller.lastSaved) {
       if (controller.hasSavedLocally) controller.mark(initialContent);
@@ -1793,10 +1920,118 @@ export function useBlockFieldEditor({
     }
     // else: server props are stale, lagging a local save the server hasn't
     // echoed yet. Keep showing lastSaved and wait for the echo above to clear
-    // the latch. Concurrent writes are guarded by the field revision; a
-    // rejected stale write follows the explicit conflict branch above.
+    // the latch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialContent, initialRevision]);
+  }, [initialContent, initialRevision, settledSaves]);
+
+  // Runs while the editor applies the merge, so `live` is everything it holds,
+  // including typing it hasn't reported yet.
+  function mergeExternalContent(
+    request: NonNullable<typeof mergeRequest>,
+    live: string | null,
+    canHold: (text: string) => boolean,
+  ): string | null {
+    const controller = controllerRef.current;
+    if (!controller || mergeRequestRef.current !== request) return null;
+    setMergeRequest(null);
+    const revision = blockFieldRevision(key, initialRevision);
+    // A save that started since can move the revision; the request comes
+    // again once it settles.
+    if (request.revision <= revision.base || controller.isSaving) {
+      mergeRequestRef.current = null;
+      return null;
+    }
+    const { content: merged, moved } = mergeBlocksFieldEdits(
+      controller.lastSaved,
+      live ?? controller.pending,
+      request.content,
+    );
+    // Text the editor can't show isn't committed. The field holds its typing
+    // instead of saving it over the newer text, and the request stays, so it
+    // isn't asked again and closing the page saves the merge.
+    if (!canHold(merged)) {
+      revision.stale = true;
+      return null;
+    }
+    mergeRequestRef.current = null;
+    controller.mark(request.content);
+    revision.base = request.revision;
+    revision.stale = false;
+    if (merged !== request.content) controller.change(merged);
+    setContent(merged);
+    if (moved) onTextMovedRef.current?.();
+    return merged;
+  }
+
+  const externalContent = useMemo(
+    () =>
+      mergeRequest && {
+        key: mergeRequest.key,
+        merge: (live: string | null, canHold: (text: string) => boolean) =>
+          mergeExternalContent(mergeRequest, live, canHold),
+      },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mergeRequest],
+  );
+
+  // Closing the page drops a save that hasn't gone out, so it goes out as
+  // one the browser finishes on its own.
+  useEffect(() => {
+    const onPageHide = () => {
+      const controller = controllerRef.current;
+      if (!controller) return;
+      const revision = blockFieldRevision(key, initialRevision);
+      // Newer text the editor hasn't merged yet (it waits out a slash command
+      // or an input method) is merged now, since the page won't wait.
+      const newer = mergeRequestRef.current;
+      if (newer && newer.revision > revision.base) {
+        const { content: merged } = mergeBlocksFieldEdits(
+          controller.lastSaved,
+          controller.pending,
+          newer.content,
+        );
+        if (merged === newer.content) return;
+        const request = {
+          documentId,
+          propertyId,
+          value: merged,
+          expectedBlocksFieldRevision: newer.revision,
+        };
+        if (!keepaliveSaveRef.current?.(request)) {
+          void saveRef.current(request).catch(() => {
+            /* Page is going away; the save reports its own failure. */
+          });
+        }
+        return;
+      }
+      // A refused save waits for the newer text, which hasn't arrived.
+      if (controller.pending === controller.lastSaved || revision.stale) {
+        return;
+      }
+      const sent = keepaliveSaveRef.current?.({
+        documentId,
+        propertyId,
+        value: controller.pending,
+        expectedBlocksFieldRevision: revision.base,
+      });
+      if (!sent) void controller.flush();
+    };
+    const onVisibilityChange = () => {
+      if (window.document.visibilityState === "hidden") {
+        void controllerRef.current?.flush();
+      }
+    };
+    window.addEventListener("pagehide", onPageHide);
+    window.document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      window.document.removeEventListener(
+        "visibilitychange",
+        onVisibilityChange,
+      );
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
   function onChange(markdown: string) {
     setContent(markdown);
@@ -1818,7 +2053,7 @@ export function useBlockFieldEditor({
 
   return {
     content,
-    editorResetVersion,
+    externalContent,
     onChange,
     onSaveContent,
     isPendingContent,
@@ -1845,17 +2080,20 @@ function AdditionalBlockEditor({
   ) => void;
 }) {
   const t = useT();
+  const databaseId = property.definition.databaseId!;
   const setProperty = useSetDocumentProperty(
     documentId,
-    property.definition.databaseId!,
+    databaseId,
     databaseDocumentId,
+    { errorNotification: "caller" },
   );
   const propertyId = property.definition.id;
+  const key = `${documentId}:${propertyId}`;
   const initialContent =
     typeof property.value === "string" ? property.value : "";
   const {
     content,
-    editorResetVersion,
+    externalContent,
     onChange,
     onSaveContent,
     isPendingContent,
@@ -1864,9 +2102,42 @@ function AdditionalBlockEditor({
     propertyId,
     initialContent,
     initialRevision: property.blocksField?.revision ?? 0,
-    save: setProperty.mutateAsync,
-    onRevisionConflict: () =>
-      toast.error(t("editor.blocksFieldRevisionConflict")),
+    save: async (request) => {
+      try {
+        return await setProperty.mutateAsync(request);
+      } catch (error) {
+        // A stale revision is merged with the newer text, and a field
+        // deleted mid-save has nowhere to save to.
+        if (
+          !isBlocksFieldRevisionConflict(error) &&
+          !isBlockFieldDeleting(key) &&
+          peekBlockFieldSaveController(key)
+        ) {
+          toast.error(dbText("somethingWentWrong"), {
+            description: error instanceof Error ? error.message : undefined,
+          });
+        }
+        throw error;
+      }
+    },
+    keepaliveSave: (request) => {
+      try {
+        const attempt = tryCallActionKeepalive(
+          "set-document-property",
+          { ...request, databaseId },
+          { headers: { "X-Agent-Native-Frontend": "1" } },
+        );
+        if (!attempt.accepted) return false;
+        void attempt.completion.catch(() => {
+          /* Page is going away; nothing more we can do. */
+        });
+        return true;
+      } catch {
+        // coercion-ok: false falls back to an ordinary save.
+        return false;
+      }
+    },
+    onTextMoved: () => toast.info(t("editor.blocksFieldEditMovedToEnd")),
     onReleaseSettled: (evicted) => {
       if (evicted) onContentChange?.(documentId, propertyId, null);
     },
@@ -1875,12 +2146,13 @@ function AdditionalBlockEditor({
   useEffect(() => {
     onContentChange?.(documentId, propertyId, content);
   }, [content, documentId, onContentChange, propertyId]);
+  const comments = useBlockFieldEditorComments(propertyId);
 
   return (
     <VisualEditor
-      key={`${propertyId}:${editorResetVersion}`}
       documentId={documentId}
       content={content}
+      externalContent={externalContent}
       onChange={(markdown) => {
         if (canEdit) onChange(markdown);
       }}
@@ -1891,6 +2163,13 @@ function AdditionalBlockEditor({
       }}
       editable={canEdit}
       localFileMode
+      onComment={comments?.onComment}
+      commentThreads={comments?.commentThreads}
+      activeThreadId={comments?.activeThreadId}
+      hoveredThreadId={comments?.hoveredThreadId}
+      pendingHighlight={comments?.pendingHighlight}
+      onActivateThread={comments?.onActivateThread}
+      showCommentIndicators={comments?.showCommentIndicators}
     />
   );
 }

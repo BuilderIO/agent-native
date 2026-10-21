@@ -66,6 +66,16 @@ describe("configure-first-party-events-model", () => {
     });
     expect(mocks.dryRun).toHaveBeenCalledTimes(2);
     expect(mocks.dryRun.mock.calls[0]![0]).toContain(`\`${MODEL}\``);
+    for (const [sql] of mocks.dryRun.mock.calls) {
+      expect(sql).toMatch(/^SELECT \* FROM /);
+    }
+    const yesterday = new Date(Date.now() - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    expect(mocks.dryRun.mock.calls[0]![0]).toMatch(
+      new RegExp(`WHERE event_date = DATE '${yesterday}'$`),
+    );
+    expect(mocks.dryRun.mock.calls[1]![0]).not.toContain("WHERE");
     expect(mocks.admin).not.toHaveBeenCalled();
     expect(mocks.save).not.toHaveBeenCalled();
   });

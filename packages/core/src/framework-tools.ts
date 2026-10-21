@@ -249,6 +249,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-automations": "automation",
   "list-automation-events": "automation",
   "manage-automation": "automation",
+  "search-automation-accounts": "automation",
   "get-usage-alerts": "automation",
   "manage-usage-alert": "automation",
   "get-usage-metrics": "automation",

@@ -149,9 +149,10 @@ function nextRunForMeta(meta: TriggerFrontmatter): string | undefined {
     meta.schedule &&
     isValidCron(meta.schedule),
   );
+  if (!scheduled) return undefined;
   if (meta.nextRun) {
     const stored = new Date(meta.nextRun).getTime();
-    if (!scheduled || !Number.isFinite(stored) || stored > Date.now()) {
+    if (!Number.isFinite(stored) || stored > Date.now()) {
       return meta.nextRun;
     }
   }
@@ -238,6 +239,7 @@ async function resourceToAutomationItem(
 ): Promise<AutomationRouteItem> {
   const parsed = parseJobResource(resource.content);
   const meta = asTriggerFrontmatter(parsed.meta);
+  const nextRun = nextRunForMeta(meta);
   const canUpdate = await currentUserCanUpdateAutomation(
     event,
     userEmail,
@@ -254,23 +256,36 @@ async function resourceToAutomationItem(
     scope: automationRunOwnership(resource.owner, userEmail, meta.orgId).scope,
     canUpdate,
     triggerType: meta.triggerType,
-    event: meta.event,
+    ...(meta.triggerType === "event" && meta.event
+      ? { event: meta.event }
+      : {}),
+    ...(meta.triggerType === "schedule" && meta.schedule
+      ? {
+          schedule: meta.schedule,
+          scheduleDescription: scheduleDescription(
+            meta.schedule,
+            meta.timezone,
+          ),
+        }
+      : {}),
+    ...(meta.triggerType !== "manual" && meta.condition
+      ? { condition: meta.condition }
+      : {}),
     webhookPath:
       canUpdate && meta.triggerType === "webhook"
         ? await readAutomationWebhookPath(resource, meta)
         : undefined,
-    schedule: meta.schedule || undefined,
-    scheduleDescription: scheduleDescription(meta.schedule, meta.timezone),
-    condition: meta.condition,
     mode: meta.mode,
     domain: meta.domain,
     enabled: meta.enabled,
-    timezone: meta.timezone,
+    ...(meta.triggerType === "schedule" && meta.timezone
+      ? { timezone: meta.timezone }
+      : {}),
     lastStatus: meta.lastStatus,
     lastRun: meta.lastRun,
     lastCheck: meta.lastCheck,
     lastError: meta.lastError,
-    nextRun: nextRunForMeta(meta),
+    ...(nextRun ? { nextRun } : {}),
     createdBy: meta.createdBy,
     body: parsed.body,
     model: meta.model,

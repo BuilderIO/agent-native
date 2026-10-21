@@ -48,6 +48,13 @@ import {
 } from "./build-server.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
+vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/better-auth-instance.js")
+  >()),
+  findBetterAuthUserIdForEmail: vi.fn(async () => undefined),
+}));
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../../",
@@ -1318,6 +1325,12 @@ describe("ChatGPT directory template profiles", () => {
         directoryProfile: { connectorCatalog: ["disabled-group"] },
       }),
     ).toThrow(/not registered or is not exposed to MCP/);
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...config,
+        externalAgents: { denyActions: ["mcp-only"] },
+      }),
+    ).toThrow(/not registered or is not exposed to MCP/);
   });
 
   it("requires scoped widget reads to be bounded GET actions", () => {
@@ -1510,6 +1523,93 @@ describe("ChatGPT directory template profiles", () => {
         },
       }),
     ).toThrow(/widget target "get-document" must name a listed action/);
+  });
+
+  it("keeps a denied create_embed_session out of tools/list and tools/call", async () => {
+    const config = {
+      name: "content",
+      description: "Content directory.",
+      catalogMode: "directory" as const,
+      widgetDomain: "https://content.example.test",
+      actions: {
+        "create-document": {
+          tool: { description: "Create one document." },
+          readOnly: false,
+          mcpAnnotations: {
+            readOnlyHint: false,
+            destructiveHint: false,
+            openWorldHint: false,
+          },
+          mcpApp: {
+            resource: {
+              uri: "ui://content/create-document",
+              title: "Document",
+              html: "<html></html>",
+            },
+          },
+          run: async () => ({ id: "doc-1" }),
+        },
+      },
+      directoryProfile: {
+        connectorCatalog: ["create-document"],
+        widgetTargets: {
+          "create-document": () => ({
+            targetPath: "/page/doc-1",
+            resourceIds: { documentId: "doc-1" },
+          }),
+        },
+      },
+    };
+
+    async function connect(denyActions: string[]) {
+      const server = await createMCPServerForRequest(
+        { ...config, externalAgents: { denyActions } },
+        {
+          userEmail: "reviewer@example.test",
+          identityAssurance: "user",
+          orgId: null,
+          orgDomain: undefined,
+        },
+        { origin: config.widgetDomain, transport: "http" },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "directory-deny-spec", version: "1" });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      return {
+        client,
+        close: () => Promise.all([client.close(), server.close()]),
+      };
+    }
+
+    const served = await connect([]);
+    try {
+      const { tools } = await served.client.listTools();
+      expect(tools.map((tool) => tool.name)).toContain("create_embed_session");
+    } finally {
+      await served.close();
+    }
+
+    const denied = await connect(["create_embed_session"]);
+    try {
+      const { tools } = await denied.client.listTools();
+      expect(tools.map((tool) => tool.name)).not.toContain(
+        "create_embed_session",
+      );
+      const called = await denied.client.callTool({
+        name: "create_embed_session",
+        arguments: { sourceTicket: "ticket" },
+      });
+      expect(called.isError).toBe(true);
+      expect(JSON.stringify(called.content)).toContain(
+        "Unknown tool: create_embed_session",
+      );
+    } finally {
+      await denied.close();
+    }
   });
 
   it("requires read routes before widget tools run and preserves legacy tool discovery", () => {
@@ -2155,6 +2255,14 @@ describe("Slides widget share grant", () => {
           },
         }),
       ).toThrow(/exact resource ID binding/);
+      for (const denied of ["list-resource-shares", "unshare-resource"]) {
+        expect(() =>
+          validateMcpDirectoryProfile({
+            ...config,
+            externalAgents: { denyActions: [denied] },
+          }),
+        ).toThrow(/listed in externalAgents\.denyActions/);
+      }
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );

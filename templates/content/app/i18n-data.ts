@@ -695,6 +695,7 @@ const editorMediaMessages = {
   imageDownloadStarted: "Image download started.",
   imageLinkHint: "Works with any image from the web",
   imagePreview: "Image preview",
+  imageUnavailable: "Image not available",
   imageView: "Image view",
   link: "Link",
   loadingAssetsPicker: "Loading Assets picker",
@@ -1245,8 +1246,8 @@ const enUS = {
     noDocumentSelected: "No document selected",
     registryBlockLoadError: "Could not load {{type}} block: {{message}}",
     registryBlockUnreadable: "Persisted block source is unreadable.",
-    blocksFieldRevisionConflict:
-      "This Blocks field changed elsewhere. Your edit wasn't saved; the latest version is now shown.",
+    blocksFieldEditMovedToEnd:
+      "This Blocks field also changed elsewhere. Text you typed in the same place was moved to the end of the field.",
     reconcileConflict:
       "This page changed elsewhere. Your edits aren’t saved yet.",
     reconcileFailed:
@@ -1263,6 +1264,9 @@ const enUS = {
       "The file changed on disk while this page had unsaved edits.",
     localFileReadOnlySnapshot:
       "Read-only snapshot · Last synced from {{device}} at {{date}}",
+    githubSourceReadOnly:
+      "View only. This page follows a file in GitHub and updates after each push.",
+    githubSourceOpenFile: "Open in GitHub",
     copyUnsavedText: "Copy my unsaved text",
     unsavedTextCopied: "Unsaved text copied",
     useDiskVersion: "Use disk version",
@@ -1307,6 +1311,12 @@ const enUS = {
     addBlockField: "Add field",
     blockFieldChanged: "Changed since you last viewed it",
     blockFieldTabs: "Fields",
+    blockFieldOpenComments_zero: "{{count}} open comments",
+    blockFieldOpenComments_one: "{{count}} open comment",
+    blockFieldOpenComments_two: "{{count}} open comments",
+    blockFieldOpenComments_few: "{{count}} open comments",
+    blockFieldOpenComments_many: "{{count}} open comments",
+    blockFieldOpenComments_other: "{{count}} open comments",
     blockFieldMenu: "Options for {{name}}",
     blockFieldMenuScope: "Shared by every row in this collection",
     blockFieldName: "Field name",
@@ -1380,6 +1390,7 @@ const enUS = {
     historyGroupAgent: "Agent run",
     historyGroupHuman: "Editing session",
     historyGroupLegacy: "Earlier edits",
+    historyGroupGitHub: "Synced from GitHub",
     historyGroupOperation: "Operation",
     historyGroupRestore: "Restore",
     historyLoadError: "Could not load version history.",
@@ -1557,6 +1568,7 @@ const enUS = {
     openRowComments_few: "{{count}} open comments on {{title}}",
     openRowComments_many: "{{count}} open comments on {{title}}",
     openRowComments_other: "{{count}} open comments on {{title}}",
+    openRow: "Open row",
     reply: "Reply...",
     reopen: "Reopen",
     suggestions: "Suggestions",
@@ -1589,6 +1601,10 @@ const enUS = {
     accepted: "Accepted",
     rejected: "Rejected",
     noFilteredComments: "No matching comments.",
+    tabFilter: "Tab",
+    allTabs: "All tabs",
+    fieldRemoved: "{{name}} (removed)",
+    pageBody: "Page body",
     hideIndicators: "Hide comments and highlights",
     showIndicators: "Show comments and highlights",
     agentRegardingText: 'Regarding this text: "{{text}}"',

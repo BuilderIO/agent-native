@@ -1756,6 +1756,8 @@ export async function observeIntegrity(
   await tabs.quiet();
   tabs.captureReadback("before-refresh", id, await getDocument(reader, id));
   for (const page of open) {
+    // Reloading a peer can start another tab's save after the earlier check.
+    await tabs.quiet();
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectEditorReady(page);
   }
@@ -1763,9 +1765,14 @@ export async function observeIntegrity(
 
   await tabs.quiet();
   tabs.captureReadback("before-close", id, await getDocument(reader, id));
-  for (const page of open) await page.close();
+  for (const page of open) {
+    await tabs.quiet();
+    await page.close();
+  }
+  await tabs.quiet();
   const alone = await tabs.open("alone", id);
   await settle("reopened-alone", [alone]);
+  await tabs.quiet();
   await alone.close();
   // Closing the tabs strands any save they sent after the last wait, and a
   // gate may still be fetching its answer; the record must include it.

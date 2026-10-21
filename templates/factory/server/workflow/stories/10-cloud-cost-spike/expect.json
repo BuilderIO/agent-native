@@ -1,0 +1,744 @@
+{
+  "a-spike-day-alerts-the-owners-with-suspects-and-a-reply-ends-it": {
+    "ticks": [
+      {
+        "label": "07:00, the daily run",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 41, "done": 4, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "anySpikes": { "in": 1, "ports": { "match": 1 } },
+          "baselineEnd": { "in": 1, "ports": {} },
+          "billing": { "in": 0, "ports": { "out": 41 } },
+          "byService": { "in": 41, "ports": { "out": 6 } },
+          "emailOwners": { "in": 1, "ports": { "out": 1 } },
+          "explain": { "in": 1, "ports": { "out": 1 } },
+          "noBaseline": { "in": 6, "ports": { "match": 1, "otherwise": 5 } },
+          "notifyOwners": { "in": 1, "ports": { "out": 1 } },
+          "quiet": { "in": 3, "ports": {} },
+          "recent": { "in": 1, "ports": { "out": 1 } },
+          "spike": { "in": 5, "ports": { "match": 2, "otherwise": 3 } },
+          "spikes": { "in": 2, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": {
+          "bigquery.billingQuery": 1,
+          "github.mergedPullRequests": 1,
+          "slack.postMessage": 1,
+          "email.send": 1
+        },
+        "windows": {
+          "bigquery.billingQuery": {
+            "from": "2026-10-18T14:00:00.000Z",
+            "to": "2026-10-19T14:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "notifyOwners",
+            "item": "list:spikes:40e2741ae2354",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0OWNERS",
+              "text": "Cloud spend spiked yesterday. Compute Engine doubled to 200 a day from 100: likely https://github.example.test/example-org/example-repo/pull/412. Cloud CDN rose to 120 a day from 50: likely https://github.example.test/example-org/example-repo/pull/415."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0OWNERS/p1760001000000001"
+            }
+          },
+          {
+            "node": "emailOwners",
+            "item": "list:spikes:40e2741ae2354",
+            "operation": "email.send",
+            "fields": {
+              "to": "manager@example.test",
+              "subject": "Cloud spend spike",
+              "body": "Cloud spend spiked yesterday. Compute Engine doubled to 200 a day from 100: likely https://github.example.test/example-org/example-repo/pull/412. Cloud CDN rose to 120 a day from 50: likely https://github.example.test/example-org/example-repo/pull/415."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "explain",
+            "mode": "perItem",
+            "items": ["list:spikes:40e2741ae2354"]
+          }
+        ]
+      },
+      {
+        "label": "15 minutes on, nobody has answered",
+        "at": "2026-10-19T14:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "an owner has replied",
+        "at": "2026-10-19T14:45:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "done": 1, "woke": 1 } },
+        "nodes": {
+          "done": { "in": 1, "ports": {} },
+          "waitReply": { "in": 0, "ports": { "replied": 1 } }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:spikes:40e2741ae2354": [
+        "decision@anySpikes:match",
+        "effect@notifyOwners",
+        "effect@emailOwners",
+        "parked@waitReply",
+        "woke@waitReply:replied",
+        "ended@done:done"
+      ],
+      "summary:byService:14ab23d6acbd8a": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:match"
+      ],
+      "summary:byService:1441f4e1e54a9d": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:match"
+      ],
+      "summary:byService:1fb86c320fba3": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:6b785fc0df174": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:1bd8366bc921f0": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:30ea536b9d178": [
+        "decision@noBaseline:match",
+        "ended@baselineEnd:done"
+      ]
+    }
+  },
+  "silence-for-four-hours-escalates-once-and-a-bot-does-not-count": {
+    "ticks": [
+      {
+        "label": "07:00, the daily run",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 41, "done": 4, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "anySpikes": { "in": 1, "ports": { "match": 1 } },
+          "baselineEnd": { "in": 1, "ports": {} },
+          "billing": { "in": 0, "ports": { "out": 41 } },
+          "byService": { "in": 41, "ports": { "out": 6 } },
+          "emailOwners": { "in": 1, "ports": { "out": 1 } },
+          "explain": { "in": 1, "ports": { "out": 1 } },
+          "noBaseline": { "in": 6, "ports": { "match": 1, "otherwise": 5 } },
+          "notifyOwners": { "in": 1, "ports": { "out": 1 } },
+          "quiet": { "in": 3, "ports": {} },
+          "recent": { "in": 1, "ports": { "out": 1 } },
+          "spike": { "in": 5, "ports": { "match": 2, "otherwise": 3 } },
+          "spikes": { "in": 2, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": {
+          "bigquery.billingQuery": 1,
+          "github.mergedPullRequests": 1,
+          "slack.postMessage": 1,
+          "email.send": 1
+        },
+        "windows": {
+          "bigquery.billingQuery": {
+            "from": "2026-10-18T14:00:00.000Z",
+            "to": "2026-10-19T14:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "notifyOwners",
+            "item": "list:spikes:40e2741ae2354",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0OWNERS",
+              "text": "Cloud spend spiked yesterday. Compute Engine doubled to 200 a day from 100: likely https://github.example.test/example-org/example-repo/pull/412. Cloud CDN rose to 120 a day from 50: likely https://github.example.test/example-org/example-repo/pull/415."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0OWNERS/p1760001000000001"
+            }
+          },
+          {
+            "node": "emailOwners",
+            "item": "list:spikes:40e2741ae2354",
+            "operation": "email.send",
+            "fields": {
+              "to": "manager@example.test",
+              "subject": "Cloud spend spike",
+              "body": "Cloud spend spiked yesterday. Compute Engine doubled to 200 a day from 100: likely https://github.example.test/example-org/example-repo/pull/412. Cloud CDN rose to 120 a day from 50: likely https://github.example.test/example-org/example-repo/pull/415."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "explain",
+            "mode": "perItem",
+            "items": ["list:spikes:40e2741ae2354"]
+          }
+        ]
+      },
+      {
+        "label": "the last check before the deadline",
+        "at": "2026-10-19T17:45:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "four hours on, still no answer",
+        "at": "2026-10-19T18:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "done": 1, "woke": 1 } },
+        "nodes": {
+          "done": { "in": 1, "ports": {} },
+          "escalate": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 0, "ports": { "timedOut": 1 } }
+        },
+        "calls": { "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "escalate",
+            "item": "list:spikes:40e2741ae2354",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "escalation@example.test",
+              "text": "Nobody answered the cloud spend spike."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/D0ESCALATE/p1760001000000002"
+            }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "the next check",
+        "at": "2026-10-19T18:15:00.000Z",
+        "outcome": "nothing_due",
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:spikes:40e2741ae2354": [
+        "decision@anySpikes:match",
+        "effect@notifyOwners",
+        "effect@emailOwners",
+        "parked@waitReply",
+        "woke@waitReply:timedOut",
+        "effect@escalate",
+        "ended@done:done"
+      ],
+      "summary:byService:14ab23d6acbd8a": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:match"
+      ],
+      "summary:byService:1441f4e1e54a9d": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:match"
+      ],
+      "summary:byService:1fb86c320fba3": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:6b785fc0df174": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:1bd8366bc921f0": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:30ea536b9d178": [
+        "decision@noBaseline:match",
+        "ended@baselineEnd:done"
+      ]
+    }
+  },
+  "the-spike-waits-exactly-four-hours": {
+    "ticks": [
+      {
+        "label": "07:00, the daily run",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 41, "done": 4, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "anySpikes": { "in": 1, "ports": { "match": 1 } },
+          "baselineEnd": { "in": 1, "ports": {} },
+          "billing": { "in": 0, "ports": { "out": 41 } },
+          "byService": { "in": 41, "ports": { "out": 6 } },
+          "emailOwners": { "in": 1, "ports": { "out": 1 } },
+          "explain": { "in": 1, "ports": { "out": 1 } },
+          "noBaseline": { "in": 6, "ports": { "match": 1, "otherwise": 5 } },
+          "notifyOwners": { "in": 1, "ports": { "out": 1 } },
+          "quiet": { "in": 3, "ports": {} },
+          "recent": { "in": 1, "ports": { "out": 1 } },
+          "spike": { "in": 5, "ports": { "match": 2, "otherwise": 3 } },
+          "spikes": { "in": 2, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": {
+          "bigquery.billingQuery": 1,
+          "github.mergedPullRequests": 1,
+          "slack.postMessage": 1,
+          "email.send": 1
+        },
+        "windows": {
+          "bigquery.billingQuery": {
+            "from": "2026-10-18T14:00:00.000Z",
+            "to": "2026-10-19T14:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "notifyOwners",
+            "item": "list:spikes:40e2741ae2354",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0OWNERS",
+              "text": "Cloud spend spiked yesterday. Compute Engine doubled to 200 a day from 100: likely https://github.example.test/example-org/example-repo/pull/412. Cloud CDN rose to 120 a day from 50: likely https://github.example.test/example-org/example-repo/pull/415."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0OWNERS/p1760001000000001"
+            }
+          },
+          {
+            "node": "emailOwners",
+            "item": "list:spikes:40e2741ae2354",
+            "operation": "email.send",
+            "fields": {
+              "to": "manager@example.test",
+              "subject": "Cloud spend spike",
+              "body": "Cloud spend spiked yesterday. Compute Engine doubled to 200 a day from 100: likely https://github.example.test/example-org/example-repo/pull/412. Cloud CDN rose to 120 a day from 50: likely https://github.example.test/example-org/example-repo/pull/415."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "explain",
+            "mode": "perItem",
+            "items": ["list:spikes:40e2741ae2354"]
+          }
+        ]
+      },
+      {
+        "label": "15 minutes on",
+        "at": "2026-10-19T14:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [
+      {
+        "item": "list:spikes:40e2741ae2354",
+        "node": "waitReply",
+        "wait": "reply",
+        "dueAt": "2026-10-19T18:00:00.000Z",
+        "nextCheckAt": "2026-10-19T14:30:00.000Z",
+        "thread": { "channelId": "C0OWNERS", "threadTs": "1760001000.000001" }
+      }
+    ],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:spikes:40e2741ae2354": [
+        "decision@anySpikes:match",
+        "effect@notifyOwners",
+        "effect@emailOwners",
+        "parked@waitReply"
+      ],
+      "summary:byService:14ab23d6acbd8a": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:match"
+      ],
+      "summary:byService:1441f4e1e54a9d": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:match"
+      ],
+      "summary:byService:1fb86c320fba3": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:6b785fc0df174": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:1bd8366bc921f0": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:30ea536b9d178": [
+        "decision@noBaseline:match",
+        "ended@baselineEnd:done"
+      ]
+    }
+  },
+  "a-quiet-day-sends-nothing-and-records-why": {
+    "ticks": [
+      {
+        "label": "07:00, the daily run",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 25, "done": 5 } },
+        "nodes": {
+          "anySpikes": { "in": 1, "ports": { "otherwise": 1 } },
+          "baselineEnd": { "in": 1, "ports": {} },
+          "billing": { "in": 0, "ports": { "out": 25 } },
+          "byService": { "in": 25, "ports": { "out": 4 } },
+          "noBaseline": { "in": 4, "ports": { "match": 1, "otherwise": 3 } },
+          "quiet": { "in": 4, "ports": {} },
+          "spike": { "in": 3, "ports": { "otherwise": 3 } },
+          "spikes": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": { "bigquery.billingQuery": 1 },
+        "windows": {
+          "bigquery.billingQuery": {
+            "from": "2026-10-18T14:00:00.000Z",
+            "to": "2026-10-19T14:00:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "15 minutes on",
+        "at": "2026-10-19T14:15:00.000Z",
+        "outcome": "nothing_due",
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:spikes:c598e440246b1": [
+        "decision@anySpikes:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:1fb86c320fba3": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:6b785fc0df174": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:1bd8366bc921f0": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:30ea536b9d178": [
+        "decision@noBaseline:match",
+        "ended@baselineEnd:done"
+      ]
+    }
+  },
+  "the-same-tick-delivered-twice-alerts-once": {
+    "ticks": [
+      {
+        "label": "07:00, the daily run",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 41, "done": 4, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "anySpikes": { "in": 1, "ports": { "match": 1 } },
+          "baselineEnd": { "in": 1, "ports": {} },
+          "billing": { "in": 0, "ports": { "out": 41 } },
+          "byService": { "in": 41, "ports": { "out": 6 } },
+          "emailOwners": { "in": 1, "ports": { "out": 1 } },
+          "explain": { "in": 1, "ports": { "out": 1 } },
+          "noBaseline": { "in": 6, "ports": { "match": 1, "otherwise": 5 } },
+          "notifyOwners": { "in": 1, "ports": { "out": 1 } },
+          "quiet": { "in": 3, "ports": {} },
+          "recent": { "in": 1, "ports": { "out": 1 } },
+          "spike": { "in": 5, "ports": { "match": 2, "otherwise": 3 } },
+          "spikes": { "in": 2, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": {
+          "bigquery.billingQuery": 1,
+          "github.mergedPullRequests": 1,
+          "slack.postMessage": 1,
+          "email.send": 1
+        },
+        "windows": {
+          "bigquery.billingQuery": {
+            "from": "2026-10-18T14:00:00.000Z",
+            "to": "2026-10-19T14:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "notifyOwners",
+            "item": "list:spikes:40e2741ae2354",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0OWNERS",
+              "text": "Cloud spend spiked yesterday. Compute Engine doubled to 200 a day from 100: likely https://github.example.test/example-org/example-repo/pull/412. Cloud CDN rose to 120 a day from 50: likely https://github.example.test/example-org/example-repo/pull/415."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0OWNERS/p1760001000000001"
+            }
+          },
+          {
+            "node": "emailOwners",
+            "item": "list:spikes:40e2741ae2354",
+            "operation": "email.send",
+            "fields": {
+              "to": "manager@example.test",
+              "subject": "Cloud spend spike",
+              "body": "Cloud spend spiked yesterday. Compute Engine doubled to 200 a day from 100: likely https://github.example.test/example-org/example-repo/pull/412. Cloud CDN rose to 120 a day from 50: likely https://github.example.test/example-org/example-repo/pull/415."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "explain",
+            "mode": "perItem",
+            "items": ["list:spikes:40e2741ae2354"]
+          }
+        ]
+      },
+      {
+        "label": "the same tick, delivered again",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "nothing_due",
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [
+      {
+        "item": "list:spikes:40e2741ae2354",
+        "node": "waitReply",
+        "wait": "reply",
+        "dueAt": "2026-10-19T18:00:00.000Z",
+        "nextCheckAt": "2026-10-19T14:15:00.000Z",
+        "thread": { "channelId": "C0OWNERS", "threadTs": "1760001000.000001" }
+      }
+    ],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:spikes:40e2741ae2354": [
+        "decision@anySpikes:match",
+        "effect@notifyOwners",
+        "effect@emailOwners",
+        "parked@waitReply"
+      ],
+      "summary:byService:14ab23d6acbd8a": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:match"
+      ],
+      "summary:byService:1441f4e1e54a9d": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:match"
+      ],
+      "summary:byService:1fb86c320fba3": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:6b785fc0df174": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:1bd8366bc921f0": [
+        "decision@noBaseline:otherwise",
+        "decision@spike:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:30ea536b9d178": [
+        "decision@noBaseline:match",
+        "ended@baselineEnd:done"
+      ]
+    }
+  },
+  "billing-costs-delivered-as-text-fail-instead-of-summing": {
+    "ticks": [
+      {
+        "label": "07:00, the daily run",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "failed",
+          "counts": { "taken": 16 },
+          "error": "expression_failed"
+        },
+        "nodes": {
+          "anySpikes": { "in": 0, "ports": {}, "status": "skipped" },
+          "baselineEnd": { "in": 0, "ports": {}, "status": "skipped" },
+          "billing": { "in": 0, "ports": { "out": 16 } },
+          "byService": {
+            "in": 16,
+            "ports": {},
+            "status": "failed",
+            "error": "expression_failed"
+          },
+          "done": { "in": 0, "ports": {}, "status": "skipped" },
+          "emailOwners": { "in": 0, "ports": {}, "status": "skipped" },
+          "escalate": { "in": 0, "ports": {}, "status": "skipped" },
+          "explain": { "in": 0, "ports": {}, "status": "skipped" },
+          "noBaseline": { "in": 0, "ports": {}, "status": "skipped" },
+          "notifyOwners": { "in": 0, "ports": {}, "status": "skipped" },
+          "quiet": { "in": 0, "ports": {}, "status": "skipped" },
+          "recent": { "in": 0, "ports": {}, "status": "skipped" },
+          "spike": { "in": 0, "ports": {}, "status": "skipped" },
+          "spikes": { "in": 0, "ports": {}, "status": "skipped" },
+          "waitReply": { "in": 0, "ports": {}, "status": "skipped" }
+        },
+        "calls": { "bigquery.billingQuery": 1 },
+        "windows": {
+          "bigquery.billingQuery": {
+            "from": "2026-10-18T14:00:00.000Z",
+            "to": "2026-10-19T14:00:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "Compute Engine|2026-10-11": ["error@byService:expression_failed"],
+      "Compute Engine|2026-10-12": ["error@byService:expression_failed"],
+      "Compute Engine|2026-10-13": ["error@byService:expression_failed"],
+      "Compute Engine|2026-10-14": ["error@byService:expression_failed"],
+      "Compute Engine|2026-10-15": ["error@byService:expression_failed"],
+      "Compute Engine|2026-10-16": ["error@byService:expression_failed"],
+      "Compute Engine|2026-10-17": ["error@byService:expression_failed"],
+      "Compute Engine|2026-10-18": ["error@byService:expression_failed"],
+      "Cloud CDN|2026-10-11": ["error@byService:expression_failed"],
+      "Cloud CDN|2026-10-12": ["error@byService:expression_failed"],
+      "Cloud CDN|2026-10-13": ["error@byService:expression_failed"],
+      "Cloud CDN|2026-10-14": ["error@byService:expression_failed"],
+      "Cloud CDN|2026-10-15": ["error@byService:expression_failed"],
+      "Cloud CDN|2026-10-16": ["error@byService:expression_failed"],
+      "Cloud CDN|2026-10-17": ["error@byService:expression_failed"],
+      "Cloud CDN|2026-10-18": ["error@byService:expression_failed"]
+    }
+  },
+  "billing-data-that-ends-before-yesterday-is-not-compared-as-yesterday": {
+    "ticks": [
+      {
+        "label": "07:00, the daily run",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 6, "done": 2 } },
+        "nodes": {
+          "anySpikes": { "in": 1, "ports": { "otherwise": 1 } },
+          "baselineEnd": { "in": 1, "ports": {} },
+          "billing": { "in": 0, "ports": { "out": 6 } },
+          "byService": { "in": 6, "ports": { "out": 1 } },
+          "noBaseline": { "in": 1, "ports": { "match": 1 } },
+          "quiet": { "in": 1, "ports": {} },
+          "spikes": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": { "bigquery.billingQuery": 1 },
+        "windows": {
+          "bigquery.billingQuery": {
+            "from": "2026-10-18T14:00:00.000Z",
+            "to": "2026-10-19T14:00:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:spikes:c598e440246b1": [
+        "decision@anySpikes:otherwise",
+        "ended@quiet:done"
+      ],
+      "summary:byService:1154feeef22824": [
+        "decision@noBaseline:match",
+        "ended@baselineEnd:done"
+      ]
+    }
+  }
+}

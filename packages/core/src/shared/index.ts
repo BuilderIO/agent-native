@@ -291,3 +291,10 @@ export {
   stripDiagnosticSnippets,
   wrapDiagnosticSnippet,
 } from "./diagnostic-snippet.js";
+export {
+  AGENT_PROFILE_DESCRIPTION_MAX_LENGTH,
+  AGENT_PROFILE_WHEN_TO_USE_MAX_ITEMS,
+  AGENT_PROFILE_WHEN_TO_USE_MAX_LENGTH,
+  parseAgentProfileMetadata,
+  type AgentProfileMetadata,
+} from "./agent-profile.js";
