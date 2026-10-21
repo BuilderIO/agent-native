@@ -49,6 +49,7 @@ interface MeetingTranscriptionSession {
   resumingRunId: number | null;
   settlingRunDeadlines: Map<number, number>;
   recordingId: string | null;
+  captureStopRevision: number | null;
   lines: TranscriptLine[];
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
@@ -684,6 +685,7 @@ export function useMeetingTranscription({
           historyInFlight: null,
           engineStartInFlight: null,
           startRecordingInFlight: null,
+          captureStopRevision: null,
           flushInFlight: null,
           flushSeq: 0,
           dirtySeq: 0,
@@ -789,6 +791,7 @@ export function useMeetingTranscription({
             callClipsAction<{
               meetingId?: string;
               scheduledEnd?: string | null;
+              captureStopRevision?: number;
               recording?: { id?: string | null } | null;
             }>("start-meeting-recording", { meetingId }, { signal }),
           MEETING_ACTION_TIMEOUT_MS,
@@ -803,6 +806,7 @@ export function useMeetingTranscription({
         const recordingId = result.recording?.id;
         session.meetingId = resolvedMeetingId;
         session.recordingId = recordingId ?? null;
+        session.captureStopRevision = result.captureStopRevision ?? null;
         if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         if (!recordingId) {
           throw new Error("Could not create a transcript session.");
@@ -1614,7 +1618,12 @@ export function useMeetingTranscription({
       try {
         const data = await withMeetingActionTimeout(
           (signal) =>
-            callClipsAction<{ meeting?: { actualEnd?: string | null } }>(
+            callClipsAction<{
+              meeting?: {
+                actualEnd?: string | null;
+                captureStopRevision?: number;
+              };
+            }>(
               "get-meeting",
               { id: session.meetingId },
               { method: "GET", signal },
@@ -1629,7 +1638,14 @@ export function useMeetingTranscription({
           session.stopPending
         )
           return;
-        if (data?.meeting?.actualEnd) await stopTranscription("server-ended");
+        const revision = data?.meeting?.captureStopRevision;
+        // Older servers expose only actualEnd; updated servers distinguish
+        // each stop request without changing the meeting's first end time.
+        const ended =
+          session.captureStopRevision !== null && revision !== undefined
+            ? revision > session.captureStopRevision
+            : Boolean(data?.meeting?.actualEnd);
+        if (ended) await stopTranscription("server-ended");
       } catch (error) {
         if (!disposed)
           console.warn("[clips-popover] meeting end check failed:", error);

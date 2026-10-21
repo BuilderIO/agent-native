@@ -77,6 +77,7 @@ describe("start-meeting-recording recording_created", () => {
       title: "Standup",
       recordingId: null,
       visibility: "private",
+      captureStopRevision: 0,
     };
   });
 
@@ -103,8 +104,11 @@ describe("start-meeting-recording recording_created", () => {
     state.meeting = { ...state.meeting, recordingId: "rec-existing" };
     state.existingRecording = { id: "rec-existing", status: "uploading" };
 
-    await action.run({ meetingId: "meeting-1" });
+    state.meeting.captureStopRevision = 7;
+    state.meeting.actualEnd = "2026-10-20T16:00:00Z";
+    const result = await action.run({ meetingId: "meeting-1" });
 
+    expect(result).toMatchObject({ captureStopRevision: 7 });
     expect(state.inserted).toHaveLength(0);
     expect(state.trackRecordingCreated).not.toHaveBeenCalled();
   });

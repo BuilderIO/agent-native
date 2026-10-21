@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   stopTranscriptionEngine: vi.fn(),
   restartTranscriptionEngine: vi.fn(),
   getMeeting: vi.fn(),
+  captureStopRevision: 0,
   actions: [] as Array<{ name: string; body: Record<string, unknown> }>,
 }));
 
@@ -68,6 +69,7 @@ function Harness() {
         return {
           meetingId: "meeting-1",
           recording: { id: "recording-1" },
+          captureStopRevision: mocks.captureStopRevision,
         } as T;
       }
       if (name === "get-meeting") {
@@ -138,6 +140,7 @@ describe("meeting transcription pause and resume", () => {
     mocks.getMeeting
       .mockReset()
       .mockResolvedValue({ meeting: {}, transcript: null });
+    mocks.captureStopRevision = 0;
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -183,6 +186,35 @@ describe("meeting transcription pause and resume", () => {
       meetingId: "meeting-1",
       reason: "server-ended",
     });
+  });
+
+  it("keeps restarted notes running until a newer stop, even with the same actualEnd", async () => {
+    mocks.captureStopRevision = 7;
+    const actualEnd = "2026-10-20T16:00:00Z";
+    mocks.getMeeting.mockResolvedValue({
+      meeting: { actualEnd, captureStopRevision: 7 },
+    });
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+      await settle();
+    });
+    expect(mocks.stopTranscriptionEngine).not.toHaveBeenCalled();
+    mocks.getMeeting.mockResolvedValue({
+      meeting: { actualEnd, captureStopRevision: 8 },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+      await settle();
+    });
+    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledExactlyOnceWith(
+      "whisper",
+      mocks.startTranscriptionEngine.mock.calls[0][0].runId,
+    );
   });
 
   it("checks again when the desktop regains focus", async () => {
