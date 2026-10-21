@@ -1468,6 +1468,12 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS document_comments_document_idx
           ON document_comments (document_id, owner_email)`,
     },
+    {
+      version: 123,
+      name: "content-comment-blocks-field-targets",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_name TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );
