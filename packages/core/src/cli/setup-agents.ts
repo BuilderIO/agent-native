@@ -9,6 +9,118 @@ const DIR_SYMLINKS: Array<{ link: string; target: string }> = [
   { link: ".claude/skills", target: "../.agents/skills" },
 ];
 
+type SymlinkState = "create" | "matches" | "occupied";
+
+export function prepareAgentSymlink(
+  linkPath: string,
+  target: string,
+  type: "file" | "dir",
+): SymlinkState {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(linkPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "create";
+    throw error;
+  }
+  if (!stat.isSymbolicLink()) return "occupied";
+
+  let existingTarget: string;
+  try {
+    existingTarget = fs.readlinkSync(linkPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "create";
+    throw error;
+  }
+  const resolvedExistingTarget = path.resolve(
+    path.dirname(linkPath),
+    existingTarget,
+  );
+  const resolvedTarget = path.resolve(path.dirname(linkPath), target);
+  const sameTarget =
+    process.platform === "win32"
+      ? resolvedExistingTarget.toLowerCase() === resolvedTarget.toLowerCase()
+      : resolvedExistingTarget === resolvedTarget;
+  if (sameTarget) {
+    return "matches";
+  }
+
+  try {
+    if (process.platform === "win32" && type === "dir") {
+      fs.rmdirSync(linkPath);
+    } else {
+      fs.unlinkSync(linkPath);
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (
+      code !== "ENOENT" &&
+      code !== "EPERM" &&
+      code !== "EACCES" &&
+      code !== "EBUSY"
+    ) {
+      throw error;
+    }
+
+    try {
+      fs.lstatSync(linkPath);
+    } catch (statError) {
+      if ((statError as NodeJS.ErrnoException).code === "ENOENT")
+        return "create";
+    }
+
+    throw error;
+  }
+  return "create";
+}
+
+export function createAgentSymlink(
+  target: string,
+  linkPath: string,
+  type: "file" | "dir",
+): void {
+  if (process.platform !== "win32" || type === "file") {
+    fs.symlinkSync(target, linkPath, type);
+    return;
+  }
+
+  try {
+    fs.symlinkSync(target, linkPath, "dir");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EPERM" && code !== "EACCES") throw error;
+    fs.symlinkSync(
+      path.resolve(path.dirname(linkPath), target),
+      linkPath,
+      "junction",
+    );
+  }
+}
+
+export function rebaseAgentSymlinkTarget(
+  sourceRoot: string,
+  destinationRoot: string,
+  sourceLinkPath: string,
+  destinationLinkPath: string,
+  target: string,
+): string | undefined {
+  const resolvedSourceRoot = path.resolve(sourceRoot);
+  const resolvedTarget = path.resolve(path.dirname(sourceLinkPath), target);
+  const targetWithinRoot = path.relative(resolvedSourceRoot, resolvedTarget);
+  if (
+    targetWithinRoot === ".." ||
+    targetWithinRoot.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(targetWithinRoot)
+  ) {
+    return undefined;
+  }
+
+  const copiedTargetPath = path.resolve(destinationRoot, targetWithinRoot);
+  return (
+    path.relative(path.dirname(destinationLinkPath), copiedTargetPath) || "."
+  );
+}
+
 export function setupAgentSymlinks(targetDir: string): void {
   for (const { link, target } of FILE_SYMLINKS) {
     const linkPath = path.join(targetDir, link);
@@ -16,21 +128,11 @@ export function setupAgentSymlinks(targetDir: string): void {
 
     if (!fs.existsSync(targetPath)) continue;
 
-    try {
-      const stat = fs.lstatSync(linkPath);
-      if (stat.isSymbolicLink()) {
-        const existing = fs.readlinkSync(linkPath);
-        if (existing === target) continue;
-        fs.unlinkSync(linkPath);
-      } else {
-        continue;
-      }
-    } catch {
-      // lstatSync threw ENOENT — file doesn't exist, proceed to create
-    }
+    const state = prepareAgentSymlink(linkPath, target, "file");
+    if (state !== "create") continue;
 
     try {
-      fs.symlinkSync(target, linkPath);
+      createAgentSymlink(target, linkPath, "file");
     } catch {
       try {
         fs.copyFileSync(targetPath, linkPath);
@@ -49,23 +151,11 @@ export function setupAgentSymlinks(targetDir: string): void {
 
     fs.mkdirSync(parentDir, { recursive: true });
 
-    if (fs.existsSync(linkPath)) {
-      try {
-        const stat = fs.lstatSync(linkPath);
-        if (stat.isSymbolicLink()) {
-          const existing = fs.readlinkSync(linkPath);
-          if (existing === target) continue;
-        } else {
-          continue;
-        }
-      } catch {
-        // Proceed to create
-      }
-    }
+    const state = prepareAgentSymlink(linkPath, target, "dir");
+    if (state !== "create") continue;
 
-    const type = process.platform === "win32" ? "junction" : "dir";
     try {
-      fs.symlinkSync(target, linkPath, type);
+      createAgentSymlink(target, linkPath, "dir");
     } catch {
       try {
         copyDir(absTarget, linkPath);

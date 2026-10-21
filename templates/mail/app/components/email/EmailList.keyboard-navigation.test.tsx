@@ -232,8 +232,11 @@ vi.mock("@/hooks/use-undo", () => ({
 
 vi.mock("@/lib/thread-cache", () => ({
   ensureThread: vi.fn(() => Promise.resolve([])),
+  THREAD_PREFETCH_INTENT_MS: 75,
   warmThreads: vi.fn(),
 }));
+
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
 
 import { EmailList, rememberPriorityScore } from "./EmailList";
 
@@ -264,6 +267,7 @@ function Harness({
   isFetching,
   refetchEmails,
   hasNextPage,
+  reachedCap,
   isFetchingNextPage,
   showPrioritySort,
   jevConfigured = showPrioritySort,
@@ -280,6 +284,7 @@ function Harness({
   isFetching?: boolean;
   refetchEmails?: React.ComponentProps<typeof EmailList>["refetchEmails"];
   hasNextPage?: boolean;
+  reachedCap?: boolean;
   isFetchingNextPage?: boolean;
   showPrioritySort?: boolean;
   jevConfigured?: boolean;
@@ -307,6 +312,7 @@ function Harness({
         accountErrors={accountErrors}
         read={read}
         hasNextPage={hasNextPage}
+        reachedCap={reachedCap}
         isFetchingNextPage={isFetchingNextPage}
         showPrioritySort={showPrioritySort}
         jevConfigured={jevConfigured}
@@ -1347,7 +1353,9 @@ describe("EmailList keyboard navigation interactions", () => {
     press("ArrowDown");
     press(key);
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/all/thread-middle");
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      "/all/thread-middle?accountEmail=synthetic%40example.test",
+    );
   });
 
   it.each([
@@ -1431,6 +1439,103 @@ describe("EmailList keyboard navigation interactions", () => {
     );
     expect(focusedRows).toHaveLength(1);
     expect(focusedRows[0].textContent).toContain("Subject row-7");
+  });
+
+  it("warms only the resting row and its neighbours after fast j presses", () => {
+    vi.useFakeTimers();
+    const manyMessages = Array.from({ length: 10 }, (_, index) => ({
+      ...messages[index % messages.length],
+      id: `row-${index}`,
+      threadId: `thread-row-${index}`,
+      date: new Date(Date.UTC(2026, 0, 20 - index)).toISOString(),
+      subject: `Subject row-${index}`,
+    }));
+    render(<Harness emails={manyMessages} />);
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    vi.mocked(warmThreads).mockClear();
+
+    for (let index = 0; index < 5; index += 1) press("j");
+    expect(warmThreads).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(75);
+    });
+    expect(warmThreads).toHaveBeenCalledTimes(1);
+    expect(
+      vi
+        .mocked(warmThreads)
+        .mock.calls[0][0].map((target) =>
+          typeof target === "string" ? target : target.id,
+        ),
+    ).toEqual(["thread-row-4", "thread-row-5", "thread-row-6"]);
+  });
+
+  it("does not prefetch from a pointer-down on an inline control, only from the row body", () => {
+    render(<Harness />);
+    vi.mocked(warmThreads).mockClear();
+
+    const row = rows()[1];
+    fireEvent.pointerDown(
+      within(row).getByRole("button", { name: "mail.actions.star" }),
+    );
+    expect(warmThreads).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(row);
+    expect(warmThreads).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not prefetch from a touch pointer-down, since a swipe starts the same way", () => {
+    render(<Harness />);
+    vi.mocked(warmThreads).mockClear();
+
+    fireEvent.pointerDown(rows()[1], { pointerType: "touch" });
+    expect(warmThreads).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(rows()[1], { pointerType: "mouse" });
+    expect(warmThreads).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefetches on hover through the cooldown-gated path and opens on click directly", () => {
+    vi.useFakeTimers();
+    render(<Harness />);
+    vi.mocked(warmThreads).mockClear();
+    vi.mocked(ensureThread).mockClear();
+
+    const row = rows()[1];
+    const hoveredKey = row.getAttribute("data-thread-key");
+    fireEvent.mouseEnter(row);
+    act(() => {
+      vi.advanceTimersByTime(80);
+    });
+    const warmedIds = vi
+      .mocked(warmThreads)
+      .mock.calls.flatMap(([targets]) =>
+        targets.map((target) =>
+          typeof target === "string" ? target : target.id,
+        ),
+      );
+    expect(warmedIds).toContain(hoveredKey);
+    expect(ensureThread).not.toHaveBeenCalled();
+
+    fireEvent.click(row);
+    expect(ensureThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers All Mail at the offset cap and nothing while pages remain", () => {
+    const atCap = render(<Harness reachedCap hasNextPage={false} />);
+    const affordance = screen.getByRole("button", {
+      name: "mail.empty.openAllMailForOlder",
+    });
+    fireEvent.click(affordance);
+    expect(mocks.navigate).toHaveBeenCalledWith("/all");
+    atCap.unmount();
+
+    render(<Harness hasNextPage reachedCap={false} />);
+    expect(
+      screen.queryByRole("button", { name: "mail.empty.openAllMailForOlder" }),
+    ).toBeNull();
   });
 
   it("does not consume navigation shortcuts while an input is focused", () => {

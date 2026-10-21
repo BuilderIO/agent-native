@@ -1,6 +1,8 @@
 import type { ActionRunContext } from "../action.js";
 import { getDbExec } from "../db/client.js";
+import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -286,6 +288,9 @@ export async function resolveAppRole<R extends string>(
   const { email, orgId } = callerIdentity(caller);
   if (!email) return { status: "no-identity" };
   if (!orgId) return { status: "no-org" };
+  if (!effectiveOrgMemberRole("member", orgId, email)) {
+    return { status: "not-a-member", orgId };
+  }
 
   let rows: Array<Record<string, unknown>>;
   try {
@@ -355,6 +360,12 @@ export async function resolveAppRole<R extends string>(
       });
     if (!membership.active) return { status: "not-a-member", orgId };
     orgRole = membership.role;
+  }
+  const isDelegatedOrgMember =
+    getRequestContext()?.a2aIdentityAssurance === "org-member";
+  orgRole = effectiveOrgMemberRole(orgRole, orgId, email) ?? undefined;
+  if (isDelegatedOrgMember && !orgRole) {
+    return { status: "not-a-member", orgId };
   }
 
   const raw = row.roles ?? row.appRoles ?? row.approles;

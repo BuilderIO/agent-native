@@ -10,7 +10,7 @@ const { PGlite } = createRequire(
 const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   getDashboard: vi.fn(),
-  loadDashboardSeed: vi.fn(),
+  loadBuiltin: vi.fn(),
 }));
 
 vi.mock("../db/index.js", async () => {
@@ -18,9 +18,13 @@ vi.mock("../db/index.js", async () => {
     await vi.importActual<typeof import("../db/schema.js")>("../db/schema.js");
   return { getDb: mocks.getDb, schema };
 });
-vi.mock("./dashboards-store.js", () => ({ getDashboard: mocks.getDashboard }));
-vi.mock("./dashboard-seeds.js", () => ({
-  loadDashboardSeed: mocks.loadDashboardSeed,
+vi.mock("./open-dashboard.js", () => ({
+  openDashboard: async (id: string, scope: unknown) => {
+    const saved = await mocks.getDashboard(id, scope);
+    if (saved) return { saved };
+    const config = mocks.loadBuiltin(id);
+    return config ? { builtin: { id, title: id, config } } : null;
+  },
 }));
 
 import {
@@ -67,7 +71,7 @@ describe("dashboard annotation reads", () => {
     client = await PGlite.create("memory://");
     mocks.getDb.mockReturnValue(drizzle(client, { schema: dbModule.schema }));
     mocks.getDashboard.mockReset();
-    mocks.loadDashboardSeed.mockReset();
+    mocks.loadBuiltin.mockReset();
     for (const statement of [
       ...KEY_DATES_MIGRATION_SQL,
       ...DATA_NOTES_MIGRATION_SQL,
@@ -267,7 +271,7 @@ describe("dashboard annotation reads", () => {
     });
   });
 
-  it("reads a saved dashboard's config, falls back to its seed, and fails when neither exists", async () => {
+  it("reads a saved dashboard's config, falls back to its built-in, and fails when neither exists", async () => {
     const stored = { kind: "sql", ownerEmail: alice.email, orgId: alice.orgId };
     mocks.getDashboard.mockResolvedValueOnce({ ...stored, config });
     await expect(readDashboardForPlacement("dash", alice)).resolves.toEqual({
@@ -276,13 +280,13 @@ describe("dashboard annotation reads", () => {
     expect(mocks.getDashboard).toHaveBeenCalledWith("dash", alice);
 
     mocks.getDashboard.mockResolvedValueOnce(null);
-    mocks.loadDashboardSeed.mockReturnValueOnce(config);
+    mocks.loadBuiltin.mockReturnValueOnce(config);
     await expect(readDashboardForPlacement("seeded", alice)).resolves.toEqual({
       config,
     });
 
     mocks.getDashboard.mockResolvedValueOnce(null);
-    mocks.loadDashboardSeed.mockReturnValueOnce(null);
+    mocks.loadBuiltin.mockReturnValueOnce(null);
     await expect(readDashboardForPlacement("gone", alice)).rejects.toThrow(
       'Dashboard "gone" was not found.',
     );
@@ -308,6 +312,6 @@ describe("dashboard annotation reads", () => {
     await expect(readDashboardForPlacement("shared", alice)).resolves.toEqual({
       unavailable: expect.stringContaining("another organization's"),
     });
-    expect(mocks.loadDashboardSeed).not.toHaveBeenCalled();
+    expect(mocks.loadBuiltin).not.toHaveBeenCalled();
   });
 });

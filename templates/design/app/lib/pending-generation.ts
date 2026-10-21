@@ -25,7 +25,59 @@ export interface PendingGeneration {
   createdAt?: number;
   startedAt?: number;
   runTabId?: string;
+  previousRunId?: string;
+  previousRunBaselineVerified?: boolean;
+  currentRunId?: string;
+  currentTurnId?: string;
+  outputBaselineFiles?: Array<{ id: string; contentHash: string }>;
   templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
+}
+
+export interface PreviousRunBaseline {
+  runId: string | null;
+  verified: boolean;
+  turnId?: string;
+}
+
+export function resolvePendingGenerationOutputBaseline(
+  persisted: PendingGeneration["outputBaselineFiles"],
+  live: PendingGeneration["outputBaselineFiles"],
+): PendingGeneration["outputBaselineFiles"] {
+  return persisted ?? live;
+}
+
+export function resolvePreviousRunBaseline(
+  baseline: PreviousRunBaseline | null | undefined,
+  pending: Pick<
+    PendingGeneration,
+    | "currentRunId"
+    | "currentTurnId"
+    | "previousRunId"
+    | "previousRunBaselineVerified"
+  > | null,
+): PreviousRunBaseline {
+  if (baseline && (baseline.verified || baseline.runId)) {
+    const turnId =
+      baseline.runId &&
+      (baseline.turnId ||
+        (baseline.runId === pending?.currentRunId
+          ? pending.currentTurnId
+          : undefined));
+    return {
+      runId: baseline.runId,
+      verified: baseline.verified || Boolean(baseline.runId),
+      ...(turnId ? { turnId } : {}),
+    };
+  }
+
+  const runId = pending?.currentRunId ?? pending?.previousRunId ?? null;
+  return {
+    runId,
+    verified: Boolean(runId) || pending?.previousRunBaselineVerified === true,
+    ...(pending?.currentRunId && pending.currentTurnId
+      ? { turnId: pending.currentTurnId }
+      : {}),
+  };
 }
 
 function isGenerationOutputFile(file: {
@@ -45,19 +97,45 @@ export function generationOutputFiles<
   return files.filter(isGenerationOutputFile);
 }
 
-export function shouldSkipPendingGenerationResume<
-  T extends { filename?: string; fileType?: string },
->(pending: PendingGeneration, files: readonly T[]): boolean {
-  return generationOutputFiles(files).length > 0 && !pending.templateId;
+export function snapshotGenerationOutputBaseline(
+  files: readonly {
+    id: string;
+    filename?: string;
+    fileType?: string;
+    content: string;
+  }[],
+): Array<{ id: string; contentHash: string }> {
+  return generationOutputFiles(files).map((file) => ({
+    id: file.id,
+    contentHash: sourceContentHash(file.content),
+  }));
 }
 
-function isTrackedTemplateOutputFile(file: { filename?: string }): boolean {
-  return !(file.filename && isBoardFile(file.filename));
+export function shouldSkipPendingGenerationResume<
+  T extends {
+    id: string;
+    filename?: string;
+    fileType?: string;
+    content: string;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+  },
+>(pending: PendingGeneration, files: readonly T[]): boolean {
+  if (pending.templateId) return false;
+
+  if (
+    pending.outputBaselineFiles === undefined &&
+    generationOutputFiles(files).length > 0
+  ) {
+    return !isPendingGenerationStale(pending);
+  }
+
+  return hasPendingGenerationOutput(pending, files);
 }
 
 export function hasPendingGenerationOutput(
-  pending: PendingGeneration | null,
-  files: readonly {
+  _pending: PendingGeneration | null,
+  _files: readonly {
     id: string;
     filename?: string;
     fileType?: string;
@@ -66,26 +144,9 @@ export function hasPendingGenerationOutput(
     updatedAt?: string | null;
   }[],
 ): boolean {
-  if (!pending?.templateId) return generationOutputFiles(files).length > 0;
-
-  const trackedFiles = files.filter(isTrackedTemplateOutputFile);
-
-  if (pending.templateBaselineFiles?.length) {
-    const baseline = new Map(
-      pending.templateBaselineFiles.map((file) => [file.id, file.contentHash]),
-    );
-    return trackedFiles.some(
-      (file) =>
-        !baseline.has(file.id) ||
-        baseline.get(file.id) !== sourceContentHash(file.content),
-    );
-  }
-
-  return trackedFiles.some(
-    (file) =>
-      Boolean(file.createdAt && file.updatedAt) &&
-      file.createdAt !== file.updatedAt,
-  );
+  // Design file changes carry no active run identity, so only run status can
+  // confirm that changed or newly created files came from this generation.
+  return false;
 }
 
 export function pendingGenerationKey(id: string): string {

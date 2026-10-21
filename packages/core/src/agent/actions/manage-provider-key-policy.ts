@@ -47,7 +47,10 @@ async function recordPolicyAudit(
       : input.restricted
         ? "Restricted personal API keys"
         : "Allowed personal API keys";
-  const { recordActionAudit } = await import("../../audit/record.js");
+  const [{ recordActionAudit }, { auditAttribution }] = await Promise.all([
+    import("../../audit/record.js"),
+    import("../../audit/attribution.js"),
+  ]);
   await recordActionAudit({
     config: {
       enabled: true,
@@ -62,13 +65,10 @@ async function recordPolicyAudit(
     args: { set: input.restricted },
     ctx: {
       actionName: ctx?.actionName ?? "manage-provider-key-policy",
-      caller: ctx?.caller,
       userEmail: input.email,
       orgId: input.orgId,
-      threadId: ctx?.threadId,
-      turnId: ctx?.turnId,
-      runId: ctx?.runId,
     },
+    attribution: auditAttribution(ctx),
     status: input.status,
   });
 }
@@ -138,7 +138,7 @@ export default defineAction({
       return {
         ...policy,
         canManage,
-        affectedMembers: await listPersonalProviderKeyHolders(orgId),
+        affectedMembers: await listPersonalProviderKeyHolders(orgId, email),
         changed,
       };
     }
@@ -148,7 +148,9 @@ export default defineAction({
       ...policy,
       canManage,
       ...(canManage
-        ? { affectedMembers: await listPersonalProviderKeyHolders(orgId) }
+        ? {
+            affectedMembers: await listPersonalProviderKeyHolders(orgId, email),
+          }
         : {}),
     };
   },

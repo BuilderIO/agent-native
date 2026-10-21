@@ -10,106 +10,11 @@
  * `server/plugins/org-apps-directory.ts`. This file stays pure so it is
  * trivially unit-testable with no Nitro / DB dependencies.
  *
- * SECURITY MODEL — reuses the EXISTING A2A peer auth, not a new scheme.
- * ---------------------------------------------------------------------
- * The caller is another org app authenticating with the org A2A secret,
- * EXACTLY like A2A peers do. The recipe here is the same one the core A2A
- * receiver uses:
- *
- *   - `packages/core/src/a2a/server.ts` `verifyA2AToken()` — peek the
- *     UNVERIFIED `org_domain` claim, build an ordered candidate-secret set
- *     (`process.env.A2A_SECRET` first, then the org's per-domain
- *     `a2a_secret`), then verify the JWT signature with those secrets.
- *   - `packages/core/src/org/handlers.ts` `receiveA2ASecretHandler` — the
- *     same "peek org_domain, look up our local org's a2a_secret by domain,
- *     verify the bearer JWT signed with that secret" trust check.
- *
- * Tokens are produced by core's `signA2AToken` (`a2a/client.ts`): a standard
- * **HS256** JWT (`alg: "HS256"`, HMAC-SHA256 over the UTF-8 secret bytes)
- * with optional caller-supplied identity claims and standard JWT metadata.
- * The shared org secret proves only organization identity: ignore `sub`,
- * email, and user claims. We verify
- * that exact shape with Node's built-in `crypto.createHmac` — the SAME
- * cryptographic operation jose performs for HS256. We do NOT invent an auth
- * scheme or a cipher; we reuse the A2A peer model and core's org/secret
- * resolution helpers (`getA2ASecretByDomain`, `resolveOrgByDomain` from
- * `@agent-native/core/org`). `jose` is not a direct dependency of this
- * template (pnpm strict resolution), so a built-in-`crypto` HS256 verify is
- * the dependency-safe way to honor "do not reimplement crypto, reuse the A2A
- * verifier path".
- *
- * Same-org enforcement: the verified token's `org_domain` must resolve to a
- * local org (`resolveOrgByDomain`). A token with no `org_domain`, an unknown
- * domain, or a bad signature is rejected. The org-specific secret is the
- * normal path. A legacy deployment-wide secret is accepted only when the
- * asserted domain is independently proven to be the deployment's sole org,
- * so one global credential can never select among local tenants.
+ * Authentication is performed by Core's A2A verifier in the HTTP handler.
+ * This module contains only transport-independent response and cache logic.
  */
 
-import { createHmac, timingSafeEqual } from "node:crypto";
-
 export const ORG_APPS_PATH = "/_agent-native/org/apps";
-
-const A2A_JWT_ALG = "HS256";
-
-export interface VerifiedA2APayload {
-  orgDomain: string;
-}
-
-function base64UrlDecodeToBuffer(input: string): Buffer | null {
-  if (typeof input !== "string" || input.length === 0) return null;
-  if (!/^[A-Za-z0-9_-]+$/.test(input)) return null;
-  const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
-  try {
-    return Buffer.from(
-      input.replace(/-/g, "+").replace(/_/g, "/") + pad,
-      "base64",
-    );
-  } catch {
-    // coercion-ok: secret lookup failure is an authentication denial, never success.
-    return null;
-  }
-}
-
-function base64UrlDecodeToString(input: string): string | null {
-  const buf = base64UrlDecodeToBuffer(input);
-  return buf ? buf.toString("utf8") : null;
-}
-
-interface DecodedJwt {
-  header: Record<string, unknown>;
-  payload: Record<string, unknown>;
-  signingInput: string;
-  signature: Buffer;
-}
-
-export function decodeJwtUnverified(token: string): DecodedJwt | null {
-  if (typeof token !== "string") return null;
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
-  const [h, p, s] = parts;
-  const headerJson = base64UrlDecodeToString(h);
-  const payloadJson = base64UrlDecodeToString(p);
-  const signature = base64UrlDecodeToBuffer(s);
-  if (!headerJson || !payloadJson || !signature) return null;
-  let header: Record<string, unknown>;
-  let payload: Record<string, unknown>;
-  try {
-    header = JSON.parse(headerJson);
-    payload = JSON.parse(payloadJson);
-  } catch {
-    return null;
-  }
-  if (
-    !header ||
-    typeof header !== "object" ||
-    !payload ||
-    typeof payload !== "object"
-  ) {
-    return null;
-  }
-  return { header, payload, signingInput: `${h}.${p}`, signature };
-}
 
 export function extractBearerToken(
   authHeader: string | null | undefined,
@@ -120,110 +25,13 @@ export function extractBearerToken(
   return tok && tok.length > 0 ? tok : null;
 }
 
-function verifyWithSecret(
-  decoded: DecodedJwt,
-  secret: string,
-  nowSeconds: number,
-): Record<string, unknown> | null {
-  if (decoded.header.alg !== A2A_JWT_ALG) return null;
-  const expected = createHmac("sha256", new TextEncoder().encode(secret))
-    .update(decoded.signingInput)
-    .digest();
-  if (expected.length !== decoded.signature.length) return null;
-  if (!timingSafeEqual(expected, decoded.signature)) return null;
-
-  const exp = decoded.payload.exp;
-  if (typeof exp === "number" && nowSeconds >= exp) return null;
-  const nbf = decoded.payload.nbf;
-  if (typeof nbf === "number" && nowSeconds < nbf) return null;
-  return decoded.payload;
-}
-
-export async function verifyA2ABearerToken(input: {
-  token: string;
-  expectedAudience?: string;
-  resolveOrgSecretByDomain: (domain: string) => Promise<string | null>;
-  resolveSoleOrgGlobalSecretByDomain?: (
-    domain: string,
-  ) => Promise<string | null>;
-  nowSeconds?: number;
-}): Promise<VerifiedA2APayload | null> {
-  const decoded = decodeJwtUnverified(input.token);
-  if (!decoded) return null;
-
-  const assertedDomainRaw = decoded.payload.org_domain;
-  const assertedDomain =
-    typeof assertedDomainRaw === "string" && assertedDomainRaw.trim()
-      ? assertedDomainRaw.trim().toLowerCase()
-      : undefined;
-
-  const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);
-
-  if (!assertedDomain) return null;
-  let orgSecret: string | null = null;
-  let soleOrgGlobalSecret: string | null = null;
-  try {
-    orgSecret = await input.resolveOrgSecretByDomain(assertedDomain);
-    if (input.resolveSoleOrgGlobalSecretByDomain) {
-      soleOrgGlobalSecret =
-        await input.resolveSoleOrgGlobalSecretByDomain(assertedDomain);
-    }
-    // coercion-ok: secret lookup failure is an authentication denial, never success.
-  } catch {
-    return null;
-  }
-  const candidateSecrets = [...new Set([orgSecret, soleOrgGlobalSecret])]
-    .filter((secret): secret is string => typeof secret === "string")
-    .map((secret) => secret.trim())
-    .filter(Boolean);
-  if (candidateSecrets.length === 0) return null;
-
-  const payload = candidateSecrets
-    .map((secret) => verifyWithSecret(decoded, secret, now))
-    .find((candidate) => candidate !== null);
-  if (payload) {
-    if (input.expectedAudience || typeof payload.aud !== "undefined") {
-      const audiences =
-        typeof payload.aud === "string"
-          ? [payload.aud]
-          : Array.isArray(payload.aud) &&
-              payload.aud.every((audience) => typeof audience === "string")
-            ? payload.aud
-            : [];
-      if (
-        !input.expectedAudience ||
-        !audiences.includes(input.expectedAudience)
-      ) {
-        return null;
-      }
-    }
-    // The org directory is a general A2A-peer endpoint. Reject tokens
-    // minted for a different single purpose — SSO identity assertions
-    // (`scope: "identity"`) or MCP-connect personal tokens
-    // (`scope: "mcp-connect"`) — so a leaked or replayed privileged token
-    // cannot enumerate the org's apps. General A2A peer tokens carry no
-    // `scope` claim and are still accepted.
-    const scope =
-      typeof (payload as { scope?: unknown }).scope === "string"
-        ? ((payload as { scope: string }).scope as string)
-        : "";
-    if (scope === "identity" || scope === "mcp-connect") return null;
-    // The verified token MUST carry an org_domain — the directory is
-    // strictly org-scoped, and the same-org check needs it. A token with
-    // no org_domain (e.g. a personal/no-org caller) cannot be tied to an
-    // org and is rejected. The organization secret proves only org-level
-    // access; the JWT subject is caller-controlled and is intentionally
-    // ignored.
-    return { orgDomain: assertedDomain };
-  }
-  return null;
-}
-
 export interface OrgAppDirectoryEntry {
   id: string;
   name: string;
   url: string;
   a2aUrl: string;
+  description?: string;
+  whenToUse?: string[];
   capabilities?: string;
 }
 
@@ -243,47 +51,9 @@ export interface DiscoveredAppLike {
   id: string;
   name: string;
   description?: string;
+  whenToUse?: string[];
   url: string;
-}
-
-export interface OrgDirectorySuccessCache<T> {
-  get(key: string, load: () => Promise<T>): Promise<T>;
-  clear(): void;
-}
-
-export function createOrgDirectorySuccessCache<T>(input?: {
-  ttlMs?: number;
-  now?: () => number;
-}): OrgDirectorySuccessCache<T> {
-  const ttlMs = input?.ttlMs ?? 60_000;
-  const now = input?.now ?? Date.now;
-  const values = new Map<string, { value: T; expiresAt: number }>();
-  const inFlight = new Map<string, Promise<T>>();
-
-  return {
-    async get(key, load) {
-      const cached = values.get(key);
-      if (cached && cached.expiresAt > now()) return cached.value;
-      values.delete(key);
-
-      const pending = inFlight.get(key);
-      if (pending) return pending;
-      const refresh = load()
-        .then((value) => {
-          values.set(key, { value, expiresAt: now() + ttlMs });
-          return value;
-        })
-        .finally(() => {
-          inFlight.delete(key);
-        });
-      inFlight.set(key, refresh);
-      return refresh;
-    },
-    clear() {
-      values.clear();
-      inFlight.clear();
-    },
-  };
+  source?: "workspace" | "org-directory" | "remote-agent" | "builtin";
 }
 
 export function buildOrgAppsResponse(input: {
@@ -310,7 +80,17 @@ export function buildOrgAppsResponse(input: {
       typeof app.description === "string" && app.description.trim()
         ? app.description.trim()
         : undefined;
-    if (cap) entry.capabilities = cap;
+    if (cap) {
+      entry.description = cap;
+      entry.capabilities = cap;
+    }
+    if (Array.isArray(app.whenToUse)) {
+      const whenToUse = app.whenToUse
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (whenToUse.length) entry.whenToUse = whenToUse;
+    }
     apps.push(entry);
   }
   apps.sort((a, b) => a.id.localeCompare(b.id));

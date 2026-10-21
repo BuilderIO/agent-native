@@ -43,7 +43,7 @@ function titleFromPath(path: string): string {
 }
 
 function uniqueFilename(path: string, used: Set<string>): string {
-  const base = `fusion-${slugForPath(path)}.html`;
+  const base = `${slugForPath(path)}.html`;
   let filename = base;
   let suffix = 2;
   while (used.has(filename)) {

@@ -319,6 +319,7 @@ async function verifyContinuationToken(
     verified = await verifyA2AToken(token, context.event, {
       includeClaims: true,
       globalSecretOnly: true,
+      allowAnthropicManagedContinuation: true,
     });
   } catch (cause) {
     throw new AnthropicManagedAgentsError({

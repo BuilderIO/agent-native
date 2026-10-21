@@ -27,7 +27,7 @@
 @import "./tokens/agent-kit.css";
 @import "../agentkit/react/styles.css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where(.dark, .dark *));
 
 @plugin "@tailwindcss/typography";
 

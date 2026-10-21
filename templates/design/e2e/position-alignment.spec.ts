@@ -709,8 +709,7 @@ test("Top and Bottom alignment controls move to their named edges", async ({
   });
 });
 
-// fixme: product bug: Align top saves left: 390px (the computed value) instead of keeping the authored left: 50%, so the chip no longer tracks its parent's
-test.fixme("aligning one axis leaves a percentage offset on the other axis put", async ({
+test("aligning one axis leaves a percentage offset on the other axis put", async ({
   app,
   page,
 }) => {

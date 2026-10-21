@@ -14,6 +14,11 @@ simulate reveals. When content and reveals change together, send both fields in
 one `patch-deck` operation. To remove reveals, send `animations: []` with the
 existing content and verify the persisted slide afterward.
 
+By default each entry waits for its own click. Set `trigger: "with-previous"`
+on an entry to play it in the same click as the entry before it, so the objects
+appear together; the first entry always waits for a click. On a `byParagraph`
+entry the trigger applies to its first paragraph only.
+
 Array order is reveal order, and each entry needs a non-empty `id`, a 0-based
 `elementIndex`, and a `type` of `appear`, `fade`, `slide-up`, or `zoom`; the
 schema rejects the operation otherwise. Nothing checks that ids are unique, but

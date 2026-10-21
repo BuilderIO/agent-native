@@ -70,7 +70,7 @@ function fixture() {
 
 function editor(container: HTMLElement, right = 736) {
   const column = document.createElement("div");
-  column.className = "notion-editor";
+  column.className = "content-editor";
   vi.spyOn(column, "getBoundingClientRect").mockReturnValue(
     new DOMRect(100, 0, right - 100, 800),
   );
@@ -131,6 +131,28 @@ it("does not shift the lane right when the reading column already reaches it", (
   const offset = vi.fn();
   stop = observeCommentLane(container, lane, offset);
   expect(offset).toHaveBeenLastCalledWith(0);
+});
+
+it("measures the open Blocks field tab, not a hidden one", async () => {
+  const { container, lane } = fixture();
+  const notes = editor(container, 672);
+  const notesPanel = document.createElement("div");
+  notesPanel.hidden = true;
+  notesPanel.append(notes);
+  container.prepend(notesPanel);
+  const body = editor(container);
+  const bodyPanel = document.createElement("div");
+  bodyPanel.append(body);
+  container.prepend(bodyPanel);
+  const offset = vi.fn();
+  stop = observeCommentLane(container, lane, offset);
+  expect(offset).toHaveBeenLastCalledWith(-64);
+  bodyPanel.hidden = true;
+  notesPanel.hidden = false;
+  await flushMount();
+  expect(offset).toHaveBeenLastCalledWith(-128);
+  expect(observed.has(notes)).toBe(true);
+  expect(observed.has(body)).toBe(false);
 });
 
 it("cleans up pending work and listeners when the lane closes", async () => {

@@ -86,7 +86,7 @@ export function findCanvasIframeForScreen(
       ? iframeId
       : getBreakpointIframeId(iframeId, breakpointWidth);
   return root.querySelector<HTMLIFrameElement>(
-    `[data-screen-iframe-id="${CSS.escape(targetIframeId)}"]`,
+    `[data-screen-iframe-id="${escapeIframeId(targetIframeId)}"]`,
   );
 }
 
@@ -112,4 +112,10 @@ export function readCanvasPreviewMeasurementContext(
     }
     throw error;
   }
+}
+
+function escapeIframeId(iframeId: string): string {
+  return typeof CSS !== "undefined" && typeof CSS.escape === "function"
+    ? CSS.escape(iframeId)
+    : iframeId.replace(/["\\]/g, "\\$&");
 }

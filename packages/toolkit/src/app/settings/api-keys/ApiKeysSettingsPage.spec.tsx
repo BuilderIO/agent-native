@@ -289,9 +289,6 @@ describe("ApiKeysSettingsPage", () => {
       stripe.querySelector('[aria-label="Manage STRIPE_SECRET_KEY"]'),
     ).not.toBeNull();
 
-    expect(container.textContent).toContain(
-      "To use your own model provider, add it in Model.",
-    );
     expect(container.textContent).not.toContain("Organization keys");
 
     // Calendar tokens stay hidden while Meetings is off.
@@ -592,7 +589,7 @@ describe("ApiKeysSettingsPage", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(state.providerDialog).toMatchObject({ open: false });
   });
-  it("starts Your keys from an empty state whose action is Add key", async () => {
+  it("links model provider setup from the empty API keys state", async () => {
     state.listing = listing({ keys: [], managed: [] });
     await render();
     const empty = container.querySelector("[data-api-keys-empty]");
@@ -600,6 +597,16 @@ describe("ApiKeysSettingsPage", () => {
     expect(empty?.textContent).toContain(
       "Add a key so your apps and the agent can reach a service.",
     );
+    expect(container.textContent).toContain(
+      "To use your own model provider, add it in Model.",
+    );
+    const modelLink = [...container.querySelectorAll("a")].find(
+      (link) => link.textContent === "add it in Model",
+    );
+    expect(modelLink).toBeTruthy();
+    await act(async () => modelLink!.click());
+    expect(navigateMock).toHaveBeenCalledWith("model", null);
+
     await act(async () => buttonByText("Add key", empty!).click());
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
       "Add key",

@@ -354,6 +354,85 @@ export type ExportCropTarget =
   | { kind: "whole-screen" }
   | { kind: "unresolved" };
 
+function translationOnlyExportStyle(
+  style: CSSStyleDeclaration,
+  view: Window,
+): boolean {
+  if (
+    !["", "none"].includes(style.getPropertyValue("scale")) ||
+    !["", "none"].includes(style.getPropertyValue("rotate")) ||
+    !["", "none"].includes(style.getPropertyValue("perspective")) ||
+    !["", "none"].includes(style.getPropertyValue("offset-path")) ||
+    !["", "1", "normal"].includes(style.getPropertyValue("zoom"))
+  )
+    return false;
+  if (!style.transform || style.transform === "none") return true;
+  const Matrix = (view as Window & typeof globalThis).DOMMatrixReadOnly;
+  if (!Matrix) return false;
+  const matrix = new Matrix(style.transform);
+  return (
+    matrix.is2D &&
+    matrix.a === 1 &&
+    matrix.b === 0 &&
+    matrix.c === 0 &&
+    matrix.d === 1
+  );
+}
+
+function liveExportBorderBox(
+  element: Element,
+): { width: number; height: number } | null {
+  const view = element.ownerDocument.defaultView;
+  if (
+    !view ||
+    !(element instanceof view.HTMLElement) ||
+    element.getClientRects().length !== 1
+  )
+    return null;
+  const style = view.getComputedStyle(element);
+  if (["inline", "contents", "none"].includes(style.display)) return null;
+  for (
+    let ancestor: Element | null = element;
+    ancestor;
+    ancestor = ancestor.parentElement
+  )
+    if (
+      !(ancestor instanceof view.HTMLElement) ||
+      !translationOnlyExportStyle(view.getComputedStyle(ancestor), view)
+    )
+      return null;
+  const px = (value: string): number | null => {
+    if (!/^(?:\d+(?:\.\d*)?|\.\d+)px$/.test(value)) return null;
+    const parsed = Number(value.slice(0, -2));
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  };
+  let width = px(style.width);
+  let height = px(style.height);
+  if (width === null || height === null) return null;
+  if (style.boxSizing === "content-box") {
+    const horizontal = [
+      style.paddingLeft,
+      style.paddingRight,
+      style.borderLeftWidth,
+      style.borderRightWidth,
+    ].map(px);
+    const vertical = [
+      style.paddingTop,
+      style.paddingBottom,
+      style.borderTopWidth,
+      style.borderBottomWidth,
+    ].map(px);
+    if (
+      !horizontal.every((value): value is number => value !== null) ||
+      !vertical.every((value): value is number => value !== null)
+    )
+      return null;
+    width += horizontal.reduce((sum, value) => sum + value, 0);
+    height += vertical.reduce((sum, value) => sum + value, 0);
+  } else if (style.boxSizing !== "border-box") return null;
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
 export function resolveExportCropTarget(
   doc: Document,
   selected: ElementInfo | readonly ElementInfo[] | null | undefined,
@@ -382,11 +461,12 @@ export function resolveExportCropTarget(
           throw new PngCaptureError("selection-unresolved");
         }
         const view = doc.defaultView;
+        const borderBox = liveExportBorderBox(element);
         return {
           x: rect.left + (view?.scrollX ?? 0),
           y: rect.top + (view?.scrollY ?? 0),
-          width: rect.width,
-          height: rect.height,
+          width: borderBox?.width ?? rect.width,
+          height: borderBox?.height ?? rect.height,
         };
       }),
     );
@@ -464,6 +544,22 @@ export function resolveBoardExportCropRect(
   );
   if (right <= x || bottom <= y) return null;
   return { x, y, width: right - x, height: bottom - y };
+}
+
+/** An auto-height screen's iframe can be taller than its frame, which clips it. */
+export function screenFrameCropRect(
+  doc: Document,
+  iframe: HTMLIFrameElement,
+  frame: { width: number; height: number },
+): ExportCropRect {
+  const view = doc.defaultView;
+  const width = Math.max(1, iframe.clientWidth);
+  return {
+    x: view?.scrollX ?? 0,
+    y: view?.scrollY ?? 0,
+    width,
+    height: Math.max(1, (width * frame.height) / Math.max(1, frame.width)),
+  };
 }
 
 export function cropCanvasToRect(

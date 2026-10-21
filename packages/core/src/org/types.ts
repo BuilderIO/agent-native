@@ -67,6 +67,8 @@ export interface OrgInfo {
    * fetches it on demand from `GET /_agent-native/org/a2a-secret`.
    */
   a2aSecretSet?: boolean;
+  /** Owners only; enables current-member assertions signed with the org secret. */
+  a2aMemberDelegationEnabled?: boolean;
   /**
    * Set only when the viewer has no active organization. True on a
    * single-tenant self-hosted deployment, where that viewer manages the

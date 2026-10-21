@@ -3,12 +3,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import firstPartyTemplateTrafficSeed from "../../seeds/dashboards/agent-native-templates-first-party.json" with { type: "json" };
+import contentViewSeed from "../../seeds/dashboards/content-view.json" with { type: "json" };
 import googleAnalyticsSeed from "../../seeds/dashboards/google-analytics.json" with { type: "json" };
 import nodeExporterFullSeed from "../../seeds/dashboards/node-exporter-full.json" with { type: "json" };
 import skillsCliFunnelSeed from "../../seeds/dashboards/skills-cli-funnel.json" with { type: "json" };
 import { isSafeDashboardId } from "./dashboard-id";
 
 const shippedSeeds: Record<string, Record<string, unknown>> = {
+  "content-view": contentViewSeed as Record<string, unknown>,
   "agent-native-templates-first-party": firstPartyTemplateTrafficSeed as Record<
     string,
     unknown

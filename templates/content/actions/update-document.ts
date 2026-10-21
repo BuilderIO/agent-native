@@ -99,7 +99,10 @@ import {
   assertDocumentMutationAccess,
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
-import { serializeDocumentSource } from "./_document-source.js";
+import {
+  assertSourceAllowsPageEdit,
+  serializeDocumentSource,
+} from "./_document-source.js";
 import {
   lockPreviewDocumentDraftSettlement,
   readDiscardedPreviewDraftGeneration,
@@ -617,6 +620,13 @@ const updateDocumentAction = defineAction({
         "Browser-local edit generation acknowledged by this save; paired with editorSessionId",
       ),
     editorSnapshotTitle: z.string().max(10_000).optional(),
+    editorSnapshotTitleBase: z
+      .string()
+      .max(10_000)
+      .optional()
+      .describe(
+        "The saved title the editor's snapshot title started from; when they match, the editor never edited the title",
+      ),
     editorSnapshotContent: z.string().max(500_000).optional(),
     browserSaveAttemptId: z
       .string()
@@ -697,6 +707,15 @@ const updateDocumentAction = defineAction({
       ) {
         throw new ActionContractError(
           "editorSnapshotTitle and editorSnapshotContent must be provided together.",
+          { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
+        );
+      }
+      if (
+        args.editorSnapshotTitleBase !== undefined &&
+        args.editorSnapshotTitle === undefined
+      ) {
+        throw new ActionContractError(
+          "editorSnapshotTitleBase requires editorSnapshotTitle.",
           { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
         );
       }
@@ -1038,6 +1057,9 @@ const updateDocumentAction = defineAction({
       const descriptionChanged =
         args.description !== undefined &&
         args.description.trim() !== existing.description;
+      if (titleChanged || contentChanged || descriptionChanged) {
+        assertSourceAllowsPageEdit(existing);
+      }
       const anyChange =
         titleChanged ||
         contentChanged ||
@@ -1209,7 +1231,11 @@ const updateDocumentAction = defineAction({
               settlesPreviewDraft &&
               args.editorSnapshotTitle !== undefined &&
               args.editorSnapshotContent !== undefined &&
-              snapshot.title === args.editorSnapshotTitle &&
+              // A title the editor never edited is not lost when a peer's
+              // rename replaced it.
+              (snapshot.title === args.editorSnapshotTitle ||
+                (args.title === undefined &&
+                  args.editorSnapshotTitleBase === args.editorSnapshotTitle)) &&
               (snapshot.content === args.editorSnapshotContent ||
                 bodyIntentOutcome?.status === "applied" ||
                 bodyIntentOutcome?.status === "displaced-preserved")

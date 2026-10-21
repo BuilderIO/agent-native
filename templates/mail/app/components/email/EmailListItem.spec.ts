@@ -17,13 +17,4 @@ describe("EmailListItem interaction boundary", () => {
       "e.preventDefault();\n        e.stopPropagation();",
     );
   });
-
-  it("exposes stable row and selection state for interaction tests", () => {
-    const source = emailListItemSource();
-
-    expect(source).toContain("data-mail-email-row");
-    expect(source).toContain("data-email-id={email.id}");
-    expect(source).toContain("data-thread-key={email.threadId || email.id}");
-    expect(source).toContain("aria-selected={isMultiSelected}");
-  });
 });

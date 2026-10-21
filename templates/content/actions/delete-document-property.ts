@@ -28,7 +28,7 @@ import {
 
 export default defineAction({
   description:
-    "Delete a Notion-style property definition and its stored document values.",
+    "Delete a Notion-style property definition and its stored document values. Deleting a `blocks` property removes that tab and its text from every row.",
   schema: z.object({
     documentId: z.string().describe("Document ID used to scope access"),
     databaseId: z

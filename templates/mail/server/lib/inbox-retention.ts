@@ -1,0 +1,427 @@
+import { getDbExec } from "@agent-native/core/db";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
+import { and, eq, isNull, sql } from "drizzle-orm";
+
+import { getDb, schema } from "../db/index.js";
+import { hasGmailScope } from "./gmail-scope.js";
+import {
+  INBOX_THREAD_CAP,
+  purgeArchivedInboxThreadRows,
+  trimInboxThreadRows,
+} from "./inbox-store.js";
+
+// "Inactive" is an owner whose newest sync across all their accounts is older
+// than this. mail_sync_accounts.last_synced_at is only written by sync steps,
+// which run while someone has Mail open, so it is the app-activity signal.
+export const INBOX_INACTIVE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+// Same as the sync claim TTL in inbox-sync.ts: an older claim belongs to a
+// worker that is gone.
+const STALE_CLAIM_MS = 90_000;
+const RETENTION_PAGE_SIZE = 500;
+
+export type ConnectedAccountsResult = {
+  accounts: string[];
+  errors: Array<{ email: string; error: string }>;
+  /**
+   * True only when the lookup positively ran in every org context the owner
+   * belongs to. An empty `accounts` is not evidence of a disconnect without it.
+   */
+  verified: boolean;
+  /**
+   * Re-checks, cheaply, that nothing about the owner's connections changed
+   * since the lookup. Called inside the clear transaction.
+   */
+  stillCurrent?: () => Promise<boolean>;
+};
+
+export type ResolveConnectedAccounts = (
+  ownerEmail: string,
+) => Promise<ConnectedAccountsResult>;
+
+export type RetentionPair = {
+  ownerEmail: string;
+  accountEmail: string;
+  syncId: string;
+  inactive: boolean;
+  claimed: boolean;
+};
+
+export type InboxRetentionSummary = {
+  pairs: number;
+  archivedRowsRemoved: number;
+  capRowsRemoved: number;
+  capOwners: number;
+  ruleRowsRemoved: number;
+  ruleOwners: number;
+  pairsReset: number;
+  pairsSkippedClaimed: number;
+  // Purge and cap trim skipped because a live sync held the claim.
+  pairsSkippedTrim: number;
+  // Claimed or synced between the scan and the clear.
+  pairsSkippedActive: number;
+  pairsSkippedUnverified: number;
+  // Owners whose connection lookup threw; their pairs count as unverified and
+  // keep their rows.
+  resolverErrors: number;
+  // Pairs whose trim or clear threw. Their rows are kept and the pass moves
+  // on; the next full cycle retries them. Kinds are error codes or names only.
+  pairsFailed: number;
+  failureKinds: Record<string, number>;
+  // The pass stopped at its deadline before the last account. Resume with
+  // `after: resumeAfter` so the next pass continues instead of restarting.
+  partial: boolean;
+  resumeAfter: string | null;
+};
+
+// One keyset page of mail_sync_accounts rows after `after`. A pass reads one
+// page at a time, so it never holds every account in memory.
+export async function readRetentionPage(
+  now: number,
+  after: string,
+  limit: number = RETENTION_PAGE_SIZE,
+): Promise<RetentionPair[]> {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT s.owner_email, s.account_email, s.id,
+        (SELECT MAX(COALESCE(o2.last_synced_at, o2.created_at))
+           FROM mail_sync_accounts o2
+           WHERE o2.owner_email = s.owner_email) AS owner_active_at,
+        (s.sync_claim_id IS NOT NULL AND COALESCE(s.sync_claimed_at, 0) >= $1) AS claimed
+      FROM mail_sync_accounts s
+      WHERE s.id > $2
+      ORDER BY s.id
+      LIMIT $3`,
+    args: [now - STALE_CLAIM_MS, after, limit],
+  });
+  return (rows as any[]).map((row) => ({
+    ownerEmail: String(row.owner_email),
+    accountEmail: String(row.account_email),
+    syncId: String(row.id),
+    inactive: Number(row.owner_active_at) < now - INBOX_INACTIVE_AFTER_MS,
+    claimed: Boolean(row.claimed),
+  }));
+}
+
+// Locks the account's sync row and takes it over for a retention write.
+// Returns false while a live sync holds the claim. A stale claim's id is
+// cleared in the same transaction, so a delayed worker still holding it fails
+// its withSyncClaim fence instead of writing after retention. Every retention
+// path that mutates an account's rows goes through here.
+async function takeOverStaleClaim(
+  tx: any,
+  syncId: string,
+  now: number,
+): Promise<boolean> {
+  const [account] = await tx
+    .select({
+      syncClaimId: schema.mailSyncAccounts.syncClaimId,
+      syncClaimedAt: schema.mailSyncAccounts.syncClaimedAt,
+      status: schema.mailSyncAccounts.status,
+    })
+    .from(schema.mailSyncAccounts)
+    .where(eq(schema.mailSyncAccounts.id, syncId))
+    .for("update")
+    .limit(1);
+  if (!account) return false;
+  if (account.syncClaimId == null) return true;
+  if ((account.syncClaimedAt ?? 0) >= now - STALE_CLAIM_MS) return false;
+  // The dead worker left the account "syncing"; error states are kept.
+  await tx
+    .update(schema.mailSyncAccounts)
+    .set({
+      syncClaimId: null,
+      syncClaimedAt: null,
+      ...(account.status === "syncing" ? { status: "idle" } : {}),
+      updatedAt: now,
+    })
+    .where(eq(schema.mailSyncAccounts.id, syncId));
+  console.info("[inbox-retention] took over a stale sync claim", {
+    wasSyncing: account.status === "syncing",
+  });
+  return true;
+}
+
+// Purges archived rows and applies the cap trim under the account's sync row
+// lock, the same fence a sync's writes take. Returns null when a live sync
+// holds the claim: a sync's archive or hydrate can move rows across the cap
+// boundary, so its rows are left for the next pass.
+async function trimPair(
+  pair: RetentionPair,
+  now: number,
+): Promise<{ archived: number; capped: number } | null> {
+  return getDb().transaction(async (tx: any) => {
+    if (!(await takeOverStaleClaim(tx, pair.syncId, now))) return null;
+    const archived = await purgeArchivedInboxThreadRows(
+      pair.ownerEmail,
+      pair.accountEmail,
+      now,
+      tx,
+    );
+    const capped = await trimInboxThreadRows(
+      pair.ownerEmail,
+      pair.accountEmail,
+      INBOX_THREAD_CAP,
+      tx,
+    );
+    // Rows dropped at the cap mean Gmail holds more than the cache does.
+    if (capped > 0) {
+      await tx
+        .update(schema.mailSyncAccounts)
+        .set({ inboxCapped: 1 })
+        .where(eq(schema.mailSyncAccounts.id, pair.syncId));
+    }
+    return { archived, capped };
+  });
+}
+
+// Clears one account's sync progress and its thread rows in one transaction.
+// Returns null when a live sync claim, or (for an inactivity clear) a sync that
+// landed after the scan, got there first, so nothing is removed. Taking over a
+// stale claim drops its id so the old worker fails the withSyncClaim fence.
+export async function clearPair(
+  pair: RetentionPair,
+  now: number,
+  requireInactive: boolean,
+  stillCurrent?: () => Promise<boolean>,
+): Promise<number | null> {
+  return getDb().transaction(async (tx: any) => {
+    if (!(await takeOverStaleClaim(tx, pair.syncId, now))) return null;
+    // The sync row is locked now, so a reconnect cannot start syncing it before
+    // this commits. A connection change since the verified lookup aborts the
+    // clear; the next pass looks again.
+    if (stillCurrent && !(await stillCurrent())) return null;
+    const claimed = await tx
+      .update(schema.mailSyncAccounts)
+      .set({
+        historyId: null,
+        archiveHistoryId: null,
+        fullSyncPageToken: null,
+        fullSyncHistoryId: null,
+        fullSyncStartedAt: null,
+        fullSyncPhase: null,
+        fullSyncReconcilePageToken: null,
+        fullSyncReconcilePendingIdsJson: null,
+        fullSyncReconcilePasses: 0,
+        fullSyncListedCount: 0,
+        archivePendingIdsJson: null,
+        hydratePendingIdsJson: null,
+        syncDegradedJson: null,
+        archiveHistoryPending: null,
+        syncCorruptJson: null,
+        inboxCapped: null,
+        status: "idle",
+        lastError: null,
+        syncClaimId: null,
+        syncClaimedAt: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.mailSyncAccounts.id, pair.syncId),
+          isNull(schema.mailSyncAccounts.syncClaimId),
+          requireInactive
+            ? sql`(SELECT MAX(COALESCE(o.last_synced_at, o.created_at))
+                FROM mail_sync_accounts o
+                WHERE o.owner_email = ${pair.ownerEmail}) < ${now - INBOX_INACTIVE_AFTER_MS}::bigint`
+            : undefined,
+        ),
+      )
+      .returning({ id: schema.mailSyncAccounts.id });
+    if (claimed.length === 0) return null;
+    const deleted = await tx
+      .delete(schema.mailInboxThreads)
+      .where(
+        and(
+          eq(schema.mailInboxThreads.ownerEmail, pair.ownerEmail),
+          eq(schema.mailInboxThreads.accountEmail, pair.accountEmail),
+        ),
+      )
+      .returning({ id: schema.mailInboxThreads.id });
+    return deleted.length;
+  });
+}
+
+// Runs the retention pass. A disconnected account is only cleared after the
+// resolver confirms it has no connection; a resolver error keeps the rows.
+export async function runInboxRetention(opts: {
+  now?: number;
+  resolveConnectedAccounts: ResolveConnectedAccounts;
+  // Epoch ms; checked between accounts.
+  deadlineAt?: number;
+  // Sync-account id the previous partial pass stopped after.
+  after?: string;
+  pageSize?: number;
+  // Called after each finished page with the last processed sync-account id,
+  // so the resume point survives a pass that dies mid-way.
+  onPageDone?: (after: string) => Promise<void>;
+}): Promise<InboxRetentionSummary> {
+  const now = opts.now ?? Date.now();
+  const pageSize = opts.pageSize ?? RETENTION_PAGE_SIZE;
+  const summary: InboxRetentionSummary = {
+    pairs: 0,
+    archivedRowsRemoved: 0,
+    capRowsRemoved: 0,
+    capOwners: 0,
+    ruleRowsRemoved: 0,
+    ruleOwners: 0,
+    pairsReset: 0,
+    pairsSkippedClaimed: 0,
+    pairsSkippedTrim: 0,
+    pairsSkippedActive: 0,
+    pairsSkippedUnverified: 0,
+    resolverErrors: 0,
+    pairsFailed: 0,
+    failureKinds: {},
+    partial: false,
+    resumeAfter: null,
+  };
+
+  const cappedOwners = new Set<string>();
+  const connectedByOwner = new Map<
+    string,
+    { accounts: Set<string>; stillCurrent?: () => Promise<boolean> } | null
+  >();
+  const connectedFor = async (ownerEmail: string) => {
+    if (!connectedByOwner.has(ownerEmail)) {
+      let verified: {
+        accounts: Set<string>;
+        stillCurrent?: () => Promise<boolean>;
+      } | null = null;
+      try {
+        const result = await opts.resolveConnectedAccounts(ownerEmail);
+        if (result.verified === true && result.errors.length === 0) {
+          verified = {
+            accounts: new Set(
+              result.accounts.map((email) => email.toLowerCase()),
+            ),
+            stillCurrent: result.stillCurrent,
+          };
+        }
+      } catch (error) {
+        summary.resolverErrors++;
+        console.warn("[inbox-retention] connection lookup failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      connectedByOwner.set(ownerEmail, verified);
+    }
+    return connectedByOwner.get(ownerEmail) ?? null;
+  };
+
+  // Mail's resolver only counts a Google grant that carries a Gmail scope. A
+  // managed workspace connection is checked later by the resolver.
+  const gmailGrantsByOwner = new Map<string, Set<string>>();
+  const hasGmailGrant = async (pair: RetentionPair) => {
+    let grants = gmailGrantsByOwner.get(pair.ownerEmail);
+    if (!grants) {
+      const accounts = await listOAuthAccountsByOwner(
+        "google",
+        pair.ownerEmail,
+      );
+      grants = new Set(
+        accounts
+          .filter((account) => hasGmailScope(account.tokens))
+          .map((account) => account.accountId.toLowerCase()),
+      );
+      gmailGrantsByOwner.set(pair.ownerEmail, grants);
+    }
+    return grants.has(pair.accountEmail);
+  };
+
+  const ruleOwners = new Set<string>();
+  let lastDone: string | null = null;
+  const deadlineHit = () =>
+    opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt;
+  paging: for (;;) {
+    if (deadlineHit()) {
+      summary.partial = true;
+      summary.resumeAfter = lastDone ?? opts.after ?? null;
+      break;
+    }
+    const page = await readRetentionPage(
+      now,
+      lastDone ?? opts.after ?? "",
+      pageSize,
+    );
+    summary.pairs += page.length;
+    // Owner caches only help pairs of one owner, which sit together.
+    connectedByOwner.clear();
+    gmailGrantsByOwner.clear();
+    for (const pair of page) {
+      if (deadlineHit()) {
+        summary.partial = true;
+        summary.resumeAfter = lastDone ?? opts.after ?? null;
+        break paging;
+      }
+      try {
+        await processPair(pair);
+      } catch (error) {
+        const kind = String(
+          (error as { code?: unknown } | null)?.code ??
+            (error instanceof Error ? error.name : "unknown"),
+        );
+        summary.pairsFailed++;
+        summary.failureKinds[kind] = (summary.failureKinds[kind] ?? 0) + 1;
+        console.warn("[inbox-retention] pair failed", { kind });
+      }
+      lastDone = pair.syncId;
+    }
+    if (page.length > 0 && lastDone) await opts.onPageDone?.(lastDone);
+    if (page.length < pageSize) break;
+  }
+  summary.capOwners = cappedOwners.size;
+  summary.ruleOwners = ruleOwners.size;
+  return summary;
+
+  async function processPair(pair: RetentionPair): Promise<void> {
+    const trimmed = await trimPair(pair, now);
+    if (trimmed === null) {
+      summary.pairsSkippedTrim++;
+    } else {
+      summary.archivedRowsRemoved += trimmed.archived;
+      if (trimmed.capped > 0) {
+        summary.capRowsRemoved += trimmed.capped;
+        cappedOwners.add(pair.ownerEmail);
+      }
+    }
+    await applyRules(pair);
+  }
+
+  async function applyRules(pair: RetentionPair): Promise<void> {
+    if (!pair.inactive) {
+      let granted: boolean;
+      try {
+        granted = await hasGmailGrant(pair);
+      } catch (error) {
+        summary.resolverErrors++;
+        summary.pairsSkippedUnverified++;
+        console.warn("[inbox-retention] grant lookup failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      if (granted) return;
+    }
+    if (pair.claimed) {
+      summary.pairsSkippedClaimed++;
+      return;
+    }
+    let stillCurrent: (() => Promise<boolean>) | undefined;
+    if (!pair.inactive) {
+      const connected = await connectedFor(pair.ownerEmail);
+      if (connected === null) {
+        summary.pairsSkippedUnverified++;
+        return;
+      }
+      if (connected.accounts.has(pair.accountEmail)) return;
+      stillCurrent = connected.stillCurrent;
+    }
+    const removed = await clearPair(pair, now, pair.inactive, stillCurrent);
+    if (removed === null) {
+      summary.pairsSkippedActive++;
+      return;
+    }
+    summary.pairsReset++;
+    summary.ruleRowsRemoved += removed;
+    if (removed > 0) ruleOwners.add(pair.ownerEmail);
+  }
+}

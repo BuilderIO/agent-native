@@ -1,4 +1,6 @@
-import { runMigrations, type MigrationEntry } from "../db/migrations.js";
+import type { MigrationEntry } from "../db/migrations.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 
 async function assertBetterAuthUserIdentityColumns(): Promise<void> {
   const { getDbExec } = await import("../db/client.js");
@@ -184,7 +186,9 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     },
   },
   {
-    version: 5,
+    // Shipped as a second v5. Named entries are gated by name, so the new
+    // number changes nothing for databases that already applied it.
+    version: 11,
     name: "better-auth-user-lower-email-index",
     sql: {
       postgres:
@@ -463,10 +467,23 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
   },
 ];
 
+export const betterAuthStore = defineStore({
+  id: "better_auth",
+  // v3 creates the legacy `sessions` table the auth-sessions store owns; on
+  // main every store ran before this list.
+  after: ["auth_sessions"],
+  migrations: fromMigrationEntries(
+    "_better_auth_migrations",
+    BETTER_AUTH_MIGRATIONS,
+    // v4 expires every active signing key: it must run at most once per
+    // database, which the ledger (or the imported old bookkeeping) guarantees.
+    { ranAtBoot: true, data: [4] },
+  ),
+});
+
+/** Kept for callers of the public export; the store owns these migrations. */
 export async function runBetterAuthMigrations(
-  nitroApp: unknown,
+  _nitroApp?: unknown,
 ): Promise<void> {
-  await runMigrations(BETTER_AUTH_MIGRATIONS, {
-    table: "_better_auth_migrations",
-  })(nitroApp);
+  await betterAuthStore.ready();
 }

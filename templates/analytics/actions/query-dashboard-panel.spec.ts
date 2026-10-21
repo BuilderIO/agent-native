@@ -22,6 +22,8 @@ vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
 
 const { default: queryDashboardPanel } =
   await import("./query-dashboard-panel");
+const { BigQueryMaximumBytesBilledError } =
+  await import("../server/lib/bigquery");
 
 describe("query-dashboard-panel", () => {
   beforeEach(() => {
@@ -112,5 +114,60 @@ describe("query-dashboard-panel", () => {
     await expect(
       queryDashboardPanel.run({ source: "demo", query: "up" }),
     ).rejects.toThrow(/No authenticated context/);
+  });
+
+  it("caps a row breakdown at the server's fixed byte budget", async () => {
+    const context = { userEmail: "alice@example.com", orgId: "org-1" };
+    mocks.getCredentialContext.mockReturnValue(context);
+    mocks.normalizeDashboardPanelQuery.mockReturnValue("SELECT 1");
+    mocks.resolveAnalyticsPanelSource.mockResolvedValue({
+      rows: [],
+      schema: [],
+    });
+
+    await queryDashboardPanel.run({
+      source: "bigquery",
+      query: "SELECT 1",
+      purpose: "row-breakdown",
+    });
+
+    expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledWith(
+      {
+        source: "bigquery",
+        query: "SELECT 1",
+        maxBytesBilled: 50 * 1024 ** 3,
+      },
+      context,
+    );
+  });
+
+  it("reports a breakdown over its byte cap as that, not as a failed panel", async () => {
+    mocks.getCredentialContext.mockReturnValue({ userEmail: "a@example.com" });
+    mocks.normalizeDashboardPanelQuery.mockReturnValue("SELECT 1");
+    mocks.resolveAnalyticsPanelSource.mockRejectedValue(
+      new BigQueryMaximumBytesBilledError(400),
+    );
+
+    await expect(
+      queryDashboardPanel.run({
+        source: "bigquery",
+        query: "SELECT 1",
+        purpose: "row-breakdown",
+      }),
+    ).resolves.toMatchObject({ error: "breakdown_over_byte_cap" });
+  });
+
+  it("leaves a normal panel load uncapped by the breakdown budget", async () => {
+    mocks.getCredentialContext.mockReturnValue({ userEmail: "a@example.com" });
+    mocks.normalizeDashboardPanelQuery.mockReturnValue("SELECT 1");
+    const error = new BigQueryMaximumBytesBilledError(400);
+    mocks.resolveAnalyticsPanelSource.mockRejectedValue(error);
+
+    await expect(
+      queryDashboardPanel.run({ source: "bigquery", query: "SELECT 1" }),
+    ).rejects.toBe(error);
+    expect(
+      mocks.resolveAnalyticsPanelSource.mock.calls[0][0],
+    ).not.toHaveProperty("maxBytesBilled");
   });
 });

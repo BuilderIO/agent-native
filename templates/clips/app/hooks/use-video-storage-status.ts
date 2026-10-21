@@ -22,6 +22,7 @@ export interface VideoStorageStatus {
   builderConfigured?: boolean;
   builderUploadConfigured?: boolean;
   builderReauthorizationRequired?: boolean;
+  localSqlChunkScratchAvailable?: boolean;
   mode: VideoStorageMode;
   hostedRemaining: number;
   hostedLimit: number;
@@ -78,6 +79,8 @@ function normalizeVideoStorageStatus(value: unknown): VideoStorageStatus {
     !isNonNegativeFiniteNumber(value.maxClipDurationMs) ||
     (value.denyReason !== undefined &&
       !denyReasons.has(value.denyReason as VideoStorageDenyReason)) ||
+    (value.localSqlChunkScratchAvailable !== undefined &&
+      typeof value.localSqlChunkScratchAvailable !== "boolean") ||
     (value.providerError !== undefined &&
       !providerErrors.has(value.providerError as VideoStorageProviderError))
   ) {
@@ -103,6 +106,7 @@ function normalizeVideoStorageStatus(value: unknown): VideoStorageStatus {
     builderUploadConfigured: value.builderUploadConfigured === true,
     builderReauthorizationRequired:
       value.builderReauthorizationRequired === true,
+    localSqlChunkScratchAvailable: value.localSqlChunkScratchAvailable === true,
     mode,
     hostedRemaining: hostedRemaining as number,
     hostedLimit: hostedLimit as number,
