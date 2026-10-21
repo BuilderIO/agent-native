@@ -6,6 +6,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  connectPreferencesPath,
+  writeConnectClientPreferences,
+} from "./connect.js";
+import {
   addAgentNativeSkill,
   AGENT_NATIVE_SKILL_METADATA_FILE,
   CONNECTION_REFERENCE_MD,
@@ -892,6 +896,75 @@ describe("agent-native skills", () => {
       "--scope",
       "project",
     ]);
+  });
+
+  it("says the browser sign-in is optional before it starts", async () => {
+    const root = tmpDir();
+    const connectLog: string[] = [];
+
+    await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "claude-code,codex,cowork",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        connectLog: (message) => connectLog.push(message),
+        runConnect: async () => {},
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(connectLog[0]).toBe(
+      "Codex and Claude Cowork need a one-time sign-in in your browser. " +
+        "It's optional: Assets is already installed, so you can press " +
+        "Ctrl+C to skip it and finish later with: npx @agent-native/core@latest " +
+        "connect https://assets.agent-native.com --client claude-code,codex,cowork " +
+        "--scope project",
+    );
+  });
+
+  it("skips the browser sign-in on Ctrl+C and says how to finish it", async () => {
+    const root = tmpDir();
+    const connectLog: string[] = [];
+    let skipSignIn: (() => void) | undefined;
+    const stopListening = vi.fn();
+
+    await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        connectLog: (message) => connectLog.push(message),
+        listenForSignInSkip: (skip) => {
+          skipSignIn = skip;
+          return stopListening;
+        },
+        runConnect: async () => {
+          skipSignIn?.();
+        },
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(connectLog).toContain(
+      "Sign-in skipped. Assets is installed; to finish the sign-in later, " +
+        "run: npx @agent-native/core@latest connect " +
+        "https://assets.agent-native.com --client codex --scope project",
+    );
+    expect(stopListening).toHaveBeenCalledTimes(1);
   });
 
   it("accepts image-generation aliases for the built-in Assets skill", async () => {
@@ -1858,6 +1931,7 @@ describe("agent-native skills", () => {
         isInteractive: () => true,
         promptClients,
         promptScope: async () => "user",
+        detectInstalledClients: () => ["claude-code", "codex"],
         runConnect,
         runCommand: async (cmd, args, options) => {
           commands.push({ cmd, args, stdio: options?.stdio });
@@ -1869,10 +1943,6 @@ describe("agent-native skills", () => {
       expect(promptClients.mock.calls[0]?.[0].initialClients).toEqual([
         "claude-code",
         "codex",
-        "cowork",
-        "cursor",
-        "opencode",
-        "github-copilot",
       ]);
       expect(
         promptClients.mock.calls[0]?.[0].options.map((o) => o.value),
@@ -2676,6 +2746,75 @@ describe("agent-native skills", () => {
         path.join(root, ".agents", "skills", "visual-recap", "SKILL.md"),
       ),
     ).toBe(true);
+  });
+
+  it("preselects only Claude Code when no client is installed", async () => {
+    const root = tmpDir();
+    fs.rmSync(connectPreferencesPath(), { force: true });
+    const promptClients = vi.fn(async () => ["claude-code" as const]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "assets"], {
+      baseDir: root,
+      isInteractive: () => true,
+      promptClients,
+      promptScope: async () => "project",
+      detectInstalledClients: () => [],
+      runConnect: async () => {},
+      runCommand: async () => 0,
+    });
+
+    expect(promptClients.mock.calls[0]?.[0].initialClients).toEqual([
+      "claude-code",
+    ]);
+  });
+
+  it("preselects the clients saved last time over the installed ones", async () => {
+    const root = tmpDir();
+    writeConnectClientPreferences(["cursor"]);
+    const promptClients = vi.fn(async () => ["cursor" as const]);
+    const detectInstalledClients = vi.fn(() => ["claude-code" as const]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "assets"], {
+      baseDir: root,
+      isInteractive: () => true,
+      promptClients,
+      promptScope: async () => "project",
+      detectInstalledClients,
+      runConnect: async () => {},
+      runCommand: async () => 0,
+    });
+
+    expect(promptClients.mock.calls[0]?.[0].initialClients).toEqual(["cursor"]);
+    expect(detectInstalledClients).not.toHaveBeenCalled();
+    fs.rmSync(connectPreferencesPath(), { force: true });
+  });
+
+  it("installs for the user account without asking when run from the home directory", async () => {
+    const home = os.homedir();
+    const promptScope = vi.fn(async () => "project" as const);
+    const log: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "assets", "--client", "claude-code"], {
+      baseDir: home,
+      isInteractive: () => true,
+      log: (message) => log.push(message),
+      promptScope,
+      runConnect: async () => {},
+      runCommand: async () => 0,
+    });
+
+    expect(promptScope).not.toHaveBeenCalled();
+    expect(log).toContain(
+      "Installing for your user account, so the skills work in every folder.",
+    );
+    expect(fs.existsSync(path.join(home, ".mcp.json"))).toBe(false);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(home, ".claude.json"), "utf-8"))
+        .mcpServers["agent-native-assets"].url,
+    ).toBe("https://assets.agent-native.com/mcp");
   });
 
   it("does not prompt for scope when --scope is explicit", async () => {

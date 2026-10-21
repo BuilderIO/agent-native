@@ -20,14 +20,20 @@ import {
   type LoadedAppSkillManifest,
 } from "./app-skill.js";
 import {
+  readConnectClientPreferences,
   resolveClients,
   runConnect,
+  supportsRemoteMcpOAuth,
   writeConnectClientPreferences,
 } from "./connect.js";
 import {
   CONTEXT_XRAY_SKILL_MD,
   installLocalContextXray,
 } from "./context-xray-local.js";
+import {
+  detectInstalledClients,
+  isHomeDirectory,
+} from "./installed-clients.js";
 import { CLIENTS, configPathFor, type ClientId } from "./mcp-config-writers.js";
 import {
   installScreenMemoryForClient,
@@ -870,6 +876,8 @@ export interface RunSkillsOptions {
     options?: RunCommandOptions,
   ) => Promise<number>;
   runConnect?: (args: string[]) => Promise<void>;
+  listenForSignInSkip?: (skip: () => void) => () => void;
+  detectInstalledClients?: (candidates: readonly ClientId[]) => ClientId[];
   installScreenMemory?: typeof installScreenMemoryForClient;
   telemetry?: CliTelemetry;
 }
@@ -2491,6 +2499,23 @@ function skillsClients(installsMcp: boolean): SkillInstructionClientId[] {
   return installsMcp ? SKILLS_CLIENTS : SKILL_INSTRUCTION_PROMPT_CLIENTS;
 }
 
+// Preselect the clients saved last time, else the ones installed here. Every
+// preselected client without remote MCP OAuth (Codex, Cowork) adds a browser
+// sign-in to the install.
+function initialSkillsClients(
+  installsMcp: boolean,
+  options: RunSkillsOptions,
+): SkillInstructionClientId[] {
+  if (!installsMcp) return skillsClients(installsMcp);
+  const saved = (readConnectClientPreferences() ?? []).filter((client) =>
+    SKILLS_CLIENTS.includes(client),
+  );
+  if (saved.length > 0) return saved;
+  const detect = options.detectInstalledClients ?? detectInstalledClients;
+  const installed = detect(SKILLS_CLIENTS);
+  return installed.length > 0 ? installed : ["claude-code"];
+}
+
 function filterSkillsClients(
   clients: SkillInstructionClientId[],
   installsMcp: boolean,
@@ -2887,7 +2912,7 @@ async function resolveSkillsClients(
     }
     return clients;
   }
-  const initialClients = skillsClients(installsMcp);
+  const initialClients = initialSkillsClients(installsMcp, options);
   const prompt = options.promptClients ?? promptForClients;
   const selected = normalizeSkillInstructionClientIds(
     await prompt({
@@ -3652,6 +3677,21 @@ function connectCommandFor(
   return commandString("npx", args);
 }
 
+// The skill and its MCP config are written before the sign-in starts, so
+// Ctrl+C there only skips the sign-in, and the install has succeeded. Exit
+// here rather than leave it to the spinner, which prints "Canceled" while the
+// device flow keeps polling.
+function listenForSigintSignInSkip(skip: () => void): () => void {
+  const onSigint = () => {
+    skip();
+    process.exit(0);
+  };
+  process.once("SIGINT", onSigint);
+  return () => {
+    process.removeListener("SIGINT", onSigint);
+  };
+}
+
 async function connectAfterEnsure(
   installTarget: SkillInstallTarget,
   clients: ClientId[],
@@ -3675,6 +3715,21 @@ async function connectAfterEnsure(
 
   const authMessage = `Authenticating ${installTarget.displayName}…`;
   const connectLog = options.connectLog ?? options.log;
+  const signInClients = clients.filter(
+    (client) => !supportsRemoteMcpOAuth(client),
+  );
+  if (signInClients.length > 0) {
+    const labels = signInClients.map((client) => CLIENT_LABELS[client]);
+    const who =
+      labels.length === 1
+        ? `${labels[0]} needs`
+        : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)} need`;
+    connectLog?.(
+      `${who} a one-time sign-in in your browser. It's optional: ` +
+        `${installTarget.displayName} is already installed, so you can press ` +
+        `Ctrl+C to skip it and finish later with: ${connectCommand}`,
+    );
+  }
   const spinner = options.createConnectSpinner?.();
   let spinnerActive = false;
   let wroteAuthMessage = false;
@@ -3693,6 +3748,17 @@ async function connectAfterEnsure(
     writeAuthMessage();
     connectLog?.(message);
   };
+  // Registered before the spinner starts so it runs ahead of the spinner's
+  // own SIGINT listener.
+  const stopListeningForSkip = (
+    options.listenForSignInSkip ?? listenForSigintSignInSkip
+  )(() => {
+    clearSpinner();
+    connectLog?.(
+      `Sign-in skipped. ${installTarget.displayName} is installed; ` +
+        `to finish the sign-in later, run: ${connectCommand}`,
+    );
+  });
   if (spinner) {
     spinner.start(authMessage);
     spinnerActive = true;
@@ -3734,6 +3800,8 @@ async function connectAfterEnsure(
         `Run it later with: ${connectCommand}`,
     );
     return { connected: false, connectCommand };
+  } finally {
+    stopListeningForSkip();
   }
 }
 
@@ -4676,8 +4744,19 @@ export async function runSkills(
     });
 
     // Ask where to install (project vs user) unless an explicit --scope was
-    // passed or we are running non-interactively.
-    if (!parsed.scopeExplicit && shouldPrompt(parsed, options)) {
+    // passed or we are running non-interactively. The home directory is not a
+    // project: project scope there writes ~/.mcp.json, which Claude Code then
+    // offers as a new MCP server in every folder under it.
+    if (
+      !parsed.scopeExplicit &&
+      shouldPrompt(parsed, options) &&
+      isHomeDirectory(options.baseDir ?? process.cwd())
+    ) {
+      parsed.scope = "user";
+      options.log?.(
+        "Installing for your user account, so the skills work in every folder.",
+      );
+    } else if (!parsed.scopeExplicit && shouldPrompt(parsed, options)) {
       const promptScope = options.promptScope ?? promptForScope;
       const scope = await promptScope({ initialScope: "project" });
       if (!scope) {
