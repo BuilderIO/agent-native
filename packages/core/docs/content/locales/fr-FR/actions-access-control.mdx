@@ -166,9 +166,9 @@ Une poignée d’actions sont trop conséquentes pour laisser l’agent les exé
 
 Quand `needsApproval` est omis, le comportement reste identique, octet pour octet. Il n’y a aucun coût supplémentaire sur le chemin courant.
 
-Cela fonctionne de la même façon pour les actions de style `parameters` hérité et pour les actions basées sur un schéma. Cela fonctionne aussi de la même façon pour l’agent intégré à l’application, les sous-agents, et les appelants A2A et MCP, parce que chaque surface d’agent passe par la même boucle.
+Cela fonctionne de la même façon pour les actions héritées au format `parameters` et pour les actions basées sur un schéma. L’agent de l’application et ses sous-agents se mettent en pause dans la boucle de l’agent. MCP et A2A utilisent leurs propres flux d’approbation.
 
-Les appels via l’[API HTTP](/docs/http-api) ne peuvent pas donner d’approbation. Quand un appel en a besoin, la route le refuse avec un `409` et `errorCode: "approval_required"`, que l’appelant utilise un token bearer, une clé d’API, un token OAuth MCP, un token de service de l’organisation ou une identité A2A. Une identité de service ne peut jamais approuver. Seule l’interface de l’app elle-même, connectée, exécute un tel appel directement, car la personne qui l’utilise est celle qui approuve. Un appel du navigateur prouve qu’il vient de cette interface avec une capacité UI de courte durée. Un appel qui se présente comme l’app sans elle reçoit un `403` avec `errorCode: "ui_capability_required"`, et le client de l’app obtient la capacité puis réessaie une fois. Pour que les appels d’un agent soient approuvés, connectez-le via [MCP](/docs/external-agents) ou faites-lui demander dans le chat de l’agent de l’app.
+Les appels directs via l’[API HTTP](/docs/http-api) ne peuvent pas fournir d’approbation humaine. La route n’exécute une action protégée que depuis l’interface vérifiée de l’application ou le widget de répertoire MCP de l’application. Les autres appels HTTP directs reçoivent `409` avec `errorCode: "approval_required"`. Une identité de service ne peut pas approuver. Le client partagé envoie une capacité UI de courte durée avec les écritures d’une session connectée. Un appel sans cette preuve reçoit `403` avec `errorCode: "ui_capability_required"`; le client récupère ensuite la capacité et réessaie une fois. Les tâches A2A utilisent leur propre flux d’approbation, pas cette réponse HTTP. La tâche attend l’approbation de son propriétaire, puis rejoue l’appel d’outil approuvé. La commande locale `pnpm action ...` appelle directement `handler.run()` et n’évalue pas `needsApproval`. Traitez ce champ comme un flux d’approbation, pas comme une limite d’autorisation.
 
 ### Comment la boucle se met en pause {#loop}
 
@@ -406,12 +406,12 @@ Une action de création n’appelle ni l’une ni l’autre de ces aides. Elle a
 
 Les quatre mécanismes ne sont pas interchangeables :
 
-| Mécanisme                         | Question à laquelle il répond                               | S’applique à                                   |
-| --------------------------------- | ----------------------------------------------------------- | ---------------------------------------------- |
-| `access`                          | L’appelant détient-il le rôle ou l’adhésion déclarés ?      | Les six sites de dispatch                      |
-| `authorize`                       | Cet appelant peut-il effectuer l’opération, tout court ?    | Les six sites de dispatch                      |
-| `needsApproval`                   | Un humain doit-il approuver cet appel précis et permis ?    | Toutes les surfaces                            |
-| `accessFilter()`/`assertAccess()` | Quelles lignes cet appelant permis peut-il voir ou écrire ? | À l’intérieur de `run()`, par requête ou ligne |
+| Mécanisme                         | Question à laquelle il répond                               | S’applique à                                                                                                    |
+| --------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `access`                          | L’appelant détient-il le rôle ou l’adhésion déclarés ?      | Les six sites de dispatch                                                                                       |
+| `authorize`                       | Cet appelant peut-il effectuer l’opération, tout court ?    | Les six sites de dispatch                                                                                       |
+| `needsApproval`                   | Un humain doit-il approuver cet appel précis et permis ?    | flux d’approbation de l’agent, MCP et A2A. HTTP refuse les appels sans preuve UI. La CLI locale ne vérifie pas. |
+| `accessFilter()`/`assertAccess()` | Quelles lignes cet appelant permis peut-il voir ou écrire ? | À l’intérieur de `run()`, par requête ou ligne                                                                  |
 
 Une action d’écriture restreinte a typiquement besoin à la fois de `authorize` et d’un contrôle de ligne. Le premier écarte les non-coachs de l’opération. Le second écarte un coach du plan d’une autre organisation. Le contrôle de ligne est `assertAccess()`, ou `access` quand l’identifiant de la ligne est un champ d’entrée. `needsApproval` est un axe séparé. Il ne restreint jamais qui peut appeler, seulement si l’agent peut continuer sans surveillance.
 

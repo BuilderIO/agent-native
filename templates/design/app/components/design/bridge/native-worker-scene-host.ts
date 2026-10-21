@@ -41,6 +41,29 @@ export type NativeWorkerSceneEntry = {
   target: HTMLElement | SVGSVGElement;
 };
 
+export function nativeWorkerDefinitions(
+  entries: readonly NativeWorkerSceneEntry[],
+): EffectDefinition[] {
+  const definitions = new Map<
+    string,
+    { definition: EffectDefinition; hash: string }
+  >();
+  for (const entry of entries) {
+    const key = JSON.stringify([entry.definition.id, entry.definition.version]);
+    const existing = definitions.get(key);
+    if (existing && existing.hash !== entry.definitionHash)
+      throw new NativeSourceError(
+        "worker-definition-conflict",
+        `Native effect ${entry.definition.id} version ${entry.definition.version} has conflicting definitions.`,
+      );
+    definitions.set(key, {
+      definition: entry.definition,
+      hash: entry.definitionHash,
+    });
+  }
+  return [...definitions.values()].map(({ definition }) => definition);
+}
+
 type TargetState = {
   entry: NativeWorkerSceneEntry;
   marker: HTMLCanvasElement;
@@ -57,6 +80,17 @@ type Publication = {
   targetEpochs: Map<string, { source: number; authored: number }>;
   rootRecords: readonly NativeSourceRecord[];
   payloads: Map<string, { payload: string; definitionHash: string }>;
+  clockIdentity?: { origin: number | null; sourcePlaying: boolean };
+};
+
+type CameraCandidate = {
+  committed: { scene: NativeWorkerScene; publication: Publication };
+  viewport: NativeWorkerScene["viewport"];
+  width: number;
+  height: number;
+  pixelRatio: number;
+  clock: NativeWorkerScene["clock"];
+  clockIdentity: NonNullable<Publication["clockIdentity"]>;
 };
 
 const OMIT_SCENE_CHILD =
@@ -81,6 +115,38 @@ export function nativeWorkerOutputRecords(
       ? { ...record, width: size.width, height: size.height }
       : record;
   });
+}
+
+type NativeWorkerOutputTarget = Pick<
+  NativeWorkerEffectTarget,
+  "sourceRecords" | "fillLocalSourceRecords" | "fillPhases"
+>;
+
+export function nativeWorkerOutputSceneRecords(
+  targets: NativeWorkerOutputTarget[],
+  records: readonly NativeWorkerSourceRecord[],
+  sizes: ReadonlyMap<string, { width: number; height: number }>,
+): NativeWorkerSourceRecord[] {
+  for (const target of targets) {
+    target.sourceRecords = nativeWorkerOutputRecords(
+      target.sourceRecords,
+      sizes,
+    );
+    if (target.fillLocalSourceRecords)
+      target.fillLocalSourceRecords = nativeWorkerOutputRecords(
+        target.fillLocalSourceRecords,
+        sizes,
+      );
+    if (target.fillPhases)
+      for (const key of Object.keys(target.fillPhases) as Array<
+        keyof NonNullable<NativeWorkerEffectTarget["fillPhases"]>
+      >)
+        target.fillPhases[key] = nativeWorkerOutputRecords(
+          target.fillPhases[key],
+          sizes,
+        );
+  }
+  return nativeWorkerOutputRecords(records, sizes);
 }
 
 function nativeWorkerTargetGeometry(
@@ -155,16 +221,17 @@ export class NativeWorkerSceneHost {
   private cameraInFlightGeneration: number | null = null;
   private cameraUpdatePending = false;
   private cameraPublishTimer: ReturnType<typeof setTimeout> | null = null;
-  private clock: () => { playing: boolean; timeSeconds: number; speed: number };
+  private clock: () => NativeWorkerScene["clock"];
 
   constructor(
     workerSource: string,
     sceneId: string,
-    clock: () => { playing: boolean; timeSeconds: number; speed: number },
+    clock: () => NativeWorkerScene["clock"],
     private readonly onCommitted: (
       publication: Publication,
       message: {
         timeSeconds: number;
+        contentChanged: boolean;
         committedInstances: readonly {
           instanceId: string;
           definitionHash: string;
@@ -189,6 +256,7 @@ export class NativeWorkerSceneHost {
       viewport: { x: number; y: number; width: number; height: number };
       pixelRatio: number;
     },
+    private readonly getClockOrigin?: () => number,
   ) {
     const body = document.body;
     if (!body)
@@ -414,8 +482,8 @@ export class NativeWorkerSceneHost {
   private snapshotClock(
     viewport: { x: number; y: number; width: number; height: number },
     exportCapture: boolean,
+    clock = this.clock(),
   ): NativeWorkerScene["clock"] {
-    const clock = this.clock();
     if (
       exportCapture ||
       !clock.playing ||
@@ -456,19 +524,28 @@ export class NativeWorkerSceneHost {
     return readableMarkers ? { ...clock, playing: false } : clock;
   }
 
+  private clockIdentity(
+    sourceClock: NativeWorkerScene["clock"],
+  ): NonNullable<Publication["clockIdentity"]> {
+    if (!this.getClockOrigin)
+      return { origin: null, sourcePlaying: sourceClock.playing };
+    const origin = this.getClockOrigin();
+    if (!Number.isFinite(origin))
+      throw new NativeSourceError(
+        "worker-clock-origin-unreadable",
+        "The native worker playback origin is unreadable.",
+      );
+    return { origin, sourcePlaying: sourceClock.playing };
+  }
+
   retainsPreviewViewport(
     viewport: { x: number; y: number; width: number; height: number },
     pixelRatio: number,
   ): boolean {
-    const committed = this.currentCameraSource(pixelRatio);
-    if (
-      this.dirty ||
-      this.updating ||
-      !committed ||
-      this.lastScene?.generation !== committed.scene.generation
-    )
-      return false;
-    const retained = committed.scene.viewport;
+    if (this.dirty || this.updating) return false;
+    const known = this.committedScene();
+    if (!known) return false;
+    const retained = known.scene.viewport;
     if (
       ![viewport.x, viewport.y, viewport.width, viewport.height].every(
         Number.isFinite,
@@ -480,6 +557,9 @@ export class NativeWorkerSceneHost {
       viewport.x + viewport.width > retained.x + retained.width + 0.001 ||
       viewport.y + viewport.height > retained.y + retained.height + 0.001
     )
+      return false;
+    const committed = this.currentCameraSource(pixelRatio);
+    if (!committed || this.lastScene?.generation !== committed.scene.generation)
       return false;
     if (
       this.snapshotClock(viewport, false).playing !==
@@ -541,12 +621,11 @@ export class NativeWorkerSceneHost {
     return committed;
   }
 
-  private reprojectSnapshot(): Awaited<
-    ReturnType<NativeWorkerSceneHost["captureSnapshot"]>
-  > | null {
-    const { viewport, pixelRatio } = this.sceneGeometry();
-    const committed = this.currentCameraSource(pixelRatio);
+  private cameraCandidate(): CameraCandidate | null {
+    const { viewport, pixelRatio: requestedRatio } = this.sceneGeometry();
+    const committed = this.currentCameraSource(requestedRatio);
     if (!committed) return null;
+    const pixelRatio = committed.scene.pixelRatio;
     const width = Math.ceil(viewport.width * pixelRatio);
     const height = Math.ceil(viewport.height * pixelRatio);
     if (
@@ -561,6 +640,47 @@ export class NativeWorkerSceneHost {
       height > 8192
     )
       return null;
+    const sourceClock = this.clock();
+    return {
+      committed,
+      viewport,
+      width,
+      height,
+      pixelRatio,
+      clock: this.snapshotClock(viewport, false, sourceClock),
+      clockIdentity: this.clockIdentity(sourceClock),
+    };
+  }
+
+  private sameCamera(
+    candidate: CameraCandidate,
+    scene: NativeWorkerScene,
+    publication: Publication,
+  ): boolean {
+    const { viewport, clock, clockIdentity } = candidate;
+    const previousIdentity = publication.clockIdentity;
+    return (
+      scene.viewport.x === viewport.x &&
+      scene.viewport.y === viewport.y &&
+      scene.viewport.width === viewport.width &&
+      scene.viewport.height === viewport.height &&
+      scene.width === candidate.width &&
+      scene.height === candidate.height &&
+      scene.pixelRatio === candidate.pixelRatio &&
+      scene.clock.playing === clock.playing &&
+      scene.clock.speed === clock.speed &&
+      previousIdentity?.sourcePlaying === clockIdentity.sourcePlaying &&
+      (clockIdentity.sourcePlaying
+        ? clockIdentity.origin !== null &&
+          clockIdentity.origin === previousIdentity?.origin
+        : scene.clock.timeSeconds === clock.timeSeconds)
+    );
+  }
+
+  private reprojectSnapshot(
+    candidate: CameraCandidate,
+  ): Awaited<ReturnType<NativeWorkerSceneHost["captureSnapshot"]>> {
+    const { committed, viewport, width, height, pixelRatio, clock } = candidate;
     const generation = ++this.generation;
     return {
       scene: {
@@ -569,11 +689,16 @@ export class NativeWorkerSceneHost {
         viewport,
         width,
         height,
-        clock: this.snapshotClock(viewport, false),
+        pixelRatio,
+        clock,
       },
       assets: [],
       revisions: new Map(this.assetRevisions),
-      publication: { ...committed.publication, generation },
+      publication: {
+        ...committed.publication,
+        generation,
+        clockIdentity: candidate.clockIdentity,
+      },
     };
   }
 
@@ -1094,26 +1219,6 @@ export class NativeWorkerSceneHost {
           records,
         );
       }
-      if (options)
-        for (const target of targetSnapshots) {
-          target.sourceRecords = nativeWorkerOutputRecords(
-            target.sourceRecords,
-            nativeOutputSizes,
-          );
-          if (target.fillLocalSourceRecords)
-            target.fillLocalSourceRecords = nativeWorkerOutputRecords(
-              target.fillLocalSourceRecords,
-              nativeOutputSizes,
-            );
-          if (target.fillPhases)
-            for (const key of Object.keys(target.fillPhases) as Array<
-              keyof NonNullable<NativeWorkerEffectTarget["fillPhases"]>
-            >)
-              target.fillPhases[key] = nativeWorkerOutputRecords(
-                target.fillPhases[key],
-                nativeOutputSizes,
-              );
-        }
       const rawRootRecords = await this.provider.readScene(
         undefined,
         "scene-presentation",
@@ -1160,9 +1265,11 @@ export class NativeWorkerSceneHost {
           : `root:epoch:${sourceEpoch}`,
         rawRootRecords,
       );
-      const normalizedRootRecords = options
-        ? nativeWorkerOutputRecords(allRootRecords, nativeOutputSizes)
-        : allRootRecords;
+      const normalizedRootRecords = nativeWorkerOutputSceneRecords(
+        targetSnapshots,
+        allRootRecords,
+        nativeOutputSizes,
+      );
       const selected = options?.selectedRoots
         ? new Set(finalRootRecords)
         : null;
@@ -1172,6 +1279,7 @@ export class NativeWorkerSceneHost {
           )
         : normalizedRootRecords;
       const { assets, requiredAssets, revisions } = snapshot.finish();
+      const sourceClock = this.clock();
       const scene: NativeWorkerScene = {
         sceneId: this.worker.sceneId,
         generation,
@@ -1182,9 +1290,9 @@ export class NativeWorkerSceneHost {
         height,
         pixelRatio,
         colorSpace: "srgb",
-        clock: this.snapshotClock(viewport, !!options),
+        clock: this.snapshotClock(viewport, !!options, sourceClock),
         requiredAssets,
-        definitions: this.entries.map((entry) => entry.definition),
+        definitions: nativeWorkerDefinitions(this.entries),
         instances: this.entries.map((entry) => entry.instance),
         targets: targetSnapshots,
         records,
@@ -1206,6 +1314,7 @@ export class NativeWorkerSceneHost {
         generation,
         sourceEpoch: sourceEpoch!,
         authoredEpoch: authoredEpoch!,
+        clockIdentity: this.clockIdentity(sourceClock),
         rootWidth,
         rootHeight,
         targetEpochs: new Map(
@@ -1247,15 +1356,34 @@ export class NativeWorkerSceneHost {
   }
 
   private async sendSnapshot(): Promise<void> {
+    const camera = this.cameraCandidate();
     if (this.cameraInFlightGeneration !== null) {
-      const { pixelRatio } = this.sceneGeometry();
-      if (this.currentCameraSource(pixelRatio)) {
-        this.cameraUpdatePending = true;
+      if (camera) {
+        const pendingScene = this.scenes.get(this.cameraInFlightGeneration);
+        const pendingPublication = this.staged.get(
+          this.cameraInFlightGeneration,
+        );
+        this.cameraUpdatePending = !(
+          this.publicationWaiters.size === 0 &&
+          pendingScene &&
+          pendingPublication &&
+          this.sameCamera(camera, pendingScene, pendingPublication)
+        );
         return;
       }
       this.clearCameraSubmission();
     }
-    const cameraSnapshot = this.reprojectSnapshot();
+    if (
+      camera &&
+      this.publicationWaiters.size === 0 &&
+      this.sameCamera(
+        camera,
+        camera.committed.scene,
+        camera.committed.publication,
+      )
+    )
+      return;
+    const cameraSnapshot = camera ? this.reprojectSnapshot(camera) : null;
     const { scene, assets, revisions, publication } =
       cameraSnapshot ?? (await this.captureSnapshot());
     const generation = scene.generation;
@@ -1467,60 +1595,71 @@ export class NativeWorkerSceneHost {
       this.requestUpdate();
       return;
     }
-    const body = document.body;
-    const paintedChildren = new Set<Element>();
-    for (const record of publication.rootRecords) {
-      const root = scenePaintRoot(record.node, body);
-      if (root && root !== this.canvas && !root.matches(OMIT_SCENE_CHILD))
-        paintedChildren.add(root);
-    }
-    const authoredOpacities = new Map<Element, string>();
-    for (const child of paintedChildren) {
-      const opacity =
-        child.getAttribute("data-an-native-authored-opacity") ??
-        getComputedStyle(child).opacity;
-      const value = Number(opacity);
-      if (
-        !opacity.trim() ||
-        !Number.isFinite(value) ||
-        value < 0 ||
-        value > 1
-      ) {
-        this.onFailure(
-          new NativeSourceError(
-            "worker-scene-opacity-unreadable",
-            "The native worker scene has unreadable authored opacity.",
-          ),
-        );
-        return;
+    const cameraOnly = this.canReuseCommittedPresentation(publication);
+    if (!cameraOnly) {
+      const body = document.body;
+      const paintedChildren = new Set<Element>();
+      for (const record of publication.rootRecords) {
+        const root = scenePaintRoot(record.node, body);
+        if (root && root !== this.canvas && !root.matches(OMIT_SCENE_CHILD))
+          paintedChildren.add(root);
       }
-      authoredOpacities.set(child, opacity);
-    }
-    for (const old of this.suppressed) {
-      if (paintedChildren.has(old)) continue;
-      old.removeAttribute("data-an-native-scene-suppressed");
-      old.removeAttribute("data-an-native-authored-opacity");
-      this.suppressed.delete(old);
-    }
-    for (const child of paintedChildren) {
-      if (!child.hasAttribute("data-an-native-authored-opacity")) {
-        child.setAttribute(
-          "data-an-native-authored-opacity",
-          authoredOpacities.get(child)!,
-        );
+      const authoredOpacities = new Map<Element, string>();
+      for (const child of paintedChildren) {
+        const opacity =
+          child.getAttribute("data-an-native-authored-opacity") ??
+          getComputedStyle(child).opacity;
+        const value = Number(opacity);
+        if (
+          !opacity.trim() ||
+          !Number.isFinite(value) ||
+          value < 0 ||
+          value > 1
+        ) {
+          this.onFailure(
+            new NativeSourceError(
+              "worker-scene-opacity-unreadable",
+              "The native worker scene has unreadable authored opacity.",
+            ),
+          );
+          return;
+        }
+        authoredOpacities.set(child, opacity);
       }
-      child.setAttribute("data-an-native-scene-suppressed", "");
-      this.suppressed.add(child);
+      for (const old of this.suppressed) {
+        if (paintedChildren.has(old)) continue;
+        old.removeAttribute("data-an-native-scene-suppressed");
+        old.removeAttribute("data-an-native-authored-opacity");
+        this.suppressed.delete(old);
+      }
+      for (const child of paintedChildren) {
+        if (!child.hasAttribute("data-an-native-authored-opacity")) {
+          child.setAttribute(
+            "data-an-native-authored-opacity",
+            authoredOpacities.get(child)!,
+          );
+        }
+        child.setAttribute("data-an-native-scene-suppressed", "");
+        this.suppressed.add(child);
+      }
     }
     const presentedScene = this.scenes.get(publication.generation);
     if (presentedScene) {
-      this.canvas.style.left = `${presentedScene.viewport.x}px`;
-      this.canvas.style.top = `${presentedScene.viewport.y}px`;
-      this.canvas.style.width = `${presentedScene.viewport.width}px`;
-      this.canvas.style.height = `${presentedScene.viewport.height}px`;
+      const { style } = this.canvas;
+      const { viewport } = presentedScene;
+      const left = `${viewport.x}px`;
+      const top = `${viewport.y}px`;
+      const width = `${viewport.width}px`;
+      const height = `${viewport.height}px`;
+      if (style.left !== left) style.left = left;
+      if (style.top !== top) style.top = top;
+      if (style.width !== width) style.width = width;
+      if (style.height !== height) style.height = height;
     }
-    this.canvas.style.visibility = "visible";
-    document.documentElement.setAttribute("data-an-native-scene-managed", "");
+    if (!cameraOnly) {
+      this.canvas.style.visibility = "visible";
+      document.documentElement.setAttribute("data-an-native-scene-managed", "");
+    }
     this.committed = publication;
     this.committedSceneSnapshot =
       this.scenes.get(publication.generation) ?? null;
@@ -1529,18 +1668,20 @@ export class NativeWorkerSceneHost {
       this.cameraUpdatePending;
     if (this.cameraInFlightGeneration === publication.generation)
       this.clearCameraSubmission();
-    for (const entry of this.entries) {
-      entry.target.setAttribute("data-an-native-status", "ready");
-      entry.target.setAttribute("data-an-native-backend", "webgpu-worker");
-      entry.target.removeAttribute("data-an-native-error");
-      entry.target.removeAttribute("data-an-native-error-message");
-    }
+    if (!cameraOnly)
+      for (const entry of this.entries) {
+        entry.target.setAttribute("data-an-native-status", "ready");
+        entry.target.setAttribute("data-an-native-backend", "webgpu-worker");
+        entry.target.removeAttribute("data-an-native-error");
+        entry.target.removeAttribute("data-an-native-error-message");
+      }
     for (const generation of this.staged.keys())
       if (generation <= publication.generation) this.staged.delete(generation);
     for (const generation of this.scenes.keys())
       if (generation < publication.generation) this.scenes.delete(generation);
     this.onCommitted(publication, {
       timeSeconds: message.timeSeconds,
+      contentChanged: !cameraOnly,
       committedInstances: message.committedInstances,
     });
     if (drainCamera) this.requestUpdate();
@@ -1560,6 +1701,41 @@ export class NativeWorkerSceneHost {
       this.publicationWaiters.delete(waiter);
       waiter.resolve();
     }
+  }
+
+  private canReuseCommittedPresentation(publication: Publication): boolean {
+    const committed = this.committed;
+    if (
+      !committed ||
+      committed.sourceEpoch !== publication.sourceEpoch ||
+      committed.authoredEpoch !== publication.authoredEpoch ||
+      committed.rootWidth !== publication.rootWidth ||
+      committed.rootHeight !== publication.rootHeight ||
+      committed.targetEpochs !== publication.targetEpochs ||
+      committed.rootRecords !== publication.rootRecords ||
+      committed.payloads !== publication.payloads ||
+      this.canvas.style.visibility !== "visible" ||
+      !document.documentElement.hasAttribute("data-an-native-scene-managed")
+    )
+      return false;
+    for (const entry of this.entries) {
+      if (
+        entry.target.getAttribute("data-an-native-status") !== "ready" ||
+        entry.target.getAttribute("data-an-native-backend") !==
+          "webgpu-worker" ||
+        entry.target.hasAttribute("data-an-native-error") ||
+        entry.target.hasAttribute("data-an-native-error-message")
+      )
+        return false;
+    }
+    for (const child of this.suppressed)
+      if (
+        !child.isConnected ||
+        !child.hasAttribute("data-an-native-scene-suppressed") ||
+        !child.hasAttribute("data-an-native-authored-opacity")
+      )
+        return false;
+    return true;
   }
 
   committedScene(): {
