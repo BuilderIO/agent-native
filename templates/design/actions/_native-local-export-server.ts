@@ -12,6 +12,8 @@ import {
 } from "../server/source-workspace.js";
 import {
   classifyNativeLocalExportNavigation,
+  nativeLocalExportRevisionKey,
+  nativeLocalExportRevisionSchema,
   nativeLocalExportStateKey,
   nativeLocalExportStateSchema,
   type NativeLocalExportState,
@@ -61,6 +63,20 @@ export async function readNativeLocalExportState(
     });
   // CAS compares serialized JSON, so keep the validated value's stored key order.
   return raw as NativeLocalExportState;
+}
+
+export async function readNativeLocalExportRevision(
+  designId: string,
+  tabId: string,
+): Promise<Record<string, unknown> | null> {
+  const raw = await readAppState(nativeLocalExportRevisionKey(designId, tabId));
+  if (raw === null) return null;
+  if (!nativeLocalExportRevisionSchema.safeParse(raw).success)
+    fail("The local export revision state is unreadable.", {
+      errorCode: "native_export_request_unreadable",
+      statusCode: 422,
+    });
+  return raw;
 }
 
 export async function readNativeLocalExportVersion(

@@ -41,7 +41,12 @@ export const nativeRenderContextLedgerSchema = z
     contexts: z
       .array(nativeRenderContextSchema)
       .max(NATIVE_RENDER_CONTEXT_LIMIT),
-    requestRevision: z.string().uuid().optional(),
+  })
+  .strict();
+export const nativeLocalExportRevisionSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    revision: z.string().uuid(),
   })
   .strict();
 
@@ -153,4 +158,10 @@ export function nativeLocalExportStateKey(
   tabId: string,
 ): string {
   return `native-local-export:${designId}:${tabId}`;
+}
+export function nativeLocalExportRevisionKey(
+  designId: string,
+  tabId: string,
+): string {
+  return `native-local-export-revision:${designId}:${tabId}`;
 }

@@ -11,6 +11,7 @@ import {
   NATIVE_RENDER_CONTEXT_LEDGER_KEY,
   NATIVE_RENDER_CONTEXT_LIMIT,
   NATIVE_RENDER_CONTEXT_TTL_MS,
+  nativeLocalExportRevisionKey,
   nativeLocalExportStateKey,
   nativeRenderContextLedgerSchema,
   nativeRenderContextSchema,
@@ -20,13 +21,13 @@ import {
   classifyNativeLocalExportNavigation,
   expireNativeLocalExportState,
   planNativeLocalExportDocumentRegistration,
+  readNativeLocalExportRevision,
   readNativeLocalExportState,
 } from "./_native-local-export-server.js";
 
 function readLedger(raw: Record<string, unknown> | null): {
   schemaVersion: 1;
   contexts: NativeRenderContext[];
-  requestRevision?: string;
 } {
   if (raw === null) return { schemaVersion: 1, contexts: [] };
   const parsed = nativeRenderContextLedgerSchema.safeParse(raw);
@@ -98,7 +99,11 @@ export async function registerNativeRenderContext(
         errorCode: "native_export_context_capacity",
         statusCode: 409,
       });
-    const next = { ...ledger, contexts };
+    const next = { schemaVersion: 1 as const, contexts };
+    const revision = await readNativeLocalExportRevision(
+      designId,
+      parsedTabId.data,
+    );
     const exportRaw = await readNativeLocalExportState(
       designId,
       parsedTabId.data,
@@ -114,6 +119,11 @@ export async function registerNativeRenderContext(
         key: NATIVE_RENDER_CONTEXT_LEDGER_KEY,
         expectedValue: raw,
         nextValue: next,
+      },
+      {
+        key: nativeLocalExportRevisionKey(designId, parsedTabId.data),
+        expectedValue: revision,
+        nextValue: { schemaVersion: 1, revision: crypto.randomUUID() },
       },
     ];
     if (exportCurrent && exportNext !== exportCurrent)

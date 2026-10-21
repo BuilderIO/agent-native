@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   read: vi.fn(),
@@ -18,6 +18,7 @@ vi.mock("../server/source-workspace.js", () => ({}));
 
 import {
   planNativeLocalExportDocumentRegistration,
+  readNativeLocalExportRevision,
   readNativeLocalExportState,
 } from "./_native-local-export-server";
 
@@ -40,12 +41,37 @@ const stored = {
 } as const;
 
 describe("native local export state read", () => {
+  beforeEach(() => mocks.read.mockReset());
+
   it("preserves stored JSON order for application-state compare-and-set", async () => {
     mocks.read.mockResolvedValue(stored);
 
     const state = await readNativeLocalExportState("design-test", "test-tab");
 
     expect(JSON.stringify(state)).toBe(JSON.stringify(stored));
+  });
+
+  it("validates and preserves the request revision snapshot for compare-and-set", async () => {
+    const storedRevision = {
+      revision: "33333333-3333-4333-8333-333333333333",
+      schemaVersion: 1,
+    };
+    mocks.read.mockResolvedValue(storedRevision);
+
+    await expect(
+      readNativeLocalExportRevision("design-test", "test-tab"),
+    ).resolves.toBe(storedRevision);
+    expect(mocks.read).toHaveBeenCalledWith(
+      "native-local-export-revision:design-test:test-tab",
+    );
+  });
+
+  it("reports unreadable request revisions", async () => {
+    mocks.read.mockResolvedValue({ schemaVersion: 1, revision: "invalid" });
+
+    await expect(
+      readNativeLocalExportRevision("design-test", "test-tab"),
+    ).rejects.toMatchObject({ errorCode: "native_export_request_unreadable" });
   });
 
   it("retires a pending request bound to another document", () => {

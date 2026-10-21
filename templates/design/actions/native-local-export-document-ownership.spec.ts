@@ -87,6 +87,7 @@ vi.mock("./_native-local-export-server.js", async (importOriginal) => {
     expireNativeLocalExportState: async (state: unknown) => state,
     planNativeLocalExportDocumentRegistration:
       original.planNativeLocalExportDocumentRegistration,
+    readNativeLocalExportRevision: original.readNativeLocalExportRevision,
     readNativeLocalExportState: async (designId: string, tabId: string) => {
       const state =
         mocks.states.get(`native-local-export:${designId}:${tabId}`) ?? null;
@@ -100,6 +101,7 @@ vi.mock("./_native-local-export-server.js", async (importOriginal) => {
   };
 });
 
+import { nativeRenderContextLedgerSchema } from "../shared/native-local-export";
 import {
   readNativeRenderContextSnapshot,
   registerNativeRenderContext,
@@ -338,6 +340,57 @@ describe("native local export document ownership", () => {
       status: "pending",
       targetDocumentId: DOCUMENT_ID,
     });
+    const ledger = mocks.states.get("native-render-contexts-v1");
+    expect(nativeRenderContextLedgerSchema.safeParse(ledger).success).toBe(
+      true,
+    );
+    expect(ledger).not.toHaveProperty("requestRevision");
+  });
+
+  it("keeps request revisions separate for independent tabs", async () => {
+    const otherTabId = "other-tab";
+    mocks.states.set(`navigation:${otherTabId}`, {
+      view: "editor",
+      designId: DESIGN_ID,
+    });
+    const ledger = {
+      schemaVersion: 1,
+      contexts: [
+        {
+          tabId: TAB_ID,
+          designId: DESIGN_ID,
+          documentId: DOCUMENT_ID,
+          expiresAt: Date.now() + 30_000,
+        },
+        {
+          tabId: otherTabId,
+          designId: DESIGN_ID,
+          documentId: OTHER_DOCUMENT_ID,
+          expiresAt: Date.now() + 30_000,
+        },
+      ],
+    };
+    mocks.states.set("native-render-contexts-v1", ledger);
+
+    await run(request, { ...requestInput, targetTabId: TAB_ID });
+    await run(request, { ...requestInput, targetTabId: otherTabId });
+
+    expect(mocks.states.get("native-render-contexts-v1")).toEqual(ledger);
+    const first = mocks.states.get(
+      `native-local-export-revision:${DESIGN_ID}:${TAB_ID}`,
+    );
+    const second = mocks.states.get(
+      `native-local-export-revision:${DESIGN_ID}:${otherTabId}`,
+    );
+    expect(first).toMatchObject({
+      schemaVersion: 1,
+      revision: expect.any(String),
+    });
+    expect(second).toMatchObject({
+      schemaVersion: 1,
+      revision: expect.any(String),
+    });
+    expect(first).not.toEqual(second);
   });
 
   it("rejects an export when its selected context changes during source preparation", async () => {

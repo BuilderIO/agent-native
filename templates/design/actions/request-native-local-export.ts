@@ -5,6 +5,7 @@ import { parseEffectsFromHtml } from "../shared/native-effects.js";
 import {
   NATIVE_LOCAL_EXPORT_PENDING_MS,
   NATIVE_RENDER_CONTEXT_LEDGER_KEY,
+  nativeLocalExportRevisionKey,
   nativeLocalExportRequestSchema,
   nativeRenderContextSchema,
   nativeLocalExportStateKey,
@@ -14,6 +15,7 @@ import {
   assertNativeLocalExportEditor,
   expireNativeLocalExportState,
   readNativeLocalExportState,
+  readNativeLocalExportRevision,
   readNativeLocalExportVersion,
   requireNativeLocalExportTabId,
 } from "./_native-local-export-server.js";
@@ -71,6 +73,7 @@ export default defineAction({
     const current = rawCurrent
       ? await expireNativeLocalExportState(rawCurrent)
       : null;
+    const revision = await readNativeLocalExportRevision(args.designId, tabId);
     if (
       current?.status === "pending" ||
       current?.status === "running" ||
@@ -96,10 +99,12 @@ export default defineAction({
       {
         key: NATIVE_RENDER_CONTEXT_LEDGER_KEY,
         expectedValue: snapshot.rawLedger,
-        nextValue: {
-          ...(snapshot.rawLedger ?? { schemaVersion: 1, contexts: [] }),
-          requestRevision: crypto.randomUUID(),
-        },
+        nextValue: snapshot.rawLedger ?? { schemaVersion: 1, contexts: [] },
+      },
+      {
+        key: nativeLocalExportRevisionKey(args.designId, tabId),
+        expectedValue: revision,
+        nextValue: { schemaVersion: 1, revision: crypto.randomUUID() },
       },
       { key, expectedValue: current, nextValue: request },
     ]);
