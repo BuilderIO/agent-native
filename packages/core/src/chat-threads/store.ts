@@ -2503,6 +2503,7 @@ export type ThreadQueuedMessageMutation =
       hashInput?: AgentSubmissionPayload;
     }
   | { type: "remove"; messageId: string }
+  | { type: "cancel"; messageId: string }
   | { type: "moveToTop"; messageId: string }
   | { type: "claim"; messageId: string; claimId: string }
   | {
@@ -2806,6 +2807,12 @@ export async function mutateThreadQueuedMessages(
                 break;
               }
               removedReceiptState = expired ? "expired" : "removed";
+              queuedMessages = current.filter(
+                (candidate) => candidate.id !== mutation.messageId,
+              );
+              break;
+            }
+            case "cancel": {
               queuedMessages = current.filter(
                 (candidate) => candidate.id !== mutation.messageId,
               );
@@ -3134,6 +3141,36 @@ export async function mutateThreadQueuedMessages(
               args: [Date.now(), threadId, mutation.messageId, mutation.runId],
             });
             result.receiptUpdated = updated.rowsAffected === 1;
+          } else if (mutation.type === "cancel") {
+            const receipt = await readQueuedSubmissionReceipt(
+              tx,
+              threadId,
+              mutation.messageId,
+              { forUpdate: true },
+            );
+            if (receipt?.state === "submitted") {
+              if (!receipt.submittedRunId) {
+                throw new TypeError(
+                  "Stored submitted receipt has no submitted run identifier.",
+                );
+              }
+              result.submittedRunId = receipt.submittedRunId;
+              return;
+            }
+            if (receipt?.state !== "queued") return;
+            const removed = await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox
+                    SET state = 'removed', interrupt_run_id = NULL,
+                        retry_after = NULL, updated_at = ?
+                    WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+              args: [Date.now(), threadId, mutation.messageId],
+            });
+            if (removed.rowsAffected !== 1) {
+              throw new Error(
+                `Queued submission ${mutation.messageId} changed while cancellation held its receipt lock.`,
+              );
+            }
+            result.receiptUpdated = true;
           } else if (
             mutation.type === "retryReceipt" ||
             mutation.type === "blockReceipt"

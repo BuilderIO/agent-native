@@ -6825,7 +6825,11 @@ describe("createAgentNativeAgentKitTransport", () => {
           const index = queuedMessages.findIndex(
             (message) => message.id === mutation.messageId,
           );
-          if (index > 0) {
+          if (mutation.type === "cancel" && index >= 0) {
+            queuedMessages = queuedMessages.filter(
+              (message) => message.id !== mutation.messageId,
+            );
+          } else if (index > 0) {
             queuedMessages = [
               queuedMessages[index]!,
               ...queuedMessages.filter(
@@ -6848,9 +6852,14 @@ describe("createAgentNativeAgentKitTransport", () => {
       threadId: "thread-queue",
       messageId: "queued-three",
     });
+    await transport.removeQueuedMessage?.({
+      threadId: "thread-queue",
+      messageId: "queued-two",
+    });
 
     expect(queueWrites).toEqual([
       { type: "moveToTop", messageId: "queued-three" },
+      { type: "cancel", messageId: "queued-two" },
     ]);
     await transport.dispose();
   });

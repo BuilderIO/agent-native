@@ -4105,6 +4105,7 @@ export function createAgentNativeAgentKitTransport(
         submissionPayload?: AgentSubmissionPayload;
       }
     | { type: "remove"; messageId: string }
+    | { type: "cancel"; messageId: string }
     | { type: "moveToTop"; messageId: string }
     | { type: "claim"; messageId: string; claimId: string }
     | { type: "release"; messageId: string; claimId: string };
@@ -4431,7 +4432,8 @@ export function createAgentNativeAgentKitTransport(
         return { message: result.message };
       },
       removeQueuedMessage: async ({ threadId, messageId }) => {
-        await persistQueueMutation(threadId, { type: "remove", messageId });
+        await persistQueueMutation(threadId, { type: "cancel", messageId });
+        clearPromotionClaimId(threadId, messageId);
       },
       moveQueuedMessageToTop: async ({ threadId, messageId }) => {
         await persistQueueMutation(threadId, { type: "moveToTop", messageId });

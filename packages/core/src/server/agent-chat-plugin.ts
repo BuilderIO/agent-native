@@ -8094,7 +8094,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   mutation = { type: "append", message: queued };
                 }
               } else if (
-                (record?.type === "remove" || record?.type === "moveToTop") &&
+                (record?.type === "remove" ||
+                  record?.type === "cancel" ||
+                  record?.type === "moveToTop") &&
                 typeof record.messageId === "string" &&
                 record.messageId
               ) {
@@ -8205,12 +8207,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   retryable: true,
                 };
               }
+              if (mutation.type === "cancel" && result.submittedRunId) {
+                await abortRunAndTurnDurably(
+                  result.submittedRunId,
+                  clientAbortReason("user"),
+                );
+              }
               const withoutClaim = (message: QueuedMessage) => {
                 const { promotionClaim: _claim, ...safeMessage } = message;
                 return safeMessage;
               };
+              const { submittedRunId: _submittedRunId, ...safeResult } = result;
               return {
-                ...result,
+                ...(mutation.type === "cancel" ? safeResult : result),
                 queuedMessages: result.queuedMessages.map(withoutClaim),
                 ...(result.message
                   ? { message: withoutClaim(result.message) }

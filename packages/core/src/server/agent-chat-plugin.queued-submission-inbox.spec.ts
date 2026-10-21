@@ -18,6 +18,9 @@ const inboxHarness = vi.hoisted(() => ({
   safeAbort: null as
     | ((runId: string, reason: string) => Promise<boolean>)
     | null,
+  durableAbort: null as
+    | ((runId: string, reason: string) => Promise<boolean>)
+    | null,
   turnAbort: null as ((runId: string, reason: string) => Promise<void>) | null,
   receiptReads: [] as Array<[string, string]>,
   failActiveRunCheckThreadId: null as string | null,
@@ -143,6 +146,24 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
         ? inboxHarness.activeRun
         : null;
     }),
+    abortRunAndTurnDurably: vi.fn(
+      async (
+        runId: string,
+        reason: string,
+        options?: { safeBoundary?: boolean },
+      ) => {
+        if (inboxHarness.durableAbort) {
+          return inboxHarness.durableAbort(runId, reason);
+        }
+        if (options?.safeBoundary) {
+          const aborted =
+            (await inboxHarness.safeAbort?.(runId, reason)) ?? true;
+          if (aborted) await inboxHarness.turnAbort?.(runId, reason);
+          return aborted;
+        }
+        return actual.abortRunAndTurnDurably(runId, reason, options);
+      },
+    ),
     abortRunAtSafeBoundaryDurably: vi.fn(
       async (runId: string, reason: string) => {
         const aborted = await inboxHarness.safeAbort?.(runId, reason);
@@ -287,6 +308,7 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.activeRun = null;
     inboxHarness.afterInterruptRunRecorded = null;
     inboxHarness.safeAbort = null;
+    inboxHarness.durableAbort = null;
     inboxHarness.turnAbort = null;
     inboxHarness.receiptReads.length = 0;
     inboxHarness.failActiveRunCheckThreadId = null;
@@ -345,6 +367,145 @@ describe("queued submission inbox recurring sweep", () => {
     );
     expect(inaccessibleResponse.status).toBe(404);
     expect(inboxHarness.receiptReads).toEqual([[threadId, messageId]]);
+  }, 20_000);
+
+  it("cancels a promoted queue item using its submitted run receipt", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const submittedRunId = `submitted-${randomUUID()}`;
+    const incumbentRunId = `incumbent-${randomUUID()}`;
+    const actor = { email: "user@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: "Stop this message" },
+      },
+      { actor },
+    );
+    const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+    if (!receipt) throw new Error("Queued receipt was not persisted");
+    const db = getDbExec();
+    if (!db.transaction) throw new Error("Test database has no transaction");
+    await db.transaction((tx) =>
+      markQueuedSubmissionSubmitted(tx, {
+        threadId,
+        messageId,
+        runId: submittedRunId,
+        actor,
+        message: receipt.message,
+      }),
+    );
+    inboxHarness.activeRun = {
+      runId: incumbentRunId,
+      threadId,
+      turnId: "incumbent-turn",
+      status: "running",
+    };
+    inboxHarness.durableAbort = vi.fn(async () => {
+      throw new Error("durable stop persistence failed");
+    });
+
+    const h3App = createApp();
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: {
+        hook(name, callback) {
+          if (name === "close") sweepHarness.closeHooks.push(callback);
+        },
+      },
+    });
+    await sweepHarness.initPromises.at(-1);
+
+    const cancel = () =>
+      h3App.fetch(
+        new Request(
+          `http://example.test/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}/queued`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              mutation: { type: "cancel", messageId },
+            }),
+          },
+        ),
+      );
+
+    const failedStop = await cancel();
+    expect(failedStop.status).toBe(500);
+    expect(inboxHarness.durableAbort).toHaveBeenCalledWith(
+      submittedRunId,
+      "user",
+    );
+    await expect(
+      getQueuedSubmissionReceipt(threadId, messageId),
+    ).resolves.toMatchObject({ state: "submitted", submittedRunId });
+
+    inboxHarness.durableAbort = vi.fn(async () => true);
+    const retriedStop = await cancel();
+    expect(retriedStop.status).toBe(200);
+    expect(inboxHarness.durableAbort).toHaveBeenCalledWith(
+      submittedRunId,
+      "user",
+    );
+    expect(inboxHarness.durableAbort).not.toHaveBeenCalledWith(
+      incumbentRunId,
+      "user",
+    );
+    await expect(retriedStop.json()).resolves.not.toHaveProperty(
+      "submittedRunId",
+    );
+  }, 20_000);
+
+  it("revokes a live promotion claim before it can submit a queued receipt", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "user@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: "Cancel before dispatch" },
+      },
+      { actor },
+    );
+    await mutateThreadQueuedMessages(threadId, {
+      type: "claim",
+      messageId,
+      claimId: "live-promoter",
+    });
+
+    const cancelled = await mutateThreadQueuedMessages(threadId, {
+      type: "cancel",
+      messageId,
+    });
+    expect(cancelled?.receiptUpdated).toBe(true);
+    expect(cancelled?.queuedMessages).toEqual([]);
+    await expect(
+      getQueuedSubmissionReceipt(threadId, messageId),
+    ).resolves.toMatchObject({ state: "removed" });
+
+    const db = getDbExec();
+    if (!db.transaction) throw new Error("Test database has no transaction");
+    await expect(
+      db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId: "cancelled-before-submit",
+          actor,
+          message: { id: messageId, threadId, text: "Cancel before dispatch" },
+        }),
+      ),
+    ).rejects.toThrow("queued_message_id_terminal");
   }, 20_000);
 
   it("keeps a delayed receipt as a per-thread drain barrier", async () => {
