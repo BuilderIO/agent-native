@@ -151,6 +151,39 @@ export function buildPublicDocumentDescription({
     : DEFAULT_DESCRIPTION;
 }
 
+/** A line frontmatter holds: a key, list item, indented value, comment or blank. */
+const FRONTMATTER_LINE =
+  /^(?:[ \t]*(?:#.*)?|[ \t]+\S.*|-(?:[ \t].*)?|[^\s#:-][^:]*:(?:[ \t].*)?)$/;
+const FRONTMATTER_KEY = /^[^\s#:-][^:]*:(?:[ \t]|$)/;
+
+/**
+ * The markdown after its frontmatter, or null when a prefix ends inside it.
+ * Frontmatter opens with `---` and a key or comment, and holds only YAML lines,
+ * at least one a key, up to a closing `---`. A divider at the top of a page is
+ * followed by a blank line or by text that isn't YAML.
+ */
+function stripExcerptFrontmatter(
+  markdown: string,
+  truncated: boolean,
+): string | null {
+  if (!/^---[ \t]*\n(?:#|[^\s#:-][^:\n]*:(?:[ \t]|\n|$))/.test(markdown)) {
+    return markdown;
+  }
+  const lines = markdown.split("\n");
+  let hasKey = false;
+  for (let index = 1; index < lines.length; index++) {
+    const line = lines[index];
+    if (/^---[ \t]*$/.test(line)) {
+      return hasKey ? lines.slice(index + 1).join("\n") : markdown;
+    }
+    if (FRONTMATTER_KEY.test(line)) hasKey = true;
+    // A prefix's last line may be cut short.
+    if (truncated && index === lines.length - 1) break;
+    if (!FRONTMATTER_LINE.test(line)) return markdown;
+  }
+  return truncated && hasKey ? null : markdown;
+}
+
 const DEFAULT_EXCERPT_LENGTH = 300;
 /** Scripts written without spaces between words. */
 const SPACELESS_SCRIPT =
@@ -176,15 +209,13 @@ export function buildDocumentExcerpt({
   nextCharacter?: string;
   maxLength?: number;
 }): string {
-  let markdown = content?.replace(/\r\n?/g, "\n") ?? "";
-  // Frontmatter puts a `key:` line right after its opening `---`; a divider at
-  // the top of a page is followed by text or a blank line.
-  if (/^---[ \t]*\n[\p{L}\p{N}_"'-][^\n]*:/u.test(markdown)) {
-    const body = stripFrontmatter(markdown);
-    // A prefix that ends inside the frontmatter has no body text yet.
-    if (body !== markdown) markdown = body;
-    else if (truncated) return "";
-  }
+  const body = stripExcerptFrontmatter(
+    content?.replace(/\r\n?/g, "\n") ?? "",
+    truncated,
+  );
+  // A prefix that ends inside the frontmatter has no body text yet.
+  if (body === null) return "";
+  let markdown = body;
   if (truncated) {
     // Drop a link, image or tag the cut leaves open, and a word it splits,
     // with any markup or punctuation in front of it. A cut right after

@@ -113,6 +113,23 @@ const flag = true;
         content: "---\nFirst paragraph.\n\n---\n\nSecond paragraph.",
       }),
     ).toBe("First paragraph. Second paragraph.");
+    // Frontmatter can open with a comment and hold lists.
+    expect(
+      buildDocumentExcerpt({
+        content: "---\n# Metadata\ntags:\n  - news\n---\n\nBody.",
+      }),
+    ).toBe("Body.");
+    // Text that isn't YAML after a top divider is page text, colon or not.
+    expect(
+      buildDocumentExcerpt({
+        content: "---\nNote: this matters\nand goes on.\n\n---\n\nMore.",
+      }),
+    ).toBe("Note: this matters and goes on. More.");
+    expect(
+      buildDocumentExcerpt({
+        content: "---\n# Plan\nOwner: Alice\nWe ship in May.\n\n---\n\nMore.",
+      }),
+    ).toBe("Owner: Alice We ship in May. More.");
   });
 
   it("separates headings and dividers from the text around them", () => {
@@ -216,12 +233,20 @@ const flag = true;
   it("is empty for an empty page or a prefix cut off inside its frontmatter", () => {
     expect(buildDocumentExcerpt({ content: "" })).toBe("");
     expect(buildDocumentExcerpt({ content: "<empty-block/>" })).toBe("");
+    for (const content of [
+      "---\ntitle: Draft\nstatus: open",
+      "---\ntitle: Draft\nsta",
+      "---\n# Metadata\ntags:\n  - ne",
+    ]) {
+      expect(buildDocumentExcerpt({ content, truncated: true })).toBe("");
+    }
+    // Until the prefix shows text that isn't YAML.
     expect(
       buildDocumentExcerpt({
-        content: "---\ntitle: Draft\nstatus: open",
+        content: "---\nNote: this matters\n\nThe body goes on.\nAnd on",
         truncated: true,
       }),
-    ).toBe("");
+    ).toBe("Note: this matters The body goes on. And...");
   });
 
   it("ends with an ellipsis when the text stops early", () => {
