@@ -3,7 +3,7 @@
 // runtime-budget.json. Exit 0 within budget, 1 over budget, 2 when a step did
 // not take effect.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -11,6 +11,10 @@ import { chromium, errors, type CDPSession, type Page } from "@playwright/test";
 
 import { OVERVIEW_FRAME_WIDTH } from "../app/components/design/multi-screen/overview-layout.ts";
 import { DEVICE_FRAME_VIEWPORTS } from "../app/components/design/types.ts";
+import {
+  finalizeRuntimeBudget,
+  writeRuntimeBudgetReceipt,
+} from "./_runtime-budget-finalize.ts";
 import { runRuntimeZoomBrowserAttempt } from "./_runtime-budget-zoom-browser.ts";
 
 type BudgetFile = {
@@ -917,12 +921,6 @@ metrics.totalHeapGrowthPerIterationMB = growthPerIteration(
 for (const [name, worst] of Object.entries(worstFrameByStep)) {
   metrics[`${name}WorstFrameMs`] = worst;
 }
-await browser.close();
-await deleteSeededDesign();
-console.log(
-  `session took ${Math.round((Date.now() - sessionStartedAt) / 1000)}s`,
-);
-
 const format = (value: number | undefined) =>
   value === undefined || Number.isNaN(value)
     ? "missing"
@@ -956,35 +954,56 @@ const verdict = failedSteps.length
 const refreshLines = refreshes.map(
   (refresh) => `- ${refresh.step}: ${refresh.screen} (${refresh.change})`,
 );
-console.log(`\n${table}\n\n${verdict}`);
-if (refreshLines.length)
-  console.log(`\nRefreshes:\n${refreshLines.join("\n")}`);
-if (values.out) {
-  writeFileSync(
-    values.out,
-    JSON.stringify(
-      {
-        designId,
-        browser: {
-          channel: values.channel,
-          version: browserVersion,
-          frameProcesses,
-        },
-        metrics,
-        heapSeries,
-        zoomMeasurements,
-        failedSteps,
-        refreshes,
-      },
-      null,
-      2,
-    ),
+const result = await finalizeRuntimeBudget(
+  {
+    designId,
+    browser: {
+      channel: values.channel,
+      version: browserVersion,
+      frameProcesses,
+    },
+    metrics,
+    heapSeries,
+    zoomMeasurements,
+    failedSteps,
+    refreshes,
+  },
+  failedSteps.length ? 2 : overBudget.length ? 1 : 0,
+  `## Design runtime budget\n\n${table}\n\n${verdict}\n`,
+  {
+    writeReceipt: values.out
+      ? (receipt) =>
+          writeRuntimeBudgetReceipt(
+            values.out!,
+            JSON.stringify(receipt, null, 2),
+          )
+      : undefined,
+    printReceipt: (receipt) =>
+      console.log(
+        `runtime budget measurement receipt: ${JSON.stringify(receipt)}`,
+      ),
+    printSummary: (text) => {
+      console.log(text);
+      if (refreshLines.length)
+        console.log(`\nRefreshes:\n${refreshLines.join("\n")}`);
+    },
+    appendSummary: values.summary
+      ? (text) => appendFileSync(values.summary!, text)
+      : undefined,
+    closeBrowser: () => browser.close(),
+    deleteSeed: deleteSeededDesign,
+  },
+);
+console.log(
+  `session took ${Math.round((Date.now() - sessionStartedAt) / 1000)}s`,
+);
+if (
+  result.receipt.finalization.operations.some(
+    (operation) => operation.status === "failed",
+  )
+) {
+  console.error(
+    `runtime budget finalization failed: ${JSON.stringify(result.receipt)}`,
   );
 }
-if (values.summary) {
-  appendFileSync(
-    values.summary,
-    `## Design runtime budget\n\n${table}\n\n${verdict}\n`,
-  );
-}
-process.exitCode = failedSteps.length ? 2 : overBudget.length ? 1 : 0;
+process.exitCode = result.exitCode;
