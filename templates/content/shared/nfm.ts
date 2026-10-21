@@ -2003,8 +2003,12 @@ function parseBlockSequence(
       continue;
     }
 
+    // A list here keeps no indent of its own, so a spaced marker one tab in
+    // stays text: as a list it would swallow the indented block after it on
+    // the next read.
     const listKind =
-      listKindOf(dedent) ?? listKindOf(dedent.replace(/^ {1,3}/, ""));
+      listKindOf(dedent) ??
+      (rel === 0 ? listKindOf(dedent.replace(/^ {1,3}/, "")) : null);
     if (listKind) {
       const res = parseList(lines, i, ind, listKind);
       out.push(res.nodes[0]);

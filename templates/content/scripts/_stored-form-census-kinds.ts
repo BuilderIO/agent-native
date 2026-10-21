@@ -665,6 +665,8 @@ function gfmProfile(body: string): ReadProfile {
       "tableCell",
       "code",
       "break",
+      "image",
+      "imageReference",
     ].includes(node.type);
     if (block) flushText(profile);
     let inner = marks;

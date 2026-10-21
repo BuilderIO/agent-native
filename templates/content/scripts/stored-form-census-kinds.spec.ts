@@ -246,6 +246,10 @@ describe("body classification", () => {
     expect(canonicalizationLosses("[one](u)[two](u)", "[one](u)")).toContain(
       "gfm-text-dropped",
     );
+    const imageBetween = "one![](https://a.example/i.png)two";
+    expect(
+      canonicalizationLosses(imageBetween, canonicalizeNfm(imageBetween)),
+    ).toEqual(["gfm-images-lost"]);
   });
 
   it("classifies a line of list or quote markers in linear time", () => {

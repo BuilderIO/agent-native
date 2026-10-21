@@ -133,8 +133,8 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
       '<table header-row="true">\n<tr>\n<td>A</td>\n<td>B</td>\n</tr>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</table>',
     // The editor draws a header cell as a td with this class, never as a th.
     renders: [
-      { selector: "td.notion-table-header-cell", text: "A" },
-      { selector: "td:not(.notion-table-header-cell)", text: "2" },
+      { selector: "td.content-table-header-cell", text: "A" },
+      { selector: "td:not(.content-table-header-cell)", text: "2" },
     ],
   },
   {
@@ -485,6 +485,13 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     origin: "editor",
     markdown: "\\  - not a list",
     canonical: "\\  - not a list",
+  },
+  {
+    id: "tab-indented-spaced-marker-stays-text",
+    origin: "agent",
+    markdown: "Intro\n\t  - item\n\tafter",
+    canonical: "Intro\n\t\\  - item\n\tafter",
+    note: "A list one tab in keeps no indent, so the indented line after it would join the item on the next read.",
   },
   {
     id: "untabbed-container-body",
