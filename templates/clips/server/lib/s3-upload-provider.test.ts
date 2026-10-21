@@ -193,6 +193,29 @@ describe("s3FileUploadProvider", () => {
     expect(mockResolveSecret).not.toHaveBeenCalled();
   });
 
+  it("claims only organization logo uploads", () => {
+    const handles = clipsOrganizationLogoPrivateBlobProvider.handles!;
+
+    expect(
+      handles({
+        mimeType: "image/png",
+        metadata: {
+          organizationId: "org-1",
+          purpose: "organization-brand-logo",
+        },
+      }),
+    ).toBe(true);
+    // App-activity captures are general private blobs, so the logo
+    // provider must not take them even when S3 is configured.
+    expect(
+      handles({
+        mimeType: "application/json",
+        metadata: { purpose: "clips-app-activity", recordingId: "rec-1" },
+      }),
+    ).toBe(false);
+    expect(handles({ mimeType: "image/png" })).toBe(false);
+  });
+
   it("does not configure organization-logo storage from user-only credentials", async () => {
     const requestValues: Record<string, string> = {
       S3_BUCKET: "user-bucket",

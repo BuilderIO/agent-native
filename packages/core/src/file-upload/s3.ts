@@ -6,6 +6,7 @@ import {
   listFileUploadProviders,
   registerFileUploadProvider,
 } from "./registry.js";
+import { rfc3986, signS3Request } from "./s3-client.js";
 import type { FileUploadProvider } from "./types.js";
 
 interface S3Config {
@@ -124,56 +125,8 @@ async function readRequestConfig(): Promise<S3Config | null> {
   return scopedConfig ?? readEnvConfig();
 }
 
-async function hmac(key: ArrayBuffer, message: string): Promise<ArrayBuffer> {
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    key,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return crypto.subtle.sign(
-    "HMAC",
-    cryptoKey,
-    new TextEncoder().encode(message),
-  );
-}
-
-async function sha256(data: Uint8Array): Promise<string> {
-  const buffer = new ArrayBuffer(data.byteLength);
-  new Uint8Array(buffer).set(data);
-  return toHex(await crypto.subtle.digest("SHA-256", buffer));
-}
-
-function toHex(buffer: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buffer), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-}
-
-async function signingKey(
-  secret: string,
-  dateStamp: string,
-  region: string,
-): Promise<ArrayBuffer> {
-  const dateKey = await hmac(
-    new TextEncoder().encode(`AWS4${secret}`).buffer as ArrayBuffer,
-    dateStamp,
-  );
-  const regionKey = await hmac(dateKey, region);
-  const serviceKey = await hmac(regionKey, "s3");
-  return hmac(serviceKey, "aws4_request");
-}
-
-function encodePathSegment(value: string): string {
-  return encodeURIComponent(value).replace(
-    /[!'()*]/g,
-    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-}
-
-function objectPath(config: S3Config, key: string): string {
-  return `/${config.bucket}/${key.split("/").map(encodePathSegment).join("/")}`;
+function encodeKey(key: string): string {
+  return key.split("/").map(rfc3986).join("/");
 }
 
 async function putObject(
@@ -182,60 +135,14 @@ async function putObject(
   data: Uint8Array,
   contentType: string,
 ): Promise<string> {
-  const now = new Date();
-  const amzDate =
-    now
-      .toISOString()
-      .replace(/[:-]|\.\d{3}/g, "")
-      .slice(0, 15) + "Z";
-  const dateStamp = amzDate.slice(0, 8);
-  const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`;
-  const host = new URL(config.endpoint).host;
-  const canonicalUri = objectPath(config, key);
-  const payloadHash = await sha256(data);
-  const headers: Record<string, string> = {
-    host,
-    "content-type": contentType,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-  const signedHeaderKeys = Object.keys(headers).sort();
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalHeaders =
-    signedHeaderKeys
-      .map((header) => `${header}:${headers[header]}`)
-      .join("\n") + "\n";
-  const canonicalRequest = [
-    "PUT",
-    canonicalUri,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-  const requestHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    requestHash,
-  ].join("\n");
-  const signature = toHex(
-    await hmac(
-      await signingKey(config.secretAccessKey, dateStamp, config.region),
-      stringToSign,
-    ),
-  );
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  const response = await fetch(`${config.endpoint}${canonicalUri}`, {
+  const { url, headers } = await signS3Request(config, key, {
     method: "PUT",
-    headers: {
-      ...headers,
-      Authorization: authorization,
-      "Content-Length": String(data.byteLength),
-    },
+    body: data,
+    contentType,
+  });
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: { ...headers, "Content-Length": String(data.byteLength) },
     body: data.buffer.slice(
       data.byteOffset,
       data.byteOffset + data.byteLength,
@@ -247,60 +154,14 @@ async function putObject(
       `S3 PutObject failed (${response.status}): ${detail || response.statusText}`,
     );
   }
-  return `${config.publicBaseUrl}/${key.split("/").map(encodePathSegment).join("/")}`;
+  return `${config.publicBaseUrl}/${encodeKey(key)}`;
 }
 
 async function deleteObject(config: S3Config, key: string): Promise<boolean> {
-  const now = new Date();
-  const amzDate =
-    now
-      .toISOString()
-      .replace(/[:-]|\.\d{3}/g, "")
-      .slice(0, 15) + "Z";
-  const dateStamp = amzDate.slice(0, 8);
-  const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`;
-  const host = new URL(config.endpoint).host;
-  const canonicalUri = objectPath(config, key);
-  const payloadHash = await sha256(new Uint8Array(0));
-  const headers: Record<string, string> = {
-    host,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-  const signedHeaderKeys = Object.keys(headers).sort();
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalHeaders =
-    signedHeaderKeys
-      .map((header) => `${header}:${headers[header]}`)
-      .join("\n") + "\n";
-  const canonicalRequest = [
-    "DELETE",
-    canonicalUri,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-  const requestHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    requestHash,
-  ].join("\n");
-  const signature = toHex(
-    await hmac(
-      await signingKey(config.secretAccessKey, dateStamp, config.region),
-      stringToSign,
-    ),
-  );
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  const response = await fetch(`${config.endpoint}${canonicalUri}`, {
+  const { url, headers } = await signS3Request(config, key, {
     method: "DELETE",
-    headers: { ...headers, Authorization: authorization },
   });
+  const response = await fetch(url, { method: "DELETE", headers });
   if (response.ok) return true;
   if (response.status === 404) return true;
   const detail = await response.text();

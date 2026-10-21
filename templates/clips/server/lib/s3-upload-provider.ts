@@ -1,8 +1,9 @@
 import {
-  isBlockedExtensionUrlWithDns,
-  ssrfSafeFetch,
-} from "@agent-native/core/extensions/url-safety";
-import type { FileUploadProvider } from "@agent-native/core/file-upload";
+  cancelS3ResponseBody,
+  rfc3986,
+  signedS3Request,
+  type FileUploadProvider,
+} from "@agent-native/core/file-upload";
 import {
   type PrivateBlobHandle,
   type PrivateBlobProvider,
@@ -54,176 +55,6 @@ export class S3StorageError extends Error {
     super(message);
     this.name = "S3StorageError";
   }
-}
-
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
-  trustedPrivateOrigin?: string,
-): Promise<Response> {
-  const controller = new AbortController();
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const createTimeoutError = () => {
-    const error = new Error(
-      `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
-    );
-    error.name = "TimeoutError";
-    return error;
-  };
-  const clearTimeoutIfRunning = () => {
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = undefined;
-    }
-  };
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeout = setTimeout(() => {
-      const timeoutError = createTimeoutError();
-      controller.abort(timeoutError);
-      reject(timeoutError);
-    }, timeoutMs);
-  });
-
-  try {
-    const request = (async () => {
-      const isPrivateDestination = await isBlockedExtensionUrlWithDns(url);
-      if (controller.signal.aborted) throw controller.signal.reason;
-      const allowedPrivateOrigins =
-        isPrivateDestination &&
-        trustedPrivateOrigin === new URL(url).origin &&
-        trustedPrivateOrigin
-          ? [trustedPrivateOrigin]
-          : [];
-      if (isPrivateDestination && allowedPrivateOrigins.length === 0) {
-        throw new Error(
-          `SSRF blocked: refusing to fetch private/internal S3 endpoint (${url})`,
-        );
-      }
-      return ssrfSafeFetch(
-        url,
-        {
-          ...init,
-          signal: controller.signal,
-        },
-        {
-          followRedirects: false,
-          requireDispatcher: true,
-          allowedPrivateOrigins,
-        },
-      );
-    })();
-    const response = await Promise.race([request, timeoutPromise]);
-    clearTimeoutIfRunning();
-    if (!response.body) {
-      return response;
-    }
-
-    const reader = response.body.getReader();
-    let idleTimeout: ReturnType<typeof setTimeout> | undefined;
-    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
-    let bodySettled = false;
-    const clearIdleTimeout = () => {
-      if (idleTimeout) {
-        clearTimeout(idleTimeout);
-        idleTimeout = undefined;
-      }
-    };
-    const timeOutBody = () => {
-      if (bodySettled) return;
-      const timeoutError = createTimeoutError();
-      bodySettled = true;
-      clearIdleTimeout();
-      controller.abort(timeoutError);
-      bodyController?.error(timeoutError);
-    };
-    const resetIdleTimeout = () => {
-      clearIdleTimeout();
-      idleTimeout = setTimeout(timeOutBody, timeoutMs);
-      if (idleTimeout.unref) idleTimeout.unref();
-    };
-    const body = new ReadableStream<Uint8Array>(
-      {
-        start(streamController) {
-          bodyController = streamController;
-          resetIdleTimeout();
-        },
-        async pull(streamController) {
-          try {
-            if (controller.signal.aborted) throw controller.signal.reason;
-            const { done, value } = await reader.read();
-            if (bodySettled) return;
-            if (controller.signal.aborted) throw controller.signal.reason;
-            if (done) {
-              bodySettled = true;
-              clearIdleTimeout();
-              streamController.close();
-            } else {
-              streamController.enqueue(value);
-              resetIdleTimeout();
-            }
-          } catch (error) {
-            if (bodySettled) return;
-            bodySettled = true;
-            clearIdleTimeout();
-            streamController.error(
-              controller.signal.aborted ? controller.signal.reason : error,
-            );
-          }
-        },
-        async cancel(reason) {
-          bodySettled = true;
-          clearIdleTimeout();
-          await reader.cancel(reason);
-        },
-      },
-      { highWaterMark: 0 },
-    );
-    return new Response(body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
-  } catch (err) {
-    clearTimeoutIfRunning();
-    if (err instanceof Error && err.name === "TimeoutError") {
-      throw createTimeoutError();
-    }
-    if (err instanceof Error && err.name === "AbortError") {
-      const abortError = new Error(
-        `S3 request aborted (timeout ${timeoutMs}ms): ${init.method ?? "GET"} ${url}`,
-      );
-      abortError.name = "AbortError";
-      throw abortError;
-    }
-    throw err;
-  }
-}
-
-async function cancelS3ResponseBody(response: Response): Promise<void> {
-  await response.body?.cancel().catch(() => undefined);
-}
-
-function trustedDeploymentS3Origin(endpoint: string): string | undefined {
-  const configuredEndpoint = readS3EnvSecret("S3_ENDPOINT", "R2_ENDPOINT");
-  if (!configuredEndpoint) return undefined;
-  if (!URL.canParse(endpoint) || !URL.canParse(configuredEndpoint)) {
-    return undefined;
-  }
-  const endpointUrl = new URL(endpoint);
-  const configuredUrl = new URL(configuredEndpoint);
-  const normalizePath = (path: string) => path.replace(/\/+$/, "") || "/";
-  if (
-    endpointUrl.origin !== configuredUrl.origin ||
-    normalizePath(endpointUrl.pathname) !==
-      normalizePath(configuredUrl.pathname) ||
-    endpointUrl.search !== configuredUrl.search ||
-    endpointUrl.username !== configuredUrl.username ||
-    endpointUrl.password !== configuredUrl.password
-  ) {
-    return undefined;
-  }
-  return endpointUrl.origin;
 }
 
 function buildS3Config(values: {
@@ -402,171 +233,11 @@ async function readOrganizationLogoS3Config(
   });
 }
 
-async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
-  const k = await crypto.subtle.importKey(
-    "raw",
-    key,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg));
-}
-
-async function sha256(data: Uint8Array): Promise<string> {
-  const ab = new ArrayBuffer(data.byteLength);
-  new Uint8Array(ab).set(data);
-  const buf = await crypto.subtle.digest("SHA-256", ab);
-  return toHex(buf);
-}
-
-function toHex(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let out = "";
-  for (let i = 0; i < bytes.length; i++) {
-    out += bytes[i].toString(16).padStart(2, "0");
-  }
-  return out;
-}
-
-async function deriveSigningKey(
-  secret: string,
-  dateStamp: string,
-  region: string,
-): Promise<ArrayBuffer> {
-  const kSecret = new TextEncoder().encode(`AWS4${secret}`);
-  const kDate = await hmac(kSecret.buffer as ArrayBuffer, dateStamp);
-  const kRegion = await hmac(kDate, region);
-  const kService = await hmac(kRegion, "s3");
-  return hmac(kService, "aws4_request");
-}
-
-function rfc3986(str: string): string {
-  return encodeURIComponent(str).replace(
-    /[!'()*]/g,
-    (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
-  );
-}
-
-function objectUri(cfg: S3Config, key: string): string {
-  const keySegments = key.split("/");
-  if (
-    cfg.bucket.includes("/") ||
-    cfg.bucket.includes("\\") ||
-    cfg.bucket === "." ||
-    cfg.bucket === ".." ||
-    keySegments.some((segment) => segment === "." || segment === "..")
-  ) {
-    throw new Error("S3 object path contains an unsafe URL path segment");
-  }
-  return `/${rfc3986(cfg.bucket)}/${keySegments.map(rfc3986).join("/")}`;
-}
-
 export class S3MultipartStartError extends Error {
   constructor(readonly status: number) {
     super(`S3 CreateMultipartUpload failed (${status})`);
     this.name = "S3MultipartStartError";
   }
-}
-
-function canonicalQueryString(query: Record<string, string>): string {
-  return Object.entries(query)
-    .map(([key, value]) => [rfc3986(key), rfc3986(value)] as const)
-    .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
-      const left = leftKey === rightKey ? leftValue : leftKey;
-      const right = leftKey === rightKey ? rightValue : rightKey;
-      return left < right ? -1 : left > right ? 1 : 0;
-    })
-    .map(([key, value]) => `${key}=${value}`)
-    .join("&");
-}
-
-async function signedS3Request(
-  cfg: S3Config,
-  key: string,
-  options: {
-    method: "DELETE" | "GET" | "HEAD" | "POST" | "PUT";
-    query?: Record<string, string>;
-    body?: Uint8Array;
-    contentType?: string;
-    range?: string;
-    timeoutMs: number;
-  },
-): Promise<Response> {
-  const now = new Date();
-  const amzDate =
-    now
-      .toISOString()
-      .replace(/[:-]|\.\d{3}/g, "")
-      .slice(0, 15) + "Z";
-  const dateStamp = amzDate.slice(0, 8);
-  const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
-  const host = new URL(cfg.endpoint).host;
-  const canonicalUri = objectUri(cfg, key);
-  const canonicalQuery = canonicalQueryString(options.query ?? {});
-  const body = options.body ?? new Uint8Array(0);
-  const payloadHash = await sha256(body);
-
-  const headers: Record<string, string> = {
-    host,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-  if (options.contentType) headers["content-type"] = options.contentType;
-  if (options.range?.startsWith("bytes=")) headers.range = options.range;
-
-  const signedHeaderKeys = Object.keys(headers).sort();
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalHeaders =
-    signedHeaderKeys
-      .map((header) => `${header}:${headers[header]}`)
-      .join("\n") + "\n";
-  const canonicalRequest = [
-    options.method,
-    canonicalUri,
-    canonicalQuery,
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    crHash,
-  ].join("\n");
-  const signingKey = await deriveSigningKey(
-    cfg.secretAccessKey,
-    dateStamp,
-    cfg.region,
-  );
-  const signature = toHex(await hmac(signingKey, stringToSign));
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  const url = `${cfg.endpoint}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ""}`;
-  return fetchWithTimeout(
-    url,
-    {
-      method: options.method,
-      headers: {
-        ...headers,
-        Authorization: authorization,
-      },
-      ...(options.body
-        ? {
-            body: options.body.buffer.slice(
-              options.body.byteOffset,
-              options.body.byteOffset + options.body.byteLength,
-            ) as BodyInit,
-          }
-        : {}),
-    },
-    options.timeoutMs,
-    trustedDeploymentS3Origin(cfg.endpoint),
-  );
 }
 
 async function putObject(
@@ -732,6 +403,9 @@ const PRIVATE_LOGO_EXTENSIONS: Record<string, string> = {
 export const clipsOrganizationLogoPrivateBlobProvider: PrivateBlobProvider = {
   id: S3_ORGANIZATION_LOGO_PROVIDER_ID,
   name: "Clips organization logo storage",
+  // Only logo uploads land here; every other private blob goes to the
+  // general provider.
+  handles: (request) => request.metadata?.purpose === ORGANIZATION_LOGO_PURPOSE,
   isConfigured: () => readS3EnvConfig() !== null,
   isConfiguredForRequest: async () => {
     const organizationId = getRequestOrgId();

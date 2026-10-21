@@ -481,4 +481,190 @@ describe("private blob registry", () => {
       ).rejects.toMatchObject({ kind: "not_configured" });
     });
   });
+
+  describe("specialized providers", () => {
+    function memoryProvider(
+      id: string,
+      overrides: Partial<PrivateBlobProvider> = {},
+    ): PrivateBlobProvider {
+      const handle = {
+        id: `${id}:1`,
+        provider: id,
+        opaque: true as const,
+        encrypted: false,
+      };
+      return {
+        id,
+        name: id,
+        isConfigured: () => true,
+        put: vi.fn(async () => handle),
+        read: vi.fn(async () => ({ data: new Uint8Array(), handle })),
+        delete: vi.fn(async () => ({ deleted: true, provider: id })),
+        ...overrides,
+      };
+    }
+
+    it("sends only the puts a provider claims to it", async () => {
+      const registry = await freshRegistry();
+      const logos = memoryProvider("logos", {
+        handles: (request) => request.metadata?.purpose === "logo",
+      });
+      const general = memoryProvider("general");
+      registry.registerPrivateBlobProvider(logos);
+      registry.registerPrivateBlobProvider(general);
+
+      await expect(
+        registry.putPrivateBlob({
+          data: new Uint8Array([1]),
+          mimeType: "application/json",
+          metadata: { purpose: "app-activity", recordingId: "rec-1" },
+        }),
+      ).resolves.toMatchObject({ provider: "general" });
+      await expect(
+        registry.putPrivateBlob({
+          data: new Uint8Array([1]),
+          mimeType: "image/png",
+          metadata: { purpose: "logo", organizationId: "org-1" },
+        }),
+      ).resolves.toMatchObject({ provider: "logos" });
+      expect(registry.getActivePrivateBlobProvider()?.id).toBe("general");
+      await expect(
+        registry.getActivePrivateBlobProviderForRequest(),
+      ).resolves.toMatchObject({ id: "general" });
+    });
+
+    it("falls back to the general provider when a claiming provider isn't configured", async () => {
+      const registry = await freshRegistry();
+      registry.registerPrivateBlobProvider(
+        memoryProvider("logos", {
+          handles: () => true,
+          isConfigured: () => false,
+          isConfiguredForRequest: async () => false,
+        }),
+      );
+      registry.registerPrivateBlobProvider(memoryProvider("general"));
+
+      await expect(
+        registry.putPrivateBlob({
+          data: new Uint8Array([1]),
+          metadata: { purpose: "logo" },
+        }),
+      ).resolves.toMatchObject({ provider: "general" });
+    });
+
+    it("doesn't report a claiming provider as ready private storage", async () => {
+      const registry = await freshRegistry();
+      registry.setPrivateBlobPublicUploadFallbackEnabled(false);
+      registry.registerPrivateBlobProvider(
+        memoryProvider("logos", { handles: () => true }),
+      );
+
+      await expect(
+        registry.getPrivateBlobStorageReadinessForRequest(),
+      ).resolves.toMatchObject({ configured: false });
+    });
+  });
+
+  describe("range reads and read links", () => {
+    const handle = {
+      id: "memory:1",
+      provider: "memory",
+      opaque: true as const,
+      encrypted: false,
+    };
+
+    function wholeReadProvider(): PrivateBlobProvider {
+      return {
+        id: "memory",
+        name: "Memory",
+        isConfigured: () => true,
+        put: vi.fn(async () => handle),
+        read: vi.fn(async () => ({
+          data: new TextEncoder().encode("0123456789"),
+          handle,
+        })),
+        delete: vi.fn(async () => ({ deleted: true, provider: "memory" })),
+      };
+    }
+
+    it("slices a whole read when the provider can't read ranges", async () => {
+      const registry = await freshRegistry();
+      registry.registerPrivateBlobProvider(wholeReadProvider());
+
+      const result = await registry.readPrivateBlobRange(handle, {
+        start: 2,
+        end: 4,
+      });
+      expect(new TextDecoder().decode(result.data)).toBe("234");
+      expect(result.range).toEqual({ start: 2, end: 4, size: 10 });
+
+      const tail = await registry.readPrivateBlobRange(handle, {
+        start: 7,
+        end: 99,
+      });
+      expect(new TextDecoder().decode(tail.data)).toBe("789");
+      expect(tail.range).toEqual({ start: 7, end: 9, size: 10 });
+
+      const open = await registry.readPrivateBlobRange(handle, { start: 8 });
+      expect(new TextDecoder().decode(open.data)).toBe("89");
+    });
+
+    it("rejects malformed ranges and ranges past the end", async () => {
+      const registry = await freshRegistry();
+      const { PrivateBlobRangeError } = await import("./errors.js");
+      registry.registerPrivateBlobProvider(wholeReadProvider());
+
+      await expect(
+        registry.readPrivateBlobRange(handle, { start: 5, end: 4 }),
+      ).rejects.toBeInstanceOf(PrivateBlobRangeError);
+      await expect(
+        registry.readPrivateBlobRange(handle, { start: -1 }),
+      ).rejects.toBeInstanceOf(PrivateBlobRangeError);
+      await expect(
+        registry.readPrivateBlobRange(handle, { start: 10 }),
+      ).rejects.toMatchObject({ size: 10 });
+    });
+
+    it("uses the provider's own range read when it has one", async () => {
+      const registry = await freshRegistry();
+      const readRange = vi.fn(async () => ({
+        data: new Uint8Array([1]),
+        handle,
+        range: { start: 3, end: 3, size: 10 },
+      }));
+      const provider = { ...wholeReadProvider(), readRange };
+      registry.registerPrivateBlobProvider(provider);
+
+      await registry.readPrivateBlobRange(handle, { start: 3, end: 3 });
+      expect(readRange).toHaveBeenCalledWith(handle, { start: 3, end: 3 });
+      expect(provider.read).not.toHaveBeenCalled();
+    });
+
+    it("returns a read link only from providers that can sign one", async () => {
+      const registry = await freshRegistry();
+      registry.registerPrivateBlobProvider(wholeReadProvider());
+      await expect(
+        registry.getPrivateBlobReadUrl(handle, { expiresInSeconds: 60 }),
+      ).resolves.toBeNull();
+
+      registry.unregisterPrivateBlobProvider("memory");
+      const link = {
+        url: "https://bucket.example.test/blob?X-Amz-Signature=abc",
+        expiresAt: "2026-10-21T00:01:00.000Z",
+      };
+      registry.registerPrivateBlobProvider({
+        ...wholeReadProvider(),
+        getReadUrl: vi.fn(async () => link),
+      });
+      await expect(
+        registry.getPrivateBlobReadUrl(handle, { expiresInSeconds: 60 }),
+      ).resolves.toBe(link);
+      await expect(
+        registry.getPrivateBlobReadUrl(
+          { ...handle, provider: "public-upload:builder" },
+          { expiresInSeconds: 60 },
+        ),
+      ).resolves.toBeNull();
+    });
+  });
 });
