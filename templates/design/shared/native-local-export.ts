@@ -30,6 +30,7 @@ export const nativeRenderContextSchema = z
   .object({
     tabId: z.string().regex(/^[A-Za-z0-9_-]{1,96}$/),
     designId: z.string().min(1).max(128),
+    documentId: z.string().uuid().optional(),
     expiresAt: z.number().int().nonnegative(),
   })
   .strict();
@@ -40,6 +41,12 @@ export const nativeRenderContextLedgerSchema = z
     contexts: z
       .array(nativeRenderContextSchema)
       .max(NATIVE_RENDER_CONTEXT_LIMIT),
+  })
+  .strict();
+export const nativeLocalExportRevisionSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    revision: z.string().uuid(),
   })
   .strict();
 
@@ -119,6 +126,7 @@ export const nativeLocalExportStateSchema = nativeLocalExportRequestSchema
     ]),
     issuedAt: z.number().int().nonnegative(),
     expiresAt: z.number().int().nonnegative(),
+    targetDocumentId: z.string().uuid().optional(),
     ownerDocumentId: z.string().uuid().optional(),
     attachmentRef: z.string().min(1).max(4096).optional(),
     attachmentBytes: z
@@ -150,4 +158,10 @@ export function nativeLocalExportStateKey(
   tabId: string,
 ): string {
   return `native-local-export:${designId}:${tabId}`;
+}
+export function nativeLocalExportRevisionKey(
+  designId: string,
+  tabId: string,
+): string {
+  return `native-local-export-revision:${designId}:${tabId}`;
 }

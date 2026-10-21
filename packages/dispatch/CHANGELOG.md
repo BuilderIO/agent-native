@@ -1,5 +1,33 @@
 # @agent-native/dispatch
 
+## 0.40.34
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [05d1481]
+  - @agent-native/toolkit@0.214.0
+
+## 0.40.33
+
+### Patch Changes
+
+- e9efe95: Keep the curated QR catalog pinned to the current template files.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.213.1
+
+## 0.40.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- b58658d: Allow organization owners to opt in to current-member A2A delegation with capped member permissions and durable audit provenance. Improve app discovery and Dispatch routing for connected analytics and customer credit questions.
+- Updated dependencies
+- Updated dependencies [b58658d]
+  - @agent-native/toolkit@0.213.0
+
 ## 0.40.31
 
 ### Patch Changes
@@ -1284,23 +1312,5 @@
 ### Patch Changes
 
 - 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
-
-## 0.29.3
-
-### Patch Changes
-
-- 8cab236: Speed up workspace app opens in Dispatch by reusing the app catalog cache and deferring granted-app discovery until needed.
-
-## 0.29.2
-
-### Patch Changes
-
-- 66b2a1c: Navigate workspace apps in the top window when Dispatch runs in Builder or an iframe.
-
-## 0.29.1
-
-### Patch Changes
-
-- 96ecc13: Use compact app search and pin labels that stay on one line.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

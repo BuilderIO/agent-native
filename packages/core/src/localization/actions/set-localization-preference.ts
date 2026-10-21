@@ -39,6 +39,11 @@ export default defineAction({
     when: (_args, result) => normalizeActionChangeResult(result) !== null,
     projectResult: (_args, result) => normalizeActionChangeResult(result),
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
 

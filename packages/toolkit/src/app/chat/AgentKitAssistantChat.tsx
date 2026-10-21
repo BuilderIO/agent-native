@@ -2093,9 +2093,17 @@ export const AgentKitAssistantChat = forwardRef<
           threadId={threadId}
           load={agentKitLoad}
           onLoadError={onThreadRestoreLoadError}
-          slots={agentKitSlots}
+          slots={
+            props.workedForSummarySlot
+              ? {
+                  ...agentKitSlots,
+                  workedForSummary: props.workedForSummarySlot,
+                }
+              : agentKitSlots
+          }
           registry={agentKitRegistry}
           labels={labels}
+          resolveMessageContentOrder={props.resolveMessageContentOrder}
           branchNavigation={props.branchNavigation}
           loadRunUsage={loadRunUsage}
           buildFeedbackReport={formatFeedbackReport}
@@ -5979,6 +5987,7 @@ function AgentKitComposerSurface({
             })}
       />
       {props.composerSlot}
+      {props.composerContextBannerSlot}
       {showHomeIntro ? (
         <div className="agentkit-home-intro">{props.homeIntroSlot}</div>
       ) : null}

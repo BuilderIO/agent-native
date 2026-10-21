@@ -390,6 +390,7 @@ import {
   AgentTurnInitiatorUnavailableError,
   insertRun,
   insertRunEvent,
+  isRunAborted,
   isTurnAborted,
   markRunAborted,
   updateRunHeartbeat,
@@ -11733,6 +11734,7 @@ export interface ChainServerDrivenContinuationDeps {
   setRunError?: typeof setRunError;
   recordRunDiagnostic?: typeof recordRunDiagnostic;
   markBackgroundContinuationChunkTerminal?: typeof markBackgroundContinuationChunkTerminal;
+  isRunAborted?: typeof isRunAborted;
   generateRunId?: typeof generateRunId;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -11820,6 +11822,7 @@ export async function chainServerDrivenContinuation(opts: {
     markBackgroundContinuationChunkTerminal:
       opts.deps?.markBackgroundContinuationChunkTerminal ??
       markBackgroundContinuationChunkTerminal,
+    isRunAborted: opts.deps?.isRunAborted ?? isRunAborted,
     generateRunId: opts.deps?.generateRunId ?? generateRunId,
     sleep:
       opts.deps?.sleep ??
@@ -11937,9 +11940,25 @@ export async function chainServerDrivenContinuation(opts: {
   delete continuationBody.approvedToolCalls;
   delete continuationBody.approvedToolCallAskIds;
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
+  const markRunsAbortedOrThrow = async (...runIds: string[]) => {
+    const results = await Promise.allSettled(
+      runIds.map(async (targetRunId) => {
+        if (await d.markRunAborted(targetRunId, "user")) return true;
+        return await d.isRunAborted(targetRunId);
+      }),
+    );
+    const failedRunIds = results.flatMap((result, index) =>
+      result.status === "fulfilled" && result.value ? [] : [runIds[index]!],
+    );
+    if (failedRunIds.length > 0) {
+      throw new Error(
+        `Could not confirm durable abort for continuation run(s): ${failedRunIds.join(", ")}`,
+      );
+    }
+  };
   try {
     if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
-      await d.markRunAborted(runId, "user").catch(() => {});
+      await markRunsAbortedOrThrow(runId);
       return;
     }
     await d
@@ -11981,9 +12000,10 @@ export async function chainServerDrivenContinuation(opts: {
       );
     }
     if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
-      if (nextRowInserted)
-        await d.markRunAborted(nextRunId, "user").catch(() => {});
-      await d.markRunAborted(runId, "user").catch(() => {});
+      await markRunsAbortedOrThrow(
+        ...(nextRowInserted ? [nextRunId] : []),
+        runId,
+      );
       return;
     }
     const continuationTerminalEvent = {
@@ -11999,6 +12019,10 @@ export async function chainServerDrivenContinuation(opts: {
       throw new Error(
         `Could not release run ${runId} for continuation ${nextRunId}`,
       );
+    }
+    if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
+      if (nextRowInserted) await markRunsAbortedOrThrow(nextRunId);
+      return;
     }
     run.continuationTerminalEvent = continuationTerminalEvent;
     const dispatchBody = nextRowInserted
