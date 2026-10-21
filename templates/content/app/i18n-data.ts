@@ -6,6 +6,159 @@ import { importMessagesByLocale } from "./import-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
+  githubLinkTitle: "Link a GitHub folder",
+  githubNewCollectionTitle: "New collection from a GitHub folder",
+  githubLinkDescription:
+    "Its documents show up here as read-only pages and update on their own when the files change on GitHub.",
+  githubNewCollectionDescription:
+    "Content makes a collection named after the folder. Its documents show up there as read-only pages and update on their own when the files change on GitHub.",
+  githubLinkUrlLabel: "GitHub folder link",
+  githubLinkUrlHelp:
+    "On GitHub, open the folder and copy the address from your browser.",
+  githubLinkCheck: "Check folder",
+  githubLinkReading: "Reading the folder on GitHub…",
+  githubConnectChecking: "Checking your GitHub connection…",
+  githubConnectPrompt:
+    "Connect your GitHub account so Content can read your folders.",
+  githubConnect: "Connect GitHub",
+  githubPreviewPagesOne: "1 page",
+  githubPreviewPages: "{{count}} pages",
+  githubPreviewPagesUpTo: "Up to {{count}} pages",
+  githubLinkMore: "{{count}} more",
+  githubLinkNoFiles:
+    "This folder has no Markdown (.md) files, so there’s nothing to show.",
+  githubPreviewColumnsOne: "1 column",
+  githubPreviewColumns: "{{count}} columns",
+  githubLinkNoColumns:
+    "These files have no details at the top, so each page just gets its title.",
+  githubLinkNotShownOne: "1 file won’t show yet.",
+  githubLinkNotShown: "{{count}} files won’t show yet.",
+  githubLinkPicturesWaiting:
+    "Pictures in these files won’t show until a workspace admin sets up file storage.",
+  githubShowDetails: "Show details",
+  githubHideDetails: "Hide details",
+  githubDetailsPages: "Pages",
+  githubDetailsColumns: "Columns",
+  githubDetailsColumnsSampled:
+    "Read from the first {{count}} of {{total}} files. Others can add columns.",
+  githubDetailsNotShown: "Won’t show yet",
+  githubDetailsFrom: "From",
+  githubDetailsBranchVersion: "Branch {{branch}} · version {{commit}}",
+  githubYes: "Yes",
+  githubNo: "No",
+  githubSkipMdx: "Uses MDX, which Content can’t show yet",
+  githubSkipTooLarge: "Too big for Content to show",
+  githubSkipNotText: "Not a text file Content can read",
+  githubLinkSubmitOne: "Link 1 page",
+  githubLinkSubmit: "Link {{count}} pages",
+  githubLinkSubmitUpTo: "Link up to {{count}} pages",
+  githubLinking: "Linking…",
+  githubLinkingProgressOne: "Bringing in 1 page from GitHub…",
+  githubLinkingProgress: "Bringing in {{count}} pages from GitHub…",
+  githubLinkedToastOne: "Linked. 1 page from {{folder}} is here.",
+  githubLinkedToast: "Linked. {{count}} pages from {{folder}} are here.",
+  githubLinkedPartialToast:
+    "Linked. {{done}} of {{total}} pages are here; the rest arrive within a minute.",
+  githubLinkedSyncFailed: "Linked {{folder}}, but couldn’t bring pages in yet.",
+  githubLinkInvalidUrl:
+    "That isn’t a GitHub folder link. On GitHub, open the folder and copy the address from your browser.",
+  githubLinkFileUrl: "That’s a link to one file.",
+  githubLinkUseFolder: "Use the “{{folder}}” folder",
+  githubLinkRepositoryNotFound:
+    "Can’t open “{{repo}}”. Check the spelling, or make sure your GitHub account can see it.",
+  githubLinkBranchNotFound:
+    "There’s no branch called “{{branch}}” in {{repo}}. Check the link.",
+  githubLinkFolderNotFound:
+    "There’s no folder called “{{folder}}” in {{repo}}. Check the link.",
+  githubLinkForbidden:
+    "Your GitHub account can’t open “{{repo}}”. Ask its owner for access.",
+  githubLinkTooLarge:
+    "This folder has more than {{max}} files. Pick a smaller folder inside it.",
+  githubLinkUnavailable:
+    "Couldn’t reach GitHub just now. Try again in a minute.",
+  githubLinkBlockedHasRows:
+    "This collection has pages now, so a GitHub folder can’t fill it.",
+  githubLinkBlockedLinked:
+    "This collection already gets its pages from another app.",
+  githubLinkBlockedSystem: "This collection can’t show a GitHub folder.",
+  githubNewCollectionInstead: "New collection from GitHub",
+  githubRowAvailable: "Show a GitHub folder’s documents here",
+  githubRowConnectFirst: "Connect your GitHub account first",
+  githubRowEmptyOnly: "Only for empty collections",
+  githubRowOtherSource: "Already gets its pages from {{source}}",
+  githubRowFiles: "Not available for Files",
+  githubRowSystem: "Not available for this collection",
+  githubRowEditorsOnly: "Editors only",
+  githubRowLinked: "{{folder}} folder · Updated {{time}}",
+  githubRowLinkedNotUpdated: "{{folder}} folder · Not updated yet",
+  githubRowUnavailableWhileLinked: "Not available while linked to GitHub",
+  githubExplainHasPagesOne:
+    "A GitHub folder fills a whole collection, so it needs one with no pages. This one has 1 page.",
+  githubExplainHasPages:
+    "A GitHub folder fills a whole collection, so it needs one with no pages. This one has {{count}} pages.",
+  githubExplainOtherSource:
+    "A collection gets its pages from one place. This one uses {{source}}.",
+  githubExplainFiles: "The Files collection can’t show a GitHub folder.",
+  githubExplainSystem: "This collection can’t show a GitHub folder.",
+  githubExplainEditorsOnly:
+    "Only people who can edit this collection can link a GitHub folder. Ask its owner for edit access.",
+  githubExplainLinked:
+    "This collection’s pages come from GitHub. Unlink the folder to use another source.",
+  githubDetailFolder: "Folder",
+  githubDetailBranch: "Branch",
+  githubDetailVersion: "Version",
+  githubDetailUpdated: "Updated",
+  githubCheckForUpdates: "Check for updates",
+  githubOpenFolder: "Open in GitHub",
+  githubUnlinkFolder: "Unlink folder…",
+  githubUnlinkTitle: "Unlink this GitHub folder?",
+  githubUnlinkBodyOne:
+    "The 1 page stays here and becomes a normal page you can edit. Changes on GitHub won’t come in anymore. To link this folder again later, you’ll use a new collection.",
+  githubUnlinkBody:
+    "The {{count}} pages stay here and become normal pages you can edit. Changes on GitHub won’t come in anymore. To link this folder again later, you’ll use a new collection.",
+  githubUnlink: "Unlink",
+  githubUnlinking: "Unlinking…",
+  githubUnlinkedToast:
+    "Unlinked. Your pages are kept and you can edit them now.",
+  githubUnlinkFailed: "Couldn’t unlink the folder",
+  githubFromFolder: "From the {{folder}} folder on GitHub",
+  githubFromRepo: "From {{repo}} on GitHub",
+  githubUpdatedAgo: "Updated {{time}}",
+  githubJustNow: "just now",
+  githubNotUpdatedYet: "Not updated yet",
+  githubEditOnGitHub: "Edit on GitHub",
+  githubDetails: "Details",
+  githubNotShownOne: "1 file not shown",
+  githubNotShown: "{{count}} files not shown",
+  githubNotShownHeading: "Not shown",
+  githubShowingAsOf: "Showing pages as of {{time}}.",
+  githubSyncingProgress: "Bringing in changes: {{done}} of {{total}} files",
+  githubPicturesWaiting:
+    "Some pictures won’t show until a workspace admin sets up file storage.",
+  githubReconnect: "Reconnect GitHub",
+  githubProblemConnection:
+    "Stopped updating: GitHub needs you to sign in again.",
+  githubProblemForbidden:
+    "Stopped updating: your GitHub account can’t open this repository now. Ask its owner for access.",
+  githubProblemRepositoryNotFound:
+    "Stopped updating: the repository was moved, renamed or made private.",
+  githubProblemBranchNotFound:
+    "Stopped updating: the “{{branch}}” branch is gone from GitHub.",
+  githubProblemFolderNotFound:
+    "Stopped updating: the “{{folder}}” folder is gone from that branch.",
+  githubProblemPaused:
+    "Updates are paused for a moment. They’ll resume on their own.",
+  githubProblemTooLarge:
+    "Stopped updating: the folder now has more than {{max}} files.",
+  githubProblemStorageUnavailable:
+    "Pictures won’t show until a workspace admin sets up file storage.",
+  githubAlreadyUpToDate: "Up to date.",
+  githubSyncedToastOne: "Updated. 1 page changed.",
+  githubSyncedToast: "Updated. {{count}} pages changed.",
+  githubSyncPartialToast: "Updating: {{done}} of {{total}} files so far.",
+  githubSyncBusy:
+    "Already checking for updates. Changes show when it finishes.",
+  emptyCollectionSourceHint: "Or fill it from a source",
   aField: "a field",
   addAnotherItemSourceBeforeChangingToDetails:
     "Add another item source before changing this source to details.",
@@ -377,7 +530,7 @@ const databaseMessages = {
   range: "Range",
   sum: "Sum",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "This collection is local. Connect a source to map its columns onto these rows.",
+    "Bring pages into this collection from another app.",
   builderApiReadOnly: "Builder API read-only",
   builderBodyEditsNeedSaferPath:
     "Builder body edits need a safer push path before they can be sent.",

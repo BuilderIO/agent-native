@@ -57,6 +57,7 @@ import {
   databaseFrozenColumnIds,
   reorderDatabaseTableColumn,
 } from "@shared/database-table-columns";
+import { GITHUB_SOURCE_TYPE } from "@shared/github-source";
 import {
   type DocumentPropertyOptionColor,
   countWords,
@@ -75,6 +76,7 @@ import {
   IconArrowUp,
   IconAdjustmentsHorizontal,
   IconArrowsDiagonal,
+  IconBrandGithub,
   IconArrowsSort,
   IconCalendar,
   IconCalendarDue,
@@ -114,6 +116,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useCallback,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -326,6 +329,9 @@ import {
 } from "./DatabaseViewSkeleton";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
+import type { GitHubCollectionPlace } from "./github-availability";
+import { GitHubSourcePanel, useGitHubSourcesRow } from "./GitHubSourcePanel";
+import { GitHubSourceStatusLine } from "./GitHubSourceStatusLine";
 import { DatabaseListView } from "./ListView";
 import {
   DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
@@ -3493,6 +3499,39 @@ function DatabaseTable({
         );
       })}
 
+      <GitHubSourceStatusLine
+        source={
+          sources.find(
+            (candidate) => candidate.sourceType === GITHUB_SOURCE_TYPE,
+          ) ?? null
+        }
+        documentId={document.id}
+        canEdit={canEdit}
+        pageCount={totalItemCount}
+      />
+      {canEdit &&
+      databaseId &&
+      data &&
+      !data.database.systemRole &&
+      !source &&
+      sources.length === 0 &&
+      totalItemCount === 0 ? (
+        // One line for every source, so the list of them stays in Sources.
+        <div className="mb-2 text-xs" data-empty-collection-source-hint>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onClick={() => {
+              changeDatabaseSettingsPanel("source");
+              setSettingsOpen(true);
+            }}
+          >
+            <IconPlugConnected className="size-3.5" aria-hidden />
+            {dbText("emptyCollectionSourceHint")}
+          </button>
+        </div>
+      ) : null}
+
       {database.itemsFailed ? (
         <QueryErrorState
           compact
@@ -3850,6 +3889,15 @@ function DatabaseTable({
         databaseId={databaseId}
         documentId={document.id}
         isFilesDatabase={document.database?.systemRole === "files"}
+        githubPlace={{
+          databaseId,
+          documentId: document.id,
+          spaceId: document.spaceId ?? undefined,
+          parentId: document.parentId,
+          systemRole: data?.database.systemRole ?? null,
+          pageCount: totalItemCount,
+          canEdit,
+        }}
         canEdit={canEdit}
         canManage={document.canManage === true}
         activeView={activeView}
@@ -7787,7 +7835,8 @@ type SourceNavStep =
   | { kind: "addSource" }
   | { kind: "secondarySource"; sourceId: string; sourceName: string }
   | { kind: "keyConfirm"; candidate: PendingSourceCandidate }
-  | { kind: "fieldPicker"; sourceId: string; sourceName: string };
+  | { kind: "fieldPicker"; sourceId: string; sourceName: string }
+  | { kind: "github" };
 
 function sourceNavTitle(stack: SourceNavStep[]): string {
   const top = stack[stack.length - 1];
@@ -7798,6 +7847,7 @@ function sourceNavTitle(stack: SourceNavStep[]): string {
   if (top.kind === "secondarySource") return top.sourceName;
   if (top.kind === "keyConfirm") return dbText("matchExistingItemsToDetails");
   if (top.kind === "fieldPicker") return dbText("chooseFields");
+  if (top.kind === "github") return "GitHub";
   return top.model?.displayName ?? top.sourceName ?? "Builder";
 }
 
@@ -7844,6 +7894,7 @@ function DatabaseSettingsPanelSheet({
   databaseId,
   documentId,
   isFilesDatabase,
+  githubPlace,
   canEdit,
   canManage,
   activeView,
@@ -7883,6 +7934,7 @@ function DatabaseSettingsPanelSheet({
   databaseId: string;
   documentId: string;
   isFilesDatabase: boolean;
+  githubPlace: GitHubCollectionPlace;
   canEdit: boolean;
   canManage: boolean;
   activeView: ContentDatabaseView;
@@ -8053,6 +8105,7 @@ function DatabaseSettingsPanelSheet({
               databaseId={databaseId}
               documentId={documentId}
               isFilesDatabase={isFilesDatabase}
+              githubPlace={githubPlace}
               itemCount={items.length}
               canEdit={canEdit}
               canManage={canManage}
@@ -8461,6 +8514,7 @@ function DatabaseSettingsSourcePanel({
   databaseId,
   documentId,
   isFilesDatabase,
+  githubPlace,
   itemCount,
   canEdit,
   canManage,
@@ -8485,6 +8539,7 @@ function DatabaseSettingsSourcePanel({
   databaseId: string;
   documentId: string;
   isFilesDatabase: boolean;
+  githubPlace: GitHubCollectionPlace;
   itemCount: number;
   canEdit: boolean;
   canManage: boolean;
@@ -8571,6 +8626,8 @@ function DatabaseSettingsSourcePanel({
           navigate(`/local-files?databaseId=${databaseId}`)
         }
         showLocalFolder={isFilesDatabase}
+        githubPlace={githubPlace}
+        onOpenGitHubStep={() => onNavPush({ kind: "github" })}
         onOpenSecondary={(secondary) =>
           onNavPush({
             kind: "secondarySource",
@@ -8579,6 +8636,16 @@ function DatabaseSettingsSourcePanel({
           })
         }
         onAddSource={() => onNavPush({ kind: "addSource" })}
+      />
+    );
+  }
+
+  if (top.kind === "github") {
+    return (
+      <GitHubSourcePanel
+        place={githubPlace}
+        sources={sources.length > 0 ? sources : source ? [source] : []}
+        onUnlinked={() => onNavReplace([])}
       />
     );
   }
@@ -9219,7 +9286,7 @@ function DatabaseSettingsSourcePanel({
   );
 }
 
-function SourcesListView({
+export function SourcesListView({
   source,
   sources,
   builderConfigured,
@@ -9229,6 +9296,8 @@ function SourcesListView({
   onOpenNotion,
   onOpenLocalFolder,
   showLocalFolder,
+  githubPlace,
+  onOpenGitHubStep,
   onOpenSecondary,
   onAddSource,
 }: {
@@ -9241,6 +9310,9 @@ function SourcesListView({
   onOpenNotion: () => void;
   onOpenLocalFolder: () => void;
   showLocalFolder: boolean;
+  githubPlace: GitHubCollectionPlace;
+  /** Opens the GitHub step: the linked folder, or why one can't link here. */
+  onOpenGitHubStep: () => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
@@ -9248,6 +9320,20 @@ function SourcesListView({
   const isBuilderSource = source?.sourceType === "builder-cms";
   const connectedSources =
     sources.length > 0 ? sources : source ? [source] : [];
+  const github = useGitHubSourcesRow(
+    githubPlace,
+    connectedSources,
+    onOpenGitHubStep,
+  );
+  const githubSource =
+    github.availability.kind === "linked"
+      ? github.availability.source
+      : undefined;
+  // A GitHub folder is the collection's whole content, so other apps
+  // explain that instead of leading to a refusal.
+  const lockedByGitHub = githubSource
+    ? dbText("githubRowUnavailableWhileLinked")
+    : undefined;
   return (
     <div className="grid min-w-0 gap-4">
       {connectedSources.length === 0 ? (
@@ -9265,30 +9351,51 @@ function SourcesListView({
               icon={
                 connected.sourceType === "builder-cms" ? (
                   <BuilderLogoMark className="size-4" />
+                ) : connected.sourceType === GITHUB_SOURCE_TYPE ? (
+                  <IconBrandGithub className="size-4" />
                 ) : (
                   <IconLayoutGrid className="size-4" />
                 )
               }
-              label={connected.sourceName}
-              value={sourceRoleLabel(connected, index)}
+              label={
+                connected.sourceType === GITHUB_SOURCE_TYPE
+                  ? "GitHub"
+                  : connected.sourceName
+              }
+              value={
+                connected.sourceType === GITHUB_SOURCE_TYPE
+                  ? undefined
+                  : sourceRoleLabel(connected, index)
+              }
+              description={
+                connected.sourceType === GITHUB_SOURCE_TYPE
+                  ? github.description
+                  : undefined
+              }
               onClick={
                 connected.metadata.federation?.role === "secondary"
                   ? () => onOpenSecondary(connected)
                   : connected.sourceType === "builder-cms"
                     ? () => onOpenBuilder(connected)
-                    : undefined
+                    : connected.sourceType === GITHUB_SOURCE_TYPE
+                      ? onOpenGitHubStep
+                      : undefined
               }
               disabled={
                 connected.metadata.federation?.role !== "secondary" &&
-                connected.sourceType !== "builder-cms"
+                connected.sourceType !== "builder-cms" &&
+                connected.sourceType !== GITHUB_SOURCE_TYPE
               }
             />
           ))}
-          <DatabaseSettingsRow
-            icon={<IconPlus className="size-4" />}
-            label={dbText("addAnotherSource")}
-            onClick={onAddSource}
-          />
+          {/* A GitHub folder is the collection's whole content, so nothing joins it. */}
+          {githubSource ? null : (
+            <DatabaseSettingsRow
+              icon={<IconPlus className="size-4" />}
+              label={dbText("addAnotherSource")}
+              onClick={onAddSource}
+            />
+          )}
         </div>
       )}
       <div className="grid min-w-0 gap-1.5">
@@ -9306,7 +9413,9 @@ function SourcesListView({
                 : undefined
           }
           badgeCount={reviewableCount}
-          onClick={onOpenBuilder}
+          description={lockedByGitHub}
+          muted={!!lockedByGitHub}
+          onClick={lockedByGitHub ? onOpenGitHubStep : () => onOpenBuilder()}
         />
         <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
@@ -9318,8 +9427,19 @@ function SourcesListView({
               ? dbText("connected")
               : undefined
           }
-          onClick={onOpenNotion}
+          description={lockedByGitHub}
+          muted={!!lockedByGitHub}
+          onClick={lockedByGitHub ? onOpenGitHubStep : onOpenNotion}
         />
+        {githubSource ? null : (
+          <DatabaseSettingsRow
+            icon={<IconBrandGithub className="size-4" />}
+            label="GitHub"
+            description={github.description}
+            muted={github.muted}
+            onClick={github.open}
+          />
+        )}
         {showLocalFolder ? (
           <DatabaseSettingsRow
             icon={<IconFolder className="size-4" />}
@@ -11000,37 +11120,70 @@ function DatabaseSettingsRow({
   icon,
   label,
   value,
+  description,
   badgeCount = 0,
   disabled = false,
+  muted = false,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   value?: string;
+  /** A second line that's always shown, like why the row can't be used. */
+  description?: string;
   badgeCount?: number;
   disabled?: boolean;
-  onClick?: () => void;
+  /**
+   * Looks unavailable but stays focusable and clickable, so its reason can
+   * still be opened by keyboard, touch and screen readers.
+   */
+  muted?: boolean;
+  onClick?: (button: HTMLButtonElement) => void;
 }) {
   const badgeLabel = formatCompactCountBadge(badgeCount);
+  const descriptionId = useId();
   return (
     <button
       type="button"
       disabled={disabled || !onClick}
+      aria-disabled={muted || undefined}
+      aria-describedby={description ? descriptionId : undefined}
       className={cn(
-        "flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        description ? "min-h-9 py-1.5" : "h-9",
         disabled || !onClick
           ? "cursor-default text-muted-foreground/60"
-          : "text-foreground hover:bg-muted",
+          : muted
+            ? "text-muted-foreground/60 hover:bg-muted"
+            : "text-foreground hover:bg-muted",
       )}
       onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
-        onClick?.();
+        onClick?.(event.currentTarget);
       }}
     >
-      <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+      <span
+        className={cn(
+          "flex size-5 shrink-0 items-center justify-center text-muted-foreground",
+          muted && "opacity-60",
+          description && "self-start",
+        )}
+      >
         {icon}
       </span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {description ? (
+        <span className="grid min-w-0 flex-1">
+          <span className="truncate">{label}</span>
+          <span
+            id={descriptionId}
+            className="break-words text-xs text-muted-foreground"
+          >
+            {description}
+          </span>
+        </span>
+      ) : (
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      )}
       {value ? (
         <span className="max-w-28 shrink-0 truncate text-xs text-muted-foreground">
           {value}

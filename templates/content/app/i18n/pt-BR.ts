@@ -2,6 +2,163 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "Vincular uma pasta do GitHub",
+  githubNewCollectionTitle: "Nova coleção a partir de uma pasta do GitHub",
+  githubLinkDescription:
+    "Os documentos da pasta aparecem aqui como páginas somente leitura e se atualizam sozinhos quando os arquivos mudam no GitHub.",
+  githubNewCollectionDescription:
+    "O Content cria uma coleção com o nome da pasta. Os documentos da pasta aparecem lá como páginas somente leitura e se atualizam sozinhos quando os arquivos mudam no GitHub.",
+  githubLinkUrlLabel: "Link da pasta do GitHub",
+  githubLinkUrlHelp:
+    "No GitHub, abra a pasta e copie o endereço do seu navegador.",
+  githubLinkCheck: "Verificar pasta",
+  githubLinkReading: "Lendo a pasta no GitHub…",
+  githubConnectChecking: "Verificando sua conexão com o GitHub…",
+  githubConnectPrompt:
+    "Conecte sua conta do GitHub para que o Content possa ler suas pastas.",
+  githubConnect: "Conectar GitHub",
+  githubPreviewPagesOne: "1 página",
+  githubPreviewPages: "{{count}} páginas",
+  githubPreviewPagesUpTo: "Até {{count}} páginas",
+  githubLinkMore: "mais {{count}}",
+  githubLinkNoFiles:
+    "Esta pasta não tem arquivos Markdown (.md), então não há nada para mostrar.",
+  githubPreviewColumnsOne: "1 coluna",
+  githubPreviewColumns: "{{count}} colunas",
+  githubLinkNoColumns:
+    "Estes arquivos não têm informações no topo, então cada página recebe só o título.",
+  githubLinkNotShownOne: "1 arquivo ainda não vai aparecer.",
+  githubLinkNotShown: "{{count}} arquivos ainda não vão aparecer.",
+  githubLinkPicturesWaiting:
+    "As imagens destes arquivos só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
+  githubShowDetails: "Mostrar detalhes",
+  githubHideDetails: "Ocultar detalhes",
+  githubDetailsPages: "Páginas",
+  githubDetailsColumns: "Colunas",
+  githubDetailsColumnsSampled:
+    "Lidas dos primeiros {{count}} de {{total}} arquivos. Os outros podem adicionar colunas.",
+  githubDetailsNotShown: "Ainda não aparecem",
+  githubDetailsFrom: "Origem",
+  githubDetailsBranchVersion: "Branch {{branch}} · versão {{commit}}",
+  githubYes: "Sim",
+  githubNo: "Não",
+  githubSkipMdx: "Usa MDX, que o Content ainda não consegue mostrar",
+  githubSkipTooLarge: "Grande demais para o Content mostrar",
+  githubSkipNotText: "Não é um arquivo de texto que o Content consegue ler",
+  githubLinkSubmitOne: "Vincular 1 página",
+  githubLinkSubmit: "Vincular {{count}} páginas",
+  githubLinkSubmitUpTo: "Vincular até {{count}} páginas",
+  githubLinking: "Vinculando…",
+  githubLinkingProgressOne: "Trazendo 1 página do GitHub…",
+  githubLinkingProgress: "Trazendo {{count}} páginas do GitHub…",
+  githubLinkedToastOne: "Pasta vinculada. 1 página de {{folder}} já está aqui.",
+  githubLinkedToast:
+    "Pasta vinculada. {{count}} páginas de {{folder}} já estão aqui.",
+  githubLinkedPartialToast:
+    "Pasta vinculada. {{done}} de {{total}} páginas já estão aqui; o resto chega em até um minuto.",
+  githubLinkedSyncFailed:
+    "A pasta {{folder}} foi vinculada, mas ainda não foi possível trazer as páginas.",
+  githubLinkInvalidUrl:
+    "Esse não é um link de pasta do GitHub. No GitHub, abra a pasta e copie o endereço do seu navegador.",
+  githubLinkFileUrl: "Esse é o link de um único arquivo.",
+  githubLinkUseFolder: "Usar a pasta “{{folder}}”",
+  githubLinkRepositoryNotFound:
+    "Não foi possível abrir “{{repo}}”. Confira se o nome está certo ou se sua conta do GitHub consegue vê-lo.",
+  githubLinkBranchNotFound:
+    "Não existe uma branch chamada “{{branch}}” em {{repo}}. Confira o link.",
+  githubLinkFolderNotFound:
+    "Não existe uma pasta chamada “{{folder}}” em {{repo}}. Confira o link.",
+  githubLinkForbidden:
+    "Sua conta do GitHub não consegue abrir “{{repo}}”. Peça acesso ao proprietário.",
+  githubLinkTooLarge:
+    "Esta pasta tem mais de {{max}} arquivos. Escolha uma pasta menor dentro dela.",
+  githubLinkUnavailable:
+    "Não foi possível acessar o GitHub agora. Tente de novo em um minuto.",
+  githubLinkBlockedHasRows:
+    "Esta coleção agora tem páginas, então uma pasta do GitHub não pode mais preenchê-la.",
+  githubLinkBlockedLinked: "Esta coleção já recebe as páginas de outro app.",
+  githubLinkBlockedSystem: "Esta coleção não pode mostrar uma pasta do GitHub.",
+  githubNewCollectionInstead: "Nova coleção do GitHub",
+  githubRowAvailable: "Mostrar aqui os documentos de uma pasta do GitHub",
+  githubRowConnectFirst: "Conecte sua conta do GitHub primeiro",
+  githubRowEmptyOnly: "Só para coleções vazias",
+  githubRowOtherSource: "Já recebe as páginas de {{source}}",
+  githubRowFiles: "Indisponível para Arquivos",
+  githubRowSystem: "Indisponível para esta coleção",
+  githubRowEditorsOnly: "Só para editores",
+  githubRowLinked: "Pasta {{folder}} · Atualizada {{time}}",
+  githubRowLinkedNotUpdated: "Pasta {{folder}} · Ainda não atualizada",
+  githubRowUnavailableWhileLinked:
+    "Indisponível enquanto estiver vinculada ao GitHub",
+  githubExplainHasPagesOne:
+    "Uma pasta do GitHub preenche uma coleção inteira, então precisa de uma sem páginas. Esta tem 1 página.",
+  githubExplainHasPages:
+    "Uma pasta do GitHub preenche uma coleção inteira, então precisa de uma sem páginas. Esta tem {{count}} páginas.",
+  githubExplainOtherSource:
+    "Uma coleção recebe as páginas de um só lugar. Esta usa {{source}}.",
+  githubExplainFiles:
+    "A coleção Arquivos não pode mostrar uma pasta do GitHub.",
+  githubExplainSystem: "Esta coleção não pode mostrar uma pasta do GitHub.",
+  githubExplainEditorsOnly:
+    "Só quem pode editar esta coleção pode vincular uma pasta do GitHub. Peça acesso de edição ao proprietário.",
+  githubExplainLinked:
+    "As páginas desta coleção vêm do GitHub. Desvincule a pasta para usar outra fonte.",
+  githubDetailFolder: "Pasta",
+  githubDetailBranch: "Branch",
+  githubDetailVersion: "Versão",
+  githubDetailUpdated: "Última atualização",
+  githubCheckForUpdates: "Verificar atualizações",
+  githubOpenFolder: "Abrir no GitHub",
+  githubUnlinkFolder: "Desvincular pasta…",
+  githubUnlinkTitle: "Desvincular esta pasta do GitHub?",
+  githubUnlinkBodyOne:
+    "A página continua aqui e vira uma página normal que você pode editar. As mudanças no GitHub não vão mais chegar. Para vincular esta pasta de novo depois, você vai usar uma nova coleção.",
+  githubUnlinkBody:
+    "As {{count}} páginas continuam aqui e viram páginas normais que você pode editar. As mudanças no GitHub não vão mais chegar. Para vincular esta pasta de novo depois, você vai usar uma nova coleção.",
+  githubUnlink: "Desvincular",
+  githubUnlinking: "Desvinculando…",
+  githubUnlinkedToast:
+    "Pasta desvinculada. Suas páginas foram mantidas e agora você pode editá-las.",
+  githubUnlinkFailed: "Não foi possível desvincular a pasta",
+  githubFromFolder: "Da pasta {{folder}} no GitHub",
+  githubFromRepo: "De {{repo}} no GitHub",
+  githubUpdatedAgo: "Última atualização: {{time}}",
+  githubJustNow: "agora mesmo",
+  githubNotUpdatedYet: "Ainda sem atualização",
+  githubEditOnGitHub: "Editar no GitHub",
+  githubDetails: "Detalhes",
+  githubNotShownOne: "1 arquivo não exibido",
+  githubNotShown: "{{count}} arquivos não exibidos",
+  githubNotShownHeading: "Não exibidos",
+  githubShowingAsOf: "Mostrando as páginas como estavam {{time}}.",
+  githubSyncingProgress: "Trazendo mudanças: {{done}} de {{total}} arquivos",
+  githubPicturesWaiting:
+    "Algumas imagens só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
+  githubReconnect: "Reconectar GitHub",
+  githubProblemConnection:
+    "Atualizações interrompidas: o GitHub precisa que você faça login de novo.",
+  githubProblemForbidden:
+    "Atualizações interrompidas: sua conta do GitHub não consegue mais abrir este repositório. Peça acesso ao proprietário.",
+  githubProblemRepositoryNotFound:
+    "Atualizações interrompidas: o repositório foi movido, renomeado ou ficou privado.",
+  githubProblemBranchNotFound:
+    "Atualizações interrompidas: a branch “{{branch}}” não existe mais no GitHub.",
+  githubProblemFolderNotFound:
+    "Atualizações interrompidas: a pasta “{{folder}}” não existe mais nessa branch.",
+  githubProblemPaused:
+    "As atualizações estão pausadas por um momento. Elas voltam sozinhas.",
+  githubProblemTooLarge:
+    "Atualizações interrompidas: a pasta agora tem mais de {{max}} arquivos.",
+  githubProblemStorageUnavailable:
+    "As imagens só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
+  githubAlreadyUpToDate: "Tudo atualizado.",
+  githubSyncedToastOne: "Atualizado. 1 página mudou.",
+  githubSyncedToast: "Atualizado. {{count}} páginas mudaram.",
+  githubSyncPartialToast:
+    "Atualizando: {{done}} de {{total}} arquivos até agora.",
+  githubSyncBusy:
+    "Já há uma verificação de atualizações em andamento. As mudanças aparecem quando ela terminar.",
+  emptyCollectionSourceHint: "Ou preencha a partir de uma fonte",
   formChecked: "Marcado",
   formChooseOption: "Escolha uma opção",
   formDescription:
@@ -360,7 +517,7 @@ const databaseExactEnglish = {
   sortRowsBy: "Ordenar filas por",
   startDate: "Fecha de inicio",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "Esta colección es local. Conecta una fuente para mapear sus columnas a estas filas.",
+    "Traga páginas de outro app para esta coleção.",
   thisPropertyHasNoOptionsYet: "Esta propiedad aún no tiene opciones.",
   thisSourceIsNoLongerConnected: "Esta fuente ya no está conectada.",
 };
