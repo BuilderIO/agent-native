@@ -24,7 +24,7 @@ function normalizeForComparison(text: string): string {
   return stripMarkdownForPreview(text)
     .toLowerCase()
     .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 
@@ -77,16 +77,22 @@ export function stripMarkdownForPreview(markdown: string): string {
     .trim();
 }
 
-function truncateDescription(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-
+/** Ends text with "...", shortening it at a word so the whole fits. */
+function withEllipsis(text: string, maxLength: number): string {
   const hardLimit = Math.max(20, maxLength - 3);
-  const prefix = text.slice(0, hardLimit);
-  const wordBoundary = prefix.lastIndexOf(" ");
-  const truncated =
-    wordBoundary > hardLimit * 0.6 ? prefix.slice(0, wordBoundary) : prefix;
+  let kept = text;
+  if (kept.length > hardLimit) {
+    const prefix = kept.slice(0, hardLimit);
+    const wordBoundary = prefix.lastIndexOf(" ");
+    kept =
+      wordBoundary > hardLimit * 0.6 ? prefix.slice(0, wordBoundary) : prefix;
+  }
 
-  return `${truncated.replace(/[.,;:!?\s-]+$/g, "")}...`;
+  return `${kept.replace(/[.,;:!?\s-]+$/g, "")}...`;
+}
+
+function truncateDescription(text: string, maxLength: number): string {
+  return text.length <= maxLength ? text : withEllipsis(text, maxLength);
 }
 
 export function buildPublicDocumentDescription({
@@ -128,6 +134,8 @@ export function buildPublicDocumentDescription({
 }
 
 const DEFAULT_EXCERPT_LENGTH = 300;
+/** Marks where a truncated body ends. Postgres text can't hold it. */
+const PREFIX_END = "\u0000";
 
 /**
  * Plain text from the start of a page body, for a list row. Images, code,
@@ -147,18 +155,29 @@ export function buildDocumentExcerpt({
   maxLength?: number;
 }): string {
   let markdown = content?.replace(/\r\n?/g, "\n") ?? "";
-  // Frontmatter puts a key on the line after its opening `---`; a divider at
-  // the top of a page is followed by a blank line.
-  if (/^---[ \t]*\n\S/.test(markdown)) {
+  // Frontmatter puts a `key:` line right after its opening `---`; a divider at
+  // the top of a page is followed by text or a blank line.
+  if (/^---[ \t]*\n[\w"'-][^\n]*:/.test(markdown)) {
     const body = stripFrontmatter(markdown);
     // A prefix that ends inside the frontmatter has no body text yet.
     if (body !== markdown) markdown = body;
     else if (truncated) return "";
   }
+  if (truncated) {
+    // Drop a link or image the cut leaves open, and mark the end so a word is
+    // dropped only when the cut splits text the excerpt keeps.
+    markdown = `${markdown.replace(/!?\[[^\]\n]*(?:\]\([^)\n]*)?$/, "")}${PREFIX_END}`;
+  }
+  const blocks = stripFencedCode(markdown)
+    // Headings and dividers stand alone even without blank lines around them.
+    // A `---` right under a line of text underlines a heading, so it stays.
+    .replace(/^#{1,6}[ \t].*$/gm, "\n$&\n")
+    .replace(/(^|\n\n)[ \t]{0,3}(?:[-*_][ \t]*){3,}(?=\n|$)/g, "$1\n")
+    .split(/\n{2,}/);
   const paragraphs: string[] = [];
   const headings: string[] = [];
   let length = 0;
-  for (const block of stripFencedCode(markdown).split(/\n{2,}/)) {
+  for (const block of blocks) {
     if (length > maxLength) break;
     if (!block.trim() || isDividerBlock(block)) continue;
     const text = stripMarkdownForPreview(
@@ -172,10 +191,15 @@ export function buildDocumentExcerpt({
       length += text.length + 1;
     }
   }
-  const text = (paragraphs.length > 0 ? paragraphs : headings).join(" ");
+  const joined = (paragraphs.length > 0 ? paragraphs : headings).join(" ");
+  const cutsWord =
+    joined.endsWith(PREFIX_END) && /\S/.test(joined.at(-2) ?? "");
+  const text = joined.replace(PREFIX_END, "").trimEnd();
   if (text.length > maxLength) return truncateDescription(text, maxLength);
   if (!truncated || !text) return text;
-  const wordBoundary = text.lastIndexOf(" ");
-  const whole = wordBoundary > 0 ? text.slice(0, wordBoundary) : text;
-  return `${whole.replace(/[.,;:!?\s-]+$/g, "")}...`;
+  const wordBoundary = cutsWord ? text.lastIndexOf(" ") : -1;
+  return withEllipsis(
+    wordBoundary > 0 ? text.slice(0, wordBoundary) : text,
+    maxLength,
+  );
 }

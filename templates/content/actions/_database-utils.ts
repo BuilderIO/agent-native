@@ -1089,7 +1089,6 @@ export async function getContentDatabasePageResponse(
     queuedBodyHydrationItemIds,
     workspaceMemberships,
     commentSummaries,
-    bodyPrefixByDocumentId,
   ] = await Promise.all([
     database.systemRole === "favorites"
       ? new Set(documentIds)
@@ -1158,22 +1157,6 @@ export async function getContentDatabasePageResponse(
           )
       : [],
     readOpenCommentSummaries(documentIds),
-    // Only the start of each body, and only when a view shows it.
-    includeExcerpts && documents.length > 0
-      ? db
-          .select({
-            id: schema.documents.id,
-            bodyPrefix: sql<
-              string | null
-            >`substr(${schema.documents.content}, 1, ${sql.raw(String(EXCERPT_SOURCE_CHARS))})`,
-          })
-          .from(schema.documents)
-          .where(inArray(schema.documents.id, documentIds))
-          .then(
-            (rows) =>
-              new Map(rows.map((row) => [row.id, row.bodyPrefix ?? ""])),
-          )
-      : new Map<string, string>(),
   ]);
   const shareRoleByDocumentId = new Map<string, ShareRole>();
   for (const row of shareRows) {
@@ -1233,14 +1216,6 @@ export async function getContentDatabasePageResponse(
       bodyHydration: serializeBodyHydration(item, {
         queued: bodyHydrationQueued,
       }),
-      ...(includeExcerpts
-        ? {
-            excerpt: serializeExcerpt(
-              bodyPrefixByDocumentId.get(document.id),
-              document.title,
-            ),
-          }
-        : {}),
       properties: propertiesByDocumentId.get(document.id) ?? [],
       rowRevision: databaseRowRevision({
         itemId: item.id,
@@ -1278,12 +1253,39 @@ export async function getContentDatabasePageResponse(
   const serializedDocumentIds = new Set(
     serializedItems.map((item) => item.document.id),
   );
-  const sourceSnapshots =
+  const [sourceSnapshots, bodyPrefixByDocumentId] = await Promise.all([
     options.includeSources === false
       ? []
-      : await getAllContentDatabaseSourceSnapshots(database, {
+      : getAllContentDatabaseSourceSnapshots(database, {
           documentIds: limit !== null ? [...serializedDocumentIds] : undefined,
-        });
+        }),
+    // Only the start of each returned page's body, and only when a view
+    // shows it. Filters and sorts that run here have already cut the page.
+    includeExcerpts && serializedDocumentIds.size > 0
+      ? db
+          .select({
+            id: schema.documents.id,
+            bodyPrefix: sql<
+              string | null
+            >`substr(${schema.documents.content}, 1, ${sql.raw(String(EXCERPT_SOURCE_CHARS))})`,
+          })
+          .from(schema.documents)
+          .where(inArray(schema.documents.id, [...serializedDocumentIds]))
+          .then(
+            (rows) =>
+              new Map(rows.map((row) => [row.id, row.bodyPrefix ?? ""])),
+          )
+      : new Map<string, string>(),
+  ]);
+  const pageItems = includeExcerpts
+    ? serializedItems.map((item) => ({
+        ...item,
+        excerpt: serializeExcerpt(
+          bodyPrefixByDocumentId.get(item.document.id),
+          item.document.title,
+        ),
+      }))
+    : serializedItems;
   const organizationVisibleDocumentIds =
     organizationFilesItemFilter && sourceSnapshots.length > 0
       ? new Set(
@@ -1324,7 +1326,7 @@ export async function getContentDatabasePageResponse(
   const pagedPrimary = pagedSources[0] ?? null;
 
   const federatedItems = federateSources({
-    items: serializedItems,
+    items: pageItems,
     sources: pagedSources,
   });
   const itemsWithOverlay = applyFederatedOverlayValues(

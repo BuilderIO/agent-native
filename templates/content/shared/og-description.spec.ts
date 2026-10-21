@@ -107,6 +107,31 @@ const flag = true;
         content: "---\n\nAfter the rule.\n\n---\n\nMore after another.",
       }),
     ).toBe("After the rule. More after another.");
+    expect(
+      buildDocumentExcerpt({
+        content: "---\nFirst paragraph.\n\n---\n\nSecond paragraph.",
+      }),
+    ).toBe("First paragraph. Second paragraph.");
+  });
+
+  it("separates headings and dividers from the text around them", () => {
+    expect(
+      buildDocumentExcerpt({
+        content: "# Plan\nWhat we ship.\n## Risks\n***\nWhat could slip.",
+      }),
+    ).toBe("What we ship. What could slip.");
+    expect(
+      buildDocumentExcerpt({ content: "Plan\n---\n\nWhat we ship." }),
+    ).toBe("What we ship.");
+  });
+
+  it("skips a first paragraph that repeats a title in any script", () => {
+    expect(
+      buildDocumentExcerpt({
+        title: "日本語の題名",
+        content: "日本語の題名\n\n本文です。",
+      }),
+    ).toBe("本文です。");
   });
 
   it("is empty for an empty page or a prefix cut off inside its frontmatter", () => {
@@ -130,5 +155,31 @@ const flag = true;
     });
     expect(long).toMatch(/^word( word)*\.\.\.$/);
     expect(long.length).toBeLessThanOrEqual(40);
+  });
+
+  it("drops a word only when the cut splits text the excerpt keeps", () => {
+    expect(
+      buildDocumentExcerpt({ content: "One two three ", truncated: true }),
+    ).toBe("One two three...");
+    expect(
+      buildDocumentExcerpt({
+        content: "One two three.\n\n```ts\nconst hidden =",
+        truncated: true,
+      }),
+    ).toBe("One two three...");
+    expect(
+      buildDocumentExcerpt({
+        content: "Read the [launch plan](https://exa",
+        truncated: true,
+      }),
+    ).toBe("Read the...");
+  });
+
+  it("keeps the ellipsis inside the length limit", () => {
+    const excerpt = buildDocumentExcerpt({
+      content: `${"界".repeat(300)}${" ".repeat(700)}`,
+      truncated: true,
+    });
+    expect(excerpt).toBe(`${"界".repeat(297)}...`);
   });
 });

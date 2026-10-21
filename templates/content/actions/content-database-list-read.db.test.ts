@@ -153,6 +153,31 @@ async function seedDatabase(suffix: string) {
   });
 }
 
+async function showPageTextInList(databaseId: string) {
+  await getDb()
+    .update(schema.contentDatabases)
+    .set({
+      viewConfigJson: JSON.stringify({
+        activeViewId: "notes",
+        views: [
+          {
+            id: "notes",
+            name: "Notes",
+            type: "list",
+            itemLayout: {
+              leading: { kind: "page_icon", propertyId: null },
+              titleWeight: "bold",
+              line2: { source: "page", propertyId: null, lines: 2 },
+              line3: [],
+              trailing: [],
+            },
+          },
+        ],
+      }),
+    })
+    .where(eq(schema.contentDatabases.id, databaseId));
+}
+
 describe("content database list reads", () => {
   it("returns rows without loading Blocks field identities", async () => {
     const fixture = await seedDatabase("identities");
@@ -302,28 +327,7 @@ describe("content database list reads", () => {
       expect(item).not.toHaveProperty("excerpt");
     }
 
-    await getDb()
-      .update(schema.contentDatabases)
-      .set({
-        viewConfigJson: JSON.stringify({
-          activeViewId: "notes",
-          views: [
-            {
-              id: "notes",
-              name: "Notes",
-              type: "list",
-              itemLayout: {
-                leading: { kind: "page_icon", propertyId: null },
-                titleWeight: "bold",
-                line2: { source: "page", propertyId: null, lines: 2 },
-                line3: [],
-                trailing: [],
-              },
-            },
-          ],
-        }),
-      })
-      .where(eq(schema.contentDatabases.id, fixture.databaseId));
+    await showPageTextInList(fixture.databaseId);
 
     const items = await read();
     expect(
@@ -337,5 +341,74 @@ describe("content database list reads", () => {
     });
     // The rest of each body still stays out of row reads.
     for (const item of items) expect(item.document.content).toBe("");
+  });
+
+  it("adds excerpts to the rows a filtered, paged read returns", async () => {
+    const fixture = await seedDatabase("paged");
+    const [first, second, third] = fixture.rows;
+    const now = new Date().toISOString();
+    const rollupId = `rollup_${fixture.databaseId}`;
+    // Sorting by a rollup makes the server filter and page after it reads.
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values({
+        id: rollupId,
+        ownerEmail: OWNER,
+        databaseId: fixture.databaseId,
+        name: "Related score",
+        type: "rollup",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({
+          rollup: {
+            relationPropertyId: fixture.relatedId,
+            targetPropertyId: fixture.scoreId,
+            aggregation: "sum",
+          },
+        }),
+        position: 99,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await asOwner(async () => {
+      await setDocumentPropertyAction.run({
+        documentId: first!.documentId,
+        databaseId: fixture.databaseId,
+        propertyId: fixture.relatedId,
+        value: [second!.documentId, third!.documentId],
+      });
+      await setDocumentPropertyAction.run({
+        documentId: second!.documentId,
+        databaseId: fixture.databaseId,
+        propertyId: fixture.relatedId,
+        value: [third!.documentId],
+      });
+      for (const [index, row] of fixture.rows.entries()) {
+        await setDocumentPropertyAction.run({
+          documentId: row.documentId,
+          databaseId: fixture.databaseId,
+          propertyId: fixture.primaryBlocksId,
+          value: `Body of row ${index}.`,
+        });
+      }
+    });
+    await showPageTextInList(fixture.databaseId);
+
+    const page = await asOwner(() =>
+      queryContentDatabaseItemsAction.run({
+        documentId: fixture.documentId,
+        limit: 1,
+        offset: 1,
+        tableQuery: {
+          search: "",
+          filters: [],
+          sorts: [{ key: rollupId, label: "Related score", direction: "desc" }],
+          filterMode: "and",
+        },
+      }),
+    );
+    if (!("items" in page)) throw new Error("Fixture read was unavailable.");
+    expect(
+      page.items.map((item) => [item.document.title, item.excerpt]),
+    ).toEqual([["Row paged 1", "Body of row 1."]]);
   });
 });

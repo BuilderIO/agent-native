@@ -97,16 +97,18 @@ function line2Text(property: DocumentProperty) {
 }
 
 /**
- * The first lines of a row's page. The list read sends an excerpt; once this
- * tab has saved the page's body, the row's copy of it is newer.
+ * The first lines of a row's page. The list read sends an excerpt, and saving
+ * the page's body in this tab rebuilds it. Until a read brings one (right after
+ * Page text is picked), a body this tab already holds stands in.
  */
 function pageExcerpt(item: ContentDatabaseItem) {
+  if (item.excerpt !== undefined) return item.excerpt;
   return item.document.content
     ? buildDocumentExcerpt({
         content: item.document.content,
         title: item.document.title,
       })
-    : (item.excerpt ?? "");
+    : "";
 }
 
 /** The fields a slot shows, which can be set but blank on a given row. */
