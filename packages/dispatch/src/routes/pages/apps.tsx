@@ -16,6 +16,7 @@ import {
   APP_LIST_GRID_ROW_CLASS,
   AppList,
 } from "../../components/app-list-row";
+import { CommunityAppsSection } from "../../components/community-apps-section";
 import { ConnectedAppCard } from "../../components/connected-app-card";
 import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -184,12 +185,14 @@ function AppsRoute() {
             <ActionQueryError
               error={appsQuery.error}
               onRetry={() => void appsQuery.refetch()}
+              queryName="list-workspace-apps"
             />
           ) : null}
           {connectedAppsQuery.isError ? (
             <ActionQueryError
               error={connectedAppsQuery.error}
               onRetry={() => void connectedAppsQuery.refetch()}
+              queryName="list-connected-agents"
             />
           ) : null}
           {showAppSkeletons ? (
@@ -346,6 +349,8 @@ function AppsRoute() {
             </section>
           </Collapsible>
         ) : null}
+
+        <CommunityAppsSection />
       </div>
     </DispatchShell>
   );

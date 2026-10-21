@@ -401,6 +401,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "보기 전용. 이 페이지는 GitHub의 파일을 따르며 푸시할 때마다 업데이트됩니다.",
+  githubSourceOpenFile: "GitHub에서 열기",
   textColor: "텍스트 색상",
   backgroundColor: "배경색",
   defaultColor: "기본값",
@@ -420,8 +423,8 @@ const editor = {
   noDocumentSelected: "선택한 문서가 없습니다.",
   registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",
   registryBlockUnreadable: "저장된 블록 소스를 읽을 수 없습니다.",
-  blocksFieldRevisionConflict:
-    "이 블록 필드가 다른 곳에서 변경되었습니다. 편집 내용은 저장되지 않았으며 최신 버전이 표시됩니다.",
+  blocksFieldEditMovedToEnd:
+    "이 블록 필드가 다른 곳에서도 변경되었습니다. 같은 위치에 입력한 텍스트는 필드 끝으로 옮겨졌습니다.",
   reconcileConflict:
     "이 페이지가 다른 곳에서 변경되었습니다. 편집 내용은 아직 저장되지 않았습니다.",
   reconcileFailed:
@@ -509,6 +512,7 @@ const editor = {
     imageDownloadStarted: "이미지 다운로드가 시작되었습니다.",
     imageLinkHint: "웹의 모든 이미지와 함께 작동합니다.",
     imagePreview: "이미지 미리보기",
+    imageUnavailable: "이미지를 사용할 수 없음",
     imageView: "이미지 보기",
     link: "링크",
     loadingAssetsPicker: "자산 선택기 로드 중",
@@ -968,6 +972,13 @@ const comments = {
   hideIndicators: "댓글과 강조 표시 숨기기",
   showIndicators: "댓글과 강조 표시 보기",
   unanchored: "강조 표시를 사용할 수 없음",
+  propertyEmpty: "비어 있음",
+  propertyRemoved: "{{name}} (삭제됨)",
+  propertyWas: "이전: {{value}}",
+  commentOnProperty: "{{name}}에 댓글 달기",
+  openPropertyComments_other: "{{name}}의 열린 댓글 {{count}}개",
+  openRowComments_other: "{{title}}의 열린 댓글 {{count}}개",
+  openRow: "행 열기",
   suggestions: "제안",
   suggestionAdd: "추가",
   suggestionDelete: "삭제",
@@ -988,6 +999,10 @@ const comments = {
   accepted: "수락됨",
   rejected: "거부됨",
   noFilteredComments: "일치하는 댓글이 없습니다.",
+  tabFilter: "탭",
+  allTabs: "모든 탭",
+  fieldRemoved: "{{name}} (삭제됨)",
+  pageBody: "페이지 본문",
 };
 
 const reviewDiscussions = {
@@ -1173,6 +1188,7 @@ const history = {
   historyGroupAgent: "에이전트 실행",
   historyGroupHuman: "편집 세션",
   historyGroupLegacy: "이전 편집",
+  historyGroupGitHub: "GitHub에서 동기화됨",
   historyGroupOperation: "작업",
   historyGroupRestore: "복원",
   historyLoadError: "버전 기록을 불러오지 못했습니다.",
@@ -1390,8 +1406,22 @@ const overrides = {
     plainText: "일반 텍스트",
     searchLanguages: "언어 검색...",
     noBlocksFields: "Blocks 필드가 없습니다. 속성 메뉴에서 추가하세요.",
-    reorderField: "{{name}} 순서 변경",
-    toggleField: "{{name}} 전환",
+    addBlockField: "필드 추가",
+    blockFieldChanged: "마지막으로 본 이후 변경됨",
+    blockFieldTabs: "필드",
+    blockFieldOpenComments_other: "열린 댓글 {{count}}개",
+    blockFieldMenu: "{{name}} 옵션",
+    blockFieldMenuScope: "이 컬렉션의 모든 행에 공통",
+    blockFieldName: "필드 이름",
+    renameBlockField: "이름 바꾸기",
+    renameBlockFieldFailed: "필드 이름을 바꾸지 못했습니다",
+    deleteBlockField: "삭제",
+    deleteBlockFieldFailed: "필드를 삭제하지 못했습니다",
+    deleteBlockFieldQuestion: "‘{{name}}’을(를) 삭제할까요?",
+    deleteBlockFieldDescription:
+      "이 컬렉션의 모든 행에서 ‘{{name}}’과(와) 그 텍스트가 삭제됩니다. 되돌릴 수 없습니다.",
+    deleteBlockFieldBodyWarning:
+      "‘{{name}}’은(는) 페이지 본문이므로 모든 행의 본문 텍스트도 삭제됩니다.",
   },
   comments: {
     add: "댓글 추가...",

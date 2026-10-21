@@ -484,8 +484,8 @@ async function editAround(
     "Charlie paragraph",
     ` ${markers.next("B")}`,
   );
-  await tabs.waitForSaveAnswers(first, 1);
-  await tabs.waitForSaveAnswers(second, 1);
+  await tabs.waitForTypingSaved(first, id);
+  await tabs.waitForTypingSaved(second, id);
 
   await agent.edit(
     id,
@@ -506,6 +506,13 @@ async function editAround(
   return { id, tabs, first, second, markers, threadId, accepted, rejected };
 }
 
+const AGENT_EDIT_ON_SWITCHED_PAGE = {
+  lane: "L3",
+  outcome: "SF-05",
+  reason:
+    "On a switched page the agent's edit-document writes the stored body, not the live copy, so the server answers both tabs' next collab updates not_derived (not_live_copy); they go back to update-document saves, which go to History with recovery notices and error toasts. No text is lost.",
+} as const;
+
 test.describe(
   "SF-05 comment anchors and pending suggestions",
   { tag: "@SF-05" },
@@ -516,61 +523,68 @@ test.describe(
       agent = AgentClient.shared(page);
     });
 
-    test("a comment and pending suggestions stay put while two tabs and an agent edit around them", async ({
-      page,
-      context,
-    }) => {
-      const scene = await editAround(
-        page,
-        context,
-        agent,
-        "SF-05 edits around anchors",
-      );
-      for (const [tab, label] of [
-        [scene.first, "A"],
-        [scene.second, "B"],
-      ] as const) {
-        await expectHighlight(tab, label, scene.threadId, QUOTE, "Bravo");
-        await expectSuggestionRenders(
-          tab,
-          label,
-          scene.accepted,
-          ACCEPTED,
-          "Delta",
+    test(
+      "a comment and pending suggestions stay put while two tabs and an agent edit around them",
+      knownLossOnArm({ on: AGENT_EDIT_ON_SWITCHED_PAGE }),
+      async ({ page, context }) => {
+        const scene = await editAround(
+          page,
+          context,
+          agent,
+          "SF-05 edits around anchors",
         );
-        await expectSuggestionRenders(
-          tab,
-          label,
-          scene.rejected,
-          REJECTED,
-          "Golf",
-        );
-      }
+        for (const [tab, label] of [
+          [scene.first, "A"],
+          [scene.second, "B"],
+        ] as const) {
+          await expectHighlight(tab, label, scene.threadId, QUOTE, "Bravo");
+          await expectSuggestionRenders(
+            tab,
+            label,
+            scene.accepted,
+            ACCEPTED,
+            "Delta",
+          );
+          await expectSuggestionRenders(
+            tab,
+            label,
+            scene.rejected,
+            REJECTED,
+            "Golf",
+          );
+        }
 
-      const { comments } = await (async () => {
-        const response = await page.request.get(
-          "/_agent-native/actions/list-comments",
-          { params: { documentId: scene.id }, headers: ACTION_HEADERS },
+        const { comments } = await (async () => {
+          const response = await page.request.get(
+            "/_agent-native/actions/list-comments",
+            { params: { documentId: scene.id }, headers: ACTION_HEADERS },
+          );
+          const text = await response.text();
+          expect(response.ok(), `list-comments: ${text}`).toBe(true);
+          return JSON.parse(text) as {
+            comments: Array<{ thread_id: string; quoted_text: string | null }>;
+          };
+        })();
+        expect(
+          comments.find((comment) => comment.thread_id === scene.threadId)
+            ?.quoted_text,
+          "the stored quote",
+        ).toBe(QUOTE);
+        // A tab opened now has only the stored anchor to place the highlight.
+        const fresh = await scene.tabs.open("fresh", scene.id);
+        await expectHighlight(
+          fresh,
+          "fresh tab",
+          scene.threadId,
+          QUOTE,
+          "Bravo",
         );
-        const text = await response.text();
-        expect(response.ok(), `list-comments: ${text}`).toBe(true);
-        return JSON.parse(text) as {
-          comments: Array<{ thread_id: string; quoted_text: string | null }>;
-        };
-      })();
-      expect(
-        comments.find((comment) => comment.thread_id === scene.threadId)
-          ?.quoted_text,
-        "the stored quote",
-      ).toBe(QUOTE);
-      // A tab opened now has only the stored anchor to place the highlight.
-      const fresh = await scene.tabs.open("fresh", scene.id);
-      await expectHighlight(fresh, "fresh tab", scene.threadId, QUOTE, "Bravo");
-      for (const id of [scene.accepted, scene.rejected])
-        expect(await suggestionStatus(page, scene.id, id)).toBe("pending");
-      // The fresh tab's own saves are the known loss checked next.
-      expectNoNoise(scene.tabs, ["A", "B"]);
-    });
+        for (const id of [scene.accepted, scene.rejected])
+          expect(await suggestionStatus(page, scene.id, id)).toBe("pending");
+        // The fresh tab's own saves are the known loss checked next.
+        expectNoNoise(scene.tabs, ["A", "B"]);
+      },
+    );
 
     test(
       "a tab opened after the edits saves nothing",
@@ -578,7 +592,7 @@ test.describe(
         lane: "unowned",
         outcome: "SF-05",
         reason:
-          'A tab opened just after two tabs and an agent finished editing sent a save that went to History and showed "Your edits were saved to Version History", though nothing was typed in it (seen in CI on Linux; 4 of 4 local runs on Windows passed).',
+          'A tab opened just after two tabs and an agent finished editing replays an open tab\'s draft-journal entry as its own save, which goes to History and shows "Your edits were saved to Version History" though nothing was typed in it (intermittent; seen in CI on Linux). #7683 fixes it.',
       }),
       async ({ page, context }) => {
         const scene = await editAround(
@@ -664,47 +678,48 @@ test.describe(
       },
     );
 
-    test("rejecting a suggestion after the edits leaves the body byte for byte", async ({
-      page,
-      context,
-    }) => {
-      const scene = await editAround(
-        page,
-        context,
-        agent,
-        "SF-05 reject after edits",
-      );
-      const decisions = recordDecisions(scene.second);
-      const before = (await getDocument(page, scene.id)).content;
-
-      await decideInUi(scene.second, scene.rejected, "rejected");
-      await expect
-        .poll(() => suggestionStatus(page, scene.id, scene.rejected), {
-          message: "the suggestion is rejected",
-          timeout: 30_000,
-        })
-        .toBe("rejected");
-      for (const tab of [scene.first, scene.second])
-        await expect(
-          tab.locator(`${EDITOR} [data-suggestion-id="${scene.rejected}"]`),
-        ).toHaveCount(0, { timeout: POLL_INTERVAL_MS * 3 });
-      await delay(POLL_INTERVAL_MS + 3_000);
-      await scene.tabs.quiet();
-      expect((await getDocument(page, scene.id)).content).toBe(before);
-      for (const [tab, label] of [
-        [scene.first, "A"],
-        [scene.second, "B"],
-      ] as const)
-        await expectSuggestionRenders(
-          tab,
-          label,
-          scene.accepted,
-          ACCEPTED,
-          "Delta",
+    test(
+      "rejecting a suggestion after the edits leaves the body byte for byte",
+      knownLossOnArm({ on: AGENT_EDIT_ON_SWITCHED_PAGE }),
+      async ({ page, context }) => {
+        const scene = await editAround(
+          page,
+          context,
+          agent,
+          "SF-05 reject after edits",
         );
-      expect(decisions.map((answer) => answer.status)).toEqual([200]);
-      expectNoNoise(scene.tabs);
-    });
+        const decisions = recordDecisions(scene.second);
+        const before = (await getDocument(page, scene.id)).content;
+
+        await decideInUi(scene.second, scene.rejected, "rejected");
+        await expect
+          .poll(() => suggestionStatus(page, scene.id, scene.rejected), {
+            message: "the suggestion is rejected",
+            timeout: 30_000,
+          })
+          .toBe("rejected");
+        for (const tab of [scene.first, scene.second])
+          await expect(
+            tab.locator(`${EDITOR} [data-suggestion-id="${scene.rejected}"]`),
+          ).toHaveCount(0, { timeout: POLL_INTERVAL_MS * 3 });
+        await delay(POLL_INTERVAL_MS + 3_000);
+        await scene.tabs.quiet();
+        expect((await getDocument(page, scene.id)).content).toBe(before);
+        for (const [tab, label] of [
+          [scene.first, "A"],
+          [scene.second, "B"],
+        ] as const)
+          await expectSuggestionRenders(
+            tab,
+            label,
+            scene.accepted,
+            ACCEPTED,
+            "Delta",
+          );
+        expect(decisions.map((answer) => answer.status)).toEqual([200]);
+        expectNoNoise(scene.tabs);
+      },
+    );
 
     // Agent-form Markdown: blank lines between blocks, an escaped underscore,
     // underscore emphasis, bare dollar signs and a pipe table whose cells
@@ -724,7 +739,17 @@ test.describe(
       "Delta paragraph the reader types after.",
     ].join("\n");
 
-    const PRICE = { find: "costs $60", replace: "costs $75" };
+    // The agent takes its find from the readback, as SF-10 asks: switching a
+    // page stores its body in canonical form, which escapes the "$", and a
+    // find on the bytes the agent sent is then refused.
+    const priceIn = (body: string | null | undefined) => {
+      const find = body && /costs \\?\$60/.exec(body)?.[0];
+      if (!find)
+        throw new Error(
+          `The stored body has no Charlie price: ${JSON.stringify(body)}`,
+        );
+      return { find, replace: find.replace("60", "75") };
+    };
     // A find/replace suggestion paints only the characters that change.
     const PRICE_MARKS = { deleted: "60", inserted: "75" };
 
@@ -738,9 +763,10 @@ test.describe(
         // bytes as sent, so no lane flips this arm before the old path goes.
         off: { lane: "unowned", outcome: "SF-05", reason: AGENT_FORM_LOSS },
         on: {
-          lane: "L3",
+          lane: "L7",
           outcome: "SF-05",
-          reason: `${AGENT_FORM_LOSS} A switched page stores the agent's body in canonical form once L3's switch and writers land.`,
+          reason:
+            "On a switched page the comments stay anchored and the suggestion paints, but until L7 accepting it fails with a 500: decide-resource-suggestion writes through withPreparedYDocMutation, which refuses a live copy.",
         },
       }),
       async ({ page, context }) => {
@@ -752,7 +778,12 @@ test.describe(
             (await getDocument(page, id)).content === AGENT_FORM,
           ),
         });
-        const price = await suggest(agent, page, id, PRICE);
+        const price = await suggest(
+          agent,
+          page,
+          id,
+          priceIn((await getDocument(page, id)).content),
+        );
 
         const tabs = await TabSet.create(context);
         const tab = await tabs.open("A", id);

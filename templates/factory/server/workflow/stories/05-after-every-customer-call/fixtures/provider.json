@@ -1,0 +1,128 @@
+{
+  "gong.newCalls": {
+    "externalAndInternal": {
+      "ok": true,
+      "items": [
+        {
+          "id": "call-1",
+          "externalId": "call-1",
+          "kind": "call",
+          "provider": "gong",
+          "title": "Quarterly planning with Example Co",
+          "url": "https://gong.example.test/call?id=call-1",
+          "occurredAt": "2026-10-19T11:10:00.000Z",
+          "extras": {
+            "scope": "External",
+            "duration": 2400,
+            "direction": "Conference"
+          }
+        },
+        {
+          "id": "call-2",
+          "externalId": "call-2",
+          "kind": "call",
+          "provider": "gong",
+          "title": "Weekly team sync",
+          "url": "https://gong.example.test/call?id=call-2",
+          "occurredAt": "2026-10-19T11:40:00.000Z",
+          "extras": {
+            "scope": "Internal",
+            "duration": 1800,
+            "direction": "Conference"
+          }
+        }
+      ]
+    },
+    "oneExternal": {
+      "ok": true,
+      "items": [
+        {
+          "id": "call-1",
+          "externalId": "call-1",
+          "kind": "call",
+          "provider": "gong",
+          "title": "Quarterly planning with Example Co",
+          "url": "https://gong.example.test/call?id=call-1",
+          "occurredAt": "2026-10-19T11:10:00.000Z",
+          "extras": {
+            "scope": "External",
+            "duration": 2400,
+            "direction": "Conference"
+          }
+        }
+      ]
+    },
+    "none": { "ok": true, "items": [] }
+  },
+  "gong.transcript": {
+    "calls": {
+      "match": [
+        {
+          "when": { "callId": "call-1" },
+          "answer": {
+            "ok": true,
+            "output": {
+              "callTranscripts": [
+                {
+                  "callId": "call-1",
+                  "transcript": [
+                    {
+                      "speakerId": "speaker-1",
+                      "topic": "Planning",
+                      "sentences": [
+                        {
+                          "start": 0,
+                          "end": 4000,
+                          "text": "TRANSCRIPT-LINE: We want to roll out to the whole team in November."
+                        },
+                        {
+                          "start": 4000,
+                          "end": 9000,
+                          "text": "TRANSCRIPT-LINE: Our security review is not finished and might block us."
+                        },
+                        {
+                          "start": 9000,
+                          "end": 14000,
+                          "text": "TRANSCRIPT-LINE: Can you send the pricing sheet by Friday?"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "gongIsDown": {
+      "ok": false,
+      "code": "provider_error",
+      "message": "Gong is unavailable",
+      "retryable": true,
+      "sideEffect": "none"
+    },
+    "empty": { "ok": true }
+  },
+  "slack.postMessage": {
+    "posted": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "channel": "{fields.to}",
+        "ts": "1760002000.00000{n}",
+        "permalink": "https://slack.example.test/archives/{fields.to}/p176000200000000{n}"
+      },
+      "externalRef": "1760002000.00000{n}",
+      "url": "https://slack.example.test/archives/{fields.to}/p176000200000000{n}"
+    }
+  },
+  "hubspot.createTask": {
+    "created": {
+      "ok": true,
+      "output": { "ok": true, "id": "task-{n}" },
+      "externalRef": "task-{n}"
+    },
+    "diesAfterTheCall": { "crash": "after-call" }
+  }
+}

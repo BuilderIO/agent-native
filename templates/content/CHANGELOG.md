@@ -3,6 +3,67 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-19
+
+### Improved
+
+- You can comment on text in any Blocks field tab; each tab shows its open comments, and the Comments panel groups and filters them by tab
+- Database views can filter one property more than once, number filters add ≥ and ≤, and filter chips name their operator, like "Status: is not done".
+
+### Fixed
+
+- Edits made from a block's menu or a table's row and column menus, such as deleting a table, adding a row or turning off the header row, are now saved instead of coming back after a reload
+- Starting a comment puts the cursor in the comment box, ready to type.
+- Table row and column options now appear for the row or column under the pointer, Escape selects the cell before leaving the editor, wide tables keep their add-column control on screen on phones, and a tap near a table's edge on a touch screen edits the cell there instead of adding a row or column
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-18
+
+### Added
+
+- Connected AI assistants can link a new collection to a GitHub folder: each Markdown file becomes a view-only page, and a sync brings in the latest pushes
+
+### Improved
+
+- Collections linked to a GitHub folder bring in pushes on their own within about a minute, and open pages update in place for everyone reading them
+- Collection pages with more than one Blocks field show each field as a tab you can rename or delete
+- Block text and background colors use Content's own palette, and colored backgrounds are now readable in dark mode
+
+### Fixed
+
+- Blocks fields preserve literal whitespace and support hosted agent reads and edits
+- Renaming a Blocks field from a collection's column menu saves the new name again
+- Word counts can save open Blocks fields before counting on hosted deployments
+
+## 2026-10-17
+
+### Improved
+
+- Connected AI assistants can read a page with the edits still open in your editor
+
+## 2026-10-16
+
+### Fixed
+
+- Opening a page in a new tab while another tab is still saving no longer sends a second save or files a copy to History.
+- Typing steadily in one tab no longer makes another open tab show "This page changed elsewhere" after its edits saved.
+- Reopening a page after someone else renamed it no longer adds a copy of your edits to Version History
+
+## 2026-10-15
+
+### Fixed
+
+- The comment @ menu lists each AI model once, instead of once per provider when Builder.io and a provider key are both connected.
+
+## 2026-10-12
+
+### Improved
+
+- Pages open faster in a fresh browser
+
 ## 2026-10-11
 
 ### Improved

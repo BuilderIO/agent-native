@@ -32,6 +32,7 @@ import {
 } from "../server/lib/figma-import-errors.js";
 import { resolveImageFillRefs } from "../server/lib/figma-node-import.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 export { collectImageRefHashes, hydrateImageRefsInHtml };
 
@@ -66,6 +67,7 @@ export default defineAction({
         missing: 0,
         skipped: 0,
         message: "No unresolved image refs found in this file.",
+        _receipt: designOutputWriteReceipt(designId, 0),
       };
     }
 
@@ -103,6 +105,7 @@ export default defineAction({
         missing: hashesToResolve.length,
         skipped: 0,
         message: `Figma returned no image URLs for ${hashesToResolve.length} hash${hashesToResolve.length === 1 ? "" : "es"}. The images may have been deleted from the Figma file or the access token lacks file_content:read scope.`,
+        _receipt: designOutputWriteReceipt(designId, 0),
       };
     }
 
@@ -122,6 +125,7 @@ export default defineAction({
       resolved: result.resolved,
       missing: result.missing,
       skipped: result.skipped,
+      _receipt: designOutputWriteReceipt(designId, result.resolved > 0 ? 1 : 0),
     };
   },
 });

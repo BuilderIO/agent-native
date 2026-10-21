@@ -64,13 +64,7 @@ async function resolveBuilderSearchCredentials(
   opts: WebSearchToolOptions,
 ): Promise<BuilderWebSearchAuth | null> {
   if (!opts.resolveBuilderCredentials) return null;
-  try {
-    return await opts.resolveBuilderCredentials();
-  } catch {
-    // coercion-ok: Builder credential lookup failures are non-fatal; BYOK
-    // backends or the setup hint below can still handle the tool call.
-    return null;
-  }
+  return opts.resolveBuilderCredentials();
 }
 
 async function searchBrave(
@@ -269,7 +263,7 @@ export function createWebSearchToolEntry(
     "web-search": {
       tool: {
         description:
-          "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from BYOK providers or a grounded Builder-managed summary. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires either Builder.io (free tier available) or one of: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, EXA_API_KEY, or FIRECRAWL_API_KEY.",
+          "Search the public web to discover sources and URLs for current information, official documentation, and API references. Use this before web-request whenever you do not already have the exact URL. Returns ranked results from search providers or a grounded Builder-managed summary. Use web-request only to fetch a known URL or call a known API endpoint. Builder-managed search works with a Builder connection, uses included Builder AI credits, and needs no separate search key; provider API keys are optional.",
         parameters: {
           type: "object" as const,
           properties: {
@@ -300,7 +294,6 @@ export function createWebSearchToolEntry(
         const tavilyKey = await resolveSearchKey("TAVILY_API_KEY", opts);
         const exaKey = await resolveSearchKey("EXA_API_KEY", opts);
         const firecrawlKey = await resolveSearchKey("FIRECRAWL_API_KEY", opts);
-        const builderCredentials = await resolveBuilderSearchCredentials(opts);
 
         let results: WebSearchResult[];
         let backend: string;
@@ -319,7 +312,19 @@ export function createWebSearchToolEntry(
           } else if (firecrawlKey) {
             results = await searchFirecrawl(query, count, firecrawlKey);
             backend = "Firecrawl";
-          } else if (builderCredentials) {
+          } else {
+            const builderCredentials =
+              await resolveBuilderSearchCredentials(opts);
+            if (!builderCredentials) {
+              return [
+                "No web-search backend configured.",
+                "Connect Builder.io to use managed search with included Builder AI credits, or add an optional search provider key:",
+                "  • BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/",
+                "  • TAVILY_API_KEY        — https://tavily.com/",
+                "  • EXA_API_KEY           — https://exa.ai/",
+                "  • FIRECRAWL_API_KEY     — https://firecrawl.dev/",
+              ].join("\n");
+            }
             managedText = await searchBuilderManaged(
               query,
               count,
@@ -328,15 +333,6 @@ export function createWebSearchToolEntry(
             );
             results = [];
             backend = "Builder.io";
-          } else {
-            return [
-              "No web-search backend configured.",
-              "Use Builder.io (free tier available) in Settings, or add one of the following keys via app settings or environment variables:",
-              "  • BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/",
-              "  • TAVILY_API_KEY        — https://tavily.com/",
-              "  • EXA_API_KEY           — https://exa.ai/",
-              "  • FIRECRAWL_API_KEY     — https://firecrawl.dev/",
-            ].join("\n");
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);

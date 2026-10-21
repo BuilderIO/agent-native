@@ -40,6 +40,10 @@ import { cn } from "@/lib/utils";
 
 import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
 import {
+  TranscriptHistoryButton,
+  type TranscriptVersion,
+} from "./transcript-history-button";
+import {
   TranscriptImportButton,
   type TranscriptImportRequest,
   type TranscriptReplacement,
@@ -71,6 +75,10 @@ export interface TranscriptPanelProps {
   transcriptImportId?: string | null;
   onImportTranscript?: (request: TranscriptImportRequest) => Promise<unknown>;
   isImporting?: boolean;
+  /** Listed only to editors; absent for viewers. */
+  transcriptVersions?: TranscriptVersion[];
+  onRestoreTranscript?: (versionId: string) => Promise<boolean>;
+  restoringVersionId?: string | null;
 }
 
 const DISPLAY_MAX_WORDS = 36;
@@ -174,6 +182,9 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     transcriptImportId = null,
     onImportTranscript,
     isImporting = false,
+    transcriptVersions = [],
+    onRestoreTranscript,
+    restoringVersionId = null,
   } = props;
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
@@ -266,15 +277,30 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         onReplacementChange={setImportReplacement}
       />
     ) : null;
-  const withImport = (content: ReactNode) =>
-    onImportTranscript ? (
+  const historyButton = (variant: "icon" | "button") =>
+    onRestoreTranscript && transcriptVersions.length > 0 ? (
+      <TranscriptHistoryButton
+        variant={variant}
+        versions={transcriptVersions}
+        restoringVersionId={restoringVersionId}
+        onRestore={onRestoreTranscript}
+      />
+    ) : null;
+  const withImport = (content: ReactNode) => {
+    const importAction = importButton("button");
+    const historyAction = historyButton("button");
+    return importAction || historyAction ? (
       <div>
         {content}
-        <div className="px-4 pb-4">{importButton("button")}</div>
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-4">
+          {importAction}
+          {historyAction}
+        </div>
       </div>
     ) : (
       content
     );
+  };
 
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
@@ -433,6 +459,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             <TooltipContent>{t("transcriptPanel.downloadSrt")}</TooltipContent>
           </Tooltip>
           {importButton("icon")}
+          {historyButton("icon")}
           {onRegenerate ? (
             <Tooltip>
               <TooltipTrigger asChild>

@@ -133,8 +133,8 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
       '<table header-row="true">\n<tr>\n<td>A</td>\n<td>B</td>\n</tr>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</table>',
     // The editor draws a header cell as a td with this class, never as a th.
     renders: [
-      { selector: "td.notion-table-header-cell", text: "A" },
-      { selector: "td:not(.notion-table-header-cell)", text: "2" },
+      { selector: "td.content-table-header-cell", text: "A" },
+      { selector: "td:not(.content-table-header-cell)", text: "2" },
     ],
   },
   {
@@ -161,6 +161,28 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     origin: "agent",
     markdown: "$x+y$ is math",
     canonical: "$x+y$ is math",
+  },
+  {
+    id: "refuse-over-limit-inline-math",
+    origin: "agent",
+    markdown: `$${"x".repeat(1_001)}$`,
+    unrepresentable:
+      "The inline math matcher cannot represent a closed expression beyond its length limit.",
+    losses: ["dropped-formatting"],
+  },
+  {
+    id: "refuse-inline-image",
+    origin: "agent",
+    markdown: "see ![x](y) here",
+    unrepresentable:
+      "The editor supports image blocks, not images inside a paragraph.",
+    losses: ["dropped-formatting"],
+  },
+  {
+    id: "literal-image-prefix-beside-link",
+    origin: "agent",
+    markdown: String.raw`see \![x](y) here`,
+    canonical: String.raw`see \![x](y) here`,
   },
   {
     id: "crlf-line-endings",
@@ -465,6 +487,13 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     canonical: "\\  - not a list",
   },
   {
+    id: "tab-indented-spaced-marker-stays-text",
+    origin: "agent",
+    markdown: "Intro\n\t  - item\n\tafter",
+    canonical: "Intro\n\t\\  - item\n\tafter",
+    note: "A list one tab in keeps no indent, so the indented line after it would join the item on the next read.",
+  },
+  {
     id: "untabbed-container-body",
     origin: "agent",
     markdown: "<details>\n<summary>S</summary>\nBody\n</details>",
@@ -723,6 +752,33 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     note: "Padding is stripped only around code that is not all whitespace, so none is added.",
   },
   {
+    id: "whitespace-only-text",
+    origin: "editor",
+    markdown: "<span>  </span>",
+    canonical: "<span>  </span>",
+    note: "A neutral span protects the editor's whitespace from block trimming.",
+  },
+  {
+    id: "refuse-invalid-block-color",
+    origin: "agent",
+    markdown: 'text {color="bad"}',
+    unrepresentable:
+      "An unsupported block color must be reported even when the suffix stays literal text.",
+    losses: ["dropped-attribute"],
+  },
+  {
+    id: "compact-table-head-group",
+    origin: "agent",
+    markdown: "<table>\n<thead><tr><th>A</th></tr></thead>\n</table>",
+    canonical: '<table header-row="true">\n<tr>\n<td>A</td>\n</tr>\n</table>',
+  },
+  {
+    id: "compact-table-body-group",
+    origin: "agent",
+    markdown: "<table>\n<tbody><tr><td>x</td></tr></tbody>\n</table>",
+    canonical: "<table>\n<tr>\n<td>x</td>\n</tr>\n</table>",
+  },
+  {
     id: "empty-code-fence",
     origin: "agent",
     markdown: "```\n```",
@@ -746,8 +802,8 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     id: "refuse-colored-trailing-empty-block",
     origin: "agent",
     markdown: '# H\n{color="red"}',
-    unrepresentable: "The writer keeps no color on an empty block.",
-    losses: ["reparse-mismatch"],
+    canonical: '# H\n{color="red"}',
+    note: "The color suffix keeps an authored empty paragraph distinct from the editor's terminal filler.",
   },
   {
     id: "refuse-formatted-math",
@@ -1021,12 +1077,6 @@ const mathParagraph = (label: string): PMNode => ({
 });
 
 export const KNOWN_EDITOR_LOSSES: readonly KnownEditorLoss[] = [
-  {
-    id: "whitespace-only-text",
-    doc: { type: "doc", content: [paragraph("  ")] },
-    markdown: "  ",
-    note: "Edge spaces are trimmed from a line, so a block holding only spaces reads back empty.",
-  },
   {
     id: "heading-leading-space",
     doc: {

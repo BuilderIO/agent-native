@@ -284,6 +284,23 @@ describe("runPublishAgentSelectionContext application state write", () => {
     expect(JSON.stringify(value).length).toBeLessThan(16_000);
   });
 
+  it("marks both persisted selection keys as this browser tab while retaining immediate context", () => {
+    const args = argsFor();
+    runPublishAgentSelectionContext(args);
+
+    expect(publishedSelection().designId).toBe("design-1");
+    expect(vi.mocked(setClientAppState).mock.calls).toHaveLength(2);
+    expect(
+      vi
+        .mocked(setClientAppState)
+        .mock.calls.map(([key, , options]) => [key, options?.requestSource]),
+    ).toEqual([
+      ["design-selection:tab-123", "tab-123"],
+      ["design-selection", "tab-123"],
+    ]);
+    expect(args.persistedSelectionStateRef.current).not.toBeNull();
+  });
+
   it("sends a bounded selection as keepalive so a write just before navigating away lands", () => {
     runPublishAgentSelectionContext(
       argsFor({ selectedElement: deepScreenElement() }),

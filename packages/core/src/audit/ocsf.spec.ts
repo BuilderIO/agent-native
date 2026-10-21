@@ -117,6 +117,7 @@ describe("auditEventToOcsf", () => {
         networkId: "peer-app",
         networkPeer: "https://peer.example.test",
         app: "mail",
+        identityAssurance: "org-member",
       }),
     );
     expect(out.activity_id).toBe(1);
@@ -139,6 +140,35 @@ describe("auditEventToOcsf", () => {
       network_protocol: "a2a",
       network_id: "peer-app",
       network_peer: "https://peer.example.test",
+      identity_assurance: "org-member",
+    });
+  });
+
+  it("keeps the reported MCP client and approval under unmapped, not on the actor", () => {
+    const out = auditEventToOcsf(
+      event({
+        caller: "mcp",
+        actorKind: "agent",
+        reportedClientName: "Claude Code",
+        reportedClientVersion: "2.1.0",
+        oauthClientId: "client-123",
+        approval: "mcp-client-accepted",
+      }),
+    );
+    expect(out.unmapped).toMatchObject({
+      reported_client_name: "Claude Code",
+      reported_client_version: "2.1.0",
+      oauth_client_id: "client-123",
+      approval: "mcp-client-accepted",
+    });
+    expect(out.actor).toEqual({
+      user: {
+        uid: "alice@example.test",
+        name: "alice@example.test",
+        email_addr: "alice@example.test",
+        type_id: 1,
+        type: "User",
+      },
     });
   });
 

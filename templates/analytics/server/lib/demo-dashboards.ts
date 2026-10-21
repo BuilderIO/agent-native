@@ -1,10 +1,8 @@
-import { createHash } from "node:crypto";
-
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 
-import { queueDashboardCollabSync } from "./dashboard-collab-sync";
+import { BUILTIN_DEMO_DASHBOARD_ID } from "../../shared/builtin-dashboard-ids";
 import { loadDashboardSeed } from "./dashboard-seeds";
-import { getDashboard, upsertDashboard } from "./dashboards-store";
+import { getDashboard } from "./dashboards-store";
 
 export const DEMO_DASHBOARD_VERSION = "2026-06-11-app-tabs-lite-overview";
 export const DEMO_DASHBOARD_STATE_KEY = "analytics-demo-dashboards";
@@ -109,17 +107,6 @@ function stateContent(state: DemoDashboardState): string {
   });
 }
 
-export function demoDashboardIdForUser(
-  email: string,
-  demoId: DemoDashboardId,
-): string {
-  const hash = createHash("sha256")
-    .update(email.trim().toLowerCase())
-    .digest("hex")
-    .slice(0, 8);
-  return `${demoId}-${hash}`;
-}
-
 function demoIdFromConfig(
   config: Record<string, unknown>,
 ): DemoDashboardId | null {
@@ -129,6 +116,14 @@ function demoIdFromConfig(
   return DEMO_DASHBOARDS.some((d) => d.id === id)
     ? (id as DemoDashboardId)
     : null;
+}
+
+/** The demo as shipped; legacy per-user copies also carried install times. */
+export function demoNodeExporterConfig(): Record<string, unknown> {
+  const demo = DEMO_DASHBOARDS[0];
+  const seed = loadDashboardSeed(demo.seedId);
+  if (!seed) throw new Error(`Demo dashboard seed not found: ${demo.seedId}`);
+  return applyDemoMetadata(seed, demo.id);
 }
 
 function applyDemoMetadata(
@@ -173,12 +168,10 @@ function applyDemoMetadata(
     demo: {
       id: demoId,
       version: DEMO_DASHBOARD_VERSION,
-      installedAt: nowIso(),
     },
     catalog: {
       templateId: demoId,
       templateVersion: DEMO_DASHBOARD_VERSION,
-      installedAt: nowIso(),
     },
   };
 }
@@ -194,6 +187,15 @@ async function writeDemoState(
   await putUserSetting(email, DEMO_DASHBOARD_STATE_KEY, publicState(state));
 }
 
+export async function isDemoDashboardDeleted(email: string): Promise<boolean> {
+  const state = await readDemoState(email);
+  return DEMO_DASHBOARDS.every((demo) => Boolean(state.deleted?.[demo.id]));
+}
+
+/**
+ * The demo is a built-in served from code, so installing it only records
+ * whether this user deleted it. `reset` brings a deleted demo back.
+ */
 export async function ensureDemoDashboardsForUser(
   ctx: AccessCtx,
   options: { reset?: boolean } = {},
@@ -205,89 +207,23 @@ export async function ensureDemoDashboardsForUser(
 }> {
   if (!ctx.email) throw new Error("no authenticated user");
   const reset = options.reset === true;
-  const privateCtx = { email: ctx.email, orgId: null };
   const state = await readDemoState(ctx.email);
   const deleted = reset ? {} : { ...(state.deleted ?? {}) };
-  const dashboards = { ...(state.dashboards ?? {}) };
-  const results: EnsuredDemoDashboard[] = [];
-
-  for (const demo of DEMO_DASHBOARDS) {
-    const dashboardId =
-      dashboards[demo.id]?.dashboardId ??
-      demoDashboardIdForUser(ctx.email, demo.id);
-    const deletedAt = deleted[demo.id];
-
-    if (deletedAt && !reset) {
-      results.push({
-        id: demo.id,
-        dashboardId,
-        name: demo.name,
-        path: demoDashboardPath(dashboardId),
-        installed: false,
-        created: false,
-        archivedAt: null,
-        deleted: true,
-      });
-      dashboards[demo.id] = {
-        dashboardId,
-        seedId: demo.seedId,
-        installedAt: dashboards[demo.id]?.installedAt,
-        deletedAt,
-      };
-      continue;
-    }
-
-    const existing = await getDashboard(dashboardId, privateCtx);
-    const existingVersion =
-      existing?.config?.demo &&
-      typeof existing.config.demo === "object" &&
-      !Array.isArray(existing.config.demo)
-        ? (existing.config.demo as Record<string, unknown>).version
-        : undefined;
-    const isOutdated = existingVersion !== DEMO_DASHBOARD_VERSION;
-    let archivedAt = existing?.archivedAt ?? null;
-    let created = false;
-    if (!existing || reset || isOutdated) {
-      const seed = loadDashboardSeed(demo.seedId);
-      if (!seed)
-        throw new Error(`Demo dashboard seed not found: ${demo.seedId}`);
-      const config = applyDemoMetadata(seed, demo.id);
-      const row = await upsertDashboard(dashboardId, "sql", config, privateCtx);
-      // SQL is the source of truth and collab state can seed lazily. Do not
-      // hold first-open installation (and the whole app shell) behind a remote
-      // collab read/write that may be slow or temporarily unavailable.
-      void queueDashboardCollabSync(
-        dashboardId,
-        row.updatedAt,
-        () => getDashboard(dashboardId, privateCtx),
-        "agent",
-      );
-      archivedAt = row.archivedAt;
-      created = !existing;
-    }
-
-    dashboards[demo.id] = {
-      dashboardId,
-      seedId: demo.seedId,
-      installedAt: dashboards[demo.id]?.installedAt ?? nowIso(),
-      deletedAt: null,
-    };
-    results.push({
-      id: demo.id,
-      dashboardId,
-      name: demo.name,
-      path: demoDashboardPath(dashboardId),
-      installed: true,
-      created,
-      archivedAt,
-      deleted: false,
-    });
-  }
+  const results: EnsuredDemoDashboard[] = DEMO_DASHBOARDS.map((demo) => ({
+    id: demo.id,
+    dashboardId: BUILTIN_DEMO_DASHBOARD_ID,
+    name: demo.name,
+    path: demoDashboardPath(BUILTIN_DEMO_DASHBOARD_ID),
+    installed: !deleted[demo.id],
+    created: false,
+    archivedAt: null,
+    deleted: Boolean(deleted[demo.id]),
+  }));
 
   const updatedStateContent: DemoDashboardState = {
     version: DEMO_DASHBOARD_VERSION,
     initializedAt: state.initializedAt ?? nowIso(),
-    dashboards,
+    dashboards: state.dashboards ?? {},
     deleted,
   };
   if (reset || stateContent(state) !== stateContent(updatedStateContent)) {
@@ -297,7 +233,7 @@ export async function ensureDemoDashboardsForUser(
     });
   }
 
-  const firstActive = results.find((row) => row.installed && !row.archivedAt);
+  const firstActive = results.find((row) => row.installed);
   return {
     dashboards: results,
     defaultDashboardId: firstActive?.dashboardId ?? null,
@@ -313,9 +249,13 @@ export async function markDemoDashboardDeleted(
   if (!ctx.email) return;
   const state = await readDemoState(ctx.email);
   const dashboards = { ...(state.dashboards ?? {}) };
-  let demoId = Object.entries(dashboards).find(
-    ([, row]) => row.dashboardId === dashboardId,
-  )?.[0] as DemoDashboardId | undefined;
+  let demoId = (
+    dashboardId === BUILTIN_DEMO_DASHBOARD_ID
+      ? DEMO_DASHBOARDS[0].id
+      : Object.entries(dashboards).find(
+          ([, row]) => row.dashboardId === dashboardId,
+        )?.[0]
+  ) as DemoDashboardId | undefined;
 
   if (!demoId) {
     const dashboard = await getDashboard(dashboardId, ctx).catch(() => null);

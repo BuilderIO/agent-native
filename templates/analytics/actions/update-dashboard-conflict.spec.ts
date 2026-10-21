@@ -71,7 +71,12 @@ vi.mock("../server/lib/dashboards-store", () => ({
       return {
         dashboard: { ...row },
         didWrite: true,
-        ...(replaced ? { revisionId: `rev-${replaced.updatedAt}` } : {}),
+        ...(replaced
+          ? {
+              revisionId: `rev-${replaced.updatedAt}`,
+              changeSummary: { changes: [{ kind: "other" }], omitted: 2 },
+            }
+          : {}),
       };
     },
   ),
@@ -133,12 +138,13 @@ describe("update-dashboard config-replace concurrency fence", () => {
     expect(row?.updatedAt).toBe(afterDelete.updatedAt);
   });
 
-  it("returns the revision a full-config save left, which the save toast's Undo restores", async () => {
+  it("returns the revision a full-config save left and what it changed, for the save toast", async () => {
     const created: any = await updateDashboard.run({
       dashboardId: "growth-health",
       config: { name: "Growth health", panels: [panel("a")] },
     });
     expect(created.revisionId).toBeUndefined();
+    expect(created).not.toHaveProperty("changes");
 
     const saved: any = await updateDashboard.run({
       dashboardId: "growth-health",
@@ -146,6 +152,8 @@ describe("update-dashboard config-replace concurrency fence", () => {
       expectedUpdatedAt: created.updatedAt,
     });
     expect(saved.revisionId).toBe(`rev-${created.updatedAt}`);
+    expect(saved.changes).toEqual([{ kind: "other" }]);
+    expect(saved.omittedChanges).toBe(2);
   });
 
   it("still allows a same-tab follow-up save fenced with the delete's own fresh updatedAt", async () => {

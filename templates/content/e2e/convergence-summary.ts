@@ -56,10 +56,23 @@ const tally = (
   );
 };
 
+const answers = (tab: TabRecord) => ({
+  ...tab.saveOutcomes,
+  ...Object.fromEntries(
+    Object.entries(tab.lateSaveOutcomes).map(([outcome, count]) => [
+      `late ${outcome}`,
+      count,
+    ]),
+  ),
+});
+
 const distinct = (
   record: ScenarioRecord,
   field: "lost" | "duplicated" | "resurrected",
-) => new Set(record.integrity.flatMap((entry) => entry[field])).size;
+) =>
+  record.integrity === null
+    ? "stopped"
+    : new Set(record.integrity.flatMap((entry) => entry[field])).size;
 
 const arms = [...new Set(records.map((record) => record.gate))];
 const lines = [
@@ -76,22 +89,24 @@ for (const record of records) {
   const tabs = record.tabs;
   const gate = `${record.gate ?? "unrecorded"}, ${record.tags.includes(`@${KNOWN_LOSS}`) ? "known loss" : "required"}`;
   lines.push(
-    `| ${record.scenario} | ${gate} | ${record.authoredEdits} | ${distinct(record, "lost")} | ${distinct(record, "duplicated")} | ${distinct(record, "resurrected")} | ${sum(tabs, (tab) => tab.saveRequests)} | ${tally(tabs, (tab) => tab.saveOutcomes)} | ${tally(tabs, (tab) => tab.saveCodes)} | ${sum(tabs, (tab) => tab.recovery.length)} | ${sum(tabs, (tab) => tab.errorToasts.length)} | ${sum(tabs, (tab) => tab.editorMounts)} | ${Math.round(record.durationMs / 1000)} |`,
+    `| ${record.scenario} | ${gate} | ${record.authoredEdits} | ${distinct(record, "lost")} | ${distinct(record, "duplicated")} | ${distinct(record, "resurrected")} | ${sum(tabs, (tab) => tab.saveRequests)} | ${tally(tabs, answers)} | ${tally(tabs, (tab) => tab.saveCodes)} | ${sum(tabs, (tab) => tab.recovery.length)} | ${sum(tabs, (tab) => tab.errorToasts.length)} | ${sum(tabs, (tab) => tab.editorMounts)} | ${Math.round(record.durationMs / 1000)} |`,
   );
 }
 
 const failures = records.flatMap((record) =>
-  record.integrity
-    .filter(
-      (entry) =>
-        entry.lost.length ||
-        entry.duplicated.length ||
-        entry.resurrected.length,
-    )
-    .map(
-      (entry) =>
-        `- ${record.scenario}, ${entry.at}, ${entry.surface}: lost ${entry.lost.join(" ") || "none"}; duplicated ${entry.duplicated.join(" ") || "none"}; deleted, back ${entry.resurrected.join(" ") || "none"}`,
-    ),
+  record.integrity === null
+    ? []
+    : record.integrity
+        .filter(
+          (entry) =>
+            entry.lost.length ||
+            entry.duplicated.length ||
+            entry.resurrected.length,
+        )
+        .map(
+          (entry) =>
+            `- ${record.scenario}, ${entry.at}, ${entry.surface}: lost ${entry.lost.join(" ") || "none"}; duplicated ${entry.duplicated.join(" ") || "none"}; deleted, back ${entry.resurrected.join(" ") || "none"}`,
+        ),
 );
 if (failures.length)
   lines.push(
@@ -99,6 +114,19 @@ if (failures.length)
     "### Lost, duplicated or deleted-then-back text",
     "",
     ...failures,
+  );
+
+// Its marker counts were never taken, so it is listed rather than counted.
+const stopped = records.filter((record) => record.integrity === null);
+if (stopped.length)
+  lines.push(
+    "",
+    "### Stopped early, text not counted",
+    "",
+    ...stopped.map(
+      (record) =>
+        `- ${record.scenario}: ${(record.stoppedEarly ?? "no reason recorded").replace(/\x1b\[[0-9;]*m/g, "").split("\n")[0]}`,
+    ),
   );
 
 const notes = records.filter((record) => Object.keys(record.notes).length);

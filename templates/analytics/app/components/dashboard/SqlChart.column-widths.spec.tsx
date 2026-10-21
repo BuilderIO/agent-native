@@ -13,6 +13,10 @@ const ROWS = vi.hoisted(() => [
 ]);
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  useSession: () => ({
+    session: { email: "viewer@example.com", userId: "viewer", orgId: "org-1" },
+    status: "authenticated",
+  }),
   useActionMutation: () => ({ mutate: () => {}, isPending: false }),
   useDemoModeStatus: () => ({
     enabled: false,
@@ -37,6 +41,7 @@ vi.mock("@/lib/sql-query", () => ({
 vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: () => null,
   ExtensionSlot: () => null,
+  isExtensionApiPath: () => false,
 }));
 
 vi.mock("@/pages/adhoc/sql-dashboard/ViewSqlPopover", () => ({

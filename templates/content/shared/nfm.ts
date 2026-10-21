@@ -1,4 +1,8 @@
-import { matchInlineMathAt } from "./inline-math.js";
+import {
+  isEscapedInlineDelimiter,
+  matchInlineMathAt,
+  MAX_INLINE_MATH_LENGTH,
+} from "./inline-math.js";
 import { registryBlockSpecByTag } from "./nfm-registry.js";
 
 export interface PMMark {
@@ -68,7 +72,7 @@ function isColor(value: string | null | undefined): value is string {
   return !!value && NFM_COLORS.has(value) && value !== "default";
 }
 
-const ESCAPABLE = new Set("\\*~`$[]<>{}|^".split(""));
+const ESCAPABLE = /[\\*~`$[\]<>{}|^]/g;
 
 // CommonMark lets a backslash escape any ASCII punctuation, and agents write
 // `\_` or `1\.`. Writing still escapes only `ESCAPABLE`, so the bytes the
@@ -76,12 +80,7 @@ const ESCAPABLE = new Set("\\*~`$[]<>{}|^".split(""));
 const PARSE_ESCAPABLE = new Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".split(""));
 
 export function escapeInlineText(text: string): string {
-  let out = "";
-  for (const ch of text) {
-    if (ESCAPABLE.has(ch)) out += "\\" + ch;
-    else out += ch;
-  }
-  return out;
+  return text.replace(ESCAPABLE, "\\$&");
 }
 
 function unescapeInlineText(text: string): string {
@@ -310,17 +309,17 @@ function splitBlockAttrs(
     return { text: line, toggle: false, color: null };
   }
   const toggle = /\btoggle\s*=\s*"true"/.test(body);
-  const colorMatch = body.match(/\bcolor\s*=\s*"([^"]+)"/);
+  const colorMatch = body.match(/\bcolor\s*=\s*"([^"]*)"/);
   const color = colorMatch && isColor(colorMatch[1]) ? colorMatch[1] : null;
-  if (!toggle && !color) return { text: line, toggle: false, color: null };
   if (toggle && !allowToggle)
     reportLoss("dropped-attribute", '{toggle="true"}');
   const rest = body
     .replace(/\btoggle\s*=\s*"true"/, "")
-    .replace(/\bcolor\s*=\s*"[^"]+"/, "")
+    .replace(/\bcolor\s*=\s*"[^"]*"/, "")
     .trim();
-  if (rest || (colorMatch && !color))
+  if ((colorMatch && !color) || ((toggle || color) && rest))
     reportLoss("dropped-attribute", `{${body}}`);
+  if (!toggle && !color) return { text: line, toggle: false, color: null };
   return { text: m.text, toggle, color };
 }
 
@@ -361,15 +360,27 @@ function serializeInline(
   escapeUnderscore = false,
 ): string {
   if (!nodes || !nodes.length) return "";
-  const parts = nodes.map((node) =>
+  const parts = nodes.map((node, index) =>
     node.type === "notionInlineAtom"
       ? ""
-      : serializeInlineNode(node, escapeUnderscore),
+      : serializeInlineNode(node, escapeUnderscore, index === 0),
   );
   let following = "";
   for (let index = parts.length - 1; index >= 0; index--) {
     if (nodes[index]!.type === "notionInlineAtom")
       parts[index] = serializeInlineAtom(nodes[index]!, following);
+    else if (
+      nodes[index]!.type === "text" &&
+      parts[index]!.endsWith("!") &&
+      following === "["
+    )
+      parts[index] = serializeInlineTextNode(
+        nodes[index]!,
+        false,
+        escapeUnderscore,
+        true,
+        index === 0,
+      )!.source;
     following = (parts[index] + following).slice(0, 1);
   }
   const source = parts.join("");
@@ -408,6 +419,8 @@ function serializeInlineTextNode(
   node: PMNode,
   collectOffsets: boolean,
   escapeUnderscore = false,
+  escapeTrailingBang = false,
+  startsLine = false,
 ): {
   source: string;
   textOffsets: number[] | null;
@@ -440,21 +453,28 @@ function serializeInlineTextNode(
     }
   } else {
     if (escapeUnderscore) contextualSpellings?.escapedUnderscores.add(node);
+    if (escapeTrailingBang) contextualSpellings?.escapedTrailingBang.add(node);
     const escape = (text: string) => {
       const escaped = escapeInlineText(text);
       return escapeUnderscore ? escaped.replace(/_/g, "\\_") : escaped;
     };
     out = escape(raw);
+    if (escapeTrailingBang && raw.endsWith("!")) out = out.slice(0, -1) + "\\!";
     if (textOffsets) {
       let contentOffset = 0;
       textOffsets = [contentOffset];
       for (let index = 0; index < raw.length; index += 1) {
         contentOffset += escape(raw[index]!).length;
+        if (
+          escapeTrailingBang &&
+          index === raw.length - 1 &&
+          raw[index] === "!"
+        )
+          contentOffset++;
         textOffsets.push(contentOffset);
       }
     }
   }
-
   const wrap = (prefix: string, suffix: string) => {
     out = prefix + out + suffix;
     if (textOffsets)
@@ -479,7 +499,16 @@ function serializeInlineTextNode(
 
   const span = markOf(node, "notionSpan");
   const plainUnderline = !!markOf(node, "underline");
-  if (span || plainUnderline) {
+  // Neutral spans keep literal whitespace out of NFM's indentation/blank-line
+  // grammar. Plain text needs one only where that grammar applies: at the
+  // start of a line. It's checked after the markers are added, since code
+  // backticks or emphasis asterisks already keep a line from starting with
+  // whitespace. A span can't hold a raw newline (it would cross lines and fail
+  // to parse back), so text containing one is left as it was.
+  const leadingWhitespace =
+    !out.includes("\n") && (out.startsWith("\t") || /^\s+$/.test(out));
+  const protectsWhitespace = (!!span || startsLine) && leadingWhitespace;
+  if (span || plainUnderline || protectsWhitespace) {
     const a = span?.attrs || {};
     const underlined =
       a.underline === "true" || a.underline === true || plainUnderline;
@@ -492,7 +521,7 @@ function serializeInlineTextNode(
       ["bg_color", foregroundColor ? backgroundColor : null],
       ["underline", underlined ? "true" : null],
     ]);
-    if (attrStr) wrap(`<span${attrStr}>`, "</span>");
+    if (attrStr || protectsWhitespace) wrap(`<span${attrStr}>`, "</span>");
   }
 
   const link = markOf(node, "link");
@@ -505,11 +534,19 @@ function serializeInlineTextNode(
 export function serializeInlineTextNodeWithOffsets(
   node: PMNode,
   escapeUnderscore = false,
+  escapeTrailingBang = false,
+  startsLine = false,
 ): {
   source: string;
   textOffsets: number[];
 } | null {
-  const serialized = serializeInlineTextNode(node, true, escapeUnderscore);
+  const serialized = serializeInlineTextNode(
+    node,
+    true,
+    escapeUnderscore,
+    escapeTrailingBang,
+    startsLine,
+  );
   return serialized?.textOffsets
     ? { source: serialized.source, textOffsets: serialized.textOffsets }
     : null;
@@ -518,10 +555,17 @@ export function serializeInlineTextNodeWithOffsets(
 export function serializeInlineNode(
   node: PMNode,
   escapeUnderscore = false,
+  startsLine = false,
 ): string {
   if (node.type === "hardBreak") return "<br>";
   if (node.type === "notionInlineAtom") return serializeInlineAtom(node);
-  const textNode = serializeInlineTextNode(node, false, escapeUnderscore);
+  const textNode = serializeInlineTextNode(
+    node,
+    false,
+    escapeUnderscore,
+    false,
+    startsLine,
+  );
   if (textNode) return textNode.source;
   return node.text ? escapeInlineText(node.text) : "";
 }
@@ -870,6 +914,44 @@ function mergeAdjacentText(nodes: PMNode[]): PMNode[] {
 // which no page needs, the text reads as written and the loss is reported.
 const MAX_INLINE_DEPTH = 32;
 
+// Fidelity must name closed math the bounded matcher cannot represent. Index
+// its closers once: searching to the end from every unmatched `$` is quadratic.
+function indexOverLimitMath(input: string): Set<number> {
+  const starts = new Set<number>();
+  let plainClose = -1;
+  let githubClose = -1;
+  let lineEnd = input.length;
+  for (let at = input.length - 1; at >= 0; at--) {
+    const ch = input[at];
+    if (ch === "\n" || ch === "\r") lineEnd = at;
+    if (ch === "`" && input[at + 1] === "$") githubClose = at;
+    if (ch !== "$") continue;
+    const escaped = isEscapedInlineDelimiter(input, at);
+    if (!escaped) {
+      if (input[at + 1] === "`") {
+        if (githubClose - at - 2 > MAX_INLINE_MATH_LENGTH) starts.add(at);
+      } else if (
+        input[at + 1] &&
+        input[at + 1] !== "$" &&
+        !/\s/.test(input[at + 1]) &&
+        plainClose < lineEnd &&
+        plainClose - at - 1 > MAX_INLINE_MATH_LENGTH
+      ) {
+        starts.add(at);
+      }
+    }
+    if (
+      !escaped &&
+      input[at - 1] !== "$" &&
+      input[at + 1] !== "$" &&
+      !/\s/.test(input[at - 1] ?? "") &&
+      !/\d/.test(input[at + 1] ?? "")
+    )
+      plainClose = at;
+  }
+  return starts;
+}
+
 function parseInline(input: string, depth = 0): PMNode[] {
   if (depth > MAX_INLINE_DEPTH) {
     // Without a character that opens a construct, text reads as itself.
@@ -885,6 +967,7 @@ function parseInline(input: string, depth = 0): PMNode[] {
   let linkCloses: LinkCloses | null = null;
   let nextIndex: ((needle: string, from: number) => number) | null = null;
   let mentionCloses: MentionCloseTrie | null = null;
+  let overLimitMath: Set<number> | null = null;
   const flush = () => {
     if (buf) {
       out.push(textNode(buf, []));
@@ -919,6 +1002,12 @@ function parseInline(input: string, depth = 0): PMNode[] {
       i = inlineMath.to;
       continue;
     }
+    if (
+      ch === "$" &&
+      activeLossSink &&
+      (overLimitMath ??= indexOverLimitMath(input)).has(i)
+    )
+      reportLoss("dropped-formatting", input.slice(i, i + 200));
 
     if (ch === "`") {
       // A run with no closer stays text, and so does each backtick of it
@@ -1090,6 +1179,8 @@ function parseInline(input: string, depth = 0): PMNode[] {
       };
       const link = matchLink(input, i, linkCloses, codeRuns);
       if (link) {
+        if (buf.endsWith("!") && !isEscapedInlineDelimiter(input, i - 1))
+          reportLoss("dropped-formatting", input.slice(i - 1, link.end));
         flush();
         const inner = parseInline(link.text, depth + 1);
         addMark(inner, { type: "link", attrs: { href: link.href } });
@@ -1340,11 +1431,14 @@ export interface NfmContextualSpellings {
   escapedUnderscores: ReadonlySet<PMNode>;
   /** It opens a paragraph that looked like block syntax, so a `\` precedes it. */
   escapedBlockMarker: ReadonlySet<PMNode>;
+  /** Its literal `!` before a link must not become image syntax. */
+  escapedTrailingBang: ReadonlySet<PMNode>;
 }
 
 let contextualSpellings: {
   escapedUnderscores: Set<PMNode>;
   escapedBlockMarker: Set<PMNode>;
+  escapedTrailingBang: Set<PMNode>;
 } | null = null;
 
 /**
@@ -1358,6 +1452,7 @@ export function nfmContextualSpellings(
   const spellings = {
     escapedUnderscores: new Set<PMNode>(),
     escapedBlockMarker: new Set<PMNode>(),
+    escapedTrailingBang: new Set<PMNode>(),
   };
   const previous = contextualSpellings;
   contextualSpellings = spellings;
@@ -1436,11 +1531,12 @@ function serializeBlock(node: PMNode, indent: number): string[] {
   switch (node.type) {
     case "paragraph": {
       const inline = serializeInline(node.content);
-      if (!inline) return [indentStr(ind) + "<empty-block/>"];
+      const suffix = blockAttrSuffix({ color: node.attrs?.color });
+      if (!inline)
+        return [indentStr(ind) + (suffix.trimStart() || "<empty-block/>")];
       const escaped = escapeLeadingBlockMarker(inline);
       if (escaped !== inline && node.content?.[0])
         contextualSpellings?.escapedBlockMarker.add(node.content[0]);
-      const suffix = blockAttrSuffix({ color: node.attrs?.color });
       // Text one space short of a block marker, like `#`, would become one
       // with the suffix's space, so the suffix goes on without it.
       const joined =
@@ -1907,8 +2003,12 @@ function parseBlockSequence(
       continue;
     }
 
+    // A list here keeps no indent of its own, so a spaced marker one tab in
+    // stays text: as a list it would swallow the indented block after it on
+    // the next read.
     const listKind =
-      listKindOf(dedent) ?? listKindOf(dedent.replace(/^ {1,3}/, ""));
+      listKindOf(dedent) ??
+      (rel === 0 ? listKindOf(dedent.replace(/^ {1,3}/, "")) : null);
     if (listKind) {
       const res = parseList(lines, i, ind, listKind);
       out.push(res.nodes[0]);
@@ -2666,7 +2766,7 @@ function parseSingleBlock(
 
   const containerTag = matchContainerOpen(dedent);
   if (containerTag) {
-    return parseContainer(lines, start, indent, rel, containerTag);
+    return parseContainer(lines, start, indent, containerTag, withIndentAttr);
   }
 
   if (dedent.startsWith("![")) {
@@ -3003,19 +3103,26 @@ function containerClosesOf(
   return closes;
 }
 
+function containerOpenerAsText(
+  openLine: string,
+  start: number,
+  withIndentAttr: (node: PMNode) => PMNode,
+): ParseResult {
+  const { text, color } = splitBlockAttrs(openLine);
+  const node: PMNode = { type: "paragraph", content: parseInline(text) };
+  if (isColor(color)) node.attrs = { color };
+  return { nodes: [withIndentAttr(node)], end: start + 1 };
+}
+
 function parseContainer(
   lines: string[],
   start: number,
   indent: number,
-  rel: number,
   tagKey: string,
+  withIndentAttr: (node: PMNode) => PMNode,
 ): ParseResult {
   const closeTag = CONTAINER_CLOSE[tagKey];
   const openLine = lines[start].slice(indent);
-  const withIndentAttr = (node: PMNode): PMNode => {
-    if (rel > 0) node.attrs = { ...(node.attrs || {}), indent: rel };
-    return node;
-  };
 
   if (tagKey === "<table") {
     return parseTable(lines, start, indent, withIndentAttr);
@@ -3031,12 +3138,6 @@ function parseContainer(
     );
   }
 
-  const openerAsText = (): ParseResult => {
-    const { text, color } = splitBlockAttrs(openLine);
-    const node: PMNode = { type: "paragraph", content: parseInline(text) };
-    if (isColor(color)) node.attrs = { color };
-    return { nodes: [withIndentAttr(node)], end: start + 1 };
-  };
   // A container holds its children one tab in, so its indent bounds how many
   // containers it is inside. Each level reads its body again, a details body
   // with its whole subtree, so past this depth the opener reads as text,
@@ -3044,7 +3145,7 @@ function parseContainer(
   // the rest of the nesting.
   if (indent > MAX_CONTAINER_INDENT) {
     reportLoss("dropped-formatting", openLine);
-    return openerAsText();
+    return containerOpenerAsText(openLine, start, withIndentAttr);
   }
   const closes = containerClosesOf(lines, tagKey);
   if (!closes.has(start)) {
@@ -3072,7 +3173,8 @@ function parseContainer(
     for (const opener of openers) closes.set(opener, -1);
   }
   const closeIdx = closes.get(start)!;
-  if (closeIdx === -1) return openerAsText();
+  if (closeIdx === -1)
+    return containerOpenerAsText(openLine, start, withIndentAttr);
   const childStart = start + 1;
 
   if (tagKey === "<details") {
@@ -3213,11 +3315,11 @@ function parseRawContainer(
   }
   const i = closes.get(start)!;
   if (i === -1) {
-    const openLine = lines[start].slice(indent);
-    const { text, color } = splitBlockAttrs(openLine);
-    const node: PMNode = { type: "paragraph", content: parseInline(text) };
-    if (isColor(color)) node.attrs = { color };
-    return { nodes: [withIndentAttr(node)], end: start + 1 };
+    return containerOpenerAsText(
+      lines[start].slice(indent),
+      start,
+      withIndentAttr,
+    );
   }
   const rawLines = lines.slice(start, i + 1).map((l) => stripTabs(l, indent));
   const node: PMNode = {
@@ -3317,7 +3419,7 @@ function parseTable(
       if (typeof part === "string") rows[rows.length - 1].cells.push(part);
       else {
         enterGroups(part.gap);
-        openRow(part.rowAttrs);
+        if (part.rowAttrs !== null) openRow(part.rowAttrs);
       }
     }
   };
@@ -3325,8 +3427,14 @@ function parseTable(
 
   let i = start + 1;
   while (i < close) {
-    const ld = lineAt(i++);
+    let ld = lineAt(i++);
     if (!ld) continue;
+    const groupPrefix = ld.match(ROW_GROUP_PREFIX);
+    if (groupPrefix) {
+      enterGroups(groupPrefix[0]);
+      ld = ld.slice(groupPrefix[0].length);
+      if (!ld) continue;
+    }
     if (TABLE_WRAPPER_LINE.test(ld)) {
       enterGroups(ld);
       continue;
@@ -3348,9 +3456,8 @@ function parseTable(
     }
     openRow(rowMatch[1]);
     // An agent may write a whole row on its line; the writer never does.
-    let rest = rowMatch[2].trim();
-    let rowClosed = rest.endsWith("</tr>");
-    if (rowClosed) rest = rest.slice(0, -"</tr>".length).trim();
+    const rest = rowMatch[2].trim();
+    let rowClosed = ROW_END.test(rest);
     if (rest) addCells(rest);
     while (!rowClosed && i < close) {
       let cd = lineAt(i++);
@@ -3371,8 +3478,7 @@ function parseTable(
           cd = trimJoinedCell(cd);
         }
       }
-      rowClosed = /<\/t[dh]>\s*<\/tr>$/.test(cd);
-      if (rowClosed) cd = cd.slice(0, -"</tr>".length).trimEnd();
+      rowClosed = ROW_END.test(cd);
       // The writer puts one cell on a line and escapes `<` outside code and
       // math, so a close tag outside those before the line's end is an
       // agent's `<td>a</td><td>b</td>`.
@@ -3463,6 +3569,9 @@ const CELL_LINE_END = /<\/t[dh]>(?:\s*<\/tr>)?$/;
 const ROW_BREAK =
   /^(?:<\/tr>\s*)?(?:<\/?(?:thead|tbody|tfoot)>\s*)*<tr(\s[^>]*?)?>$/;
 const ROW_GROUP_TAG = /<(\/?)(thead|tbody|tfoot)>/g;
+const ROW_GROUP_PREFIX = /^(?:<\/?(?:thead|tbody|tfoot)>\s*)+/;
+const ROW_END = /<\/tr>(?:\s*<\/?(?:thead|tbody|tfoot)>)*\s*$/;
+const ROW_GROUP_TAIL = /^<\/tr>\s*(?:<\/?(?:thead|tbody|tfoot)>\s*)*$/;
 
 // Drops the spaces just inside a joined cell's tags, which HTML ignores. By
 // hand, since a pattern for the spaces before the close tag retries them from
@@ -3483,7 +3592,7 @@ function trimJoinedCell(cell: string): string {
 }
 
 // A cell's source, or where the next row opens.
-type TableLinePart = string | { rowAttrs: string; gap: string };
+type TableLinePart = string | { rowAttrs: string | null; gap: string };
 
 // Whether a cell's open tag sits between `from` and `to` outside code and
 // math, where the writer escapes every `<`.
@@ -3510,6 +3619,29 @@ function opensCellBefore(
   return false;
 }
 
+function findTableCellClose(
+  source: string,
+  closeTag: string,
+  from: number,
+  codeRuns: CodeRuns,
+): number {
+  for (let i = from; i <= source.length - closeTag.length; i++) {
+    // Markdown escapes still shield code/math delimiters, but a literal
+    // backslash cannot escape an HTML cell's closing tag.
+    if (source[i] === "\\" && source[i + 1] !== "<") {
+      i++;
+      continue;
+    }
+    const skipTo = atomicSpanEnd(source, i, codeRuns);
+    if (skipTo !== -1) {
+      i = skipTo - 1;
+      continue;
+    }
+    if (source.startsWith(closeTag, i)) return i;
+  }
+  return -1;
+}
+
 function splitTableCells(source: string): TableLinePart[] {
   const cells: TableLinePart[] = [];
   // An agent may start the next row between two cells or on a line of its
@@ -3517,11 +3649,13 @@ function splitTableCells(source: string): TableLinePart[] {
   const readGap = (gap: string) => {
     const rowBreak = gap.match(ROW_BREAK);
     if (rowBreak) cells.push({ rowAttrs: rowBreak[1] ?? "", gap });
+    else if (gap && ROW_GROUP_TAIL.test(gap))
+      cells.push({ rowAttrs: null, gap });
     else if (gap) reportLoss("dropped-source", gap);
   };
   // Found by hand, not by one regex: searching from every open tag for a `>`
   // or a close tag the row lacks rescans the rest of it from each one. A
-  // close tag in code or math, or after a backslash, is the cell's text.
+  // close tag in code or math is the cell's text.
   const lastClose = {
     td: source.lastIndexOf("</td>"),
     th: source.lastIndexOf("</th>"),
@@ -3545,7 +3679,7 @@ function splitTableCells(source: string): TableLinePart[] {
     const close =
       lastClose[tag] < contentFrom
         ? -1
-        : findToken(source, closeTag, contentFrom, codeRuns);
+        : findTableCellClose(source, closeTag, contentFrom, codeRuns);
     if (close < 0) {
       // Later open tags of this kind count as unclosed too, so no search
       // runs to the end of the row twice.

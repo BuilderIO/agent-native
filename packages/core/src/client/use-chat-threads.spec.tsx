@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import {
   useChatThreads,
   type ChatThreadScope,
@@ -707,6 +708,68 @@ describe("useChatThreads", () => {
 
     expect(putCount).toBe(2);
     expect(saved).toBe(true);
+  });
+
+  it("creates a thread its first run has not saved from the typed absent answer, and never reports an absent save as saved", async () => {
+    let created = false;
+    let createAnswers = true;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const typed =
+        new Headers(init?.headers).get(AGENT_CHAT_THREAD_ABSENCE_HEADER) ===
+        "typed";
+      calls.push(`${init?.method ?? "GET"} ${url}${typed ? " typed" : ""}`);
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads" && init?.method === "POST") {
+        created = createAnswers;
+        return createAnswers
+          ? jsonResponse({ id: "unsaved-thread" })
+          : new Response(null, { status: 409 });
+      }
+      if (url === "/chat/threads/unsaved-thread") {
+        return created
+          ? jsonResponse({ id: "unsaved-thread" })
+          : jsonResponse({ absent: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "absent-save", null, {
+        autoCreate: false,
+        restoreActiveThread: false,
+      });
+      return null;
+    }
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const data = {
+      threadData: "{}",
+      title: "Absent",
+      preview: "first message",
+      messageCount: 1,
+    };
+    await expect(hook!.saveThreadData("unsaved-thread", data)).resolves.toBe(
+      true,
+    );
+    expect(calls.filter((call) => call !== "GET /chat/threads")).toEqual([
+      "PUT /chat/threads/unsaved-thread typed",
+      "POST /chat/threads",
+      "PUT /chat/threads/unsaved-thread typed",
+    ]);
+
+    created = false;
+    createAnswers = false;
+    await expect(hook!.saveThreadData("unsaved-thread", data)).resolves.toBe(
+      false,
+    );
   });
 
   it("reports when a thread save fails", async () => {

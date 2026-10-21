@@ -9,12 +9,12 @@
  */
 
 import { fail, type ActionRunContext } from "../action.js";
-import { getDbExec } from "../db/client.js";
 import {
   deleteAppSecret,
   readAppSecrets,
   writeAppSecret,
 } from "../secrets/storage.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
@@ -113,14 +113,7 @@ export async function resolveFileStorageAccess(
   // A workspace without an organization has one user and no role gradient,
   // matching `canMutateWorkspaceScope` in the secrets routes.
   if (!orgId) return { scopeId: `solo:${email}`, canManage: true };
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT role FROM org_members
-          WHERE org_id = ? AND LOWER(email) = LOWER(?)
-            AND federation_removal_pending_at IS NULL
-          LIMIT 1`,
-    args: [orgId, email],
-  });
-  const role = rows[0]?.role;
+  const role = await readOrgMemberRole(orgId, email);
   return { scopeId: orgId, canManage: role === "owner" || role === "admin" };
 }
 

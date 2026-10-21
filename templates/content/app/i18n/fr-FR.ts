@@ -420,6 +420,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "Lecture seule. Cette page suit un fichier dans GitHub et se met à jour après chaque push.",
+  githubSourceOpenFile: "Ouvrir dans GitHub",
   textColor: "Couleur du texte",
   backgroundColor: "Couleur d’arrière-plan",
   defaultColor: "Par défaut",
@@ -440,8 +443,8 @@ const editor = {
   registryBlockLoadError:
     "Impossible de charger le bloc {{type}} : {{message}}",
   registryBlockUnreadable: "La source enregistrée du bloc est illisible.",
-  blocksFieldRevisionConflict:
-    "Ce champ de blocs a été modifié ailleurs. Votre modification n’a pas été enregistrée ; la dernière version est maintenant affichée.",
+  blocksFieldEditMovedToEnd:
+    "Ce champ de blocs a aussi été modifié ailleurs. Le texte que vous avez saisi au même endroit a été déplacé à la fin du champ.",
   reconcileConflict:
     "Cette page a été modifiée ailleurs. Vos modifications ne sont pas encore enregistrées.",
   reconcileFailed:
@@ -533,6 +536,7 @@ const editor = {
     imageDownloadStarted: "Le téléchargement de l'image a commencé.",
     imageLinkHint: "Fonctionne avec n'importe quelle image du Web",
     imagePreview: "Aperçu de l'image",
+    imageUnavailable: "Image non disponible",
     imageView: "Vue des images",
     link: "Lien",
     loadingAssetsPicker: "Chargement du sélecteur d'actifs",
@@ -1002,6 +1006,17 @@ const comments = {
   hideIndicators: "Masquer les commentaires et surlignages",
   showIndicators: "Afficher les commentaires et surlignages",
   unanchored: "Surlignage indisponible",
+  propertyEmpty: "Vide",
+  propertyRemoved: "{{name}} (supprimée)",
+  propertyWas: "avant : {{value}}",
+  commentOnProperty: "Commenter {{name}}",
+  openPropertyComments_one: "{{count}} commentaire ouvert sur {{name}}",
+  openPropertyComments_many: "{{count}} commentaires ouverts sur {{name}}",
+  openPropertyComments_other: "{{count}} commentaires ouverts sur {{name}}",
+  openRowComments_one: "{{count}} commentaire ouvert sur {{title}}",
+  openRowComments_many: "{{count}} commentaires ouverts sur {{title}}",
+  openRowComments_other: "{{count}} commentaires ouverts sur {{title}}",
+  openRow: "Ouvrir la ligne",
   suggestions: "Suggestions",
   suggestionAdd: "Ajouter",
   suggestionDelete: "Supprimer",
@@ -1024,6 +1039,10 @@ const comments = {
   accepted: "Acceptés",
   rejected: "Refusés",
   noFilteredComments: "Aucun commentaire correspondant.",
+  tabFilter: "Onglet",
+  allTabs: "Tous les onglets",
+  fieldRemoved: "{{name}} (supprimé)",
+  pageBody: "Corps de la page",
 };
 
 const reviewDiscussions = {
@@ -1212,6 +1231,7 @@ const history = {
   historyGroupAgent: "Exécution de l’agent",
   historyGroupHuman: "Session de modification",
   historyGroupLegacy: "Modifications antérieures",
+  historyGroupGitHub: "Synchronisé depuis GitHub",
   historyGroupOperation: "Opération",
   historyGroupRestore: "Restauration",
   historyLoadError: "Impossible de charger l’historique des versions.",
@@ -1443,8 +1463,24 @@ const overrides = {
     searchLanguages: "Rechercher des langages...",
     noBlocksFields:
       "Aucun champ Blocks. Ajoutez-en un depuis le menu des propriétés.",
-    reorderField: "Réordonner {{name}}",
-    toggleField: "Basculer {{name}}",
+    addBlockField: "Ajouter un champ",
+    blockFieldChanged: "Modifié depuis votre dernière consultation",
+    blockFieldTabs: "Champs",
+    blockFieldOpenComments_one: "{{count}} commentaire ouvert",
+    blockFieldOpenComments_many: "{{count}} commentaires ouverts",
+    blockFieldOpenComments_other: "{{count}} commentaires ouverts",
+    blockFieldMenu: "Options de {{name}}",
+    blockFieldMenuScope: "Partagé par toutes les lignes de cette collection",
+    blockFieldName: "Nom du champ",
+    renameBlockField: "Renommer",
+    renameBlockFieldFailed: "Impossible de renommer le champ",
+    deleteBlockField: "Supprimer",
+    deleteBlockFieldFailed: "Impossible de supprimer le champ",
+    deleteBlockFieldQuestion: "Supprimer « {{name}} » ?",
+    deleteBlockFieldDescription:
+      "« {{name}} » et son texte seront supprimés de toutes les lignes de cette collection. Cette action est irréversible.",
+    deleteBlockFieldBodyWarning:
+      "« {{name}} » est le corps de la page : le texte principal de chaque ligne sera aussi supprimé.",
   },
   comments: {
     add: "Ajouter un commentaire...",

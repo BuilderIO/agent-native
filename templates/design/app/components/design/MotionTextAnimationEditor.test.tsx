@@ -78,6 +78,15 @@ describe("MotionTextAnimationEditor", () => {
     });
   }
 
+  async function selectOption(trigger: HTMLButtonElement, optionText: string) {
+    await act(async () => trigger.click());
+    const option = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((element) => element.textContent?.trim() === optionText);
+    expect(option).toBeDefined();
+    await act(async () => option!.click());
+  }
+
   it("renders shared text controls and per-property tracks", async () => {
     await render({ animations: [opacityAnimation, translateAnimation] });
 
@@ -88,12 +97,20 @@ describe("MotionTextAnimationEditor", () => {
     ).not.toBeNull();
     expect(
       container.querySelector(
-        '[aria-label="designEditor.motion.textAnimation.direction"]',
+        '[aria-label="designEditor.motion.nativeTextStagger.animationDirection"]',
       ),
     ).not.toBeNull();
-    expect(container.textContent).toContain(
-      "designEditor.motion.textAnimation.stagger",
-    );
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+      ),
+    ).not.toBeNull();
+    expect(container.querySelector('input[id$="-overlap"]')).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+      ),
+    ).toBeNull();
     expect(
       container.querySelectorAll(
         '[aria-label="designEditor.motion.textAnimation.property"]',
@@ -118,16 +135,28 @@ describe("MotionTextAnimationEditor", () => {
       onChange,
     });
 
-    const numberInputs = container.querySelectorAll<HTMLInputElement>(
-      'input[type="number"]',
-    );
-    await enterValue(numberInputs[0]!, "125");
+    const overlapInput = container.querySelector<HTMLInputElement>(
+      'input[id$="-overlap"]',
+    )!;
+    await enterValue(overlapInput, "25");
     expect(onChange).toHaveBeenLastCalledWith([
-      { ...opacityAnimation, staggerMs: 125 },
-      { ...translateAnimation, staggerMs: 125 },
+      { ...opacityAnimation, staggerMs: 450, overlapPercent: 25 },
+      { ...translateAnimation, staggerMs: 450, overlapPercent: 25 },
     ]);
 
-    await enterValue(numberInputs[1]!, "900");
+    const delayInput = container.querySelector<HTMLInputElement>(
+      'input[id$="-opacity-delay"]',
+    )!;
+    await enterValue(delayInput, "75");
+    expect(onChange).toHaveBeenLastCalledWith([
+      { ...opacityAnimation, delayMs: 75 },
+      translateAnimation,
+    ]);
+
+    const durationInput = container.querySelector<HTMLInputElement>(
+      'input[id$="-opacity-duration"]',
+    )!;
+    await enterValue(durationInput, "900");
     expect(onChange).toHaveBeenLastCalledWith([
       { ...opacityAnimation, durationMs: 900 },
       translateAnimation,
@@ -165,6 +194,43 @@ describe("MotionTextAnimationEditor", () => {
           { t: 1, value: "12px", ease: "linear" },
         ],
       },
+    ]);
+  });
+
+  it("writes direction, order, and whitespace settings to every text track", async () => {
+    const onChange = vi.fn();
+    const characterAnimation = {
+      ...opacityAnimation,
+      unit: "character" as const,
+    };
+    await render({ animations: [characterAnimation], onChange });
+
+    await selectOption(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="designEditor.motion.nativeTextStagger.animationDirection"]',
+      )!,
+      "designEditor.motion.nativeTextStagger.exit",
+    );
+    expect(onChange).toHaveBeenLastCalledWith([
+      { ...characterAnimation, animationDirection: "out" },
+    ]);
+
+    await selectOption(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+      )!,
+      "designEditor.motion.nativeTextStagger.orderOptions.centerOut",
+    );
+    expect(onChange).toHaveBeenLastCalledWith([
+      { ...characterAnimation, order: "center-out", direction: "forward" },
+    ]);
+
+    const ignoreSpaces = container.querySelector<HTMLButtonElement>(
+      '[role="checkbox"][aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+    )!;
+    await act(async () => ignoreSpaces.click());
+    expect(onChange).toHaveBeenLastCalledWith([
+      { ...characterAnimation, ignoreSpaces: false },
     ]);
   });
 
@@ -210,6 +276,9 @@ describe("MotionTextAnimationEditor", () => {
         ...opacityAnimation,
         property: "translate",
         delayMs: 0,
+        animationDirection: "in",
+        order: "left-to-right",
+        ignoreSpaces: true,
         keyframes: [
           { t: 0, value: "0px", ease: "ease-out" },
           { t: 1, value: "16px" },
@@ -228,6 +297,170 @@ describe("MotionTextAnimationEditor", () => {
     await act(async () => removeTranslateButton!.click());
     expect(onChange).toHaveBeenLastCalledWith([opacityAnimation]);
   });
+
+  it("retains an explicit overlap value when adding a property track", async () => {
+    const animation = { ...opacityAnimation, overlapPercent: 25 };
+    const onChange = vi.fn();
+    await render({ animations: [animation], onChange });
+
+    const addButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.textAnimation.addPropertyTrack"]',
+    )!;
+    await act(async () =>
+      addButton.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+    const translateMenuItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) =>
+      item.textContent?.includes(
+        "designEditor.motion.textAnimation.properties.translate",
+      ),
+    );
+    expect(translateMenuItem).toBeDefined();
+    await act(async () => translateMenuItem!.click());
+
+    expect(onChange).toHaveBeenLastCalledWith([
+      animation,
+      expect.objectContaining({
+        property: "translate",
+        overlapPercent: 25,
+      }),
+    ]);
+  });
+
+  it.each(["character", "word", "line", "paragraph"] as const)(
+    "offers only horizontal ordering for %s text",
+    async (unit) => {
+      await render({ animations: [{ ...opacityAnimation, unit }] });
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+          )!
+          .click(),
+      );
+
+      for (const order of [
+        "leftToRight",
+        "rightToLeft",
+        "centerOut",
+        "random",
+      ]) {
+        expect(document.body.textContent).toContain(
+          `designEditor.motion.nativeTextStagger.orderOptions.${order}`,
+        );
+      }
+      expect(document.body.textContent).not.toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
+      );
+      expect(document.body.textContent).not.toContain(
+        "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+      );
+      await selectOption(
+        container.querySelector<HTMLButtonElement>(
+          '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+        )!,
+        "designEditor.motion.nativeTextStagger.orderOptions.leftToRight",
+      );
+    },
+  );
+
+  it("keeps a stored vertical order selectable without offering its alternative", async () => {
+    await render({
+      animations: [
+        { ...opacityAnimation, unit: "line", order: "top-to-bottom" },
+      ],
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="designEditor.motion.nativeTextStagger.order"]',
+        )!
+        .click(),
+    );
+
+    expect(document.body.textContent).toContain(
+      "designEditor.motion.nativeTextStagger.orderOptions.topToBottom",
+    );
+    expect(document.body.textContent).not.toContain(
+      "designEditor.motion.nativeTextStagger.orderOptions.bottomToTop",
+    );
+  });
+
+  it.each(["word", "line", "paragraph"] as const)(
+    "hides the ignore-spaces control for %s text",
+    async (unit) => {
+      await render({ animations: [{ ...opacityAnimation, unit }] });
+
+      expect(
+        container.querySelector(
+          '[aria-label="designEditor.motion.nativeTextStagger.ignoreSpaces"]',
+        ),
+      ).toBeNull();
+    },
+  );
+
+  it("resets vertical order when text grouping changes to word", async () => {
+    const onChange = vi.fn();
+    await render({
+      animations: [
+        {
+          ...opacityAnimation,
+          unit: "line",
+          order: "top-to-bottom",
+        },
+      ],
+      onChange,
+    });
+
+    await selectOption(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="designEditor.motion.textAnimation.unit"]',
+      )!,
+      "designEditor.motion.textAnimation.units.word",
+    );
+
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        unit: "word",
+        order: "left-to-right",
+        direction: "forward",
+      }),
+    ]);
+  });
+
+  it.each([
+    ["character", "word"],
+    ["word", "character"],
+  ] as const)(
+    "clears Ignore spaces when text grouping changes from %s to %s",
+    async (fromUnit, toUnit) => {
+      const onChange = vi.fn();
+      await render({
+        animations: [
+          { ...opacityAnimation, unit: fromUnit, ignoreSpaces: true },
+        ],
+        onChange,
+      });
+
+      await selectOption(
+        container.querySelector<HTMLButtonElement>(
+          '[aria-label="designEditor.motion.textAnimation.unit"]',
+        )!,
+        `designEditor.motion.textAnimation.units.${toUnit}`,
+      );
+
+      expect(onChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ unit: toUnit, ignoreSpaces: false }),
+      ]);
+    },
+  );
 
   it("disables controls while a source update is unavailable", async () => {
     await render({

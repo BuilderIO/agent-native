@@ -101,6 +101,14 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
             'Se devuelve en lugar de un resultado inválido cuando outputErrorStrategy es "fallback".',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'Anuncia outputSchema a los clientes MCP y valida cada resultado con él. Requiere outputErrorStrategy "strict".',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -216,6 +224,8 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
 
 El esquema cumple dos funciones. Se convierte en JSON Schema para la definición de herramienta de la API de Claude, y valida la entrada en tiempo de ejecución antes de que se dispare `run()`. La entrada inválida nunca llega a tu manejador.
 
+Los argumentos validados deben ser datos simples: objetos, arrays, cadenas, números, booleanos, `null`, `undefined`, BigInts y Dates válidos. El framework los copia una vez y calcula el hash de esa copia, al que se vinculan las aprobaciones y las repeticiones. Cada comprobación que lee los argumentos, y el propio `run()`, recibe su propia copia, así que un manejador puede modificar sus `args` sin riesgo. Si la salida del esquema contiene cualquier otra cosa (un getter o setter, un `Map` o `Set`, una instancia de clase como `URL` o `Buffer`, o una función), cada llamada falla como inválida antes de la aprobación o de `run()`, con un error que nombra el argumento. Las transformaciones de tu esquema, o de un esquema de terceros que uses, deben devolver datos simples; construye los valores más complejos dentro de `run()`. Estas reglas cubren las llamadas que despachan el bucle del agente, el modo de planificación, las rutas HTTP de acciones y MCP; una llamada directa a `action.run()`, como una acción que llama a otra o el puente de acciones de desarrollo, solo recibe la validación del esquema.
+
 Indica los valores enum y los valores por defecto en `.describe()`, mantén idéntico el nombre del id principal en toda una familia de herramientas (`id`, no una mezcla de `id`/`deckId`), y haz que la descripción de una línea baste para llamar la herramienta desde un catálogo compacto — la skill `actions` que se incluye en cada app trae la checklist.
 
 ## Validar el valor de retorno {#output-schema}
@@ -246,6 +256,12 @@ export default defineAction({
 | `"fallback"` | Devuelve el valor `outputFallback` proporcionado en lugar del resultado inválido.                                         |
 
 Cuando `run()` tiene éxito, el framework devuelve el valor validado, así que cualquier valor por defecto o coerción de `outputSchema` surte efecto, igual que ocurre con la entrada. Cuando no pasas un `outputSchema`, el valor de retorno queda sin cambios.
+
+La comprobación estricta se ejecuta después de `run()`, así que el error (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) informa de lo que ya ha ocurrido: `effect` es `"committed"` en cuanto una escritura ha entrado en su handler, en la propia llamada o en una acción que esta llamó (incluso desde una acción de solo lectura), y quien llama no debe reintentarla; en otro caso es `"none"`. El mensaje solo enumera rutas de campos declarados y códigos de incidencia, nunca los valores devueltos.
+
+### Anunciar el contrato por MCP {#mcp-output-schema}
+
+Por defecto, los clientes MCP no ven ningún `outputSchema`, porque un esquema en `"warn"` no se hace cumplir. Cuando hayas comprobado que todos los resultados reales coinciden, define `mcpOutputSchema: true` junto con `outputErrorStrategy: "strict"`. La herramienta anuncia entonces el esquema con la forma que reciben los clientes MCP —una raíz de tipo array se envuelve como `{ items }`, y las acciones con `link` obtienen `openLink` y `url`— y valida cada `structuredContent` con él antes de devolverlo. La raíz debe ser un objeto, una unión solo de objetos o un array; los esquemas con transformaciones no pueden activarlo. El esquema anunciado también tiene en cuenta lo que MCP oculta: se eliminan los campos de ticket de incrustación y un texto que contenga una URL de inicio de incrustación llega como `"[hidden embed URL]"`, así que los campos obligatorios siguen siendo obligatorios. Un esquema no puede activarlo si usa una palabra clave o un `format` que la comprobación no puede hacer cumplir, como `not`, `$async` o un formato desconocido; si el ocultamiento podría romper una de sus restricciones `const`, `enum` o `uniqueItems`; o si la acción tiene un `link` y la raíz del esquema limita los nombres o el número de sus propiedades.
 
 ## Contratos de resultado {#result-contracts}
 
@@ -294,7 +310,7 @@ POST es el valor por defecto, y `http: { method: "GET" }` la convierte en GET. L
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: por defecto es `POST`. Las acciones `GET` se marcan automáticamente como `readOnly`, así que una llamada exitosa no dispara un refresco por sondeo de la UI.
 - **`http: { path: "..." }`**: sobrescribe la URL montada bajo `/_agent-native/actions/`. Por defecto es el nombre del archivo. Esta sobrescritura solo cambia la URL para invocadores HTTP directos. `useActionQuery()`, `useActionMutation()` y `callAction()` siempre llaman a `/_agent-native/actions/<name>`, sin importar esta sobrescritura, así que sobrescribir la ruta hace que esos hooks devuelvan 404. Usa una sobrescritura de ruta solo para invocadores HTTP externos. Ten en cuenta también que los segmentos de ruta `:param` en la ruta sobrescrita no se analizan como argumentos de `run()`. Solo se analizan los parámetros de query string y los campos del cuerpo JSON.
 - **`http: false`**: desactiva por completo el endpoint HTTP. Solo el agente y la CLI pueden llamar a la acción.
-- **`readOnly: true`**: omite explícitamente el refresco por sondeo, incluso para acciones POST que no mutan nada. Esto no es control de acceso. No restringe quién puede llamar a la acción, y no afecta a `useActionQuery()`, `useActionMutation()` ni a ningún hook de cliente. Sus únicos efectos son suprimir el evento de refresco posterior a la llamada y excluir la acción de la auditoría de escritura. Para ocultar una acción del modelo, usa `agentTool: false`. Para controlar quién puede llamarla, usa las opciones de autenticación y acceso en [Acceso y autorización](/docs/actions-access-control).
+- **`readOnly: true`**: omite explícitamente el refresco por sondeo, incluso para acciones POST que no mutan nada. Esto no es control de acceso. No restringe quién puede llamar a la acción, y no afecta a `useActionQuery()`, `useActionMutation()` ni a ningún hook de cliente. Sus únicos efectos son suprimir el evento de refresco posterior a la llamada y excluir la acción de la auditoría de escritura. Una acción de escritura que llame sigue contando como escritura: en cuanto se ejecuta, la llamada refresca y, si falla, informa `effect: "committed"`. Para ocultar una acción del modelo, usa `agentTool: false`. Para controlar quién puede llamarla, usa las opciones de autenticación y acceso en [Acceso y autorización](/docs/actions-access-control).
 - **`parallelSafe: true`**: permite que una acción mutante se ejecute al mismo tiempo que otras llamadas a herramientas del mismo turno. Actívalo solo cuando la acción sea segura para ejecutarse de forma concurrente y no dependa del orden. Las acciones mutantes se serializan por defecto.
 
 ## Hacer fallar una acción {#failing}
@@ -308,7 +324,7 @@ Lo que lanzas decide cuánto del mensaje sobrevive. `fail()` lanza un `ActionCon
 - **message**: el texto que lee quien llama. Escríbelo para una persona, no para un log.
 - **options.errorCode**: un código estable y legible por máquina. Por defecto `"action_failed"`.
 - **options.statusCode**: el estado HTTP de la ruta de acción. Por defecto `400`.
-- **options.details**: contexto estructurado y seguro para quien llama. Nunca pongas aquí secretos ni salida cruda de un driver.
+- **options.details**: contexto estructurado y seguro para quien llama, como el id que necesita un reintento. Tanto el navegador como los agentes lo reciben. Nunca pongas aquí secretos ni salida cruda de un driver.
 
 La llamada más simple solo necesita un mensaje:
 
@@ -386,7 +402,7 @@ Un corte de red, una página de error HTML de un proxy y una simple línea de es
 
 Así que el estado no es cosmético. Un rechazo enviado como `404` cuesta una ida y vuelta. El mismo rechazo enviado como `500`, o lanzado desnudo, cuesta cuatro idas y vueltas y cuatro informes de error duplicados.
 
-Quien llama desde el agente no ve el estado. El agente ejecuta `run()` en proceso, así que recibe el mensaje directamente sea cual sea el tipo, como `Error running <action>: <message>`. Un `errorCode` distinto del valor por defecto `action_failed` se añade como `(errorCode: not_found)`, de modo que el modelo puede ramificar sin analizar la prosa. Los agentes externos por MCP reciben el mismo texto. Los secretos del mensaje se redactan antes, y los cortacircuitos de errores repetidos del agente limitan cuántas veces vuelve a intentarlo.
+Quien llama desde el agente no ve el estado. El agente ejecuta `run()` en proceso, así que recibe el mensaje directamente sea cual sea el tipo, como `Error running <action>: <message>`. Un `errorCode` distinto del valor por defecto `action_failed` se añade como `(errorCode: not_found)`, de modo que el modelo puede ramificar sin analizar la prosa. Los `details` van en su propia línea como JSON compacto, por ejemplo `Error details: {"importId":"imp_1"}`, de modo que un id que el modelo necesita para su siguiente llamada no tiene que escribirse en el mensaje. Los agentes externos por MCP reciben el mismo texto y los mismos detalles en `structuredContent.error`. Una herramienta que anuncia un esquema de salida (`mcpOutputSchema: true`) devuelve solo el texto, porque un cliente puede validar también un resultado de error contra ese esquema. Los detalles se limitan a 2000 caracteres: pasado ese límite, se conservan las entradas pequeñas de nivel superior y el resto se enumera como omitido. Los secretos del mensaje y de los detalles se redactan antes, y los cortacircuitos de errores repetidos del agente limitan cuántas veces vuelve a intentarlo.
 
 ## Mantén pequeña la superficie de acciones {#small-surface}
 
@@ -395,7 +411,7 @@ Cada acción que el agente puede ver ocupa una plaza en la lista de herramientas
 - Prefiere **una única acción `update` de estilo CRUD** que reciba un parche de campos opcionales, en lugar de muchas acciones por campo como `update-name`, `update-order` y `update-color`. El invocador solo envía los campos que cambiaron.
 - Antes de añadir una nueva acción de lectura para cada consulta o filtro, considera primero una opción más general: el [trío de API de proveedor](/docs/template-dispatch-developers#calling-a-provider-directly) (`provider-api-catalog`, `provider-api-docs` y `provider-api-request`) para datos de proveedores, o la herramienta de desarrollo `db-query` para datos de la app.
 - Marca las acciones solo de UI o programáticas como [`agentTool: false`](/docs/actions-access-control#agent-tool). Siguen siendo invocables desde el frontend o por HTTP, sin ocupar una plaza en la lista de herramientas del modelo.
-- Marca con `deferLoading: false` el puñado de acciones a las que el agente recurre constantemente. Esos son los esquemas que se envían en la primera petición al modelo; todo lo demás se carga bajo demanda mediante `tool-search` cuando el agente lo necesita. En cuanto una acción se excluye así, todas las no marcadas quedan diferidas, así que marca todo el conjunto inicial de una vez en lugar de una acción cada vez. Esto trata de lo que cuesta el primer turno, no del acceso: una acción diferida es invocable en cuanto `tool-search` la devuelve. Es la forma por acción del array `initialToolNames` del plugin, y una app puede usar cualquiera de las dos.
+- Marca con `deferLoading: false` el puñado de acciones a las que el agente recurre constantemente. Esos son los esquemas que se envían en la primera petición al modelo; todo lo demás se carga bajo demanda mediante `tool-search` cuando el agente lo necesita. En cuanto una acción se excluye así, todas las no marcadas quedan diferidas, así que marca todo el conjunto inicial de una vez en lugar de una acción cada vez. Esto trata de lo que cuesta el primer turno, no del acceso: una acción diferida es invocable en cuanto `tool-search` la devuelve. Las acciones diferidas siguen apareciendo por nombre en el índice de herramientas del prompt, agrupadas por el sustantivo después del verbo principal, así que los nombres `verb-noun`, como `list-dashboards` y `create-dashboard`, son lo que permite que el agente las encuentre. Es la forma por acción del array `initialToolNames` del plugin, y una app puede usar cualquiera de las dos.
 - Elimina u oculta las acciones que la UI ya no usa, en lugar de dejarlas expuestas al modelo.
 
 El repo incluye un ayudante consultivo, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`). Escanea la carpeta `actions/` de una plantilla y señala acciones que la UI puede haber dejado de usar, junto con grupos de acciones por campo que podrían combinarse en una sola. Siempre termina con código 0 y nunca hace fallar el CI, y sus heurísticas son conservadoras, así que trata su salida como una sugerencia, no como un error.

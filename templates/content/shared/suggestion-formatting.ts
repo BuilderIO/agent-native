@@ -87,7 +87,9 @@ function formattingRuns(
   // Block syntax between two runs maps to their shared text boundary; an image,
   // rule, or empty block there is a document position of its own and does not.
   let nonTextPending = false;
-  const withMarkers = (node: PMNode): PMNode => {
+  // `position` is the node's index among its siblings: NFM protects leading
+  // whitespace only in a block's first inline node.
+  const withMarkers = (node: PMNode, position = 0): PMNode => {
     if (node.type === "codeBlock") {
       const text = (node.content ?? [])
         .map((child) => child.text ?? "")
@@ -151,6 +153,8 @@ function formattingRuns(
       const serialized = serializeInlineTextNodeWithOffsets(
         node,
         spellings.escapedUnderscores.has(node),
+        spellings.escapedTrailingBang.has(node),
+        position === 0,
       );
       if (!serialized) {
         nonTextPending = true;
@@ -545,8 +549,14 @@ function mapStoredSourceRuns(
           (reopened ??= new Map()).set(position - start, characterIndex);
         }
         if (matches(token, position)) position += token.length;
-        // Inline math is an atom, so a dollar in a parsed text run is literal.
-        else if (token === "\\$" && matches("$", position)) position += 1;
+        else if (
+          ASCII_PUNCTUATION.test(character) &&
+          // Emphasis must match as delimiters, not as escaped literal text.
+          !"*_~".includes(character) &&
+          token === `\\${character}` &&
+          matches(character, position)
+        )
+          position += 1;
         // L7 bridge: a backslash before any punctuation reads as that
         // punctuation.
         else if (

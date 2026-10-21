@@ -235,6 +235,11 @@ describe("BigQuery alert batch", () => {
       },
     });
     expect(mocks.query).toHaveBeenCalledTimes(1);
+    expect(mocks.query).toHaveBeenCalledWith(
+      expect.any(String),
+      { userEmail: "owner@example.test", orgId: "org" },
+      { eventsSource: "raw", maxBytesBilled: 50_000_000_000 },
+    );
   });
 
   it.each(["null", "[]"])(

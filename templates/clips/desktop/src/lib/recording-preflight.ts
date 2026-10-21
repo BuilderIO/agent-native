@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import type { RewindCaptureSuspensionLease } from "./recorder";
 import {
   boundedCleanup,
   guardRecordingStart,
@@ -15,7 +14,6 @@ export class ScreenRecordingPermissionError extends Error {}
 
 export class RecordingStartAttempt {
   readonly controller = new AbortController();
-  captureSuspension: RewindCaptureSuspensionLease | null = null;
 
   get signal() {
     return this.controller.signal;
@@ -52,22 +50,6 @@ export class RecordingStartAttempt {
     }
     return value;
   }
-
-  async releaseCaptureSuspension() {
-    const lease = this.captureSuspension;
-    this.captureSuspension = null;
-    if (lease) await releaseSuspension(lease);
-  }
-}
-
-function releaseSuspension(lease: RewindCaptureSuspensionLease) {
-  return lease.leaseId
-    ? boundedCleanup(
-        invoke("rewind_capture_suspension_release", {
-          leaseId: lease.leaseId,
-        }),
-      )
-    : Promise.resolve();
 }
 
 async function pickDisplay(attempt: RecordingStartAttempt) {
@@ -139,21 +121,6 @@ export async function prepareNativeRecordingStart(
     await pickDisplay(attempt);
     return;
   }
-  attempt.captureSuspension = await attempt.run(
-    () =>
-      invoke<RewindCaptureSuspensionLease>(
-        "rewind_capture_suspension_acquire",
-        {
-          requiresScreen: true,
-          requiresMicrophone: options.microphone,
-        },
-      ),
-    {
-      onLateResolve: (lease) => {
-        void releaseSuspension(lease);
-      },
-    },
-  );
   await attempt.run(() => invoke("park_popover_offscreen"));
   void emit("clips:popover-visible", false).catch(() => {});
   const pickerStartedAt = performance.now();
@@ -181,7 +148,6 @@ export async function recoverRecordingStart(
     await boundedCleanup(invoke("cancel_native_window_picker"), 8_000);
   }
   await Promise.all([
-    attempt.releaseCaptureSuspension(),
     boundedCleanup(invoke("close_monitor_picker")),
     boundedCleanup(invoke("hide_recording_chrome")),
     boundedCleanup(invoke("set_recording_state", { active: false })),

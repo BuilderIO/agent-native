@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -29,6 +29,7 @@ import { mergeTriageMetadata } from "../server/triage/metadata.js";
 import {
   hasTriageSourceChanged,
   statusAfterTriageSourceUpdate,
+  triageSourceUpsertGuard,
 } from "../server/triage/review-state.js";
 import { pollSlackChannel } from "../server/triage/slack-poller.js";
 
@@ -60,7 +61,10 @@ export default defineAction({
     const channelId =
       jobConfig?.slackChannelId?.trim() || config?.slackChannelId || "";
     if (!channelId) {
-      throw new Error("Configure a Slack channel before polling.");
+      fail(
+        "Configure a Slack channel before polling: set the Slack channel ID on the workflow's inbox Source node (filter.scopes), or on the factory's settings as a fallback.",
+        { statusCode: 400 },
+      );
     }
     if (requestedChannelId && requestedChannelId !== channelId) {
       throw new Error("Poll only the Slack channel configured for this job.");
@@ -222,6 +226,7 @@ export default defineAction({
               updatedAt,
               factoryId,
             },
+            setWhere: triageSourceUpsertGuard(existing, status, now),
           });
       }
 

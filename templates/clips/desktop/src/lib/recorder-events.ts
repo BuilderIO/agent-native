@@ -5,6 +5,7 @@
  * directly only while nothing has been recorded yet.
  */
 export const RECORDER_DISCARD_EVENT = "clips:recorder-discard";
+export const RECORDER_MIC_TRACK_ENDED_EVENT = "clips:recorder-mic-track-ended";
 
 export type RecorderStopPayload =
   | { kind: "untagged" }

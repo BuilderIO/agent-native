@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import composeDashboard from "./compose-dashboard";
 import { DASHBOARD_MUTATION_EXAMPLES } from "./dashboard-mutation-api";
-import mutateDashboard from "./mutate-dashboard";
 import updateDashboard from "./update-dashboard";
 
 // Mirrors how the agent loop reads `retrySafe`: a boolean applies to every
@@ -46,32 +45,6 @@ describe("update-dashboard retrySafe", () => {
         ops: '[{"op":"remove","path":"/panels/0"}]',
       }),
     ).toBe(false);
-  });
-});
-
-describe("mutate-dashboard retrySafe", () => {
-  const dashboardId = "sales";
-
-  it("is declared for every shape, since caller-supplied ids make a replay fail instead of duplicating", () => {
-    expect(mutateDashboard.retrySafe).toBe(true);
-    expect(
-      retrySafe(mutateDashboard, {
-        dashboardId,
-        operations: [{ op: "insertPanel", panel: { id: "mrr" } }],
-      }),
-    ).toBe(true);
-    expect(
-      retrySafe(mutateDashboard, {
-        dashboardId,
-        operations: [{ op: "removePanels", panelIds: ["old-chart"] }],
-      }),
-    ).toBe(true);
-    expect(
-      retrySafe(mutateDashboard, {
-        dashboardId,
-        code: DASHBOARD_MUTATION_EXAMPLES[0],
-      }),
-    ).toBe(true);
   });
 });
 

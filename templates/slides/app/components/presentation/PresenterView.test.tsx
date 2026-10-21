@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,8 +18,70 @@ vi.mock("@agent-native/core/client/analytics", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, values?: Record<string, string>) => {
+    const messages: Record<string, string> = {
+      "presentation.nextSlide": "Next slide",
+      "presentation.previousSlide": "Previous slide",
+      "presentation.voiceNavigation": "Voice navigation",
+      "presentation.voiceNavigationNextCommand": "Next slide",
+      "presentation.voiceNavigationPreviousCommand": "Previous slide",
+      "presentation.voiceNavigationHint":
+        "Say “{{next}}” or “{{previous}}” to navigate.",
+      "presentation.voiceNavigationListening":
+        "Listening for “{{next}}” or “{{previous}}”.",
+      "presentation.voiceNavigationUnavailable":
+        "Voice navigation is unavailable in this browser.",
+      "presentation.voiceNavigationError":
+        "Voice navigation stopped. Check microphone permission and connection, then try again.",
+    };
+    if (transcriptionMock.locale === "zh-CN") {
+      messages["presentation.voiceNavigationNextCommand"] = "下一张幻灯片";
+      messages["presentation.voiceNavigationPreviousCommand"] = "上一张幻灯片";
+    }
+    return Object.entries(values ?? {}).reduce(
+      (message, [name, value]) => message.replaceAll(`{{${name}}}`, value),
+      messages[key] ?? key,
+    );
+  },
+  useLocale: () => ({ locale: transcriptionMock.locale }),
 }));
+
+const transcriptionMock = vi.hoisted(() => ({
+  start: vi.fn(),
+  stop: vi.fn(),
+  getIncompleteReason: vi.fn((): string | null => null),
+  setTranscript: undefined as ((value: string) => void) | undefined,
+  setIsActive: undefined as ((value: boolean) => void) | undefined,
+  requestedLanguage: "",
+  locale: "en-US",
+}));
+
+vi.mock(
+  "@agent-native/core/client/transcription/use-live-transcription",
+  async () => {
+    const React = await import("react");
+    return {
+      useLiveTranscription: ({ lang }: { lang: string }) => {
+        const [isActive, setIsActive] = React.useState(false);
+        const [transcript, setTranscript] = React.useState("");
+        transcriptionMock.setIsActive = setIsActive;
+        transcriptionMock.setTranscript = setTranscript;
+        transcriptionMock.requestedLanguage = lang;
+        transcriptionMock.start.mockImplementation(() => setIsActive(true));
+        transcriptionMock.stop.mockImplementation(() => setIsActive(false));
+        return {
+          supported: true,
+          isActive,
+          transcript,
+          interimText: "",
+          start: transcriptionMock.start,
+          stop: transcriptionMock.stop,
+          getIncompleteReason: transcriptionMock.getIncompleteReason,
+        };
+      },
+    };
+  },
+);
 
 vi.mock("@/components/deck/SlideRenderer", () => ({
   default: ({ slide }: { slide: Slide }) => (
@@ -104,7 +172,7 @@ function visibility(states: string[]): boolean[] {
 
 function clickNext(container: HTMLElement) {
   fireEvent.click(
-    within(container).getByRole("button", { name: "presentation.nextSlide" }),
+    within(container).getByRole("button", { name: "Next slide" }),
   );
 }
 
@@ -114,6 +182,10 @@ function commandsPosted(channel: { posted: { type: string }[] }) {
 
 beforeEach(() => {
   bus.peers.splice(0);
+  transcriptionMock.start.mockClear();
+  transcriptionMock.stop.mockClear();
+  transcriptionMock.getIncompleteReason.mockReturnValue(null);
+  transcriptionMock.locale = "en-US";
 });
 
 afterEach(() => cleanup());
@@ -228,6 +300,25 @@ describe("PresenterView after the audience leaves", () => {
 });
 
 describe("PresenterView without an audience", () => {
+  it("keeps the voice status live region mounted before it has a message", () => {
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    const status = within(presenter.container).getByRole("status");
+
+    expect(status.textContent).toBe("");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+
+    expect(within(presenter.container).getByRole("status")).toBe(status);
+    expect(status.textContent).toBe(
+      "Listening for “Next slide” or “Previous slide”.",
+    );
+  });
+
   it("moves itself once per press and says so to no one", () => {
     const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
     const [presenterChannel] = bus.peers;
@@ -278,7 +369,7 @@ describe("PresenterView without an audience", () => {
       />,
     );
     const next = within(presenter.container).getByRole("button", {
-      name: "presentation.nextSlide",
+      name: "Next slide",
     }) as HTMLButtonElement;
 
     clickNext(presenter.container);
@@ -305,7 +396,7 @@ describe("PresenterView without an audience", () => {
 
     fireEvent.click(
       within(presenter.container).getByRole("button", {
-        name: "presentation.previousSlide",
+        name: "Previous slide",
       }),
     );
     expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
@@ -314,5 +405,191 @@ describe("PresenterView without an audience", () => {
       true,
       true,
     ]);
+  });
+
+  it("keeps word boundaries and advances for split speech with no whitespace", () => {
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    const [presenterChannel] = bus.peers;
+
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+    expect(transcriptionMock.start).toHaveBeenCalledTimes(1);
+    expect(transcriptionMock.requestedLanguage).toBe("en-US");
+
+    act(() => transcriptionMock.setTranscript?.("Next"));
+    act(() => transcriptionMock.setTranscript?.("Nextslide."));
+
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+    expect(commandsPosted(presenterChannel!)).toEqual([
+      { type: "command", command: "next" },
+    ]);
+  });
+
+  it("does not complete a partial command after five seconds of silence", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    try {
+      const presenter = render(
+        <PresenterView slides={slides} deckId="deck-1" />,
+      );
+      const [presenterChannel] = bus.peers;
+
+      fireEvent.click(
+        within(presenter.container).getByRole("button", {
+          name: "Voice navigation",
+        }),
+      );
+      act(() => transcriptionMock.setTranscript?.("Next"));
+
+      now.mockReturnValue(15_001);
+      act(() => transcriptionMock.setTranscript?.("Nextslide."));
+
+      expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
+      expect(commandsPosted(presenterChannel!)).toEqual([]);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("executes a complete command after an unrelated partial phrase", () => {
+    const plainSlides = [
+      { id: "one", content: "", layout: "content" },
+      { id: "two", content: "", layout: "content" },
+      { id: "three", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    const presenter = render(
+      <PresenterView slides={plainSlides} deckId="deck-1" />,
+    );
+    const [presenterChannel] = bus.peers;
+
+    clickNext(presenter.container);
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+    act(() => transcriptionMock.setTranscript?.("Next"));
+    act(() => transcriptionMock.setTranscript?.("NextPrevious slide."));
+
+    expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
+    expect(commandsPosted(presenterChannel!)).toEqual([
+      { type: "command", command: "next" },
+      { type: "command", command: "prev" },
+    ]);
+  });
+
+  it("keeps a new partial command after an unrelated partial phrase", () => {
+    const plainSlides = [
+      { id: "one", content: "", layout: "content" },
+      { id: "two", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    const presenter = render(
+      <PresenterView slides={plainSlides} deckId="deck-1" />,
+    );
+    const [presenterChannel] = bus.peers;
+
+    clickNext(presenter.container);
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+    act(() => transcriptionMock.setTranscript?.("Next"));
+    act(() => transcriptionMock.setTranscript?.("NextPrevious"));
+    act(() => transcriptionMock.setTranscript?.("NextPrevious slide."));
+
+    expect(within(presenter.container).getByText("1 / 2")).toBeTruthy();
+    expect(commandsPosted(presenterChannel!)).toEqual([
+      { type: "command", command: "next" },
+      { type: "command", command: "prev" },
+    ]);
+  });
+
+  it("does not intercept Space while the voice button is focused", () => {
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    const [presenterChannel] = bus.peers;
+    const button = within(presenter.container).getByRole("button", {
+      name: "Voice navigation",
+    });
+    button.focus();
+
+    const event = new KeyboardEvent("keydown", {
+      key: " ",
+      bubbles: true,
+      cancelable: true,
+    });
+    button.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
+
+    const arrowEvent = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+      cancelable: true,
+    });
+    button.dispatchEvent(arrowEvent);
+    expect(arrowEvent.defaultPrevented).toBe(true);
+    expect(commandsPosted(presenterChannel!)).toEqual([
+      { type: "command", command: "next" },
+    ]);
+  });
+
+  it("matches split Chinese commands without inserting word spaces", () => {
+    transcriptionMock.locale = "zh-CN";
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    const [presenterChannel] = bus.peers;
+
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+    expect(transcriptionMock.requestedLanguage).toBe("zh-CN");
+
+    act(() => transcriptionMock.setTranscript?.("下一张"));
+    act(() => transcriptionMock.setTranscript?.("下一张幻灯片"));
+
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+    expect(commandsPosted(presenterChannel!)).toEqual([
+      { type: "command", command: "next" },
+    ]);
+  });
+
+  it("shows microphone permission and connection guidance after recognition stops", () => {
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+
+    transcriptionMock.getIncompleteReason.mockReturnValue(
+      "Browser speech recognition stopped mid-recording (not-allowed).",
+    );
+    act(() => transcriptionMock.setIsActive?.(false));
+
+    expect(
+      within(presenter.container).getByText(
+        "Voice navigation stopped. Check microphone permission and connection, then try again.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("ignores narration that only mentions the next slide", () => {
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    fireEvent.click(
+      within(presenter.container).getByRole("button", {
+        name: "Voice navigation",
+      }),
+    );
+
+    act(() =>
+      transcriptionMock.setTranscript?.("The next slide explains the idea."),
+    );
+
+    expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
   });
 });

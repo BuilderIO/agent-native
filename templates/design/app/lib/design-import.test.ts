@@ -7,6 +7,7 @@ import {
   hasFigmaClipboardPayload,
   importResultNotification,
   isAttemptedFigmaPaste,
+  isValidRelativePositionOffset,
   type JsonParsableResponse,
   looksLikeStandaloneHtml,
   parseDesignClipboardMarker,
@@ -262,6 +263,7 @@ describe("design clipboard marker round-trip", () => {
         rootNodeId: "node-1",
         sourceParentNodeId: "group-1",
         sourceFileId: "file-1",
+        sourceRelativeOffset: { x: -7.75, y: 12.5 },
         portableStyleSnapshot: {
           version: 1,
           rootSourceId: "node-1",
@@ -278,6 +280,30 @@ describe("design clipboard marker round-trip", () => {
     );
     const parsed = parseDesignClipboardMarker(clipboardText);
     expect(parsed).toEqual(payload);
+  });
+
+  it("rejects malformed relative offset metadata instead of serializing it as absence", () => {
+    const malformedOffsets: unknown[] = [
+      { x: Number.NaN, y: 12 },
+      { x: Number.POSITIVE_INFINITY, y: 12 },
+      { x: "8px", y: 12 },
+    ];
+    for (const sourceRelativeOffset of malformedOffsets) {
+      expect(isValidRelativePositionOffset(sourceRelativeOffset)).toBe(false);
+      expect(() =>
+        serializeDesignClipboardPayload("Relative", {
+          version: 1,
+          entries: [
+            {
+              html: "<div>Relative</div>",
+              sourceFileId: "file-1",
+              sourceRelativeOffset,
+            },
+          ],
+        } as DesignClipboardPayload),
+      ).toThrow("Cannot serialize invalid relative position metadata");
+    }
+    expect(isValidRelativePositionOffset(null)).toBe(true);
   });
 
   it("round-trips an explicit failed-capture marker without inventing a snapshot", () => {

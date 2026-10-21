@@ -25,6 +25,16 @@ même origine.
 
 </Cards>
 
+## Les agents qui survivent à leurs fonctions {#durable-agents}
+
+Les exécutions d'agents ne dépendent pas de la fonction qui les a lancées pour rester actives. Chaque
+exécution est suivi dans votre base de données, un turnus qui atteint la limite de temps d'une fonction serverless
+continue dans une nouvelle invocation, un navigateur qui se reconnecte reprend la réponse là
+où elle en était, et une fonction qui meurt au milieu d'un turnus est récupérée plutôt que de laisser le chat
+bloqué. C'est ce qui permet au même agent de s'exécuter économiquement sur des hôtes serverless, de passer
+d'un fournisseur à l'autre sans changements de code, et de partager le déploiement avec le reste de
+votre application. Consultez [Les agents qui survivent sur n'importe quel hôte](/docs/durable-background-runs#survive-any-host).
+
 ## Avant le déploiement : choisir une base de données persistante {#persistent-database}
 
 Chaque application déployée a besoin d'une base de données PostgreSQL

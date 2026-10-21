@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
 /**
  * guard:persistent-compositing
  *
@@ -29,6 +28,8 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { execGuardCommand } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -79,7 +80,7 @@ const RULES = [
 ];
 
 function listFiles() {
-  const out = execFileSync(
+  const out = execGuardCommand(
     "git",
     [
       "ls-files",

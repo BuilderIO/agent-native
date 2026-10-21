@@ -15,7 +15,12 @@ import {
   getBuildSteps,
   revealAnimationValue,
   setBuildState,
+  type BuildStep,
 } from "./slide-build-steps";
+
+function withClicks(steps: SlideAnimation[]): BuildStep[] {
+  return steps.map((step, index) => ({ ...step, click: index + 1 }));
+}
 
 function slideWith(content: string, animations?: SlideAnimation[]): Slide {
   return { id: "s", layout: "content", notes: "", content, animations };
@@ -48,6 +53,38 @@ describe("getBuildSteps", () => {
 
     expect(getBuildSteps(slide).steps).toHaveLength(editorList.length);
     expect(getBuildSteps(slide).steps).toHaveLength(3);
+  });
+
+  it("puts a with-previous reveal in the click of the step before it", () => {
+    const slide = slideWith(textBox, [
+      { id: "a", elementIndex: 0, elementPath: [0, 0], type: "fade" },
+      {
+        id: "b",
+        elementIndex: 1,
+        elementPath: [0, 1],
+        trigger: "with-previous",
+        type: "fade",
+      },
+      { id: "c", elementIndex: 2, elementPath: [0, 2], type: "fade" },
+    ]);
+
+    expect(getBuildSteps(slide).steps.map((step) => step.click)).toEqual([
+      1, 1, 2,
+    ]);
+  });
+
+  it("keeps a with-previous first reveal on its own click", () => {
+    const slide = slideWith(textBox, [
+      {
+        id: "a",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        trigger: "with-previous",
+        type: "fade",
+      },
+    ]);
+
+    expect(getBuildSteps(slide).steps.map((step) => step.click)).toEqual([1]);
   });
 
   it("keeps an unresolved reveal out of the steps and reports it", () => {
@@ -107,10 +144,10 @@ describe("getBuildSteps", () => {
 });
 
 describe("setBuildState", () => {
-  const steps: SlideAnimation[] = [
+  const steps = withClicks([
     { id: "a", elementIndex: 0, elementPath: [0, 0], type: "fade" },
     { id: "b", elementIndex: 1, elementPath: [0, 1], type: "slide-up" },
-  ];
+  ]);
 
   function animationOf(elements: Array<Element | null>, index: number): string {
     return (elements[index] as HTMLElement).style.animation;
@@ -124,6 +161,23 @@ describe("setBuildState", () => {
     setBuildState(elements, steps, state, previous);
     return { root, elements };
   }
+
+  it("reveals every step that shares a click on the same press", () => {
+    const grouped: BuildStep[] = [
+      { ...steps[0]!, click: 1 },
+      { ...steps[1]!, click: 1 },
+    ];
+    const root = mount(
+      annotateBuildSteps(slideWith(textBox, grouped), grouped, 0).content,
+    );
+    const elements = findBuildStepElements(root, grouped.length);
+    setBuildState(elements, grouped, 1, 0);
+
+    expect(elements.map((el) => el?.getAttribute("data-pstep-state"))).toEqual([
+      "entering",
+      "entering",
+    ]);
+  });
 
   it("animates only the step that entered on a press", () => {
     const { root, elements } = stepElements(1, 0);
@@ -173,11 +227,11 @@ describe("reveal timing", () => {
 });
 
 describe("setBuildState snap", () => {
-  const steps: SlideAnimation[] = [
+  const steps = withClicks([
     { id: "a", elementIndex: 0, elementPath: [0, 0], type: "fade" },
     { id: "b", elementIndex: 1, elementPath: [0, 1], type: "fade" },
     { id: "c", elementIndex: 2, elementPath: [0, 2], type: "fade" },
-  ];
+  ]);
   const fadeValue = revealAnimationValue("fade", false);
 
   it("snaps a reveal still running to its final state, and starts the next at once", () => {
@@ -228,11 +282,11 @@ describe("reduced motion reveals", () => {
   });
 
   it("changes the same steps in the same order with or without motion, and only motion differs", () => {
-    const steps: SlideAnimation[] = [
+    const steps = withClicks([
       { id: "a", elementIndex: 0, elementPath: [0, 0], type: "slide-up" },
       { id: "b", elementIndex: 1, elementPath: [0, 1], type: "zoom" },
       { id: "c", elementIndex: 2, elementPath: [0, 2], type: "fade" },
-    ];
+    ]);
     const run = (reducedMotion: boolean) => {
       const root = mount(
         annotateBuildSteps(slideWith(textBox, steps), steps, 0).content,
@@ -312,9 +366,9 @@ describe("reveals on elements the sanitizer does not render", () => {
 
 describe("setBuildState reduced-motion default", () => {
   it("follows the user's reduced-motion preference when the caller passes none", () => {
-    const steps: SlideAnimation[] = [
+    const steps = withClicks([
       { id: "a", elementIndex: 0, elementPath: [0, 0], type: "fade" },
-    ];
+    ]);
     const original = window.matchMedia;
     window.matchMedia = vi.fn((query: string) => ({
       matches: query === "(prefers-reduced-motion: reduce)",

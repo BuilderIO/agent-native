@@ -5,11 +5,15 @@ import {
   __resetBlockFieldSaveRegistry,
   acquireBlockFieldSaveController,
   activeControllerCount,
+  blockFieldRevision,
   blockFieldSaveImplRef,
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
+  forgetBlockFieldSaveController,
+  isBlockFieldDeleting,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
+  setBlockFieldDeleting,
 } from "./blockFieldSaveRegistry";
 
 afterEach(() => {
@@ -272,6 +276,29 @@ describe("blockFieldSaveRegistry", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("forgets a deleted field's dirty controller so the page can still flush", async () => {
+    const key = "doc:notes";
+    const saved: string[] = [];
+    blockFieldSaveImplRef(key).current = (value) => {
+      saved.push(value);
+      return Promise.reject(new Error("Property not found"));
+    };
+    const controller = acquireBlockFieldSaveController(key, factoryFor(key));
+    controller.change("typed before the delete");
+    releaseBlockFieldSaveController(key);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    await expect(
+      flushAllBlockFieldSaveControllersForDocument("doc"),
+    ).rejects.toThrow("could not be saved");
+
+    forgetBlockFieldSaveController(key);
+
+    expect(peekBlockFieldSaveController(key)).toBeUndefined();
+    await expect(
+      flushAllBlockFieldSaveControllersForDocument("doc"),
+    ).resolves.toBeUndefined();
+  });
+
   it("fails when an additional field remains dirty after its save rejects", async () => {
     const key = "doc:notes";
     blockFieldSaveImplRef(key).current = () =>
@@ -282,6 +309,29 @@ describe("blockFieldSaveRegistry", () => {
     await expect(flushBlockFieldSaveController("doc", "notes")).rejects.toThrow(
       "could not be saved",
     );
+  });
+
+  it("keeps a field's revision for as long as its controller", async () => {
+    const key = "doc:notes";
+    blockFieldSaveImplRef(key).current = () => Promise.resolve();
+    acquireBlockFieldSaveController(key, factoryFor(key));
+    const revision = blockFieldRevision(key, 4);
+    revision.base = 7;
+    expect(blockFieldRevision(key, 4)).toBe(revision);
+
+    await releaseBlockFieldSaveController(key);
+
+    expect(blockFieldRevision(key, 4)).toEqual({ base: 4, stale: false });
+  });
+
+  it("clears a field's delete mark when the field is forgotten", () => {
+    const key = "doc:notes";
+    setBlockFieldDeleting(key, true);
+    expect(isBlockFieldDeleting(key)).toBe(true);
+
+    forgetBlockFieldSaveController(key);
+
+    expect(isBlockFieldDeleting(key)).toBe(false);
   });
 });
 

@@ -39,6 +39,12 @@ export async function getProvider(name?: string): Promise<ImageProvider> {
     if (await providerIsConfigured(p)) return p;
   }
 
+  if (choice === "builder") {
+    throw new Error(
+      "Builder-managed image generation in Slides runs through Assets' brand-library workflow. For ordinary slide images, configure a local Gemini or OpenAI key; for an Assets brand-library image, set useBrandLibrary: true.",
+    );
+  }
+
   throw new Error(
     "No image generation provider configured. Save GOOGLE_GENERATIVE_AI_API_KEY or OPENAI_API_KEY in settings.",
   );

@@ -93,7 +93,7 @@ test("requires /home to show the landing page in every build", () => {
 test("rejects a full-page handoff that escapes the app mount", () => {
   const result = checkHome(
     home.replace(
-      "appPath(chatThreadPath(threadId))",
+      "appPathFromLocalRoute(chatThreadPath(threadId))",
       "chatThreadPath(threadId)",
     ),
   );
@@ -103,7 +103,7 @@ test("rejects a full-page handoff that escapes the app mount", () => {
 
 test("requires the shared appPath helper and durable handoff marker", () => {
   for (const missing of [
-    'import { appPath } from "@agent-native/core/client/api-path";',
+    'import { appPathFromLocalRoute } from "@agent-native/core/client/api-path";',
     'markAgentChatHomeHandoff("chat");',
   ]) {
     const result = checkHome(home.replace(missing, ""));

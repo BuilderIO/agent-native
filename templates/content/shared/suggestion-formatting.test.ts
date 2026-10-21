@@ -12,6 +12,29 @@ import {
 const L = (...lines: string[]) => lines.join("\n");
 
 describe("formatting source ranges", () => {
+  it("maps a literal image prefix beside a link through canonical spelling", () => {
+    for (const source of [String.raw`see \![x](y) here`, "see ![x](y) here"]) {
+      const canonical = String.raw`see \![x](y) here`;
+      expect(canonicalizeNfm(source)).toBe(canonical);
+      const start = source.indexOf("x");
+      expect(suggestionMarkedSourceRanges(source)).toEqual([
+        { from: source.indexOf("["), to: source.indexOf(")") + 1 },
+      ]);
+      expect(
+        suggestionFormattingSourceRange(source, start, start + 1),
+      ).toMatchObject({ from: 5, to: 6 });
+      expect(suggestionFormattingSourceSlice(source, start, start + 1)).toEqual(
+        [
+          {
+            type: "text",
+            text: "x",
+            marks: [{ type: "link", attrs: { href: "y" } }],
+          },
+        ],
+      );
+    }
+  });
+
   it.each([
     ["**Echo**", "bold"],
     ["*Echo*", "italic"],
@@ -477,6 +500,54 @@ describe("code fences stay mappable", () => {
   });
 });
 describe("text the writer spells in context stays suggestable", () => {
+  it.each([
+    "<span>\t\\_\\_literal\\_\\_</span> \\![x](y) **next**",
+    "<span>\t</span> $`x`$1 **next**",
+    "<span>  </span> **next**",
+  ])("maps protective whitespace beside contextual escapes in %j", (input) => {
+    const source = canonicalizeNfm(input);
+    expect(canonicalizeNfm(source)).toBe(source);
+    expect(nfmToDoc(source)).toEqual(nfmToDoc(input));
+    const next = source.indexOf("next");
+    const alignment = suggestionSourceAlignment(source);
+    expect(alignment?.map(next, "stored")).toBe(next);
+    expect(suggestionFormattingSourceSlice(source, next, next + 4)).toEqual([
+      { type: "text", text: "next", marks: [{ type: "bold" }] },
+    ]);
+  });
+
+  it("maps HTML cell text ending in backslashes through canonical spelling", () => {
+    for (const tag of ["td", "th"]) {
+      for (const count of [1, 2, 3, 4]) {
+        const source = `<table>\n<tr><${tag}>C:${"\\".repeat(count)}</${tag}><${tag}>**next**</${tag}></tr>\n</table>`;
+        const alignment = suggestionSourceAlignment(source);
+        expect(alignment).not.toBeNull();
+        const from = source.indexOf("C:");
+        const to = from + 2 + count;
+        const canonicalFrom = alignment!.canonical.indexOf("C:");
+        const canonicalTo = canonicalFrom + 2 + 2 * Math.ceil(count / 2);
+        expect(alignment!.map(from, "stored")).toBe(canonicalFrom);
+        expect(alignment!.map(to, "stored")).toBe(canonicalTo);
+        expect(alignment!.map(canonicalFrom, "canonical")).toBe(from);
+        expect(alignment!.map(canonicalTo, "canonical")).toBe(to);
+        expect(suggestionFormattingSourceSlice(source, from, to)).toEqual([
+          {
+            type: "text",
+            text: `C:${"\\".repeat(Math.ceil(count / 2))}`,
+            marks: [],
+          },
+        ]);
+        const next = source.indexOf("next");
+        expect(alignment!.map(next, "stored")).toBe(
+          alignment!.canonical.indexOf("next"),
+        );
+        expect(suggestionFormattingSourceSlice(source, next, next + 4)).toEqual(
+          [{ type: "text", text: "next", marks: [{ type: "bold" }] }],
+        );
+      }
+    }
+  });
+
   // The editor escapes underscores on a line that would read as emphasis,
   // and writes math before a digit in its other form.
   it.each([

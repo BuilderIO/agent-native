@@ -1,0 +1,89 @@
+{
+  "extract": {
+    "twoActionItems": {
+      "perItem": {
+        "*": {
+          "summary": "Example Co plans a company-wide rollout in November, pending their security review.",
+          "actionItems": [
+            {
+              "text": "Send the pricing sheet",
+              "owner": "account-owner@example.test",
+              "due": "Friday"
+            },
+            {
+              "text": "Share the security questionnaire answers",
+              "owner": "solutions@example.test",
+              "due": "next week"
+            }
+          ],
+          "risks": [
+            "The security review is unfinished and could block the November rollout."
+          ],
+          "nextStep": "Follow up on the pricing sheet by Friday."
+        }
+      }
+    },
+    "noActionItems": {
+      "perItem": {
+        "*": {
+          "summary": "A courtesy check-in; nothing was asked of us.",
+          "actionItems": [],
+          "risks": [],
+          "nextStep": "Check in again next month."
+        }
+      }
+    },
+    "malformedActionItem": {
+      "perItem": {
+        "*": {
+          "summary": "Example Co wants a pricing sheet.",
+          "actionItems": [
+            {
+              "text": "Send the pricing sheet"
+            }
+          ],
+          "risks": [],
+          "nextStep": "Send the pricing sheet."
+        }
+      }
+    },
+    "unreadable": {
+      "perItem": {
+        "*": {
+          "fail": "result_invalid",
+          "reason": "The answer was prose, not the declared fields."
+        }
+      }
+    }
+  },
+  "post": {
+    "summaryOnly": {
+      "perItem": {
+        "*": {
+          "text": "Quarterly planning with Example Co: a company-wide rollout is planned for November. Action items: send the pricing sheet (Friday); share the security questionnaire answers (next week). Risk: the security review is unfinished. Next step: follow up on the pricing sheet by Friday."
+        }
+      }
+    },
+    "checkIn": {
+      "perItem": {
+        "*": {
+          "text": "Quarterly planning with Example Co: a courtesy check-in. No action items. Next step: check in again next month."
+        }
+      }
+    },
+    "quotesTheTranscript": {
+      "perItem": {
+        "*": {
+          "text": "Quarterly planning with Example Co. Transcript: TRANSCRIPT-LINE: We want to roll out to the whole team in November. TRANSCRIPT-LINE: Our security review is not finished and might block us."
+        }
+      }
+    },
+    "pricingSheetOnly": {
+      "perItem": {
+        "*": {
+          "text": "Quarterly planning with Example Co: a rollout is planned for November. Action item: send the pricing sheet (Friday). Next step: send the pricing sheet."
+        }
+      }
+    }
+  }
+}

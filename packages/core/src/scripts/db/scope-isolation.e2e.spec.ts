@@ -48,6 +48,9 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
       await c.execute(
         `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
       );
+      await c.execute(
+        `CREATE TABLE chat_threads (id TEXT PRIMARY KEY, owner_email TEXT, thread_data TEXT)`,
+      );
       await c.execute({
         sql: `INSERT INTO notes VALUES (?, ?, ?)`,
         args: ["n1", "a@x.com", "A-secret"],
@@ -67,6 +70,14 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
       await c.execute({
         sql: `INSERT INTO settings VALUES (?, ?, ?)`,
         args: ["u:a@x.com:pref:theme", JSON.stringify({ value: "dark" }), 1],
+      });
+      await c.execute({
+        sql: `INSERT INTO chat_threads VALUES (?, ?, ?)`,
+        args: ["thread-a", "a@x.com", "current thread"],
+      });
+      await c.execute({
+        sql: `INSERT INTO chat_threads VALUES (?, ?, ?)`,
+        args: ["thread-b", "a@x.com", "another private thread"],
       });
     });
     vi.stubEnv("AGENT_USER_EMAIL", "a@x.com");
@@ -125,6 +136,12 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     const keys = res.rows.map((r: any) => r.key);
     expect(keys).toContain("u:a@x.com:pref:theme");
     expect(keys.some((k: string) => k.includes(":credential:"))).toBe(false);
+  });
+
+  it("rejects raw reads of another private chat thread", async () => {
+    await expect(
+      runQuery("SELECT thread_data FROM chat_threads WHERE id = 'thread-b'"),
+    ).rejects.toThrow(/Sensitive framework table "chat_threads"/);
   });
 
   it("rejects a schema-qualified write", async () => {

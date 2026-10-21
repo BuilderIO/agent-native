@@ -111,7 +111,7 @@ describe("POST /agent-engine/disconnect", () => {
     });
     expect(mockClear).toHaveBeenCalledWith(adminAuthority, {
       actionName: "agent-engine-disconnect",
-      caller: "http",
+      attribution: expect.objectContaining({ caller: "http" }),
     });
   });
 
@@ -130,7 +130,10 @@ describe("POST /agent-engine/disconnect", () => {
       { userEmail: "member@a.test", orgId: "org-a" },
       memberRefusal,
       "clear",
-      { actionName: "agent-engine-disconnect", caller: "http" },
+      {
+        actionName: "agent-engine-disconnect",
+        attribution: expect.objectContaining({ caller: "http" }),
+      },
     );
   });
 
@@ -214,7 +217,10 @@ describe("provider key save picks the default model", () => {
     );
     expect(mockSelectDefault).toHaveBeenCalledWith(
       { engine: "ai-sdk:openai", model: "gpt-5.5" },
-      { actionName: "agent-engine-api-key", caller: "http" },
+      {
+        actionName: "agent-engine-api-key",
+        attribution: expect.objectContaining({ caller: "http" }),
+      },
       { userEmail: "admin@a.test", orgId: "org-a" },
     );
     const seen = await mockSelectDefault.mock.results[0]!.value;

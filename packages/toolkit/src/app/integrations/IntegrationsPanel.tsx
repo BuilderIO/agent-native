@@ -689,10 +689,18 @@ export function McpServerRows({
             return {
               id: key,
               name: server.name,
-              description:
+              description: [
                 server.scope === "user"
                   ? t("mcpIntegrations.personal")
                   : t("mcpIntegrations.sharedWithWorkspace"),
+                ...(server.status.state === "connected" && server.status.error
+                  ? [
+                      t("mcpIntegrations.connectionErrorReason", {
+                        reason: server.status.error,
+                      }),
+                    ]
+                  : []),
+              ].join(" · "),
               logo: (
                 <McpIntegrationLogo
                   name={server.name}
