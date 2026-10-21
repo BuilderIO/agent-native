@@ -686,6 +686,18 @@ export async function runPreAgentTurnAutosave(
 
 export { foldAgentChatRunCompletion };
 
+export function assertAgentChatRunProjectionUpdated(
+  updated: boolean,
+  threadId: string,
+  runId: string,
+): void {
+  if (!updated) {
+    throw new Error(
+      `Agent chat thread ${threadId} could not save the projection for run ${runId}.`,
+    );
+  }
+}
+
 /**
  * The model this mount runs with, when the caller does not pass one per request.
  *
@@ -3932,13 +3944,18 @@ export function createAgentChatPlugin(
           repo = appendThreadDebugHistory(repo, debug);
 
           const meta = extractThreadMeta(repo);
-          await updateThreadData(
+          const projectionUpdated = await updateThreadData(
             threadId,
             JSON.stringify(repo),
             thread.title,
             meta.preview || thread.preview,
             repo.messages.length,
             { trustedRunSequenceResetIds: new Set([run.runId]) },
+          );
+          assertAgentChatRunProjectionUpdated(
+            projectionUpdated,
+            threadId,
+            run.runId,
           );
         });
 

@@ -869,6 +869,52 @@ describe("run manager soft timeout", () => {
     expect(unwound).toBe(true);
   });
 
+  it("fails the run instead of advertising continuation when checkpoint persistence fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const events: AgentChatEvent[] = [];
+    vi.mocked(persistRunCheckpointEvent).mockRejectedValueOnce(
+      new Error("checkpoint database unavailable"),
+    );
+    const run = startRun(
+      "run-checkpoint-rejected",
+      "thread-checkpoint-rejected",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.advanceTimersByTimeAsync(11);
+    await run.finalized;
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "run_checkpoint_persistence_failed",
+      }),
+    );
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-checkpoint-rejected",
+      "errored",
+    );
+    expect(setRunError).toHaveBeenCalledWith(
+      "run-checkpoint-rejected",
+      "run_checkpoint_persistence_failed",
+      expect.any(String),
+    );
+    consoleError.mockRestore();
+  });
+
   it("persists timeout checkpoints under the run execution fence", async () => {
     const fence = {
       threadId: "thread-timeout-fenced-checkpoint",

@@ -1360,9 +1360,11 @@ export function startRun(
     }
   };
   let checkpointAbortInFlight = false;
+  let checkpointPersistenceFailed = false;
   const checkpointRunBoundary = async (
     event: AgentChatEvent,
-    terminalReason: string,
+    terminalReason: "no_progress" | "run_timeout",
+    diagnostic: { silentForMs?: number; lastEventType?: string },
   ): Promise<void> => {
     if (
       checkpointAbortInFlight ||
@@ -1375,9 +1377,32 @@ export function startRun(
       await withWorkerFence(() =>
         persistRunCheckpointEvent(runId, event, terminalReason),
       );
-    } catch {
-      // The abort still has to happen if the checkpoint write is rejected; the
-      // caller has already reached a server-owned chunk boundary.
+      softTimedOut = true;
+      recordRunBoundaryDiagnostic(terminalReason, diagnostic, "terminal");
+      emitRunBoundaryTrackingEvent({
+        runId,
+        threadId,
+        reason: terminalReason,
+        recovered: false,
+        boundaryIndex: recoveredChunkBoundaries + 1,
+        dispatchMode: options?.dispatchMode,
+        model: options?.model,
+        engineName: options?.engineName,
+        userId: options?.userId,
+      });
+      send(event);
+    } catch (error) {
+      checkpointPersistenceFailed = true;
+      console.error(
+        "[run-manager] could not persist run boundary checkpoint",
+        runId,
+        error instanceof Error ? error.message : error,
+      );
+      send({
+        type: "error",
+        error: "The agent could not save its continuation checkpoint.",
+        errorCode: "run_checkpoint_persistence_failed",
+      });
     } finally {
       abort.abort(terminalReason);
       checkpointAbortInFlight = false;
@@ -1434,22 +1459,8 @@ export function startRun(
       return;
     }
     if (chunkAbort) chunkBoundaryReason = reason;
-    softTimedOut = true;
-    recordRunBoundaryDiagnostic(reason, diagnostic, "terminal");
-    emitRunBoundaryTrackingEvent({
-      runId,
-      threadId,
-      reason,
-      recovered: false,
-      boundaryIndex: recoveredChunkBoundaries + 1,
-      dispatchMode: options?.dispatchMode,
-      model: options?.model,
-      engineName: options?.engineName,
-      userId: options?.userId,
-    });
     const event: AgentChatEvent = { type: "auto_continue", reason };
-    send(event);
-    void checkpointRunBoundary(event, reason);
+    void checkpointRunBoundary(event, reason, diagnostic);
   };
 
   const checkNoProgressBackstop = () => {
@@ -1846,7 +1857,11 @@ export function startRun(
     .then(() => {
       settleBoundary(false);
       if (abort.signal.aborted) {
-        run.status = softTimedOut ? "completed" : "aborted";
+        run.status = checkpointPersistenceFailed
+          ? "errored"
+          : softTimedOut
+            ? "completed"
+            : "aborted";
         return;
       }
       run.status = "completed";
@@ -1854,7 +1869,11 @@ export function startRun(
     .catch((err) => {
       settleBoundary(false);
       if (abort.signal.aborted) {
-        run.status = softTimedOut ? "completed" : "aborted";
+        run.status = checkpointPersistenceFailed
+          ? "errored"
+          : softTimedOut
+            ? "completed"
+            : "aborted";
         return;
       }
       run.status = "errored";
