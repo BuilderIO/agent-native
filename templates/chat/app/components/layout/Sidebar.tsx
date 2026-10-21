@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   navigateWithAgentChatViewTransition,
@@ -294,6 +295,7 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
     observedThreadStarts,
   });
   const history = useOwnershipChatHistory({
+    getThreadUrl: (threadId) => appPath(chatThreadPath(threadId)),
     activeId:
       threadIdFromPath(location.pathname) ??
       activeThreadId ??

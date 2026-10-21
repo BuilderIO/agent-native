@@ -236,6 +236,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "agentChat.history.ownedBy": `Owner: ${values?.name ?? ""}`,
       "agentChat.history.accessDirect": "Shared with you",
       "agentChat.history.accessOrganization": "Shared with your organization",
+      "agentChat.history.copyLink": "Copy link",
       "agentChat.history.showAll": "Show all",
       "agentChat.history.showLess": "Show less",
       "agentChat.history.loadMore": "Load more",
@@ -1347,17 +1348,17 @@ describe("Dispatch NavContent", () => {
       )!;
       expect(shared).not.toBeNull();
       expect(shared.querySelectorAll(".an-chat-history-row")).toHaveLength(5);
-      expect(shared.textContent).toContain("Owner: colleague@example.com");
       expect(
-        shared.querySelector('[data-access-basis="direct"]')?.textContent,
-      ).toContain("Shared with you");
-      expect(
-        shared.querySelector('[data-access-basis="organization"]')?.textContent,
-      ).toContain("Shared with your organization");
+        shared.querySelector('[role="img"]')?.getAttribute("aria-label"),
+      ).toBe("Owner: colleague@example.com");
+      for (const basis of ["direct", "organization"]) {
+        expect(
+          shared.querySelector(
+            `.an-chat-history-row__owner-mark[data-access-basis="${basis}"]`,
+          ),
+        ).not.toBeNull();
+      }
       expect(shared.querySelector(".an-chat-history-row--pinned")).toBeNull();
-      expect(
-        shared.querySelector(".an-chat-history-row__menu-trigger"),
-      ).toBeNull();
       expect(
         shared.querySelector(".an-chat-history-row--active")?.textContent,
       ).toContain("Shared work 0");
@@ -1386,6 +1387,18 @@ describe("Dispatch NavContent", () => {
         autoCreate: false,
         includeExternal: false,
       });
+      await openThreadMenu("Shared work 0");
+      expect(
+        document.body.querySelector(".an-chat-history-row__menu-owner")
+          ?.textContent,
+      ).toContain("colleague@example.comShared with you");
+      const actions = [
+        ...document.body.querySelectorAll(".an-chat-history-row__menu-item"),
+      ].map((item) => item.textContent);
+      expect(actions).toContain("Copy link");
+      for (const ownerAction of ["Rename chat", "Pin", "Unpin", "Archive"]) {
+        expect(actions).not.toContain(ownerAction);
+      }
     },
   );
 

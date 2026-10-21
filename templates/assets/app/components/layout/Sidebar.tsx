@@ -2,6 +2,7 @@ import {
   navigateWithAgentChatViewTransition,
   useChatThreads,
 } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { focusAgentChat } from "@agent-native/toolkit/app/chat";
@@ -106,6 +107,7 @@ function AssetsChatsSection({ open }: { open: boolean }) {
     threadIdFromPath(location.pathname) ??
     (location.pathname === "/home" ? null : activeThreadId);
   const history = useOwnershipChatHistory({
+    getThreadUrl: (threadId) => appPath(chatThreadPath(threadId)),
     activeId: displayedActiveThreadId,
     localMineRows: ownDraftRows({ threads, isNewThread }),
     mutations: {
@@ -192,25 +194,25 @@ function AssetsChatsSection({ open }: { open: boolean }) {
           onNewChat={() => void handleNewChat()}
           railLabels={{
             newChat: t("chat.newChat"),
-            showMore: t("chat.chats"),
-            showLess: t("chat.chats"),
           }}
           renameMaxLength={160}
           onDelete={(threadId) => void handleArchiveThread(threadId)}
-          renderAdditionalRowActions={(item, closeMenu) => (
-            <button
-              type="button"
-              role="menuitem"
-              className="an-chat-history-row__menu-item"
-              onClick={() => {
-                closeMenu();
-                void handleCopyShareLink(item.id);
-              }}
-            >
-              <IconShare3 size={13} strokeWidth={1.8} />
-              <span>{t("chat.copyShareLink")}</span>
-            </button>
-          )}
+          renderAdditionalRowActions={(item, closeMenu) =>
+            item.readOnly ? null : (
+              <button
+                type="button"
+                role="menuitem"
+                className="an-chat-history-row__menu-item"
+                onClick={() => {
+                  closeMenu();
+                  void handleCopyShareLink(item.id);
+                }}
+              >
+                <IconShare3 size={13} strokeWidth={1.8} />
+                <span>{t("chat.copyShareLink")}</span>
+              </button>
+            )
+          }
           labels={{
             options: (item) =>
               t("chat.optionsFor", { title: item.titleText ?? "" }),

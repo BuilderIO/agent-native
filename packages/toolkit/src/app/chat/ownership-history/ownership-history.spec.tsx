@@ -9,6 +9,15 @@ import { Activity, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@agent-native/core/client/use-avatar", () => ({
+  useAvatarUrl: () => null,
+}));
+
+const clipboard = vi.hoisted(() => ({ write: vi.fn(async () => true) }));
+vi.mock("@agent-native/toolkit/clipboard", () => ({
+  writeClipboardText: clipboard.write,
+}));
+
 import {
   OwnershipChatHistoryRail,
   chatThreadToHistoryItem,
@@ -165,9 +174,9 @@ describe("ownership history row boundary", () => {
       expect(item).toMatchObject({
         title: "shared",
         pinned: false,
-        hideActions: true,
+        readOnly: true,
         accessBasis,
-        ownerLabel: "agentChat.history.ownedBy:owner@example.com",
+        ownerLabel: "owner@example.com",
         accessLabel:
           accessBasis === "direct"
             ? "agentChat.history.accessDirect"
@@ -383,8 +392,8 @@ describe("ownership history adapter", () => {
     expect(item("mine-org")?.ownerLabel).toBeUndefined();
     expect(item("direct")).toMatchObject({
       pinned: false,
-      hideActions: true,
-      ownerLabel: "Owner: owner@example.com",
+      readOnly: true,
+      ownerLabel: "owner@example.com",
       accessLabel: "Shared with you",
     });
     await act(async () => {
@@ -487,7 +496,7 @@ describe("ownership history adapter", () => {
     });
     expect(section("mine").items.map((item) => item.id)).toEqual(["local"]);
     expect(item("owned")?.title).toBe("Server title");
-    expect(item("shared")?.hideActions).toBe(true);
+    expect(item("shared")?.readOnly).toBe(true);
     expect(item("unloaded-shared")).toBeUndefined();
     expect(latest.findMine("shared")).toBeUndefined();
   });
@@ -876,7 +885,7 @@ describe("ownership history adapter", () => {
       decorateItem: (item) => ({ ...item, hideActions: false }),
     });
     expect(item("draft")?.hideActions).toBe(true);
-    expect(item("shared")?.hideActions).toBe(true);
+    expect(item("shared")?.readOnly).toBe(true);
     mine = [row("draft", { title: "Saved server title", messageCount: 0 })];
     await act(async () => {
       await latest.refresh();
@@ -889,7 +898,7 @@ describe("ownership history adapter", () => {
       container.querySelectorAll('button[aria-haspopup="menu"]'),
     ).toHaveLength(1);
     expect(section("shared").items.map((item) => item.id)).toEqual(["shared"]);
-    expect(item("shared")?.hideActions).toBe(true);
+    expect(item("shared")?.readOnly).toBe(true);
     expect(selected).not.toHaveBeenCalled();
     await act(async () => {
       expect(await latest.listProps.onTogglePin!("draft")).toBe(true);
@@ -2705,9 +2714,9 @@ describe("ownership history adapter", () => {
     const archive = vi.fn();
     await render({
       mutations: { pin, rename, archive },
-      decorateItem: (item) => ({ ...item, pinned: true, hideActions: false }),
+      decorateItem: (item) => ({ ...item, pinned: true, readOnly: false }),
     });
-    expect(item("shared")).toMatchObject({ pinned: false, hideActions: true });
+    expect(item("shared")).toMatchObject({ pinned: false, readOnly: true });
     await act(async () => {
       expect(await latest.listProps.onTogglePin!("shared")).toBe(false);
       expect(await latest.listProps.onRename!("shared", "title")).toBe(false);
@@ -2716,6 +2725,22 @@ describe("ownership history adapter", () => {
     expect(pin).not.toHaveBeenCalled();
     expect(rename).not.toHaveBeenCalled();
     expect(archive).not.toHaveBeenCalled();
+  });
+
+  it("copies an absolute thread link from any row, Shared included", async () => {
+    shared = [row("shared", { accessBasis: "direct" })];
+    await render({ getThreadUrl: (id) => `/chat/${id}` });
+    await act(async () => {
+      await latest.listProps.onCopyLink!("shared");
+    });
+    expect(clipboard.write).toHaveBeenCalledWith(
+      new URL("/chat/shared", window.location.href).toString(),
+    );
+  });
+
+  it("offers no Copy link when the app gives no thread URL", async () => {
+    await render();
+    expect(latest.listProps.onCopyLink).toBeUndefined();
   });
 
   it("does not fetch while disabled or refresh after unmount", async () => {

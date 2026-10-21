@@ -46,6 +46,11 @@
   min-height: 0;
 }
 
+/* A rail inside a popover, such as All chats, scrolls instead of growing. */
+.an-chat-history--rail.an-chat-history--capped .an-chat-history__list {
+  max-height: 16rem;
+}
+
 .an-chat-history-rail .an-chat-history__state:empty {
   display: none;
 }
@@ -71,28 +76,60 @@
   padding: 0 4px;
 }
 
-.an-chat-history-row__access {
+.an-chat-history-row__owner-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* The active row has no timestamp; keep its avatar clear of the ⋯ trigger. */
+.an-chat-history--rail
+  .an-chat-history-row--has-menu
+  .an-chat-history-row__owner-mark:last-child {
+  margin-inline-end: 18px;
+}
+
+.an-chat-owner-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: hsl(var(--muted));
+  /* guard:allow-raw-color — the initial sits on an emailToColor badge in both themes */
+  color: #fff;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.an-chat-owner-avatar__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.an-chat-history-owner {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 1px;
   min-width: 0;
-  margin-top: 2px;
-  font-size: 10px;
-  color: hsl(var(--muted-foreground) / 0.7);
+  text-align: start;
 }
 
-.an-chat-history-row__owner {
+.an-chat-history-owner__name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
 }
 
-.an-chat-history-row__access-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.an-chat-history-owner__access {
+  color: hsl(var(--muted-foreground));
 }
 
 .an-chat-history__state--error {
@@ -158,7 +195,10 @@
 }
 
 .an-chat-history-rail__disclosure,
-.an-chat-history-rail__new-chat {
+.an-chat-history-rail__new-chat,
+.an-chat-history-rail__section-toggle,
+.an-chat-history-rail__load-more,
+.an-chat-history-rail__retry {
   display: flex;
   align-items: center;
   border: 0;
@@ -169,15 +209,50 @@
 }
 
 .an-chat-history-rail__disclosure:hover,
-.an-chat-history-rail__new-chat:hover {
+.an-chat-history-rail__new-chat:hover,
+.an-chat-history-rail__section-toggle:hover,
+.an-chat-history-rail__load-more:hover,
+.an-chat-history-rail__retry:hover {
   background: hsl(var(--accent) / 0.5);
   color: hsl(var(--accent-foreground));
 }
 
 .an-chat-history-rail__disclosure:focus-visible,
-.an-chat-history-rail__new-chat:focus-visible {
+.an-chat-history-rail__new-chat:focus-visible,
+.an-chat-history-rail__section-toggle:focus-visible,
+.an-chat-history-rail__load-more:focus-visible,
+.an-chat-history-rail__retry:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: -2px;
+}
+
+/* Show all, Load more and Retry match New chat: 12px muted text, not a button. */
+.an-chat-history-rail__section-toggle,
+.an-chat-history-rail__load-more,
+.an-chat-history-rail__retry {
+  flex: 0 0 auto;
+  gap: 4px;
+  height: auto;
+  min-height: 26px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: none;
+}
+
+.an-chat-history-rail__section-toggle svg,
+.an-chat-history-rail__load-more svg,
+.an-chat-history-rail__retry svg {
+  width: 13px;
+  height: 13px;
+}
+
+.an-chat-history__state .an-chat-history-rail__retry {
+  display: inline-flex;
+  min-height: 22px;
+  margin-inline-start: 4px;
+  padding: 2px 6px;
 }
 
 .an-chat-history-rail__disclosure {
@@ -276,6 +351,7 @@
 
 .an-chat-history-row__title {
   min-width: 0;
+  margin-inline-end: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -442,6 +518,21 @@
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
   box-shadow: var(--agent-kit-overlay-elevation);
+}
+
+.an-chat-history-row__menu-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  margin-bottom: 4px;
+  padding: 6px 8px 8px;
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: 12px;
+}
+
+.an-chat-history-row__menu-owner .an-chat-history-owner__access {
+  font-size: 11px;
 }
 
 .an-chat-history-row__menu-item {

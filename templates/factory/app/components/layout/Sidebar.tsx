@@ -2,6 +2,7 @@ import {
   navigateWithAgentChatViewTransition,
   useChatThreads,
 } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   OwnershipChatHistoryRail,
@@ -96,6 +97,7 @@ function ChatThreadsSection({ open }: { open: boolean }) {
     threadIdFromPath(location.pathname) ??
     (location.pathname === "/chat" ? null : activeThreadId);
   const history = useOwnershipChatHistory({
+    getThreadUrl: (threadId) => appPath(chatThreadPath(threadId)),
     activeId: displayedActiveThreadId,
     localMineRows: ownDraftRows({ threads, isNewThread }),
     mutations: {

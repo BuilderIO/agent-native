@@ -656,6 +656,7 @@ function DispatchChatsSection({
     threadIdFromPath(localPathname) ??
     (localPathname === "/chat" ? null : activeThreadId);
   const history = useOwnershipChatHistory({
+    getThreadUrl: (threadId) => appPath(chatThreadPath(threadId)),
     includeExternal,
     activeId: displayedActiveThreadId,
     localMineRows: ownDraftRows({
@@ -884,8 +885,6 @@ function DispatchChatsSection({
           onNewChat={() => void handleNewChat()}
           railLabels={{
             newChat: t("dispatch.sidebar.newChat"),
-            showMore: t("dispatch.sidebar.chats"),
-            showLess: t("dispatch.sidebar.chats"),
           }}
           renameMaxLength={160}
           labels={{

@@ -38,12 +38,14 @@ export type ChatFirstChatHistoryProps =
 
 function SectionedChatHistory({
   railLabels,
+  labels,
   ...props
 }: ChatFirstChatHistorySectionsProps) {
   const t = useT();
   return (
     <ChatHistoryRail
       {...props}
+      labels={{ copyLink: t("agentChat.history.copyLink"), ...labels }}
       railLabels={{
         newChat: t("agentChat.tabs.newChat"),
         showMore: t("agentChat.history.showAll"),
@@ -78,24 +80,31 @@ export function ChatFirstChatHistory({
     );
   }
 
+  // Sections carry their own labels (My chats, Shared with you), so a sectioned
+  // list keeps the header only for its action.
+  const showLabel = !props.sections;
   return (
     <section
       data-chat-first-chat-history
       className={["min-h-0 min-w-0", className].filter(Boolean).join(" ")}
     >
-      <div
-        data-chat-first-chat-history-header
-        className="group mb-1 flex min-h-6 items-center justify-between gap-2 px-2"
-      >
-        <p className="min-w-0 text-[11px] font-medium text-sidebar-foreground/50">
-          {label}
-        </p>
-        {headerAction ? (
-          <div className="shrink-0 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100">
-            {headerAction}
-          </div>
-        ) : null}
-      </div>
+      {showLabel || headerAction ? (
+        <div
+          data-chat-first-chat-history-header
+          className="group mb-1 flex min-h-6 items-center justify-between gap-2 px-2"
+        >
+          {showLabel ? (
+            <p className="min-w-0 text-[11px] font-medium text-sidebar-foreground/50">
+              {label}
+            </p>
+          ) : null}
+          {headerAction ? (
+            <div className="ms-auto shrink-0 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100">
+              {headerAction}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {props.sections ? (
         <SectionedChatHistory {...props} className="min-w-0" />
       ) : (

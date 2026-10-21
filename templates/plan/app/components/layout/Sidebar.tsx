@@ -149,6 +149,7 @@ function PlanChatsSection({
   });
 
   const history = useOwnershipChatHistory({
+    getThreadUrl: (threadId) => appPath(planChatThreadPath(threadId)),
     activeId: activeThreadId,
     localMineRows: ownDraftRows({ threads, isNewThread }),
     mutations: {
@@ -213,8 +214,6 @@ function PlanChatsSection({
           onNewChat={() => void handleNewChat()}
           railLabels={{
             newChat: t("sidebar.newChat"),
-            showMore: t("sidebar.chats"),
-            showLess: t("sidebar.chats"),
           }}
           renameMaxLength={160}
           onDelete={(threadId) => void handleArchiveThread(threadId)}

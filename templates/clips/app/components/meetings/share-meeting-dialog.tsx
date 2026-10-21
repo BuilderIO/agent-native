@@ -52,6 +52,7 @@ export function ShareMeetingPopover({
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
         align="end"
+        onOpenAutoFocus={(event) => event.preventDefault()}
         {...nestedLayerDismissGuards()}
         className="max-h-[calc(100vh-1rem)] w-[440px] max-w-[calc(100vw-1rem)] overflow-y-auto border-border p-0"
       >
@@ -196,7 +197,7 @@ function LinkTab({
         <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
         <div className="flex flex-col gap-1">
           <SharePeopleList controller={controller} />
-          <ShareGeneralAccessRow controller={controller} />
+          <ShareGeneralAccessRow controller={controller} sentenceTrigger />
         </div>
       </div>
 

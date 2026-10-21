@@ -3,6 +3,9 @@ import type {
   ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import type { ChatHistoryItem } from "@agent-native/toolkit/chat-history/ChatHistoryList";
+import { createElement } from "react";
+
+import { ChatOwnerAvatar } from "./ChatOwnerAvatar.js";
 
 export interface OwnDraftRow {
   id: string;
@@ -112,13 +115,17 @@ export function chatThreadToHistoryItem(
     pinned: !shared && row.pinnedAt != null,
     ...(shared
       ? {
-          ownerLabel: t("agentChat.history.ownedBy", { name: row.ownerEmail }),
+          ownerAvatar: createElement(ChatOwnerAvatar, {
+            email: row.ownerEmail,
+            label: t("agentChat.history.ownedBy", { name: row.ownerEmail }),
+          }),
+          ownerLabel: row.ownerEmail,
           accessLabel: t(
             row.accessBasis === "direct"
               ? "agentChat.history.accessDirect"
               : "agentChat.history.accessOrganization",
           ),
-          hideActions: true,
+          readOnly: true,
         }
       : {}),
   };

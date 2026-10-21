@@ -575,6 +575,7 @@ function PeopleTab({
                 </div>
                 <ShareGeneralAccessRow
                   controller={{ ...controller, visibility }}
+                  sentenceTrigger
                 />
                 <RecordingAccessControls
                   recordingId={recordingId}

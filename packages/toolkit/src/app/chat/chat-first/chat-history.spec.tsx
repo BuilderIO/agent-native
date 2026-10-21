@@ -107,8 +107,9 @@ describe("ChatFirstChatHistory", () => {
               items: Array.from({ length: 6 }, (_, index) => ({
                 id: `shared-${index}`,
                 title: `Shared ${index}`,
-                hideActions: true,
-                ownerLabel: "Owned by Pat",
+                readOnly: true,
+                ownerAvatar: <span>P</span>,
+                ownerLabel: "pat@example.com",
                 accessLabel: "Shared directly",
               })),
             },
@@ -125,8 +126,14 @@ describe("ChatFirstChatHistory", () => {
     expect(
       container.querySelector(".an-chat-history-row__menu-trigger"),
     ).toBeNull();
-    expect(container.textContent).toContain("Owned by Pat");
-    expect(container.textContent).toContain("Shared directly");
+    expect(
+      container.querySelectorAll(".an-chat-history-row__owner-mark"),
+    ).toHaveLength(5);
+    expect(
+      container.querySelector("[data-chat-first-chat-history-header]"),
+    ).toBeNull();
+    expect(container.textContent).toContain("Shared with you");
+    expect(container.textContent).not.toContain("Chats");
     const toggle = container.querySelector<HTMLButtonElement>(
       ".an-chat-history-rail__section-toggle",
     )!;

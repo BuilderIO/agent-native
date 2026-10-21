@@ -37,6 +37,7 @@ export function OwnershipChatHistoryRail({
   sections,
   listProps,
   railLabels,
+  labels,
   loading: _loading,
   error: _error,
   ...props
@@ -46,6 +47,7 @@ export function OwnershipChatHistoryRail({
     <ChatHistoryRail
       {...listProps}
       {...props}
+      labels={{ copyLink: t("agentChat.history.copyLink"), ...labels }}
       sections={sections}
       railLabels={{
         newChat: t("agentChat.tabs.newChat"),

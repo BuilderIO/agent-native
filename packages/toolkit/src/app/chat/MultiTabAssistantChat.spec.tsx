@@ -8056,10 +8056,21 @@ describe("MultiTabAssistantChat history popover", () => {
       expect(
         sharedSection?.querySelectorAll(".an-chat-history-row").length ?? 0,
       ).toBe(loaded ? 1 : 0);
+      const trigger =
+        sharedSection?.querySelector<HTMLButtonElement>(
+          ".an-chat-history-row__menu-trigger",
+        ) ?? null;
+      if (!loaded) {
+        expect(trigger).toBeNull();
+        return;
+      }
+      await openRowMenu(trigger!);
       expect(
-        sharedSection?.querySelector(".an-chat-history-row__menu-trigger") ??
-          null,
-      ).toBeNull();
+        Array.from(
+          document.body.querySelectorAll(".an-chat-history-row__menu-item"),
+          (element) => element.textContent,
+        ),
+      ).toEqual(["Copy link"]);
     },
   );
 
@@ -8110,7 +8121,7 @@ describe("MultiTabAssistantChat history popover", () => {
     }
   });
 
-  it("previews five shared rows without owner pins or menus and switches through history", async () => {
+  it("previews five shared rows without owner pins or actions and switches through history", async () => {
     sharedHistoryRows = Array.from({ length: 51 }, (_, index) => ({
       id: `shared-${index}`,
       title: `Shared ${index}`,
@@ -8131,13 +8142,26 @@ describe("MultiTabAssistantChat history popover", () => {
     expect(sharedSection.querySelectorAll(".an-chat-history-row")).toHaveLength(
       5,
     );
-    expect(sharedSection.textContent).toContain("Owner: pat@example.com");
+    expect(sharedSection.textContent).toContain("pat@example.com");
     expect(sharedSection.textContent).toContain(
       "Shared with your organization",
     );
+    await openRowMenu(
+      sharedSection.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
     expect(
-      sharedSection.querySelector(".an-chat-history-row__menu-trigger"),
-    ).toBeNull();
+      Array.from(
+        document.body.querySelectorAll(".an-chat-history-row__menu-item"),
+        (element) => element.textContent,
+      ),
+    ).toEqual(["Copy link"]);
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
     expect(
       sharedSection.querySelector(".an-chat-history-row--pinned"),
     ).toBeNull();

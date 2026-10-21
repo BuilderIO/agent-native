@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppSidebarFooter,
   AppSidebarHeader,
@@ -111,7 +112,6 @@ import {
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { OrgSwitcher } from "@agent-native/toolkit/app/org";
-import { OwnershipFilter } from "@agent-native/toolkit/app/sharing/OwnershipFilter";
 import {
   analyticsAskThreadIdFromPath,
   analyticsAskThreadPath,
@@ -394,12 +394,45 @@ function SidebarSectionSettingsPopover({
             <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {t("sidebar.show")}
             </p>
-            <OwnershipFilter
-              value={visibilityFilter === "private" ? "mine" : visibilityFilter}
-              onChange={(next) =>
-                onVisibilityFilterChange(next === "mine" ? "private" : next)
-              }
-            />
+            <ToggleGroup
+              type="single"
+              value={visibilityFilter}
+              onValueChange={(next) => {
+                if (next === "all" || next === "private" || next === "shared") {
+                  onVisibilityFilterChange(next);
+                }
+              }}
+              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
+            >
+              <ToggleGroupItem
+                value="all"
+                aria-label={t("sidebar.visibilityAllDescription")}
+                className={segmentedItemClass}
+              >
+                {t("sidebar.visibilityAll")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="private"
+                aria-label={t("sidebar.visibilityPrivateOnlyDescription")}
+                className={segmentedItemClass}
+              >
+                {t("sidebar.visibilityPrivateOnly")}
+              </ToggleGroupItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="shared"
+                    aria-label={t("sidebar.visibilitySharedOnlyDescription")}
+                    className={segmentedItemClass}
+                  >
+                    {t("sidebar.visibilitySharedOnly")}
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("sidebar.visibilitySharedOnlyDescription")}
+                </TooltipContent>
+              </Tooltip>
+            </ToggleGroup>
           </div>
           {sortMode && onSortModeChange ? (
             <div className="grid gap-1.5">
@@ -1333,6 +1366,7 @@ function AnalyticsChatsSection({
     });
 
   const history = useOwnershipChatHistory({
+    getThreadUrl: (threadId) => appPath(analyticsAskThreadPath(threadId)),
     activeId: askThreadId,
     localMineRows: ownDraftRows({ threads, isNewThread }),
     mutations: {

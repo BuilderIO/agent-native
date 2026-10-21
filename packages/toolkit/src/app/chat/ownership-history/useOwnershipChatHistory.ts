@@ -12,6 +12,7 @@ import {
 import type { ChatHistoryItem } from "@agent-native/toolkit/chat-history/ChatHistoryList";
 import type { ChatHistoryRailSection } from "@agent-native/toolkit/chat-history/ChatHistoryRail";
 import type { ChatHistoryRailSectionControllerLabels } from "@agent-native/toolkit/chat-history/useChatHistoryRailController";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   useCallback,
   useEffect,
@@ -21,6 +22,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import {
   chatThreadToHistoryItem,
@@ -50,6 +52,11 @@ export interface UseOwnershipChatHistoryOptions extends Omit<
     rename?: (id: string, title: string) => Promise<boolean>;
     archive?: (id: string) => Promise<boolean>;
   };
+  /**
+   * The URL that opens a thread, resolved against the current page; enables
+   * Copy link on every row. Router paths need `appPath()` for the base path.
+   */
+  getThreadUrl?: (id: string) => string;
   onMutationFailed?: (
     kind: OwnershipChatHistoryMutationKind,
     id: string,
@@ -61,6 +68,7 @@ export interface OwnershipChatHistoryListProps {
   onTogglePin?: (id: string) => Promise<boolean>;
   onRename?: (id: string, title: string) => Promise<boolean>;
   onDelete?: (id: string) => Promise<boolean>;
+  onCopyLink?: (id: string) => Promise<void>;
 }
 
 export interface UseOwnershipChatHistoryResult {
@@ -549,6 +557,16 @@ export function useOwnershipChatHistory(
       const persist = options.mutations!.archive!;
       return mutate("archive", id, "hidden", true, () => persist(id));
     };
+  if (options.getThreadUrl)
+    listProps.onCopyLink = async (id) => {
+      const url = new URL(
+        options.getThreadUrl!(id),
+        window.location.href,
+      ).toString();
+      if (await writeClipboardText(url))
+        toast.success(t("agentChat.history.linkCopied"));
+      else toast.error(t("agentChat.history.copyLinkFailed"));
+    };
 
   const mapItem = (
     row: ChatThreadListRow | OwnDraftRow,
@@ -585,7 +603,7 @@ export function useOwnershipChatHistory(
     };
     const decorated = decorateItem?.(item, effectiveRow, { section }) ?? item;
     return section === "shared"
-      ? { ...decorated, pinned: false, hideActions: true }
+      ? { ...decorated, pinned: false, readOnly: true }
       : isPersistedOwner(row)
         ? decorated
         : { ...decorated, hideActions: true };

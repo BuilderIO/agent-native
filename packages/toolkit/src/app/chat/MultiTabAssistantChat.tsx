@@ -499,6 +499,7 @@ function HistoryPopover({
   onClose,
   onTogglePin,
   onRename,
+  getThreadUrl,
   popoverAlign = "end",
 }: {
   apiUrl?: string;
@@ -511,6 +512,7 @@ function HistoryPopover({
   onClose: () => void;
   onTogglePin: (id: string, pinned: boolean) => Promise<boolean>;
   onRename: (id: string, nextTitle: string) => Promise<boolean>;
+  getThreadUrl: (id: string) => string;
   popoverAlign?: "start" | "end";
 }) {
   const t = useT();
@@ -534,6 +536,7 @@ function HistoryPopover({
     pinned: true,
     localMineRows,
     mutations: { pin: onTogglePin, rename: onRename },
+    getThreadUrl,
     onMutationFailed: () => toast.error(t("agentChat.common.saveFailed")),
     decorateItem: (item, row) => ({
       ...item,
@@ -590,6 +593,7 @@ function HistoryPopover({
           loadingLabel={t("agentChat.history.searching")}
           emptyLabel={t("agentChat.history.empty")}
           emptySearchLabel={t("agentChat.history.noMatches")}
+          className="an-chat-history--capped"
         />
       </PopoverContent>
     </Popover>
@@ -3864,6 +3868,12 @@ export function MultiTabAssistantChat({
             onClose={() => setShowHistory(false)}
             onTogglePin={pinThread}
             onRename={renameThread}
+            getThreadUrl={(threadId) => {
+              if (getThreadPath) return appPath(getThreadPath(threadId));
+              const url = new URL(window.location.href);
+              url.searchParams.set(threadUrlParamName, threadId);
+              return url.toString();
+            }}
             popoverAlign={renderOverlay ? "start" : "end"}
           />
         )}
