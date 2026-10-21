@@ -1,0 +1,140 @@
+/*
+ * Connection strokes, arrowheads, the invisible band a pointer aims at, the
+ * midpoint labels and the hover controls. Flowed connections use `--success`,
+ * which global.css defines.
+ */
+.workflow-canvas .react-flow__edge-path.workflow-edge {
+  fill: none;
+  stroke: hsl(var(--muted-foreground) / 0.55);
+  stroke-width: 2;
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge:not([data-back]) {
+  stroke-linecap: square;
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-back] {
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-tone="hover"] {
+  stroke: hsl(var(--muted-foreground));
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-tone="flowed"] {
+  stroke: hsl(var(--success, var(--primary)));
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-tone="selected"] {
+  stroke: hsl(var(--foreground));
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-tone="dimmed"] {
+  stroke: hsl(var(--border));
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-tone="issue"] {
+  stroke: hsl(var(--destructive));
+}
+
+.workflow-canvas
+  .react-flow__edge:focus-visible
+  .react-flow__edge-path.workflow-edge {
+  stroke: hsl(var(--ring));
+}
+
+/* A wide, transparent stroke so a 2px line is easy to point at. */
+.workflow-canvas .workflow-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 40px;
+  pointer-events: stroke;
+}
+
+.workflow-canvas .workflow-arrow {
+  fill: hsl(var(--muted-foreground) / 0.7);
+}
+
+.workflow-canvas .workflow-arrow[data-state="hover"] {
+  fill: hsl(var(--muted-foreground));
+}
+
+.workflow-canvas .workflow-arrow[data-state="flowed"] {
+  fill: hsl(var(--success, var(--primary)));
+}
+
+.workflow-canvas .workflow-arrow[data-state="selected"] {
+  fill: hsl(var(--foreground));
+}
+
+.workflow-canvas .workflow-arrow[data-state="dimmed"] {
+  fill: hsl(var(--border));
+}
+
+.workflow-canvas .workflow-arrow[data-state="issue"] {
+  fill: hsl(var(--destructive));
+}
+
+@keyframes workflow-edge-actions-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workflow-canvas .workflow-edge-actions {
+    animation: workflow-edge-actions-in 120ms ease-out;
+  }
+}
+
+/*
+ * A hovered connection is raised to z-index 1 (`hoveredEdgeId` in flow-model).
+ * Giving the edge layer its own stacking context keeps that raise among the
+ * connections. Without it the raised connection paints over the labels and the
+ * hover controls, so a click on a control selects the line instead.
+ */
+.workflow-canvas .react-flow__edges {
+  z-index: 0;
+}
+
+/*
+ * Everything at a connection's midpoint hangs from one zero-size anchor there.
+ * The toolbar's padding is 0.5rem and its buttons are 1.75rem, so the Add
+ * button's centre is 1.375rem in from the toolbar's corner. The toolbar hangs
+ * from that corner, so Add stays on the midpoint when Remove grows the toolbar
+ * to its right.
+ */
+.workflow-canvas {
+  --edge-actions-inset: 1.375rem;
+}
+
+.workflow-canvas .workflow-edge-anchor {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  width: 0;
+  height: 0;
+}
+
+.workflow-canvas .workflow-edge-pill {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+/* Beside the starter's Add button, with a gap before the toolbar's edge. */
+.workflow-canvas .workflow-edge-pill[data-beside] {
+  inset-inline-start: auto;
+  inset-inline-end: calc(var(--edge-actions-inset) + 0.5rem);
+  transform: translateY(-50%);
+}
+
+.workflow-canvas .workflow-edge-actions {
+  position: absolute;
+  inset-inline-start: calc(var(--edge-actions-inset) * -1);
+  inset-block-start: calc(var(--edge-actions-inset) * -1);
+  pointer-events: auto;
+}

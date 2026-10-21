@@ -1670,6 +1670,20 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
     expect(continuationNote).toBeDefined();
+    expect(continuationNote).toContain(
+      "Tool-call journal from the interrupted attempt",
+    );
+    expect(
+      messages.filter((message) =>
+        message.content.some(
+          (part) =>
+            part.type === "text" &&
+            part.text.includes(
+              "Tool-call journal from the interrupted attempt",
+            ),
+        ),
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps completed tool nextRequiredAction guidance visible on resume", async () => {
@@ -2006,7 +2020,7 @@ describe("chunk-boundary recovery", () => {
           message.content.some(
             (part) =>
               part.type === "text" &&
-              part.text.startsWith(
+              part.text.includes(
                 "Tool-call journal from the interrupted attempt",
               ),
           ),

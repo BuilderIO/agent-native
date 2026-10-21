@@ -53,6 +53,7 @@ vi.mock("@/hooks/use-documents", () => ({
   useUpdatePreviewDocumentDraft: () => ({ mutateAsync: state.remove }),
 }));
 vi.mock("./page-draft-journal", () => ({
+  liveDraftWriterIds: async () => new Set<string>(),
   readPageDraftJournal: () => null,
   listPageDraftJournal: () => [],
   sweepLegacyRetainedPageDraftMarkers: () => undefined,

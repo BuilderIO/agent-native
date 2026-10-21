@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
+
 const mocks = vi.hoisted(() => ({
   db: {
     select: vi.fn(),
@@ -247,7 +249,12 @@ describe("hydrate-figma-paste-images action", () => {
 
     const result = await action.run({ fileId: "file-1" });
 
-    expect(result).toMatchObject({ resolved: 0, missing: 0, skipped: 0 });
+    expect(result).toMatchObject({
+      resolved: 0,
+      missing: 0,
+      skipped: 0,
+      _receipt: designOutputWriteReceipt("design-1", 0),
+    });
     expect(mocks.resolveImageFillRefs).not.toHaveBeenCalled();
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
   });
@@ -264,7 +271,11 @@ describe("hydrate-figma-paste-images action", () => {
 
     const result = await action.run({ fileId: "file-1" });
 
-    expect(result).toMatchObject({ resolved: 1, missing: 0 });
+    expect(result).toMatchObject({
+      resolved: 1,
+      missing: 0,
+      _receipt: designOutputWriteReceipt("design-1", 1),
+    });
     expect(mocks.resolveImageFillRefs).toHaveBeenCalledWith(FILE_KEY, [
       "abc123",
     ]);
@@ -286,7 +297,11 @@ describe("hydrate-figma-paste-images action", () => {
 
     const result = await action.run({ fileId: "file-1" });
 
-    expect(result).toMatchObject({ resolved: 0, missing: 1 });
+    expect(result).toMatchObject({
+      resolved: 0,
+      missing: 1,
+      _receipt: designOutputWriteReceipt("design-1", 0),
+    });
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
   });

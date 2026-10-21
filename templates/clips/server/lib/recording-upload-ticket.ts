@@ -27,6 +27,8 @@ export interface RecordingUploadTicket extends Record<string, unknown> {
   tokenHash: string;
   reservedAt: number;
   expiresAt: number;
+  /** The creator's auth user id, which a hosted-storage reservation is held under. */
+  authUserId?: string;
 }
 
 interface RecordingUploadTickets extends Record<string, unknown> {
@@ -37,6 +39,7 @@ export interface RecordingUploadTicketOwner {
   recordingId: string;
   ownerEmail: string;
   orgId: string;
+  authUserId?: string;
 }
 
 function tokenHash(token: string): string {
@@ -180,6 +183,7 @@ async function compareAndSwapTickets(
 export async function createRecordingUploadTicket(
   ownerEmail: string,
   recordingId: string,
+  authUserId?: string,
 ): Promise<RecordingUploadTicket & { token: string }> {
   const token = `${TOKEN_PREFIX}${encodeOwner(ownerEmail)}.${crypto.randomBytes(32).toString("base64url")}`;
   const reservedAt = Date.now();
@@ -188,6 +192,7 @@ export async function createRecordingUploadTicket(
     tokenHash: tokenHash(token),
     reservedAt,
     expiresAt: reservedAt + RECORDING_UPLOAD_TICKET_TTL_MS,
+    ...(authUserId ? { authUserId } : {}),
   };
 
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
@@ -296,5 +301,8 @@ export async function requireRecordingUploadTicketOwner(
     recordingId,
     ownerEmail: verified.ownerEmail,
     orgId: recording.organizationId,
+    ...(typeof verified.ticket.authUserId === "string"
+      ? { authUserId: verified.ticket.authUserId }
+      : {}),
   };
 }

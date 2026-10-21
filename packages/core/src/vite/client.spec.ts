@@ -3189,6 +3189,35 @@ describe("Vite connection reset noise", () => {
       socketErrorHandler?.(Object.assign(new Error("real socket failure"), {})),
     ).toThrow("real socket failure");
   });
+
+  it("keeps the dev server up when Windows cancels a write to a closed request", () => {
+    const plugin = findPlugin("agent-native-silence-connection-resets");
+    let connectionHandler: ((socket: { on: Function }) => void) | undefined;
+    let socketErrorHandler: ((err: Error) => void) | undefined;
+    const server = {
+      httpServer: {
+        on: vi.fn((event: string, handler: typeof connectionHandler) => {
+          if (event === "connection") connectionHandler = handler;
+        }),
+      },
+      config: { logger: { error: vi.fn() } },
+    };
+
+    plugin.configureServer(server);
+    connectionHandler?.({
+      on: vi.fn((event: string, handler: typeof socketErrorHandler) => {
+        if (event === "error") socketErrorHandler = handler;
+      }),
+    });
+
+    const err = Object.assign(new Error("write ECANCELED"), {
+      errno: -4081,
+      code: "ECANCELED",
+      syscall: "write",
+    });
+
+    expect(() => socketErrorHandler?.(err)).not.toThrow();
+  });
 });
 
 describe("Nitro dev full-reload debounce", () => {
@@ -4334,6 +4363,22 @@ describe("local-core dev aliases and router dedupe", () => {
         },
       }),
     );
+    const corePackageDir = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    fs.mkdirSync(corePackageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(corePackageDir, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        main: "index.js",
+        dependencies: { "cron-parser": "^5.5.0", ajv: "^8.20.0" },
+      }),
+    );
+    fs.writeFileSync(path.join(corePackageDir, "index.js"), "export {};\n");
 
     try {
       process.chdir(tmpDir);
@@ -4399,6 +4444,9 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/ui/sheet",
           "@agent-native/toolkit/ui/sonner",
           "@agent-native/toolkit/ui/tooltip",
+          "@agent-native/core/jobs/cron",
+          "@agent-native/core > ajv",
+          "@agent-native/core > ajv/dist/2020.js",
           "@agent-native/toolkit > lowlight > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/languages/bash",

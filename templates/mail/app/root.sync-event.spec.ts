@@ -2,7 +2,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
-import { INBOX_THREADS_QUERY_KEY } from "@/hooks/use-inbox-threads";
+import {
+  INBOX_SYNC_QUERY_KEY,
+  INBOX_THREADS_QUERY_KEY,
+} from "@/hooks/use-inbox-threads";
 
 import { createMailSyncEventHandler } from "./root";
 
@@ -43,6 +46,24 @@ describe("createMailSyncEventHandler", () => {
     );
     expect(labelCalls).toHaveLength(1);
     expect(inboxCalls).toHaveLength(1);
+  });
+
+  it("refreshes the list from SQL on refresh-signal without a forced Gmail sync", async () => {
+    const qc = fakeQueryClient();
+    const onEvent = createMailSyncEventHandler(qc);
+
+    onEvent({
+      source: "app-state",
+      type: "app-state",
+      key: "refresh-signal",
+      requestSource: "other-tab",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const keys = keysInvalidated(qc);
+    expect(keys).toContainEqual(INBOX_THREADS_QUERY_KEY);
+    expect(keys).not.toContainEqual(INBOX_SYNC_QUERY_KEY);
   });
 
   it("refreshes only preferences for an unkeyed settings event", async () => {

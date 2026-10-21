@@ -6,6 +6,7 @@ import {
   loadYDocRecordWithClient,
   saveYDocState,
   hasCollabState,
+  strictBase64ToUint8Array,
   trySaveYDocState,
   trySaveYDocStateWithClient,
 } from "./storage.js";
@@ -22,60 +23,66 @@ function toBase64(arr: Uint8Array): string {
   return Buffer.from(arr).toString("base64");
 }
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: vi.fn(() => ({
-    execute: async (query: string | { sql: string; args?: unknown[] }) => {
-      const sql = typeof query === "string" ? query : query.sql;
-      const args = typeof query === "string" ? [] : (query.args ?? []);
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  return {
+    getDbExec: vi.fn(() => ({
+      execute: async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? [] : (query.args ?? []);
+        const ledger = storeLedgerResult(sql);
+        if (ledger) return ledger;
 
-      if (/^\s*CREATE TABLE/i.test(sql) || /^\s*ALTER TABLE/i.test(sql)) {
-        return { rows: [], rowsAffected: 0 };
-      }
-
-      if (/^\s*SELECT yjs_state, version FROM _collab_docs/i.test(sql)) {
-        const row = rows.get(String(args[0]));
-        return { rows: row ? [row] : [], rowsAffected: 0 };
-      }
-
-      if (/^\s*SELECT 1 FROM _collab_docs/i.test(sql)) {
-        const row = rows.get(String(args[0]));
-        return {
-          rows: row && row.yjs_state !== "" ? [{ "1": 1 }] : [],
-          rowsAffected: 0,
-        };
-      }
-
-      if (/^\s*UPDATE _collab_docs\b/i.test(sql)) {
-        const hasVersionGuard = /\bAND version = \?/i.test(sql);
-        const docId = String(args[2]);
-        const row = rows.get(docId);
-        if (!row) return { rows: [], rowsAffected: 0 };
-        if (hasVersionGuard && row.version !== Number(args[3])) {
+        if (/^\s*CREATE TABLE/i.test(sql) || /^\s*ALTER TABLE/i.test(sql)) {
           return { rows: [], rowsAffected: 0 };
         }
-        rows.set(docId, {
-          yjs_state: String(args[0]),
-          text_snapshot: String(args[1]),
-          version: row.version + 1,
-        });
-        return { rows: [], rowsAffected: 1 };
-      }
 
-      if (/^\s*INSERT INTO _collab_docs/i.test(sql)) {
-        const docId = String(args[0]);
-        if (rows.has(docId)) return { rows: [], rowsAffected: 0 };
-        rows.set(docId, {
-          yjs_state: String(args[1]),
-          text_snapshot: String(args[2]),
-          version: 0,
-        });
-        return { rows: [], rowsAffected: 1 };
-      }
+        if (/^\s*SELECT yjs_state, version FROM _collab_docs/i.test(sql)) {
+          const row = rows.get(String(args[0]));
+          return { rows: row ? [row] : [], rowsAffected: 0 };
+        }
 
-      throw new Error(`Unexpected SQL: ${sql}`);
-    },
-  })),
-}));
+        if (/^\s*SELECT 1 FROM _collab_docs/i.test(sql)) {
+          const row = rows.get(String(args[0]));
+          return {
+            rows: row && row.yjs_state !== "" ? [{ "1": 1 }] : [],
+            rowsAffected: 0,
+          };
+        }
+
+        if (/^\s*UPDATE _collab_docs\b/i.test(sql)) {
+          const hasVersionGuard = /\bAND version = \?/i.test(sql);
+          const docId = String(args[2]);
+          const row = rows.get(docId);
+          if (!row) return { rows: [], rowsAffected: 0 };
+          if (hasVersionGuard && row.version !== Number(args[3])) {
+            return { rows: [], rowsAffected: 0 };
+          }
+          rows.set(docId, {
+            yjs_state: String(args[0]),
+            text_snapshot: String(args[1]),
+            version: row.version + 1,
+          });
+          return { rows: [], rowsAffected: 1 };
+        }
+
+        if (/^\s*INSERT INTO _collab_docs/i.test(sql)) {
+          const docId = String(args[0]);
+          if (rows.has(docId)) return { rows: [], rowsAffected: 0 };
+          rows.set(docId, {
+            yjs_state: String(args[1]),
+            text_snapshot: String(args[2]),
+            version: 0,
+          });
+          return { rows: [], rowsAffected: 1 };
+        }
+
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    })),
+  };
+});
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -163,5 +170,33 @@ describe("collab storage optimistic saves", () => {
 
     await expect(hasCollabState("empty")).resolves.toBe(false);
     await expect(hasCollabState("seeded")).resolves.toBe(true);
+  });
+});
+
+describe("strictBase64ToUint8Array", () => {
+  it("decodes canonical base64 and refuses anything else", () => {
+    expect(strictBase64ToUint8Array("")).toEqual(new Uint8Array(0));
+    expect(strictBase64ToUint8Array("AAEC")).toEqual(new Uint8Array([0, 1, 2]));
+    expect(strictBase64ToUint8Array("AA==")).toEqual(new Uint8Array([0]));
+    for (const junk of [
+      "!!!",
+      "AA=",
+      "AA",
+      "AB==",
+      "AA==AA==",
+      "AA AA",
+      "AA\n",
+    ]) {
+      expect(strictBase64ToUint8Array(junk)).toBeNull();
+    }
+  });
+
+  it("decodes a state of several megabytes without overflowing the stack", () => {
+    const bytes = new Uint8Array(5 * 1024 * 1024).map(
+      (_, index) => index % 251,
+    );
+    const decoded = strictBase64ToUint8Array(toBase64(bytes));
+    // Element-wise toEqual on 5 MiB takes most of the test timeout.
+    expect(decoded && Buffer.from(decoded).equals(bytes)).toBe(true);
   });
 });

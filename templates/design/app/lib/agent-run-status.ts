@@ -6,9 +6,16 @@ export type AgentRunStatusRead =
       status: string;
       active: boolean;
       runId?: string;
+      turnId?: string;
       terminalReason?: string;
     }
   | { ok: false };
+
+export interface PreviousRunBaseline {
+  runId: string | null;
+  verified: boolean;
+  turnId?: string;
+}
 
 /**
  * The run state the editor already polls while a generation is active. A
@@ -28,6 +35,7 @@ export async function readAgentRunStatus(
       active?: unknown;
       status?: unknown;
       runId?: unknown;
+      turnId?: unknown;
       terminalReason?: unknown;
     };
     if (typeof state.active !== "boolean" || typeof state.status !== "string") {
@@ -40,6 +48,9 @@ export async function readAgentRunStatus(
       ...(typeof state.runId === "string" && state.runId
         ? { runId: state.runId }
         : {}),
+      ...(typeof state.turnId === "string" && state.turnId
+        ? { turnId: state.turnId }
+        : {}),
       ...(typeof state.terminalReason === "string" && state.terminalReason
         ? { terminalReason: state.terminalReason }
         : {}),
@@ -48,4 +59,22 @@ export async function readAgentRunStatus(
     // coercion-ok: an unreadable run state is reported as unreadable, never as a status.
     return { ok: false };
   }
+}
+
+export async function readPreviousRunBaseline(
+  threadId: string,
+): Promise<PreviousRunBaseline> {
+  const run = await readAgentRunStatus(threadId);
+  if (!run.ok) return { runId: null, verified: false };
+  if (run.runId) {
+    return {
+      runId: run.runId,
+      verified: true,
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    };
+  }
+  return {
+    runId: null,
+    verified: !run.active && run.status === "idle",
+  };
 }

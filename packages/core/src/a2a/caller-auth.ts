@@ -1,9 +1,11 @@
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
 import {
   getGlobalA2ASecret,
+  signA2AOrgMemberDelegationToken,
   signA2AOrganizationToken,
   signA2AToken,
 } from "./client.js";
@@ -27,6 +29,8 @@ export async function resolveA2ACallerAuth(options?: {
   userIdentityOnly?: boolean;
 }): Promise<A2ACallerAuth> {
   const userEmail = getRequestUserEmail();
+  const isOrgMemberDelegation =
+    getRequestContext()?.a2aIdentityAssurance === "org-member";
   const globalSecret = getGlobalA2ASecret();
   const metadata: Record<string, unknown> = {};
   if (userEmail) metadata.userEmail = userEmail;
@@ -48,6 +52,7 @@ export async function resolveA2ACallerAuth(options?: {
   };
   if (
     userEmail &&
+    !isOrgMemberDelegation &&
     options?.audience &&
     globalSecret &&
     (options?.userIdentityOnly || !orgId || orgDomain?.trim())
@@ -74,6 +79,16 @@ export async function resolveA2ACallerAuth(options?: {
     options?.audience &&
     (orgSecret || globalSecret)
   ) {
+    if (userEmail && orgSecret) {
+      addApiKeyAttempt(
+        await signA2AOrgMemberDelegationToken(
+          userEmail,
+          orgDomain,
+          orgSecret,
+          options.audience,
+        ),
+      );
+    }
     addApiKeyAttempt(
       await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
         expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,

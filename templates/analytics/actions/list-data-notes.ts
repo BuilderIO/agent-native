@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { dashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope.js";
@@ -19,16 +19,36 @@ export default defineAction({
       .describe(
         "List the notes this dashboard draws: its owner organization's. editable is false when they aren't yours to change.",
       ),
+    reviewPreview: z
+      .boolean()
+      .optional()
+      .describe(
+        "Human Review only: with dashboardId, list what a reviewed dashboard draws, read as get-sql-dashboard's reviewPreview reads it",
+      ),
+    reviewOrgId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("The customer organization shown in this Human Review row."),
   }),
   readOnly: true,
   http: { method: "GET" },
   mcpTool: false,
-  run: async ({ dashboardId }) => {
+  run: async ({ dashboardId, reviewPreview, reviewOrgId }) => {
     const caller = requireDataNoteScope();
+    if (reviewPreview && !dashboardId) {
+      fail("reviewPreview needs the dashboardId of the reviewed dashboard.", {
+        statusCode: 400,
+      });
+    }
     if (!dashboardId) {
       return { notes: await listDataNotes(caller), editable: true };
     }
-    const drawn = await dashboardAnnotationScope(dashboardId, caller);
+    const drawn = await dashboardAnnotationScope(
+      dashboardId,
+      caller,
+      reviewPreview ? { reviewOrgId } : undefined,
+    );
     const notes = await listDataNotes(drawn.scope);
     return drawn.editable
       ? { notes, editable: true }

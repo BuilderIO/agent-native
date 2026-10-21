@@ -2,15 +2,21 @@ import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
+import {
+  currentExecutionFence,
+  StaleExecutionFenceError,
+  withFencedExecutionWrite,
+} from "../agent/execution-fence.js";
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
-import { getDbExec, type DbExec } from "../db/client.js";
+import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { runMigrations, type MigrationEntry } from "../db/migrations.js";
+import type { MigrationEntry } from "../db/migrations.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
@@ -182,12 +188,11 @@ export const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[] = [
   },
 ];
 
+/** Kept for callers of the public export; the store owns these migrations. */
 export async function runAutomationRunMigrations(
-  nitroApp: unknown,
+  _nitroApp?: unknown,
 ): Promise<void> {
-  await runMigrations(AUTOMATION_RUN_MIGRATIONS, {
-    table: "_automation_run_migrations",
-  })(nitroApp);
+  await automationRunHistoryStore.ready();
 }
 
 export const automationRunHistoryStore = defineStore({
@@ -291,6 +296,10 @@ export const automationRunHistoryStore = defineStore({
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
       },
     },
+    ...fromMigrationEntries(
+      "_automation_run_migrations",
+      AUTOMATION_RUN_MIGRATIONS,
+    ),
   ],
 });
 
@@ -457,25 +466,28 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
+/**
+ * Skipped ticks ("nothing due") can outnumber real runs many times over, so
+ * they are evicted ahead of success and error rows rather than by age alone.
+ */
 async function pruneAutomationRuns(
   owner: string,
   automation: string,
 ): Promise<void> {
   await getDbExec().execute({
     sql: `DELETE FROM ${TABLE}
-          WHERE owner = ? AND automation = ?
-            AND finished_at IS NOT NULL
-            AND COALESCE(failure_alert_state, '') NOT IN ('evaluating', 'pending', 'sending')
-            AND started_at < (
-            SELECT MIN(started_at) FROM (
-              SELECT started_at FROM ${TABLE}
+          WHERE id IN (
+            SELECT id FROM (
+              SELECT id, failure_alert_state FROM ${TABLE}
               WHERE owner = ? AND automation = ?
                 AND finished_at IS NOT NULL
-              ORDER BY started_at DESC
-              LIMIT ${RUNS_RETAINED_PER_AUTOMATION}
-            ) recent
+              ORDER BY CASE WHEN status = 'skipped' THEN 1 ELSE 0 END,
+                started_at DESC, id
+              OFFSET ${RUNS_RETAINED_PER_AUTOMATION}
+            ) evictable
+            WHERE COALESCE(failure_alert_state, '') NOT IN ('evaluating', 'pending', 'sending')
           )`,
-    args: [owner, automation, owner, automation],
+    args: [owner, automation],
   });
 }
 
@@ -844,65 +856,83 @@ export async function finishAutomationRun(
   options: FinishAutomationRunOptions = {},
 ): Promise<void> {
   await ensureTable();
-  const existing = await getDbExec().execute({
-    sql: `SELECT owner, automation, path, org_id, app_id, notification_email, run_id, thread_id, started_at, status, claimed_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
-    args: [id],
-  });
-  const row = existing.rows?.[0] as Record<string, unknown> | undefined;
   const finishedAt = Date.now();
   const storedError = error?.slice(0, MAX_ERROR_LENGTH) ?? null;
   const storedErrorCode =
     status === "skipped"
       ? null
       : (errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null);
-  const shouldQueueFailureAlert =
-    (status === "error" || status === "interrupted") &&
-    options.notify !== false &&
-    Boolean(row?.notification_email);
   const claimGuard = options.expectedClaimedAt !== undefined;
-  const runGuard = options.expectedRunId !== undefined;
-  const update = await getDbExec().execute({
-    sql: `UPDATE ${TABLE}
+  const fence = currentExecutionFence();
+  if (
+    fence &&
+    options.expectedRunId !== undefined &&
+    options.expectedRunId !== fence.runId
+  ) {
+    throw new StaleExecutionFenceError(fence);
+  }
+  const expectedRunId = fence?.runId ?? options.expectedRunId;
+  const runGuard = expectedRunId !== undefined;
+  const { row, shouldQueueFailureAlert, updated } =
+    await withFencedExecutionWrite(
+      async (tx) => {
+        const existing = await tx.execute({
+          sql: `SELECT owner, automation, path, org_id, app_id, notification_email, run_id, thread_id, started_at, status, claimed_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
+          args: [id],
+        });
+        const row = existing.rows?.[0] as Record<string, unknown> | undefined;
+        const shouldQueueFailureAlert =
+          (status === "error" || status === "interrupted") &&
+          options.notify !== false &&
+          Boolean(row?.notification_email);
+        const update = await tx.execute({
+          sql: `UPDATE ${TABLE}
           SET status = ?, finished_at = ?, error = ?, error_code = ?,
               failure_alert_state = ?, failure_alert_next_attempt_at = ?,
               failure_alert_claimed_at = NULL
-          WHERE id = ? AND status = 'running'${claimGuard ? " AND claimed_at IS NOT DISTINCT FROM ?" : ""}${runGuard ? " AND run_id IS NOT DISTINCT FROM ?" : ""}`,
-    args: [
-      status,
-      finishedAt,
-      storedError,
-      storedErrorCode,
-      shouldQueueFailureAlert ? "evaluating" : null,
-      shouldQueueFailureAlert ? finishedAt : null,
-      id,
-      ...(claimGuard ? [options.expectedClaimedAt] : []),
-      ...(runGuard ? [options.expectedRunId] : []),
-    ],
-  });
-  if (
-    options.requirePersisted &&
-    (!row || Number(update.rowsAffected ?? 0) === 0)
-  ) {
-    // Display history synthesizes interruption messages; retry identity needs stored values.
-    const persisted = await getDbExec().execute({
-      sql: `SELECT status, finished_at, error, error_code, run_id, claimed_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
-      args: [id],
-    });
-    const durable = persisted.rows?.[0] as Record<string, unknown> | undefined;
-    if (
-      !durable ||
-      durable.finished_at == null ||
-      durable.status !== status ||
-      (durable.error ?? null) !== storedError ||
-      (durable.error_code ?? null) !== storedErrorCode ||
-      (runGuard && (durable.run_id ?? null) !== options.expectedRunId) ||
-      (claimGuard &&
-        (durable.claimed_at == null ? null : Number(durable.claimed_at)) !==
-          options.expectedClaimedAt)
-    )
-      throw new AutomationRunHistoryWriteError(id);
-  }
-  if (!row || Number(update.rowsAffected ?? 0) === 0) return;
+          WHERE id = ? AND status = 'running'${claimGuard ? " AND claimed_at IS NOT DISTINCT FROM ?" : ""}${runGuard ? " AND run_id IS NOT DISTINCT FROM ?" : ""}${fence ? " AND thread_id IS NOT DISTINCT FROM ?" : ""}`,
+          args: [
+            status,
+            finishedAt,
+            storedError,
+            storedErrorCode,
+            shouldQueueFailureAlert ? "evaluating" : null,
+            shouldQueueFailureAlert ? finishedAt : null,
+            id,
+            ...(claimGuard ? [options.expectedClaimedAt] : []),
+            ...(runGuard ? [expectedRunId] : []),
+            ...(fence ? [fence.threadId] : []),
+          ],
+        });
+        const updated = Number(update.rowsAffected ?? 0) > 0;
+        if (options.requirePersisted && (!row || !updated)) {
+          // Display history synthesizes interruption messages; retry identity needs stored values.
+          const persisted = await tx.execute({
+            sql: `SELECT status, finished_at, error, error_code, run_id, claimed_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
+            args: [id],
+          });
+          const durable = persisted.rows?.[0] as
+            | Record<string, unknown>
+            | undefined;
+          if (
+            !durable ||
+            durable.finished_at == null ||
+            durable.status !== status ||
+            (durable.error ?? null) !== storedError ||
+            (durable.error_code ?? null) !== storedErrorCode ||
+            (runGuard && (durable.run_id ?? null) !== expectedRunId) ||
+            (claimGuard &&
+              (durable.claimed_at == null
+                ? null
+                : Number(durable.claimed_at)) !== options.expectedClaimedAt)
+          )
+            throw new AutomationRunHistoryWriteError(id);
+        }
+        return { row, shouldQueueFailureAlert, updated };
+      },
+      fence ? { runId: fence.runId } : undefined,
+    );
+  if (!row || !updated) return;
   const rawStartedAt = Number(row.started_at);
   const startedAt = Number.isFinite(rawStartedAt) ? rawStartedAt : null;
   try {
@@ -950,11 +980,26 @@ export async function attachAutomationRunThread(
   options: { requirePersisted?: boolean; expectedRunId?: string | null } = {},
 ): Promise<void> {
   await ensureTable();
+  const fence = currentExecutionFence();
+  if (fence && (fence.runId !== runId || fence.threadId !== threadId)) {
+    throw new StaleExecutionFenceError(fence);
+  }
   const runGuard = options.expectedRunId !== undefined;
-  const update = await getDbExec().execute({
-    sql: `UPDATE ${TABLE} SET thread_id = ?, run_id = ? WHERE id = ? AND status = 'running'${runGuard ? " AND run_id IS NOT DISTINCT FROM ?" : ""}`,
-    args: [threadId, runId, id, ...(runGuard ? [options.expectedRunId] : [])],
-  });
+  const fenceGuard = fence !== undefined;
+  const update = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE ${TABLE} SET thread_id = ?, run_id = ? WHERE id = ? AND status = 'running'${runGuard ? " AND run_id IS NOT DISTINCT FROM ?" : ""}${fenceGuard ? " AND run_id IS NOT DISTINCT FROM ? AND thread_id IS NOT DISTINCT FROM ?" : ""}`,
+        args: [
+          threadId,
+          runId,
+          id,
+          ...(runGuard ? [options.expectedRunId] : []),
+          ...(fenceGuard ? [fence.runId, fence.threadId] : []),
+        ],
+      }),
+    fence ? { runId, threadId } : undefined,
+  );
   if (
     (options.requirePersisted || runGuard) &&
     Number(update.rowsAffected ?? 0) !== 1
@@ -962,6 +1007,36 @@ export async function attachAutomationRunThread(
     if (runGuard) throw new AutomationRunHistoryClaimLostError(id);
     throw new AutomationRunHistoryWriteError(id);
   }
+}
+
+/**
+ * Forget an automation's executions.
+ *
+ * History is keyed by the automation's name, which is reusable: deleting
+ * "digest" and creating a new "digest" would otherwise show the old
+ * definition's runs as the new one's history.
+ */
+export async function ensureAutomationRunHistoryReady(): Promise<void> {
+  await ensureTable();
+}
+
+export function prepareAutomationRunsDelete(
+  owner: string,
+  automation: string,
+  guard?: { sql: string; args: readonly unknown[] },
+): DbExecStatement {
+  return {
+    sql: `DELETE FROM ${TABLE} WHERE owner = ? AND automation = ?${guard ? ` AND EXISTS (${guard.sql})` : ""}`,
+    args: [owner, automation, ...(guard?.args ?? [])],
+  };
+}
+
+export async function deleteAutomationRunsWithDb(
+  client: DbExec,
+  owner: string,
+  automation: string,
+): Promise<void> {
+  await client.execute(prepareAutomationRunsDelete(owner, automation));
 }
 
 export async function deleteAutomationRuns(

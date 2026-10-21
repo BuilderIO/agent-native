@@ -42,6 +42,13 @@ export function isKeyDateChartType(chartType: SqlPanel["chartType"]): boolean {
   );
 }
 
+/** True when some chart among a dashboard's panels draws key dates. */
+export function drawsKeyDates(
+  panels: readonly Pick<SqlPanel, "chartType">[],
+): boolean {
+  return panels.some((panel) => isKeyDateChartType(panel.chartType));
+}
+
 const MAX_HIDDEN_SETS = 100;
 
 /** Key dates from every set the dashboard has not hidden, as chart events. */

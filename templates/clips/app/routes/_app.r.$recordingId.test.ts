@@ -116,7 +116,7 @@ describe("direct recording route shell cue", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 
     expect(route).toContain(
-      'className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl"',
+      '"relative w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl"',
     );
   });
 

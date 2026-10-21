@@ -423,6 +423,12 @@ export function appPath(path: string): string {
   return `${basePath}${path}`;
 }
 
+export function appPathFromLocalRoute(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const basePath = appBasePath();
+  return basePath ? `${basePath}${path}` : path;
+}
+
 export function appApiPath(path: string): string {
   const normalized =
     path === "/api" || path.startsWith("/api/")

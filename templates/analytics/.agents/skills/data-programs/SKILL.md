@@ -173,8 +173,8 @@ Every failure is a structured `{ code, message }`, never a bare string — treat
 
 This is the reference example installed by the `ensure-risk-meeting-dashboard`
 action (`templates/analytics/actions/ensure-risk-meeting-dashboard.ts`), which
-idempotently upserts both programs below plus a two-panel "Risk Meeting"
-dashboard. It demonstrates the three capabilities a hardcoded action can't
+idempotently upserts both programs below and installs the built-in two-panel
+"Risk Meeting" dashboard. It demonstrates the three capabilities a hardcoded action can't
 anticipate for every customer: an arbitrary HubSpot property IN-search, a
 batched multi-hop association join, and a join against a second, unrelated
 provider.
@@ -379,8 +379,9 @@ provider's cohort from another's, entirely inside one program.
 
 Both programs are installed and kept up to date by
 `ensure-risk-meeting-dashboard` — an idempotent action that upserts each
-program by its stable `name` and a two-panel "Risk Meeting" dashboard whose
-panels use `source: "program"`. Installing the dashboard requires no
+program by its stable `name` and installs the read-only, built-in two-panel
+"Risk Meeting" dashboard (`builtin-risk-meeting`) whose panels use
+`source: "program"`. Installing the dashboard requires no
 HubSpot/Pylon credentials up front; provider auth resolves per-viewer only
 when a panel is actually rendered or `run-data-program` is called.
 

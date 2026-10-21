@@ -19,3 +19,4 @@ export * from "./RuntimeConfigNotice.js";
 export * from "./StarfieldBackground.js";
 export * from "./WaveBackground.js";
 export * from "./Turnstile.js";
+export * from "./UnsupportedDeviceGate.js";

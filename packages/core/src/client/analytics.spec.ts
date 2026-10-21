@@ -3030,4 +3030,27 @@ describe("browser analytics pageviews", () => {
     expect(result).toBeUndefined();
     expect(sentryMock.captureException).toHaveBeenCalledWith(err);
   });
+
+  it("reports the Agent-Native analytics sink as configured only for a keyed, non-local host", async () => {
+    installBrowser("https://mail.agent-native.com/inbox");
+    const unkeyed = await freshAnalytics();
+    expect(unkeyed.isAgentNativeAnalyticsConfigured()).toBe(false);
+
+    const hosted = await freshAnalytics();
+    hosted.configureTracking({
+      publicKey: "anpk_configured",
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    expect(hosted.isAgentNativeAnalyticsConfigured()).toBe(true);
+
+    installBrowser("http://localhost:3000/");
+    const local = await freshAnalytics();
+    local.configureTracking({
+      publicKey: "anpk_configured",
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    expect(local.isAgentNativeAnalyticsConfigured()).toBe(false);
+  });
 });

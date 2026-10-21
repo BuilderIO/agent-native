@@ -19,7 +19,11 @@ import {
 import type { DesignSystemData } from "../../../shared/api";
 import type { SlideTransitionType } from "../../../shared/slide-transitions";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
-import { annotateBuildSteps, getBuildSteps } from "./slide-build-steps";
+import {
+  annotateBuildSteps,
+  buildClickCount,
+  getBuildSteps,
+} from "./slide-build-steps";
 import {
   canCommand,
   createSlideNavigation,
@@ -114,7 +118,7 @@ export default function PresenterView({
   // The presenter animates nothing, so each press commits at its boundary.
   const presenterLayout = useMemo<SlideNavigationLayout>(
     () => ({
-      stepCounts: buildSteps.map((steps) => steps.length),
+      stepCounts: buildSteps.map((steps) => buildClickCount(steps)),
       transitions: buildSteps.map((): SlideTransitionType => "none"),
     }),
     [buildSteps],

@@ -70,6 +70,7 @@ import {
   finalizeStreamedToolInputs,
   observeStreamedToolInput,
 } from "./translate-anthropic.js";
+import { startModelDispatch } from "./types.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -377,22 +378,36 @@ class BuilderEngine implements AgentEngine {
       gatewayTimeoutMs,
     );
     try {
+      const dispatch = await startModelDispatch(opts, () => {
+        try {
+          return fetch(gatewayUrl.toString(), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: authHeader,
+              ...(spaceId && !oauthAccess
+                ? { "x-builder-api-key": spaceId }
+                : {}),
+              ...getBuilderGatewayRequestHeaders(),
+              ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
+            },
+            body: payload,
+            signal: gatewayAbort.signal,
+          }).then(
+            (response) => ({ status: "fulfilled" as const, response }),
+            (error: unknown) => ({ status: "rejected" as const, error }),
+          );
+        } catch (error) {
+          return Promise.resolve({ status: "rejected" as const, error });
+        }
+      });
+      if (!dispatch.started) return;
+
       let response: Response;
       try {
-        response = await fetch(gatewayUrl.toString(), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: authHeader,
-            ...(spaceId && !oauthAccess
-              ? { "x-builder-api-key": spaceId }
-              : {}),
-            ...getBuilderGatewayRequestHeaders(),
-            ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
-          },
-          body: payload,
-          signal: gatewayAbort.signal,
-        });
+        const result = await dispatch.value;
+        if (result.status === "rejected") throw result.error;
+        response = result.response;
       } catch (err) {
         const timedOut = gatewayAbort.didTimeout();
         if (gatewayAbort.didTimeout()) {

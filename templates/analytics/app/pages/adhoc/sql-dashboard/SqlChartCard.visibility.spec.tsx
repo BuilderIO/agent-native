@@ -30,6 +30,15 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({
+    formatDate: (value: string) => value,
+    formatNumber: (value: number) => String(value),
+    formatRelativeTime: (
+      value: number,
+      unit: Intl.RelativeTimeFormatUnit,
+      options?: Intl.RelativeTimeFormatOptions,
+    ) => new Intl.RelativeTimeFormat("en-US", options).format(value, unit),
+  }),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -39,9 +48,13 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: () => null,
   ExtensionSlot: () => null,
+  isExtensionApiPath: () => false,
 }));
 
-vi.mock("@/lib/cost-tracker", () => ({ addBytesProcessed: vi.fn() }));
+vi.mock("@/lib/cost-tracker", () => ({
+  addBytesProcessed: vi.fn(),
+  recordQueryCost: vi.fn(),
+}));
 
 vi.mock("@dnd-kit/core", () => ({
   useDraggable: () => ({
@@ -328,7 +341,9 @@ describe("SqlChartCard visibility", () => {
     await render({ sql: "B" });
     expect(mocks.callAction).not.toHaveBeenCalled();
     expect(text()).toContain("rows for A");
-    expect(pausedLabel()?.textContent).toBe("sqlDashboard.previousFilters");
+    expect(
+      pausedLabel()?.querySelector(".panel-freshness-text")?.textContent,
+    ).toBe("sqlDashboard.previousFilters");
     expect(updating()).toBeNull();
     expect(skeleton()).toBeNull();
 

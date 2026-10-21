@@ -228,6 +228,20 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     emailChange: "delete",
     offboard: "delete",
   },
+  {
+    table: "automation_sharing_grants",
+    column: "user_email",
+    emailChange: "rekey",
+    offboard: "delete",
+    orgScope: {
+      column: "resource_id",
+      references: {
+        table: "automation_sharing_overlays",
+        column: "resource_id",
+        orgColumn: "organization_id",
+      },
+    },
+  },
   { table: "resource_access_requests", column: "owner_email" },
   { table: "agent_review_comments", column: "author_email" },
   { table: "agent_review_comments", column: "owner_email" },
@@ -247,6 +261,12 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     column: "author_email",
   },
   { table: "agent_team_run_queue", column: "owner_email" },
+  // Submission history keeps the original actor as attribution when a member leaves.
+  {
+    table: "agent_chat_submission_inbox",
+    column: "actor_email",
+    offboard: "retain",
+  },
   { table: "sessions", column: "email" },
   { table: "scim_user", column: "primary_email" },
   { table: "agent_native_embed_tickets", column: "owner_email" },

@@ -7,11 +7,13 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { chromium, type CDPSession, type Page } from "@playwright/test";
+import { chromium, errors, type CDPSession, type Page } from "@playwright/test";
 
 import {
   expectedCanvasScaleAtZoomPercent,
+  readStableZoomUntilAvailable,
   readZoomUntilAvailable,
+  type ZoomSnapshot,
 } from "./runtime-budget-zoom.ts";
 
 type BudgetFile = {
@@ -371,20 +373,6 @@ function worstFrameSince(since: number) {
   );
 }
 
-const zoomOf = () =>
-  page.evaluate(() => {
-    const transform =
-      document.querySelector<HTMLElement>("[data-multi-screen-canvas-world]")
-        ?.style.transform ?? "";
-    const match = /scale\(([0-9.]+)\)/.exec(transform);
-    return match ? Number(match[1]) * 100 : null;
-  });
-const zoomPercentFromUrl = () =>
-  page.evaluate(() => {
-    const raw = new URLSearchParams(location.search).get("zoom");
-    const zoom = raw === null ? Number.NaN : Number(raw);
-    return Number.isFinite(zoom) && zoom > 0 ? zoom : null;
-  });
 async function zoomTo(target: number): Promise<boolean> {
   const startedAt = Date.now();
   const deadline = startedAt + 10_000;
@@ -392,21 +380,47 @@ async function zoomTo(target: number): Promise<boolean> {
   // This benchmark measures camera-driven rendering and preview churn; wheel
   // forwarding is covered by interaction-pan-zoom-mouse.spec.ts.
   const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
-  const currentZoomPercent = await readZoomUntilAvailable(
-    zoomPercentFromUrl,
+  const readZoomSnapshot = (): Promise<ZoomSnapshot> =>
+    page.evaluate(() => {
+      const rawZoom = new URLSearchParams(location.search).get("zoom");
+      const routeZoom = rawZoom === null ? Number.NaN : Number(rawZoom);
+      const transform =
+        document.querySelector<HTMLElement>("[data-multi-screen-canvas-world]")
+          ?.style.transform ?? "";
+      const scaleMatch = /scale\(([0-9.]+)\)/.exec(transform);
+      const zoomButton = [...document.querySelectorAll("button")].find(
+        (button) =>
+          button.getClientRects().length > 0 &&
+          /^\d+%$/.test(button.textContent?.trim() ?? ""),
+      );
+      const labelMatch = /^(\d+)%$/.exec(zoomButton?.textContent?.trim() ?? "");
+      return {
+        routeZoom:
+          Number.isFinite(routeZoom) && routeZoom > 0 ? routeZoom : null,
+        canvasScale: scaleMatch ? Number(scaleMatch[1]) * 100 : null,
+        labelZoom: labelMatch ? Number(labelMatch[1]) : null,
+      };
+    });
+  let lastStartingSnapshot: ZoomSnapshot | null = null;
+  const startingSnapshot = await readStableZoomUntilAvailable(
+    async () => {
+      lastStartingSnapshot = await readZoomSnapshot();
+      return lastStartingSnapshot;
+    },
     (ms) => page.waitForTimeout(ms),
     deadline,
     () => cdp.send("Runtime.terminateExecution"),
   );
-  if (currentZoomPercent === null) return false;
+  if (startingSnapshot === null) {
+    console.log(
+      `  zoom ${target}% had no stable starting state: ${JSON.stringify(lastStartingSnapshot)}`,
+    );
+    return false;
+  }
+  const { routeZoom: currentZoomPercent, canvasScale: currentCanvasScale } =
+    startingSnapshot;
   // Overview zoom is normalized by board geometry, so compare the world
-  // transform with the exact route zoom instead of the rounded toolbar label.
-  const currentCanvasScale = await readZoomUntilAvailable(
-    zoomOf,
-    (ms) => page.waitForTimeout(ms),
-    deadline,
-    () => cdp.send("Runtime.terminateExecution"),
-  );
+  // transform with the exact, stable route zoom instead of the rounded label.
   const expectedScale = expectedCanvasScaleAtZoomPercent(
     currentCanvasScale,
     currentZoomPercent,
@@ -417,18 +431,21 @@ async function zoomTo(target: number): Promise<boolean> {
   const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
   await zoomInput.fill(`${target}%`, { timeout: remainingTimeout() });
   await zoomInput.press("Enter", { timeout: remainingTimeout() });
+  let lastEndingSnapshot: ZoomSnapshot | null = null;
   const actual = await readZoomUntilAvailable(
     async () => {
-      const zoom = await zoomOf();
-      const routeZoom = await zoomPercentFromUrl();
-      const label = (await readout.textContent())?.trim();
-      return zoom !== null &&
-        routeZoom === target &&
-        Math.abs(zoom - expectedScale) <=
-          Math.max(0.005, expectedScale * 0.001) &&
-        label === `${target}%`
-        ? zoom
-        : null;
+      const snapshot = await readZoomSnapshot();
+      lastEndingSnapshot = snapshot;
+      if (
+        snapshot.canvasScale === null ||
+        snapshot.routeZoom !== target ||
+        snapshot.labelZoom !== target ||
+        Math.abs(snapshot.canvasScale - expectedScale) >
+          Math.max(0.005, expectedScale * 0.001)
+      ) {
+        return null;
+      }
+      return snapshot.canvasScale;
     },
     (ms) => page.waitForTimeout(ms),
     deadline,
@@ -436,11 +453,8 @@ async function zoomTo(target: number): Promise<boolean> {
   );
   const arrived = actual !== null;
   if (!arrived) {
-    const actualZoom = await zoomOf();
-    const actualText =
-      actualZoom === null ? "unavailable" : `${actualZoom.toFixed(1)}%`;
     console.log(
-      `  zoom ${target}% ended at ${actualText} with readout ${(await readout.textContent())?.trim() ?? "unavailable"} after ${Date.now() - startedAt}ms`,
+      `  zoom ${target}% did not settle after ${Date.now() - startedAt}ms: start=${JSON.stringify(startingSnapshot)} expectedCanvasScale=${expectedScale.toFixed(3)} final=${JSON.stringify(lastEndingSnapshot)}`,
     );
   }
   return arrived;
@@ -459,16 +473,73 @@ async function panToViewportCenter(locator: ReturnType<Page["locator"]>) {
   const viewport = page.viewportSize();
   if (!viewport) throw new Error("browser viewport is unavailable");
   let lastBox = await settledBox(locator);
+  const readCamera = () =>
+    page.evaluate(() => {
+      const transform = document.querySelector<HTMLElement>(
+        "[data-multi-screen-canvas-world]",
+      )?.style.transform;
+      if (!transform) return null;
+      const matrix = new DOMMatrixReadOnly(transform);
+      return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
+    });
+  let lastCamera = await readCamera();
+  if (!lastCamera) throw new Error("canvas camera is unavailable before pan");
+  let wheelCalls = 0;
+  let missingHeadingSince: number | null = null;
+  let missingCameraSince: number | null = null;
+  let lastHeadingReadFailure: string | null = null;
+  const readHeadingBox = async () => {
+    let box = null;
+    try {
+      box = await locator.boundingBox({ timeout: 500 });
+      lastHeadingReadFailure = box ? null : "heading has no layout box";
+    } catch (error) {
+      if (!(error instanceof errors.TimeoutError)) throw error;
+      lastHeadingReadFailure = error.message.split("\n")[0] ?? error.message;
+    }
+    return box;
+  };
 
-  for (let attempt = 0; attempt < 96; attempt += 1) {
-    // coercion-ok: The editor can reload during a camera move; this loop retries until it settles.
-    const box = await locator.boundingBox({ timeout: 500 }).catch(() => null);
-    if (!box) {
-      await page.waitForTimeout(30);
+  while (wheelCalls < 96) {
+    const [box, camera] = await Promise.all([readHeadingBox(), readCamera()]);
+    if (!camera) {
+      missingCameraSince ??= Date.now();
+      if (Date.now() - missingCameraSince > 10_000) {
+        throw new Error("canvas camera did not remount during pan");
+      }
+      await page.waitForTimeout(100);
       continue;
     }
-    lastBox = box;
-    if (box && box.y >= 120 && box.y + box.height <= viewport.height - 120) {
+    missingCameraSince = null;
+    if (!box && Math.abs(camera.scale - lastCamera.scale) > 0.0001) {
+      throw new Error(
+        "canvas zoom changed while the selected editor was unavailable",
+      );
+    }
+    const targetBox = box ?? {
+      ...lastBox,
+      x: lastBox.x + camera.x - lastCamera.x,
+      y: lastBox.y + camera.y - lastCamera.y,
+    };
+    if (box) {
+      lastBox = box;
+      lastCamera = camera;
+      missingHeadingSince = null;
+    }
+    if (
+      targetBox.y >= 120 &&
+      targetBox.y + targetBox.height <= viewport.height - 120
+    ) {
+      if (!box) {
+        missingHeadingSince ??= Date.now();
+        if (Date.now() - missingHeadingSince > 10_000) {
+          throw new Error(
+            `selected screen editor did not remount inside the viewport; last heading read: ${lastHeadingReadFailure}`,
+          );
+        }
+        await page.waitForTimeout(100);
+        continue;
+      }
       return;
     }
 
@@ -476,13 +547,34 @@ async function panToViewportCenter(locator: ReturnType<Page["locator"]>) {
     await page.mouse.move(viewport.width / 2, centerY);
     await page.mouse.wheel(
       0,
-      box && box.y + box.height / 2 < centerY ? -120 : 120,
+      targetBox.y + targetBox.height / 2 < centerY ? -120 : 120,
     );
+    wheelCalls += 1;
     await page.waitForTimeout(30);
   }
 
+  const finalView = await page
+    .evaluate(() => {
+      const world = document.querySelector<HTMLElement>(
+        "[data-multi-screen-canvas-world]",
+      );
+      const hit = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+      return {
+        cameraTransform: world?.style.transform ?? null,
+        centerHitTag: hit?.tagName ?? null,
+        centerHitTestId: hit?.getAttribute("data-testid") ?? null,
+        centerHitInCanvas: Boolean(
+          hit?.closest("[data-multi-screen-canvas-surface]"),
+        ),
+        centerHitInScreen: Boolean(hit?.closest("[data-screen-shell]")),
+      };
+    })
+    .catch((error) => ({ cameraReadError: String(error) }));
+  console.log(
+    `  pan final state: ${JSON.stringify({ lastBox, ...finalView })}`,
+  );
   throw new Error(
-    `${locator} never moved into the canvas viewport; last box ${JSON.stringify(lastBox)} after 96 wheel ticks`,
+    `${locator} never moved into the canvas viewport; last box ${JSON.stringify(lastBox)} after ${wheelCalls} wheel ticks; last heading read: ${lastHeadingReadFailure}`,
   );
 }
 

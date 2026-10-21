@@ -1,6 +1,11 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
+// Snapshot ids start from the page-load clock; these cases spell ids from 0.
+vi.hoisted(() => {
+  vi.useFakeTimers({ now: 0, toFake: ["Date"] });
+});
+
 import {
   type InboxSyncAccountProgress,
   type InboxOverview,
@@ -30,6 +35,8 @@ import {
   snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
 } from "./use-inbox-threads";
+
+vi.useRealTimers();
 
 describe("isUnauthorizedError", () => {
   it("is true for a 401 or 403 action error", () => {
@@ -727,6 +734,44 @@ describe("toggleInboxThreadsStarOptimistic", () => {
 describe("inboxThreadsHasNextPage", () => {
   it("is true while fewer rows are loaded than the tab's total", () => {
     expect(inboxThreadsHasNextPage(100, 250)).toBe(true);
+  });
+
+  it("stops at the offset cap even when older rows exist", () => {
+    expect(
+      inboxThreadsHasNextPage(2_000, 2_500, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+        reachedCap: true,
+      }),
+    ).toBe(false);
+    expect(inboxThreadsHasNextPage(1_950, 2_500, { reachedCap: false })).toBe(
+      true,
+    );
+  });
+
+  it("stops at the cap when a lower-bound total still reports a full last page", () => {
+    expect(
+      inboxThreadsHasNextPage(2_000, 2_500, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+        totalIsLowerBound: true,
+      }),
+    ).toBe(false);
+    expect(
+      inboxThreadsHasNextPage(1_950, 2_500, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+        totalIsLowerBound: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stops at the cap when an unread-only total counts rows past it", () => {
+    expect(inboxThreadsHasNextPage(2_000, 2_100)).toBe(false);
+    expect(inboxThreadsHasNextPage(1_950, 2_100)).toBe(true);
   });
 
   it("is false once every row is loaded", () => {

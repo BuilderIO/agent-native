@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveA2ACallerAuth } from "./caller-auth.js";
+import { A2A_ORG_MEMBER_DELEGATION_TYPE } from "./organization-identity.js";
 
 const getOrgDomainMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
@@ -97,9 +98,37 @@ describe("resolveA2ACallerAuth", () => {
             new TextEncoder().encode("org-a2a-secret"),
           ),
         ).rejects.toThrow();
-        expect(auth.apiKeyFallbacks).toHaveLength(1);
-        const { payload: orgPrincipal } = await jose.jwtVerify(
+        expect(auth.apiKeyFallbacks).toHaveLength(2);
+        const { payload: memberDelegation } = await jose.jwtVerify(
           auth.apiKeyFallbacks![0],
+          new TextEncoder().encode("org-a2a-secret"),
+        );
+        expect(memberDelegation).toMatchObject({
+          typ: A2A_ORG_MEMBER_DELEGATION_TYPE,
+          sub: "alice+qa@agent-native.test",
+          org_domain: "builder.io",
+          aud: "https://peer.example.test",
+        });
+        expect(memberDelegation.iat).toEqual(expect.any(Number));
+        expect(memberDelegation.exp).toEqual(expect.any(Number));
+        expect(memberDelegation.jti).toEqual(expect.any(String));
+        expect(
+          memberDelegation.exp! - memberDelegation.iat!,
+        ).toBeLessThanOrEqual(5 * 60);
+        expect(memberDelegation.exp! - memberDelegation.iat!).toBeGreaterThan(
+          0,
+        );
+        expect(memberDelegation).not.toHaveProperty("email");
+        expect(memberDelegation).not.toHaveProperty("org_id");
+        await expect(
+          jose.jwtVerify(
+            auth.apiKeyFallbacks![0],
+            new TextEncoder().encode("global-a2a-secret"),
+          ),
+        ).rejects.toThrow();
+
+        const { payload: orgPrincipal } = await jose.jwtVerify(
+          auth.apiKeyFallbacks![1],
           new TextEncoder().encode("org-a2a-secret"),
         );
         expect(orgPrincipal).toMatchObject({
@@ -110,10 +139,55 @@ describe("resolveA2ACallerAuth", () => {
         expect(orgPrincipal).not.toHaveProperty("sub");
         await expect(
           jose.jwtVerify(
-            auth.apiKeyFallbacks![0],
+            auth.apiKeyFallbacks![1],
             new TextEncoder().encode("global-a2a-secret"),
           ),
         ).rejects.toThrow();
+      },
+    );
+  });
+
+  it("does not upgrade an org-member delegation to a deployment-signed user assertion", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-qa",
+        a2aIdentityAssurance: "org-member",
+      },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
+
+        expect(auth.apiKey).toBeTruthy();
+        await expect(
+          jose.jwtVerify(
+            auth.apiKey!,
+            new TextEncoder().encode("org-a2a-secret"),
+          ),
+        ).resolves.toMatchObject({
+          payload: {
+            typ: A2A_ORG_MEMBER_DELEGATION_TYPE,
+            sub: "alice+qa@agent-native.test",
+            org_domain: "builder.io",
+            aud: "https://peer.example.test",
+          },
+        });
+        await expect(
+          jose.jwtVerify(
+            auth.apiKey!,
+            new TextEncoder().encode("global-a2a-secret"),
+          ),
+        ).rejects.toThrow();
+
+        expect(auth.apiKeyFallbacks).toHaveLength(1);
+        const { payload } = await jose.jwtVerify(
+          auth.apiKeyFallbacks![0],
+          new TextEncoder().encode("org-a2a-secret"),
+        );
+        expect(payload).not.toHaveProperty("sub");
       },
     );
   });
@@ -234,16 +308,52 @@ describe("resolveA2ACallerAuth", () => {
 
         expect(auth.orgDomain).toBe("builder.io");
         expect(auth.orgSecret).toBe("org-a2a-secret");
-        const { payload } = await jose.jwtVerify(
+        const { payload: memberDelegation } = await jose.jwtVerify(
           auth.apiKey!,
           new TextEncoder().encode("org-a2a-secret"),
         );
-        expect(payload).toMatchObject({
+        expect(memberDelegation).toMatchObject({
+          typ: A2A_ORG_MEMBER_DELEGATION_TYPE,
+          sub: "alice+qa@agent-native.test",
           org_domain: "builder.io",
           aud: "https://peer.example.test",
         });
-        expect(payload).not.toHaveProperty("org_id");
-        expect(payload).not.toHaveProperty("sub");
+        expect(auth.apiKeyFallbacks).toHaveLength(1);
+        const { payload: orgPrincipal } = await jose.jwtVerify(
+          auth.apiKeyFallbacks![0],
+          new TextEncoder().encode("org-a2a-secret"),
+        );
+        expect(orgPrincipal).toMatchObject({
+          org_domain: "builder.io",
+          aud: "https://peer.example.test",
+        });
+        expect(orgPrincipal).not.toHaveProperty("sub");
+      },
+    );
+  });
+
+  it("uses only a plain organization token when the org has no A2A secret", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgA2ASecretMock.mockResolvedValueOnce(null);
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
+
+        expect(auth.apiKeyFallbacks).toHaveLength(1);
+        const { payload: organizationToken } = await jose.jwtVerify(
+          auth.apiKeyFallbacks![0],
+          new TextEncoder().encode("global-a2a-secret"),
+        );
+        expect(organizationToken).toMatchObject({
+          org_domain: "builder.io",
+          aud: "https://peer.example.test",
+        });
+        expect(organizationToken).not.toHaveProperty("sub");
+        expect(organizationToken).not.toHaveProperty("typ");
       },
     );
   });

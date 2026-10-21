@@ -162,6 +162,21 @@ describe("list-pending-recording-context", () => {
 
     expect(items).toHaveLength(25);
     expect(items[0]?.id).toBe("batch_0");
+    expect(
+      await action.run({
+        afterCreatedAt: items.at(-1)?.createdAt,
+        afterId: items.at(-1)?.id,
+      }),
+    ).toMatchObject({
+      items: Array.from({ length: 5 }, (_, index) => ({
+        id: `batch_${index + 25}`,
+      })),
+      nextCursor: null,
+    });
+    expect((await action.run({})).nextCursor).toEqual({
+      afterCreatedAt: items.at(-1)?.createdAt,
+      afterId: items.at(-1)?.id,
+    });
   });
 
   it("leaves excluded items out so they do not hold up the batch", async () => {
@@ -184,16 +199,66 @@ describe("list-pending-recording-context", () => {
     expect(items.map((item) => item.id)).toEqual(["skip_25"]);
   });
 
+  it("pages past more pending cleanup items than one exclusion list can hold", async () => {
+    for (let index = 0; index < 132; index += 1) {
+      const suffix = String(index).padStart(3, "0");
+      const id = index < 131 ? `cleanup_${suffix}` : "work_131";
+      const recordingId = `rec_${id}`;
+      await seedRecording(client, { id: recordingId });
+      await seedContextItem(client, {
+        id,
+        recordingId,
+        createdAt: "2026-10-01T12:00:00.000Z",
+      });
+    }
+    const excludeIds = Array.from(
+      { length: 100 },
+      (_, index) => `cleanup_${String(index).padStart(3, "0")}`,
+    );
+
+    const firstPage = await action.run({ excludeIds });
+    expect(firstPage.items.map((item) => item.id)).toEqual(
+      Array.from(
+        { length: 25 },
+        (_, index) => `cleanup_${String(index + 100).padStart(3, "0")}`,
+      ),
+    );
+    expect(firstPage.nextCursor).toEqual({
+      afterCreatedAt: "2026-10-01T12:00:00.000Z",
+      afterId: "cleanup_124",
+    });
+
+    const secondPage = await action.run({
+      excludeIds,
+      afterCreatedAt: firstPage.nextCursor?.afterCreatedAt,
+      afterId: firstPage.nextCursor?.afterId,
+    });
+    expect(secondPage.items.map((item) => item.id)).toEqual([
+      ...Array.from(
+        { length: 6 },
+        (_, index) => `cleanup_${String(index + 125).padStart(3, "0")}`,
+      ),
+      "work_131",
+    ]);
+    expect(secondPage.nextCursor).toBeNull();
+  });
+
   it("accepts at most 100 excluded ids", () => {
     const schema = (action as unknown as { schema: ZodType }).schema;
     const ids = (count: number) =>
       Array.from({ length: count }, (_, index) => `id_${index}`);
     expect(schema.safeParse({ excludeIds: ids(100) }).success).toBe(true);
     expect(schema.safeParse({ excludeIds: ids(101) }).success).toBe(false);
+    expect(
+      schema.safeParse({ afterCreatedAt: "2026-10-01T12:00:00.000Z" }).success,
+    ).toBe(false);
   });
 
   it("returns an empty list when nothing is pending", async () => {
-    await expect(action.run({})).resolves.toEqual({ items: [] });
+    await expect(action.run({})).resolves.toEqual({
+      items: [],
+      nextCursor: null,
+    });
   });
 
   it("does not list a processing claim updated inside the stale window", async () => {
@@ -213,7 +278,10 @@ describe("list-pending-recording-context", () => {
     // Stale means strictly older than the cutoff.
     await setUpdatedAt("at_cutoff", CUTOFF_CLAIM);
 
-    await expect(action.run({})).resolves.toEqual({ items: [] });
+    await expect(action.run({})).resolves.toEqual({
+      items: [],
+      nextCursor: null,
+    });
   });
 
   it("lists a processing claim older than the stale window in the same oldest-first queue", async () => {

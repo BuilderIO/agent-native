@@ -42,7 +42,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsc && cp src/styles.css dist/styles.css",
+    "build": "tsc && node -e \"require('node:fs').copyFileSync('src/styles.css', 'dist/styles.css')\"",
     "prepublishOnly": "npm run build",
     "test": "vitest run src/CodeAgentsApp.spec.ts src/SessionWatchPanel.spec.tsx src/code-agent-agentkit-runtime.spec.ts",
     "typecheck": "tsc --noEmit"

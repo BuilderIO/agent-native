@@ -232,7 +232,10 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
     expect(primarySandboxById.get("remote-library")).toContain(
       "allow-same-origin",
     );
-    expect(primarySandboxById.get("localhost-settings")).not.toContain(
+    // Spike: the test editor runs on a loopback origin, and a local dev
+    // editor trusts a local launch session (see
+    // DesignCanvas.embedded-frame.test.ts); upstream keeps it opaque.
+    expect(primarySandboxById.get("localhost-settings")).toContain(
       "allow-same-origin",
     );
     expect(primarySandboxById.get("same-origin")).not.toContain(
