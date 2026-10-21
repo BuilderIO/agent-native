@@ -197,6 +197,52 @@ describe("task execution leases", () => {
     expect(checkpoint.rows).toEqual([]);
   });
 
+  it("does not replay a stranded checkpoint as the terminal of an errored run", async () => {
+    const runId = "run-checkpoint-terminal-persistence-failure";
+    const terminalEvent = {
+      type: "error",
+      error: "Agent run ended unexpectedly",
+      errorCode: "run_event_persistence_failed",
+    };
+    await insertRun(runId, "thread-checkpoint-terminal-persistence-failure");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "no_progress" },
+      "no_progress",
+    );
+    failTerminalEventInsertCount = 2;
+
+    await expect(
+      insertRunEvent(runId, 0, JSON.stringify(terminalEvent)),
+    ).rejects.toThrow("injected terminal event insert failure");
+    await expect(
+      insertRunEvent(runId, 0, JSON.stringify(terminalEvent)),
+    ).rejects.toThrow("injected terminal event insert failure");
+    await updateRunTerminalStateIfRunning(runId, {
+      status: "errored",
+      terminalReason: "error:run_event_persistence_failed",
+      errorCode: "run_event_persistence_failed",
+      errorDetail: terminalEvent.error,
+    });
+
+    expect((await getRunById(runId))?.status).toBe("errored");
+    await expect(getLastTerminalRunEvent(runId)).resolves.toBeNull();
+
+    await ensureTerminalRunEvent(runId, terminalEvent);
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: terminalEvent,
+    });
+    const events = await pglite.query(
+      "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      [runId],
+    );
+    expect(events.rows).toEqual([
+      { seq: 0, event_data: JSON.stringify(terminalEvent) },
+    ]);
+  });
+
   it("replaces a durable checkpoint with an explicit abort terminal event", async () => {
     const runId = "run-checkpoint-user-abort";
     await insertRun(runId, "thread-checkpoint-user-abort");
@@ -238,10 +284,14 @@ describe("task execution leases", () => {
 
     const runAfterFailure = await getRunById(runId);
     expect(runAfterFailure?.status).toBe("running");
-    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
-      seq: CHECKPOINT_TERMINAL_EVENT_SEQ,
-      event: { type: "auto_continue", reason: "run_timeout" },
-    });
+    await expect(getLastTerminalRunEvent(runId)).resolves.toBeNull();
+    const checkpointAfterFailure = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    );
+    expect(checkpointAfterFailure.rows).toEqual([
+      { event_data: '{"type":"auto_continue","reason":"run_timeout"}' },
+    ]);
 
     await expect(markRunAborted(runId, "user")).resolves.toBe(true);
     const runAfterRetry = await getRunById(runId);
@@ -272,10 +322,7 @@ describe("task execution leases", () => {
     });
 
     expect((await getRunById(runId))?.status).toBe("running");
-    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
-      seq: CHECKPOINT_TERMINAL_EVENT_SEQ,
-      event: { type: "auto_continue", reason: "run_timeout" },
-    });
+    await expect(getLastTerminalRunEvent(runId)).resolves.toBeNull();
     const markersAfterFailure = await pglite.query(
       "SELECT id FROM agent_runs WHERE thread_id = ? AND dispatch_mode = 'turn-abort'",
       [threadId],

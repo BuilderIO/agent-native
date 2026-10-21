@@ -4248,8 +4248,10 @@ export async function getLastTerminalRunEvent(
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
-    args: [runId],
+    sql: `SELECT seq, event_data FROM agent_run_events
+          WHERE run_id = ? AND seq < ?
+          ORDER BY seq DESC LIMIT 1`,
+    args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
   });
   const last = rows[0] as
     | { seq?: number | string; event_data?: string }
