@@ -2105,7 +2105,7 @@ export function createAgentKitProtocolAdapter(
     };
     const indexedRun = indexRun(run, turn.runId ?? input.runId, true);
     if (indexedRun !== run) {
-      await closeDiscardedTurnEvents(turn);
+      await closeDiscardedTurnEvents(turn, indexedRun.runId);
       return indexedRun;
     }
     if (restoreRead) run.initialAuthorityRead = restoreRead;
@@ -2209,7 +2209,7 @@ export function createAgentKitProtocolAdapter(
         );
       }
       if (turn.id !== undefined && existingRun.turn.id === turn.id) {
-        await closeDiscardedTurnEvents(turn);
+        await closeDiscardedTurnEvents(turn, existingRun.runId);
         return existingRun.runId;
       }
       // A duplicate queued submission is answered with the run that already
@@ -2241,7 +2241,7 @@ export function createAgentKitProtocolAdapter(
       return rejectDiscardedTurn(turn, runId, error);
     }
     if (indexedRun !== run) {
-      await closeDiscardedTurnEvents(turn);
+      await closeDiscardedTurnEvents(turn, indexedRun.runId);
       return indexedRun.runId;
     }
     append(run, {
@@ -2267,22 +2267,27 @@ export function createAgentKitProtocolAdapter(
     runId: string,
     error: unknown,
   ): Promise<never> {
-    try {
-      await closeDiscardedTurnEvents(turn);
-    } catch (cleanupError) {
-      console.warn(
-        `[agentkit] rejected stream for run ${runId} failed to close`,
-        cleanupError,
-      );
-    }
+    await closeDiscardedTurnEvents(turn, runId);
     throw error;
   }
 
   async function closeDiscardedTurnEvents(
     turn: AgentChatRuntimeTurn,
+    runId: string,
   ): Promise<void> {
-    const iterator = turn.events[Symbol.asyncIterator]();
-    await Promise.all([turn.closeEvents?.(), iterator.return?.()]);
+    try {
+      await Promise.all([
+        Promise.resolve().then(() => turn.closeEvents?.()),
+        Promise.resolve().then(() =>
+          turn.events[Symbol.asyncIterator]().return?.(),
+        ),
+      ]);
+    } catch (cleanupError) {
+      console.warn(
+        `[agentkit] discarded stream for run ${runId} failed to close`,
+        cleanupError,
+      );
+    }
   }
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {

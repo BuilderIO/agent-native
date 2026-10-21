@@ -3903,68 +3903,107 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("reuses a replayed runtime run ID for the same submission", async () => {
-    let startCount = 0;
-    const discardedStreamClosed = vi.fn(async () => ({
-      done: true as const,
-      value: undefined,
-    }));
-    const discardedTurnClosed = vi.fn();
-    const discardedTurnCancelled = vi.fn(async () => ({
-      status: "cancelled" as const,
-    }));
-    const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
-      [Symbol.asyncIterator]: () => ({
-        next: () =>
-          new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
-        return: discardedStreamClosed,
-      }),
-    };
-    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-      yield { type: "done", reason: "complete" };
-    }
-    const startTurn = vi.fn(async () => {
-      startCount += 1;
-      return {
-        id: "turn-replayed",
-        runId: "runtime-run-replayed",
-        sessionId: "thread-1",
-        events: startCount === 1 ? events() : discardedEvents,
-        ...(startCount === 1
-          ? {}
-          : {
-              closeEvents: discardedTurnClosed,
-              cancel: discardedTurnCancelled,
-            }),
+  it.each(["success", "async failure", "sync failure"] as const)(
+    "reuses a replayed runtime run ID for the same submission (cleanup: %s)",
+    async (cleanup) => {
+      let startCount = 0;
+      const discardedStreamClosed = vi.fn(async () => ({
+        done: true as const,
+        value: undefined,
+      }));
+      const cleanupError = new Error(
+        "Accepted replay transport cleanup failed",
+      );
+      const discardedTurnClosed = vi.fn(() => {
+        if (cleanup === "sync failure") throw cleanupError;
+        if (cleanup === "async failure") return Promise.reject(cleanupError);
+      });
+      const discardedTurnCancelled = vi.fn(async () => ({
+        status: "cancelled" as const,
+      }));
+      const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
+        [Symbol.asyncIterator]: () => ({
+          next: () =>
+            new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
+          return: discardedStreamClosed,
+        }),
       };
-    });
-    const runtime = createRuntime(events, {
-      async createSession() {
+      async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      }
+      const startTurn = vi.fn(async () => {
+        startCount += 1;
         return {
-          id: "thread-1",
-          runtimeId: "runtime-test",
-          startTurn,
+          id: "turn-replayed",
+          runId: "runtime-run-replayed",
+          sessionId: "thread-1",
+          events: startCount === 1 ? events() : discardedEvents,
+          ...(startCount === 1
+            ? {}
+            : {
+                closeEvents: discardedTurnClosed,
+                cancel: discardedTurnCancelled,
+              }),
         };
-      },
-    });
-    const transport = createAgentKitProtocolAdapter(runtime);
+      });
+      const runtime = createRuntime(events, {
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn,
+          };
+        },
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
 
-    const first = await transport.startRun({
-      threadId: "thread-1",
-      messages: [userMessage("Start", "user-start")],
-    });
-    const replay = await transport.startRun({
-      threadId: "thread-1",
-      messages: [userMessage("Replay", "user-start")],
-    });
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const first = await transport.startRun({
+          threadId: "thread-1",
+          messages: [userMessage("Start", "user-start")],
+        });
+        await drain(
+          transport.subscribeToRun({
+            threadId: "thread-1",
+            runId: first.runId,
+          }),
+        );
+        const canonical = await transport.getRun({
+          threadId: "thread-1",
+          runId: first.runId,
+        });
+        expect(canonical).toMatchObject({
+          id: first.runId,
+          status: "completed",
+        });
+        const replay = await transport.startRun({
+          threadId: "thread-1",
+          messages: [userMessage("Replay", "user-start")],
+        });
 
-    expect(replay.runId).toBe(first.runId);
-    expect(startTurn).toHaveBeenCalledTimes(2);
-    expect(discardedStreamClosed).toHaveBeenCalledOnce();
-    expect(discardedTurnClosed).toHaveBeenCalledOnce();
-    expect(discardedTurnCancelled).not.toHaveBeenCalled();
-    await transport.dispose();
-  });
+        expect(replay.runId).toBe(first.runId);
+        expect(startTurn).toHaveBeenCalledTimes(2);
+        expect(discardedStreamClosed).toHaveBeenCalledOnce();
+        expect(discardedTurnClosed).toHaveBeenCalledOnce();
+        expect(discardedTurnCancelled).not.toHaveBeenCalled();
+        await expect(
+          transport.getRun({ threadId: "thread-1", runId: replay.runId }),
+        ).resolves.toEqual(canonical);
+        if (cleanup !== "success") {
+          expect(warning).toHaveBeenCalledExactlyOnceWith(
+            "[agentkit] discarded stream for run runtime-run-replayed failed to close",
+            cleanupError,
+          );
+        } else {
+          expect(warning).not.toHaveBeenCalled();
+        }
+      } finally {
+        await transport.dispose();
+        warning.mockRestore();
+      }
+    },
+  );
 
   it.each([
     ["thread-1", false],
@@ -4319,72 +4358,128 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("closes duplicate event streams when concurrent restores race", async () => {
-    let releaseResumes!: () => void;
-    const resumeGate = new Promise<void>((resolve) => {
-      releaseResumes = resolve;
-    });
-    let reportBothResumes!: () => void;
-    const bothResumes = new Promise<void>((resolve) => {
-      reportBothResumes = resolve;
-    });
-    let resumeCount = 0;
-    const turnClosed = [vi.fn(), vi.fn()];
-    const iteratorClosed = [
-      vi.fn(async () => ({ done: true as const, value: undefined })),
-      vi.fn(async () => ({ done: true as const, value: undefined })),
-    ];
-    const runtime = createRuntime(
-      async function* (): AsyncIterable<AgentChatRuntimeEvent> {},
-      {
-        capabilities: {
-          messages: { streaming: true, history: true, attachments: true },
-          resumableRuns: true,
+  it.each([false, true])(
+    "closes duplicate event streams when concurrent restores race (cleanup fails: %s)",
+    async (cleanupFails) => {
+      let releaseResumes!: () => void;
+      const resumeGate = new Promise<void>((resolve) => {
+        releaseResumes = resolve;
+      });
+      let reportBothResumes!: () => void;
+      const bothResumes = new Promise<void>((resolve) => {
+        reportBothResumes = resolve;
+      });
+      let resumeCount = 0;
+      const cleanupError = new Error(
+        "Accepted restore transport cleanup failed",
+      );
+      const turnClosed = [
+        vi.fn(),
+        vi.fn(async () => {
+          if (cleanupFails) throw cleanupError;
+        }),
+      ];
+      const turnCancelled = [vi.fn(), vi.fn()];
+      const iteratorClosed = [
+        vi.fn(async () => ({ done: true as const, value: undefined })),
+        vi.fn(async () => ({ done: true as const, value: undefined })),
+      ];
+      const runtime = createRuntime(
+        async function* (): AsyncIterable<AgentChatRuntimeEvent> {},
+        {
+          capabilities: {
+            messages: { streaming: true, history: true, attachments: true },
+            resumableRuns: true,
+          },
+          async resume({ sessionId, runId }) {
+            const index = resumeCount++;
+            if (resumeCount === 2) reportBothResumes();
+            await resumeGate;
+            return {
+              id: "restored-turn",
+              sessionId,
+              runId,
+              events: {
+                [Symbol.asyncIterator]: () => ({
+                  next: () =>
+                    new Promise<IteratorResult<AgentChatRuntimeEvent>>(
+                      () => {},
+                    ),
+                  return: iteratorClosed[index],
+                }),
+              },
+              closeEvents: turnClosed[index],
+              cancel: turnCancelled[index],
+            };
+          },
         },
-        async resume({ sessionId, runId }) {
-          const index = resumeCount++;
-          if (resumeCount === 2) reportBothResumes();
-          await resumeGate;
-          return {
-            id: "restored-turn",
-            sessionId,
-            runId,
-            events: {
-              [Symbol.asyncIterator]: () => ({
-                next: () =>
-                  new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
-                return: iteratorClosed[index],
+      );
+      const transport = createAgentKitProtocolAdapter(runtime);
+      const first = transport
+        .subscribeToRun({ threadId: "thread-1", runId: "restored-run" })
+        [Symbol.asyncIterator]();
+      const second = transport
+        .subscribeToRun({ threadId: "thread-1", runId: "restored-run" })
+        [Symbol.asyncIterator]();
+      const firstEvent = first.next();
+      const secondEvent = second.next();
+
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await bothResumes;
+        releaseResumes();
+        const results = await Promise.allSettled([firstEvent, secondEvent]);
+        await expect(
+          transport.getRun({ threadId: "thread-1", runId: "restored-run" }),
+        ).resolves.toMatchObject({ id: "restored-run", status: "running" });
+
+        expect(
+          turnClosed.filter((close) => close.mock.calls.length > 0),
+        ).toHaveLength(1);
+        expect(
+          iteratorClosed.filter((close) => close.mock.calls.length > 0),
+        ).toHaveLength(1);
+        expect(
+          turnCancelled.every((cancel) => cancel.mock.calls.length === 0),
+        ).toBe(true);
+        if (cleanupFails) {
+          expect(warning).toHaveBeenCalledExactlyOnceWith(
+            "[agentkit] discarded stream for run restored-run failed to close",
+            cleanupError,
+          );
+        } else {
+          expect(warning).not.toHaveBeenCalled();
+        }
+        expect(results).toEqual([
+          expect.objectContaining({
+            status: "fulfilled",
+            value: expect.objectContaining({
+              done: false,
+              value: expect.objectContaining({
+                type: "run.started",
+                runId: "restored-run",
               }),
-            },
-            closeEvents: turnClosed[index],
-          };
-        },
-      },
-    );
-    const transport = createAgentKitProtocolAdapter(runtime);
-    const first = transport
-      .subscribeToRun({ threadId: "thread-1", runId: "restored-run" })
-      [Symbol.asyncIterator]();
-    const second = transport
-      .subscribeToRun({ threadId: "thread-1", runId: "restored-run" })
-      [Symbol.asyncIterator]();
-    const firstEvent = first.next();
-    const secondEvent = second.next();
-
-    await bothResumes;
-    releaseResumes();
-    await Promise.all([firstEvent, secondEvent]);
-
-    expect(
-      turnClosed.filter((close) => close.mock.calls.length > 0),
-    ).toHaveLength(1);
-    expect(
-      iteratorClosed.filter((close) => close.mock.calls.length > 0),
-    ).toHaveLength(1);
-    await first.return?.();
-    await second.return?.();
-    await transport.dispose();
-  });
+            }),
+          }),
+          expect.objectContaining({
+            status: "fulfilled",
+            value: expect.objectContaining({
+              done: false,
+              value: expect.objectContaining({
+                type: "run.started",
+                runId: "restored-run",
+              }),
+            }),
+          }),
+        ]);
+      } finally {
+        await first.return?.();
+        await second.return?.();
+        await transport.dispose();
+        warning.mockRestore();
+      }
+    },
+  );
 
   it("omits a missing runtime turn id from restored run metadata", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
@@ -6196,6 +6291,86 @@ describe("createAgentKitProtocolAdapter", () => {
       expect(runId).toBe("run-continued");
       expect(events.map((event) => event.type)).toContain("run.completed");
     });
+
+    it.each([false, true])(
+      "reuses an accepted continuation run when its duplicate transport closes (cleanup fails: %s)",
+      async (cleanupFails) => {
+        let continuationCount = 0;
+        const cleanupError = new Error(
+          "Accepted continuation transport cleanup failed",
+        );
+        const closeEvents = vi.fn(async () => {
+          if (cleanupFails) throw cleanupError;
+        });
+        const returnEvents = vi.fn(async () => ({
+          done: true as const,
+          value: undefined,
+        }));
+        const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
+        const { runtime, continueTurn } = stoppedRunRuntime({
+          status: "errored",
+          runId: "run-crashed",
+          turnId: "turn-1",
+          startMessageId: "user-original",
+          terminalReason: "stale_run",
+        });
+        continueTurn.mockImplementation(async () => {
+          continuationCount += 1;
+          return {
+            id: "turn-1",
+            runId: "run-continued",
+            sessionId: "thread-1",
+            events:
+              continuationCount === 1
+                ? (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+                    yield { type: "done", reason: "complete" };
+                  })()
+                : {
+                    [Symbol.asyncIterator]: () => ({
+                      next: () =>
+                        new Promise<IteratorResult<AgentChatRuntimeEvent>>(
+                          () => {},
+                        ),
+                      return: returnEvents,
+                    }),
+                  },
+            ...(continuationCount === 1 ? {} : { closeEvents, cancel }),
+          };
+        });
+        const transport = createAgentKitProtocolAdapter(runtime);
+        const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+          const first = await transport.continueRun!({
+            threadId: "thread-1",
+            runId: "run-crashed",
+          });
+          const replay = await transport.continueRun!({
+            threadId: "thread-1",
+            runId: "run-crashed",
+          });
+          expect(first.runId).toBe("run-continued");
+          expect(replay.runId).toBe(first.runId);
+          await expect(
+            transport.getRun({ threadId: "thread-1", runId: replay.runId }),
+          ).resolves.toMatchObject({ id: first.runId, threadId: "thread-1" });
+          expect(continueTurn).toHaveBeenCalledTimes(2);
+          expect(closeEvents).toHaveBeenCalledOnce();
+          expect(returnEvents).toHaveBeenCalledOnce();
+          expect(cancel).not.toHaveBeenCalled();
+          if (cleanupFails) {
+            expect(warning).toHaveBeenCalledExactlyOnceWith(
+              "[agentkit] discarded stream for run run-continued failed to close",
+              cleanupError,
+            );
+          } else {
+            expect(warning).not.toHaveBeenCalled();
+          }
+        } finally {
+          await transport.dispose();
+          warning.mockRestore();
+        }
+      },
+    );
 
     it("preserves the persisted message identity for a continued run", async () => {
       const startTurn = vi.fn(async () => ({
