@@ -36,6 +36,7 @@ import {
 } from "./zoom-governance.js";
 import {
   ZoomHttpError,
+  ZoomTimeoutError,
   downloadZoomTranscript,
   getZoomMeetingRecordings,
   isReadyZoomTranscript,
@@ -3035,6 +3036,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
   }
 }
 
+const ZOOM_TIMEOUT_RETRY_MS = 5 * 60 * 1_000;
 const ZOOM_MAX_LOOKBACK_DAYS = 30;
 const ZOOM_DEFAULT_LOOKBACK_DAYS = 7;
 const ZOOM_DIAGNOSTIC_LIMIT = 50;
@@ -3434,7 +3436,10 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     const nextCursor: ZoomSyncCursor = {
       ...cursor,
       retry: isRateLimit ? retryCursor(err, "zoom") : cursor.retry,
-      transientRetryAt: transientRetryAt(err),
+      transientRetryAt:
+        err instanceof ZoomTimeoutError
+          ? new Date(Date.now() + ZOOM_TIMEOUT_RETRY_MS).toISOString()
+          : transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;

@@ -79,6 +79,37 @@ describe("Brain source sync scheduling", () => {
     expect(isBrainSourceDue(failedSource, Date.parse(retryAt))).toBe(true);
   });
 
+  it("retries a timed-out Zoom source after five minutes instead of one hour", () => {
+    const retryAt = "2026-07-29T16:05:00.000Z";
+    const zoomSource = source({
+      provider: "zoom",
+      status: "error",
+      cursorJson: JSON.stringify({ transientRetryAt: retryAt }),
+    });
+
+    expect(nextBrainSourceSyncAt(zoomSource)).toBe(retryAt);
+    expect(isBrainSourceDue(zoomSource, Date.parse(retryAt) - 1)).toBe(false);
+    expect(isBrainSourceDue(zoomSource, Date.parse(retryAt))).toBe(true);
+  });
+
+  it("keeps Zoom Retry-After later than a transient timeout retry", () => {
+    const retryAfterAt = "2026-07-29T16:15:00.000Z";
+    const zoomSource = source({
+      provider: "zoom",
+      status: "error",
+      cursorJson: JSON.stringify({
+        transientRetryAt: "2026-07-29T16:05:00.000Z",
+        retry: { retryAfterAt },
+      }),
+    });
+
+    expect(nextBrainSourceSyncAt(zoomSource)).toBe(retryAfterAt);
+    expect(isBrainSourceDue(zoomSource, Date.parse(retryAfterAt) - 1)).toBe(
+      false,
+    );
+    expect(isBrainSourceDue(zoomSource, Date.parse(retryAfterAt))).toBe(true);
+  });
+
   it("ignores a transient retry time on a source that is not in error", () => {
     const activeSource = source({
       lastSyncedAt: FAILED_AT,

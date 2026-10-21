@@ -4418,7 +4418,9 @@ describe("Brain connector smoke coverage", () => {
         id: "zoom-timeout-source",
         provider: "zoom",
         configJson: JSON.stringify({ zoom: approvedZoom }),
+        cursorJson: JSON.stringify({ from: "2026-10-19" }),
       });
+      const before = Date.now();
 
       const result = await runConnectorSync(source as never);
 
@@ -4435,8 +4437,57 @@ describe("Brain connector smoke coverage", () => {
         status: "error",
         error: result.message,
       });
+      const cursor = JSON.parse(
+        mocks.rows.sources.find((row) => row.id === source.id)!
+          .cursorJson as string,
+      );
+      expect(cursor.from).toBe("2026-10-19");
+      const retryDelay = Date.parse(cursor.transientRetryAt) - before;
+      expect(retryDelay).toBeGreaterThanOrEqual(5 * 60 * 1000);
+      expect(retryDelay).toBeLessThan(6 * 60 * 1000);
     },
   );
+
+  it("recovers a Zoom recording-list timeout without failing the sync", async () => {
+    let listAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "private-token" });
+        }
+        listAttempts += 1;
+        if (listAttempts === 1) {
+          throw new DOMException("request timed out", "TimeoutError");
+        }
+        return Response.json({ meetings: [] });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-recovered-source",
+      provider: "zoom",
+      status: "error",
+      lastError: "Previous Zoom timeout",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+      cursorJson: JSON.stringify({
+        transientRetryAt: "2026-10-19T00:00:00.000Z",
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(listAttempts).toBe(2);
+    expect(result).toMatchObject({
+      status: "success",
+      stats: { recordingListsScanned: 1 },
+    });
+    const updated = mocks.rows.sources.find((row) => row.id === source.id)!;
+    expect(updated).toMatchObject({ status: "active", lastError: null });
+    expect(
+      JSON.parse(updated.cursorJson as string).transientRetryAt,
+    ).toBeUndefined();
+  });
 
   it("imports Zoom transcripts from the account-wide recording list", async () => {
     const requestedPaths: string[] = [];
