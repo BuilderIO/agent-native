@@ -91,5 +91,8 @@ test("resolves a production DATABASE_URL without crossing deploy contexts", () =
     resolveNetlifyMigrationUrl(variables, "production"),
     "postgresql://production.invalid/db",
   );
-  assert.equal(resolveNetlifyMigrationUrl(variables, "branch-deploy"), undefined);
+  assert.equal(
+    resolveNetlifyMigrationUrl(variables, "branch-deploy"),
+    undefined,
+  );
 });
