@@ -47,6 +47,7 @@ import {
   setDomainHandler,
   setWorkspaceUrlHandler,
   setRequiredAuthProviderHandler,
+  setA2AMemberDelegationHandler,
   revealA2ASecretHandler,
   setA2ASecretHandler,
   syncA2ASecretHandler,
@@ -114,6 +115,7 @@ async function workspaceIconUploadResponse(event: H3Event) {
  *   PUT    /_agent-native/org/domain                      — set/clear allowed email domain (owner/admin)
  *   PUT    /_agent-native/org/workspace-url               — set/clear the org's workspace origin (owner/admin)
  *   PUT    /_agent-native/org/auth-provider               — require/clear Google sign-in (owner/admin)
+ *   PUT    /_agent-native/org/a2a-member-delegation       — allow org-member A2A assertions (owner only)
  *   PUT    /_agent-native/org/visual-identity              — set/clear workspace icon (owner/admin)
  *   GET    /_agent-native/org/a2a-secret                  — reveal A2A secret on demand (owner/admin)
  *   PUT    /_agent-native/org/a2a-secret                  — regenerate or set A2A secret (owner/admin)
@@ -287,6 +289,17 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return retryPendingFederatedRemovalHandler(event);
+      }),
+    );
+
+    app.use(
+      `${ORG_PREFIX}/a2a-member-delegation`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setA2AMemberDelegationHandler(event);
       }),
     );
 

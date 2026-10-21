@@ -1536,6 +1536,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "作業しました",
   "tool.workedFor": "{{duration}} 作業しました",
   "widget.chart": "チャート",
+  "widget.chartActions": "チャート操作",
+  "widget.dataSources": "データソース",
+  "widget.tableActions": "テーブル操作",
   "widget.dataChart": "データチャート",
   "widget.dataInsights": "データインサイト",
   "widget.dataTable": "データテーブル",
@@ -2031,6 +2034,9 @@ const messages: ToolkitAgentChatTranslation = {
     "設定済み。このワークスペースのアプリが互いを検証できます。",
   "settingsOrg.auth.sharedSecretNotSet":
     "未設定。このワークスペースのアプリが互いを検証できます。",
+  "settingsOrg.auth.memberDelegation": "組織メンバーの本人確認を委任",
+  "settingsOrg.auth.memberDelegationHelp":
+    "この組織の共有シークレットを持つ接続済みアプリは、このアプリを呼び出す際に現在のメンバーであれば誰でもその本人であると主張できます。このアプリは最新のメンバー一覧を確認し、委任された組織アクセスをメンバー権限に制限します。",
   "settingsOrg.auth.secretNotSetValue": "未設定",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "表示",
@@ -2090,6 +2096,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "言語と地域",
   "settingsShell.account.languageDescription":
     "すべてのデバイスに適用されます。",
+  "settingsShell.account.appearance": "外観",
+  "settingsShell.account.themeFamily": "テーマ",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "アプリのオリジナルカラー",
+  "settingsShell.account.themeFamilySaveError":
+    "テーマを更新できませんでした。もう一度お試しください。",
   "settingsShell.account.manage": "管理",
   "settingsShell.account.name": "名前",
   "settingsShell.account.nameDescription":

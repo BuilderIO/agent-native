@@ -15,6 +15,7 @@ const resolveAutomationAccessMock = vi.hoisted(() => vi.fn());
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
 const getIntegrationRequestContextMock = vi.hoisted(() => vi.fn());
+const getRequestContextMock = vi.hoisted(() => vi.fn());
 
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 
@@ -46,6 +47,7 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   getRequestOrgId: getRequestOrgIdMock,
   getIntegrationRequestContext: getIntegrationRequestContextMock,
+  getRequestContext: getRequestContextMock,
   getRequestTimezone: () => "UTC",
 }));
 
@@ -107,6 +109,7 @@ describe("manage-jobs tool", () => {
     getRequestUserEmailMock.mockReturnValue("alice@example.com");
     getRequestOrgIdMock.mockReturnValue("org-1");
     getIntegrationRequestContextMock.mockReturnValue(undefined);
+    getRequestContextMock.mockReturnValue(undefined);
     resourcePutMock.mockResolvedValue(undefined);
     resourcePutIfAbsentMock.mockResolvedValue({ id: "created" });
     resourcePutIfCurrentMock.mockImplementation(
@@ -504,6 +507,41 @@ describe("manage-jobs tool", () => {
       );
       expect(out.updated).toBe(true);
       expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("caps a delegated owner to member when authorizing another user's job", async () => {
+      getRequestUserEmailMock.mockReturnValue("mallory@example.com");
+      getRequestContextMock.mockReturnValue({
+        a2aIdentityAssurance: "org-member",
+        userEmail: "mallory@example.com",
+        orgId: "org-1",
+      });
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: sharedJobContent({
+          createdBy: "alice@example.com",
+          orgId: "org-1",
+        }),
+      });
+      resolveAutomationAccessMock.mockResolvedValue({
+        classification: { kind: "job", triggerType: "schedule" },
+        capabilities: {
+          canEdit: false,
+          canOperate: false,
+          canDelete: false,
+          canManageSharing: false,
+        },
+      });
+      dbExecuteMock.mockResolvedValue({ rows: [{ role: "owner" }] });
+
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", enabled: "false" }),
+      );
+
+      expect(out.error).toMatch(/Collaborate access is required/);
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
     });
 
     it("fails closed (denies) when the admin role lookup throws", async () => {

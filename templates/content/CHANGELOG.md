@@ -3,7 +3,17 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-21
+
+### Fixed
+
+- Organization favorites include documents shared with the current member
+
 ## 2026-10-19
+
+### Added
+
+- List rows can be customized: start from a preset like **Checklist**, then choose what shows before, under, and after each title
 
 ### Improved
 
@@ -12,6 +22,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- List views no longer run off the side of the screen on phones
 - Edits made from a block's menu or a table's row and column menus, such as deleting a table, adding a row or turning off the header row, are now saved instead of coming back after a reload
 - Starting a comment puts the cursor in the comment box, ready to type.
 - Table row and column options now appear for the row or column under the pointer, Escape selects the cell before leaving the editor, wide tables keep their add-column control on screen on phones, and a tap near a table's edge on a touch screen edits the cell there instead of adding a row or column
@@ -24,6 +35,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Connected AI assistants can make a collection from a GitHub folder, or link an empty one: each Markdown file becomes a view-only page, and a sync brings in the latest pushes
+- Make a collection from a GitHub folder in the sidebar's New menu, or fill an empty one from its Sources settings, which say up front when GitHub can't link and what to do instead. A short preview comes before linking, the collection shows where its pages come from and when they last updated, and unlinking asks first
 - Connected AI assistants can link a new collection to a GitHub folder: each Markdown file becomes a view-only page, and a sync brings in the latest pushes
 
 ### Improved

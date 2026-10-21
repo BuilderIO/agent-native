@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,6 +30,20 @@ import {
 const originalFetch = globalThis.fetch;
 const settingsKey = "dispatch-app-creation-settings:user:dev@example.test";
 
+function verifyJwtWithSecret(
+  token: string,
+  secret: string,
+): Record<string, unknown> {
+  const [header, payload, signature] = token.split(".");
+  const expected = createHmac("sha256", secret)
+    .update(`${header}.${payload}`)
+    .digest("base64url");
+  if (signature !== expected || !payload) {
+    throw new Error("JWT signature did not match the provided secret.");
+  }
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+}
+
 const mocks = vi.hoisted(() => {
   const settings = new Map<string, unknown>();
   const state = {
@@ -55,6 +70,8 @@ const mocks = vi.hoisted(() => {
     getOrgDomain: vi.fn(async (orgId: string) =>
       orgId ? "example.test" : null,
     ),
+    getOrgA2ASecret: vi.fn(async () => null as string | null),
+    signA2AToken: vi.fn(),
     isWorkspaceAppAccessAllowed: vi.fn(
       async (): Promise<boolean | "unavailable"> => true,
     ),
@@ -62,6 +79,7 @@ const mocks = vi.hoisted(() => {
       role: "viewer",
       resource: {},
     })),
+    readOrgMemberRole: vi.fn(async () => state.orgRole),
     getDbExec: vi.fn(() => ({
       execute: vi.fn(async (statement: unknown) => {
         const sql =
@@ -131,6 +149,18 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock("@agent-native/core/a2a", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/a2a")>();
+  mocks.signA2AToken.mockImplementation((...args: any[]) =>
+    actual.signA2AToken(...args),
+  );
+  return {
+    ...actual,
+    signA2AToken: (...args: any[]) => mocks.signA2AToken(...args),
+  };
+});
+
 vi.mock("../../db/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../db/index.js")>();
   return { ...actual, getDb: mocks.getDb };
@@ -166,6 +196,7 @@ vi.mock("@agent-native/core/org", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/org")>();
   return {
     ...actual,
+    getOrgA2ASecret: (...args: any[]) => mocks.getOrgA2ASecret(...args),
     getOrgDomain: (...args: any[]) => mocks.getOrgDomain(...args),
     isWorkspaceAppAccessAllowed: (...args: any[]) =>
       mocks.isWorkspaceAppAccessAllowed(...args),
@@ -186,6 +217,7 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/server")>();
   return {
     ...actual,
+    readOrgMemberRole: (...args: any[]) => mocks.readOrgMemberRole(...args),
     resolveBuilderCredentialsDetailed: (...args: any[]) =>
       mocks.resolveBuilderCredentialsDetailed(...args),
     createBuilderProject: (...args: any[]) =>
@@ -218,6 +250,8 @@ afterEach(() => {
   mocks.settings.clear();
   mocks.getOrgSetting.mockReset();
   mocks.getOrgSetting.mockResolvedValue(null);
+  mocks.getOrgA2ASecret.mockReset();
+  mocks.getOrgA2ASecret.mockResolvedValue(null);
   mocks.isWorkspaceAppAccessAllowed.mockReset();
   mocks.isWorkspaceAppAccessAllowed.mockResolvedValue(true);
   mocks.mutateSetting.mockReset();
@@ -229,6 +263,8 @@ afterEach(() => {
     },
   );
   mocks.state.orgRole = "admin";
+  mocks.readOrgMemberRole.mockReset();
+  mocks.readOrgMemberRole.mockImplementation(async () => mocks.state.orgRole);
   mocks.state.workspaceApps = [];
   orgAppsDirectoryCache.clear();
   orgAppsDirectoryAccessCache.clear();
@@ -600,6 +636,130 @@ describe("listWorkspaceApps", () => {
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
   });
 
+  it("signs the hosted registry request with the caller's organization secret", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([]), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "dispatch-deployment-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValueOnce("workspace-org-secret");
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-1" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    const authorization = fetchMock.mock.calls[0]?.[1]?.headers
+      ?.Authorization as string;
+    const token = authorization.slice("Bearer ".length);
+    const payload = verifyJwtWithSecret(token, "workspace-org-secret");
+    expect(payload).toMatchObject({
+      sub: "dev@example.test",
+      org_domain: "example.test",
+      aud: "https://agent-workspace.builder.io",
+    });
+    expect(() =>
+      verifyJwtWithSecret(token, "dispatch-deployment-secret"),
+    ).toThrow();
+  });
+
+  it("reports missing hosted gateway signing credentials instead of sending anonymously", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValueOnce(null);
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-1" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_a2a_secret_missing",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports organization A2A secret lookup failures before using manifest apps", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "dispatch-deployment-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+    mocks.getOrgA2ASecret.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-1" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_org_a2a_secret_unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports token signing failures before using manifest apps", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "dispatch-deployment-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+    mocks.signA2AToken.mockRejectedValueOnce(new Error("signing unavailable"));
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-1" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_token_signing_failed",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not hide an organization lookup failure behind manifest apps", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+    mocks.getOrgDomain.mockRejectedValueOnce(new Error("database unavailable"));
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-1" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_org_domain_unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("binds hosted registry tokens to the mounted Dispatch path", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(
@@ -793,6 +953,122 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
   });
 
+  it("treats an empty hosted registry response as a successful empty list", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([]), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([206, 500, 502, 503])(
+    "surfaces hosted registry HTTP %i failures instead of using manifest apps",
+    async (status) => {
+      const fetchMock = vi.fn(
+        async () => new Response("gateway unavailable", { status }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        errorCode: `workspace_gateway_http_${status}`,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("surfaces hosted registry transport failures instead of using manifest apps", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("Network connection failed");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+    await expect(
+      runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_unavailable",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces malformed hosted registry responses instead of using manifest apps", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("not json", {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+    await expect(
+      runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_invalid_response",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [{ id: "dispatch", name: "Dispatch", path: "/dispatch" }, null],
+    [
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "DISPATCH", name: "Duplicate Dispatch", path: "/other" },
+    ],
+  ])("rejects incomplete hosted registry lists: %j", async (apps) => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(apps), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+    await expect(
+      runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_invalid_response",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("passes the Vercel protection bypass to the hosted workspace registry", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(
@@ -859,10 +1135,10 @@ describe("listWorkspaceApps", () => {
     );
   });
 
-  it("does not recursively call the hosted registry action", async () => {
+  it("skips a same-origin hosted registry without credentials", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("A2A_SECRET", "");
     vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
 
     const apps = await runWithRequestContext(
@@ -891,9 +1167,13 @@ describe("listWorkspaceApps", () => {
         { userEmail: "dev@example.test", orgId: "org-without-domain" },
         () => listWorkspaceApps({ includeAgentCards: false }),
       ),
-    ).rejects.toThrow(
-      "Workspace apps gateway cannot authenticate without a resolved organization domain.",
-    );
+    ).rejects.toMatchObject({
+      name: "WorkspaceAppsGatewayAuthorizationError",
+      statusCode: 401,
+      errorCode: "workspace_gateway_org_domain_missing",
+      message:
+        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -2048,11 +2328,9 @@ describe("listWorkspaceApps", () => {
   it("reports owner-role lookup failures as unavailable instead of unauthorized", async () => {
     stubNoPendingContext();
     stubManifest([{ id: "todo", name: "Todo", path: "/todo" }]);
-    mocks.getDbExec.mockReturnValue({
-      execute: vi.fn(async () => {
-        throw new Error("database unavailable");
-      }),
-    } as any);
+    mocks.readOrgMemberRole.mockRejectedValue(
+      new Error("database unavailable"),
+    );
 
     await expect(
       runWithRequestContext(
@@ -2926,5 +3204,25 @@ describe("setAppCreationSettings", () => {
     ).toEqual({ builderProjectId: projectId });
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
     expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("caps a delegated owner before changing the shared Builder project", async () => {
+    mocks.readOrgMemberRole.mockResolvedValueOnce("member");
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "dev@example.test",
+          orgId,
+          a2aIdentityAssurance: "org-member",
+        },
+        () => setAppCreationSettings({ builderProjectId: projectId }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.readOrgMemberRole).toHaveBeenCalledWith(
+      orgId,
+      "dev@example.test",
+    );
+    expect(mocks.putSetting).not.toHaveBeenCalled();
   });
 });

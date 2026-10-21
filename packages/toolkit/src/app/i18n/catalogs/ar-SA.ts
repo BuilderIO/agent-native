@@ -1522,6 +1522,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "عمل",
   "tool.workedFor": "عمل لمدة {{duration}}",
   "widget.chart": "مخطط",
+  "widget.chartActions": "إجراءات المخطط",
+  "widget.dataSources": "مصادر البيانات",
+  "widget.tableActions": "إجراءات الجدول",
   "widget.dataChart": "مخطط بيانات",
   "widget.dataInsights": "رؤى البيانات",
   "widget.dataTable": "جدول بيانات",
@@ -2157,6 +2160,9 @@ const messages: ToolkitAgentChatTranslation = {
     "معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
   "settingsOrg.auth.sharedSecretNotSet":
     "غير معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
+  "settingsOrg.auth.memberDelegation": "تفويض هوية أعضاء المؤسسة",
+  "settingsOrg.auth.memberDelegationHelp":
+    "يمكن للتطبيقات المتصلة التي تستخدم السر المشترك لهذه المؤسسة ادّعاء هوية أي عضو حالي عند الاتصال بهذا التطبيق. يتحقق هذا التطبيق من قائمة الأعضاء الحالية ويقيّد الوصول المفوّض إلى المؤسسة بصلاحيات مستوى العضو.",
   "settingsOrg.auth.secretNotSetValue": "غير معيّن",
   "settingsOrg.auth.manage": "إدارة",
   "settingsOrg.auth.reveal": "إظهار",
@@ -2243,6 +2249,12 @@ const messages: ToolkitAgentChatTranslation = {
     "تحقق من بريدك الإلكتروني للاطلاع على تعليمات تأكيد هذا التغيير.",
   "settingsShell.account.languageAndRegion": "اللغة والمنطقة",
   "settingsShell.account.languageDescription": "يُطبَّق على جميع أجهزتك.",
+  "settingsShell.account.appearance": "المظهر",
+  "settingsShell.account.themeFamily": "نمط السمة",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "الألوان الأصلية للتطبيق",
+  "settingsShell.account.themeFamilySaveError":
+    "تعذّر تحديث نمط السمة. حاول مرة أخرى.",
   "settingsShell.account.manage": "إدارة",
   "settingsShell.account.name": "الاسم",
   "settingsShell.account.nameDescription":

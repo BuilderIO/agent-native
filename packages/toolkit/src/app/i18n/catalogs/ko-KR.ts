@@ -1510,6 +1510,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "작업함",
   "tool.workedFor": "{{duration}} 동안 작업함",
   "widget.chart": "차트",
+  "widget.chartActions": "차트 작업",
+  "widget.dataSources": "데이터 소스",
+  "widget.tableActions": "표 작업",
   "widget.dataChart": "데이터 차트",
   "widget.dataInsights": "데이터 인사이트",
   "widget.dataTable": "데이터 테이블",
@@ -1998,6 +2001,9 @@ const messages: ToolkitAgentChatTranslation = {
     "설정됨. 이 워크스페이스의 앱이 서로를 확인할 수 있습니다.",
   "settingsOrg.auth.sharedSecretNotSet":
     "설정 안 됨. 이 워크스페이스의 앱이 서로를 확인할 수 있습니다.",
+  "settingsOrg.auth.memberDelegation": "조직 구성원 신원 위임",
+  "settingsOrg.auth.memberDelegationHelp":
+    "이 공유 조직 비밀을 보유한 연결된 앱은 이 앱을 호출할 때 현재 구성원 누구의 신원이든 주장할 수 있습니다. 이 앱은 실시간 구성원 명단을 확인하고 위임된 조직 액세스를 구성원 수준 권한으로 제한합니다.",
   "settingsOrg.auth.secretNotSetValue": "설정 안 됨",
   "settingsOrg.auth.manage": "관리",
   "settingsOrg.auth.reveal": "표시",
@@ -2054,6 +2060,12 @@ const messages: ToolkitAgentChatTranslation = {
     "이메일을 확인하고 안내에 따라 이 변경을 확정하세요.",
   "settingsShell.account.languageAndRegion": "언어 및 지역",
   "settingsShell.account.languageDescription": "모든 기기에 적용됩니다.",
+  "settingsShell.account.appearance": "모양",
+  "settingsShell.account.themeFamily": "테마 스타일",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "앱의 원래 색상",
+  "settingsShell.account.themeFamilySaveError":
+    "테마 스타일을 업데이트하지 못했습니다. 다시 시도하세요.",
   "settingsShell.account.manage": "관리",
   "settingsShell.account.name": "이름",
   "settingsShell.account.nameDescription":

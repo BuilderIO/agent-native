@@ -846,6 +846,14 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       () => import("../appearance/actions/change-appearance.js"),
     ],
     [
+      "get-theme-family",
+      () => import("../appearance/actions/get-theme-family.js"),
+    ],
+    [
+      "set-theme-family",
+      () => import("../appearance/actions/set-theme-family.js"),
+    ],
+    [
       "list-audit-events",
       () => import("../audit/actions/list-audit-events.js"),
     ],

@@ -114,7 +114,7 @@ describe("local boot against a database an older release created", () => {
         step: 0,
       },
       { store_id: "context_xray", legacy: 3, step: 0 },
-      { store_id: "org", legacy: 34, step: 0 },
+      { store_id: "org", legacy: 34, step: 1 },
     ]);
   }, 300_000);
 });

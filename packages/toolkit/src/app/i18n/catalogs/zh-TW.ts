@@ -1424,6 +1424,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "已處理",
   "tool.workedFor": "處理了 {{duration}}",
   "widget.chart": "圖表",
+  "widget.chartActions": "圖表操作",
+  "widget.dataSources": "資料來源",
+  "widget.tableActions": "表格操作",
   "widget.dataChart": "資料圖表",
   "widget.dataInsights": "資料洞察",
   "widget.dataTable": "資料表",
@@ -1894,6 +1897,9 @@ const messages: ToolkitAgentChatTranslation = {
     "已設定。讓此工作區中的應用程式互相驗證。",
   "settingsOrg.auth.sharedSecretNotSet":
     "未設定。讓此工作區中的應用程式互相驗證。",
+  "settingsOrg.auth.memberDelegation": "組織成員身分委派",
+  "settingsOrg.auth.memberDelegationHelp":
+    "持有此組織共用密鑰的已連結應用程式在呼叫此應用程式時，可以聲稱是任何一位現任成員。此應用程式會檢查即時成員名單，並將受委派的組織存取權限制為成員層級的權限。",
   "settingsOrg.auth.secretNotSetValue": "未設定",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "顯示",
@@ -1947,6 +1953,12 @@ const messages: ToolkitAgentChatTranslation = {
     "請查看您的電子郵件，依照說明確認此變更。",
   "settingsShell.account.languageAndRegion": "語言和地區",
   "settingsShell.account.languageDescription": "套用至您的所有裝置。",
+  "settingsShell.account.appearance": "外觀",
+  "settingsShell.account.themeFamily": "主題樣式",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "原始應用程式配色",
+  "settingsShell.account.themeFamilySaveError":
+    "無法更新主題樣式，請再試一次。",
   "settingsShell.account.manage": "管理",
   "settingsShell.account.name": "姓名",
   "settingsShell.account.nameDescription":

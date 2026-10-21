@@ -63,10 +63,13 @@ Before pushing to or merging an existing PR, resolve the active GitHub login
 with `gh api user --jq .login` and query the live PR including `author`,
 `headRepository`, `headRefName`, `headRefOid`, `baseRefName`, and `state`.
 Compare `author.login` with the active login. A push to another person's PR
-requires the current request to explicitly authorize a push to that exact PR;
-a PR link, branch match, or generic `/ship-now` request is not authorization.
-Merging another person's PR requires separate authorization to merge that exact
-PR. Repeat the live checks immediately before each push and merge, and push only
+requires the user to explicitly authorize a push to that exact PR in the active
+task; a PR link, branch match, or generic `/ship-now` request is not
+authorization. Once given, that authorization persists across resumed turns,
+heartbeats, and context compaction until its scope is complete or revoked.
+Merging another person's PR requires explicit authorization to merge that exact
+PR; that authorization also persists for the active task. Repeat the live
+checks immediately before each push and merge, and push only
 to the verified head repository and branch with a normal fast-forward.
 
 Determine comment authorization from the live PR author before drafting or

@@ -1063,6 +1063,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "Trabajó",
   "tool.workedFor": "Trabajó durante {{duration}}",
   "widget.chart": "Gráfico",
+  "widget.chartActions": "Acciones del gráfico",
+  "widget.dataSources": "Fuentes de datos",
+  "widget.tableActions": "Acciones de la tabla",
   "widget.dataChart": "Gráfico de datos",
   "widget.dataInsights": "Información sobre los datos",
   "widget.dataTable": "Tabla de datos",
@@ -2155,6 +2158,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Definido. Permite que las apps de este espacio de trabajo se verifiquen entre sí.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Sin definir. Permite que las apps de este espacio de trabajo se verifiquen entre sí.",
+  "settingsOrg.auth.memberDelegation":
+    "Delegación de identidad de miembros de la organización",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Las aplicaciones conectadas que tengan este secreto compartido de la organización pueden afirmar la identidad de cualquier miembro actual al llamar a esta aplicación. Esta aplicación comprueba la lista de miembros en tiempo real y limita el acceso delegado a la organización a los permisos del rol de miembro.",
   "settingsOrg.auth.secretNotSetValue": "Sin definir",
   "settingsOrg.auth.manage": "Gestionar",
   "settingsOrg.auth.reveal": "Mostrar",
@@ -2227,6 +2234,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "Idioma y región",
   "settingsShell.account.languageDescription":
     "Se aplica en todos tus dispositivos.",
+  "settingsShell.account.appearance": "Apariencia",
+  "settingsShell.account.themeFamily": "Familia de tema",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal":
+    "Colores originales de la aplicación",
+  "settingsShell.account.themeFamilySaveError":
+    "No se pudo actualizar el tema. Inténtalo de nuevo.",
   "settingsShell.account.manage": "Gestionar",
   "settingsShell.account.name": "Nombre",
   "settingsShell.account.nameDescription":

@@ -19,16 +19,20 @@ follow-up. Do not use PR leases.
 
 A request to monitor or fix a PR does not authorize pushing to a PR authored by
 someone else. Push to that PR only when the user explicitly authorizes a push to
-that exact PR in the current request. A linked PR or inherited general ship
-authorization is insufficient. That permits only a push; merging that PR needs
-separate authorization in the current request. Before an authorized push,
-verify the live PR author, head repository, branch, head OID, and base; recheck
-the head before every normal fast-forward push.
+that exact PR in the active task. A linked PR or inherited general ship
+authorization is insufficient. Once given, exact-PR authorization persists
+across resumed turns, heartbeats, and context compaction until its scope is
+complete or revoked; do not ask again for a covered step. It permits a normal
+fast-forward push; merge still needs explicit authorization for that PR.
+Follow `AGENTS.md` for authorization persistence. Before an authorized push,
+verify the live PR author, head
+repository, branch, head OID, and base; recheck the head before every normal
+fast-forward push.
 
 Before each push, resolve the active GitHub login with `gh api user --jq .login`,
 include `author` in the live PR query, and compare `author.login` with that
-login. If they differ, require the current-request authorization for that exact
-PR.
+login. If they differ, require the user's exact-PR authorization from this
+active task.
 
 Determine comment authorization from the live PR author before drafting or
 posting any PR communication. On a PR authored by the active user, concise

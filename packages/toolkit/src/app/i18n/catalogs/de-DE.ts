@@ -1068,6 +1068,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "Verarbeitet",
   "tool.workedFor": "{{duration}} verarbeitet",
   "widget.chart": "Diagramm",
+  "widget.chartActions": "Diagrammaktionen",
+  "widget.dataSources": "Datenquellen",
+  "widget.tableActions": "Tabellenaktionen",
   "widget.dataChart": "Datendiagramm",
   "widget.dataInsights": "Datenerkenntnisse",
   "widget.dataTable": "Datentabelle",
@@ -2135,6 +2138,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Festgelegt. Damit können sich die Apps in diesem Workspace gegenseitig verifizieren.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Nicht festgelegt. Damit können sich die Apps in diesem Workspace gegenseitig verifizieren.",
+  "settingsOrg.auth.memberDelegation":
+    "Identitätsdelegierung für Organisationsmitglieder",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Verbundene Apps mit diesem gemeinsamen Organisations-Secret können beim Aufruf dieser App die Identität eines beliebigen aktuellen Mitglieds annehmen. Diese App prüft die aktuelle Mitgliederliste und beschränkt den delegierten Organisationszugriff auf Berechtigungen der Mitgliedsrolle.",
   "settingsOrg.auth.secretNotSetValue": "Nicht festgelegt",
   "settingsOrg.auth.manage": "Verwalten",
   "settingsOrg.auth.reveal": "Anzeigen",
@@ -2200,6 +2207,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Prüfe deine E-Mails, um die Änderung zu bestätigen.",
   "settingsShell.account.languageAndRegion": "Sprache und Region",
   "settingsShell.account.languageDescription": "Gilt auf allen deinen Geräten.",
+  "settingsShell.account.appearance": "Darstellung",
+  "settingsShell.account.themeFamily": "Farbschema",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "Originalfarben der App",
+  "settingsShell.account.themeFamilySaveError":
+    "Das Farbschema konnte nicht aktualisiert werden. Versuch es noch einmal.",
   "settingsShell.account.manage": "Verwalten",
   "settingsShell.account.name": "Name",
   "settingsShell.account.nameDescription":

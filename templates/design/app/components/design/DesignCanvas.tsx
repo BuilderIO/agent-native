@@ -70,6 +70,7 @@ import {
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { attachNativePreviewViewportPublisher } from "@/components/design/bridge/native-preview-viewport-transport";
 import { installNativeWorkerBroker } from "@/components/design/bridge/native-worker-broker";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -187,6 +188,16 @@ import type {
   MotionPathTracksChangeResult,
   MotionTrackWire,
 } from "./design-canvas/motion-types";
+import {
+  connectNativePublicAssetPreview,
+  prepareNativePublicAssetPreviewDocument,
+  type NativePublicAssetPreviewDocument,
+} from "./design-canvas/native-public-asset-preview";
+import {
+  connectNativePublicWorkerPreview,
+  prepareNativePublicWorkerPreviewDocument,
+  type NativePublicWorkerPreviewDocument,
+} from "./design-canvas/native-public-worker-preview";
 import {
   acknowledgePendingTextInsert,
   beginPendingTextDelivery,
@@ -1631,14 +1642,85 @@ export function DesignCanvas({
   const t = useT();
   const { resolvedTheme } = useTheme();
   const browserOrigin = useBrowserOrigin();
+  const [replacedFrame, setReplacedFrame] =
+    useState<ReplacedPreviewFrame | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const replacedFrameRef = useRef<HTMLIFrameElement>(null);
-  const setIframeRef = useCallback((next: HTMLIFrameElement | null) => {
-    setNativePreviewIframeRef(iframeRef, next);
-  }, []);
-  const setReplacedFrameRef = useCallback((next: HTMLIFrameElement | null) => {
-    setNativePreviewIframeRef(replacedFrameRef, next);
-  }, []);
+  const nativeViewportPublisherCleanupsRef = useRef(
+    new Map<HTMLIFrameElement, () => void>(),
+  );
+  const nativePublicAssetPreviewCleanupsRef = useRef(
+    new Map<HTMLIFrameElement, () => void>(),
+  );
+  const nativePublicWorkerPreviewCleanupsRef = useRef(
+    new Map<HTMLIFrameElement, () => void>(),
+  );
+  const nativePublicAssetPreviewRef =
+    useRef<NativePublicAssetPreviewDocument | null>(null);
+  const replacedPublicAssetPreviewRef =
+    useRef<NativePublicAssetPreviewDocument | null>(null);
+  const nativePublicWorkerPreviewRef =
+    useRef<NativePublicWorkerPreviewDocument | null>(null);
+  const replacedPublicWorkerPreviewRef =
+    useRef<NativePublicWorkerPreviewDocument | null>(null);
+  const setPreviewFrameRef = useCallback(
+    (
+      ref: React.RefObject<HTMLIFrameElement | null>,
+      next: HTMLIFrameElement | null,
+    ) => {
+      const previous = ref.current;
+      if (previous === next) return;
+      if (previous && previous !== next) {
+        nativeViewportPublisherCleanupsRef.current.get(previous)?.();
+        nativeViewportPublisherCleanupsRef.current.delete(previous);
+        nativePublicAssetPreviewCleanupsRef.current.get(previous)?.();
+        nativePublicAssetPreviewCleanupsRef.current.delete(previous);
+        nativePublicWorkerPreviewCleanupsRef.current.get(previous)?.();
+        nativePublicWorkerPreviewCleanupsRef.current.delete(previous);
+      }
+      setNativePreviewIframeRef(ref, next);
+      if (next && !nativeViewportPublisherCleanupsRef.current.has(next))
+        nativeViewportPublisherCleanupsRef.current.set(
+          next,
+          attachNativePreviewViewportPublisher(next),
+        );
+      const publicAssetPreview =
+        ref === replacedFrameRef
+          ? replacedPublicAssetPreviewRef.current
+          : nativePublicAssetPreviewRef.current;
+      if (next && publicAssetPreview)
+        nativePublicAssetPreviewCleanupsRef.current.set(
+          next,
+          connectNativePublicAssetPreview(next, publicAssetPreview),
+        );
+      const publicWorkerPreview =
+        ref === replacedFrameRef
+          ? replacedPublicWorkerPreviewRef.current
+          : nativePublicWorkerPreviewRef.current;
+      if (next && publicWorkerPreview)
+        nativePublicWorkerPreviewCleanupsRef.current.set(
+          next,
+          connectNativePublicWorkerPreview(
+            next,
+            publicWorkerPreview,
+            publicAssetPreview?.html ?? publicWorkerPreview.html,
+          ),
+        );
+    },
+    [],
+  );
+  const setIframeRef = useCallback(
+    (next: HTMLIFrameElement | null) => {
+      setPreviewFrameRef(iframeRef, next);
+    },
+    [setPreviewFrameRef],
+  );
+  const setReplacedFrameRef = useCallback(
+    (next: HTMLIFrameElement | null) => {
+      setPreviewFrameRef(replacedFrameRef, next);
+    },
+    [setPreviewFrameRef],
+  );
   const canvasFocusProbeRequestIdRef = useRef(0);
   const pendingCanvasFocusProbeRef = useRef<{
     requestId: number;
@@ -2615,13 +2697,14 @@ export function DesignCanvas({
     iframePreviewUrlRef.current.url = resolvedExternalPreviewUrl;
   }
   const externalPreviewUrl = iframePreviewUrlRef.current.url;
-  const syncNativeShaderApprovals = useNativeShaderApprovals({
-    designId,
-    fileId: screenId,
-    enabled:
-      !externalPreviewUrl &&
-      content.includes("application/x-agent-native-effects"),
-  });
+  const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
+    useNativeShaderApprovals({
+      designId,
+      fileId: screenId,
+      enabled:
+        !externalPreviewUrl &&
+        content.includes("application/x-agent-native-effects"),
+    });
   const runtimeVerificationUrl = useMemo(() => {
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
@@ -8246,6 +8329,126 @@ export function DesignCanvas({
     parentOrigin: browserOrigin ?? undefined,
     liveApp: interactMode,
   });
+  const nativePublicWorkerPreview = useMemo(
+    () =>
+      browserOrigin &&
+      !externalPreviewUrl &&
+      !previewIframeSandbox.includes("allow-same-origin")
+        ? prepareNativePublicWorkerPreviewDocument(
+            privateScreenshotPreview.html,
+            approvedDefinitionHashes,
+          )
+        : null,
+    [
+      approvedDefinitionHashes,
+      browserOrigin,
+      externalPreviewUrl,
+      privateScreenshotPreview.html,
+      previewIframeSandbox,
+    ],
+  );
+  const nativePublicAssetPreview = useMemo(
+    () =>
+      browserOrigin &&
+      !externalPreviewUrl &&
+      !previewIframeSandbox.includes("allow-same-origin")
+        ? prepareNativePublicAssetPreviewDocument(
+            nativePublicWorkerPreview?.html ?? privateScreenshotPreview.html,
+            window.location.href,
+          )
+        : null,
+    [
+      browserOrigin,
+      externalPreviewUrl,
+      nativePublicWorkerPreview,
+      privateScreenshotPreview.html,
+      previewIframeSandbox,
+    ],
+  );
+  const replacedPublicWorkerPreview = useMemo(
+    () =>
+      browserOrigin &&
+      replacedFrame &&
+      !replacedFrame.sandbox.includes("allow-same-origin")
+        ? prepareNativePublicWorkerPreviewDocument(
+            replacedFrame.srcDoc,
+            approvedDefinitionHashes,
+          )
+        : null,
+    [approvedDefinitionHashes, browserOrigin, replacedFrame],
+  );
+  const replacedPublicAssetPreview = useMemo(
+    () =>
+      browserOrigin &&
+      replacedFrame &&
+      !replacedFrame.sandbox.includes("allow-same-origin")
+        ? prepareNativePublicAssetPreviewDocument(
+            replacedPublicWorkerPreview?.html ?? replacedFrame.srcDoc,
+            window.location.href,
+          )
+        : null,
+    [browserOrigin, replacedFrame, replacedPublicWorkerPreview],
+  );
+  nativePublicAssetPreviewRef.current = nativePublicAssetPreview;
+  replacedPublicAssetPreviewRef.current = replacedPublicAssetPreview;
+  nativePublicWorkerPreviewRef.current = nativePublicWorkerPreview;
+  replacedPublicWorkerPreviewRef.current = replacedPublicWorkerPreview;
+  useEffect(() => {
+    const frame = iframeRef.current;
+    if (!frame) return;
+    nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
+    nativePublicAssetPreviewCleanupsRef.current.delete(frame);
+    nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
+    nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
+    if (nativePublicAssetPreview)
+      nativePublicAssetPreviewCleanupsRef.current.set(
+        frame,
+        connectNativePublicAssetPreview(frame, nativePublicAssetPreview),
+      );
+    if (nativePublicWorkerPreview)
+      nativePublicWorkerPreviewCleanupsRef.current.set(
+        frame,
+        connectNativePublicWorkerPreview(
+          frame,
+          nativePublicWorkerPreview,
+          nativePublicAssetPreview?.html ?? nativePublicWorkerPreview.html,
+        ),
+      );
+    return () => {
+      nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
+      nativePublicAssetPreviewCleanupsRef.current.delete(frame);
+      nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
+      nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
+    };
+  }, [nativePublicAssetPreview, nativePublicWorkerPreview]);
+  useEffect(() => {
+    const frame = replacedFrameRef.current;
+    if (!frame) return;
+    nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
+    nativePublicAssetPreviewCleanupsRef.current.delete(frame);
+    nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
+    nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
+    if (replacedPublicAssetPreview)
+      nativePublicAssetPreviewCleanupsRef.current.set(
+        frame,
+        connectNativePublicAssetPreview(frame, replacedPublicAssetPreview),
+      );
+    if (replacedPublicWorkerPreview)
+      nativePublicWorkerPreviewCleanupsRef.current.set(
+        frame,
+        connectNativePublicWorkerPreview(
+          frame,
+          replacedPublicWorkerPreview,
+          replacedPublicAssetPreview?.html ?? replacedPublicWorkerPreview.html,
+        ),
+      );
+    return () => {
+      nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
+      nativePublicAssetPreviewCleanupsRef.current.delete(frame);
+      nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
+      nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
+    };
+  }, [replacedPublicAssetPreview, replacedPublicWorkerPreview]);
   const previewIframeName = externalPreviewUrl
     ? undefined
     : previewColorSchemeFrameName(previewColorScheme);
@@ -8284,8 +8487,6 @@ export function DesignCanvas({
     !(snapshotOnly && !iframeRenderContent.trim()) &&
     !(rawExternalPreviewUrl && !externalPreviewUrl) &&
     !externalPreviewPendingOrigin;
-  const [replacedFrame, setReplacedFrame] =
-    useState<ReplacedPreviewFrame | null>(null);
   const mountedMarkupFrameRef = useRef<ReplacedPreviewFrame | null>(null);
   const markupFrame: ReplacedPreviewFrame | null = markupFrameMounted
     ? {
@@ -8408,7 +8609,11 @@ export function DesignCanvas({
             <iframe
               key={replacedFrame.key}
               ref={setReplacedFrameRef}
-              srcDoc={replacedFrame.srcDoc}
+              srcDoc={
+                replacedPublicAssetPreview?.html ??
+                replacedPublicWorkerPreview?.html ??
+                replacedFrame.srcDoc
+              }
               name={replacedFrame.name}
               sandbox={replacedFrame.sandbox}
               data-design-preview-replaced
@@ -8427,7 +8632,11 @@ export function DesignCanvas({
             ref={setIframeRef}
             src={externalPreviewUrl ?? undefined}
             srcDoc={
-              externalPreviewUrl ? undefined : privateScreenshotPreview.html
+              externalPreviewUrl
+                ? undefined
+                : (nativePublicAssetPreview?.html ??
+                  nativePublicWorkerPreview?.html ??
+                  privateScreenshotPreview.html)
             }
             // The starting scheme of a markup preview; see
             // previewColorSchemeFrameName. A URL page keeps its own name.

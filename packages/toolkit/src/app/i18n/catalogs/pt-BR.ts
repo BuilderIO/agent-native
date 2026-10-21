@@ -1055,6 +1055,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "Trabalhou",
   "tool.workedFor": "Trabalhou por {{duration}}",
   "widget.chart": "Gráfico",
+  "widget.chartActions": "Ações do gráfico",
+  "widget.dataSources": "Fontes de dados",
+  "widget.tableActions": "Ações da tabela",
   "widget.dataChart": "Gráfico de dados",
   "widget.dataInsights": "Insights de dados",
   "widget.dataTable": "Tabela de dados",
@@ -2145,6 +2148,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Definido. Permite que os apps deste espaço de trabalho verifiquem uns aos outros.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Não definido. Permite que os apps deste espaço de trabalho verifiquem uns aos outros.",
+  "settingsOrg.auth.memberDelegation":
+    "Delegação de identidade de membros da organização",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Apps conectados que tenham este segredo compartilhado da organização podem declarar a identidade de qualquer membro atual ao chamar este app. Este app verifica a lista de membros em tempo real e limita o acesso delegado à organização às permissões do nível de membro.",
   "settingsOrg.auth.secretNotSetValue": "Não definido",
   "settingsOrg.auth.manage": "Gerenciar",
   "settingsOrg.auth.reveal": "Mostrar",
@@ -2216,6 +2223,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "Idioma e região",
   "settingsShell.account.languageDescription":
     "Vale para todos os seus dispositivos.",
+  "settingsShell.account.appearance": "Aparência",
+  "settingsShell.account.themeFamily": "Família do tema",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "Cores originais do app",
+  "settingsShell.account.themeFamilySaveError":
+    "Não foi possível atualizar o tema. Tente novamente.",
   "settingsShell.account.manage": "Gerenciar",
   "settingsShell.account.name": "Nome",
   "settingsShell.account.nameDescription":
