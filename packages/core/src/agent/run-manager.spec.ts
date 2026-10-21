@@ -1106,6 +1106,7 @@ describe("run manager soft timeout", () => {
     vi.mocked(getRunById).mockRejectedValueOnce(
       new Error("database read unavailable"),
     );
+    vi.mocked(updateRunStatusIfRunning).mockResolvedValueOnce(false);
     const run = startRun(
       runId,
       threadId,
@@ -1143,9 +1144,13 @@ describe("run manager soft timeout", () => {
       runId,
       "errored",
       expect.objectContaining({
+        threadProjectionPending: true,
         terminalReason: "error:run_terminal_lookup_failed",
       }),
     );
+    expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(runId, {
+      threadProjectionPending: true,
+    });
     expect(run.status).toBe("errored");
     consoleError.mockRestore();
   });
@@ -1235,8 +1240,10 @@ describe("run manager soft timeout", () => {
       const runId = `run-checkpoint-observed-${persistedStatus}`;
       const threadId = `thread-checkpoint-observed-${persistedStatus}`;
       const completionStatuses: string[] = [];
+      const completionRuns: ActiveRun[] = [];
       const onComplete = vi.fn((completedRun: ActiveRun) => {
         completionStatuses.push(completedRun.status);
+        completionRuns.push(completedRun);
       });
       vi.mocked(persistRunCheckpointEvent).mockResolvedValueOnce();
       vi.mocked(getRunById).mockResolvedValueOnce({
@@ -1246,7 +1253,7 @@ describe("run manager soft timeout", () => {
         startedAt: Date.now(),
         errorCode: null,
         errorDetail: null,
-        terminalReason: null,
+        terminalReason: persistedStatus === "truncated" ? "run_timeout" : null,
       });
       vi.mocked(updateRunStatusIfRunning).mockResolvedValueOnce(false);
 
@@ -1266,12 +1273,27 @@ describe("run manager soft timeout", () => {
       await run.finalized;
 
       expect(completionStatuses).toEqual([persistedStatus]);
+      expect(run.status).toBe(persistedStatus);
+      if (persistedStatus === "truncated") {
+        expect(completionRuns[0]?.events).toContainEqual(
+          expect.objectContaining({
+            event: { type: "auto_continue", reason: "run_timeout" },
+          }),
+        );
+        expect(completionRuns[0]?.events).not.toContainEqual(
+          expect.objectContaining({ event: { type: "done" } }),
+        );
+      }
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         runId,
-        expect.any(String),
+        persistedStatus,
         expect.objectContaining({
           terminalReason:
-            persistedStatus === "errored" ? "error:unknown" : "done",
+            persistedStatus === "errored"
+              ? "error:unknown"
+              : persistedStatus === "truncated"
+                ? "run_timeout"
+                : "done",
         }),
       );
       expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(runId);
@@ -1302,6 +1324,7 @@ describe("run manager soft timeout", () => {
       errorDetail: null,
       terminalReason: null,
     });
+    vi.mocked(updateRunStatusIfRunning).mockResolvedValueOnce(false);
 
     const run = startRun(
       runId,
@@ -1339,9 +1362,13 @@ describe("run manager soft timeout", () => {
       runId,
       "errored",
       expect.objectContaining({
+        threadProjectionPending: true,
         terminalReason: `error:${UNKNOWN_RUN_STATUS_ERROR_CODE}`,
       }),
     );
+    expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(runId, {
+      threadProjectionPending: true,
+    });
     expect(run.status).toBe("errored");
     consoleError.mockRestore();
   });
@@ -1438,7 +1465,7 @@ describe("run manager soft timeout", () => {
     ["aborted", "aborted"],
     ["completed", "completed"],
     ["errored", "errored"],
-    ["truncated", "completed"],
+    ["truncated", "truncated"],
     ["running", "errored"],
   ] as const)(
     "uses the persisted %s status after a terminal checkpoint rejection",
@@ -1447,8 +1474,10 @@ describe("run manager soft timeout", () => {
       const threadId = `thread-checkpoint-terminal-rejection-${persistedStatus}`;
       const events: AgentChatEvent[] = [];
       const completionStatuses: string[] = [];
+      const completionRuns: ActiveRun[] = [];
       const onComplete = vi.fn((completedRun: ActiveRun) => {
         completionStatuses.push(completedRun.status);
+        completionRuns.push(completedRun);
       });
       const consoleError = vi
         .spyOn(console, "error")
@@ -1463,7 +1492,12 @@ describe("run manager soft timeout", () => {
         startedAt: Date.now(),
         errorCode: null,
         errorDetail: null,
-        terminalReason: persistedStatus === "aborted" ? "aborted:user" : null,
+        terminalReason:
+          persistedStatus === "aborted"
+            ? "aborted:user"
+            : persistedStatus === "truncated"
+              ? "run_timeout"
+              : null,
       });
       if (persistedStatus !== "aborted") {
         vi.mocked(updateRunStatusIfRunning).mockResolvedValueOnce(false);
@@ -1492,6 +1526,16 @@ describe("run manager soft timeout", () => {
       expect(completionStatuses).toEqual([
         persistedStatus === "running" ? "errored" : persistedStatus,
       ]);
+      if (persistedStatus === "truncated") {
+        expect(completionRuns[0]?.events).toContainEqual(
+          expect.objectContaining({
+            event: { type: "auto_continue", reason: "run_timeout" },
+          }),
+        );
+        expect(completionRuns[0]?.events).not.toContainEqual(
+          expect.objectContaining({ event: { type: "done" } }),
+        );
+      }
       if (persistedStatus !== "aborted") {
         expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(runId);
       }

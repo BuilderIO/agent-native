@@ -78,7 +78,7 @@ import {
   RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT,
   UNKNOWN_RUN_STATUS_ERROR_EVENT,
 } from "./run-store.js";
-import { isContinuationTerminalReason } from "./types.js";
+import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 
 export interface ActiveRun {
@@ -636,7 +636,7 @@ function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {
 }
 
 function terminalReasonForRun(
-  finalStatus: "completed" | "errored" | "aborted",
+  finalStatus: "completed" | "truncated" | "errored" | "aborted",
   terminalEvent: AgentChatEvent | null,
   abortReason: string | undefined,
   completionError: unknown,
@@ -656,6 +656,7 @@ function terminalReasonForRun(
   if (terminalEvent?.type === "error") {
     return `error:${terminalEvent.errorCode || "unknown"}`;
   }
+  if (finalStatus === "truncated") return "stream_ended";
   if (finalStatus === "aborted") return `aborted:${abortReason ?? "user"}`;
   if (completionError) return "completion_error";
   if (finalStatus === "errored") return "error:unknown";
@@ -1410,6 +1411,25 @@ export function startRun(
   let runDriverSettled = false;
   let pendingTerminalEvent: RunEvent | null = null;
   let persistedCheckpointTerminalEvent: RunEvent | null = null;
+  const rememberPersistedCheckpointTerminalEvent = (
+    persistedRun: Awaited<ReturnType<typeof getRunById>>,
+    checkpointEvent: AgentChatEvent,
+  ) => {
+    if (persistedRun?.status !== "truncated") return;
+    const persistedReason = persistedRun.terminalReason;
+    const persistedContinuationReason = CONTINUATION_REASONS.find(
+      (reason) => reason === persistedReason,
+    );
+    const reason =
+      persistedContinuationReason ??
+      (checkpointEvent.type === "auto_continue"
+        ? checkpointEvent.reason
+        : "stream_ended");
+    persistedCheckpointTerminalEvent = {
+      seq: peekRunEventSeq(run),
+      event: { type: "auto_continue", reason },
+    };
+  };
   const checkpointRunBoundary = (
     event: AgentChatEvent,
     terminalReason: "no_progress" | "run_timeout",
@@ -1442,12 +1462,12 @@ export function startRun(
           );
           return;
         }
-        if (
-          observeCheckpointRunStatus(
-            persistedRun,
-            "after checkpoint persistence",
-          ) !== "running"
-        ) {
+        const checkpointStatus = observeCheckpointRunStatus(
+          persistedRun,
+          "after checkpoint persistence",
+        );
+        if (checkpointStatus !== "running") {
+          rememberPersistedCheckpointTerminalEvent(persistedRun, event);
           return;
         }
         softTimedOut = true;
@@ -1481,6 +1501,7 @@ export function startRun(
               persistedRun,
               "after checkpoint rejection",
             );
+            rememberPersistedCheckpointTerminalEvent(persistedRun, event);
           } catch (statusError) {
             checkpointStatusReadFailed = true;
             console.error(
@@ -2112,6 +2133,12 @@ export function startRun(
             ? { ...pendingTerminalEvent, seq: peekRunEventSeq(run) }
             : null;
         }
+        if (persistedCheckpointTerminalEvent) {
+          return {
+            ...persistedCheckpointTerminalEvent,
+            seq: peekRunEventSeq(run),
+          };
+        }
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
               seq: peekRunEventSeq(run),
@@ -2171,7 +2198,9 @@ export function startRun(
               completionError ||
               terminalEventForcesErroredStatus(terminalEvent)
             ? "errored"
-            : "completed";
+            : run.status === "truncated"
+              ? "truncated"
+              : "completed";
       run.status = finalStatus;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
@@ -2207,8 +2236,13 @@ export function startRun(
           ? "truncated"
           : finalStatus;
       let volatileTerminalEvent: RunEvent | null = null;
+      const threadProjectionPending = Boolean(
+        completionError ||
+        (onComplete &&
+          (checkpointStatusReadFailed || checkpointUnknownStatus !== null)),
+      );
       const terminalStatusOptions = {
-        ...(completionError ? { threadProjectionPending: true } : {}),
+        ...(threadProjectionPending ? { threadProjectionPending: true } : {}),
         ...(checkpointBoundaryStarted || persistedStatus === "truncated"
           ? { terminalReason }
           : {}),
@@ -2222,7 +2256,7 @@ export function startRun(
               terminalStatusOptions,
             );
       const reconcileTerminalRun = () =>
-        completionError
+        threadProjectionPending
           ? reconcileTerminalRunFromEvents(runId, {
               threadProjectionPending: true,
             })
