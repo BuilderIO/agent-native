@@ -479,7 +479,16 @@ importers:
   });
 
   it("rewrites the QR template blob pins from the files on disk", () => {
-    const source = `templatePath: "templates/community/qr",
+    const source = `templatePath: "templates/other-first",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${"d".repeat(40)}",
+        },
+      ],
+    },
+    {
+      templatePath: "templates/community/qr",
       files: [
         {
           path: "package.json",
@@ -508,6 +517,7 @@ importers:
     assert.match(updated, /package\.json",\n\s+blobSha: "1{40}"/);
     assert.match(updated, /README\.md",\n\s+blobSha: "2{40}"/);
     assert.match(updated, /blobSha: "c{40}"/);
+    assert.match(updated, /blobSha: "d{40}"/);
     assert.equal(
       syncCommunityQrBlobPins(updated, (file) =>
         file === "package.json" ? "1".repeat(40) : "2".repeat(40),

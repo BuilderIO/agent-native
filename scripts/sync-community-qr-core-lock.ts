@@ -59,21 +59,20 @@ export function syncCommunityQrBlobPins(
   if (sourceStart < 0) {
     throw new Error(`Missing ${importerPath} source in ${communityAppsPath}.`);
   }
+  const closing = source.indexOf("\n    },", sourceStart);
+  const sourceEnd = closing < 0 ? source.length : closing;
   const pin = /(path: "([^"]+)",\n\s+blobSha: ")[a-f0-9]{40}(")/g;
-  pin.lastIndex = sourceStart;
-  const sourceEnd = source.indexOf("\n    },", sourceStart);
   let pins = 0;
-  const updated = source.replace(
-    pin,
-    (match, before: string, file: string, after: string, offset: number) => {
-      if (offset > sourceEnd) return match;
+  const updatedBlock = source
+    .slice(sourceStart, sourceEnd)
+    .replace(pin, (_match, before: string, file: string, after: string) => {
       pins += 1;
       return `${before}${blobShaFor(file)}${after}`;
-    },
-  );
+    });
   if (pins === 0) {
     throw new Error(`No blob pins found for ${importerPath}.`);
   }
+  const updated = `${source.slice(0, sourceStart)}${updatedBlock}${source.slice(sourceEnd)}`;
   return updated;
 }
 
