@@ -31,6 +31,8 @@ export interface WorkflowSummaryRow {
 export interface ListWorkflowsResult {
   workflows: WorkflowSummaryRow[];
   hasMore: boolean;
+  /** Pass as `cursor` for the next page; null when `hasMore` is false. */
+  nextCursor: string | null;
 }
 
 export interface GetWorkflowResult extends Omit<WorkflowSummaryRow, "job"> {
@@ -97,6 +99,13 @@ export interface DeleteWorkflowResult {
   deleted: true;
   jobRemoved: boolean;
   parkedItems: number;
+}
+
+/** `rename-factory-workflow`: the renamed summary, the name it had, and what happened to its schedule file. */
+export interface RenameWorkflowResult extends Omit<WorkflowSummaryRow, "job"> {
+  previousName: string;
+  changed: boolean;
+  job: { automationId: string; path: string; changed: boolean } | null;
 }
 
 export interface RunWorkflowResult {

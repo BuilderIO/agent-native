@@ -5,7 +5,7 @@
       "name": "every10",
       "position": {
         "x": 0,
-        "y": 192
+        "y": 308
       },
       "kind": "trigger",
       "settings": {
@@ -18,8 +18,8 @@
       "id": "tickets",
       "name": "tickets",
       "position": {
-        "x": 344,
-        "y": 192
+        "x": 224,
+        "y": 308
       },
       "kind": "source",
       "settings": {
@@ -34,8 +34,8 @@
       "id": "thread",
       "name": "thread",
       "position": {
-        "x": 688,
-        "y": 192
+        "x": 448,
+        "y": 308
       },
       "kind": "lookup",
       "settings": {
@@ -52,8 +52,8 @@
       "id": "classify",
       "name": "classify",
       "position": {
-        "x": 1032,
-        "y": 192
+        "x": 672,
+        "y": 308
       },
       "kind": "ai",
       "settings": {
@@ -84,8 +84,8 @@
       "id": "route",
       "name": "route",
       "position": {
-        "x": 1376,
-        "y": 140
+        "x": 896,
+        "y": 276
       },
       "kind": "switch",
       "settings": {
@@ -133,8 +133,8 @@
       "id": "jira",
       "name": "jira",
       "position": {
-        "x": 2408,
-        "y": 470
+        "x": 1568,
+        "y": 798
       },
       "kind": "action",
       "settings": {
@@ -159,8 +159,8 @@
       "id": "note",
       "name": "note",
       "position": {
-        "x": 2752,
-        "y": 470
+        "x": 1792,
+        "y": 798
       },
       "kind": "action",
       "settings": {
@@ -181,8 +181,8 @@
       "id": "replyCustomer",
       "name": "replyCustomer",
       "position": {
-        "x": 3096,
-        "y": 470
+        "x": 2016,
+        "y": 798
       },
       "kind": "action",
       "settings": {
@@ -207,8 +207,8 @@
       "id": "stripe",
       "name": "stripe",
       "position": {
-        "x": 1720,
-        "y": 149
+        "x": 1120,
+        "y": 255
       },
       "kind": "lookup",
       "settings": {
@@ -225,8 +225,8 @@
       "id": "answer",
       "name": "answer",
       "position": {
-        "x": 2064,
-        "y": 149
+        "x": 1344,
+        "y": 255
       },
       "kind": "ai",
       "settings": {
@@ -252,8 +252,8 @@
       "id": "sure",
       "name": "sure",
       "position": {
-        "x": 2408,
-        "y": 121
+        "x": 1568,
+        "y": 255
       },
       "kind": "filter",
       "settings": {
@@ -275,8 +275,8 @@
       "id": "hasFigures",
       "name": "hasFigures",
       "position": {
-        "x": 2752,
-        "y": 164
+        "x": 1792,
+        "y": 308
       },
       "kind": "filter",
       "settings": {
@@ -339,8 +339,8 @@
       "id": "sendAnswer",
       "name": "sendAnswer",
       "position": {
-        "x": 3096,
-        "y": 374
+        "x": 2016,
+        "y": 606
       },
       "kind": "action",
       "settings": {
@@ -365,8 +365,8 @@
       "id": "finance",
       "name": "finance",
       "position": {
-        "x": 3096,
-        "y": 96
+        "x": 2016,
+        "y": 192
       },
       "kind": "action",
       "settings": {
@@ -387,7 +387,7 @@
       "id": "lead",
       "name": "lead",
       "position": {
-        "x": 2752,
+        "x": 1792,
         "y": 0
       },
       "kind": "action",
@@ -409,7 +409,7 @@
       "id": "leadEmail",
       "name": "leadEmail",
       "position": {
-        "x": 3096,
+        "x": 2016,
         "y": 0
       },
       "kind": "action",
@@ -435,8 +435,8 @@
       "id": "suggest",
       "name": "suggest",
       "position": {
-        "x": 3096,
-        "y": 278
+        "x": 2016,
+        "y": 414
       },
       "kind": "action",
       "settings": {
@@ -457,8 +457,8 @@
       "id": "done",
       "name": "done",
       "position": {
-        "x": 3440,
-        "y": 374
+        "x": 2240,
+        "y": 606
       },
       "kind": "end",
       "settings": {
@@ -469,8 +469,8 @@
       "id": "manual",
       "name": "manual",
       "position": {
-        "x": 3440,
-        "y": 48
+        "x": 2240,
+        "y": 96
       },
       "kind": "end",
       "settings": {

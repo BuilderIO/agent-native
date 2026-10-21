@@ -77,6 +77,7 @@ import {
   prepareLeaseItems,
   preparePark,
   prepareReceipt,
+  prepareRenameWorkflow,
   prepareRunRequest,
   prepareSaveWorkflowGraph,
   prepareStartRun,
@@ -597,14 +598,45 @@ export function createDrizzleWorkflowStore(
         WORKFLOW_STORE_LIMITS.workflowsPageMax,
         "Workflow list",
       );
+      const after =
+        options.after === undefined
+          ? null
+          : {
+              updatedAt: normalizeInstant(
+                options.after.updatedAt,
+                "Workflow list position",
+              ),
+              id: options.after.id,
+            };
       const rows = await getDatabase()
         .select()
         .from(factoryWorkflows)
-        .where(scopeOf(factoryWorkflows, scope))
+        .where(
+          and(
+            scopeOf(factoryWorkflows, scope),
+            after === null
+              ? undefined
+              : or(
+                  lt(factoryWorkflows.updatedAt, after.updatedAt),
+                  and(
+                    eq(factoryWorkflows.updatedAt, after.updatedAt),
+                    lt(factoryWorkflows.id, after.id),
+                  ),
+                ),
+          ),
+        )
         .orderBy(desc(factoryWorkflows.updatedAt), desc(factoryWorkflows.id))
         .limit(limit + 1);
       const page = takeWindow(rows, limit);
-      return { items: page.items.map(summaryOf), hasMore: page.hasMore };
+      const last = page.items[page.items.length - 1];
+      return {
+        items: page.items.map(summaryOf),
+        hasMore: page.hasMore,
+        nextAfter:
+          page.hasMore && last
+            ? { updatedAt: last.updatedAt, id: last.id }
+            : null,
+      };
     },
 
     async getWorkflowVersion(scope, workflowId, version) {
@@ -759,6 +791,26 @@ export function createDrizzleWorkflowStore(
           lastCleanDryRunVersion: row.lastCleanDryRunVersion,
         },
       );
+    },
+
+    async renameWorkflow(scope, input) {
+      assertScope(scope);
+      const meta = prepareRenameWorkflow(input);
+      const db = getDatabase();
+      const updated = await db
+        .update(factoryWorkflows)
+        .set({ name: meta.name, updatedAt: nowIso() })
+        .where(
+          and(
+            eq(factoryWorkflows.id, meta.workflowId),
+            scopeOf(factoryWorkflows, scope),
+          ),
+        )
+        .returning();
+      if (updated[0]) return summaryOf(updated[0]);
+      throw notFound(`Workflow "${meta.workflowId}" was not found.`, {
+        workflowId: meta.workflowId,
+      });
     },
 
     async recordCleanDryRun(scope, input) {

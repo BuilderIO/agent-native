@@ -4,6 +4,7 @@ import type {
   OperationDefinition,
   WorkflowGraph,
   WorkflowIssue,
+  WorkflowNodeSettings,
 } from "./engine.js";
 
 export interface Point {
@@ -101,9 +102,17 @@ export type NodeVariant =
   | "groupBy"
   | "summarize";
 
+/** The app an `inbox-poll` source reads, taken from the contract's source settings. */
+export type InboxPoller = Extract<
+  WorkflowNodeSettings,
+  { source: "inbox-poll" }
+>["poller"];
+
 export interface NewNodeOptions {
   operationId?: string;
   variant?: NodeVariant;
+  /** Which app an `inbox-poll` source watches. Slack when omitted. */
+  poller?: InboxPoller;
   /** Top-left corner; placed beside `after` or in free space when omitted. */
   position?: Point;
   /** Connects the new node from this output port of an existing node. */
@@ -131,6 +140,8 @@ export interface SelectionContext {
   selectedNodes: {
     id: string;
     name: string;
+    /** The node's free-text label, when it has one. */
+    label?: string;
     kind: NodeKind;
     operation?: string;
   }[];

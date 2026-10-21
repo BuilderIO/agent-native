@@ -365,6 +365,8 @@ export function createItemsStrings(t: Translate<ItemsKey>) {
       outHeading: t("audit.outHeading"),
       fromNode: (count: number, node: string, port: string) =>
         t("audit.fromNode", { count, node, port }),
+      fromNodeOnly: (count: number, node: string) =>
+        t("audit.fromNodeOnly", { count, node }),
       portCount: (port: string, count: number) =>
         t("audit.portCount", { port, count }),
       parkedCount: t("audit.parkedCount"),
@@ -384,7 +386,6 @@ export function createItemsStrings(t: Translate<ItemsKey>) {
       noReceipts: t("audit.noReceipts"),
       receiptsTruncated: t("audit.receiptsTruncated"),
       missingReceipts: (count: number) => t("audit.missingReceipts", { count }),
-      openRun: t("audit.openRun"),
       openItem: t("audit.openItem"),
       atVersion: (version: number) => t("audit.atVersion", { version }),
     }),

@@ -268,6 +268,7 @@ export default defineAction({
                   z.object({
                     id: shape.id,
                     name: shape.name,
+                    label: shape.label,
                     position: shape.position,
                   }),
                 ),

@@ -51,6 +51,12 @@
   --provider-builder: 100 40% 31%;
   --provider-factory: 62 14% 35%;
   --accent-ai: 280 50% 49%;
+  /* Success and kind tints drawn on the card: each light value keeps 4.5:1 on white, each dark value 4.5:1 on the dark card. */
+  --success: 142 50% 30%;
+  --kind-data: 190 62% 33%;
+  --kind-flow: 35 80% 34%;
+  /* The scrim behind a modal is dark in both themes; its opacity is set where it is used. */
+  --scrim: 240 10% 4%;
 }
 
 .dark {
@@ -97,6 +103,10 @@
   --provider-builder: 100 40% 64%;
   --provider-factory: 62 14% 70%;
   --accent-ai: 280 50% 74%;
+  --success: 142 55% 62%;
+  --kind-data: 190 65% 66%;
+  --kind-flow: 35 80% 64%;
+  --scrim: 0 0% 0%;
 }
 
 @theme inline {
@@ -115,6 +125,10 @@
   --color-provider-builder: hsl(var(--provider-builder));
   --color-provider-factory: hsl(var(--provider-factory));
   --color-accent-ai: hsl(var(--accent-ai));
+  --color-success: hsl(var(--success));
+  --color-kind-data: hsl(var(--kind-data));
+  --color-kind-flow: hsl(var(--kind-flow));
+  --color-scrim: hsl(var(--scrim));
 }
 
 @layer base {

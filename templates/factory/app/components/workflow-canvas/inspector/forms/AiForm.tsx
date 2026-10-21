@@ -14,6 +14,7 @@ import {
   SelectInput,
   TextInput,
 } from "../fields";
+import { useInvalidMark } from "../issue-marks";
 import type { FormProps } from "./types";
 import { withOptional } from "./types";
 
@@ -198,6 +199,7 @@ export function AiForm({ settings, onChange }: FormProps<"ai">) {
   }));
 
   const id = useId();
+  const instructionMark = useInvalidMark(settings.instruction === "");
   return (
     <div className="flex flex-col gap-4">
       <Field
@@ -208,7 +210,7 @@ export function AiForm({ settings, onChange }: FormProps<"ai">) {
           id={`${id}-instruction`}
           value={settings.instruction}
           rows={5}
-          aria-invalid={settings.instruction === "" || undefined}
+          aria-invalid={instructionMark}
           onChange={(event) =>
             onChange({ ...settings, instruction: event.target.value })
           }

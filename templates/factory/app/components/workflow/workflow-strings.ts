@@ -40,7 +40,6 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
       olderRun: t("workflows.list.olderRun"),
       runsFailed: t("workflows.list.runsFailed"),
       countsFailed: t("workflows.list.countsFailed"),
-      paused: t("workflows.list.paused"),
       noSchedule: t("workflows.list.noSchedule"),
       everyHours: (hours: number) =>
         hours === 1
@@ -61,6 +60,41 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
       deleteAnyway: t("workflows.list.deleteAnyway"),
       deleteFailed: (reason: string) =>
         t("workflows.list.deleteFailed", { reason }),
+      pageTitle: t("workflows.list.pageTitle"),
+      pageSubtitle: t("workflows.list.pageSubtitle"),
+      searchPlaceholder: t("workflows.list.searchPlaceholder"),
+      clearSearch: t("workflows.list.clearSearch"),
+      noMatches: t("workflows.list.noMatches"),
+      sortLabel: t("workflows.list.sortLabel"),
+      sortAttention: t("workflows.list.sortAttention"),
+      sortUpdated: t("workflows.list.sortUpdated"),
+      sortName: t("workflows.list.sortName"),
+      statusLabel: t("workflows.list.statusLabel"),
+      statusAll: t("workflows.list.statusAll"),
+      statusOn: t("workflows.list.statusOn"),
+      statusOff: t("workflows.list.statusOff"),
+      updated: (when: string) => t("workflows.list.updated", { when }),
+      open: t("workflows.list.open"),
+      rename: t("workflows.list.rename"),
+      renameTitle: t("workflows.list.renameTitle"),
+      renameLabel: t("workflows.list.renameLabel"),
+      renameFailed: (reason: string) =>
+        t("workflows.list.renameFailed", { reason }),
+      renamedJobFailed: t("workflows.list.renamedJobFailed"),
+      duplicate: t("workflows.list.duplicate"),
+      duplicated: (name: string) => t("workflows.list.duplicated", { name }),
+      duplicateFailed: (reason: string) =>
+        t("workflows.list.duplicateFailed", { reason }),
+      copyName: (name: string) => t("workflows.list.copyName", { name }),
+      loadMore: t("workflows.list.loadMore"),
+    }),
+    stats: () => ({
+      on: t("workflows.stats.on"),
+      onOfTotal: (on: string, total: string) =>
+        t("workflows.stats.onOfTotal", { on, total }),
+      needsYou: t("workflows.stats.needsYou"),
+      waiting: t("workflows.stats.waiting"),
+      failing: t("workflows.stats.failing"),
     }),
     runStatus: () =>
       ({
@@ -161,7 +195,6 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
       failed: (reason: string) => t("workflows.save.failed", { reason }),
       serverIssue: (path: string, detail: string) =>
         path ? t("workflows.save.serverIssue", { path, detail }) : detail,
-      graphLevel: t("workflows.save.graphLevel"),
     }),
     conflict: () => ({
       dialogTitle: t("workflows.conflict.dialogTitle"),
@@ -202,14 +235,58 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
     common: () => ({ close: t("workflows.common.close") }),
     errors: () => ({ unknown: t("workflows.errors.unknown") }),
     nodePanel: () => ({
-      panelName: t("workflows.nodePanel.panelName"),
-      tabSettings: t("workflows.nodePanel.tabSettings"),
-      tabAudit: t("workflows.nodePanel.tabAudit"),
       tabsName: t("workflows.nodePanel.tabsName"),
       testStep: t("workflows.nodePanel.testStep"),
       saveAndTestStep: t("workflows.nodePanel.saveAndTestStep"),
       testStepNeedsRun: t("workflows.nodePanel.testStepNeedsRun"),
       testStepSamplesFailed: t("workflows.nodePanel.testStepSamplesFailed"),
+    }),
+    nodeDetails: () => ({
+      dialogName: t("workflows.nodeDetails.dialogName"),
+      tabParameters: t("workflows.nodeDetails.tabParameters"),
+      tabHistory: t("workflows.nodeDetails.tabHistory"),
+      close: t("workflows.nodeDetails.close"),
+      askAgentPrefill: t("workflows.nodeDetails.askAgentPrefill"),
+      inputTitle: t("workflows.nodeDetails.inputTitle"),
+      outputTitle: t("workflows.nodeDetails.outputTitle"),
+    }),
+    nodeData: () => ({
+      viewLabel: t("workflows.nodeData.viewLabel"),
+      view: {
+        schema: t("workflows.nodeData.view.schema"),
+        table: t("workflows.nodeData.view.table"),
+        json: t("workflows.nodeData.view.json"),
+      },
+      sourceLabel: t("workflows.nodeData.sourceLabel"),
+      portsLabel: t("workflows.nodeData.portsLabel"),
+      removedStep: t("workflows.nodeData.removedStep"),
+      search: t("workflows.nodeData.search"),
+      clearSearch: t("workflows.nodeData.clearSearch"),
+      count: (count: number) => t("workflows.nodeData.count", { count }),
+      ofTotal: (shown: number, total: number) =>
+        t("workflows.nodeData.ofTotal", { shown, total }),
+      noInputConnected: t("workflows.nodeData.noInputConnected"),
+      noInputData: t("workflows.nodeData.noInputData"),
+      testWorkflowHint: t("workflows.nodeData.testWorkflowHint"),
+      testWorkflow: t("workflows.nodeData.testWorkflow"),
+      noOutputData: t("workflows.nodeData.noOutputData"),
+      previewHint: t("workflows.nodeData.previewHint"),
+      noMatchingItems: t("workflows.nodeData.noMatchingItems"),
+      noMatchingFields: t("workflows.nodeData.noMatchingFields"),
+      onlyIds: t("workflows.nodeData.onlyIds"),
+      hiddenColumns: t("workflows.nodeData.hiddenColumns"),
+      truncated: t("workflows.nodeData.truncated"),
+      moreFields: (count: number) =>
+        t("workflows.nodeData.moreFields", { count }),
+      runStarted: (when: string) =>
+        t("workflows.nodeData.runStarted", { when }),
+      runTook: (duration: string) =>
+        t("workflows.nodeData.runTook", { duration }),
+      copyPath: t("workflows.nodeData.copyPath"),
+      pathCopied: t("workflows.nodeData.pathCopied"),
+      pathCopyFailed: t("workflows.nodeData.pathCopyFailed"),
+      dragHint: t("workflows.nodeData.dragHint"),
+      mappedFirstField: t("workflows.nodeData.mappedFirstField"),
     }),
   });
 }

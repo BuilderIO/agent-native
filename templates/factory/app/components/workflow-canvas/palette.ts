@@ -15,7 +15,7 @@ export interface PaletteEntry {
   label: string;
   /** Shown beside the label: the kind of step this adds. */
   category: string;
-  options: Pick<NewNodeOptions, "operationId" | "variant">;
+  options: Pick<NewNodeOptions, "operationId" | "variant" | "poller">;
   /** What the search matches, beyond the label. */
   keywords: string;
   /** The integration a provider operation belongs to. Unset for steps that call no provider. */
@@ -36,7 +36,12 @@ function entry(
   options: PaletteEntry["options"] = {},
   extra: Partial<PaletteEntry> = {},
 ): PaletteEntry {
-  const id = [kind, options.variant ?? "", options.operationId ?? ""]
+  const id = [
+    kind,
+    options.variant ?? "",
+    options.operationId ?? "",
+    options.poller ?? "",
+  ]
     .filter(Boolean)
     .join(":");
   return {
@@ -84,7 +89,27 @@ export function buildPalette(
       {},
       { disabled: context.hasTrigger },
     ),
-    entry(s, "source", s.palette.watchInbox, { variant: "inbox-poll" }),
+    entry(
+      s,
+      "source",
+      s.palette.watchSlackInbox,
+      { variant: "inbox-poll", poller: "slack" },
+      { keywords: `${s.kind.source} slack inbox`, provider: "slack" },
+    ),
+    entry(
+      s,
+      "source",
+      s.palette.watchGitHubInbox,
+      { variant: "inbox-poll", poller: "github" },
+      { keywords: `${s.kind.source} github inbox`, provider: "github" },
+    ),
+    entry(
+      s,
+      "source",
+      s.palette.watchSentryInbox,
+      { variant: "inbox-poll", poller: "sentry" },
+      { keywords: `${s.kind.source} sentry inbox`, provider: "sentry" },
+    ),
     entry(s, "source", s.palette.itemsInStatus, { variant: "status" }),
     ...operationsForKind(catalog, "source").map((def) =>
       operationEntry(

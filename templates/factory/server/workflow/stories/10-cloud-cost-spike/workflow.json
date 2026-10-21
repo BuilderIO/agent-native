@@ -5,7 +5,7 @@
       "name": "daily7",
       "position": {
         "x": 0,
-        "y": 186
+        "y": 288
       },
       "kind": "trigger",
       "settings": {
@@ -21,8 +21,8 @@
       "id": "billing",
       "name": "billing",
       "position": {
-        "x": 344,
-        "y": 186
+        "x": 224,
+        "y": 288
       },
       "kind": "source",
       "settings": {
@@ -41,8 +41,8 @@
       "id": "byService",
       "name": "byService",
       "position": {
-        "x": 688,
-        "y": 186
+        "x": 448,
+        "y": 288
       },
       "kind": "combine",
       "settings": {
@@ -63,8 +63,8 @@
       "id": "spike",
       "name": "spike",
       "position": {
-        "x": 1376,
-        "y": 48
+        "x": 896,
+        "y": 106
       },
       "kind": "filter",
       "settings": {
@@ -87,8 +87,8 @@
       "id": "quiet",
       "name": "quiet",
       "position": {
-        "x": 2408,
-        "y": 124
+        "x": 1568,
+        "y": 192
       },
       "kind": "end",
       "settings": {
@@ -100,8 +100,8 @@
       "id": "spikes",
       "name": "spikes",
       "position": {
-        "x": 1720,
-        "y": 28
+        "x": 1120,
+        "y": 0
       },
       "kind": "combine",
       "settings": {
@@ -113,7 +113,7 @@
       "id": "anySpikes",
       "name": "anySpikes",
       "position": {
-        "x": 2064,
+        "x": 1344,
         "y": 0
       },
       "kind": "filter",
@@ -132,8 +132,8 @@
       "id": "recent",
       "name": "recent",
       "position": {
-        "x": 2408,
-        "y": 28
+        "x": 1568,
+        "y": 0
       },
       "kind": "lookup",
       "settings": {
@@ -154,8 +154,8 @@
       "id": "explain",
       "name": "explain",
       "position": {
-        "x": 2752,
-        "y": 28
+        "x": 1792,
+        "y": 0
       },
       "kind": "ai",
       "settings": {
@@ -181,8 +181,8 @@
       "id": "notifyOwners",
       "name": "notifyOwners",
       "position": {
-        "x": 3096,
-        "y": 28
+        "x": 2016,
+        "y": 0
       },
       "kind": "action",
       "settings": {
@@ -203,8 +203,8 @@
       "id": "emailOwners",
       "name": "emailOwners",
       "position": {
-        "x": 3440,
-        "y": 28
+        "x": 2240,
+        "y": 0
       },
       "kind": "action",
       "settings": {
@@ -229,7 +229,7 @@
       "id": "waitReply",
       "name": "waitReply",
       "position": {
-        "x": 3784,
+        "x": 2464,
         "y": 0
       },
       "kind": "wait",
@@ -246,8 +246,8 @@
       "id": "escalate",
       "name": "escalate",
       "position": {
-        "x": 4128,
-        "y": 57
+        "x": 2688,
+        "y": 53
       },
       "kind": "action",
       "settings": {
@@ -268,8 +268,8 @@
       "id": "done",
       "name": "done",
       "position": {
-        "x": 4472,
-        "y": 28
+        "x": 2912,
+        "y": 0
       },
       "kind": "end",
       "settings": {
@@ -280,8 +280,8 @@
       "id": "noBaseline",
       "name": "noBaseline",
       "position": {
-        "x": 1032,
-        "y": 158
+        "x": 672,
+        "y": 288
       },
       "kind": "filter",
       "settings": {
@@ -298,8 +298,8 @@
       "id": "baselineEnd",
       "name": "baselineEnd",
       "position": {
-        "x": 1376,
-        "y": 200
+        "x": 896,
+        "y": 298
       },
       "kind": "end",
       "settings": {

@@ -6,6 +6,8 @@ export interface StepOverlay {
   error?: { code: string; message: string };
   /** Items that left through each output port in the run being shown. */
   ports: Record<string, { count: number }>;
+  /** How many times the node ran in the run being shown. Absent when the run does not record it. */
+  passes?: number;
 }
 
 /**
@@ -15,6 +17,8 @@ export interface StepOverlay {
  */
 export interface WorkflowOverlay {
   stepByNodeId?: Record<string, StepOverlay>;
+  /** The node the run is on: its step started last, and it keeps the running ring until the next step starts. */
+  currentNodeId?: string;
   /** When given, nodes and edges outside these are drawn faded. */
   litNodeIds?: string[];
   litEdgeIds?: string[];

@@ -100,8 +100,10 @@ describe("describe-workflow-node-catalog", () => {
     expect(Object.keys(graph.node.properties)).toEqual([
       "id",
       "name",
+      "label",
       "position",
     ]);
+    expect(graph.node.required).not.toContain("label");
     expect(graph.edge.properties.from).toBeDefined();
     expect(graph.settings.properties.checkCadenceMinutes).toBeDefined();
     expect(graph.limits).toEqual({ maxNodes: 200, maxEdges: 400 });

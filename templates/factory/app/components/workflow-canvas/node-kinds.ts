@@ -33,11 +33,27 @@ export const NODE_KIND_ICONS: Record<NodeKind, Icon> = {
   end: IconFlagCheck,
 };
 
-/** AI and agent steps share one accent; every other kind sits on the neutral tile. */
+/**
+ * A kind's tile fill and icon color. AI and agent steps tint the whole tile
+ * with the shared accent; the other kinds keep the card fill and tint only
+ * their icon.
+ */
 export function kindTile(kind: NodeKind): string {
-  return kind === "ai" || kind === "agent"
-    ? "bg-accent-ai/15 text-accent-ai"
-    : "bg-muted text-foreground";
+  switch (kind) {
+    case "ai":
+    case "agent":
+      return "bg-accent-ai/15 text-accent-ai";
+    case "filter":
+    case "split":
+    case "combine":
+      return "bg-card text-kind-data";
+    case "switch":
+    case "wait":
+    case "end":
+      return "bg-card text-kind-flow";
+    default:
+      return "bg-card text-foreground";
+  }
 }
 
 /**

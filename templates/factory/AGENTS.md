@@ -44,10 +44,10 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 | `poll-slack-channel` / `poll-github-sources` / `poll-sentry-errors` / `ingest-github-observation` | Bounded source evidence |
 | `record-triage-feedback` | Record a person's verdict on a decision |
 | `govern-factory-pull-request` | Apply the PR governance gate |
-| `list-factory-automations` / `create-factory-automation` / `save-factory-automation` / `run-factory-automation` | Manage agent-run jobs; a workflow's job goes through the workflow actions |
-| `describe-workflow-node-catalog` / `save-factory-workflow` / `run-factory-workflow` / `request-workflow-connection` / `set-factory-workflow-enabled` and the other workflow reads | Build, dry-run, connect, enable and inspect workflows; recipe in `factory-workflows`. A failing or odd run: `get-workflow-diagnostics` first |
+| `list-factory-automations` / `create-factory-automation` / `save-factory-automation` / `run-factory-automation` | Manage agent-run jobs, not workflows |
+| `describe-workflow-node-catalog` / `save-factory-workflow` / `rename-factory-workflow` / `run-factory-workflow` / `request-workflow-connection` / `set-factory-workflow-enabled` / `get-workflow-node-data` and the other workflow reads | Build, rename, dry-run, connect, enable and inspect workflows; recipe in `factory-workflows`. A failing or odd run: `get-workflow-diagnostics` first |
 | `requeue-factory-item` / `dismiss-factory-item` | An item needing a person: retry it (asks approval) or close it |
-| `seed-story-run` | Local dev server only, never real work: replays a story's fixtures; `purge` undoes it |
+| `seed-story-run` | Dev server only: replays story fixtures; `purge` undoes it |
 | `read-slack-thread` / `post-slack-message` / `send-factory-email` / `get-factory-pull-request` / `get-factory-merge-gate` / `merge-factory-pull-request` / `list-factory-items` / `create-hubspot-task` | Workflow-only, named by the graph. `_outcome_unknown` errors may have taken effect: check, never retry |
 | `run-workflow-operation` | Workflow-only: runs one catalog provider call by `operationId`. Reads retry; writes never do |
 | `list-factory-audit` / `get-factory-automation-health` / `reconcile-triage-run` | Queue history, scheduler, monitor observations |

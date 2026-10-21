@@ -8,7 +8,13 @@ import {
   type WorkflowNode,
   type WorkflowNodeSettings,
 } from "./engine.js";
-import { reject, type NodeVariant, type Outcome } from "./types.js";
+import {
+  reject,
+  type InboxPoller,
+  type NewNodeOptions,
+  type NodeVariant,
+  type Outcome,
+} from "./types.js";
 import type { WorkflowCatalog } from "./types.js";
 
 /** Content a new node starts with; the author is expected to replace it. */
@@ -121,6 +127,7 @@ function sourceSettings(
   catalog: WorkflowCatalog,
   operationId: string | undefined,
   variant: NodeVariant | undefined,
+  poller: InboxPoller | undefined,
 ): Outcome<{ settings: unknown }> {
   const readsProvider =
     operationId !== undefined ||
@@ -132,7 +139,7 @@ function sourceSettings(
       settings:
         variant === "status"
           ? { source: "status", status: "received", takeLimit: 10 }
-          : { source: "inbox-poll", poller: "slack", takeLimit: 5 },
+          : { source: "inbox-poll", poller: poller ?? "slack", takeLimit: 5 },
     };
   }
   const picked = pickOperation(
@@ -253,13 +260,14 @@ function settingsFor(
   catalog: WorkflowCatalog,
   operationId: string | undefined,
   variant: NodeVariant | undefined,
+  poller: InboxPoller | undefined,
 ): Outcome<{ settings: unknown }> {
   const settings = (value: unknown) => ({ ok: true as const, settings: value });
   switch (kind) {
     case "trigger":
       return settings({ schedule: { every: "15m" } });
     case "source":
-      return sourceSettings(catalog, operationId, variant);
+      return sourceSettings(catalog, operationId, variant, poller);
     case "lookup":
     case "action": {
       const picked = pickOperation(catalog, kind, operationId);
@@ -308,7 +316,7 @@ function settingsFor(
 export function defaultNodeSettings(
   kind: NodeKind,
   catalog: WorkflowCatalog,
-  options: { operationId?: string; variant?: NodeVariant } = {},
+  options: Pick<NewNodeOptions, "operationId" | "variant" | "poller"> = {},
 ): Outcome<{ settings: WorkflowNodeSettings }> {
   if (
     options.operationId !== undefined &&
@@ -319,7 +327,13 @@ export function defaultNodeSettings(
       `A ${kind} node does not run an operation.`,
     );
   }
-  const made = settingsFor(kind, catalog, options.operationId, options.variant);
+  const made = settingsFor(
+    kind,
+    catalog,
+    options.operationId,
+    options.variant,
+    options.poller,
+  );
   if (!made.ok) return made;
   const parsed = workflowNodeSchema.safeParse({
     id: "default",
@@ -342,7 +356,7 @@ export function createNode(
   kind: NodeKind,
   fields: { id: string; name: string; position: { x: number; y: number } },
   catalog: WorkflowCatalog,
-  options: { operationId?: string; variant?: NodeVariant } = {},
+  options: Pick<NewNodeOptions, "operationId" | "variant" | "poller"> = {},
 ): Outcome<{ node: WorkflowNode }> {
   const made = defaultNodeSettings(kind, catalog, options);
   if (!made.ok) return made;

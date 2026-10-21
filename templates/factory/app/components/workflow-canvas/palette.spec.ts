@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { createEnglishTranslator } from "@/lib/__tests__/en-translator";
-import { NODE_KINDS } from "@/lib/workflow-editor";
+import {
+  NODE_KINDS,
+  createWorkflowEditor,
+  workflowGraphSchema,
+  workflowNodeSchema,
+} from "@/lib/workflow-editor";
 
 import { OPERATION_CATALOG } from "../../../server/workflow/catalog/index.js";
 import { buildPalette } from "./palette";
@@ -31,6 +36,36 @@ describe("buildPalette", () => {
   it("gives every entry its own id", () => {
     const ids = [...starts.entries, ...next.entries].map((entry) => entry.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("adds a GitHub and a Sentry inbox step that pass the contract", () => {
+    const inboxes = starts.entries.filter(
+      (entry) =>
+        entry.options.poller === "github" || entry.options.poller === "sentry",
+    );
+    expect(inboxes.map((entry) => entry.options.poller)).toEqual([
+      "github",
+      "sentry",
+    ]);
+    for (const entry of inboxes) {
+      const editor = createWorkflowEditor({
+        graph: workflowGraphSchema.parse({
+          nodes: [],
+          edges: [],
+          settings: {},
+        }),
+        catalog: OPERATION_CATALOG,
+      });
+      const added = editor.addNode("source", entry.options);
+      if (!added.ok) {
+        throw new Error(`the ${entry.options.poller} inbox was not added`);
+      }
+      expect(workflowNodeSchema.safeParse(added.node).success).toBe(true);
+      expect(added.node.settings).toMatchObject({
+        source: "inbox-poll",
+        poller: entry.options.poller,
+      });
+    }
   });
 
   it("lists catalog operations by the kind of step they can run as", () => {

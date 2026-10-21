@@ -60,7 +60,8 @@ const MAX_NAME_CHARS = 80;
 
 /**
  * A workflow made from a prompt is named after it: one line, at most 80
- * characters. The name cannot change after save, and the server refuses a line break.
+ * characters. The server refuses a line break, and the name can be changed
+ * later from the list or the canvas.
  */
 export function workflowNameFromPrompt(prompt: string): string {
   const oneLine = prompt.replace(/\s+/g, " ").trim();

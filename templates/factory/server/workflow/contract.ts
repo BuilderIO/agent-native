@@ -19,7 +19,7 @@ export const NODE_KINDS = [
 export const nodeKindSchema = z.enum(NODE_KINDS);
 export type NodeKind = z.infer<typeof nodeKindSchema>;
 
-export const RUN_MODES = ["live", "dry", "test"] as const;
+const RUN_MODES = ["live", "dry", "test"] as const;
 export const runModeSchema = z.enum(RUN_MODES);
 export type RunMode = z.infer<typeof runModeSchema>;
 
@@ -27,24 +27,14 @@ export type RunMode = z.infer<typeof runModeSchema>;
  * What started a run, recorded when it starts. A live run is `schedule` or
  * `manual`; a dry run and a test run are always `dry_run` and `test`.
  */
-export const RUN_TRIGGER_KINDS = [
-  "schedule",
-  "manual",
-  "dry_run",
-  "test",
-] as const;
+const RUN_TRIGGER_KINDS = ["schedule", "manual", "dry_run", "test"] as const;
 export const runTriggerKindSchema = z.enum(RUN_TRIGGER_KINDS);
 export type RunTriggerKind = z.infer<typeof runTriggerKindSchema>;
 
 /** What a scheduled run records as its starter; every other run records the email of whoever started it. */
 export const SCHEDULE_STARTER = "schedule";
 
-export const RUN_STATUSES = [
-  "running",
-  "succeeded",
-  "failed",
-  "paused",
-] as const;
+const RUN_STATUSES = ["running", "succeeded", "failed", "paused"] as const;
 export const runStatusSchema = z.enum(RUN_STATUSES);
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
@@ -55,10 +45,10 @@ export const STEP_STATUSES = [
   "skipped",
   "needs_check",
 ] as const;
-export const stepStatusSchema = z.enum(STEP_STATUSES);
+const stepStatusSchema = z.enum(STEP_STATUSES);
 export type StepStatus = z.infer<typeof stepStatusSchema>;
 
-export const ITEM_EVENT_KINDS = [
+const ITEM_EVENT_KINDS = [
   "taken",
   "entered",
   "output",
@@ -135,8 +125,7 @@ export const MAX_NODES = 200;
 export const MAX_EDGES = 400;
 const MAX_JSON_VALUE_BYTES = 32 * 1024;
 
-export type Port = string;
-export const portSchema = z.string().min(1).max(130);
+const portSchema = z.string().min(1).max(130);
 
 const slugSchema = z
   .string()
@@ -246,7 +235,7 @@ export const RULE_OPS = [
   "olderThan",
   "pastDue",
 ] as const;
-export const ruleOpSchema = z.enum(RULE_OPS);
+const ruleOpSchema = z.enum(RULE_OPS);
 export type RuleOp = z.infer<typeof ruleOpSchema>;
 
 const RULE_OPS_WITHOUT_OPERAND: readonly RuleOp[] = [
@@ -516,8 +505,8 @@ const waitSettingsSchema = z.discriminatedUnion("wait", [
 ]);
 
 // What a row's `extras` already holds from the engine's own reading of it, so a recorded value of the same name would be hidden.
-export const RESERVED_RECORD_NAMES = ["status", "coverage", "headSha"] as const;
-export const MAX_RECORDED_VALUES = 10;
+const RESERVED_RECORD_NAMES = ["status", "coverage", "headSha"] as const;
+const MAX_RECORDED_VALUES = 10;
 
 const recordSchema = z
   .record(identifierSchema, recordBindingSchema)
@@ -550,9 +539,13 @@ const endSettingsSchema = z
     path: ["record"],
   });
 
+/** What a person reads on the canvas. `name` stays the identifier the engine keys paths on, so a label never changes it. */
+export const nodeLabelSchema = z.string().trim().min(1).max(64);
+
 const nodeBase = {
   id: slugSchema,
   name: identifierSchema,
+  label: nodeLabelSchema.optional(),
   position: z.strictObject({
     x: z.number().finite().min(-100_000).max(100_000),
     y: z.number().finite().min(-100_000).max(100_000),
@@ -647,7 +640,7 @@ export const threadRefSchema = z.strictObject({
 });
 export type ThreadRef = z.infer<typeof threadRefSchema>;
 
-export const RECEIPT_STATUSES = ["started", "done", "failed"] as const;
+const RECEIPT_STATUSES = ["started", "done", "failed"] as const;
 export const receiptSchema = z.strictObject({
   key: z.string().min(1).max(600),
   status: z.enum(RECEIPT_STATUSES),

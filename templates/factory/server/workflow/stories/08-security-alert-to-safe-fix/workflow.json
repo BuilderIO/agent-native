@@ -5,7 +5,7 @@
       "name": "hourly",
       "position": {
         "x": 0,
-        "y": 96
+        "y": 192
       },
       "kind": "trigger",
       "settings": {
@@ -18,8 +18,8 @@
       "id": "alerts",
       "name": "alerts",
       "position": {
-        "x": 344,
-        "y": 96
+        "x": 224,
+        "y": 192
       },
       "kind": "source",
       "settings": {
@@ -39,8 +39,8 @@
       "id": "assess",
       "name": "assess",
       "position": {
-        "x": 688,
-        "y": 96
+        "x": 448,
+        "y": 192
       },
       "kind": "ai",
       "settings": {
@@ -89,8 +89,8 @@
       "id": "route",
       "name": "route",
       "position": {
-        "x": 1032,
-        "y": 56
+        "x": 672,
+        "y": 176
       },
       "kind": "switch",
       "settings": {
@@ -164,8 +164,8 @@
       "id": "builder",
       "name": "builder",
       "position": {
-        "x": 1376,
-        "y": 192
+        "x": 896,
+        "y": 384
       },
       "kind": "agent",
       "settings": {
@@ -215,8 +215,8 @@
       "id": "handed",
       "name": "handed",
       "position": {
-        "x": 1720,
-        "y": 192
+        "x": 1120,
+        "y": 384
       },
       "kind": "end",
       "settings": {
@@ -246,8 +246,8 @@
       "id": "notify",
       "name": "notify",
       "position": {
-        "x": 1376,
-        "y": 96
+        "x": 896,
+        "y": 192
       },
       "kind": "action",
       "settings": {
@@ -268,8 +268,8 @@
       "id": "notifyEmail",
       "name": "notifyEmail",
       "position": {
-        "x": 1720,
-        "y": 96
+        "x": 1120,
+        "y": 192
       },
       "kind": "action",
       "settings": {
@@ -294,8 +294,8 @@
       "id": "manual",
       "name": "manual",
       "position": {
-        "x": 2064,
-        "y": 96
+        "x": 1344,
+        "y": 192
       },
       "kind": "end",
       "settings": {
@@ -306,7 +306,7 @@
       "id": "dismissed",
       "name": "dismissed",
       "position": {
-        "x": 1376,
+        "x": 896,
         "y": 0
       },
       "kind": "end",

@@ -2,7 +2,7 @@
 //
 //   const editor = useWorkflowEditor({ graph, catalog, onChange: save });
 //   <WorkflowCanvas editor={editor} overlay={overlay} />
-//   <NodeInspector editor={editor} />
+//   <NodeInspector editor={editor} node={node} />
 //
 // `catalog` is an operation catalog with `get` and `list` (the registry in
 // `server/workflow/catalog` has both). Hand `graph` back unchanged in

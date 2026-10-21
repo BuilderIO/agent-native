@@ -6,7 +6,7 @@ import {
   STORY_GRAPHS,
 } from "../../../server/workflow/story-graphs.fixture.js";
 import { fitGroupOffset, fitNewNodePosition, layoutGraph } from "./layout.js";
-import { NODE_HEADER_HEIGHT, NODE_WIDTH } from "./node-metrics.js";
+import { NODE_TILE_HEIGHT, NODE_WIDTH } from "./node-metrics.js";
 
 const graph = buildGraph({
   nodes: [
@@ -45,7 +45,7 @@ describe("fitNewNodePosition", () => {
     const at = fitNewNodePosition(graph, { near: { x: 5_000, y: 5_000 } });
     expect(at).toEqual({
       x: 5_000 - NODE_WIDTH / 2,
-      y: 5_000 - NODE_HEADER_HEIGHT / 2,
+      y: 5_000 - NODE_TILE_HEIGHT / 2,
     });
   });
 
@@ -54,17 +54,17 @@ describe("fitNewNodePosition", () => {
     const at = fitNewNodePosition(graph, {
       near: {
         x: send.position.x + NODE_WIDTH / 2,
-        y: send.position.y + NODE_HEADER_HEIGHT / 2,
+        y: send.position.y + NODE_TILE_HEIGHT / 2,
       },
     });
     expect(at.x).toBe(send.position.x);
-    expect(at.y).toBeGreaterThan(send.position.y + NODE_HEADER_HEIGHT);
+    expect(at.y).toBeGreaterThan(send.position.y + NODE_TILE_HEIGHT);
   });
 
   it("goes below the existing nodes when it has no hint", () => {
     const at = fitNewNodePosition(graph);
     const bottom =
-      Math.max(...graph.nodes.map((n) => n.position.y)) + NODE_HEADER_HEIGHT;
+      Math.max(...graph.nodes.map((n) => n.position.y)) + NODE_TILE_HEIGHT;
     expect(at.y).toBeGreaterThanOrEqual(bottom);
   });
 

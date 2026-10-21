@@ -5,7 +5,7 @@
       "name": "every5",
       "position": {
         "x": 0,
-        "y": 173
+        "y": 341
       },
       "kind": "trigger",
       "settings": {
@@ -18,8 +18,8 @@
       "id": "feedback",
       "name": "feedback",
       "position": {
-        "x": 344,
-        "y": 173
+        "x": 224,
+        "y": 341
       },
       "kind": "source",
       "settings": {
@@ -35,8 +35,8 @@
       "id": "thread",
       "name": "thread",
       "position": {
-        "x": 688,
-        "y": 173
+        "x": 448,
+        "y": 341
       },
       "kind": "lookup",
       "settings": {
@@ -57,8 +57,8 @@
       "id": "assess",
       "name": "assess",
       "position": {
-        "x": 1032,
-        "y": 173
+        "x": 672,
+        "y": 341
       },
       "kind": "ai",
       "settings": {
@@ -106,8 +106,8 @@
       "id": "route",
       "name": "route",
       "position": {
-        "x": 1376,
-        "y": 109
+        "x": 896,
+        "y": 293
       },
       "kind": "switch",
       "settings": {
@@ -180,8 +180,8 @@
       "id": "ask",
       "name": "ask",
       "position": {
-        "x": 1720,
-        "y": 300
+        "x": 1120,
+        "y": 516
       },
       "kind": "action",
       "settings": {
@@ -206,8 +206,8 @@
       "id": "waitReply",
       "name": "waitReply",
       "position": {
-        "x": 2064,
-        "y": 260
+        "x": 1344,
+        "y": 500
       },
       "kind": "wait",
       "settings": {
@@ -220,8 +220,8 @@
       "id": "notifyOwner",
       "name": "notifyOwner",
       "position": {
-        "x": 2408,
-        "y": 251
+        "x": 1568,
+        "y": 455
       },
       "kind": "action",
       "settings": {
@@ -242,8 +242,8 @@
       "id": "manual",
       "name": "manual",
       "position": {
-        "x": 4472,
-        "y": 222
+        "x": 2912,
+        "y": 402
       },
       "kind": "end",
       "settings": {
@@ -254,8 +254,8 @@
       "id": "dismissed",
       "name": "dismissed",
       "position": {
-        "x": 1720,
-        "y": 144
+        "x": 1120,
+        "y": 288
       },
       "kind": "end",
       "settings": {
@@ -267,8 +267,8 @@
       "id": "openTasks",
       "name": "openTasks",
       "position": {
-        "x": 1720,
-        "y": 48
+        "x": 1120,
+        "y": 96
       },
       "kind": "lookup",
       "settings": {
@@ -285,8 +285,8 @@
       "id": "group",
       "name": "group",
       "position": {
-        "x": 2064,
-        "y": 48
+        "x": 1344,
+        "y": 96
       },
       "kind": "ai",
       "settings": {
@@ -305,8 +305,8 @@
       "id": "split",
       "name": "split",
       "position": {
-        "x": 2408,
-        "y": 48
+        "x": 1568,
+        "y": 96
       },
       "kind": "split",
       "settings": {
@@ -317,8 +317,8 @@
       "id": "startBuilder",
       "name": "startBuilder",
       "position": {
-        "x": 3096,
-        "y": 48
+        "x": 2016,
+        "y": 96
       },
       "kind": "agent",
       "settings": {
@@ -372,8 +372,8 @@
       "id": "accepted",
       "name": "accepted",
       "position": {
-        "x": 3440,
-        "y": 20
+        "x": 2240,
+        "y": 96
       },
       "kind": "filter",
       "settings": {
@@ -391,7 +391,7 @@
       "id": "tell",
       "name": "tell",
       "position": {
-        "x": 4128,
+        "x": 2688,
         "y": 0
       },
       "kind": "action",
@@ -417,7 +417,7 @@
       "id": "handed",
       "name": "handed",
       "position": {
-        "x": 4472,
+        "x": 2912,
         "y": 0
       },
       "kind": "end",
@@ -448,8 +448,8 @@
       "id": "byGroup",
       "name": "byGroup",
       "position": {
-        "x": 2752,
-        "y": 48
+        "x": 1792,
+        "y": 96
       },
       "kind": "combine",
       "settings": {
@@ -461,7 +461,7 @@
       "id": "reports",
       "name": "reports",
       "position": {
-        "x": 3784,
+        "x": 2464,
         "y": 0
       },
       "kind": "split",
@@ -473,8 +473,8 @@
       "id": "unconfirmed",
       "name": "unconfirmed",
       "position": {
-        "x": 3784,
-        "y": 96
+        "x": 2464,
+        "y": 192
       },
       "kind": "split",
       "settings": {
@@ -485,8 +485,8 @@
       "id": "warnOwner",
       "name": "warnOwner",
       "position": {
-        "x": 4128,
-        "y": 96
+        "x": 2688,
+        "y": 192
       },
       "kind": "action",
       "settings": {

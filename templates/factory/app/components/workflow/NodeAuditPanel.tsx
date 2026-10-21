@@ -6,9 +6,14 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { WorkflowGraph } from "@/lib/workflow-editor";
+import {
+  portsWithLimit,
+  showsPortRows,
+  type WorkflowGraph,
+} from "@/lib/workflow-editor";
 
 import { NODE_KIND_ICONS } from "../workflow-canvas/node-kinds";
+import { nodeTitle } from "../workflow-canvas/node-summary";
 import { useWorkflowCanvasStrings } from "../workflow-canvas/strings";
 import { auditAgentContext } from "./audit/audit-model";
 import { AuditErrors, AuditReceipts } from "./audit/AuditErrorsAndReceipts";
@@ -22,11 +27,15 @@ import { portLabeler } from "./items/port-label";
 import { classifyReadError } from "./items/read-failure";
 import { ReadErrorState } from "./items/read-support";
 import type { ItemTarget, NodeAudit } from "./items/read-types";
+import { WORKFLOW_CATALOG } from "./workflow-catalog";
+import { useWorkflowStrings } from "./workflow-strings";
 
 interface NodeAuditPanelProps {
   factoryId: string;
   workflowId: string;
   nodeId: string;
+  /** What the canvas calls the step: its label, else its derived title. Never the identifier. */
+  title: string;
   /** Read one run's step, on the graph version that run used. */
   runId?: string;
   onClose?: () => void;
@@ -90,17 +99,19 @@ function AuditSkeleton() {
 
 /**
  * What one node has done: how its recent runs ended, what went in and out of
- * the newest, its errors and receipts. Content for the right-hand panel the
- * canvas page docks; the page owns the frame and the tab.
+ * the newest, its errors and receipts. The History tab of the step details
+ * modal shows it; the modal owns the frame and the tab.
  */
 export function NodeAuditPanel({
   factoryId,
   workflowId,
   nodeId,
+  title,
   runId,
   onClose,
 }: NodeAuditPanelProps) {
   const workflowCanvasStrings = useWorkflowCanvasStrings();
+  const ws = useWorkflowStrings();
   const s = useItemsStrings();
   const { locale } = useLocale();
 
@@ -113,7 +124,7 @@ export function NodeAuditPanel({
     ...(runId ? { runId } : {}),
   });
   // Names for the nodes that fed this one. The page has this graph already, so
-  // this is the same cached read; ids stand in if it is not there.
+  // this is the same cached read; a step the saved graph no longer has reads as removed.
   const graph = useActionQuery<{ graph: WorkflowGraph }>(
     "get-factory-workflow",
     {
@@ -124,22 +135,31 @@ export function NodeAuditPanel({
   const names = useMemo(
     () =>
       new Map(
-        (graph.data?.graph.nodes ?? []).map((node) => [node.id, node.name]),
+        (graph.data?.graph.nodes ?? []).map((node) => [
+          node.id,
+          nodeTitle(node, WORKFLOW_CATALOG, workflowCanvasStrings),
+        ]),
       ),
-    [graph.data],
+    [graph.data, workflowCanvasStrings],
   );
-  const nameOf = (id: string) => names.get(id) ?? id;
+  const nameOf = (id: string) => names.get(id) ?? ws.nodeData.removedStep;
   const labelPort = useMemo(
     () => portLabeler(graph.data?.graph, s, workflowCanvasStrings),
     [graph.data, s, workflowCanvasStrings],
   );
+  // A lone `out` port has no name to show, as on the canvas. Without the graph, or for a removed step, keep the name.
+  const showsPort = (nodeId: string) => {
+    const current = graph.data?.graph;
+    const node = current?.nodes.find((candidate) => candidate.id === nodeId);
+    return !current || !node || showsPortRows(portsWithLimit(current, node));
+  };
 
   const audit = query.data;
   if (!audit) {
     return (
       <div className="flex h-full min-h-0 flex-col">
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
-          <p className="min-w-0 truncate font-mono text-sm">{nodeId}</p>
+          <p className="min-w-0 truncate text-sm font-medium">{title}</p>
           {onClose ? <CloseButton onClose={onClose} /> : null}
         </header>
         {query.isError ? (
@@ -158,9 +178,10 @@ export function NodeAuditPanel({
   }
 
   const KindIcon = NODE_KIND_ICONS[audit.node.kind];
+  const kindWord = workflowCanvasStrings.kind[audit.node.kind];
   const latest = audit.latest;
-  const openItem = (itemId: string, title?: string | null) =>
-    setOpen({ workflowId, itemId, title });
+  const openItem = (itemId: string, itemTitle?: string | null) =>
+    setOpen({ workflowId, itemId, title: itemTitle });
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -172,11 +193,13 @@ export function NodeAuditPanel({
               aria-hidden
             />
             <h2 className="min-w-0 truncate text-base font-semibold">
-              {audit.node.name}
+              {title}
             </h2>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {workflowCanvasStrings.kind[audit.node.kind]}
-            </span>
+            {kindWord !== title ? (
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {kindWord}
+              </span>
+            ) : null}
           </div>
           {onClose ? <CloseButton onClose={onClose} /> : null}
         </div>
@@ -257,6 +280,7 @@ export function NodeAuditPanel({
                 inputs={latest.in}
                 nodeName={nameOf}
                 portLabel={labelPort}
+                showsPort={showsPort}
                 onOpenItem={(item) => openItem(item.itemId, item.title)}
               />
             </div>

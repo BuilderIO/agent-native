@@ -66,10 +66,32 @@ describe("node envelope", () => {
     expect(
       workflowNodeSchema.safeParse({
         ...candidateNode("end", { outcome: "done" }),
-        label: "typo",
+        title: "typo",
       }).success,
     ).toBe(false);
     expect(accepts("end", { outcome: "done", reasno: "typo" })).toBe(false);
+  });
+
+  it("takes an optional free-text label of up to 64 characters", () => {
+    const labelled = (label: unknown) =>
+      workflowNodeSchema.safeParse({
+        ...candidateNode("end", { outcome: "done" }),
+        label,
+      });
+    // An old graph, with no label, stays valid and gains none.
+    const bare = workflowNodeSchema.parse(
+      candidateNode("end", { outcome: "done" }),
+    );
+    expect("label" in bare).toBe(false);
+    expect(labelled("Post the weekly digest to #support").success).toBe(true);
+    expect(labelled("  Reply to the customer  ").data?.label).toBe(
+      "Reply to the customer",
+    );
+    expect(labelled("x".repeat(64)).success).toBe(true);
+    expect(labelled("x".repeat(65)).success).toBe(false);
+    expect(labelled("").success).toBe(false);
+    expect(labelled("   ").success).toBe(false);
+    expect(labelled(7).success).toBe(false);
   });
 
   it("reads a node under its name, or under into for a lookup", () => {

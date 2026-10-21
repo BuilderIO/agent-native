@@ -109,22 +109,27 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
     ],
     loopCap: () => (passes: number) =>
       t("workflowCanvas.loopCap", { count: passes }),
+    passCount: () => (count: number) =>
+      t("workflowCanvas.passCount", { count }),
+    runMode: () => ({
+      live: t("workflowCanvas.runMode.live"),
+    }),
     waiting: () => (count: number) => t("workflowCanvas.waiting", { count }),
     notConnected: () => (provider: string) =>
       t("workflowCanvas.notConnected", { provider }),
     issue: () => ({
       edge: (from: string, to: string) =>
         t("workflowCanvas.issue.edge", { from, to }),
-      graph: { trigger_count: t("workflowCanvas.issue.graph.trigger_count") },
       sentence: (issue: WorkflowIssue, portLabel?: string) =>
         issueSentence(t, issue, portLabel),
     }),
     palette: () => ({
-      search: t("workflowCanvas.palette.search"),
       startsGroup: t("workflowCanvas.palette.startsGroup"),
       nextGroup: t("workflowCanvas.palette.nextGroup"),
       onSchedule: t("workflowCanvas.palette.onSchedule"),
-      watchInbox: t("workflowCanvas.palette.watchInbox"),
+      watchSlackInbox: t("workflowCanvas.palette.watchSlackInbox"),
+      watchGitHubInbox: t("workflowCanvas.palette.watchGitHubInbox"),
+      watchSentryInbox: t("workflowCanvas.palette.watchSentryInbox"),
       itemsInStatus: t("workflowCanvas.palette.itemsInStatus"),
       filter: t("workflowCanvas.palette.filter"),
       switch: t("workflowCanvas.palette.switch"),
@@ -155,6 +160,40 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
       insertOnEdge: t("workflowCanvas.creator.insertOnEdge"),
       insertBlockedLoop: t("workflowCanvas.creator.insertBlockedLoop"),
       noResults: t("workflowCanvas.creator.noResults"),
+      startSubtitle: t("workflowCanvas.creator.startSubtitle"),
+      newFromApp: t("workflowCanvas.creator.newFromApp"),
+      appAction: t("workflowCanvas.creator.appAction"),
+      data: t("workflowCanvas.creator.data"),
+      lookUpCaption: t("workflowCanvas.creator.lookUpCaption"),
+      sendOrChangeCaption: t("workflowCanvas.creator.sendOrChangeCaption"),
+      searchApps: t("workflowCanvas.creator.searchApps"),
+      searchActions: t("workflowCanvas.creator.searchActions"),
+      clearSearch: t("workflowCanvas.creator.clearSearch"),
+      hint: {
+        onSchedule: t("workflowCanvas.creator.hint.onSchedule"),
+        newFromApp: t("workflowCanvas.creator.hint.newFromApp"),
+        itemsInStatus: t("workflowCanvas.creator.hint.itemsInStatus"),
+        appAction: t("workflowCanvas.creator.hint.appAction"),
+        ai: t("workflowCanvas.creator.hint.ai"),
+        data: t("workflowCanvas.creator.hint.data"),
+        flow: t("workflowCanvas.creator.hint.flow"),
+        describe: t("workflowCanvas.creator.hint.describe"),
+        decideAi: t("workflowCanvas.creator.hint.decideAi"),
+        builderStart: t("workflowCanvas.creator.hint.builderStart"),
+        builderCheck: t("workflowCanvas.creator.hint.builderCheck"),
+        builderFollowUp: t("workflowCanvas.creator.hint.builderFollowUp"),
+        filter: t("workflowCanvas.creator.hint.filter"),
+        split: t("workflowCanvas.creator.hint.split"),
+        combineList: t("workflowCanvas.creator.hint.combineList"),
+        combineCount: t("workflowCanvas.creator.hint.combineCount"),
+        combineGroup: t("workflowCanvas.creator.hint.combineGroup"),
+        combineSummarize: t("workflowCanvas.creator.hint.combineSummarize"),
+        switch: t("workflowCanvas.creator.hint.switch"),
+        waitReply: t("workflowCanvas.creator.hint.waitReply"),
+        waitTime: t("workflowCanvas.creator.hint.waitTime"),
+        waitCondition: t("workflowCanvas.creator.hint.waitCondition"),
+        finish: t("workflowCanvas.creator.hint.finish"),
+      },
     }),
     toolbar: () => ({
       addStep: t("workflowCanvas.toolbar.addStep"),
@@ -172,7 +211,6 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
     }),
     canvasActions: () => ({
       addFirstStep: t("workflowCanvas.canvasActions.addFirstStep"),
-      describeFirst: t("workflowCanvas.canvasActions.describeFirst"),
       describeFirstPrefill: t(
         "workflowCanvas.canvasActions.describeFirstPrefill",
       ),
@@ -180,6 +218,8 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
       saveAndTestWorkflow: t(
         "workflowCanvas.canvasActions.saveAndTestWorkflow",
       ),
+      describeTile: t("workflowCanvas.canvasActions.describeTile"),
+      or: t("workflowCanvas.canvasActions.or"),
     }),
     nodeActions: () => ({
       duplicate: t("workflowCanvas.nodeActions.duplicate"),
@@ -190,16 +230,13 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
       loop: t("workflowCanvas.edge.loop"),
       passes: t("workflowCanvas.edge.passes"),
       remove: t("workflowCanvas.edge.remove"),
+      items: (count: number) => t("workflowCanvas.edge.items", { count }),
+      itemsTotal: (count: number) =>
+        t("workflowCanvas.edge.itemsTotal", { count }),
     }),
     inspector: () => ({
-      panelName: t("workflowCanvas.inspector.panelName"),
       nameLabel: t("workflowCanvas.inspector.nameLabel"),
-      closeLabel: t("workflowCanvas.inspector.closeLabel"),
       problemsHeading: t("workflowCanvas.inspector.problemsHeading"),
-      renamedStale: (count: number, oldName: string) =>
-        t("workflowCanvas.inspector.renamedStale", { count, oldName }),
-      staleWhere: (nodeName: string, where: string) =>
-        t("workflowCanvas.inspector.staleWhere", { nodeName, where }),
       mode: {
         fixed: t("workflowCanvas.inspector.mode.fixed"),
         path: t("workflowCanvas.inspector.mode.path"),
@@ -219,7 +256,6 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
       notInCatalog: (id: string) =>
         t("workflowCanvas.inspector.notInCatalog", { id }),
       resultName: t("workflowCanvas.inspector.resultName"),
-      path: t("workflowCanvas.inspector.path"),
       pathExample: "item.title",
       insertPath: t("workflowCanvas.inspector.insertPath"),
       searchPaths: t("workflowCanvas.inspector.searchPaths"),
@@ -261,8 +297,6 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
         matchAny: t("workflowCanvas.inspector.rules.matchAny"),
         add: t("workflowCanvas.inspector.rules.add"),
         remove: t("workflowCanvas.inspector.rules.remove"),
-        value: t("workflowCanvas.inspector.rules.value"),
-        left: t("workflowCanvas.inspector.rules.left"),
         op: {
           equals: t("workflowCanvas.inspector.rules.op.equals"),
           notEquals: t("workflowCanvas.inspector.rules.op.notEquals"),
@@ -420,7 +454,6 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
         setStatus: t("workflowCanvas.inspector.end.setStatus"),
       },
       switchRoutes: {
-        heading: t("workflowCanvas.inspector.switchRoutes.heading"),
         routeName: t("workflowCanvas.inspector.switchRoutes.routeName"),
         newLabel: (n: number) =>
           t("workflowCanvas.inspector.switchRoutes.newLabel", { n }),
@@ -460,6 +493,16 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
         invalid_iterations: t("workflowCanvas.rejection.invalid_iterations"),
         invalid_position: t("workflowCanvas.rejection.invalid_position"),
       }) satisfies Record<RejectionCode, string>,
+    menu: () => ({
+      openDetails: t("workflowCanvas.menu.openDetails"),
+      rename: t("workflowCanvas.menu.rename"),
+      duplicateMany: (count: number) =>
+        t("workflowCanvas.menu.duplicateMany", { count }),
+      deleteMany: (count: number) =>
+        t("workflowCanvas.menu.deleteMany", { count }),
+      selectAll: t("workflowCanvas.menu.selectAll"),
+      clearSelection: t("workflowCanvas.menu.clearSelection"),
+    }),
   });
 }
 

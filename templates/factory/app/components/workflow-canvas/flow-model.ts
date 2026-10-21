@@ -1,11 +1,13 @@
 import type { Edge, Node } from "@xyflow/react";
 
 import {
+  nodeSize,
   portsWithLimit,
   routePort,
   showsPortRows,
   type EditorValidation,
   type Selection,
+  type Size,
   type WorkflowCatalog,
   type WorkflowEdge,
   type WorkflowGraph,
@@ -13,11 +15,14 @@ import {
   type WorkflowNode,
 } from "@/lib/workflow-editor";
 
-import { describeNode } from "./node-summary";
+import { describeNode, nodeTitle } from "./node-summary";
 import type { StepOverlay, WorkflowOverlay } from "./overlay";
 import type { WorkflowCanvasStrings } from "./strings";
 
 export const TARGET_HANDLE = "in";
+
+/** Adds the next step after one output of a step. */
+export type AddAfterHandler = (nodeId: string, port: string) => void;
 
 export interface PortView {
   id: string;
@@ -31,7 +36,11 @@ type FlowState = "default" | "lit" | "dimmed";
 
 interface WorkflowNodeData extends Record<string, unknown> {
   node: WorkflowNode;
+  /** The name under the tile: the person's label, or one derived from the step. */
+  title: string;
+  /** The line under the title: what the step does. */
   subtitle: string;
+  size: Size;
   ports: PortView[];
   showPortRows: boolean;
   issues: WorkflowIssue[];
@@ -39,12 +48,21 @@ interface WorkflowNodeData extends Record<string, unknown> {
   unconnected: readonly string[];
   step?: StepOverlay;
   state: FlowState;
+  /** The run is on this step: its ring turns until the next step starts. */
+  current: boolean;
   readOnly: boolean;
+  /** Absent where the canvas cannot be edited. React Flow mounts the card with no props of its own, so this travels here. */
+  onAddAfter?: AddAfterHandler;
 }
 
 export interface WorkflowEdgeData extends Record<string, unknown> {
   edge: WorkflowEdge;
+  /** Items through this connection in the shown run. Absent where the source labels its outputs instead. */
   count?: number;
+  /** Items went along this connection in the shown run. A zero count is not a flow. */
+  flowed: boolean;
+  /** The source step ran more than once, so `count` is a total over its passes. */
+  repeated: boolean;
   issues: WorkflowIssue[];
   /** Loops that share a stretch of canvas take different lanes. */
   lane: number;
@@ -92,6 +110,7 @@ export function toFlowNodes(args: {
   selection: Selection;
   readOnly: boolean;
   strings: WorkflowCanvasStrings;
+  onAddAfter?: AddAfterHandler;
 }): WorkflowFlowNode[] {
   const {
     graph,
@@ -102,6 +121,7 @@ export function toFlowNodes(args: {
     selection,
     readOnly,
     strings: s,
+    onAddAfter,
   } = args;
   const selected = new Set(selection.nodeIds);
   const connected = new Set(
@@ -130,6 +150,8 @@ export function toFlowNodes(args: {
         issues: issues.filter((issue) => issue.port === id),
       }),
     );
+    const title = nodeTitle(node, catalog, s);
+    const summary = describeNode(node, catalog, s);
     return {
       id: node.id,
       type: "workflow",
@@ -140,14 +162,19 @@ export function toFlowNodes(args: {
       deletable: false,
       data: {
         node,
-        subtitle: describeNode(node, catalog, s),
+        title,
+        // A summary that repeats the title (an operation's own label) is left out.
+        subtitle: summary === title ? "" : summary,
+        size: nodeSize(graph, node),
         ports,
         showPortRows: showsPortRows(ports.map((port) => port.id)),
         issues,
         unconnected: unconnected?.[node.id] ?? [],
         step,
         state: stateOf(overlay, overlay?.litNodeIds, node.id),
+        current: overlay?.currentNodeId === node.id,
         readOnly,
+        onAddAfter,
       },
     };
   });
@@ -158,8 +185,10 @@ export function toFlowEdges(args: {
   validation: EditorValidation;
   overlay?: WorkflowOverlay;
   selection: Selection;
+  /** The connection under the pointer rises above its neighbours. */
+  hoveredEdgeId?: string;
 }): WorkflowFlowEdge[] {
-  const { graph, validation, overlay, selection } = args;
+  const { graph, validation, overlay, selection, hoveredEdgeId } = args;
   const selected = new Set(selection.edgeIds);
   const lanes = new Map<string, number>();
   return graph.edges
@@ -168,13 +197,12 @@ export function toFlowEdges(args: {
       const span = `${edge.to.node}`;
       const lane = edge.back ? (lanes.get(span) ?? 0) : 0;
       if (edge.back) lanes.set(span, lane + 1);
-      // A node with labelled outputs already shows each count beside its output.
       const source = graph.nodes.find((node) => node.id === edge.from.node);
-      const count =
-        source && !showsPortRows(portsWithLimit(graph, source))
-          ? overlay?.stepByNodeId?.[edge.from.node]?.ports[edge.from.port]
-              ?.count
-          : undefined;
+      const sourceStep = overlay?.stepByNodeId?.[edge.from.node];
+      const portCount = sourceStep?.ports[edge.from.port]?.count;
+      // A node with labelled outputs already shows each count beside its output.
+      const labelled =
+        source !== undefined && showsPortRows(portsWithLimit(graph, source));
       const state = stateOf(overlay, overlay?.litEdgeIds, edge.id);
       return {
         id: edge.id,
@@ -184,11 +212,15 @@ export function toFlowEdges(args: {
         sourceHandle: edge.from.port,
         targetHandle: TARGET_HANDLE,
         selected: selected.has(edge.id),
+        zIndex: edge.id === hoveredEdgeId ? 1 : 0,
         deletable: false,
         focusable: true,
         data: {
           edge,
-          count,
+          count: labelled ? undefined : portCount,
+          // Without a count for the port, a connection an item's path lights still counts as flowed.
+          flowed: portCount === undefined ? state === "lit" : portCount > 0,
+          repeated: (sourceStep?.passes ?? 1) > 1,
           issues: validation.byEdge[edge.id] ?? [],
           lane,
           state,

@@ -4,6 +4,7 @@ import {
   MAX_EDGES,
   MAX_NODES,
   identifierSchema,
+  nodeLabelSchema,
   nodeScopeKey,
   portsFor,
   portsWithLimit,
@@ -160,6 +161,55 @@ function clampPosition(point: Point): Point {
   return { x: clamp(point.x), y: clamp(point.y) };
 }
 
+/**
+ * Connects what fed a step to what its first output fed, so deleting the step
+ * keeps the chain whole. A pair is skipped when it is already connected, would
+ * loop onto itself, or `connect` refuses it. Loop back-edges are never bridged.
+ */
+function bridgeAround(
+  graph: WorkflowGraph,
+  nodeId: string,
+  deleting: ReadonlySet<string>,
+): WorkflowGraph {
+  const node = nodeById(graph, nodeId);
+  if (!node) return graph;
+  const [output] = portsFor(node);
+  if (output === undefined) return graph;
+  const feeds = graph.edges.filter(
+    (edge) => edge.to.node === nodeId && !edge.back && !deleting.has(edge.id),
+  );
+  const outs = graph.edges.filter(
+    (edge) =>
+      edge.from.node === nodeId &&
+      edge.from.port === output &&
+      !edge.back &&
+      !deleting.has(edge.id),
+  );
+  let working = graph;
+  for (const feed of feeds) {
+    for (const out of outs) {
+      const from = feed.from.node;
+      const to = out.to.node;
+      if (from === to) continue;
+      if (
+        working.edges.some(
+          (edge) => edge.from.node === from && edge.to.node === to,
+        )
+      ) {
+        continue;
+      }
+      const linked = connect(
+        working,
+        { node: from, port: feed.from.port },
+        to,
+        { back: "auto" },
+      );
+      if (linked.ok && linked.edge.back === undefined) working = linked.graph;
+    }
+  }
+  return working;
+}
+
 export function deleteElements(
   graph: WorkflowGraph,
   ids: { nodeIds?: readonly string[]; edgeIds?: readonly string[] },
@@ -174,30 +224,35 @@ export function deleteElements(
       return reject("unknown_edge", `No edge "${id}".`);
     }
   }
-  const removedEdges = graph.edges.filter(
-    (edge) =>
-      edgeIds.has(edge.id) ||
-      nodeIds.has(edge.from.node) ||
-      nodeIds.has(edge.to.node),
-  );
-  if (nodeIds.size === 0 && removedEdges.length === 0) {
+  // Selection order decides the bridges: a bridge made for one step can carry
+  // the chain past the next step that is deleted too.
+  let bridged = graph;
+  for (const id of nodeIds) bridged = bridgeAround(bridged, id, edgeIds);
+  const doomed = (edge: WorkflowEdge) =>
+    edgeIds.has(edge.id) ||
+    nodeIds.has(edge.from.node) ||
+    nodeIds.has(edge.to.node);
+  if (nodeIds.size === 0 && !graph.edges.some(doomed)) {
     return { ok: true, graph, removedNodeIds: [], removedEdgeIds: [] };
   }
-  const gone = new Set(removedEdges.map((edge) => edge.id));
   const remaining: WorkflowGraph = {
-    ...graph,
-    nodes: graph.nodes.filter((node) => !nodeIds.has(node.id)),
-    edges: graph.edges.filter((edge) => !gone.has(edge.id)),
+    ...bridged,
+    nodes: bridged.nodes.filter((node) => !nodeIds.has(node.id)),
+    edges: bridged.edges.filter((edge) => !doomed(edge)),
   };
   const pruned = pruneDeadPorts(
     remaining,
-    removedEdges.map((edge) => edge.from.node),
+    bridged.edges.filter(doomed).map((edge) => edge.from.node),
   );
+  const kept = new Set(pruned.graph.edges.map((edge) => edge.id));
   return {
     ok: true,
     graph: pruned.graph,
     removedNodeIds: [...nodeIds],
-    removedEdgeIds: [...gone, ...pruned.prunedEdgeIds],
+    // A bridge made above is not in `graph`, so only the caller's own edges are reported.
+    removedEdgeIds: graph.edges
+      .filter((edge) => !kept.has(edge.id))
+      .map((edge) => edge.id),
   };
 }
 
@@ -346,6 +401,38 @@ export function renameNode(
   const references =
     nodeScopeKey(node) === key ? [] : findNodeReferences(graph, nodeId);
   return { ok: true, graph: withNode(graph, renamed), references };
+}
+
+/**
+ * Sets the text a person reads for a node, or clears it when `label` is null or
+ * blank so the node shows its derived title again. The identifier `name` and
+ * everything that reads it are untouched.
+ */
+export function setNodeLabel(
+  graph: WorkflowGraph,
+  nodeId: string,
+  label: string | null,
+): GraphEdit {
+  const node = nodeById(graph, nodeId);
+  if (!node) return reject("unknown_node", `No node "${nodeId}".`);
+  const text = label?.trim() ?? "";
+  if (text === "") {
+    if (node.label === undefined) return { ok: true, graph };
+    const { label: _cleared, ...rest } = node;
+    return { ok: true, graph: withNode(graph, rest as WorkflowNode) };
+  }
+  const parsed = nodeLabelSchema.safeParse(text);
+  if (!parsed.success) {
+    return reject(
+      "invalid_name",
+      parsed.error.issues[0]?.message ?? "Not a valid label.",
+    );
+  }
+  if (parsed.data === node.label) return { ok: true, graph };
+  return {
+    ok: true,
+    graph: withNode(graph, { ...node, label: parsed.data } as WorkflowNode),
+  };
 }
 
 function backEdgeIssue(maxIterations: number) {

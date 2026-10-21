@@ -1,5 +1,11 @@
-import { IconPlus, IconTrash } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { IconPlus, IconTrash, type Icon } from "@tabler/icons-react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type SyntheticEvent,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -128,5 +134,104 @@ export function EdgeToolbar({
         <TooltipContent>{s.edge.remove}</TooltipContent>
       </Tooltip>
     </div>
+  );
+}
+
+/** Edge commands for the hover controls. The canvas provides them only when it can be edited. */
+export interface EdgeActions {
+  /** Puts a step on this connection, as the selected connection's toolbar does. */
+  onInsertOnEdge: (edgeId: string) => void;
+  /** Removes this one connection as a single undo step. */
+  onRemoveEdge: (edgeId: string) => void;
+}
+
+/** Null on a read-only canvas, so no connection offers its hover controls. */
+export const EdgeActionsContext = createContext<EdgeActions | null>(null);
+
+/**
+ * The controls render into the edge label layer, but React still bubbles their
+ * events up the edge's component tree, where the edge selects itself on click.
+ * Stopping them here leaves a click on a control to the control alone.
+ */
+function keepOnControls(event: SyntheticEvent) {
+  event.stopPropagation();
+}
+
+/**
+ * The controls at a connection's midpoint: Add step, then Remove connection.
+ * Add stays on the midpoint at rest and on hover, and Remove grows the toolbar
+ * to its right. A loop cannot take a step, so it offers only removal, in the
+ * place Add would take. Keyboard users reach the same commands from the
+ * selected connection's toolbar.
+ */
+export function EdgeActionButtons({
+  edgeId,
+  insert,
+  remove,
+  onPointerEnter,
+  onPointerLeave,
+}: {
+  edgeId: string;
+  insert: boolean;
+  remove: boolean;
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
+}) {
+  const actions = useContext(EdgeActionsContext);
+  const s = useWorkflowCanvasStrings();
+
+  if (!actions) return null;
+  return (
+    <div
+      role="toolbar"
+      aria-label={s.edge.toolbarName}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onPointerDown={keepOnControls}
+      onClick={keepOnControls}
+      className="workflow-edge-actions flex items-center gap-2 rounded-lg bg-card p-2 ring-1 ring-border"
+    >
+      {insert && (
+        <EdgeActionButton
+          icon={IconPlus}
+          label={s.toolbar.addStep}
+          onClick={() => actions.onInsertOnEdge(edgeId)}
+        />
+      )}
+      {remove && (
+        <EdgeActionButton
+          icon={IconTrash}
+          label={s.edge.remove}
+          onClick={() => actions.onRemoveEdge(edgeId)}
+        />
+      )}
+    </div>
+  );
+}
+
+function EdgeActionButton({
+  icon: ButtonIcon,
+  label,
+  onClick,
+}: {
+  icon: Icon;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="size-7"
+          aria-label={label}
+          onClick={onClick}
+        >
+          <ButtonIcon />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
   );
 }

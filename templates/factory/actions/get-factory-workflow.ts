@@ -31,7 +31,8 @@ function outlineOf(graph: WorkflowGraph) {
     nodes: graph.nodes.map((node) => {
       const operation =
         "operation" in node.settings ? ` ${node.settings.operation}` : "";
-      return `${node.id} (${node.name}): ${node.kind}${operation}`;
+      const label = node.label === undefined ? "" : ` "${node.label}"`;
+      return `${node.id} (${node.name})${label}: ${node.kind}${operation}`;
     }),
     edges: graph.edges.map(
       (edge) =>

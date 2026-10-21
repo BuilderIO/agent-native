@@ -224,12 +224,14 @@ describe("addNode", () => {
 });
 
 describe("deleteElements", () => {
-  it("removes a node with every edge attached to it", () => {
+  it("removes a node with every edge attached to it and joins its neighbours", () => {
     const editor = chain();
     const result = editor.deleteElements({ nodeIds: ["send"] });
     expect(result.ok && result.removedEdgeIds.sort()).toEqual(["e1", "e2"]);
     expect(graphOf(editor).nodes.map((n) => n.id)).toEqual(["start", "finish"]);
-    expect(graphOf(editor).edges).toEqual([]);
+    expect(graphOf(editor).edges.map((e) => [e.from.node, e.to.node])).toEqual([
+      ["start", "finish"],
+    ]);
   });
 
   it("removes only the edge when an edge is deleted", () => {
@@ -434,6 +436,34 @@ describe("renameNode", () => {
       .validate()
       .issues.filter((i) => i.code === "bad_reference");
     expect(stale.length).toBeGreaterThan(0);
+  });
+
+  it("sets and clears a node label without touching its name or references", () => {
+    const editor = chain();
+    expect(editor.setNodeLabel("send", "  Tell the team  ").ok).toBe(true);
+    let send = graphOf(editor).nodes.find((node) => node.id === "send");
+    expect(send).toMatchObject({ name: "send", label: "Tell the team" });
+    expect(workflowGraphSchema.safeParse(graphOf(editor)).success).toBe(true);
+
+    editor.select({ nodeIds: ["send"] });
+    expect(editor.getSelectionContext().selectedNodes[0]).toMatchObject({
+      name: "send",
+      label: "Tell the team",
+    });
+    expect(editor.setNodeLabel("send", null).ok).toBe(true);
+    send = graphOf(editor).nodes.find((node) => node.id === "send");
+    expect(send && "label" in send).toBe(false);
+
+    expect(rejectionOf(editor.setNodeLabel("send", "x".repeat(65)))).toBe(
+      "invalid_name",
+    );
+    expect(rejectionOf(editor.setNodeLabel("nope", "x"))).toBe("unknown_node");
+  });
+
+  it("starts a new node with no label", () => {
+    const editor = chain();
+    const added = editor.addNode("end");
+    expect(added.ok && "label" in added.node).toBe(false);
   });
 
   it("reports nothing when no expression reads the node", () => {

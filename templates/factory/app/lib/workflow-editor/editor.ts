@@ -7,6 +7,7 @@ import {
   moveNodes,
   renameNode,
   setBackEdge,
+  setNodeLabel,
   updateNodeSettings,
 } from "./commands.js";
 import type {
@@ -94,6 +95,8 @@ export interface WorkflowEditor {
     nodeId: string,
     name: string,
   ): Outcome<{ references: NodeReference[] }>;
+  /** Sets the node's free-text label; null or blank clears it. */
+  setNodeLabel(nodeId: string, label: string | null): Outcome;
   connect(
     from: { node: string; port: string },
     toNode: string,
@@ -233,6 +236,11 @@ export function createWorkflowEditor(
     renameNode: (nodeId, name) =>
       commit("rename", renameNode(graph, nodeId, name), {
         key: `rename:${nodeId}`,
+        windowMs: 1000,
+      }),
+    setNodeLabel: (nodeId, label) =>
+      commit("rename", setNodeLabel(graph, nodeId, label), {
+        key: `label:${nodeId}`,
         windowMs: 1000,
       }),
     connect: (from, toNode, connectOptions) =>

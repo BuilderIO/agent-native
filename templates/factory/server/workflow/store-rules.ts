@@ -11,6 +11,7 @@ import {
   type RunCounts,
   type RunError,
   type RunRecord,
+  type RenameWorkflowInput,
   type RunRequest,
   type SaveWorkflowGraphInput,
   type StartRunInput,
@@ -545,6 +546,18 @@ export function prepareCreateWorkflow(input: CreateWorkflowInput): {
     source: parsed.source,
     summary: parsed.summary,
   };
+}
+
+const renameWorkflowSchema = z.object({
+  workflowId: idSchema,
+  name: createWorkflowSchema.shape.name,
+});
+
+export function prepareRenameWorkflow(input: RenameWorkflowInput): {
+  workflowId: string;
+  name: string;
+} {
+  return parseInput(renameWorkflowSchema, input, "Workflow rename");
 }
 
 const saveWorkflowSchema = z.object({

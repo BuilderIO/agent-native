@@ -423,6 +423,49 @@ export function runStoreConformance(name: string, makeStore: MakeStore): void {
         );
       });
 
+      it("renames a workflow without touching its version, graph or enabled state", async () => {
+        const created = await createWorkflow();
+        await store.recordCleanDryRun(SCOPE, {
+          workflowId: created.id,
+          version: 1,
+        });
+        await store.setWorkflowEnabled(SCOPE, created.id, true);
+
+        const renamed = await store.renameWorkflow(SCOPE, {
+          workflowId: created.id,
+          name: "  Weekly digest  ",
+        });
+        expect(renamed).toMatchObject({
+          id: created.id,
+          name: "Weekly digest",
+          version: 1,
+          enabled: true,
+          lastCleanDryRunVersion: 1,
+        });
+        expect(await store.getWorkflow(SCOPE, created.id)).toMatchObject({
+          name: "Weekly digest",
+          graph: created.graph,
+        });
+        await expectStoreError(
+          store.renameWorkflow(SCOPE, { workflowId: created.id, name: " " }),
+          "invalid_record",
+        );
+        await expectStoreError(
+          store.renameWorkflow(OTHER_FACTORY, {
+            workflowId: created.id,
+            name: "Taken over",
+          }),
+          "not_found",
+        );
+        await expectStoreError(
+          store.renameWorkflow(SCOPE, { workflowId: "missing", name: "x" }),
+          "not_found",
+        );
+        expect((await store.getWorkflow(SCOPE, created.id))?.name).toBe(
+          "Weekly digest",
+        );
+      });
+
       it("keeps the latest trigger instant when told out of order", async () => {
         const created = await createWorkflow();
         await store.recordTriggerRun(SCOPE, {
@@ -457,6 +500,31 @@ export function runStoreConformance(name: string, makeStore: MakeStore): void {
           }),
           "invalid_record",
         );
+      });
+
+      it("pages past a position without overlap, breaking ties on id", async () => {
+        // The clock stays still, so all three rows share one updatedAt and the
+        // position has to break the tie on id to keep the second page whole.
+        const made = [
+          await createWorkflow(),
+          await createWorkflow(),
+          await createWorkflow(),
+        ];
+
+        const first = await store.listWorkflows(SCOPE, { limit: 2 });
+        expect(first.items).toHaveLength(2);
+        expect(first.hasMore).toBe(true);
+        const after = first.nextAfter;
+        if (after === null)
+          throw new Error("A cut page must name where it ended.");
+
+        const second = await store.listWorkflows(SCOPE, { limit: 2, after });
+        expect(second.items).toHaveLength(1);
+        expect(second).toMatchObject({ hasMore: false, nextAfter: null });
+
+        const seen = [...first.items, ...second.items].map((w) => w.id);
+        expect(seen).toHaveLength(3);
+        expect(new Set(seen)).toEqual(new Set(made.map((w) => w.id)));
       });
 
       it("deletes the workflow and everything under it, only in its own scope", async () => {
@@ -2370,6 +2438,7 @@ export function runStoreConformance(name: string, makeStore: MakeStore): void {
           expect(await store.listWorkflows(outsider)).toEqual({
             items: [],
             hasMore: false,
+            nextAfter: null,
           });
           expect(await store.getRun(outsider, run.id)).toBeNull();
           expect(

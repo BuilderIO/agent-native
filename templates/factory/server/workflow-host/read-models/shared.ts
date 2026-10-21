@@ -45,6 +45,14 @@ export const READ_LIMITS = {
   nodeAuditReceipts: 50,
   nodeAuditItemErrors: 10,
   journeyReceipts: 50,
+  /** Item ids a node-data port lists unless the caller asks for fewer or more. */
+  nodeDataPortDefault: 10,
+  /** A step records at most this many item ids per port, so asking for more returns nothing more. */
+  nodeDataPortMax: 25,
+  /** One item in a node-data read, as returned. */
+  nodeDataItemBytes: 8 * 1024,
+  /** A whole node-data response; each side (in, out) gets half when both are read. */
+  nodeDataResponseBytes: 64 * 1024,
   searchChars: 100,
 } as const;
 
@@ -89,7 +97,13 @@ export interface ReadPage<T> {
 
 // Cursors
 
-type CursorKind = "runs" | "items" | "parked" | "events" | "activity";
+type CursorKind =
+  | "runs"
+  | "items"
+  | "parked"
+  | "events"
+  | "activity"
+  | "workflows";
 
 export function encodeCursor(
   kind: CursorKind,
@@ -145,6 +159,10 @@ export const parkedCursorSchema = z.looseObject({
   id: idTextSchema,
 });
 export const eventsCursorSchema = z.looseObject({
+  at: instantSchema,
+  id: idTextSchema,
+});
+export const workflowsCursorSchema = z.looseObject({
   at: instantSchema,
   id: idTextSchema,
 });

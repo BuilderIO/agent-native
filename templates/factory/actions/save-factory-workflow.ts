@@ -12,6 +12,7 @@ import {
   syncJobAfterGraphChange,
   withWorkflowFailures,
   workflowCanvasPath,
+  workflowNameSchema,
   workflowVersionSource,
 } from "../server/lib/factory-workflow-context.js";
 import { readGraphConnections } from "../server/lib/factory-workflow-graph-connections.js";
@@ -31,7 +32,7 @@ const graphInputSchema = z.strictObject({
 });
 
 const GRAPH_TEXT_DESCRIPTION =
-  "The whole graph as JSON text, never a patch: one object {nodes, edges, settings} written out as a string. Every node needs id, name, kind, position and settings; every edge needs id, from {node, port} and to {node}. Read the exact shapes, ports and operations from describe-workflow-node-catalog.";
+  "The whole graph as JSON text, never a patch: one object {nodes, edges, settings} written out as a string. Every node needs id, name, kind, position and settings, and may carry label, the friendly title people read on the canvas (free text, up to 64 characters; name stays the identifier used in {{ }} paths); every edge needs id, from {node, port} and to {node}. Read the exact shapes, ports and operations from describe-workflow-node-catalog.";
 
 // The agent sends the graph as JSON text: a node is a union of twelve kinds,
 // which a tool schema can only advertise as an open object map, and a model
@@ -60,14 +61,11 @@ const requestFields = {
     .max(64)
     .optional()
     .describe("Omit to create a new workflow."),
-  name: z
-    .string()
-    .trim()
-    .min(1)
-    .max(120)
-    .regex(/^[^\r\n]+$/, "A name is one line.")
+  name: workflowNameSchema
     .optional()
-    .describe("Required when creating. A name cannot change afterwards."),
+    .describe(
+      "Required when creating. To rename an existing workflow call rename-factory-workflow.",
+    ),
   expectedVersion: z
     .number()
     .int()
@@ -253,10 +251,13 @@ export default defineAction({
           const expectedVersion = input.expectedVersion as number;
           const current = await requireWorkflow(scoped, workflowId);
           if (input.name !== undefined && input.name !== current.name) {
-            fail("A workflow's name cannot change after it is created.", {
-              errorCode: "invalid_request",
-              statusCode: 400,
-            });
+            fail(
+              "Saving a graph does not rename the workflow: call rename-factory-workflow.",
+              {
+                errorCode: "invalid_request",
+                statusCode: 400,
+              },
+            );
           }
           // The store checks expectedVersion in the same statement that bumps the
           // version, so a stale save fails there with the current version attached.

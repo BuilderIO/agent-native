@@ -14,14 +14,7 @@ import {
   IconSitemap,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type RefObject,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useBlocker, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -43,29 +36,25 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useEditorSnapshot,
   useWorkflowCanvasStrings,
   useWorkflowEditor,
   WorkflowCanvas,
-  NodeInspector,
-  type StepOverlay,
 } from "@/components/workflow-canvas";
+import { ParkedCountsContext } from "@/components/workflow-canvas/parked-counts-context";
+import { RunModeBadge } from "@/components/workflow-canvas/RunModeBadge";
 import { useNewNodeHighlight } from "@/components/workflow-canvas/use-new-node-highlight";
 import {
+  isNodeDetailsOpen,
   leavesOpenWorkflow,
+  NODE_DETAILS_OPEN,
+  NODE_DETAILS_PARAM,
   readWorkflowParams,
 } from "@/lib/factory-tab-params";
 import { TAB_ID } from "@/lib/tab-id";
-import type { WorkflowEditor, WorkflowGraph } from "@/lib/workflow-editor";
+import type { WorkflowGraph } from "@/lib/workflow-editor";
 
 import {
   missingConnections,
@@ -78,9 +67,9 @@ import {
   newWorkflowAgentMessage,
   takeNewWorkflowRequest,
 } from "./new-workflow";
-import { NodeAuditPanel } from "./NodeAuditPanel";
+import { NodeDetailsDialog } from "./node-details/NodeDetailsDialog";
 import { RunPicker } from "./RunPicker";
-import { TestStepButton } from "./TestStepButton";
+import { useParkedCounts } from "./use-parked-counts";
 import { WORKFLOW_CATALOG } from "./workflow-catalog";
 import {
   buildAgentContext,
@@ -96,11 +85,14 @@ import {
   type ActionFailure,
   type ServerIssue,
 } from "./workflow-errors";
+import { withRenamedWorkflow } from "./workflow-list-model";
 import { listProblems, type ProblemRow } from "./workflow-problems";
-import { openingTab, runOverlay } from "./workflow-run-overlay";
+import { runOverlay } from "./workflow-run-overlay";
 import { useWorkflowStrings } from "./workflow-strings";
 import type {
   GetWorkflowResult,
+  ListWorkflowsResult,
+  RenameWorkflowResult,
   RestoreWorkflowResult,
   RunDetail,
   RunWorkflowMode,
@@ -111,7 +103,6 @@ import type {
 import { WorkflowToolbar } from "./WorkflowToolbar";
 import { WorkflowVersionsPanel } from "./WorkflowVersionsPanel";
 
-const NARROW_PX = 768;
 const RUN_WATCH_INTERVAL_MS = 1_500;
 const STATE_WRITE_DELAY_MS = 400;
 const MINIMAP_NODE_COUNT = 16;
@@ -218,23 +209,6 @@ function WorkflowPageSkeleton({ backHref }: { backHref: string }) {
   );
 }
 
-function useElementNarrow(
-  ref: RefObject<HTMLElement | null>,
-  threshold: number,
-): boolean {
-  const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const measure = () => setNarrow(element.clientWidth < threshold);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref, threshold]);
-  return narrow;
-}
-
 interface Saved {
   graph: WorkflowGraph;
   /** The version the saved graph is. An unsaved graph is based on this one. */
@@ -260,9 +234,6 @@ function WorkflowEditorSurface({
   const edgeParam = searchParams.get("edge");
   const runParam = searchParams.get("run");
   const versionParam = readWorkflowParams(searchParams).version;
-
-  const rootRef = useRef<HTMLDivElement>(null);
-  const narrow = useElementNarrow(rootRef, NARROW_PX);
 
   const [graph, setGraph] = useState<WorkflowGraph>(workflow.graph);
   const [saved, setSaved] = useState<Saved>({
@@ -290,31 +261,36 @@ function WorkflowEditorSurface({
   const savingRef = useRef(saving);
   savingRef.current = saving;
 
+  // Each write starts from the URL as it is now, not from the last render's copy: a selection change and a details
+  // change in the same event must both land.
+  const writeUrlParams = useCallback(
+    (change: (params: URLSearchParams) => void) => {
+      const current = new URLSearchParams(window.location.search);
+      const next = new URLSearchParams(current);
+      change(next);
+      if (next.toString() !== current.toString()) {
+        setSearchParams(next, { replace: true });
+      }
+    },
+    [setSearchParams],
+  );
+
   const setSelectionParams = useCallback(
     (selection: { nodeIds: string[]; edgeIds: string[] }) => {
       const wanted = urlParamsForSelection(selection);
-      setSearchParams(
-        (current) => {
-          if (
-            (current.get("node") || null) === wanted.node &&
-            (current.get("edge") || null) === wanted.edge
-          ) {
-            return current;
-          }
-          const next = new URLSearchParams(current);
-          for (const [key, value] of [
-            ["node", wanted.node],
-            ["edge", wanted.edge],
-          ] as const) {
-            if (value) next.set(key, value);
-            else next.delete(key);
-          }
-          return next;
-        },
-        { replace: true },
-      );
+      writeUrlParams((next) => {
+        for (const [key, value] of [
+          ["node", wanted.node],
+          ["edge", wanted.edge],
+        ] as const) {
+          if (value) next.set(key, value);
+          else next.delete(key);
+        }
+        // The details modal shows a step, so it closes when no step is selected.
+        if (!wanted.node) next.delete(NODE_DETAILS_PARAM);
+      });
     },
-    [setSearchParams],
+    [writeUrlParams],
   );
 
   const editor = useWorkflowEditor({
@@ -339,6 +315,67 @@ function WorkflowEditorSurface({
     [snapshot.graph.nodes],
   );
   const recentNodeIds = useNewNodeHighlight(graphNodeIds);
+
+  // The step details modal. Its open state is in the URL, next to the step it shows. The rest is for this visit
+  // only: a step this page did not start with, opened for the first time, opens quiet (see `NodeDetailsDialog`).
+  const detailsOpen = isNodeDetailsOpen(searchParams);
+  const [startingNodeIds] = useState(
+    () => new Set(workflow.graph.nodes.map((node) => node.id)),
+  );
+  const detailsShown = useRef(new Set<string>());
+  const [detailsEntry, setDetailsEntry] = useState<{
+    nodeId: string;
+    focusName: boolean;
+    quiet: boolean;
+  } | null>(null);
+  const detailsNode =
+    detailsOpen && nodeParam
+      ? snapshot.graph.nodes.find((node) => node.id === nodeParam)
+      : undefined;
+  const entry =
+    detailsNode && detailsEntry?.nodeId === detailsNode.id
+      ? detailsEntry
+      : null;
+
+  const openDetails = useCallback(
+    (nodeId: string, focus?: "name") => {
+      const fresh =
+        !startingNodeIds.has(nodeId) && !detailsShown.current.has(nodeId);
+      detailsShown.current.add(nodeId);
+      setDetailsEntry({ nodeId, focusName: focus === "name", quiet: fresh });
+      const { selection: picked } = editor.getSnapshot();
+      if (
+        picked.nodeIds.length !== 1 ||
+        picked.nodeIds[0] !== nodeId ||
+        picked.edgeIds.length > 0
+      ) {
+        editor.select({ nodeIds: [nodeId], edgeIds: [] });
+      }
+      writeUrlParams((next) => {
+        next.set("node", nodeId);
+        next.delete("edge");
+        next.set(NODE_DETAILS_PARAM, NODE_DETAILS_OPEN);
+      });
+    },
+    [editor, writeUrlParams, startingNodeIds],
+  );
+
+  // Closing leaves the step selected.
+  const closeDetails = useCallback(() => {
+    setDetailsEntry(null);
+    writeUrlParams((next) => next.delete(NODE_DETAILS_PARAM));
+  }, [writeUrlParams]);
+
+  const engageDetails = useCallback(() => {
+    setDetailsEntry((current) =>
+      current?.quiet ? { ...current, quiet: false } : current,
+    );
+  }, []);
+
+  // Back or forward can close the modal without `closeDetails`, and its entry goes with it.
+  useEffect(() => {
+    if (!detailsOpen) setDetailsEntry(null);
+  }, [detailsOpen]);
 
   // Connections
   const providerConnections = useProviderConnections();
@@ -436,10 +473,74 @@ function WorkflowEditorSurface({
       "list-factory-workflows",
       "list-factory-workflow-versions",
       "list-factory-workflow-runs",
+      "get-workflow-node-data",
     ]) {
       void queryClient.invalidateQueries({ queryKey: ["action", name] });
     }
   }, [queryClient]);
+
+  // Rename, as the list does it: the new name shows in the workflow and list reads at once. A rename that did
+  // not land puts the old name back. A schedule that did not follow keeps the new name and says so.
+  const { mutate: renameWorkflowMutation } = useActionMutation<
+    RenameWorkflowResult,
+    { factoryId: string; workflowId: string; name: string }
+  >("rename-factory-workflow");
+  const renameWorkflow = useCallback(
+    (name: string) => {
+      const previousName = workflow.name;
+      const showName = (next: string) => {
+        queryClient.setQueriesData<GetWorkflowResult>(
+          {
+            queryKey: ["action", "get-factory-workflow"],
+            predicate: (query) =>
+              (query.queryKey[2] as { workflowId?: unknown } | undefined)
+                ?.workflowId === workflowId,
+          },
+          (current) => (current ? { ...current, name: next } : current),
+        );
+        queryClient.setQueriesData<ListWorkflowsResult>(
+          { queryKey: ["action", "list-factory-workflows"] },
+          (current) =>
+            current ? withRenamedWorkflow(current, workflowId, next) : current,
+        );
+      };
+      void queryClient.cancelQueries({
+        queryKey: ["action", "get-factory-workflow"],
+      });
+      void queryClient.cancelQueries({
+        queryKey: ["action", "list-factory-workflows"],
+      });
+      showName(name);
+      renameWorkflowMutation(
+        { factoryId, workflowId, name },
+        {
+          onError: (error) => {
+            const failure = readActionFailure(error, ws.errors.unknown);
+            if (failure.errorCode === "job_sync_failed") {
+              toast.error(ws.list.renamedJobFailed);
+            } else {
+              showName(previousName);
+              toast.error(ws.list.renameFailed(failure.message));
+            }
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-factory-workflow"],
+            });
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "list-factory-workflows"],
+            });
+          },
+        },
+      );
+    },
+    [
+      factoryId,
+      workflowId,
+      workflow.name,
+      queryClient,
+      renameWorkflowMutation,
+      ws,
+    ],
+  );
 
   // Save
 
@@ -772,14 +873,24 @@ function WorkflowEditorSurface({
     () => new Set(workflow.graph.nodes.map((node) => node.id)),
     [workflow.graph],
   );
+  const runStatus = runParam ? runQuery.data?.run.status : undefined;
+  // Items waiting at each Wait, for the canvas badges. Read again while the run goes, and once it ends.
+  const parkedCounts = useParkedCounts({
+    factoryId,
+    workflowId,
+    running: runStatus === "running",
+  });
   const overlay = useMemo(
-    () => runOverlay(runParam ? runQuery.data?.steps : undefined),
-    [runParam, runQuery.data],
+    () =>
+      runOverlay(runParam ? runQuery.data?.steps : undefined, {
+        running: runStatus === "running",
+      }),
+    [runParam, runQuery.data, runStatus],
   );
   const runPending =
     runParam !== null && runParam === queuedRunId && openedRunId !== runParam;
 
-  // A node's audit is read while its run is still going, so it is read again once the run settles.
+  // A node's audit and item data are read while its run is still going, so both are read again once the run settles.
   const lastRun = useRef<{ id: string; status: string } | null>(null);
   useEffect(() => {
     const run = runQuery.data?.run;
@@ -793,6 +904,9 @@ function WorkflowEditorSurface({
     ) {
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-workflow-node-audit"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-workflow-node-data"],
       });
     }
   }, [runQuery.data, queryClient]);
@@ -921,12 +1035,10 @@ function WorkflowEditorSurface({
   }
 
   return (
-    <div
-      ref={rootRef}
-      className="flex h-full min-h-0 flex-col overflow-hidden bg-background"
-    >
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <WorkflowToolbar
         workflowName={workflow.name}
+        onRename={renameWorkflow}
         backHref={backHref}
         dirty={dirty}
         saving={saving}
@@ -969,26 +1081,39 @@ function WorkflowEditorSurface({
 
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
-          <WorkflowCanvas
-            editor={editor}
-            overlay={overlay}
-            unconnected={unconnected}
-            connections={connections}
-            onConnectProvider={requestConnect}
-            onDescribeStep={openAgent}
-            minimap={snapshot.graph.nodes.length >= MINIMAP_NODE_COUNT}
-            onTest={() => void testRun()}
-            unsaved={dirty}
-            testing={runMutation.isPending}
-            onTestStep={(nodeId) => void testStep(nodeId, [])}
-            recentNodeIds={recentNodeIds}
-            onDescribeFirst={describeWorkflow}
-          />
+          <ParkedCountsContext.Provider value={parkedCounts}>
+            <WorkflowCanvas
+              editor={editor}
+              overlay={overlay}
+              unconnected={unconnected}
+              connections={connections}
+              onConnectProvider={requestConnect}
+              onDescribeStep={openAgent}
+              minimap={snapshot.graph.nodes.length >= MINIMAP_NODE_COUNT}
+              onTest={() => void testRun()}
+              unsaved={dirty}
+              testing={runMutation.isPending}
+              onTestStep={(nodeId) => void testStep(nodeId, [])}
+              recentNodeIds={recentNodeIds}
+              onDescribeFirst={describeWorkflow}
+              onOpenDetails={openDetails}
+            />
+          </ParkedCountsContext.Provider>
+          {runParam ? (
+            <div className="pointer-events-none absolute start-3 top-3 z-10">
+              <RunModeBadge mode={runQuery.data?.run.mode ?? null} />
+            </div>
+          ) : null}
         </div>
-        <NodeSidePanel
+        <NodeDetailsDialog
           editor={editor}
           factoryId={factoryId}
           workflowId={workflowId}
+          node={detailsNode}
+          onClose={closeDetails}
+          focusName={entry?.focusName ?? false}
+          quiet={entry?.quiet ?? false}
+          onEngage={engageDetails}
           runId={runParam}
           runPending={runPending}
           steps={overlay?.stepByNodeId}
@@ -996,7 +1121,11 @@ function WorkflowEditorSurface({
           dirty={dirty}
           starting={saving || runMutation.isPending}
           onTestStep={testStep}
-          narrow={narrow}
+          parkedCount={
+            detailsNode ? (parkedCounts?.get(detailsNode.id) ?? 0) : 0
+          }
+          onTestWorkflow={() => void testRun()}
+          onAskAgent={() => openAgent(ws.nodeDetails.askAgentPrefill)}
         />
       </div>
 
@@ -1102,175 +1231,5 @@ function WorkflowEditorSurface({
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  );
-}
-
-/** The audit's first rows at their final size, while a queued run has no steps to read. */
-function AuditPending() {
-  return (
-    <div className="space-y-5 px-4 py-4" aria-busy>
-      <Skeleton className="h-5 w-40" />
-      <div className="space-y-2">
-        <Skeleton className="h-2 w-full rounded-full" />
-        <Skeleton className="h-3 w-3/5" />
-      </div>
-      <div className="space-y-2">
-        <Skeleton className="h-4 w-24" />
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-12 w-full" />
-      </div>
-    </div>
-  );
-}
-
-/**
- * Settings and audit for the one selected step. Docked beside the canvas, or a
- * sheet over it when the page is narrow.
- */
-function NodeSidePanel({
-  editor,
-  factoryId,
-  workflowId,
-  runId,
-  runPending,
-  steps,
-  serverNodeIds,
-  dirty,
-  starting,
-  onTestStep,
-  narrow,
-}: {
-  editor: WorkflowEditor;
-  factoryId: string;
-  workflowId: string;
-  runId: string | null;
-  /** The run is queued and has no steps to read yet. */
-  runPending: boolean;
-  /** What the open run did at each step, by node id. */
-  steps: Readonly<Record<string, StepOverlay>> | undefined;
-  /** The steps of the workflow the server has, which is not always the one on the canvas. */
-  serverNodeIds: ReadonlySet<string>;
-  dirty: boolean;
-  /** A save or a run is starting. */
-  starting: boolean;
-  /** Resolves to whether the run started. */
-  onTestStep: (nodeId: string, sampleItemIds: string[]) => Promise<boolean>;
-  narrow: boolean;
-}) {
-  const ws = useWorkflowStrings();
-
-  const { graph, selection } = useEditorSnapshot(editor);
-  const node =
-    selection.nodeIds.length === 1
-      ? graph.nodes.find((candidate) => candidate.id === selection.nodeIds[0])
-      : undefined;
-  const nodeId = node?.id;
-  const opening = openingTab(nodeId ? steps?.[nodeId] : undefined);
-  const [tab, setTab] = useState<"settings" | "audit">(opening);
-  // Another step, or the run learning that this one failed, starts the panel over.
-  const [basis, setBasis] = useState({ nodeId, opening });
-  if (basis.nodeId !== nodeId || basis.opening !== opening) {
-    setBasis({ nodeId, opening });
-    setTab(opening);
-  }
-  if (!node) return null;
-
-  // The run's steps are what the Audit tab reads, so it opens once the run has started.
-  const testStep = async (nodeId: string, sampleItemIds: string[]) => {
-    const started = await onTestStep(nodeId, sampleItemIds);
-    if (started && editor.getSnapshot().selection.nodeIds[0] === nodeId) {
-      setTab("audit");
-    }
-  };
-
-  const body = (
-    <Tabs
-      value={tab}
-      onValueChange={(value) =>
-        setTab(value === "audit" ? "audit" : "settings")
-      }
-      className="flex h-full min-h-0 flex-col"
-    >
-      <TabsList
-        aria-label={ws.nodePanel.tabsName}
-        className="h-9 w-full shrink-0 justify-start rounded-none border-b border-border bg-transparent p-0"
-      >
-        <TabsTrigger
-          value="settings"
-          className="h-9 rounded-none px-4 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:ring-1 data-[state=active]:ring-inset data-[state=active]:ring-border"
-        >
-          {ws.nodePanel.tabSettings}
-        </TabsTrigger>
-        <TabsTrigger
-          value="audit"
-          className="h-9 rounded-none px-4 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:ring-1 data-[state=active]:ring-inset data-[state=active]:ring-border"
-        >
-          {ws.nodePanel.tabAudit}
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent
-        value="settings"
-        className="mt-0 flex min-h-0 flex-1 flex-col"
-      >
-        <NodeInspector
-          editor={editor}
-          presentation="docked"
-          className="h-auto min-h-0 w-full flex-1 border-s-0"
-          footer={
-            <TestStepButton
-              factoryId={factoryId}
-              workflowId={workflowId}
-              node={node}
-              onServer={serverNodeIds.has(node.id)}
-              dirty={dirty}
-              busy={starting}
-              onTest={(nodeId, sampleItemIds) =>
-                void testStep(nodeId, sampleItemIds)
-              }
-            />
-          }
-        />
-      </TabsContent>
-      <TabsContent
-        value="audit"
-        className="mt-0 min-h-0 flex-1 overflow-y-auto"
-      >
-        {runPending ? (
-          <AuditPending />
-        ) : (
-          <NodeAuditPanel
-            factoryId={factoryId}
-            workflowId={workflowId}
-            nodeId={node.id}
-            runId={runId ?? undefined}
-            onClose={() => setTab("settings")}
-          />
-        )}
-      </TabsContent>
-    </Tabs>
-  );
-
-  if (narrow) {
-    return (
-      <Sheet open onOpenChange={(open) => !open && editor.clearSelection()}>
-        <SheetContent
-          side="right"
-          className="flex w-full flex-col gap-0 p-0 sm:max-w-sm [&>button]:hidden"
-          onOpenAutoFocus={(event) => event.preventDefault()}
-        >
-          <SheetTitle className="sr-only">{ws.nodePanel.panelName}</SheetTitle>
-          <SheetDescription className="sr-only">{node.name}</SheetDescription>
-          {body}
-        </SheetContent>
-      </Sheet>
-    );
-  }
-  return (
-    <section
-      aria-label={ws.nodePanel.panelName}
-      className="flex h-full w-96 shrink-0 flex-col border-s border-border bg-background"
-    >
-      {body}
-    </section>
   );
 }

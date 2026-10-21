@@ -24,6 +24,7 @@ import {
   SelectInput,
   TemplateInput,
 } from "./fields";
+import { useInvalidMark } from "./issue-marks";
 
 type Mode = FieldBinding["mode"];
 
@@ -71,13 +72,14 @@ function JsonValueInput({
       }
     });
   }, [value]);
+  const mark = useInvalidMark(invalid);
   return (
     <div className="flex flex-col gap-1">
       <Textarea
         id={id}
         value={text}
         rows={4}
-        aria-invalid={invalid || undefined}
+        aria-invalid={mark}
         onChange={(event) => {
           setText(event.target.value);
           try {
@@ -88,7 +90,7 @@ function JsonValueInput({
           }
         }}
       />
-      {invalid && (
+      {mark && (
         <p role="alert" className="text-xs text-destructive">
           {s.inspector.jsonInvalid}
         </p>

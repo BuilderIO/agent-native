@@ -18,7 +18,21 @@ const WS_ARGS: Record<string, Args> = {
   "list.deleteTitle": [["Daily digest"]],
   "list.deleteParked": [["3"], ["100+"]],
   "list.deleteFailed": [["Server said no."]],
+  "list.updated": [["in 5 min"]],
+  "list.renameFailed": [["Server said no."]],
+  "list.duplicated": [["Daily digest copy"]],
+  "list.duplicateFailed": [["Server said no."]],
+  "list.copyName": [["Daily digest"]],
+  "stats.onOfTotal": [
+    ["3", "5"],
+    ["3+", "100+"],
+  ],
   "newDialog.createFailed": [["Server said no."]],
+  "nodeData.count": [[1], [3]],
+  "nodeData.ofTotal": [[2, 25]],
+  "nodeData.moreFields": [[4]],
+  "nodeData.runStarted": [["Oct 20, 10:00"]],
+  "nodeData.runTook": [["2 s"]],
   "toolbar.problems": [[0], [1], [2], [12]],
   "toolbar.connectionsNeeded": [[1], [3]],
   "runPicker.version": [[3]],
@@ -109,6 +123,7 @@ const ITEMS_ARGS: Record<string, Args> = {
     [0, 0, 0],
   ],
   "audit.fromNode": [[2, "Check", "Match"]],
+  "audit.fromNodeOnly": [[2, "Check"]],
   "audit.portCount": [["Match", 2]],
   "audit.moreItems": [[5, 20]],
   "audit.stepTruncated": [[100]],
@@ -135,20 +150,20 @@ const CANVAS_ARGS: Record<string, Args> = {
   "summary.waitCondition": [[24]],
   "palette.addAfterPort": [["Match"]],
   loopCap: [[1], [3]],
+  passCount: [[1], [3]],
   waiting: [[4]],
   notConnected: [["HubSpot"]],
+  "edge.items": [[1], [3]],
+  "edge.itemsTotal": [[1], [3]],
   "issue.edge": [["Check", "End"]],
-  "inspector.renamedStale": [
-    [1, "old"],
-    [3, "old"],
-  ],
-  "inspector.staleWhere": [["Check", "the filter"]],
   "inspector.unknownField": [["foo"]],
   "inspector.notInCatalog": [["slack.post"]],
   "inspector.problem.unknown_node": [["foo"]],
   "inspector.problem.not_upstream": [["foo"]],
   "inspector.switchRoutes.newLabel": [[3]],
   "inspector.switchRoutes.confirmBody": [[0], [1], [3]],
+  "menu.duplicateMany": [[2], [5]],
+  "menu.deleteMany": [[2], [5]],
 };
 
 const ISSUE_CODES = [
@@ -179,7 +194,7 @@ const ISSUE_CODES = [
   "model_written_target",
 ];
 
-export type Probe = Record<string, unknown>;
+type Probe = Record<string, unknown>;
 
 function walk(
   value: unknown,

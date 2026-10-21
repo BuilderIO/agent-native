@@ -74,3 +74,47 @@ export function describeNode(
       return s.summary.end[node.settings.outcome];
   }
 }
+
+/**
+ * The catalog label of the operation a step calls, or null for a step that
+ * calls none. An operation the catalog does not know shows its id, as the
+ * summary does, so a broken step is not hidden behind its kind's name.
+ */
+function operationLabel(
+  node: WorkflowNode,
+  catalog: WorkflowCatalog,
+): string | null {
+  const labelOf = (operation: string) =>
+    catalog.get(operation)?.label ?? operation;
+  switch (node.kind) {
+    case "source":
+      switch (node.settings.source) {
+        case "inbox-poll":
+        case "status":
+          return null;
+        default:
+          return labelOf(node.settings.operation);
+      }
+    case "lookup":
+    case "action":
+      return labelOf(node.settings.operation);
+    default:
+      return null;
+  }
+}
+
+/**
+ * The name under a tile. The person's label wins. Otherwise it is the operation
+ * the step calls, or else its kind, with any number at the end of the identifier
+ * kept: `filter2` reads "Filter 2". The identifier itself is never shown.
+ */
+export function nodeTitle(
+  node: WorkflowNode,
+  catalog: WorkflowCatalog,
+  s: WorkflowCanvasStrings,
+): string {
+  if (node.label) return node.label;
+  const base = operationLabel(node, catalog) ?? s.kind[node.kind];
+  const digits = /(\d+)$/.exec(node.name)?.[1];
+  return digits ? `${base} ${digits}` : base;
+}

@@ -5,7 +5,7 @@
       "name": "hourly",
       "position": {
         "x": 0,
-        "y": 48
+        "y": 96
       },
       "kind": "trigger",
       "settings": {
@@ -18,8 +18,8 @@
       "id": "subs",
       "name": "subs",
       "position": {
-        "x": 344,
-        "y": 48
+        "x": 224,
+        "y": 96
       },
       "kind": "source",
       "settings": {
@@ -34,8 +34,8 @@
       "id": "pause",
       "name": "pause",
       "position": {
-        "x": 688,
-        "y": 32
+        "x": 448,
+        "y": 96
       },
       "kind": "wait",
       "settings": {
@@ -50,8 +50,8 @@
       "id": "usage",
       "name": "usage",
       "position": {
-        "x": 1032,
-        "y": 48
+        "x": 672,
+        "y": 96
       },
       "kind": "lookup",
       "settings": {
@@ -72,8 +72,8 @@
       "id": "inactive",
       "name": "inactive",
       "position": {
-        "x": 1376,
-        "y": 20
+        "x": 896,
+        "y": 96
       },
       "kind": "filter",
       "settings": {
@@ -91,8 +91,8 @@
       "id": "mail",
       "name": "mail",
       "position": {
-        "x": 1720,
-        "y": 96
+        "x": 1120,
+        "y": 192
       },
       "kind": "action",
       "settings": {
@@ -117,8 +117,8 @@
       "id": "tellOwner",
       "name": "tellOwner",
       "position": {
-        "x": 2064,
-        "y": 96
+        "x": 1344,
+        "y": 192
       },
       "kind": "action",
       "settings": {
@@ -139,8 +139,8 @@
       "id": "done",
       "name": "done",
       "position": {
-        "x": 2408,
-        "y": 96
+        "x": 1568,
+        "y": 192
       },
       "kind": "end",
       "settings": {
@@ -151,7 +151,7 @@
       "id": "activated",
       "name": "activated",
       "position": {
-        "x": 1720,
+        "x": 1120,
         "y": 0
       },
       "kind": "end",

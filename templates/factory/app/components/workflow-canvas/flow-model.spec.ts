@@ -69,7 +69,8 @@ describe("toFlowNodes", () => {
   it("gives a node with one plain output no port rows", () => {
     const lookup = nodes().find((node) => node.id === "thread")!;
     expect(lookup.data.showPortRows).toBe(false);
-    expect(lookup.data.subtitle).toBe("Slack: read a thread");
+    expect(lookup.data.title).toBe("Slack: read a thread");
+    expect(lookup.data.subtitle).toBe("");
   });
 
   it("marks selected nodes and makes everything read-only when asked", () => {
@@ -235,12 +236,12 @@ describe("reconcileNodes", () => {
   it("keeps measured sizes and a dragged node's position", () => {
     const [first, second] = nodes();
     const previous = [
-      { ...first, measured: { width: 248, height: 56 } },
+      { ...first, measured: { width: 96, height: 96 } },
       { ...second, dragging: true, position: { x: 999, y: 999 } },
     ];
     const next = nodes();
     const merged = reconcileNodes(previous, next);
-    expect(merged[0].measured).toEqual({ width: 248, height: 56 });
+    expect(merged[0].measured).toEqual({ width: 96, height: 96 });
     expect(merged[0].position).toEqual(next[0].position);
     expect(merged[1].position).toEqual({ x: 999, y: 999 });
     expect(merged[2]).toBe(next[2]);

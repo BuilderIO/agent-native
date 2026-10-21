@@ -1,11 +1,14 @@
 import dagre from "@dagrejs/dagre";
 
 import type { WorkflowGraph, WorkflowNode } from "./engine.js";
-import { NODE_HEADER_HEIGHT, NODE_WIDTH, nodeSize } from "./node-metrics.js";
+import { NODE_TILE_HEIGHT, NODE_WIDTH, nodeSize } from "./node-metrics.js";
 import type { Point, Size } from "./types.js";
 
-const RANK_GAP = 96;
-const ROW_GAP = 40;
+// Gaps between tiles: 128 px between columns (the next column starts 224 px
+// on), 96 px between rows, which is room for the name and summary under the
+// tile above.
+export const RANK_GAP = 128;
+export const ROW_GAP = 96;
 const COLLISION_MARGIN = 24;
 const MAX_COORDINATE = 100_000;
 const MAX_PLACEMENT_STEPS = 400;
@@ -100,7 +103,7 @@ function slideDownUntilFree(rect: Rect, others: readonly Rect[]): Point {
 
 const DEFAULT_NEW_NODE_SIZE: Size = {
   width: NODE_WIDTH,
-  height: NODE_HEADER_HEIGHT,
+  height: NODE_TILE_HEIGHT,
 };
 
 /**

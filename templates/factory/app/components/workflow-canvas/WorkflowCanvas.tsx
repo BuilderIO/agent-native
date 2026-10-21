@@ -31,6 +31,7 @@ import {
   useReactFlow,
   type Connection,
   type EdgeChange,
+  type FinalConnectionState,
   type NodeChange,
 } from "@xyflow/react";
 
@@ -41,11 +42,17 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   Empty,
   EmptyHeader,
@@ -59,19 +66,38 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useWorkflowStrings } from "@/components/workflow/workflow-strings";
 import { cn } from "@/lib/utils";
 import {
+  addNode,
   checkConnection,
+  createNode,
   firstOpenPort,
   fitNewNodePosition,
+  moveNodes,
+  nextNodeIdentity,
+  nodeSize,
+  NODE_TILE_HEIGHT,
+  NODE_WIDTH,
+  OUT_PORT,
+  portsWithLimit,
+  type Point,
   type Rejection,
+  type Size,
+  type WorkflowCatalog,
   type WorkflowEditor,
+  type WorkflowGraph,
 } from "@/lib/workflow-editor";
+import { makeRoomForInsert } from "@/lib/workflow-editor/insert-room";
 
 import { CanvasTestButton } from "./CanvasTestButton";
 import { insertOnEdge, type ProviderLinkStatus } from "./creator/creator-model";
 import { NodeCreator, type CreatorTarget } from "./creator/NodeCreator";
-import { EdgeToolbar } from "./EdgeToolbar";
+import {
+  EdgeActionsContext,
+  EdgeToolbar,
+  type EdgeActions,
+} from "./EdgeToolbar";
 import { EmptyCanvasTile } from "./EmptyCanvasTile";
 import {
   reconcileNodes,
@@ -80,10 +106,15 @@ import {
   type WorkflowFlowEdge,
   type WorkflowFlowNode,
 } from "./flow-model";
+import {
+  canvasMenuEntries,
+  ContextMenuEntries,
+  stepMenuEntries,
+  type MenuEntry,
+} from "./NodeContextMenu";
 import { NodeHoverToolbar } from "./NodeHoverToolbar";
 import type { WorkflowOverlay } from "./overlay";
 import type { PaletteEntry } from "./palette";
-import { PortPickerContext, type PortTarget } from "./port-picker";
 import {
   resolveWorkflowShortcut,
   shortcutLabel,
@@ -108,6 +139,10 @@ const START_MARGIN = 48;
 const FOCUS_MARGIN = 48;
 /** The bottom toolbar floats over the canvas, so a step needs more room above it. */
 const FOCUS_MARGIN_BOTTOM = 96;
+/** Steps placed after the outputs of one step sit this far apart vertically, so each output's branch has its own row. */
+const OUTPUT_ROW = 112;
+/** With an even number of outputs, the two nearest the middle sit this far either side of the step's top. */
+const OUTPUT_ROW_CENTER = 96;
 
 export interface WorkflowCanvasProps {
   editor: WorkflowEditor;
@@ -141,6 +176,8 @@ export interface WorkflowCanvasProps {
   onConnectProvider?: (provider: string) => void;
   /** Hands a description the step creator could not match to the agent. Without it, no describe row shows. */
   onDescribeStep?: (query: string) => void;
+  /** Opens a step's details; `name` focuses its name field. Without it, Enter, Space and F2 do nothing, and the menus leave out Open details and Rename. */
+  onOpenDetails?: (nodeId: string, focus?: "name") => void;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -159,6 +196,175 @@ function isControlTarget(target: EventTarget | null): boolean {
     target instanceof Element &&
     target.closest("button, a[href], [role='toolbar']") !== null
   );
+}
+
+/** The id of the step an element sits in. React Flow writes each step's id on its element as `data-id`. */
+function stepIdOf(element: Element): string | undefined {
+  return element.closest<HTMLElement>(".react-flow__node")?.dataset.id;
+}
+
+/** The step one connection upstream: the first forward connection into this step. Back-edges are loops, not steps before this one. */
+function firstUpstream(
+  graph: WorkflowGraph,
+  nodeId: string,
+): string | undefined {
+  return graph.edges.find((edge) => !edge.back && edge.to.node === nodeId)?.from
+    .node;
+}
+
+/** The step one connection downstream: the first target of this step's first output that has one. */
+function firstDownstream(
+  graph: WorkflowGraph,
+  nodeId: string,
+): string | undefined {
+  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node) return undefined;
+  for (const port of portsWithLimit(graph, node)) {
+    const edge = graph.edges.find(
+      (candidate) =>
+        !candidate.back &&
+        candidate.from.node === nodeId &&
+        candidate.from.port === port,
+    );
+    if (edge) return edge.to.node;
+  }
+  return undefined;
+}
+
+/** Every step reachable from this one by forward connections, one way only, not counting the step itself. */
+function chainFrom(
+  graph: WorkflowGraph,
+  nodeId: string,
+  direction: "upstream" | "downstream",
+): string[] {
+  const found: string[] = [];
+  const queue = [nodeId];
+  for (let index = 0; index < queue.length; index++) {
+    const current = queue[index];
+    for (const edge of graph.edges) {
+      if (edge.back) continue;
+      const [near, far] =
+        direction === "upstream"
+          ? [edge.to.node, edge.from.node]
+          : [edge.from.node, edge.to.node];
+      if (near !== current || far === nodeId || found.includes(far)) continue;
+      found.push(far);
+      queue.push(far);
+    }
+  }
+  return found;
+}
+
+/** Arrow keys that move the selection along the flow. Up and down are listed too: they select nothing, so React Flow does not nudge the step. */
+const ARROW_SHORTCUTS = new Set<WorkflowShortcutId>([
+  "select-upstream",
+  "select-downstream",
+  "select-upstream-chain",
+  "select-downstream-chain",
+  "arrow-up-down",
+]);
+
+/** Keys a focused control keeps for itself, so Enter, Space and the rest press the button rather than the canvas. */
+const STEP_ASIDE_FOR_CONTROLS = new Set<WorkflowShortcutId>([
+  "add-step",
+  "open-details",
+  "rename",
+  "test-workflow",
+  "arrange",
+]);
+
+/** While the step creator is open, these keys belong to the creator's list and to the step it is for. */
+const STAND_DOWN_FOR_CREATOR = new Set<WorkflowShortcutId>([
+  "open-details",
+  "rename",
+  "test-workflow",
+  "arrange",
+  ...ARROW_SHORTCUTS,
+]);
+
+/** How long the hover toolbar stays after the pointer leaves its step, so the pointer can cross the gap. */
+const HOVER_LEAVE_MS = 120;
+
+/**
+ * How far a step placed after output `index` of `count` outputs shifts up or
+ * down. Odd counts have a middle output at 0; even counts have none, so the two
+ * nearest the middle sit 96 px either side and each one further out adds a row.
+ */
+function outputOffset(index: number, count: number): number {
+  if (count <= 1) return 0;
+  if (count % 2 === 1) return (index - (count - 1) / 2) * OUTPUT_ROW;
+  const upper = count / 2 - 1;
+  const away = index <= upper ? upper - index : index - upper - 1;
+  const distance = OUTPUT_ROW_CENTER + OUTPUT_ROW * away;
+  return index <= upper ? -distance : distance;
+}
+
+/**
+ * Where a step goes after one output: a column right of its source, moved by the
+ * output's place among the source's outputs, then pushed down past any step in
+ * the way. Undefined when the source is not in the graph; the add then refuses.
+ */
+function afterOutputPosition(
+  graph: WorkflowGraph,
+  sourceId: string,
+  port: string,
+  size: Size,
+): Point | undefined {
+  const source = graph.nodes.find((node) => node.id === sourceId);
+  if (!source) return undefined;
+  const ports = portsWithLimit(graph, source);
+  // The column comes from the shared placement, so the gap is set in one place.
+  const column = fitNewNodePosition(graph, { after: sourceId, size }).x;
+  return fitNewNodePosition(graph, {
+    near: {
+      x: column + size.width / 2,
+      y:
+        source.position.y +
+        outputOffset(ports.indexOf(port), ports.length) +
+        size.height / 2,
+    },
+    size,
+  });
+}
+
+/** The size a new step will have, from the same creation the editor runs. */
+function stepSize(
+  graph: WorkflowGraph,
+  catalog: WorkflowCatalog,
+  entry: PaletteEntry,
+): Size {
+  const made = createNode(
+    entry.kind,
+    {
+      id: nextNodeIdentity(graph, entry.kind),
+      name: nextNodeIdentity(graph, entry.kind),
+      position: { x: 0, y: 0 },
+    },
+    catalog,
+    entry.options,
+  );
+  // A step that cannot be made is refused by the add itself, which says why.
+  return made.ok
+    ? nodeSize(graph, made.node)
+    : { width: NODE_WIDTH, height: NODE_TILE_HEIGHT };
+}
+
+/** A drop point is for the one pick it was made for, so closing the panel without a pick forgets it. */
+function forgetDropPoint(target: CreatorTarget): CreatorTarget {
+  return target.kind === "append" && target.position
+    ? { kind: "append", after: target.after }
+    : target;
+}
+
+/** The pointer's position on screen when a drag ends, from a mouse or a touch. */
+function pointerOf(
+  event: MouseEvent | TouchEvent,
+): { x: number; y: number } | undefined {
+  if ("changedTouches" in event) {
+    const touch = event.changedTouches.item(0);
+    return touch ? { x: touch.clientX, y: touch.clientY } : undefined;
+  }
+  return { x: event.clientX, y: event.clientY };
 }
 
 function usePrefersMac(): boolean {
@@ -224,8 +430,10 @@ function CanvasInner({
   connections,
   onConnectProvider,
   onDescribeStep,
+  onOpenDetails,
 }: WorkflowCanvasProps) {
   const s = useWorkflowCanvasStrings();
+  const ws = useWorkflowStrings();
 
   const snapshot = useEditorSnapshot(editor);
   const { graph, selection } = snapshot;
@@ -234,11 +442,34 @@ function CanvasInner({
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingReveal = useRef<string | null>(null);
   const mac = usePrefersMac();
-  // The target is kept after closing, so the sheet does not change under its exit animation.
+  // The target is kept after closing, so the panel does not change under its exit animation.
   const [creator, setCreator] = useState<{
     open: boolean;
     target: CreatorTarget;
   }>({ open: false, target: { kind: "append" } });
+  // The connection under the pointer rises above its neighbours while it is hovered.
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | undefined>(
+    undefined,
+  );
+  // The step the pointer is over, and the one keyboard focus is on. Either shows its hover toolbar.
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const hoverTimer = useRef<number | undefined>(undefined);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  // The step whose More menu is open, so its toolbar stays up while the menu is.
+  const [moreNodeId, setMoreNodeId] = useState<string | null>(null);
+  // Which menu a right-click opened: a step's, or the canvas's.
+  const [menu, setMenu] = useState<"step" | "canvas" | null>(null);
+  useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
+  // Leaving a step waits a moment, so the pointer can cross the gap to its toolbar. Entering one cancels the wait.
+  const holdHover = useCallback((nodeId: string | null) => {
+    window.clearTimeout(hoverTimer.current);
+    if (nodeId) setHoveredNodeId(nodeId);
+    else
+      hoverTimer.current = window.setTimeout(
+        () => setHoveredNodeId(null),
+        HOVER_LEAVE_MS,
+      );
+  }, []);
 
   const reject = useCallback(
     (rejection: Rejection) => {
@@ -254,6 +485,19 @@ function CanvasInner({
     [reject],
   );
 
+  const openCreator = useCallback(
+    (target: CreatorTarget) => {
+      if (!readOnly) setCreator({ open: true, target });
+    },
+    [readOnly],
+  );
+  // The plus on an unconnected output opens the panel after that output.
+  const addAfterOutput = useCallback(
+    (nodeId: string, port: string) =>
+      openCreator({ kind: "append", after: { nodeId, port } }),
+    [openCreator],
+  );
+
   const desiredNodes = useMemo(
     () =>
       toFlowNodes({
@@ -265,6 +509,7 @@ function CanvasInner({
         selection,
         readOnly,
         strings: s,
+        onAddAfter: readOnly ? undefined : addAfterOutput,
       }),
     [
       graph,
@@ -275,11 +520,12 @@ function CanvasInner({
       selection,
       readOnly,
       s,
+      addAfterOutput,
     ],
   );
   const edges = useMemo(
-    () => toFlowEdges({ graph, validation, overlay, selection }),
-    [graph, validation, overlay, selection],
+    () => toFlowEdges({ graph, validation, overlay, selection, hoveredEdgeId }),
+    [graph, validation, overlay, selection, hoveredEdgeId],
   );
   // React Flow owns measured sizes and in-flight drag positions, so the nodes it
   // renders live in state and are rebuilt from the graph around that.
@@ -305,11 +551,26 @@ function CanvasInner({
         : nodes,
     [nodes, recentNodeIds],
   );
-  // The hover toolbar steps aside while a text field has focus, such as a step's name in the settings panel.
+  // The hover toolbar steps aside while a text field has focus, such as a step's name in its details dialog.
+  // Focus on a step shows that step's toolbar; focus on the canvas's other parts, or outside it, clears it.
   const [typing, setTyping] = useState(false);
   useEffect(() => {
-    const onFocusIn = (event: FocusEvent) =>
-      setTyping(isEditableTarget(event.target));
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      setTyping(isEditableTarget(target));
+      // The toolbar's own buttons keep the step they belong to.
+      if (
+        !(target instanceof Element) ||
+        target.closest(".workflow-step-toolbar")
+      ) {
+        return;
+      }
+      const step =
+        containerRef.current?.contains(target) === true
+          ? stepIdOf(target)
+          : undefined;
+      setFocusedNodeId(step ?? null);
+    };
     const onFocusOut = () => setTyping(false);
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
@@ -398,22 +659,6 @@ function CanvasInner({
     [editor],
   );
 
-  const openCreator = useCallback(
-    (target: CreatorTarget) => {
-      if (!readOnly) setCreator({ open: true, target });
-    },
-    [readOnly],
-  );
-
-  const openPortPicker = useCallback(
-    (target: PortTarget) =>
-      openCreator({
-        kind: "append",
-        after: { nodeId: target.node, port: target.port },
-      }),
-    [openCreator],
-  );
-
   const openInsertOnEdge = useCallback(
     (edgeId: string) => {
       // A loop's back-edge cannot take a step, so the creator is not opened for it.
@@ -429,57 +674,160 @@ function CanvasInner({
     [editor, openCreator, s],
   );
 
-  // An append goes after the output it was placed on, else after the selected step's first open output.
-  // An insert replaces the connection in one edit, so one undo step reverts it, and the new step is selected.
-  const pickStep = useCallback(
-    (entry: PaletteEntry, target: CreatorTarget) => {
-      const { graph: current, selection: picked } = editor.getSnapshot();
-      if (target.kind === "insert") {
-        const outcome = insertOnEdge(
-          current,
-          editor.catalog,
-          target.edgeId,
-          entry.kind,
-          entry.options,
-        );
-        if (!outcome.ok) {
-          if ("reason" in outcome) toast.error(s.creator.insertBlockedLoop);
-          else reject(outcome.rejection);
-          return;
-        }
-        editor.replaceGraph(outcome.graph, { keepHistory: true });
-        editor.select({ nodeIds: [outcome.node.id], edgeIds: [] });
-        pendingReveal.current = outcome.node.id;
+  const removeConnection = useCallback(
+    (edgeId: string) => report(editor.disconnect(edgeId)),
+    [editor, report],
+  );
+  const edgeActions = useMemo<EdgeActions>(
+    () => ({
+      onInsertOnEdge: openInsertOnEdge,
+      onRemoveEdge: removeConnection,
+    }),
+    [openInsertOnEdge, removeConnection],
+  );
+
+  // A drag from an output that no input took opens the panel after that output, at the release point.
+  // A release on a plus button is that button's click, so it opens nothing.
+  const dropOnEmptyCanvas = useCallback(
+    (event: MouseEvent | TouchEvent, connection: FinalConnectionState) => {
+      if (connection.isValid) return;
+      const { fromNode, fromHandle } = connection;
+      const pointer = pointerOf(event);
+      if (!fromNode || !fromHandle?.id || !pointer) return;
+      if (
+        document
+          .elementFromPoint(pointer.x, pointer.y)
+          ?.closest(".workflow-plus")
+      ) {
         return;
       }
-      const anchor =
-        picked.nodeIds.length === 1 && entry.kind !== "trigger"
-          ? picked.nodeIds[0]
-          : undefined;
-      const port = anchor ? firstOpenPort(current, anchor) : undefined;
-      const after = target.after
-        ? { node: target.after.nodeId, port: target.after.port }
-        : anchor && port
-          ? { node: anchor, port }
-          : undefined;
-      const rect = containerRef.current?.getBoundingClientRect();
-      const near = rect
-        ? flow.screenToFlowPosition({
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-          })
-        : undefined;
-      const result = editor.addNode(entry.kind, {
-        ...entry.options,
-        ...(after
-          ? { after }
-          : { position: fitNewNodePosition(current, { near }) }),
+      openCreator({
+        kind: "append",
+        after: { nodeId: fromNode.id, port: fromHandle.id },
+        position: flow.screenToFlowPosition(pointer),
       });
-      if (!result.ok) return reject(result.rejection);
-      pendingReveal.current = result.node.id;
     },
-    [editor, flow, reject, s],
+    [flow, openCreator],
   );
+
+  // The middle of the visible canvas, in flow coordinates: where a step lands when nothing else places it.
+  function viewCenter(): Point | undefined {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return undefined;
+    return flow.screenToFlowPosition({
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    });
+  }
+
+  // The step goes one column right of the source, on the source's top, and the steps in its way move right first.
+  // The whole edit is one undo step, so one undo puts the connection back.
+  function pickOnEdge(entry: PaletteEntry, edgeId: string) {
+    const { graph: current } = editor.getSnapshot();
+    const edge = current.edges.find((candidate) => candidate.id === edgeId);
+    const source = current.nodes.find((node) => node.id === edge?.from.node);
+    if (!edge || !source) {
+      return reject({ code: "unknown_edge", message: `No edge "${edgeId}".` });
+    }
+    const outcome = insertOnEdge(
+      current,
+      editor.catalog,
+      edgeId,
+      entry.kind,
+      entry.options,
+    );
+    if (!outcome.ok) {
+      if ("reason" in outcome) toast.error(s.creator.insertBlockedLoop);
+      else reject(outcome.rejection);
+      return;
+    }
+    const insertLeft: Point = {
+      x: fitNewNodePosition(current, { after: source.id }).x,
+      y: source.position.y,
+    };
+    const room = makeRoomForInsert(
+      current,
+      source.id,
+      insertLeft,
+      nodeSize(outcome.graph, outcome.node),
+    );
+    const placed = moveNodes(outcome.graph, {
+      ...room,
+      [outcome.node.id]: insertLeft,
+    });
+    if (!placed.ok) return reject(placed.rejection);
+    editor.replaceGraph(placed.graph, { keepHistory: true });
+    editor.select({ nodeIds: [outcome.node.id], edgeIds: [] });
+    pendingReveal.current = outcome.node.id;
+    onOpenDetails?.(outcome.node.id);
+  }
+
+  // An append goes after an output: the drop point of a drag, else the output a plus was on, else the selected
+  // step's first open output. Anything else lands in the middle of the view, unconnected.
+  function pickAppended(
+    entry: PaletteEntry,
+    target: Extract<CreatorTarget, { kind: "append" }>,
+  ) {
+    const { graph: current, selection: picked } = editor.getSnapshot();
+    if (current.nodes.length === 0 && entry.kind !== "trigger") {
+      return pickFirstStep(entry);
+    }
+    const anchor =
+      picked.nodeIds.length === 1 && entry.kind !== "trigger"
+        ? picked.nodeIds[0]
+        : undefined;
+    const port = anchor ? firstOpenPort(current, anchor) : undefined;
+    const after = target.after
+      ? { node: target.after.nodeId, port: target.after.port }
+      : anchor && port
+        ? { node: anchor, port }
+        : undefined;
+    const size = stepSize(current, editor.catalog, entry);
+    let position: Point | undefined;
+    if (!after) {
+      position = fitNewNodePosition(current, { near: viewCenter() });
+    } else if (target.position) {
+      // A drop puts the step's left edge at the pointer and its middle on it, with no push-down.
+      position = {
+        x: target.position.x,
+        y: target.position.y - size.height / 2,
+      };
+    } else if (target.after) {
+      position = afterOutputPosition(current, after.node, after.port, size);
+    }
+    const result = editor.addNode(entry.kind, {
+      ...entry.options,
+      ...(after ? { after } : {}),
+      ...(position ? { position } : {}),
+    });
+    if (!result.ok) return reject(result.rejection);
+    pendingReveal.current = result.node.id;
+    onOpenDetails?.(result.node.id);
+  }
+
+  // The first step on an empty canvas comes after the default schedule trigger, because a workflow has exactly one.
+  // The pair is one undo step.
+  function pickFirstStep(entry: PaletteEntry) {
+    const { graph: current } = editor.getSnapshot();
+    const starter = addNode(current, editor.catalog, "trigger", {
+      position: fitNewNodePosition(current, { near: viewCenter() }),
+    });
+    if (!starter.ok) return reject(starter.rejection);
+    const step = addNode(starter.graph, editor.catalog, entry.kind, {
+      ...entry.options,
+      after: { node: starter.node.id, port: OUT_PORT },
+    });
+    if (!step.ok) return reject(step.rejection);
+    editor.replaceGraph(step.graph, { keepHistory: true });
+    editor.select({ nodeIds: [step.node.id], edgeIds: [] });
+    pendingReveal.current = step.node.id;
+    onOpenDetails?.(step.node.id);
+  }
+
+  function pickStep(entry: PaletteEntry, target: CreatorTarget) {
+    if (target.kind === "insert") pickOnEdge(entry, target.edgeId);
+    else pickAppended(entry, target);
+  }
 
   // Pans so a step is on screen, if it is not already. Reports false while the
   // step has not been measured yet.
@@ -548,7 +896,7 @@ function CanvasInner({
     if (id && reveal(id)) pendingReveal.current = null;
   }, [nodes, reveal]);
 
-  // So is a selected step, which the settings panel opening beside the canvas can cover.
+  // So is a selected step, which the creator panel opening beside the canvas can cover.
   const selectedId =
     selection.nodeIds.length === 1 ? selection.nodeIds[0] : undefined;
   useEffect(() => {
@@ -603,28 +951,118 @@ function CanvasInner({
     [flow],
   );
 
-  const runShortcut = useCallback(
-    (id: WorkflowShortcutId) => {
-      switch (id) {
-        case "fit-view":
-          return fitView();
-        case "select-all":
-          return editor.selectAll();
-        case "deselect":
-          return editor.clearSelection();
-        case "undo":
-          return readOnly ? undefined : void editor.undo();
-        case "redo":
-          return readOnly ? undefined : void editor.redo();
-        case "delete":
-          return readOnly ? undefined : report(editor.deleteSelection());
-        case "duplicate":
-          return readOnly ? undefined : report(editor.duplicateNodes());
-        case "add-step":
-          return creator.open ? undefined : openCreator({ kind: "append" });
+  // Arranges the steps and fits them in view, as the toolbar's arrange button and the Shift+Alt+T shortcut do.
+  const tidyUp = useCallback(() => {
+    report(editor.autoLayout());
+    requestAnimationFrame(fitView);
+  }, [editor, fitView, report]);
+
+  // A step acted on from its own toolbar or menu is selected first, unless it is already part of the selection.
+  const ensureSelected = useCallback(
+    (nodeId: string) => {
+      if (!editor.getSnapshot().selection.nodeIds.includes(nodeId)) {
+        editor.select({ nodeIds: [nodeId], edgeIds: [] });
       }
     },
-    [creator.open, editor, fitView, openCreator, readOnly, report],
+    [editor],
+  );
+
+  // Returns whether the key did something, so the browser's own action is only stopped when it did.
+  const runShortcut = useCallback(
+    (id: WorkflowShortcutId): boolean => {
+      const { graph: current, selection: picked } = editor.getSnapshot();
+      if (creator.open && STAND_DOWN_FOR_CREATOR.has(id)) return false;
+      const onlyStep =
+        picked.nodeIds.length === 1 ? picked.nodeIds[0] : undefined;
+      switch (id) {
+        case "fit-view":
+          fitView();
+          return true;
+        case "select-all":
+          editor.selectAll();
+          return true;
+        case "deselect":
+          editor.clearSelection();
+          return true;
+        case "undo":
+          if (!readOnly) editor.undo();
+          return true;
+        case "redo":
+          if (!readOnly) editor.redo();
+          return true;
+        case "delete":
+          if (!readOnly) report(editor.deleteSelection());
+          return true;
+        case "duplicate":
+          if (!readOnly) report(editor.duplicateNodes());
+          return true;
+        case "add-step":
+          if (!creator.open) openCreator({ kind: "append" });
+          return true;
+        case "zoom-in":
+          void flow.zoomIn({ duration: 150 });
+          return true;
+        case "zoom-out":
+          void flow.zoomOut({ duration: 150 });
+          return true;
+        case "arrange":
+          if (readOnly || current.nodes.length === 0) return false;
+          tidyUp();
+          return true;
+        case "open-details":
+          if (!onOpenDetails || !onlyStep) return false;
+          onOpenDetails(onlyStep);
+          return true;
+        case "rename":
+          if (readOnly || !onOpenDetails || !onlyStep) return false;
+          onOpenDetails(onlyStep, "name");
+          return true;
+        case "test-workflow":
+          if (readOnly || !onTest || testing || current.nodes.length === 0) {
+            return false;
+          }
+          onTest();
+          return true;
+        case "select-upstream":
+        case "select-downstream":
+        case "select-upstream-chain":
+        case "select-downstream-chain": {
+          if (!onlyStep) return false;
+          const upstream =
+            id === "select-upstream" || id === "select-upstream-chain";
+          if (id.endsWith("chain")) {
+            const more = chainFrom(
+              current,
+              onlyStep,
+              upstream ? "upstream" : "downstream",
+            );
+            editor.select({ nodeIds: [onlyStep, ...more], edgeIds: [] });
+          } else {
+            const next = upstream
+              ? firstUpstream(current, onlyStep)
+              : firstDownstream(current, onlyStep);
+            if (next) editor.select({ nodeIds: [next], edgeIds: [] });
+          }
+          return true;
+        }
+        // Up and down select nothing, and the step stays where it is.
+        case "arrow-up-down":
+          return onlyStep !== undefined;
+      }
+    },
+    [
+      creator.open,
+      editor,
+      fitView,
+      flow,
+      onOpenDetails,
+      onTest,
+      openCreator,
+      readOnly,
+      report,
+      testing,
+      tidyUp,
+    ],
   );
 
   // Shortcuts listen on the document, because deleting the focused step leaves
@@ -638,25 +1076,41 @@ function CanvasInner({
       engaged.current =
         event.target instanceof Node && container.contains(event.target);
     };
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (!engaged.current || isEditableTarget(event.target)) return;
-      const inside =
-        event.target instanceof Node && container.contains(event.target);
+    // Keys reach the canvas from the canvas, from its steps, or from the page body: never from a field or a control.
+    const reachesCanvas = (target: EventTarget | null) => {
+      if (!engaged.current || isEditableTarget(target)) return false;
+      const inside = target instanceof Node && container.contains(target);
       const idle =
-        event.target === document.body ||
-        event.target === document.documentElement;
-      if (!inside && !idle) return;
+        target === document.body || target === document.documentElement;
+      return inside || idle;
+    };
+    // Arrow keys run in the capture phase. React Flow moves a focused step on its own arrow keys from a listener
+    // below this one, so stopping the key here keeps the step where it is.
+    const onArrowKey = (event: globalThis.KeyboardEvent) => {
+      if (!reachesCanvas(event.target) || isControlTarget(event.target)) return;
       const id = resolveWorkflowShortcut(event);
-      if (!id || (id === "add-step" && isControlTarget(event.target))) return;
+      if (!id || !ARROW_SHORTCUTS.has(id)) return;
+      if (!runShortcut(id)) return;
       event.preventDefault();
-      runShortcut(id);
+      event.stopPropagation();
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (!reachesCanvas(event.target)) return;
+      const id = resolveWorkflowShortcut(event);
+      if (!id || ARROW_SHORTCUTS.has(id)) return;
+      if (STEP_ASIDE_FOR_CONTROLS.has(id) && isControlTarget(event.target)) {
+        return;
+      }
+      if (runShortcut(id)) event.preventDefault();
     };
     document.addEventListener("pointerdown", engage, true);
     document.addEventListener("focusin", engage, true);
+    document.addEventListener("keydown", onArrowKey, true);
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("pointerdown", engage, true);
       document.removeEventListener("focusin", engage, true);
+      document.removeEventListener("keydown", onArrowKey, true);
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [runShortcut]);
@@ -669,220 +1123,336 @@ function CanvasInner({
   const empty = graph.nodes.length === 0;
   const hasTrigger = graph.nodes.some((node) => node.kind === "trigger");
 
+  // The step whose More menu is open keeps its toolbar; otherwise the pointer's step, then keyboard focus's, then the selected one.
+  const candidateNodeId =
+    moreNodeId ?? hoveredNodeId ?? focusedNodeId ?? selectedId ?? null;
+  const toolbarNodeId =
+    candidateNodeId !== null &&
+    graph.nodes.some((node) => node.id === candidateNodeId)
+      ? candidateNodeId
+      : null;
+
+  // Right-click picks the menu by what is under the pointer. Over a step, the step is selected first unless it is
+  // already in the selection. Over the panels, no menu opens, and the browser's own menu stays shut too.
+  const openMenuAt = (event: ReactMouseEvent<HTMLElement>) => {
+    const target = event.target;
+    const step = target instanceof Element ? stepIdOf(target) : undefined;
+    if (step) {
+      ensureSelected(step);
+      setMenu("step");
+    } else if (
+      target instanceof Element &&
+      target.closest(".react-flow__pane, .react-flow__edge")
+    ) {
+      setMenu("canvas");
+    } else {
+      event.preventDefault();
+      setMenu(null);
+    }
+  };
+
+  // A double-click opens the step's details, unless it lands on one of the step's own controls.
+  const openDetailsOnDoubleClick = useCallback(
+    (event: ReactMouseEvent, node: WorkflowFlowNode) => {
+      if (!onOpenDetails) return;
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(
+          "button, a, input, textarea, select, .react-flow__handle",
+        )
+      ) {
+        return;
+      }
+      onOpenDetails(node.id);
+    },
+    [onOpenDetails],
+  );
+
+  const stepEntries = stepMenuEntries({
+    count: selection.nodeIds.length,
+    readOnly,
+    s,
+    testStepLabel: ws.nodePanel.testStep,
+    shortcut: (id) => shortcutLabel(id, mac),
+    openDetails:
+      onOpenDetails && selectedId
+        ? (focus) => onOpenDetails(selectedId, focus)
+        : undefined,
+    testStep:
+      onTestStep && selectedId ? () => onTestStep(selectedId) : undefined,
+    duplicate: () => report(editor.duplicateNodes()),
+    remove: () => report(editor.deleteSelection()),
+    selectAll: () => editor.selectAll(),
+    clearSelection: () => editor.clearSelection(),
+  });
+  const canvasEntries = canvasMenuEntries({
+    readOnly,
+    empty,
+    hasSelection,
+    s,
+    shortcut: (id) => shortcutLabel(id, mac),
+    addStep: () => openCreator({ kind: "append" }),
+    arrange: tidyUp,
+    selectAll: () => editor.selectAll(),
+    clearSelection: () => editor.clearSelection(),
+  });
+  const menuEntries: MenuEntry[] =
+    menu === "step" ? stepEntries : menu === "canvas" ? canvasEntries : [];
+
   return (
-    <div
-      ref={containerRef}
-      role="region"
-      aria-label={s.canvasName}
-      tabIndex={-1}
-      className={cn(
-        "workflow-canvas relative size-full min-h-64 outline-none",
-        className,
-      )}
-    >
-      <WorkflowMarkerDefs />
-      <PortPickerContext.Provider value={readOnly ? null : openPortPicker}>
-        <ReactFlow<WorkflowFlowNode, WorkflowFlowEdge>
-          nodes={ringed}
-          edges={edges}
-          nodeTypes={NODE_TYPES}
-          edgeTypes={EDGE_TYPES}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeDragStart={() => editor.sealHistory()}
-          onConnect={onConnect}
-          isValidConnection={isValidConnection}
-          onPaneClick={() =>
-            containerRef.current?.focus({ preventScroll: true })
-          }
-          nodesDraggable={!readOnly}
-          nodesConnectable={!readOnly}
-          elementsSelectable
-          edgesFocusable
-          deleteKeyCode={null}
-          selectionKeyCode="Shift"
-          panOnScroll
-          zoomOnScroll={false}
-          zoomOnDoubleClick={false}
-          minZoom={MIN_ZOOM}
-          maxZoom={MAX_ZOOM}
-          snapToGrid
-          snapGrid={SNAP_GRID}
-          connectionRadius={32}
-          connectionDragThreshold={4}
-          attributionPosition="bottom-left"
+    <ContextMenu>
+      <ContextMenuTrigger asChild onContextMenu={openMenuAt}>
+        <div
+          ref={containerRef}
+          role="region"
+          aria-label={s.canvasName}
+          tabIndex={-1}
+          onMouseLeave={() => holdHover(null)}
+          className={cn(
+            "workflow-canvas relative size-full min-h-64 outline-none",
+            className,
+          )}
         >
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} />
-          {minimap && !empty && (
-            <MiniMap
-              pannable
-              zoomable
-              position="bottom-right"
-              className="!m-3 !h-28 !w-44"
-            />
-          )}
-          {selectedId && !readOnly && !typing && (
-            <NodeHoverToolbar
-              nodeId={selectedId}
-              onTestStep={onTestStep}
-              onDuplicate={() => report(editor.duplicateNodes())}
-              onDelete={() => report(editor.deleteSelection())}
-            />
-          )}
-          {onTest && !readOnly && !empty && (
-            <Panel position="bottom-center" className="!mb-16">
-              <CanvasTestButton
-                label={
-                  unsaved
-                    ? s.canvasActions.saveAndTestWorkflow
-                    : s.canvasActions.testWorkflow
-                }
-                disabled={testing}
-                onTest={onTest}
-              />
-            </Panel>
-          )}
-          {selectedEdge && !readOnly && (
-            <Panel position="top-center">
-              <EdgeToolbar
-                editor={editor}
-                edge={selectedEdge}
-                onRejection={reject}
-                onInsert={openInsertOnEdge}
-              />
-            </Panel>
-          )}
-          <Panel position="bottom-center" className="!mb-4">
-            <div
-              role="toolbar"
-              aria-label={s.canvasName}
-              className="flex max-w-md items-center gap-0.5 overflow-x-auto rounded-lg border border-border bg-card p-1 shadow-sm"
+          <WorkflowMarkerDefs />
+          <EdgeActionsContext.Provider value={readOnly ? null : edgeActions}>
+            <ReactFlow<WorkflowFlowNode, WorkflowFlowEdge>
+              nodes={ringed}
+              edges={edges}
+              nodeTypes={NODE_TYPES}
+              edgeTypes={EDGE_TYPES}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeDragStart={() => editor.sealHistory()}
+              onConnect={onConnect}
+              onConnectEnd={dropOnEmptyCanvas}
+              isValidConnection={isValidConnection}
+              onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
+              onEdgeMouseLeave={() => setHoveredEdgeId(undefined)}
+              onNodeMouseEnter={(_event, node) => holdHover(node.id)}
+              onNodeMouseLeave={() => holdHover(null)}
+              onNodeDoubleClick={openDetailsOnDoubleClick}
+              onPaneClick={() =>
+                containerRef.current?.focus({ preventScroll: true })
+              }
+              nodesDraggable={!readOnly}
+              nodesConnectable={!readOnly}
+              elementsSelectable
+              edgesFocusable
+              deleteKeyCode={null}
+              selectionKeyCode="Shift"
+              panOnScroll
+              zoomOnScroll={false}
+              zoomOnDoubleClick={false}
+              minZoom={MIN_ZOOM}
+              maxZoom={MAX_ZOOM}
+              snapToGrid
+              snapGrid={SNAP_GRID}
+              connectionRadius={60}
+              connectionDragThreshold={4}
+              connectOnClick={false}
+              attributionPosition="bottom-left"
             >
-              {!readOnly && (
-                <>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openCreator({ kind: "append" })}
-                      >
-                        <IconPlus />
-                        {s.toolbar.addStep}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {s.toolbar.addStep}
-                      <span className="ms-2 text-muted-foreground">
-                        {shortcutLabel("add-step", mac)}
-                      </span>
-                    </TooltipContent>
-                  </Tooltip>
-                  <Separator orientation="vertical" className="mx-1 h-5" />
-                  <ToolbarButton
-                    icon={IconArrowBackUp}
-                    label={s.toolbar.undo}
-                    shortcut={shortcutLabel("undo", mac)}
-                    disabled={!snapshot.canUndo}
-                    onClick={() => editor.undo()}
-                  />
-                  <ToolbarButton
-                    icon={IconArrowForwardUp}
-                    label={s.toolbar.redo}
-                    shortcut={shortcutLabel("redo", mac)}
-                    disabled={!snapshot.canRedo}
-                    onClick={() => editor.redo()}
-                  />
-                  <ToolbarButton
-                    icon={IconLayoutDistributeHorizontal}
-                    label={s.toolbar.arrange}
-                    disabled={empty}
-                    onClick={() => {
-                      report(editor.autoLayout());
-                      requestAnimationFrame(fitView);
-                    }}
-                  />
-                  <ToolbarButton
-                    icon={IconCopy}
-                    label={s.toolbar.duplicate}
-                    shortcut={shortcutLabel("duplicate", mac)}
-                    disabled={!hasSelection}
-                    onClick={() => report(editor.duplicateNodes())}
-                  />
-                  <ToolbarButton
-                    icon={IconTrash}
-                    label={s.toolbar.delete}
-                    shortcut={shortcutLabel("delete", mac)}
-                    disabled={!hasSelection && selection.edgeIds.length === 0}
-                    onClick={() => report(editor.deleteSelection())}
-                  />
-                  <Separator orientation="vertical" className="mx-1 h-5" />
-                </>
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={20}
+                size={1.5}
+              />
+              {minimap && !empty && (
+                <MiniMap
+                  pannable
+                  zoomable
+                  position="bottom-right"
+                  className="!m-3 !h-28 !w-44"
+                />
               )}
-              <ToolbarButton
-                icon={IconZoomOut}
-                label={s.toolbar.zoomOut}
-                onClick={() => void flow.zoomOut({ duration: 150 })}
-              />
-              <ToolbarButton
-                icon={IconZoomIn}
-                label={s.toolbar.zoomIn}
-                onClick={() => void flow.zoomIn({ duration: 150 })}
-              />
-              <ToolbarButton
-                icon={IconFocusCentered}
-                label={s.toolbar.fitView}
-                shortcut={shortcutLabel("fit-view", mac)}
-                onClick={fitView}
-              />
-              {toolbarEnd}
-            </div>
-          </Panel>
-        </ReactFlow>
-      </PortPickerContext.Provider>
-      {!readOnly && (
-        <NodeCreator
-          catalog={editor.catalog}
-          open={creator.open}
-          onOpenChange={(open) =>
-            setCreator((current) => ({ ...current, open }))
-          }
-          target={creator.target}
-          hasTrigger={hasTrigger}
-          connections={connections}
-          onPick={(entry) => pickStep(entry, creator.target)}
-          onDescribe={onDescribeStep}
-          onConnect={onConnectProvider}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            containerRef.current?.focus({ preventScroll: true });
-          }}
-        />
-      )}
-      {empty && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-          {readOnly ? (
-            <Empty className="max-w-sm flex-none">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <IconSitemap />
-                </EmptyMedia>
-                <EmptyTitle>{s.empty.none}</EmptyTitle>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <div className="pointer-events-auto relative">
-              <EmptyCanvasTile
-                onAddFirstStep={
-                  onAddFirstStep ?? (() => openCreator({ kind: "append" }))
-                }
-                onDescribe={onDescribeFirst}
-              />
+              {toolbarNodeId && !readOnly && !typing && (
+                <NodeHoverToolbar
+                  nodeId={toolbarNodeId}
+                  menu={stepEntries}
+                  menuOpen={moreNodeId === toolbarNodeId}
+                  onMenuOpenChange={(open) => {
+                    if (open) ensureSelected(toolbarNodeId);
+                    setMoreNodeId(open ? toolbarNodeId : null);
+                  }}
+                  onTestStep={onTestStep}
+                  onDuplicate={() => {
+                    ensureSelected(toolbarNodeId);
+                    report(editor.duplicateNodes());
+                  }}
+                  onDelete={() => {
+                    ensureSelected(toolbarNodeId);
+                    report(editor.deleteSelection());
+                  }}
+                  onHoverChange={(over) =>
+                    holdHover(over ? toolbarNodeId : null)
+                  }
+                />
+              )}
+              {onTest && !readOnly && !empty && (
+                <Panel position="bottom-center" className="!mb-16">
+                  <CanvasTestButton
+                    label={
+                      unsaved
+                        ? s.canvasActions.saveAndTestWorkflow
+                        : s.canvasActions.testWorkflow
+                    }
+                    disabled={testing}
+                    onTest={onTest}
+                  />
+                </Panel>
+              )}
+              {selectedEdge && !readOnly && (
+                <Panel position="top-center">
+                  <EdgeToolbar
+                    editor={editor}
+                    edge={selectedEdge}
+                    onRejection={reject}
+                    onInsert={openInsertOnEdge}
+                  />
+                </Panel>
+              )}
+              <Panel position="bottom-center" className="!mb-4">
+                <div
+                  role="toolbar"
+                  aria-label={s.canvasName}
+                  className="flex max-w-md items-center gap-0.5 overflow-x-auto rounded-lg border border-border bg-card p-1 shadow-sm"
+                >
+                  {!readOnly && (
+                    <>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openCreator({ kind: "append" })}
+                          >
+                            <IconPlus />
+                            {s.toolbar.addStep}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {s.toolbar.addStep}
+                          <span className="ms-2 text-muted-foreground">
+                            {shortcutLabel("add-step", mac)}
+                          </span>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Separator orientation="vertical" className="mx-1 h-5" />
+                      <ToolbarButton
+                        icon={IconArrowBackUp}
+                        label={s.toolbar.undo}
+                        shortcut={shortcutLabel("undo", mac)}
+                        disabled={!snapshot.canUndo}
+                        onClick={() => editor.undo()}
+                      />
+                      <ToolbarButton
+                        icon={IconArrowForwardUp}
+                        label={s.toolbar.redo}
+                        shortcut={shortcutLabel("redo", mac)}
+                        disabled={!snapshot.canRedo}
+                        onClick={() => editor.redo()}
+                      />
+                      <ToolbarButton
+                        icon={IconLayoutDistributeHorizontal}
+                        label={s.toolbar.arrange}
+                        disabled={empty}
+                        onClick={tidyUp}
+                      />
+                      <ToolbarButton
+                        icon={IconCopy}
+                        label={s.toolbar.duplicate}
+                        shortcut={shortcutLabel("duplicate", mac)}
+                        disabled={!hasSelection}
+                        onClick={() => report(editor.duplicateNodes())}
+                      />
+                      <ToolbarButton
+                        icon={IconTrash}
+                        label={s.toolbar.delete}
+                        shortcut={shortcutLabel("delete", mac)}
+                        disabled={
+                          !hasSelection && selection.edgeIds.length === 0
+                        }
+                        onClick={() => report(editor.deleteSelection())}
+                      />
+                      <Separator orientation="vertical" className="mx-1 h-5" />
+                    </>
+                  )}
+                  <ToolbarButton
+                    icon={IconZoomOut}
+                    label={s.toolbar.zoomOut}
+                    onClick={() => void flow.zoomOut({ duration: 150 })}
+                  />
+                  <ToolbarButton
+                    icon={IconZoomIn}
+                    label={s.toolbar.zoomIn}
+                    onClick={() => void flow.zoomIn({ duration: 150 })}
+                  />
+                  <ToolbarButton
+                    icon={IconFocusCentered}
+                    label={s.toolbar.fitView}
+                    shortcut={shortcutLabel("fit-view", mac)}
+                    onClick={fitView}
+                  />
+                  {toolbarEnd}
+                </div>
+              </Panel>
+            </ReactFlow>
+          </EdgeActionsContext.Provider>
+          {!readOnly && (
+            <NodeCreator
+              catalog={editor.catalog}
+              open={creator.open}
+              onOpenChange={(open) =>
+                setCreator((current) => ({
+                  open,
+                  target: open
+                    ? current.target
+                    : forgetDropPoint(current.target),
+                }))
+              }
+              target={creator.target}
+              hasTrigger={hasTrigger}
+              connections={connections}
+              onPick={(entry) => pickStep(entry, creator.target)}
+              onDescribe={onDescribeStep}
+              onConnect={onConnectProvider}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                containerRef.current?.focus({ preventScroll: true });
+              }}
+            />
+          )}
+          {empty && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+              {readOnly ? (
+                <Empty className="max-w-sm flex-none">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <IconSitemap />
+                    </EmptyMedia>
+                    <EmptyTitle>{s.empty.none}</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
+              ) : (
+                <div className="pointer-events-auto relative">
+                  <EmptyCanvasTile
+                    onAddFirstStep={
+                      onAddFirstStep ?? (() => openCreator({ kind: "append" }))
+                    }
+                    onDescribe={onDescribeFirst}
+                    addActive={creator.open}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
-    </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuEntries entries={menuEntries} />
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

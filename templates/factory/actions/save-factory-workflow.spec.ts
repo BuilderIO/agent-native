@@ -149,6 +149,27 @@ describe("save-factory-workflow: creating", () => {
     expect(kit.jobFiles()).toEqual([]);
   });
 
+  it("keeps a node label through a save, and refuses one over 64 characters", async () => {
+    const labelled = (label: string) => {
+      const graph = kit.simpleGraph();
+      return {
+        ...graph,
+        nodes: [{ ...graph.nodes[0], label }, ...graph.nodes.slice(1)],
+      };
+    };
+
+    const saved = await create({ graph: labelled("Every 15 minutes") });
+    const stored = await kit
+      .currentStore()
+      .getWorkflow(scope, saved.workflowId);
+    expect(stored?.graph.nodes[0]).toMatchObject({ label: "Every 15 minutes" });
+
+    const failure = await kit.failureOf(() =>
+      create({ name: "Too long", graph: labelled("x".repeat(65)) }),
+    );
+    expect(failure).toMatchObject({ errorCode: "graph_invalid" });
+  });
+
   it("takes the job file back out when the workflow row cannot be created", async () => {
     vi.spyOn(kit.currentStore(), "createWorkflow").mockRejectedValue(
       new WorkflowStoreError("already_exists", "That workflow exists."),

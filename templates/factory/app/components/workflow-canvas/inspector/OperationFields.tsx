@@ -22,6 +22,7 @@ import { useWorkflowCanvasStrings } from "../strings";
 import { BindingField } from "./BindingField";
 import type { FormContext } from "./context";
 import { Field } from "./fields";
+import { useInvalidMark } from "./issue-marks";
 
 type Args = Record<string, FieldBinding>;
 
@@ -43,6 +44,7 @@ export function OperationSelect({
 
   const providers = [...new Set(operations.map((def) => def.provider))];
   const known = operations.some((def) => def.id === value);
+  const mark = useInvalidMark(!known);
   return (
     <Field label={label ?? s.inspector.operation} htmlFor={id}>
       <Select
@@ -53,7 +55,7 @@ export function OperationSelect({
         }}
         disabled={operations.length === 0}
       >
-        <SelectTrigger id={id} size="sm" aria-invalid={!known || undefined}>
+        <SelectTrigger id={id} size="sm" aria-invalid={mark}>
           <SelectValue placeholder={s.inspector.noOperations} />
         </SelectTrigger>
         <SelectContent>

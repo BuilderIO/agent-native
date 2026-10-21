@@ -4,7 +4,7 @@ import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { factoryNavigationState } from "@/lib/factory-tab-params";
 import { TAB_ID } from "@/lib/tab-id";
 
-export interface NavigationState {
+interface NavigationState {
   view: string;
   path?: string;
   threadId?: string;
@@ -14,6 +14,7 @@ export interface NavigationState {
   /** The workflow open on the canvas, and what is selected or replayed on it. */
   workflowId?: string;
   nodeId?: string;
+  detailsOpen?: boolean;
   edgeId?: string;
   runId?: string;
   factoryItemId?: string;

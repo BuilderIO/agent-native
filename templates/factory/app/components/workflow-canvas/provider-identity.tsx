@@ -86,6 +86,12 @@ export function providerIdentity(provider: string): ProviderIdentity {
   };
 }
 
+/** The tinted tile a provider's step sits on, or null for a provider with no hue. */
+export function providerTile(provider: string): string | null {
+  const { hue } = providerIdentity(provider);
+  return hue ? HUE_TILE[hue] : null;
+}
+
 export function ProviderIcon({
   provider,
   className,

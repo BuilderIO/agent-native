@@ -89,11 +89,15 @@ function describeOpenWorkflow(
         ? {
             nodeId: selected.id,
             nodeName: selected.name,
+            ...(selected.label === undefined
+              ? {}
+              : { nodeLabel: selected.label }),
             nodeKind: selected.kind,
           }
         : nodeId
           ? { nodeId, nodeInGraph: false }
           : {}),
+      ...(selected && state.detailsOpen === true ? { detailsOpen: true } : {}),
       ...(stringField(state.edgeId)
         ? { edgeId: stringField(state.edgeId) }
         : {}),
@@ -105,7 +109,7 @@ function describeOpenWorkflow(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the factory list, or for an open factory its tab: Workflows (the list, or the open workflow with the selected step, connection or run, whether the page has unsaved edits, and how many problems the canvas shows), Items (the selected item), Activity, Settings. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible selection details matter.",
+    "See what the user is currently looking at on screen. Returns the factory list, or for an open factory its tab: Workflows (the list, or the open workflow with the selected step (and whether its details modal is open), connection or run, whether the page has unsaved edits, and how many problems the canvas shows), Items (the selected item), Activity, Settings. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible selection details matter.",
   schema: z.object({}),
   http: false,
   readOnly: true,

@@ -148,6 +148,18 @@ export interface WorkflowSummary {
   ownerEmail: string;
 }
 
+/** A place in the newest-first workflow list: the row a page ended on. */
+export interface WorkflowListPosition {
+  updatedAt: string;
+  id: string;
+}
+
+/** A workflow list page that can be continued. */
+interface WorkflowSummaryPage extends StorePage<WorkflowSummary> {
+  /** Where the next page starts; null when this page is the last. */
+  nextAfter: WorkflowListPosition | null;
+}
+
 export interface WorkflowRecord extends WorkflowSummary {
   graph: WorkflowGraph;
 }
@@ -174,6 +186,12 @@ export interface CreateWorkflowInput {
   ownerEmail: string;
   source?: WorkflowVersionSource;
   summary?: string;
+}
+
+export interface RenameWorkflowInput {
+  workflowId: string;
+  /** The new display name. */
+  name: string;
 }
 
 export interface SaveWorkflowGraphInput {
@@ -399,11 +417,14 @@ export interface WorkflowStore {
     scope: WorkflowScope,
     automationId: string,
   ): Promise<WorkflowRecord | null>;
-  /** Newest first. */
+  /**
+   * Newest first. `after` is where the previous page ended: the page holds the
+   * rows that follow that position in this order. Its instant is read as UTC.
+   */
   listWorkflows(
     scope: WorkflowScope,
-    options?: { limit?: number },
-  ): Promise<StorePage<WorkflowSummary>>;
+    options?: { limit?: number; after?: WorkflowListPosition },
+  ): Promise<WorkflowSummaryPage>;
   getWorkflowVersion(
     scope: WorkflowScope,
     workflowId: string,
@@ -425,6 +446,14 @@ export interface WorkflowStore {
     scope: WorkflowScope,
     input: SaveWorkflowGraphInput,
   ): Promise<WorkflowRecord>;
+  /**
+   * Changes the display name only: the version, the graph, whether it is
+   * enabled and its dry-run record stay as they were.
+   */
+  renameWorkflow(
+    scope: WorkflowScope,
+    input: RenameWorkflowInput,
+  ): Promise<WorkflowSummary>;
   /**
    * Disabling always works. Enabling needs a clean dry run recorded for the
    * current version, otherwise `dry_run_required`.

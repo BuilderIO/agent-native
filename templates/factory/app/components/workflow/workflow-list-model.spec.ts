@@ -5,12 +5,22 @@ import { createEnglishTranslator } from "@/lib/__tests__/en-translator";
 import { createWorkflowCanvasStrings } from "../workflow-canvas/strings";
 import {
   anyRunInFlight,
+  arrangeWorkflowRows,
   buildWorkflowRows,
+  canSaveRename,
+  chainWorkflowPages,
+  copyWorkflowName,
   formatItemCount,
+  joinWorkflowPages,
   parkedRefusal,
   runStarter,
   scheduleLabel as scheduleLabelOf,
+  withRenamedWorkflow,
   withoutWorkflow,
+  withWorkflowEnabled,
+  workflowListStats,
+  type WorkflowListChoices,
+  type WorkflowListRow,
 } from "./workflow-list-model";
 import { createWorkflowStrings } from "./workflow-strings";
 import type {
@@ -96,6 +106,7 @@ function item(workflowId: string, itemId: string): WorkflowItemRow {
 const workflows = (...rows: WorkflowSummaryRow[]): ListWorkflowsResult => ({
   workflows: rows,
   hasMore: false,
+  nextCursor: null,
 });
 const runs = (list: RunView[], hasMore = false): ListRunsResult => ({
   runs: list,
@@ -215,6 +226,18 @@ describe("buildWorkflowRows", () => {
     });
     expect(rows[0]?.attention).toBeNull();
     expect(rows[0]?.lastRun).toMatchObject({ run: { id: "r2" } });
+    expect(rows[0]?.liveRun).toMatchObject({ known: true, run: { id: "r1" } });
+  });
+
+  it("keeps a live run unknown when a full page holds only test runs", () => {
+    const rows = buildWorkflowRows({
+      workflows: workflows(workflow("a")),
+      runs: runs([run("a", { id: "r1", mode: "dry" })], true),
+      parked: items([]),
+      needsYou: items([]),
+    });
+    expect(rows[0]?.lastRun).toMatchObject({ known: true, run: { id: "r1" } });
+    expect(rows[0]?.liveRun).toEqual({ known: false, why: "older" });
   });
 
   it("keeps the server's order among equals", () => {
@@ -239,6 +262,458 @@ describe("buildWorkflowRows", () => {
     });
     expect(rows[0]?.schedule).toEqual({ kind: "minutes", minutes: 5 });
     expect(rows[1]?.schedule).toBeNull();
+  });
+});
+
+describe("workflowListStats", () => {
+  const loaded = (...list: WorkflowSummaryRow[]) =>
+    buildWorkflowRows({
+      workflows: workflows(...list),
+      runs: runs([]),
+      parked: items([]),
+      needsYou: items([]),
+    });
+  const stats = (
+    rows: WorkflowListRow[],
+    options: { unloadedWorkflows?: boolean; itemsFailed?: boolean } = {},
+  ) =>
+    workflowListStats({
+      rows,
+      unloadedWorkflows: options.unloadedWorkflows ?? false,
+      itemsFailed: options.itemsFailed ?? false,
+    });
+
+  it("counts the workflows switched on out of the loaded total", () => {
+    const result = stats(
+      loaded(
+        workflow("a"),
+        { ...workflow("b"), enabled: false },
+        workflow("c"),
+      ),
+    );
+    expect(result.on).toEqual({ count: 2, atLeast: false });
+    expect(result.total).toEqual({ count: 3, atLeast: false });
+  });
+
+  it("marks every figure as a floor while some workflows are not loaded", () => {
+    const rows = buildWorkflowRows({
+      workflows: workflows(workflow("a")),
+      runs: runs([run("a", { id: "r1" })]),
+      parked: items([item("a", "i1")]),
+      needsYou: items([]),
+    });
+    const result = stats(rows, { unloadedWorkflows: true });
+    expect(result.on).toEqual({ count: 1, atLeast: true });
+    expect(result.total).toEqual({ count: 1, atLeast: true });
+    expect(result.waiting).toEqual({ state: "ready", count: 1, atLeast: true });
+    expect(result.needsYou).toEqual({
+      state: "ready",
+      count: 0,
+      atLeast: true,
+    });
+    expect(result.failing).toEqual({
+      state: "ready",
+      count: 0,
+      atLeast: true,
+    });
+  });
+
+  it("shows exact figures once every workflow is loaded and no page was full", () => {
+    const rows = loaded(workflow("a"));
+    const result = stats(rows);
+    expect(result.on).toEqual({ count: 1, atLeast: false });
+    expect(result.total).toEqual({ count: 1, atLeast: false });
+    expect(result.failing).toEqual({
+      state: "ready",
+      count: 0,
+      atLeast: false,
+    });
+  });
+
+  it("sums needs-you and waiting over the rows", () => {
+    const rows = buildWorkflowRows({
+      workflows: workflows(workflow("a"), workflow("b")),
+      runs: runs([]),
+      parked: items([item("a", "i1"), item("a", "i2")]),
+      needsYou: items([item("b", "i3")]),
+    });
+    const result = stats(rows);
+    expect(result.waiting).toEqual({
+      state: "ready",
+      count: 2,
+      atLeast: false,
+    });
+    expect(result.needsYou).toEqual({
+      state: "ready",
+      count: 1,
+      atLeast: false,
+    });
+  });
+
+  it("marks waiting as a floor when the items page is full", () => {
+    const rows = buildWorkflowRows({
+      workflows: workflows(workflow("a")),
+      runs: runs([]),
+      parked: items([item("a", "i1")], true),
+      needsYou: items([]),
+    });
+    expect(stats(rows).waiting).toEqual({
+      state: "ready",
+      count: 1,
+      atLeast: true,
+    });
+  });
+
+  it("is pending while the item reads are out, and failed once one fails", () => {
+    const rows = buildWorkflowRows({
+      workflows: workflows(workflow("a")),
+      runs: runs([]),
+      parked: undefined,
+      needsYou: undefined,
+    });
+    expect(stats(rows).needsYou).toEqual({ state: "pending" });
+    expect(stats(rows, { itemsFailed: true }).waiting).toEqual({
+      state: "failed",
+    });
+  });
+
+  it("counts failing workflows exactly when every live run is on the page", () => {
+    const rows = buildWorkflowRows({
+      workflows: workflows(workflow("failed"), workflow("fine")),
+      runs: runs([
+        run("failed", { id: "r1", status: "failed" }),
+        run("fine", { id: "r2" }),
+      ]),
+      parked: items([]),
+      needsYou: items([]),
+    });
+    expect(stats(rows).failing).toEqual({
+      state: "ready",
+      count: 1,
+      atLeast: false,
+    });
+  });
+
+  it("keeps the failing count a floor while a live run is off the page", () => {
+    const rows = buildWorkflowRows({
+      workflows: workflows(
+        workflow("failed"),
+        workflow("fine"),
+        workflow("unseen"),
+      ),
+      runs: runs(
+        [
+          run("failed", { id: "r1", status: "failed" }),
+          run("fine", { id: "r2" }),
+        ],
+        true,
+      ),
+      parked: items([]),
+      needsYou: items([]),
+    });
+    expect(stats(rows).failing).toEqual({
+      state: "ready",
+      count: 1,
+      atLeast: true,
+    });
+  });
+
+  it("is pending until the runs read returns, and failed when it fails", () => {
+    const pending = buildWorkflowRows({
+      workflows: workflows(workflow("a")),
+      runs: undefined,
+      parked: items([]),
+      needsYou: items([]),
+    });
+    const failed = buildWorkflowRows({
+      workflows: workflows(workflow("a")),
+      runs: undefined,
+      runsFailed: true,
+      parked: items([]),
+      needsYou: items([]),
+    });
+    expect(stats(pending).failing).toEqual({ state: "pending" });
+    expect(stats(failed).failing).toEqual({ state: "failed" });
+  });
+});
+
+describe("arrangeWorkflowRows", () => {
+  const loaded = (...list: WorkflowSummaryRow[]) =>
+    buildWorkflowRows({
+      workflows: workflows(...list),
+      runs: runs([]),
+      parked: items([]),
+      needsYou: items([]),
+    });
+  const named = (
+    id: string,
+    name: string,
+    fields: Partial<WorkflowSummaryRow> = {},
+  ): WorkflowSummaryRow => ({ ...workflow(id), name, ...fields });
+  const ids = (rows: WorkflowListRow[]) => rows.map((row) => row.workflow.id);
+  const everything: WorkflowListChoices = {
+    query: "",
+    status: "all",
+    sort: "attention",
+  };
+
+  it("filters by name, ignoring case and outer spaces", () => {
+    const rows = loaded(
+      named("a", "Daily digest"),
+      named("b", "Weekly report"),
+    );
+    expect(
+      ids(
+        arrangeWorkflowRows(
+          rows,
+          { ...everything, query: "  DAILY " },
+          "en-US",
+        ),
+      ),
+    ).toEqual(["a"]);
+    expect(
+      ids(arrangeWorkflowRows(rows, { ...everything, query: "   " }, "en-US")),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("filters by switch state", () => {
+    const rows = loaded(
+      named("a", "Alpha"),
+      named("b", "Beta", { enabled: false }),
+    );
+    expect(
+      ids(arrangeWorkflowRows(rows, { ...everything, status: "on" }, "en-US")),
+    ).toEqual(["a"]);
+    expect(
+      ids(arrangeWorkflowRows(rows, { ...everything, status: "off" }, "en-US")),
+    ).toEqual(["b"]);
+  });
+
+  it("keeps the attention order by default and sorts by name when asked", () => {
+    const rows = loaded(named("plain", "Alpha"), {
+      ...workflow("paused", { pausedReason: "too many failures" }),
+      name: "Zed",
+    });
+    expect(ids(arrangeWorkflowRows(rows, everything, "en-US"))).toEqual([
+      "paused",
+      "plain",
+    ]);
+    expect(
+      ids(arrangeWorkflowRows(rows, { ...everything, sort: "name" }, "en-US")),
+    ).toEqual(["plain", "paused"]);
+  });
+
+  it("sorts by last updated, newest first, and by name in natural order", () => {
+    const rows = loaded(
+      named("old", "Report 10", { updatedAt: "2026-10-01T00:00:00.000Z" }),
+      named("new", "report 2", { updatedAt: "2026-10-18T00:00:00.000Z" }),
+      named("mid", "Report 1", { updatedAt: "2026-10-10T00:00:00.000Z" }),
+    );
+    expect(
+      ids(
+        arrangeWorkflowRows(rows, { ...everything, sort: "updated" }, "en-US"),
+      ),
+    ).toEqual(["new", "mid", "old"]);
+    expect(
+      ids(arrangeWorkflowRows(rows, { ...everything, sort: "name" }, "en-US")),
+    ).toEqual(["mid", "new", "old"]);
+  });
+
+  it("sorts a time that does not parse last", () => {
+    const rows = loaded(
+      named("bad", "A", { updatedAt: "not a time" }),
+      named("good", "B", { updatedAt: "2026-10-18T00:00:00.000Z" }),
+    );
+    expect(
+      ids(
+        arrangeWorkflowRows(rows, { ...everything, sort: "updated" }, "en-US"),
+      ),
+    ).toEqual(["good", "bad"]);
+  });
+});
+
+describe("copyWorkflowName", () => {
+  const label = (name: string) => `${name} copy`;
+
+  it("wraps the name in the label", () => {
+    expect(copyWorkflowName("Daily digest", label)).toBe("Daily digest copy");
+  });
+
+  it("cuts the name, never the label, so the copy fits the name limit", () => {
+    const copy = copyWorkflowName("x".repeat(120), label);
+    expect(copy.length).toBe(120);
+    expect(copy.endsWith(" copy")).toBe(true);
+  });
+
+  it("does not leave half of a surrogate pair at the cut", () => {
+    const copy = copyWorkflowName("😀".repeat(60), label);
+    expect(copy).toBe(`${"😀".repeat(57)} copy`);
+  });
+});
+
+describe("canSaveRename", () => {
+  it("accepts a changed name that is trimmed, one line and within the limit", () => {
+    expect(canSaveRename("Daily digest", "  Weekly digest ")).toBe(true);
+    expect(canSaveRename("Daily digest", "x".repeat(120))).toBe(true);
+  });
+
+  it("refuses a name that is unchanged, blank, too long or on two lines", () => {
+    expect(canSaveRename("Daily digest", " Daily digest ")).toBe(false);
+    expect(canSaveRename("Daily digest", "   ")).toBe(false);
+    expect(canSaveRename("Daily digest", "x".repeat(121))).toBe(false);
+    expect(canSaveRename("Daily digest", "one\ntwo")).toBe(false);
+  });
+});
+
+describe("withRenamedWorkflow", () => {
+  it("renames one workflow and leaves the list it came from as it was", () => {
+    const list = workflows(workflow("a"), workflow("b"));
+
+    const next = withRenamedWorkflow(list, "b", "Renamed");
+
+    expect(next.workflows.map((row) => row.name)).toEqual([
+      "Workflow a",
+      "Renamed",
+    ]);
+    expect(list.workflows[1]?.name).toBe("Workflow b");
+  });
+});
+
+describe("withWorkflowEnabled", () => {
+  it("switches one workflow and leaves the others as they were", () => {
+    const list = workflows(workflow("a"), workflow("b"));
+
+    const next = withWorkflowEnabled(list, "b", false);
+
+    expect(next.workflows.map((row) => row.enabled)).toEqual([true, false]);
+    expect(list.workflows[1]?.enabled).toBe(true);
+  });
+});
+
+describe("joinWorkflowPages", () => {
+  const page = (
+    ids: string[],
+    fields: Partial<ListWorkflowsResult> = {},
+  ): ListWorkflowsResult => ({
+    workflows: ids.map((id) => workflow(id)),
+    hasMore: false,
+    nextCursor: null,
+    ...fields,
+  });
+
+  it("keeps page order and takes the cursor and hasMore from the last page", () => {
+    const joined = joinWorkflowPages([
+      page(["a", "b"], { hasMore: true, nextCursor: "c1" }),
+      page(["c"], { hasMore: true, nextCursor: "c2" }),
+    ]);
+
+    expect(joined.workflows.map((row) => row.id)).toEqual(["a", "b", "c"]);
+    expect(joined).toMatchObject({ hasMore: true, nextCursor: "c2" });
+  });
+
+  it("keeps the first copy of a workflow that two reads both hold", () => {
+    const joined = joinWorkflowPages([page(["a", "b"]), page(["b", "c"])]);
+
+    expect(joined.workflows.map((row) => row.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("is an empty list with no cursor when there are no pages", () => {
+    expect(joinWorkflowPages([])).toEqual({
+      workflows: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+  });
+});
+
+describe("chainWorkflowPages", () => {
+  const page = (
+    ids: string[],
+    nextCursor: string | null,
+  ): ListWorkflowsResult => ({
+    workflows: ids.map((id) => workflow(id)),
+    hasMore: nextCursor !== null,
+    nextCursor,
+  });
+  const first = page(["a", "b"], "c1");
+
+  it("shows only the first page until the viewer asks for more", () => {
+    const chain = chainWorkflowPages({ first, extra: 0, reads: {} });
+
+    expect(chain.pages).toEqual([first]);
+    expect(chain.nextCursor).toBe("c1");
+    expect(chain.active).toEqual([]);
+    expect(chain.fetching).toBe(false);
+  });
+
+  it("is fetching while an asked-for page is read, and holds the list before it", () => {
+    const chain = chainWorkflowPages({ first, extra: 1, reads: {} });
+
+    expect(chain.pages).toEqual([first]);
+    expect(chain.active).toEqual(["c1"]);
+    expect(chain.fetching).toBe(true);
+    expect(chain.failed).toBe(false);
+  });
+
+  it("appends a read page and moves on to the cursor it names", () => {
+    const second = page(["c"], "c2");
+
+    const chain = chainWorkflowPages({
+      first,
+      extra: 1,
+      reads: { c1: { state: "loaded", page: second } },
+    });
+
+    expect(chain.pages).toEqual([first, second]);
+    expect(chain.nextCursor).toBe("c2");
+    expect(chain.active).toEqual(["c1"]);
+    expect(chain.fetching).toBe(false);
+  });
+
+  it("reports a page whose read failed, and does not read past it", () => {
+    const chain = chainWorkflowPages({
+      first,
+      extra: 2,
+      reads: { c1: { state: "failed" } },
+    });
+
+    expect(chain.pages).toEqual([first]);
+    expect(chain.active).toEqual(["c1"]);
+    expect(chain.failed).toBe(true);
+    expect(chain.fetching).toBe(false);
+  });
+
+  it("follows a boundary that moved, so no workflow is skipped", () => {
+    // The first page now ends at c9, so the page after it starts there, not at
+    // the c1 that an older read of it named.
+    const moved = page(["a", "b"], "c9");
+
+    const chain = chainWorkflowPages({
+      first: moved,
+      extra: 1,
+      reads: { c1: { state: "loaded", page: page(["x"], null) } },
+    });
+
+    expect(chain.active).toEqual(["c9"]);
+    expect(chain.fetching).toBe(true);
+    expect(chain.pages).toEqual([moved]);
+  });
+
+  it("names the list dangling when more follow but no cursor says where", () => {
+    const chain = chainWorkflowPages({
+      first: { workflows: [workflow("a")], hasMore: true, nextCursor: null },
+      extra: 0,
+      reads: {},
+    });
+
+    expect(chain.dangling).toBe(true);
+    expect(chain.nextCursor).toBeNull();
+  });
+
+  it("has no pages before the first one loads", () => {
+    const chain = chainWorkflowPages({ first: undefined, extra: 1, reads: {} });
+
+    expect(chain).toMatchObject({ pages: [], nextCursor: null, active: [] });
   });
 });
 

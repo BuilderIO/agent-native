@@ -11,6 +11,7 @@ export {
   STEP_STATUSES,
   fieldBindingSchema,
   identifierSchema,
+  nodeLabelSchema,
   nodeScopeKey,
   ruleSchema,
   workflowGraphSchema,

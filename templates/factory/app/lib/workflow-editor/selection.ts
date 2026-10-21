@@ -44,6 +44,7 @@ export function getSelectionContext(
     selectedNodes: nodes.slice(0, SELECTION_CONTEXT_LIMIT).map((node) => ({
       id: node.id,
       name: node.name,
+      ...(node.label === undefined ? {} : { label: node.label }),
       kind: node.kind,
       ...("operation" in node.settings
         ? { operation: node.settings.operation }

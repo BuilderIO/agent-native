@@ -5,7 +5,7 @@
       "name": "every15",
       "position": {
         "x": 0,
-        "y": 40
+        "y": 63
       },
       "kind": "trigger",
       "settings": {
@@ -18,8 +18,8 @@
       "id": "leads",
       "name": "leads",
       "position": {
-        "x": 344,
-        "y": 40
+        "x": 224,
+        "y": 63
       },
       "kind": "source",
       "settings": {
@@ -34,8 +34,8 @@
       "id": "enrich",
       "name": "enrich",
       "position": {
-        "x": 688,
-        "y": 40
+        "x": 448,
+        "y": 63
       },
       "kind": "lookup",
       "settings": {
@@ -52,8 +52,8 @@
       "id": "ownerRecord",
       "name": "ownerRecord",
       "position": {
-        "x": 1032,
-        "y": 40
+        "x": 672,
+        "y": 63
       },
       "kind": "lookup",
       "settings": {
@@ -70,8 +70,8 @@
       "id": "owner",
       "name": "owner",
       "position": {
-        "x": 1376,
-        "y": 40
+        "x": 896,
+        "y": 63
       },
       "kind": "lookup",
       "settings": {
@@ -88,8 +88,8 @@
       "id": "score",
       "name": "score",
       "position": {
-        "x": 1720,
-        "y": 40
+        "x": 1120,
+        "y": 63
       },
       "kind": "ai",
       "settings": {
@@ -115,8 +115,8 @@
       "id": "tier",
       "name": "tier",
       "position": {
-        "x": 2064,
-        "y": 0
+        "x": 1344,
+        "y": 47
       },
       "kind": "switch",
       "settings": {
@@ -152,8 +152,8 @@
       "id": "task",
       "name": "task",
       "position": {
-        "x": 2408,
-        "y": 193
+        "x": 1568,
+        "y": 308
       },
       "kind": "action",
       "settings": {
@@ -182,8 +182,8 @@
       "id": "tellOwner",
       "name": "tellOwner",
       "position": {
-        "x": 2752,
-        "y": 193
+        "x": 1792,
+        "y": 308
       },
       "kind": "action",
       "settings": {
@@ -204,8 +204,8 @@
       "id": "ack1",
       "name": "ack1",
       "position": {
-        "x": 3096,
-        "y": 165
+        "x": 2016,
+        "y": 308
       },
       "kind": "wait",
       "settings": {
@@ -221,8 +221,8 @@
       "id": "mgrSlack",
       "name": "mgrSlack",
       "position": {
-        "x": 3440,
-        "y": 193
+        "x": 2240,
+        "y": 308
       },
       "kind": "action",
       "settings": {
@@ -243,8 +243,8 @@
       "id": "mgrEmail",
       "name": "mgrEmail",
       "position": {
-        "x": 3784,
-        "y": 193
+        "x": 2464,
+        "y": 308
       },
       "kind": "action",
       "settings": {
@@ -269,8 +269,8 @@
       "id": "ack2",
       "name": "ack2",
       "position": {
-        "x": 4128,
-        "y": 165
+        "x": 2688,
+        "y": 308
       },
       "kind": "wait",
       "settings": {
@@ -288,8 +288,8 @@
       "id": "salesChannel",
       "name": "salesChannel",
       "position": {
-        "x": 4472,
-        "y": 269
+        "x": 2912,
+        "y": 404
       },
       "kind": "action",
       "settings": {
@@ -310,8 +310,8 @@
       "id": "nurture",
       "name": "nurture",
       "position": {
-        "x": 4128,
-        "y": 69
+        "x": 2688,
+        "y": 106
       },
       "kind": "action",
       "settings": {
@@ -332,8 +332,8 @@
       "id": "done",
       "name": "done",
       "position": {
-        "x": 4472,
-        "y": 136
+        "x": 2912,
+        "y": 169
       },
       "kind": "end",
       "settings": {
@@ -344,8 +344,8 @@
       "id": "manual",
       "name": "manual",
       "position": {
-        "x": 4816,
-        "y": 269
+        "x": 3136,
+        "y": 404
       },
       "kind": "end",
       "settings": {
@@ -356,8 +356,8 @@
       "id": "dismissed",
       "name": "dismissed",
       "position": {
-        "x": 2408,
-        "y": 11
+        "x": 1568,
+        "y": 0
       },
       "kind": "end",
       "settings": {

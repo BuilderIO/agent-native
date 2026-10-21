@@ -503,7 +503,7 @@ function filterConditions(settings: InboxPollSettings): Checked<SQL[]> {
   return { ok: true, value: conditions };
 }
 
-class RowUnreadable extends Error {
+export class RowUnreadable extends Error {
   constructor(
     readonly itemId: string,
     message: string,

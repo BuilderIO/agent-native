@@ -1,5 +1,5 @@
 import { fail, type ActionRunContext } from "@agent-native/core/action";
-import type { z } from "zod";
+import { z } from "zod";
 
 import { getWorkflowStore } from "../workflow-host/factory-store.js";
 import {
@@ -28,6 +28,14 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "./require-workspace-member.js";
+
+/** A workflow's display name: one line a person reads in lists and the toolbar. */
+export const workflowNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .regex(/^[^\r\n]+$/, "A name is one line.");
 
 interface WorkflowActionScope {
   userEmail: string;

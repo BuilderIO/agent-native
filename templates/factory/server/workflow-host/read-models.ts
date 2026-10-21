@@ -25,6 +25,11 @@ import {
   type NodeAuditQuery,
 } from "./read-models/node-audit.js";
 import {
+  getNodeData,
+  type NodeData,
+  type NodeDataQuery,
+} from "./read-models/node-data.js";
+import {
   listParked,
   type ParkedList,
   type ParkedListQuery,
@@ -79,6 +84,14 @@ export type {
   SampledItem,
 } from "./read-models/node-audit.js";
 export type {
+  NodeData,
+  NodeDataInPort,
+  NodeDataItem,
+  NodeDataOutPort,
+  NodeDataStoredItem,
+  NodeDataSyntheticItem,
+} from "./read-models/node-data.js";
+export type {
   ParkedByNode,
   ParkedList,
   ParkedRow,
@@ -101,6 +114,7 @@ export interface WorkflowReadModels {
   ): Promise<ItemJourney>;
   listParked(scope: WorkflowScope, input: ParkedListQuery): Promise<ParkedList>;
   getNodeAudit(scope: WorkflowScope, input: NodeAuditQuery): Promise<NodeAudit>;
+  getNodeData(scope: WorkflowScope, input: NodeDataQuery): Promise<NodeData>;
   /** The workflows of this scope among `ids`, by id. An id not in the result is not in this factory. */
   workflowNames(
     scope: WorkflowScope,
@@ -144,6 +158,7 @@ export function createWorkflowReadModels(
       getItemJourney(getDatabase, clock, scope, input),
     listParked: (scope, input) => listParked(getDatabase, clock, scope, input),
     getNodeAudit: (scope, input) => getNodeAudit(getDatabase, scope, input),
+    getNodeData: (scope, input) => getNodeData(getDatabase, scope, input),
 
     async workflowNames(scope, ids) {
       assertScope(scope);

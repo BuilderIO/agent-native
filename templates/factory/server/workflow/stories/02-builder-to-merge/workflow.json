@@ -5,7 +5,7 @@
       "name": "every5",
       "position": {
         "x": 0,
-        "y": 135
+        "y": 222
       },
       "kind": "trigger",
       "settings": {
@@ -18,8 +18,8 @@
       "id": "inFlight",
       "name": "inFlight",
       "position": {
-        "x": 344,
-        "y": 135
+        "x": 224,
+        "y": 222
       },
       "kind": "source",
       "settings": {
@@ -32,8 +32,8 @@
       "id": "byTask",
       "name": "byTask",
       "position": {
-        "x": 688,
-        "y": 135
+        "x": 448,
+        "y": 222
       },
       "kind": "combine",
       "settings": {
@@ -45,8 +45,8 @@
       "id": "check",
       "name": "check",
       "position": {
-        "x": 1032,
-        "y": 135
+        "x": 672,
+        "y": 222
       },
       "kind": "agent",
       "settings": {
@@ -68,8 +68,8 @@
       "id": "state",
       "name": "state",
       "position": {
-        "x": 1376,
-        "y": 83
+        "x": 896,
+        "y": 190
       },
       "kind": "switch",
       "settings": {
@@ -121,8 +121,8 @@
       "id": "keep",
       "name": "keep",
       "position": {
-        "x": 4472,
-        "y": 532
+        "x": 2912,
+        "y": 937
       },
       "kind": "end",
       "settings": {
@@ -133,8 +133,8 @@
       "id": "nudgedTwice",
       "name": "nudgedTwice",
       "position": {
-        "x": 2752,
-        "y": 150
+        "x": 1792,
+        "y": 275
       },
       "kind": "filter",
       "settings": {
@@ -152,8 +152,8 @@
       "id": "alert",
       "name": "alert",
       "position": {
-        "x": 3096,
-        "y": 240
+        "x": 2016,
+        "y": 404
       },
       "kind": "action",
       "settings": {
@@ -174,8 +174,8 @@
       "id": "manual",
       "name": "manual",
       "position": {
-        "x": 3440,
-        "y": 274
+        "x": 2240,
+        "y": 467
       },
       "kind": "end",
       "settings": {
@@ -186,8 +186,8 @@
       "id": "nudge",
       "name": "nudge",
       "position": {
-        "x": 3096,
-        "y": 144
+        "x": 2016,
+        "y": 212
       },
       "kind": "agent",
       "settings": {
@@ -213,8 +213,8 @@
       "id": "readPr",
       "name": "readPr",
       "position": {
-        "x": 1720,
-        "y": 911
+        "x": 1120,
+        "y": 1510
       },
       "kind": "lookup",
       "settings": {
@@ -235,8 +235,8 @@
       "id": "ci",
       "name": "ci",
       "position": {
-        "x": 2064,
-        "y": 835
+        "x": 1344,
+        "y": 1446
       },
       "kind": "switch",
       "settings": {
@@ -307,8 +307,8 @@
       "id": "fix",
       "name": "fix",
       "position": {
-        "x": 3440,
-        "y": 623
+        "x": 2240,
+        "y": 1086
       },
       "kind": "agent",
       "settings": {
@@ -334,8 +334,8 @@
       "id": "gate",
       "name": "gate",
       "position": {
-        "x": 2408,
-        "y": 370
+        "x": 1568,
+        "y": 659
       },
       "kind": "lookup",
       "settings": {
@@ -356,8 +356,8 @@
       "id": "eligible",
       "name": "eligible",
       "position": {
-        "x": 2752,
-        "y": 342
+        "x": 1792,
+        "y": 659
       },
       "kind": "filter",
       "settings": {
@@ -374,8 +374,8 @@
       "id": "merge",
       "name": "merge",
       "position": {
-        "x": 3096,
-        "y": 432
+        "x": 2016,
+        "y": 788
       },
       "kind": "action",
       "settings": {
@@ -396,8 +396,8 @@
       "id": "reports",
       "name": "reports",
       "position": {
-        "x": 3440,
-        "y": 814
+        "x": 2240,
+        "y": 1341
       },
       "kind": "split",
       "settings": {
@@ -408,8 +408,8 @@
       "id": "tellReports",
       "name": "tellReports",
       "position": {
-        "x": 4128,
-        "y": 781
+        "x": 2688,
+        "y": 1298
       },
       "kind": "action",
       "settings": {
@@ -434,8 +434,8 @@
       "id": "done",
       "name": "done",
       "position": {
-        "x": 4472,
-        "y": 829
+        "x": 2912,
+        "y": 1427
       },
       "kind": "end",
       "settings": {
@@ -447,8 +447,8 @@
       "id": "person",
       "name": "person",
       "position": {
-        "x": 3096,
-        "y": 1007
+        "x": 2016,
+        "y": 1702
       },
       "kind": "action",
       "settings": {
@@ -469,7 +469,7 @@
       "id": "lost",
       "name": "lost",
       "position": {
-        "x": 3096,
+        "x": 2016,
         "y": 0
       },
       "kind": "action",
@@ -491,8 +491,8 @@
       "id": "byHead",
       "name": "byHead",
       "position": {
-        "x": 2752,
-        "y": 556
+        "x": 1792,
+        "y": 980
       },
       "kind": "combine",
       "settings": {
@@ -504,8 +504,8 @@
       "id": "askedForHead",
       "name": "askedForHead",
       "position": {
-        "x": 3096,
-        "y": 528
+        "x": 2016,
+        "y": 980
       },
       "kind": "filter",
       "settings": {
@@ -523,8 +523,8 @@
       "id": "refused",
       "name": "refused",
       "position": {
-        "x": 3096,
-        "y": 336
+        "x": 2016,
+        "y": 596
       },
       "kind": "action",
       "settings": {
@@ -545,8 +545,8 @@
       "id": "inSlack",
       "name": "inSlack",
       "position": {
-        "x": 3784,
-        "y": 786
+        "x": 2464,
+        "y": 1341
       },
       "kind": "filter",
       "settings": {
@@ -564,8 +564,8 @@
       "id": "tellFindings",
       "name": "tellFindings",
       "position": {
-        "x": 4128,
-        "y": 877
+        "x": 2688,
+        "y": 1490
       },
       "kind": "action",
       "settings": {
@@ -586,8 +586,8 @@
       "id": "builderIdle",
       "name": "builderIdle",
       "position": {
-        "x": 2408,
-        "y": 557
+        "x": 1568,
+        "y": 1000
       },
       "kind": "filter",
       "settings": {
@@ -605,8 +605,8 @@
       "id": "fixedTask",
       "name": "fixedTask",
       "position": {
-        "x": 3784,
-        "y": 623
+        "x": 2464,
+        "y": 1086
       },
       "kind": "combine",
       "settings": {
@@ -618,8 +618,8 @@
       "id": "roundCap",
       "name": "roundCap",
       "position": {
-        "x": 4128,
-        "y": 595
+        "x": 2688,
+        "y": 1086
       },
       "kind": "filter",
       "settings": {
@@ -637,8 +637,8 @@
       "id": "capAlert",
       "name": "capAlert",
       "position": {
-        "x": 4472,
-        "y": 708
+        "x": 2912,
+        "y": 1139
       },
       "kind": "action",
       "settings": {
@@ -659,8 +659,8 @@
       "id": "roundsExhausted",
       "name": "roundsExhausted",
       "position": {
-        "x": 4816,
-        "y": 708
+        "x": 3136,
+        "y": 1139
       },
       "kind": "end",
       "settings": {

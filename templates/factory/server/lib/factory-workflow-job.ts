@@ -465,6 +465,18 @@ export function syncWorkflowJob(input: {
   );
 }
 
+/** Points the job file's display name at the workflow's new name; nothing else in it moves. */
+export function renameWorkflowJob(input: {
+  orgId: string;
+  factoryId: string;
+  automationId: string;
+  name: string;
+}): Promise<{ id: string; path: string; changed: boolean }> {
+  return editWorkflowJob(input, (content) =>
+    setFactoryField(content, "displayName", input.name),
+  );
+}
+
 /** Switches the job off without needing the graph to still describe a schedule. */
 export function disableWorkflowJob(input: {
   orgId: string;

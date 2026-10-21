@@ -1,13 +1,18 @@
 import {
   IconAlertCircle,
   IconAlertTriangle,
+  IconBolt,
   IconCheck,
-  IconCircleDashed,
-  IconLoader2,
+  IconPlus,
   type Icon,
 } from "@tabler/icons-react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { memo, useContext, useRef } from "react";
+import {
+  Handle,
+  Position,
+  useUpdateNodeInternals,
+  type NodeProps,
+} from "@xyflow/react";
+import { memo, useContext, useEffect, type ReactNode } from "react";
 
 import {
   Tooltip,
@@ -15,75 +20,59 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  NODE_WIDTH,
-  type StepStatus,
-  type WorkflowIssue,
-} from "@/lib/workflow-editor";
+import type { StepStatus, WorkflowIssue } from "@/lib/workflow-editor";
 
 import {
   TARGET_HANDLE,
+  type AddAfterHandler,
   type PortView,
   type WorkflowFlowNode,
 } from "./flow-model";
 import { ConnectionMark, IssueMark } from "./IssueMark";
 import { NODE_KIND_ICONS, kindTile, nodeProvider } from "./node-kinds";
 import type { StepOverlay } from "./overlay";
-import { PortPickerContext } from "./port-picker";
-import { ProviderIcon } from "./provider-identity";
+import { ParkedCountsContext } from "./parked-counts-context";
+import { providerIdentity, providerTile } from "./provider-identity";
 import { useWorkflowCanvasStrings } from "./strings";
 
-const STATUS_ICONS: Record<StepStatus, Icon> = {
-  running: IconLoader2,
-  succeeded: IconCheck,
-  failed: IconAlertCircle,
-  skipped: IconCircleDashed,
-  needs_check: IconAlertTriangle,
-};
+/** Where a tile's one corner mark sits: 6 px in from the bottom-right corner. */
+const CORNER_MARK = "absolute end-[6px] bottom-[6px]";
 
-const STATUS_STYLES: Record<StepStatus, string> = {
-  running: "bg-muted text-foreground",
-  succeeded: "bg-muted text-muted-foreground",
-  failed: "bg-destructive/10 text-destructive",
-  skipped: "text-muted-foreground",
-  needs_check: "text-destructive ring-1 ring-inset ring-destructive/40",
-};
+/** The statuses that draw a mark. Running, skipped and unrun steps draw none. */
+const STATUS_MARKS: Partial<Record<StepStatus, { icon: Icon; tone: string }>> =
+  {
+    failed: { icon: IconAlertCircle, tone: "text-destructive" },
+    needs_check: { icon: IconAlertTriangle, tone: "text-destructive" },
+    succeeded: { icon: IconCheck, tone: "text-success" },
+  };
 
-/** A passing step shows only its mark; anything that needs a look says so in words. */
-const QUIET_STATUSES: readonly StepStatus[] = ["succeeded", "skipped"];
-
-function StatusChip({ step }: { step: StepOverlay }) {
+/** A step's status as one 20 px mark. Anything that needs a look says why in its tooltip. */
+function StatusMark({ step }: { step: StepOverlay }) {
   const s = useWorkflowCanvasStrings();
 
   const { status, error } = step;
-  const StatusIcon = STATUS_ICONS[status];
-  const quiet = QUIET_STATUSES.includes(status);
+  const mark = STATUS_MARKS[status];
+  if (!mark) return null;
+  const MarkIcon = mark.icon;
+  const passes = step.passes ?? 1;
+  const label =
+    passes > 1
+      ? `${s.status[status]}. ${s.passCount(passes)}`
+      : s.status[status];
   const chip = (
     <span
       role="img"
-      aria-label={
-        error
-          ? `${s.status[status]}. ${error.code}: ${error.message}`
-          : s.status[status]
-      }
-      title={error ? undefined : s.status[status]}
+      aria-label={error ? `${label}. ${error.code}: ${error.message}` : label}
+      title={error ? undefined : label}
       tabIndex={error ? 0 : undefined}
       className={cn(
-        "flex shrink-0 items-center gap-1 rounded-full text-xs font-medium leading-none",
-        quiet ? "size-5 justify-center" : "px-1.5 py-0.5",
+        "flex size-5 shrink-0 items-center justify-center rounded-full",
         error &&
           "nodrag outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        STATUS_STYLES[status],
+        mark.tone,
       )}
     >
-      <StatusIcon
-        className={cn(
-          quiet ? "size-3.5" : "size-3",
-          status === "running" && "motion-safe:animate-spin",
-        )}
-        aria-hidden
-      />
-      {!quiet && s.status[status]}
+      <MarkIcon className="size-4" aria-hidden />
     </span>
   );
   if (!error) return chip;
@@ -98,98 +87,22 @@ function StatusChip({ step }: { step: StepOverlay }) {
   );
 }
 
-/** How far a pointer may travel and still count as a click rather than the start of a connection. */
-const CLICK_SLOP_PX = 4;
-
-/**
- * An output. Dragging from it draws a connection; clicking one nothing leaves
- * yet opens the step picker for it.
- */
-function OutputHandle({
-  nodeId,
-  port,
-  label,
-}: {
-  nodeId: string;
-  port: PortView;
-  label: string;
-}) {
-  const openPicker = useContext(PortPickerContext);
-  const pressedAt = useRef<{ x: number; y: number } | null>(null);
-
-  const shared = {
-    id: port.id,
-    className: "workflow-handle",
-    "data-unconnected": !port.connected,
-    "data-issue": port.issues.length > 0,
-  };
-  if (!openPicker || port.connected) {
-    return <Handle type="source" position={Position.Right} {...shared} />;
-  }
-  const open = (handle: HTMLElement) =>
-    openPicker({ node: nodeId, port: port.id }, handle);
+/** The status mark in the tile's corner, with the pass count beside it when a loop ran the step more than once. */
+function StatusCorner({ step }: { step: StepOverlay }) {
+  if (!STATUS_MARKS[step.status]) return null;
+  const passes = step.passes ?? 1;
   return (
-    <Handle
-      type="source"
-      position={Position.Right}
-      {...shared}
-      role="button"
-      tabIndex={0}
-      title={label}
-      aria-label={label}
-      onPointerDown={(event) => {
-        pressedAt.current = { x: event.clientX, y: event.clientY };
-      }}
-      onClick={(event) => {
-        const from = pressedAt.current;
-        pressedAt.current = null;
-        // A drag that ends on the dot it started from clicks it too.
-        if (
-          from &&
-          Math.hypot(event.clientX - from.x, event.clientY - from.y) >
-            CLICK_SLOP_PX
-        ) {
-          return;
-        }
-        // Opening the picker is not selecting the step: its panel would take room from the canvas.
-        event.stopPropagation();
-        open(event.currentTarget);
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        event.stopPropagation();
-        open(event.currentTarget);
-      }}
-    />
-  );
-}
-
-function PortRow({ nodeId, port }: { nodeId: string; port: PortView }) {
-  const s = useWorkflowCanvasStrings();
-
-  const hasIssue = port.issues.length > 0;
-  return (
-    <li className="relative flex h-6 items-center justify-end gap-1.5 pr-4 pl-3 text-xs">
-      <span
-        className={cn(
-          "truncate",
-          hasIssue ? "text-destructive" : "text-muted-foreground",
-        )}
-      >
-        {port.label}
-      </span>
-      {port.count !== undefined && (
-        <span className="min-w-4 text-right tabular-nums text-foreground">
-          {port.count}
+    <span className={cn(CORNER_MARK, "flex items-center gap-1")}>
+      {passes > 1 && (
+        <span
+          aria-hidden
+          className="text-xs leading-none tabular-nums text-muted-foreground"
+        >
+          {passes}
         </span>
       )}
-      <OutputHandle
-        nodeId={nodeId}
-        port={port}
-        label={s.palette.addAfterPort(port.label)}
-      />
-    </li>
+      <StatusMark step={step} />
+    </span>
   );
 }
 
@@ -198,84 +111,290 @@ function portLabelFor(ports: PortView[]) {
     ports.find((port) => port.id === issue.port)?.label;
 }
 
-function WorkflowNodeCardImpl({ data, selected }: NodeProps<WorkflowFlowNode>) {
+/**
+ * The tile's one corner mark. The first match wins: a failure, then a problem,
+ * then a provider that is not connected, then success.
+ */
+function cornerMark({
+  step,
+  issues,
+  ports,
+  unconnected,
+}: {
+  step: StepOverlay | undefined;
+  issues: WorkflowIssue[];
+  ports: PortView[];
+  unconnected: readonly string[];
+}): ReactNode {
+  if (step?.status === "failed" || step?.status === "needs_check") {
+    return <StatusCorner step={step} />;
+  }
+  if (issues.length > 0) {
+    return (
+      <IssueMark
+        issues={issues}
+        portLabel={portLabelFor(ports)}
+        className={CORNER_MARK}
+      />
+    );
+  }
+  if (unconnected.length > 0) {
+    return <ConnectionMark providers={unconnected} className={CORNER_MARK} />;
+  }
+  if (step) return <StatusCorner step={step} />;
+  return null;
+}
+
+/** A plus line is 46 px from a lone output, and 80 px from one with a label or with items in the run. */
+const PLUS_LINE_PX = { plain: 46, long: 80 } as const;
+
+/**
+ * One output. The dot is only for dragging a connection. The label sits just
+ * outside the tile, the run count follows it, and while nothing leaves the
+ * output a plus line ends in a button that adds the next step after it. The
+ * line is drawn before the dot so the dot covers its start.
+ */
+function OutputPort({
+  nodeId,
+  port,
+  y,
+  labelled,
+  editable,
+  onAddAfter,
+}: {
+  nodeId: string;
+  port: PortView;
+  /** Distance from the tile's top edge to this output. */
+  y: number;
+  labelled: boolean;
+  editable: boolean;
+  onAddAfter?: AddAfterHandler;
+}) {
   const s = useWorkflowCanvasStrings();
 
+  const hasIssue = port.issues.length > 0;
+  const hasItems = (port.count ?? 0) > 0;
+  const plus = editable && !port.connected;
+  const lineLength =
+    labelled || hasItems ? PLUS_LINE_PX.long : PLUS_LINE_PX.plain;
+  return (
+    <div className="workflow-port absolute left-full" style={{ top: y }}>
+      {plus && (
+        <span
+          aria-hidden
+          className={cn(
+            "workflow-plus pointer-events-none absolute top-0 left-0 h-0.5 -translate-y-1/2 rounded-full",
+            hasItems ? "bg-success" : "bg-muted-foreground/55",
+          )}
+          style={{ width: lineLength }}
+        />
+      )}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id={port.id}
+        className="workflow-handle"
+        data-issue={hasIssue}
+      />
+      {labelled && (
+        <span
+          title={port.label}
+          className={cn(
+            "absolute top-0 left-3 max-w-24 -translate-y-1/2 truncate rounded-sm bg-background/85 text-xs leading-4",
+            hasIssue ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {port.label}
+          {hasItems && (
+            <span className="ms-1 tabular-nums text-foreground">
+              {port.count}
+            </span>
+          )}
+        </span>
+      )}
+      {!labelled && hasItems && !port.connected && (
+        <span className="absolute bottom-1 left-2 text-xs leading-4 tabular-nums text-foreground">
+          {port.count}
+        </span>
+      )}
+      {plus && (
+        <button
+          type="button"
+          aria-label={
+            labelled ? s.palette.addAfterPort(port.label) : s.toolbar.addStep
+          }
+          onClick={(event) => {
+            // Adding a step is not selecting the node it comes from.
+            event.stopPropagation();
+            onAddAfter?.(nodeId, port.id);
+          }}
+          className="workflow-plus nodrag absolute top-0 flex size-6 -translate-y-1/2 items-center justify-center rounded-[4px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          style={{ left: lineLength }}
+        >
+          <span className="flex size-5 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+            <IconPlus className="size-3" stroke={2} aria-hidden />
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** The ring around a tile: an arc that turns round the outline, or stays still under reduced motion. */
+function TileRing({
+  trigger,
+  className,
+}: {
+  trigger: boolean;
+  className: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute -inset-[5px] border-2 border-transparent",
+        trigger ? "rounded-l-[41px] rounded-r-[21px]" : "rounded-[21px]",
+        className,
+      )}
+    />
+  );
+}
+
+function WorkflowNodeCardImpl({
+  id,
+  data,
+  selected,
+}: NodeProps<WorkflowFlowNode>) {
+  // React Flow re-measures a node when its size changes, not when an output
+  // moves inside it (a lookup gaining a loop's limit output keeps its height),
+  // so the handle layout is reported here.
+  const updateNodeInternals = useUpdateNodeInternals();
+  const handleLayout = `${data.size.height}:${data.ports.map((port) => port.id).join("\n")}`;
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, handleLayout, updateNodeInternals]);
+
+  const s = useWorkflowCanvasStrings();
+  const parkedCounts = useContext(ParkedCountsContext);
   const {
     node,
+    title,
     subtitle,
+    size,
     ports,
     showPortRows,
     issues,
     unconnected,
     step,
     state,
+    current,
+    readOnly,
+    onAddAfter,
   } = data;
   const KindIcon = NODE_KIND_ICONS[node.kind];
   const provider = nodeProvider(node);
-  const lone = !showPortRows ? ports[0] : undefined;
+  const identity = provider ? providerIdentity(provider) : null;
+  const BrandIcon = identity?.icon ?? null;
+  const trigger = node.kind === "trigger";
+  const running = step?.status === "running";
+  const failing = step?.status === "failed" || step?.status === "needs_check";
+  const passed = step?.status === "succeeded";
+  // Read for the whole workflow, not for the shown run: items wait at a Wait between runs too.
+  const waiting = node.kind === "wait" ? (parkedCounts?.get(id) ?? 0) : 0;
+  const tile = (provider && providerTile(provider)) || kindTile(node.kind);
+  const ring =
+    state === "lit"
+      ? "ring-2 ring-primary"
+      : selected
+        ? "ring-[6px] ring-foreground/10"
+        : undefined;
+  const glyph = identity ? (
+    BrandIcon ? (
+      <BrandIcon className="size-12" />
+    ) : (
+      <span className="text-5xl leading-none font-semibold">
+        {identity.letter}
+      </span>
+    )
+  ) : (
+    <KindIcon className="size-10" />
+  );
   return (
     <div
-      style={{ width: NODE_WIDTH }}
+      style={{ width: size.width, height: size.height }}
       data-node-kind={node.kind}
       data-selected={selected}
       className={cn(
-        "rounded-lg bg-card text-card-foreground shadow-sm ring-1 ring-inset transition-opacity",
-        selected || state === "lit" ? "ring-2 ring-primary" : "ring-border",
+        "relative flex items-center justify-center border-[1.5px] border-border shadow-sm transition-opacity",
+        trigger ? "rounded-l-[36px] rounded-r-[16px]" : "rounded-[16px]",
+        tile,
+        failing && "border-2 border-destructive",
+        passed && "border-2 border-success",
+        running && "border-transparent",
+        ring,
         state === "dimmed" && "opacity-40",
       )}
     >
-      <div className="relative flex h-14 items-center gap-2.5 px-3">
-        {node.kind !== "trigger" && (
-          <Handle
-            type="target"
-            position={Position.Left}
-            id={TARGET_HANDLE}
-            isConnectableStart={false}
-            className="workflow-handle"
+      {trigger ? (
+        <span
+          aria-hidden
+          className="absolute top-0 right-full flex h-full w-14 items-center justify-center text-primary"
+        >
+          <IconBolt className="size-6" fill="currentColor" />
+        </span>
+      ) : (
+        <Handle
+          type="target"
+          position={Position.Left}
+          id={TARGET_HANDLE}
+          isConnectableStart={false}
+          className="workflow-handle"
+        />
+      )}
+      <span aria-hidden className="flex items-center justify-center">
+        {glyph}
+      </span>
+      {/* One ring at a time: the run's ring wins over a Wait's. */}
+      {current ? (
+        <TileRing
+          trigger={trigger}
+          className="border-t-primary motion-safe:animate-[spin_1.5s_linear_infinite]"
+        />
+      ) : (
+        waiting > 0 && (
+          <TileRing
+            trigger={trigger}
+            className="border-t-muted-foreground motion-safe:animate-[spin_4.5s_linear_infinite]"
           />
-        )}
-        {provider ? (
-          <ProviderIcon provider={provider} />
-        ) : (
-          <span
-            className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-md",
-              kindTile(node.kind),
-            )}
-          >
-            <KindIcon className="size-4" aria-hidden />
-          </span>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium leading-tight">
-            {node.name}
-          </div>
-          <div
-            className="truncate text-xs text-muted-foreground"
-            title={subtitle}
-          >
+        )
+      )}
+      {cornerMark({ step, issues, ports, unconnected })}
+      {ports.map((port, index) => (
+        <OutputPort
+          key={port.id}
+          nodeId={node.id}
+          port={port}
+          y={((index + 1) / (ports.length + 1)) * size.height}
+          labelled={showPortRows}
+          editable={!readOnly}
+          onAddAfter={onAddAfter}
+        />
+      ))}
+      <div className="pointer-events-none absolute top-full left-1/2 mt-2 w-48 -translate-x-1/2 text-center">
+        <div className="line-clamp-2 text-sm leading-5 font-medium break-words">
+          {title}
+        </div>
+        {subtitle && (
+          <div className="mt-1 truncate text-xs leading-4 text-muted-foreground">
             {subtitle}
           </div>
-        </div>
-        {step && <StatusChip step={step} />}
-        <ConnectionMark providers={unconnected} />
-        <IssueMark issues={issues} portLabel={portLabelFor(ports)} />
-        {lone && (
-          <OutputHandle
-            nodeId={node.id}
-            port={lone}
-            label={s.toolbar.addStep}
-          />
+        )}
+        {waiting > 0 && (
+          <span className="mt-1 inline-block rounded-full bg-muted px-2 text-xs leading-5 tabular-nums text-muted-foreground">
+            {s.waiting(waiting)}
+          </span>
         )}
       </div>
-      {showPortRows && (
-        <ul className="pb-2">
-          {ports.map((port) => (
-            <PortRow key={port.id} nodeId={node.id} port={port} />
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

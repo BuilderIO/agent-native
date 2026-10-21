@@ -77,11 +77,13 @@ export function AuditInputs({
   inputs,
   nodeName,
   portLabel,
+  showsPort,
   onOpenItem,
 }: {
   inputs: NodeAuditInput[];
   nodeName: (nodeId: string) => string;
   portLabel: PortLabeler;
+  showsPort: (nodeId: string) => boolean;
   onOpenItem: (item: SampledItem) => void;
 }) {
   const s = useItemsStrings();
@@ -94,11 +96,15 @@ export function AuditInputs({
       {inputs.map((input) => (
         <SampleGroup
           key={input.edgeId}
-          heading={s.audit.fromNode(
-            input.count,
-            nodeName(input.fromNodeId),
-            portLabel(input.fromNodeId, input.fromPort),
-          )}
+          heading={
+            showsPort(input.fromNodeId)
+              ? s.audit.fromNode(
+                  input.count,
+                  nodeName(input.fromNodeId),
+                  portLabel(input.fromNodeId, input.fromPort),
+                )
+              : s.audit.fromNodeOnly(input.count, nodeName(input.fromNodeId))
+          }
           items={input.items}
           total={input.count}
           truncated={input.itemsTruncated}

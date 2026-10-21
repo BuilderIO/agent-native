@@ -7,6 +7,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -72,8 +73,16 @@ export function ItemsView({ factoryId, onOpenWorkflow }: ItemsViewProps) {
 
   useWorkflowReadSync();
   const nowMs = useNow();
-  const [filters, setFilters] = useState<ItemsFilterState>(
-    DEFAULT_ITEMS_FILTERS,
+  // A Wait's count links here as `parked=true&workflow=<id>`. Only the first render reads the URL; the filters are local after that.
+  const [searchParams] = useSearchParams();
+  const [filters, setFilters] = useState<ItemsFilterState>(() =>
+    searchParams.get("parked") === "true"
+      ? {
+          ...DEFAULT_ITEMS_FILTERS,
+          scope: "parked",
+          workflowId: searchParams.get("workflow") || null,
+        }
+      : DEFAULT_ITEMS_FILTERS,
   );
   const [searchInput, setSearchInput] = useState("");
   const [open, setOpen] = useState<ItemTarget | null>(null);

@@ -31,12 +31,15 @@ import {
   checkTemplateText,
   type ExpressionProblem,
 } from "@/lib/workflow-editor";
+import { mappedValue } from "@/lib/workflow-editor/drop-paths";
 
 import {
   useWorkflowCanvasStrings,
   type WorkflowCanvasStrings,
 } from "../strings";
 import type { FormContext } from "./context";
+import { useInvalidMark, useQuietMarks } from "./issue-marks";
+import { useMapTarget, type MapTargetProps } from "./map-target";
 
 export function Field({
   label,
@@ -82,8 +85,9 @@ export function ProblemText({
   problem: ExpressionProblem | null;
 }) {
   const s = useWorkflowCanvasStrings();
+  const quiet = useQuietMarks();
 
-  if (!problem) return null;
+  if (!problem || quiet) return null;
   return (
     <p role="alert" className="text-xs text-destructive">
       {problemText(problem, s)}
@@ -114,13 +118,14 @@ export function TextInput({
   className?: string;
   "aria-label"?: string;
 }) {
+  const mark = useInvalidMark(invalid);
   return (
     <Input
       id={id}
       type={type}
       value={value}
       placeholder={placeholder}
-      aria-invalid={invalid || undefined}
+      aria-invalid={mark}
       className={cn("h-8", className)}
       onChange={(event) => onChange(event.target.value)}
       onBlur={onBlur}
@@ -160,6 +165,7 @@ export function NumberInput({
           : String(value),
     );
   }, [value]);
+  const mark = useInvalidMark(invalid);
   return (
     <Input
       id={id}
@@ -169,7 +175,7 @@ export function NumberInput({
       max={max}
       step={step}
       value={text}
-      aria-invalid={invalid || undefined}
+      aria-invalid={mark}
       className={cn("h-8", className)}
       onChange={(event) => {
         setText(event.target.value);
@@ -198,12 +204,13 @@ export function SelectInput<T extends string>({
   invalid?: boolean;
   className?: string;
 }) {
+  const mark = useInvalidMark(invalid);
   return (
     <Select value={value ?? ""} onValueChange={(next) => onChange(next as T)}>
       <SelectTrigger
         id={id}
         size="sm"
-        aria-invalid={invalid || undefined}
+        aria-invalid={mark}
         className={className}
       >
         <SelectValue placeholder={placeholder} />
@@ -343,6 +350,7 @@ export function PathInput({
   const s = useWorkflowCanvasStrings();
 
   const problem = checkPathText(value, context.expression);
+  const mapTarget = useMapTarget("path", value, onChange);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-1">
@@ -352,6 +360,7 @@ export function PathInput({
           placeholder={s.inspector.pathExample}
           invalid={invalid || problem !== null}
           onChange={onChange}
+          {...mapTarget}
         />
         <PathPicker context={context} onPick={onChange} />
       </div>
@@ -377,6 +386,7 @@ export function TemplateInput({
   multiline?: boolean;
 }) {
   const problem = checkTemplateText(value, context.expression);
+  const mapTarget = useMapTarget("template", value, onChange);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-start gap-1">
@@ -386,6 +396,7 @@ export function TemplateInput({
             value={value}
             invalid={invalid || problem !== null}
             onChange={onChange}
+            mapTarget={mapTarget}
           />
         ) : (
           <TextInput
@@ -393,15 +404,12 @@ export function TemplateInput({
             value={value}
             invalid={invalid || problem !== null}
             onChange={onChange}
+            {...mapTarget}
           />
         )}
         <PathPicker
           context={context}
-          onPick={(path) =>
-            onChange(
-              `${value}${value && !value.endsWith(" ") ? " " : ""}{{ ${path} }}`,
-            )
-          }
+          onPick={(path) => onChange(mappedValue("template", value, path))}
         />
       </div>
       <ProblemText problem={problem} />
@@ -414,19 +422,23 @@ function TemplateTextarea({
   value,
   onChange,
   invalid,
+  mapTarget,
 }: {
   id?: string;
   value: string;
   onChange: (value: string) => void;
   invalid?: boolean;
+  mapTarget: MapTargetProps;
 }) {
+  const mark = useInvalidMark(invalid);
   return (
     <Textarea
       id={id}
       value={value}
       rows={3}
-      aria-invalid={invalid || undefined}
-      className="min-h-16"
+      aria-invalid={mark}
+      className={cn("min-h-16", mapTarget.className)}
+      data-map-target={mapTarget["data-map-target"]}
       onChange={(event) => onChange(event.target.value)}
     />
   );

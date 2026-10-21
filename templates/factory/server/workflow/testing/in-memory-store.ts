@@ -55,6 +55,7 @@ import {
   prepareLeaseItems,
   preparePark,
   prepareReceipt,
+  prepareRenameWorkflow,
   prepareRunRequest,
   prepareSaveWorkflowGraph,
   prepareStartRun,
@@ -409,14 +410,41 @@ export function createInMemoryWorkflowStore(
         WORKFLOW_STORE_LIMITS.workflowsPageMax,
         "Workflow list",
       );
+      const after =
+        options.after === undefined
+          ? null
+          : {
+              updatedAt: normalizeInstant(
+                options.after.updatedAt,
+                "Workflow list position",
+              ),
+              id: options.after.id,
+            };
       const rows = [...workflows.values()]
         .filter((row) => sameScope(row, scope))
+        .filter((row) => {
+          if (after === null) return true;
+          // Older than the position, or the same instant with a smaller id: the
+          // rows that follow it in the newest-first order.
+          const byTime = compareText(row.updatedAt, after.updatedAt);
+          return (
+            byTime < 0 || (byTime === 0 && compareText(row.id, after.id) < 0)
+          );
+        })
         .sort(
           (a, b) =>
             compareText(b.updatedAt, a.updatedAt) || compareText(b.id, a.id),
         );
       const page = takeWindow(rows, limit);
-      return { items: page.items.map(summaryOf), hasMore: page.hasMore };
+      const last = page.items[page.items.length - 1];
+      return {
+        items: page.items.map(summaryOf),
+        hasMore: page.hasMore,
+        nextAfter:
+          page.hasMore && last
+            ? { updatedAt: last.updatedAt, id: last.id }
+            : null,
+      };
     },
 
     async getWorkflowVersion(scope, workflowId, version) {
@@ -513,6 +541,15 @@ export function createInMemoryWorkflowStore(
         );
       }
       row.enabled = enabled;
+      row.updatedAt = nowIso();
+      return summaryOf(row);
+    },
+
+    async renameWorkflow(scope, input) {
+      assertScope(scope);
+      const meta = prepareRenameWorkflow(input);
+      const row = requireWorkflow(scope, meta.workflowId);
+      row.name = meta.name;
       row.updatedAt = nowIso();
       return summaryOf(row);
     },

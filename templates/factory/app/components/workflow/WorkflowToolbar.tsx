@@ -10,7 +10,7 @@ import {
   IconMessageCircle,
   IconPlayerPlay,
 } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -34,11 +35,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { canSaveRename, WORKFLOW_NAME_MAX_LENGTH } from "./workflow-list-model";
 import type { ProblemRow } from "./workflow-problems";
 import { useWorkflowStrings } from "./workflow-strings";
 
 interface WorkflowToolbarProps {
   workflowName: string;
+  /** Saves a new name. The page shows it at once and reports a failure itself. Without it, the name is plain text. */
+  onRename?: (name: string) => void;
   /** The Workflows list, for the back arrow. */
   backHref: string;
 
@@ -90,6 +94,7 @@ function IconTooltip({
 /** One slim row over the canvas: where you are, what is unsaved, and what you can do with the workflow. */
 export function WorkflowToolbar({
   workflowName,
+  onRename,
   backHref,
   dirty,
   saving,
@@ -112,6 +117,30 @@ export function WorkflowToolbar({
   diagnosticsPending,
 }: WorkflowToolbarProps) {
   const ws = useWorkflowStrings();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  // Set from the moment editing starts until it ends, so Enter and the blur that follows it commit once.
+  const renaming = useRef(false);
+
+  function beginRename() {
+    renaming.current = true;
+    setDraft(workflowName);
+    setEditing(true);
+  }
+
+  function cancelRename() {
+    renaming.current = false;
+    setEditing(false);
+  }
+
+  function finishRename() {
+    if (!renaming.current) return;
+    renaming.current = false;
+    setEditing(false);
+    if (onRename && canSaveRename(workflowName, draft)) {
+      onRename(draft.trim());
+    }
+  }
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -130,7 +159,41 @@ export function WorkflowToolbar({
         </IconTooltip>
 
         <h1 className="min-w-0 max-w-[40ch] truncate text-sm font-medium sm:text-base">
-          {workflowName}
+          {editing ? (
+            <Input
+              autoFocus
+              value={draft}
+              maxLength={WORKFLOW_NAME_MAX_LENGTH}
+              aria-label={ws.list.renameLabel}
+              className="h-7 w-[40ch] max-w-full text-sm font-medium sm:text-base"
+              onChange={(event) => setDraft(event.target.value)}
+              onFocus={(event) => event.currentTarget.select()}
+              onBlur={finishRename}
+              onKeyDown={(event) => {
+                // An IME's composition keeps its own Enter and Escape.
+                if (event.nativeEvent.isComposing) return;
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  finishRename();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelRename();
+                }
+              }}
+            />
+          ) : onRename ? (
+            <IconTooltip label={ws.list.rename}>
+              <button
+                type="button"
+                className="block max-w-full truncate rounded-sm text-start hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={beginRename}
+              >
+                {workflowName}
+              </button>
+            </IconTooltip>
+          ) : (
+            workflowName
+          )}
         </h1>
         {dirty ? (
           <span

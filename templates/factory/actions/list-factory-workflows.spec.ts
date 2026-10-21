@@ -156,7 +156,7 @@ describe("list-factory-workflows", () => {
   it("is empty for a factory with no workflows, and fails for one that does not exist", async () => {
     expect(
       await run({ factoryId: kit.FACTORY_ID, limit: 50 }, kit.context),
-    ).toEqual({ workflows: [], hasMore: false });
+    ).toEqual({ workflows: [], hasMore: false, nextCursor: null });
     expect(
       await kit.failureOf(() =>
         run({ factoryId: "nowhere", limit: 50 }, kit.context),

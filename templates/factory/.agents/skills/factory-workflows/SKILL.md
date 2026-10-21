@@ -62,7 +62,7 @@ again with `get-factory-workflow` before editing: the user may have changed it.
 ## Graph shape
 
 ```
-{ nodes: [{ id, name, kind, position: {x, y}, settings }],
+{ nodes: [{ id, name, label?, kind, position: {x, y}, settings }],
   edges: [{ id, from: { node, port }, to: { node } }],
   settings: { timezone?, extras? } }
 ```
@@ -73,6 +73,11 @@ quotes escaped. A parse failure names the position: fix it and send again.
 - `id` is a slug (letters, digits, `-`, `_`). `name` is an identifier (letters,
   digits, `_`, no spaces) and is how later nodes read this one: `nodes.<name>`.
   Reusing the id as the name is fine. Space `position.x` by 344.
+- `label` is the friendly title people read on the canvas:
+  free text up to 64 characters, such as `Post the digest to #support`. Set one
+  on every node you add, in the user's words. `name` stays the identifier for
+  paths and is never shown, so a label can change without breaking a `{{ }}`
+  path. Omit it only to keep the default title.
 - Exactly one `trigger`, with no inputs. Every output port must lead to a node,
   or the save fails with `port_leads_nowhere`.
 - Ports: `trigger`, `source`, `lookup`, `action`, `combine`, `split`, `ai`,
@@ -141,16 +146,16 @@ with `count: 0`, so a quiet day can say so. Rules in `filter` and `switch` are
 "Every weekday at 8, send the team a summary of what changed in the repo."
 Trigger, a window Source over commits, one list, one AI-written Slack post, End.
 This is the shipped story graph (`server/workflow/stories/03-morning-digest`),
-with the repo and channel in `settings.extras`:
+with the repo and channel in `settings.extras`, and a `label` on each node:
 
 ```json
 {
   "nodes": [
-    {"id": "weekdays8", "name": "weekdays8", "position": {"x": 0, "y": 0}, "kind": "trigger", "settings": {"schedule": {"weekdays": {"at": "08:00"}}, "timezone": "America/New_York"}},
-    {"id": "commits", "name": "commits", "position": {"x": 344, "y": 0}, "kind": "source", "settings": {"source": "window", "operation": "github.listCommits", "args": {"repo": {"mode": "path", "path": "settings.extras.repository"}}, "maxItems": 100}},
-    {"id": "digest", "name": "digest", "position": {"x": 688, "y": 0}, "kind": "combine", "settings": {"mode": "list"}},
-    {"id": "post", "name": "post", "position": {"x": 1032, "y": 0}, "kind": "action", "settings": {"operation": "slack.postMessage", "args": {"to": {"mode": "path", "path": "settings.extras.digestChannel"}, "text": {"mode": "ai", "instruction": "Write the digest from the commit list: a one-line TL;DR, then at most 5 bullets grouped by area that name notable authors and link the commits. When count is 0, write exactly: No commits since the last digest. When truncated is true, say how many of totalAvailable commits are shown."}}}},
-    {"id": "done", "name": "done", "position": {"x": 1376, "y": 0}, "kind": "end", "settings": {"outcome": "done"}}
+    {"id": "weekdays8", "name": "weekdays8", "label": "Every weekday at 8", "position": {"x": 0, "y": 0}, "kind": "trigger", "settings": {"schedule": {"weekdays": {"at": "08:00"}}, "timezone": "America/New_York"}},
+    {"id": "commits", "name": "commits", "label": "Commits since last digest", "position": {"x": 344, "y": 0}, "kind": "source", "settings": {"source": "window", "operation": "github.listCommits", "args": {"repo": {"mode": "path", "path": "settings.extras.repository"}}, "maxItems": 100}},
+    {"id": "digest", "name": "digest", "label": "Build the digest", "position": {"x": 688, "y": 0}, "kind": "combine", "settings": {"mode": "list"}},
+    {"id": "post", "name": "post", "label": "Post to the team channel", "position": {"x": 1032, "y": 0}, "kind": "action", "settings": {"operation": "slack.postMessage", "args": {"to": {"mode": "path", "path": "settings.extras.digestChannel"}, "text": {"mode": "ai", "instruction": "Write the digest from the commit list: a one-line TL;DR, then at most 5 bullets grouped by area that name notable authors and link the commits. When count is 0, write exactly: No commits since the last digest. When truncated is true, say how many of totalAvailable commits are shown."}}}},
+    {"id": "done", "name": "done", "label": "Done", "position": {"x": 1376, "y": 0}, "kind": "end", "settings": {"outcome": "done"}}
   ],
   "edges": [
     {"id": "e1", "from": {"node": "weekdays8", "port": "out"}, "to": {"node": "commits"}},
@@ -281,9 +286,13 @@ those words. Never approve or merge for the user: an approval is a person's, and
 
 `list-factory-workflows`, `get-factory-workflow` (`version`, or `nodeIds` for
 a graph too large to read at once), `list-factory-workflow-versions`,
-`restore-factory-workflow-version`, `delete-factory-workflow` (stops for the
+`restore-factory-workflow-version`, `rename-factory-workflow` (the workflow's
+own name in the list and toolbar; a save never renames, and the version, graph
+and on/off state stay), `delete-factory-workflow` (stops for the
 user's approval: name the workflow and what goes with it first),
 `list-factory-workflow-runs`, `get-factory-workflow-run`,
-`get-workflow-node-audit`. To show something, `navigate` with
+`get-workflow-node-audit`, `get-workflow-node-data` (the item fields a node
+took in and put out in a run; not lookup or action responses or AI answers).
+To show something, `navigate` with
 `/factory?factoryId=<id>&workflow=<id>` plus `node=`, `edge=`, `run=` or
 `version=`.

@@ -38,15 +38,20 @@ export function parseWorkspaceTab(value: string | null): WorkspaceTab {
 
 const SHARED_RETAINED_PARAMS = ["factoryId"] as const;
 
+/** The URL param that is set while the step details modal is open. A link to it reopens the modal. */
+export const NODE_DETAILS_PARAM = "details";
+export const NODE_DETAILS_OPEN = "open";
+
 /**
  * The URL params each tab owns. Workflows owns the open workflow and what is
- * selected or replayed on its canvas: `workflow`, `node`, `edge`, `run`, and
- * `version` (a saved version to show in the versions panel). Items and Activity are listed with the
+ * selected or replayed on its canvas: `workflow`, `node`, `edge`, `run`,
+ * `version` (a saved version to show in the versions panel), and `details`
+ * (the step details modal over `node`). Items and Activity are listed with the
  * filters and selections their views may keep in the URL, so entering one of
  * them with a deep link does not strip them.
  */
 const TAB_OWNED_PARAMS: Record<WorkspaceTab, readonly string[]> = {
-  workflows: ["workflow", "node", "edge", "run", "version"],
+  workflows: ["workflow", "node", "edge", "run", "version", NODE_DETAILS_PARAM],
   items: [
     "item",
     "itemId",
@@ -151,6 +156,10 @@ export function readWorkflowParams(params: URLSearchParams): {
   };
 }
 
+export function isNodeDetailsOpen(params: URLSearchParams): boolean {
+  return params.get(NODE_DETAILS_PARAM) === NODE_DETAILS_OPEN;
+}
+
 /**
  * Whether moving between two locations leaves the workflow being edited.
  * Selecting a step or replaying a run only rewrites `node`, `edge`, `run` and
@@ -176,6 +185,8 @@ interface FactoryNavigationState {
   factoryTab?: WorkspaceTab;
   workflowId?: string;
   nodeId?: string;
+  /** The step details modal is open over the canvas, showing `nodeId`. */
+  detailsOpen?: boolean;
   edgeId?: string;
   runId?: string;
   factoryItemId?: string;
@@ -202,6 +213,9 @@ export function factoryNavigationState(
       ? {
           workflowId: open.workflowId,
           ...(open.nodeId ? { nodeId: open.nodeId } : {}),
+          ...(open.nodeId && isNodeDetailsOpen(params)
+            ? { detailsOpen: true }
+            : {}),
           ...(open.edgeId ? { edgeId: open.edgeId } : {}),
           ...(open.runId ? { runId: open.runId } : {}),
         }
