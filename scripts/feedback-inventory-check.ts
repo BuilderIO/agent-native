@@ -2521,7 +2521,7 @@ function validateStatusReactionLanguage(
     if (
       summaryWordCount < 3 ||
       summaryWordCount > 12 ||
-      !/\b(?:still|remain(?:s|ing)?|ongoing|not yet|unresolved|open)\b/i.test(
+      !/\b(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|not yet|needs?|requires?|awaiting|waiting)\b/i.test(
         openStateSummary,
       ) ||
       !replyContainsPhrase(text, summary) ||
@@ -11416,6 +11416,31 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     },
     {
+      name: "unfinished scope summary cannot say work remains fixed",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence: "paragraph selection remains broken",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          unfinishedScopeSummary: "Paragraph selection remains fixed",
+          text: "Partially fixed: The start screen works now. Paragraph selection remains fixed. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
       name: "reply root is missing from page rows and threadRoots",
       inventory: {
         ...valid,
@@ -13360,6 +13385,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     "unfinished scope summary must match recorded work":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "negated open-state wording is rejected":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "unfinished scope summary cannot say work remains fixed":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "reply root is missing from page rows and threadRoots":
       "threadParentTs does not resolve to an in-page root or verified threadRoots entry",
