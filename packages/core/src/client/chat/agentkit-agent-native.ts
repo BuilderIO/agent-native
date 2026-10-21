@@ -4120,6 +4120,7 @@ export function createAgentNativeAgentKitTransport(
     alreadySubmitted?: true;
     submittedRunId?: string;
     submissionExpired?: boolean;
+    receiptManaged?: boolean;
   }> {
     if (mutation.type === "append") {
       assertNoInlineImageBytes(
@@ -4188,6 +4189,7 @@ export function createAgentNativeAgentKitTransport(
         ? { alreadySubmitted: true as const, submittedRunId }
         : {}),
       ...(value.submissionExpired === true ? { submissionExpired: true } : {}),
+      ...(value.receiptManaged === true ? { receiptManaged: true } : {}),
     };
   }
 
@@ -4496,6 +4498,10 @@ export function createAgentNativeAgentKitTransport(
             clearPromotionClaimId(threadId, messageId);
             return { alreadyRemoved: true as const };
           }
+          if (claim.receiptManaged) {
+            clearPromotionClaimId(threadId, messageId);
+            return;
+          }
           if (!claim.claimedMessage) {
             throw new TypeError("Agent chat queue claim response is invalid.");
           }
@@ -4570,6 +4576,10 @@ export function createAgentNativeAgentKitTransport(
               if (claim.submissionExpired) {
                 clearPromotionClaimId(threadId, messageId);
                 return { alreadyRemoved: true as const };
+              }
+              if (claim.receiptManaged) {
+                clearPromotionClaimId(threadId, messageId);
+                return;
               }
               if (claim.alreadySubmitted && claim.submittedRunId) {
                 clearPromotionClaimId(threadId, messageId);

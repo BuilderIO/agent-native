@@ -193,6 +193,7 @@ export interface AgentChatController {
 interface LiveTurn {
   abort: () => void;
   runId: string | null;
+  queued?: boolean;
 }
 
 interface ActiveTurnBuffer {
@@ -894,22 +895,55 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           return;
         }
 
+        const queuedRunHandle = "queuedMessageId" in runHandle;
+        const queuedHandle = queuedRunHandle ? runHandle : null;
         const runId = "runId" in runHandle ? runHandle.runId : null;
         liveTurnRef.current = {
           abort: () => {
-            controller.abort();
-            if ("queuedMessageId" in runHandle) {
+            if (queuedHandle) {
               const queuedRunId = turnBuffer.runId;
-              if (queuedRunId && queuedRunId !== runHandle.activeRunId) {
-                void session.client.cancelRun(activeThreadId, queuedRunId);
-              } else {
-                void runHandle.cancel();
-              }
-            } else {
-              void runHandle.cancel();
+              void (async () => {
+                if (queuedRunId && queuedRunId !== queuedHandle.activeRunId) {
+                  await session.client.cancelRun(activeThreadId, queuedRunId);
+                } else {
+                  await queuedHandle.cancel();
+                }
+                if (
+                  activeGenerationRef.current === currentGeneration &&
+                  !turnBuffer.sawTerminal
+                ) {
+                  turnBuffer.state = cancelTurnState(
+                    turnBuffer.state,
+                    assistantId,
+                  );
+                  turnBuffer.sawTerminal = true;
+                  turnBuffer.dirty = true;
+                  stateRef.current = turnBuffer.state;
+                  setState(turnBuffer.state);
+                }
+                controller.abort();
+              })().catch((error: unknown) => {
+                if (activeGenerationRef.current !== currentGeneration) return;
+                const message =
+                  error instanceof Error
+                    ? error.message
+                    : "The queued message could not be stopped.";
+                turnBuffer.state = {
+                  ...turnBuffer.state,
+                  error: message,
+                  errorCode: "queued_cancel_failed",
+                };
+                turnBuffer.dirty = true;
+                stateRef.current = turnBuffer.state;
+                setState(turnBuffer.state);
+              });
+              return;
             }
+            controller.abort();
+            void runHandle.cancel();
           },
           runId,
+          queued: queuedRunHandle,
         };
         if ("queuedMessageId" in runHandle) {
           turnBuffer.awaitingQueuedHandle = false;
@@ -1348,6 +1382,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     const live = liveTurnRef.current;
     if (!live) return;
     live.abort();
+    if (live.queued) return;
     const active = activeTurnBufferRef.current;
     if (active) {
       active.state = cancelTurnState(active.state, active.assistantId);

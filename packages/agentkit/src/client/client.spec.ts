@@ -8174,6 +8174,54 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("cancels a queued handle after its send signal has been aborted", async () => {
+    const removeQueuedMessage = vi.fn<
+      NonNullable<AgentTransport["removeQueuedMessage"]>
+    >(async () => undefined);
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+      throw Object.assign(new Error("Run already in progress"), {
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: "run-active",
+      });
+    });
+    const controller = new AbortController();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        startRun,
+        async queueMessage(input) {
+          return {
+            message: {
+              id: input.id ?? "queued-cancel-after-abort",
+              threadId: input.threadId,
+              text: input.text,
+              createdAt: "2026-10-01T00:00:00.000Z",
+            },
+          };
+        },
+        removeQueuedMessage,
+      },
+    });
+
+    try {
+      const handle = await client.sendMessage(
+        { threadId: "thread-1", text: "Stop this queued prompt" },
+        { signal: controller.signal },
+      );
+      controller.abort();
+      await handle.cancel();
+
+      expect(removeQueuedMessage).toHaveBeenCalledOnce();
+      expect(removeQueuedMessage.mock.calls[0]?.[1]?.signal?.aborted).toBe(
+        false,
+      );
+    } finally {
+      await client.shutdown();
+    }
+  });
+
   it("reuses a durable image URL when a busy run falls back to the queue", async () => {
     const resizedImageUrl = "https://storage.example.test/resized.png";
     const originalImageUrl = "https://storage.example.test/original.png";

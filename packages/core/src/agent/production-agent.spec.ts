@@ -4035,6 +4035,9 @@ describe("createProductionAgentHandler", () => {
     const readReceipt = vi
       .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
       .mockResolvedValue(null);
+    const readReceiptStatus = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceiptStatus")
+      .mockResolvedValue({ state: "queued" });
     const resolveThreadAccess = vi
       .spyOn(chatThreadStore, "resolveThreadAccess")
       .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
@@ -4143,6 +4146,22 @@ describe("createProductionAgentHandler", () => {
       expect(retryEvent.res.status).toBe(202);
       expect(append).toHaveBeenCalledOnce();
 
+      readReceiptStatus.mockResolvedValueOnce({ state: "expired" });
+      readReceipt.mockResolvedValueOnce(receipt as never);
+      const expiredRetryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(expiredRetryEvent),
+        ),
+      ).resolves.toEqual({
+        error: "This message ID is no longer available for submission",
+        code: "queued_message_id_terminal",
+        retryable: false,
+      });
+      expect(expiredRetryEvent.res.status).toBe(409);
+      expect(append).toHaveBeenCalledOnce();
+
       readReceipt.mockResolvedValueOnce(receipt as never);
       const changedSelectorEvent = makeEvent(
         "changed-model",
@@ -4163,8 +4182,66 @@ describe("createProductionAgentHandler", () => {
     } finally {
       append.mockRestore();
       readReceipt.mockRestore();
+      readReceiptStatus.mockRestore();
       resolveThreadAccess.mockRestore();
       preUpload.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("rejects an invalid queued-promotion claim before claiming a run slot", async () => {
+    const threadId = "thread-invalid-queued-promotion";
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: threadId,
+        threadData: JSON.stringify({ queuedMessages: [] }),
+      } as never);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "This stale queue claim must not start a normal run",
+          threadId,
+          turnId: "turn-invalid-queued-promotion",
+          queuedMessageId: "queued-missing",
+          queuedMessageClaimId: "claim-stale",
+        }),
+      }),
+    );
+    mockTryClaimRunSlot.mockReset();
+    mockGetSlotHoldingRunId.mockReset();
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).resolves.toEqual({
+        error: "This queued message can no longer be promoted",
+        code: "queued_message_claim_invalid",
+        retryable: false,
+      });
+
+      expect(event.res.status).toBe(409);
+      expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
       mockTryClaimRunSlot.mockReset();
       mockTryClaimRunSlot.mockResolvedValue({
         claimed: true,

@@ -10167,6 +10167,63 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("leaves receipt-backed queue promotion to the inbox drain", async () => {
+    const threadId = "thread-receipt-managed";
+    const queueWrites: Array<Record<string, unknown>> = [];
+    const queuedMessages = [
+      {
+        id: "queued-receipt-managed",
+        threadId,
+        text: "Let the inbox retry this prompt",
+      },
+    ];
+    let startRequests = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          queueWrites.push(mutation);
+          return json({ queuedMessages, receiptManaged: true });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ queuedMessages }),
+          });
+        }
+        if (url.endsWith("/_agent-native/agent-chat")) {
+          startRequests += 1;
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.steerQueuedMessage?.({
+        threadId,
+        messageId: "queued-receipt-managed",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(startRequests).toBe(0);
+    expect(queueWrites).toEqual([
+      {
+        type: "claim",
+        messageId: "queued-receipt-managed",
+        claimId: expect.any(String),
+      },
+    ]);
+    expect(queuedMessages).toEqual([
+      expect.objectContaining({ id: "queued-receipt-managed" }),
+    ]);
+    await transport.dispose();
+  });
+
   it("returns a typed busy promotion to the client for automatic retry", async () => {
     const threadId = "thread-busy";
     const queueWrites: Array<Record<string, unknown>> = [];

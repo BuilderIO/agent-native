@@ -3059,8 +3059,7 @@ export class AgentKitClient implements AgentKitController {
       return {
         runId: activeRunId,
         completed: this.resubscribeRun(input.threadId, activeRunId),
-        cancel: () =>
-          this.removeQueuedMessage(input.threadId, queued.id, requestContext),
+        cancel: () => this.removeQueuedMessage(input.threadId, queued.id),
       };
     }
     await this.assertAiSetupReady(
@@ -3207,8 +3206,7 @@ export class AgentKitClient implements AgentKitController {
           queuedMessageId: queued.id,
           ...(receipt.activeRunId ? { activeRunId: receipt.activeRunId } : {}),
           completed: activeRunCompletion ?? Promise.resolve(),
-          cancel: () =>
-            this.removeQueuedMessage(input.threadId, queued.id, requestContext),
+          cancel: () => this.removeQueuedMessage(input.threadId, queued.id),
         };
       }
       this.markRunStarted(input.threadId, result.runId);
@@ -3305,23 +3303,13 @@ export class AgentKitClient implements AgentKitController {
             return {
               runId: queued.id,
               completed: Promise.resolve(),
-              cancel: () =>
-                this.removeQueuedMessage(
-                  input.threadId,
-                  queued.id,
-                  requestContext,
-                ),
+              cancel: () => this.removeQueuedMessage(input.threadId, queued.id),
             };
           }
           return {
             runId: activeRunId,
             completed: this.resubscribeRun(input.threadId, activeRunId),
-            cancel: () =>
-              this.removeQueuedMessage(
-                input.threadId,
-                queued.id,
-                requestContext,
-              ),
+            cancel: () => this.removeQueuedMessage(input.threadId, queued.id),
           };
         } catch (queueError) {
           const submittedRunId = submittedRunIdFromError(queueError);

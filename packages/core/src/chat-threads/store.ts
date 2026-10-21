@@ -2574,6 +2574,7 @@ export interface ThreadQueuedMessageMutationResult {
   claimBusy?: boolean;
   submissionExpired?: boolean;
   promotionBusy?: boolean;
+  receiptManaged?: boolean;
   receiptUnavailable?: boolean;
   receiptConflict?: boolean;
   receiptUpdated?: boolean;
@@ -2741,6 +2742,7 @@ export async function mutateThreadQueuedMessages(
     let removedReceiptState: "removed" | "expired" = "removed";
     let movedToTop = false;
     let receiptClaimMessage: QueuedMessage | undefined;
+    let claimQueueSnapshot: QueuedMessage[] | undefined;
     try {
       await updateThreadData(threadId, "{}", "", "", 0, {
         preserveExistingQueuedMessages: false,
@@ -2894,6 +2896,7 @@ export async function mutateThreadQueuedMessages(
                   `Unknown queued message: ${mutation.messageId}`,
                 );
               }
+              claimQueueSnapshot = current;
               const message = current[index]!;
               const now = Date.now();
               if (queuedSubmissionExpired(message, now)) {
@@ -3074,61 +3077,80 @@ export async function mutateThreadQueuedMessages(
                   }
                   return true;
                 }
-              : mutation.type === "renewClaim"
+              : mutation.type === "claim"
                 ? async (tx) => {
+                    if (result?.submissionExpired) return true;
                     const receipt = await readQueuedSubmissionReceipt(
                       tx,
                       threadId,
                       mutation.messageId,
+                      { forUpdate: true },
                     );
-                    if (
-                      result?.claimLost === true ||
-                      receipt?.state !== "queued" ||
-                      receipt.interruptRunId !== mutation.runId
-                    ) {
-                      if (result) {
-                        result.claimLost = true;
-                        result.claimedMessage = undefined;
-                      }
-                      return false;
-                    }
-                    return true;
+                    if (!receipt) return true;
+                    result = {
+                      ...(result ?? { queuedMessages: [] }),
+                      queuedMessages:
+                        claimQueueSnapshot ?? result?.queuedMessages ?? [],
+                      claimedMessage: undefined,
+                      receiptManaged: true,
+                    };
+                    return false;
                   }
-                : mutation.type === "recordInterruptRun" ||
-                    mutation.type === "clearInterruptRun"
+                : mutation.type === "renewClaim"
                   ? async (tx) => {
-                      const ownsClaim = receiptMutationOwnsPromotionClaim(
-                        receiptClaimMessage,
-                        mutation.claimId,
-                        Date.now(),
-                      );
-                      if (!ownsClaim) {
-                        if (result) result.claimBusy = true;
-                        return false;
-                      }
                       const receipt = await readQueuedSubmissionReceipt(
                         tx,
                         threadId,
                         mutation.messageId,
                       );
-                      return (
-                        receipt?.state === "queued" &&
-                        (!receipt.interruptRunId ||
-                          receipt.interruptRunId === mutation.runId)
-                      );
+                      if (
+                        result?.claimLost === true ||
+                        receipt?.state !== "queued" ||
+                        receipt.interruptRunId !== mutation.runId
+                      ) {
+                        if (result) {
+                          result.claimLost = true;
+                          result.claimedMessage = undefined;
+                        }
+                        return false;
+                      }
+                      return true;
                     }
-                  : mutation.type === "retryReceipt" ||
-                      mutation.type === "blockReceipt"
-                    ? async () => {
+                  : mutation.type === "recordInterruptRun" ||
+                      mutation.type === "clearInterruptRun"
+                    ? async (tx) => {
                         const ownsClaim = receiptMutationOwnsPromotionClaim(
                           receiptClaimMessage,
                           mutation.claimId,
                           Date.now(),
                         );
-                        if (!ownsClaim && result) result.claimBusy = true;
-                        return ownsClaim;
+                        if (!ownsClaim) {
+                          if (result) result.claimBusy = true;
+                          return false;
+                        }
+                        const receipt = await readQueuedSubmissionReceipt(
+                          tx,
+                          threadId,
+                          mutation.messageId,
+                        );
+                        return (
+                          receipt?.state === "queued" &&
+                          (!receipt.interruptRunId ||
+                            receipt.interruptRunId === mutation.runId)
+                        );
                       }
-                    : undefined,
+                    : mutation.type === "retryReceipt" ||
+                        mutation.type === "blockReceipt"
+                      ? async () => {
+                          const ownsClaim = receiptMutationOwnsPromotionClaim(
+                            receiptClaimMessage,
+                            mutation.claimId,
+                            Date.now(),
+                          );
+                          if (!ownsClaim && result) result.claimBusy = true;
+                          return ownsClaim;
+                        }
+                      : undefined,
         afterUpdate: async (tx) => {
           if (!result) return;
           if (

@@ -624,6 +624,55 @@ describe("useAgentChat readiness gate", () => {
     expect(mounted?.chat?.errorCode).toBeNull();
   });
 
+  it("keeps a queued turn active when the server rejects Stop during promotion", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const client = Object.assign(createSendClient(), {
+      getQueuedSubmissionStatus: vi.fn(async () => ({
+        state: "queued" as const,
+      })),
+    });
+    const completed = deferred<void>();
+    const cancelQueued = vi.fn(async () => {
+      throw Object.assign(new Error("Queue item is being promoted"), {
+        code: "queue_item_busy",
+        retryable: true,
+      });
+    });
+    client.sendMessage.mockResolvedValueOnce({
+      queuedMessageId: "queued-mobile-busy-cancel",
+      activeRunId: "run-active-busy-cancel",
+      completed: completed.promise,
+      cancel: cancelQueued,
+    } as never);
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+    let dispatchPromise: Promise<boolean> | undefined;
+    await act(async () => {
+      dispatchPromise = mounted?.chat?.send("Queue this prompt");
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+    await expect(dispatchPromise!).resolves.toBe(true);
+
+    await act(async () => {
+      mounted?.chat?.stop();
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() =>
+      expect(mounted?.chat?.errorCode).toBe("queued_cancel_failed"),
+    );
+    expect(cancelQueued).toHaveBeenCalledOnce();
+    expect(mounted?.chat?.isStreaming).toBe(true);
+    expect(client.cancelRun).not.toHaveBeenCalled();
+    await act(async () => completed.resolve());
+  });
+
   it("cancels the promoted queued run when Stop is pressed", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const client = Object.assign(createSendClient(), {

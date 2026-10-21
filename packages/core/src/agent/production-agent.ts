@@ -13156,6 +13156,7 @@ export function createProductionAgentHandler(
     ) {
       const {
         getQueuedSubmissionReceipt,
+        getQueuedSubmissionReceiptStatus,
         hashQueuedSubmissionPayload,
         resolveThreadAccess,
       } = await import("../chat-threads/store.js");
@@ -13197,8 +13198,26 @@ export function createProductionAgentHandler(
             retryable: false,
           };
         }
-        if (receipt.state === "submitted") {
-          if (!receipt.submittedRunId) {
+        let receiptState = receipt.state;
+        let submittedRunId = receipt.submittedRunId;
+        if (receipt.state === "queued") {
+          const status = await getQueuedSubmissionReceiptStatus(
+            threadId,
+            receipt.messageId,
+          );
+          if (!status) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The queued submission receipt could not be read",
+              code: "queued_submission_receipt_unavailable",
+              retryable: true,
+            };
+          }
+          receiptState = status.state;
+          submittedRunId = status.submittedRunId;
+        }
+        if (receiptState === "submitted") {
+          if (!submittedRunId) {
             setResponseStatus(event, 503);
             return {
               error: "The accepted submission has no replayable run",
@@ -13206,7 +13225,7 @@ export function createProductionAgentHandler(
               retryable: true,
             };
           }
-          const stream = subscribeToRun(receipt.submittedRunId, 0);
+          const stream = subscribeToRun(submittedRunId, 0);
           if (!stream) {
             setResponseStatus(event, 503);
             return {
@@ -13218,11 +13237,11 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Content-Type", "text/event-stream");
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
-          setResponseHeader(event, "X-Run-Id", receipt.submittedRunId);
+          setResponseHeader(event, "X-Run-Id", submittedRunId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return stream;
         }
-        if (receipt.state === "queued") {
+        if (receiptState === "queued") {
           if (!receipt.message) {
             setResponseStatus(event, 503);
             return {
@@ -13574,6 +13593,14 @@ export function createProductionAgentHandler(
       }
     }
     setupMark("aiGate");
+    if (hasOwn(body, "queuedMessageClaimId") && !admittedQueuedMessage) {
+      setResponseStatus(event, 409);
+      return {
+        error: "This queued message can no longer be promoted",
+        code: "queued_message_claim_invalid",
+        retryable: false,
+      };
+    }
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,

@@ -3534,9 +3534,11 @@ describe("chat thread store", () => {
       { type: "append", message },
       { actor },
     );
+    const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+    if (!receipt) throw new Error("Queued receipt disappeared before claim");
     await mutateThreadQueuedMessages("thread-1", {
-      type: "claim",
-      messageId: message.id,
+      type: "claimFromInbox",
+      receipt,
       claimId: "active-promoter",
     });
 
@@ -3576,6 +3578,51 @@ describe("chat thread store", () => {
     ).toMatchObject({ state: "removed" });
   });
 
+  it("reserves receipt-backed promotion for the inbox drain", async () => {
+    const message = {
+      id: "queued-inbox-only-promotion",
+      threadId: "thread-1",
+      text: "Retry through the durable inbox",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor: { email: "user@example.com", anonymous: false } },
+    );
+
+    const directClaim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: message.id,
+      claimId: "client-promoter",
+    });
+
+    expect(directClaim?.receiptManaged).toBe(true);
+    expect(directClaim?.claimedMessage).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([message]);
+    expect(
+      await getQueuedSubmissionReceipt("thread-1", message.id),
+    ).toMatchObject({ state: "queued" });
+
+    const [receipt] = await listQueuedSubmissionReceipts({
+      threadId: "thread-1",
+    });
+    if (!receipt)
+      throw new Error("Queued receipt disappeared before inbox claim");
+    const inboxClaim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt,
+      claimId: "inbox-promoter",
+    });
+
+    expect(inboxClaim?.claimedMessage).toMatchObject({
+      id: message.id,
+      promotionClaim: {
+        id: "inbox-promoter",
+        expiresAt: expect.any(Number),
+      },
+    });
+  });
+
   it("renews only a live interruption claim before its recorded run aborts", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
     const message = {
@@ -3592,9 +3639,11 @@ describe("chat thread store", () => {
         { type: "append", message },
         { actor },
       );
+      const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+      if (!receipt) throw new Error("Queued receipt disappeared before claim");
       await mutateThreadQueuedMessages("thread-1", {
-        type: "claim",
-        messageId: message.id,
+        type: "claimFromInbox",
+        receipt,
         claimId: "stalled-promoter",
       });
       expect(
@@ -4029,9 +4078,15 @@ describe("chat thread store", () => {
           { type: "append", message },
           { actor },
         );
+        const receipt = await getQueuedSubmissionReceipt(
+          "thread-1",
+          message.id,
+        );
+        if (!receipt)
+          throw new Error("Queued receipt disappeared before claim");
         const firstClaim = await mutateThreadQueuedMessages("thread-1", {
-          type: "claim",
-          messageId: message.id,
+          type: "claimFromInbox",
+          receipt,
           claimId: "tab-stalled",
         });
         expect(firstClaim?.claimedMessage?.promotionClaim).toEqual({
@@ -4041,8 +4096,8 @@ describe("chat thread store", () => {
 
         now.mockReturnValue(70_001);
         const replacementClaim = await mutateThreadQueuedMessages("thread-1", {
-          type: "claim",
-          messageId: message.id,
+          type: "claimFromInbox",
+          receipt,
           claimId: "tab-replacement",
         });
         expect(replacementClaim?.claimedMessage?.promotionClaim).toEqual({
@@ -4088,9 +4143,11 @@ describe("chat thread store", () => {
       { type: "append", message },
       { actor },
     );
+    const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+    if (!receipt) throw new Error("Queued receipt disappeared before claim");
     await mutateThreadQueuedMessages("thread-1", {
-      type: "claim",
-      messageId: message.id,
+      type: "claimFromInbox",
+      receipt,
       claimId: "tab-active",
     });
 
@@ -4121,9 +4178,15 @@ describe("chat thread store", () => {
           { type: "append", message },
           { actor },
         );
+        const receipt = await getQueuedSubmissionReceipt(
+          "thread-1",
+          message.id,
+        );
+        if (!receipt)
+          throw new Error("Queued receipt disappeared before claim");
         await mutateThreadQueuedMessages("thread-1", {
-          type: "claim",
-          messageId: message.id,
+          type: "claimFromInbox",
+          receipt,
           claimId: "tab-stalled",
         });
 
@@ -4200,9 +4263,11 @@ describe("chat thread store", () => {
         },
         { actor },
       );
+      const receipt = await getQueuedSubmissionReceipt("thread-1", queued.id);
+      if (!receipt) throw new Error("Queued receipt disappeared before claim");
       const firstClaim = await mutateThreadQueuedMessages("thread-1", {
-        type: "claim",
-        messageId: queued.id,
+        type: "claimFromInbox",
+        receipt,
         claimId: "tab-stalled",
       });
       expect(firstClaim?.claimedMessage?.promotionClaim).toEqual({
@@ -4212,8 +4277,8 @@ describe("chat thread store", () => {
 
       now.mockReturnValue(70_001);
       const replacementClaim = await mutateThreadQueuedMessages("thread-1", {
-        type: "claim",
-        messageId: queued.id,
+        type: "claimFromInbox",
+        receipt,
         claimId: "tab-replacement",
       });
       expect(replacementClaim?.claimedMessage?.promotionClaim).toEqual({
