@@ -15,7 +15,11 @@ import {
   preparePackagesForTagging,
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
-import { syncCommunityQrCoreLock } from "./sync-community-qr-core-lock.ts";
+import {
+  gitBlobSha,
+  syncCommunityQrBlobPins,
+  syncCommunityQrCoreLock,
+} from "./sync-community-qr-core-lock.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -472,6 +476,62 @@ importers:
 
     const lockfile = readFileSync("pnpm-lock.yaml", "utf8");
     assert.equal(syncCommunityQrCoreLock(lockfile, coreSpecifier), lockfile);
+  });
+
+  it("rewrites the QR template blob pins from the files on disk", () => {
+    const source = `templatePath: "templates/other-first",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${"d".repeat(40)}",
+        },
+      ],
+    },
+    {
+      templatePath: "templates/community/qr",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${"a".repeat(40)}",
+        },
+        {
+          path: "README.md",
+          blobSha: "${"b".repeat(40)}",
+        },
+      ],
+    },
+    {
+      templatePath: "templates/other",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${"c".repeat(40)}",
+        },
+      ],
+    },`;
+
+    const updated = syncCommunityQrBlobPins(source, (file) =>
+      file === "package.json" ? "1".repeat(40) : "2".repeat(40),
+    );
+
+    assert.match(updated, /package\.json",\n\s+blobSha: "1{40}"/);
+    assert.match(updated, /README\.md",\n\s+blobSha: "2{40}"/);
+    assert.match(updated, /blobSha: "c{40}"/);
+    assert.match(updated, /blobSha: "d{40}"/);
+    assert.equal(
+      syncCommunityQrBlobPins(updated, (file) =>
+        file === "package.json" ? "1".repeat(40) : "2".repeat(40),
+      ),
+      updated,
+    );
+    assert.throws(
+      () => syncCommunityQrBlobPins("export {};\n", () => "x"),
+      /Missing templates\/community\/qr source/,
+    );
+    assert.equal(
+      gitBlobSha(Buffer.from("hello\n")),
+      "ce013625030ba8dba906f756967f9e9ca394464a",
+    );
   });
 
   it("waits until local runtime packages are fetchable before publishing dependents", async () => {

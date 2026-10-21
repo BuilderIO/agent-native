@@ -1,0 +1,189 @@
+import {
+  index,
+  table,
+  text,
+  integer,
+  now,
+  ownableColumns,
+  createSharesTable,
+  uniqueIndex,
+} from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  data: text("data").notNull(), // Full deck JSON
+  designSystemId: text("design_system_id"),
+  lastWriteClientId: text("last_write_client_id"),
+  lastWriteClientSequence: integer("last_write_client_sequence"),
+  lastWriteRevision: text("last_write_revision"),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});
+
+export const deckShares = createSharesTable("deck_shares");
+
+export const deckVersions = table("deck_versions", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  deckId: text("deck_id").notNull(),
+  title: text("title").notNull(),
+  data: text("data").notNull(),
+  changeLabel: text("change_label"),
+  chatContext: text("chat_context"),
+  changeGroup: text("change_group"),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
+export const designSystems = table("design_systems", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  data: text("data").notNull(),
+  assets: text("assets"),
+  customInstructions: text("custom_instructions").notNull().default(""),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});
+
+export const designSystemShares = createSharesTable("design_system_shares");
+
+export const deckShareLinks = table(
+  "deck_share_links",
+  {
+    token: text("token").primaryKey(),
+    title: text("title").notNull(),
+    slides: text("slides").notNull(), // JSON array of slide snapshots
+    aspectRatio: text("aspect_ratio"),
+    designSystemData: text("design_system_data"), // Share-safe token snapshot
+    deckId: text("deck_id").references(() => decks.id, {
+      onDelete: "cascade",
+    }),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (shareLink) => ({
+    deckIdx: index("deck_share_links_deck_id_idx").on(shareLink.deckId),
+  }),
+);
+
+export const uploadedAssets = table(
+  "uploaded_assets",
+  {
+    id: text("id").primaryKey(),
+    filename: text("filename").notNull(),
+    url: text("url").notNull(),
+    type: text("type").notNull(),
+    size: integer("size").notNull(),
+    provider: text("provider"),
+    providerObjectId: text("provider_object_id"),
+    uploadSessionId: text("upload_session_id"),
+    fontFamily: text("font_family"),
+    fontVariant: text("font_variant"),
+    deckId: text("deck_id"),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (asset) => ({
+    uploadSessionUniqueIdx: uniqueIndex(
+      "uploaded_assets_owner_upload_session_uidx",
+    ).on(asset.ownerEmail, asset.uploadSessionId),
+    deckCreatedIdx: index("uploaded_assets_deck_created_idx").on(
+      asset.deckId,
+      asset.createdAt,
+    ),
+  }),
+);
+
+export const uploadedAssetCleanupOutbox = table(
+  "uploaded_asset_cleanup_outbox",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    intent: text("intent").notNull(),
+    state: text("state").notNull(),
+    provider: text("provider"),
+    providerObjectId: text("provider_object_id"),
+    url: text("url"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at"),
+    leaseExpiresAt: text("lease_expires_at"),
+    leaseToken: text("lease_token"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (cleanup) => ({
+    dueIdx: index("uploaded_asset_cleanup_outbox_due_idx").on(
+      cleanup.nextAttemptAt,
+      cleanup.leaseExpiresAt,
+      cleanup.createdAt,
+    ),
+  }),
+);
+
+export const uploadedAssetObjectLifecycle = table(
+  "uploaded_asset_object_lifecycle",
+  {
+    identityKey: text("identity_key").primaryKey(),
+    state: text("state").notNull(),
+    deletionLeaseToken: text("deletion_lease_token"),
+    deletionLeaseExpiresAt: text("deletion_lease_expires_at"),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (object) => ({
+    stateUpdatedIdx: index(
+      "uploaded_asset_object_lifecycle_state_updated_idx",
+    ).on(object.state, object.updatedAt),
+  }),
+);
+
+export const slideComments = table(
+  "slide_comments",
+  {
+    id: text("id").primaryKey(),
+    deckId: text("deck_id").notNull(),
+    slideId: text("slide_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    parentId: text("parent_id"),
+    content: text("content").notNull(),
+    quotedText: text("quoted_text"),
+    anchor: text("anchor"),
+    emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    resolved: boolean("resolved").notNull().default(false),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (comment) => ({
+    deckCreatedIdx: index("slide_comments_deck_created_idx").on(
+      comment.deckId,
+      comment.createdAt,
+    ),
+    deckSlideCreatedIdx: index("slide_comments_deck_slide_created_idx").on(
+      comment.deckId,
+      comment.slideId,
+      comment.createdAt,
+    ),
+  }),
+);
+
+export const deckEvents = table("deck_events", {
+  id: text("id").primaryKey(),
+  deckId: text("deck_id").notNull(),
+  type: text("type").notNull(),
+  message: text("message").notNull(),
+  payload: text("payload"),
+  createdBy: text("created_by").notNull().default("human"),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
+export const deckAccessRequestLimits = table("deck_access_request_limits", {
+  deckId: text("deck_id").primaryKey(),
+  windowStartedAt: text("window_started_at").notNull(),
+  requestCount: integer("request_count").notNull().default(0),
+});
