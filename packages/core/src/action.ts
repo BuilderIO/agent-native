@@ -476,20 +476,34 @@ export function ranCallEmitsChange(
 const TRANSACTION_CONFLICT_SQLSTATES = new Set(["40P01", "40001"]);
 
 function transactionConflictError(error: unknown): ActionContractError | null {
+  let sqlState: string | null;
+  try {
+    sqlState = transactionConflictSqlState(error);
+  } catch {
+    // Any read of a thrown value may throw. That value goes on as thrown,
+    // so readableFailure reports it as unreadable instead of the read's own
+    // error replacing it.
+    return null;
+  }
+  if (!sqlState) return null;
+  return new ActionContractError(
+    "The database rolled back this action's transaction because it conflicted with another transaction running at the same time. Anything the action saved outside that transaction stays saved, so read the current state and redo only what is missing.",
+    {
+      errorCode: "transaction_conflict",
+      statusCode: 409,
+      details: { sqlState },
+    },
+  );
+}
+
+function transactionConflictSqlState(error: unknown): string | null {
   if (isActionContractError(error)) return null;
   let cause = error;
   for (let depth = 0; depth < 5; depth += 1) {
     if (!cause || typeof cause !== "object") return null;
     const code = (cause as { code?: unknown }).code;
     if (typeof code === "string" && TRANSACTION_CONFLICT_SQLSTATES.has(code)) {
-      return new ActionContractError(
-        "The database rolled back this action's transaction because it conflicted with another transaction running at the same time. Anything the action saved outside that transaction stays saved, so read the current state and redo only what is missing.",
-        {
-          errorCode: "transaction_conflict",
-          statusCode: 409,
-          details: { sqlState: code },
-        },
-      );
+      return code;
     }
     cause = (cause as { cause?: unknown }).cause;
   }
