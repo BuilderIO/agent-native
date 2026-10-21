@@ -143,7 +143,7 @@ export default defineAction({
       return {
         ...policy,
         canManage,
-        affectedMembers: await listPersonalProviderKeyHolders(orgId),
+        affectedMembers: await listPersonalProviderKeyHolders(orgId, email),
         changed,
       };
     }
@@ -153,7 +153,9 @@ export default defineAction({
       ...policy,
       canManage,
       ...(canManage
-        ? { affectedMembers: await listPersonalProviderKeyHolders(orgId) }
+        ? {
+            affectedMembers: await listPersonalProviderKeyHolders(orgId, email),
+          }
         : {}),
     };
   },

@@ -13,7 +13,6 @@ import {
   readBoundedRequestBody,
 } from "../automation/index.js";
 import { canUpdateAutomationResource } from "../automations/service.js";
-import { getDbExec } from "../db/client.js";
 import { dispatchPendingIntegrationTask } from "../integrations/integration-durable-dispatch.js";
 import {
   insertPendingTask,
@@ -45,6 +44,7 @@ import {
 } from "../resources/store.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
 import type { TriggerFrontmatter } from "./types.js";
 import {
@@ -218,14 +218,7 @@ async function currentUserCanUpdateAutomation(
   if (!orgId) return false;
 
   try {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, userEmail.toLowerCase()],
-    });
-    const role = String((rows[0] as any)?.role ?? "").toLowerCase();
+    const role = await readOrgMemberRole(orgId, userEmail);
     return role === "owner" || role === "admin";
   } catch {
     return false;

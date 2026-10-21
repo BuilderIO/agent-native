@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  execute: vi.fn(),
+  readOrgMemberRole: vi.fn(),
   getOrgSetting: vi.fn(),
   getUserSetting: vi.fn(),
   putOrgSetting: vi.fn(),
   putUserSetting: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => ({ execute: mocks.execute }),
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  readOrgMemberRole: (...args: unknown[]) => mocks.readOrgMemberRole(...args),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -29,7 +30,7 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.execute.mockResolvedValue({ rows: [] });
+  mocks.readOrgMemberRole.mockResolvedValue("owner");
 });
 
 describe("normalizeMcpAppAccessSettings", () => {
@@ -63,7 +64,7 @@ describe("setDispatchMcpAppAccessSettings", () => {
   it.each(["owner", "admin"])(
     "lets an organization %s change the app grants",
     async (role) => {
-      mocks.execute.mockResolvedValue({ rows: [{ role }] });
+      mocks.readOrgMemberRole.mockResolvedValue(role);
 
       const result = await runWithRequestContext(
         { userEmail: "manager@example.test", orgId: "org-1" },
@@ -74,10 +75,10 @@ describe("setDispatchMcpAppAccessSettings", () => {
           }),
       );
 
-      expect(mocks.execute).toHaveBeenCalledWith({
-        sql: expect.stringContaining("FROM org_members"),
-        args: ["org-1", "manager@example.test"],
-      });
+      expect(mocks.readOrgMemberRole).toHaveBeenCalledWith(
+        "org-1",
+        "manager@example.test",
+      );
       expect(mocks.putOrgSetting).toHaveBeenCalledWith(
         "org-1",
         "dispatch-mcp-app-access",
@@ -92,7 +93,7 @@ describe("setDispatchMcpAppAccessSettings", () => {
   );
 
   it("rejects an organization member without changing grants", async () => {
-    mocks.execute.mockResolvedValue({ rows: [{ role: "member" }] });
+    mocks.readOrgMemberRole.mockResolvedValue("member");
 
     await expect(
       runWithRequestContext(
@@ -109,8 +110,34 @@ describe("setDispatchMcpAppAccessSettings", () => {
     expect(mocks.putOrgSetting).not.toHaveBeenCalled();
   });
 
+  it("caps a delegated owner before changing organization app grants", async () => {
+    mocks.readOrgMemberRole.mockResolvedValue("member");
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          a2aIdentityAssurance: "org-member",
+        },
+        () =>
+          setDispatchMcpAppAccessSettings({
+            mode: "selected-apps",
+            selectedAppIds: ["analytics"],
+          }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.readOrgMemberRole).toHaveBeenCalledWith(
+      "org-1",
+      "owner@example.test",
+    );
+    expect(mocks.putOrgSetting).not.toHaveBeenCalled();
+  });
+
   it("fails closed when organization membership cannot be verified", async () => {
-    mocks.execute.mockRejectedValue(new Error("org lookup unavailable"));
+    mocks.readOrgMemberRole.mockRejectedValue(
+      new Error("org lookup unavailable"),
+    );
 
     await expect(
       runWithRequestContext(
@@ -132,7 +159,7 @@ describe("setDispatchMcpAppAccessSettings", () => {
       }),
     );
 
-    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
     expect(mocks.putUserSetting).toHaveBeenCalledWith(
       "solo@example.test",
       "dispatch-mcp-app-access",

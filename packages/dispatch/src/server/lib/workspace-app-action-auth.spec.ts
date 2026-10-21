@@ -212,6 +212,7 @@ describe("workspace app action auth", () => {
         owner: "steve@builder.io",
         anonymous: false,
         orgId: "org-builder",
+        identityAssurance: "user",
       });
       expect(mocks.verifyA2AToken).toHaveBeenCalledWith(
         "verified",
@@ -221,10 +222,40 @@ describe("workspace app action auth", () => {
       expect(mocks.isOrgMember).toHaveBeenCalledWith(
         "org-builder",
         "steve@builder.io",
+        { requestEvent: expect.anything() },
       );
       expect(mocks.resolveOrgIdForEmail).not.toHaveBeenCalled();
     },
   );
+
+  it("preserves delegated member assurance through the registry action resolver", async () => {
+    mocks.verifyA2AToken.mockResolvedValue({
+      email: "owner@builder.io",
+      orgDomain: "builder.io",
+      orgId: "org-builder",
+      identityAssurance: "org-member",
+    });
+    mocks.resolveOrgByDomain.mockResolvedValue({
+      orgId: "org-builder",
+      orgName: "Builder.io",
+    });
+    mocks.isOrgMember.mockResolvedValue(true);
+    const event = eventFor(WORKSPACE_APP_CLAIM_ACTION_PATH, "Bearer delegated");
+
+    await expect(
+      workspaceAppActionRouteAuth.resolveCaller?.(event),
+    ).resolves.toEqual({
+      owner: "owner@builder.io",
+      anonymous: false,
+      orgId: "org-builder",
+      identityAssurance: "org-member",
+    });
+    expect(mocks.isOrgMember).toHaveBeenCalledWith(
+      "org-builder",
+      "owner@builder.io",
+      { requestEvent: event },
+    );
+  });
 
   it("uses the original mounted pathname after the route prefix is stripped", async () => {
     mocks.verifyA2AToken.mockResolvedValue({
@@ -276,14 +307,14 @@ describe("workspace app action auth", () => {
     });
     mocks.isOrgMember.mockResolvedValue(true);
 
+    const event = eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer scoped");
     await expect(
-      workspaceAppActionRouteAuth.resolveCaller?.(
-        eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer scoped"),
-      ),
+      workspaceAppActionRouteAuth.resolveCaller?.(event),
     ).resolves.toMatchObject({ orgId: "org-builder" });
     expect(mocks.isOrgMember).toHaveBeenCalledWith(
       "org-builder",
       "steve@builder.io",
+      { requestEvent: event },
     );
     expect(mocks.resolveOrgIdForEmail).not.toHaveBeenCalled();
   });
@@ -332,14 +363,14 @@ describe("workspace app action auth", () => {
     });
     mocks.isOrgMember.mockResolvedValue(false);
 
+    const event = eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer global-token");
     await expect(
-      workspaceAppActionRouteAuth.resolveCaller?.(
-        eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer global-token"),
-      ),
+      workspaceAppActionRouteAuth.resolveCaller?.(event),
     ).rejects.toThrow("Invalid workspace registry authorization");
     expect(mocks.isOrgMember).toHaveBeenCalledWith(
       "org-builder",
       "outsider@example.com",
+      { requestEvent: event },
     );
   });
 });

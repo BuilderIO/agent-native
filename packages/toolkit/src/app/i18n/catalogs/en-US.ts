@@ -2030,6 +2030,9 @@ const messages = {
     "Set. Lets the apps in this workspace verify each other.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Not set. Lets the apps in this workspace verify each other.",
+  "settingsOrg.auth.memberDelegation": "Org-member identity delegation",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Connected apps with this shared organization secret can claim any current member's identity when calling this app. This app checks the live member roster and limits delegated organization access to member-level permissions.",
   "settingsOrg.auth.secretNotSetValue": "Not set",
   "settingsOrg.auth.manage": "Manage",
   "settingsOrg.auth.reveal": "Reveal",

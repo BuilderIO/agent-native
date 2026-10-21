@@ -92,6 +92,7 @@ export {
 } from "./embed-session.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export { isCredentialMembershipUnavailable } from "./credential-membership-unavailable.js";
+export { readOrgMemberRole } from "./personal-provider-key-policy.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,

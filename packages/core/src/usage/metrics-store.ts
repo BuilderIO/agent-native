@@ -1,5 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { splitAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import { ForbiddenError } from "../sharing/access.js";
 import { isSelfScopedUsageRead, usageOrgScope } from "./org-scope.js";
@@ -354,15 +355,7 @@ async function getOrgRole(
   ownerEmail: string,
 ): Promise<string | null> {
   if (!orgId) return null;
-  const result = await getDbExec().execute({
-    sql: `SELECT role FROM org_members
-          WHERE org_id = ? AND LOWER(email) = ?
-            AND federation_removal_pending_at IS NULL
-          LIMIT 1`,
-    args: [orgId, ownerEmail],
-  });
-  const role = result.rows[0]?.role;
-  return typeof role === "string" ? role : null;
+  return readOrgMemberRole(orgId, ownerEmail);
 }
 
 export async function canViewWorkspaceUsage(

@@ -88,6 +88,24 @@ describe("feature flag mutation replay protection", () => {
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
   });
 
+  it("carries a verified org-member assurance with an owner-sub write caller", async () => {
+    verifyA2ATokenWithClaimsMock.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-local",
+      orgDomain: "builder.io",
+      scope: ["flags:write"],
+      jti: "delegated-owner-write",
+      identityAssurance: "org-member",
+    });
+    const auth = createFeatureFlagA2AActionRouteAuth("set-feature-flag");
+
+    await expect(auth.resolveCaller(event)).resolves.toMatchObject({
+      owner: "owner@example.com",
+      orgId: "org-local",
+      identityAssurance: "org-member",
+    });
+  });
+
   it("rejects a replayed delegated mutation jti", async () => {
     consumeOneTimeJtiMock.mockResolvedValue(true);
     const auth = createFeatureFlagA2AActionRouteAuth("set-feature-flag");
