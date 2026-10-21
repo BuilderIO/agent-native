@@ -149,6 +149,7 @@ interface ProtocolRun {
   readonly runId: string;
   readonly threadId: string;
   readonly session: AgentChatRuntimeSession;
+  readonly startMessageId?: string;
   turn: AgentChatRuntimeTurn;
   events: AgentEvent[];
   firstRetainedSequence: number;
@@ -2066,6 +2067,9 @@ export function createAgentKitProtocolAdapter(
       runId: input.runId,
       threadId: input.threadId,
       session,
+      ...(state?.status !== "missing" && state?.startMessageId
+        ? { startMessageId: state.startMessageId }
+        : {}),
       turn: runAuthority
         ? turn
         : {
@@ -2129,6 +2133,10 @@ export function createAgentKitProtocolAdapter(
     turn: AgentChatRuntimeTurn,
     turnMetadata: Record<string, unknown> | undefined,
     observability?: Record<string, unknown>,
+    start: {
+      attachReplayedRun?: boolean;
+      messageId?: string;
+    } = {},
   ): Promise<string> {
     const runId = turn.runId ?? turn.id ?? createId("run");
     const runMetadata = mergeTrustedProtocolMetadata(
@@ -2155,6 +2163,9 @@ export function createAgentKitProtocolAdapter(
       runId,
       threadId,
       session,
+      ...(start.messageId === undefined
+        ? {}
+        : { startMessageId: start.messageId }),
       turn,
       events: [],
       firstRetainedSequence: 1,
@@ -2183,8 +2194,41 @@ export function createAgentKitProtocolAdapter(
         "The AgentKit adapter was disposed during turn creation.",
       );
     }
+    const existingRun = start.attachReplayedRun
+      ? findRun(threadId, runId)
+      : undefined;
+    if (existingRun) {
+      if (
+        start.messageId === undefined ||
+        existingRun.startMessageId !== start.messageId
+      ) {
+        await closeDiscardedTurnEvents(turn);
+        throw new Error(`Duplicate AgentKit run id: ${runId}`);
+      }
+      const isRuntimeAlias = existingRun.runId !== runId;
+      const isSameRuntimeTurn =
+        existingRun.turn.id !== undefined && existingRun.turn.id === turn.id;
+      if (isRuntimeAlias && !isSameRuntimeTurn && !existingRun.terminal) {
+        await closeDiscardedTurnEvents(turn);
+        throw new Error(`Duplicate AgentKit run id: ${runId}`);
+      }
+      if (!isRuntimeAlias || isSameRuntimeTurn) {
+        await closeDiscardedTurnEvents(turn);
+        touchRun(existingRun);
+        ensurePump(existingRun);
+        // Protocol run IDs are authoritative. Runtime aliases only match the turn that
+        // created them.
+        return existingRun.runId;
+      }
+    }
     pruneRetainedRuns(run.lastAccessedAtMs);
-    const indexedRun = indexRun(run, turn.runId, true);
+    let indexedRun: ProtocolRun;
+    try {
+      indexedRun = indexRun(run, turn.runId, start.attachReplayedRun === true);
+    } catch (error) {
+      await closeDiscardedTurnEvents(turn);
+      throw error;
+    }
     if (indexedRun !== run) {
       await closeDiscardedTurnEvents(turn);
       return indexedRun.runId;
@@ -2207,11 +2251,56 @@ export function createAgentKitProtocolAdapter(
     await session.dispose?.();
   }
 
+  function drainDiscardedTurnEventIterator(
+    iterator: AsyncIterator<AgentChatRuntimeEvent>,
+  ): void {
+    void (async () => {
+      try {
+        while (!(await iterator.next()).done) {}
+      } catch (error) {
+        console.warn(
+          "[agentkit] Could not drain a discarded runtime event stream",
+          error,
+        );
+      }
+    })();
+  }
+
   async function closeDiscardedTurnEvents(
     turn: AgentChatRuntimeTurn,
   ): Promise<void> {
     const iterator = turn.events[Symbol.asyncIterator]();
-    await Promise.all([turn.closeEvents?.(), iterator.return?.()]);
+    let drainStarted = false;
+    const drain = () => {
+      if (drainStarted) return;
+      drainStarted = true;
+      drainDiscardedTurnEventIterator(iterator);
+    };
+    if (!turn.closeEvents && !iterator.return) {
+      drain();
+      return;
+    }
+
+    const attemptCleanup = (cleanup: () => unknown) => {
+      try {
+        void Promise.resolve(cleanup()).catch((error) => {
+          console.warn(
+            "[agentkit] Could not close a discarded runtime event stream",
+            error,
+          );
+          drain();
+        });
+      } catch (error) {
+        console.warn(
+          "[agentkit] Could not close a discarded runtime event stream",
+          error,
+        );
+        drain();
+      }
+    };
+
+    if (turn.closeEvents) attemptCleanup(() => turn.closeEvents?.());
+    if (iterator.return) attemptCleanup(() => iterator.return?.());
   }
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {
@@ -3898,7 +3987,17 @@ export function createAgentKitProtocolAdapter(
           metadata: turnMetadata,
           abortSignal: readers.signal,
         });
-        return openStartedRun(input.threadId, session, turn, turnMetadata);
+        return openStartedRun(
+          input.threadId,
+          session,
+          turn,
+          turnMetadata,
+          undefined,
+          {
+            attachReplayedRun: true,
+            messageId: latestUserMessage?.id,
+          },
+        );
       };
       if (!queuePromotionKey) {
         return { runId: await createRun(), capabilities };
@@ -4243,6 +4342,9 @@ export function createAgentKitProtocolAdapter(
           runId: nextRunId,
           threadId: input.threadId,
           session: run.session,
+          ...(run.startMessageId === undefined
+            ? {}
+            : { startMessageId: run.startMessageId }),
           turn: nextTurn,
           events: [],
           firstRetainedSequence: 1,
@@ -4368,12 +4470,14 @@ export function createAgentKitProtocolAdapter(
         ...(attachments.length ? { attachments } : {}),
         abortSignal: readers.signal,
       });
+      const startMessageId = local?.startMessageId ?? state.startMessageId;
       const runId = await openStartedRun(
         input.threadId,
         session,
         turn,
         undefined,
         { continuedRunId: input.runId },
+        startMessageId === undefined ? {} : { messageId: startMessageId },
       );
       return { runId, capabilities };
     };

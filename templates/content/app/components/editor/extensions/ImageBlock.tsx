@@ -980,6 +980,27 @@ export function ImageBlock({
     );
   }
 
+  if (!src && !isEditable) {
+    // A read-only page can't add an image, so say what's missing instead.
+    return (
+      <NodeViewWrapper className="media-block-wrapper" data-drag-handle>
+        <div
+          className="media-empty-block__trigger media-empty-block__trigger--static"
+          role="img"
+          aria-label={alt || t("editor.media.imageUnavailable")}
+        >
+          <IconPhoto size={20} />
+          <span>{alt || t("editor.media.imageUnavailable")}</span>
+          {alt ? (
+            <span className="media-empty-block__note">
+              {t("editor.media.imageUnavailable")}
+            </span>
+          ) : null}
+        </div>
+      </NodeViewWrapper>
+    );
+  }
+
   if (!src) {
     const showSourcePanel =
       isEditable &&

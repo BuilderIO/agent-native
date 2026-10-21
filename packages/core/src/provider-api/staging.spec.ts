@@ -51,7 +51,7 @@ vi.mock("../db/client.js", () => ({
       }
 
       if (
-        /SELECT id FROM staged_datasets WHERE id.*AND app_id.*AND owner_email/i.test(
+        /SELECT id(, removed_at, removed_reason)? FROM staged_datasets WHERE id.*AND app_id.*AND owner_email/i.test(
           rawSql,
         )
       ) {
@@ -213,7 +213,7 @@ const { stagingExecuteRequest } = await import("./staging.js");
 const {
   upsertStagedDataset,
   getStagedDatasetRows,
-  MAX_ROWS_PER_APP,
+  MAX_ROWS_PER_OWNER,
   _resetInitPromiseForTests,
 } = await import("./staged-datasets-store.js");
 const { createProviderApiRuntime } = await import("./index.js");
@@ -309,14 +309,14 @@ describe("staging caps", () => {
     _resetInitPromiseForTests();
   });
 
-  it("rejects a single dataset larger than MAX_ROWS_PER_APP and names that cause", async () => {
+  it("rejects a single dataset larger than MAX_ROWS_PER_OWNER and names that cause", async () => {
     await expect(
       upsertStagedDataset({
         id: "ds_huge",
         appId: "cappedapp",
         ownerEmail: "ada@example.com",
         name: "huge",
-        rows: Array.from({ length: MAX_ROWS_PER_APP + 1 }, (_, i) => ({
+        rows: Array.from({ length: MAX_ROWS_PER_OWNER + 1 }, (_, i) => ({
           id: i,
         })),
         columns: ["id"],
@@ -543,6 +543,27 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
         { appId: "testapp", ownerEmail: "ada@example.com" },
       ),
     ).rejects.toThrow(/cut at the response size limit/);
+  });
+
+  it("reports truncation at the row cap when the request has no pagination", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: Array.from({ length: MAX_ROWS_PER_OWNER + 1 }, () => ({})),
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const result = await stagingExecuteRequest(
+      { provider: "stripe", path: "/charges", stageAs: "stripe_charges" },
+      makeExecutor(),
+      { appId: "testapp", ownerEmail: "ada@example.com" },
+    );
+
+    expect(result.dataset.rowCount).toBe(MAX_ROWS_PER_OWNER);
+    expect(result.rows).toBe(MAX_ROWS_PER_OWNER);
+    expect(result.truncated).toBe(true);
   });
 
   it("can send next cursors through a POST body path", async () => {

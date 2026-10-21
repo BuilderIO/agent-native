@@ -9,6 +9,7 @@ import { isValidPanelEvent } from "@shared/panel-events";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ResolvedAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
+import { DataNoteRangeProvider } from "@/components/dashboard/data-note-bands";
 import { SqlChart } from "@/components/dashboard/SqlChart";
 import Markdown from "@/components/Markdown";
 import type { SqlQueryResult } from "@/lib/sql-query";
@@ -17,7 +18,10 @@ import {
   reviewDashboardFilters,
   reviewDashboardVariables,
 } from "@/pages/adhoc/sql-dashboard/filter-vars";
-import { interpolateDashboardPanelSql } from "@/pages/adhoc/sql-dashboard/interpolate";
+import {
+  interpolateDashboardPanelSql,
+  panelTimeRange,
+} from "@/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 import { timeRangeDays } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
@@ -355,15 +359,17 @@ function ReviewDashboardPanel({
       {!compact && (
         <h3 className="mb-2 truncate text-sm font-medium">{panel.title}</h3>
       )}
-      <SqlChart
-        panel={panel}
-        resolvedSql={resolvedSql}
-        timeRange={timeRangeDays(variables.timeRange)}
-        loadData={false}
-        resultOverride={result}
-        showLoadingWhenDisabled={false}
-        dashboardId={artifactId}
-      />
+      <DataNoteRangeProvider value={panelTimeRange(panel, variables)}>
+        <SqlChart
+          panel={panel}
+          resolvedSql={resolvedSql}
+          timeRange={timeRangeDays(variables.timeRange)}
+          loadData={false}
+          resultOverride={result}
+          showLoadingWhenDisabled={false}
+          dashboardId={artifactId}
+        />
+      </DataNoteRangeProvider>
     </div>
   );
 }

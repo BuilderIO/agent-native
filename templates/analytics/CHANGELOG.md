@@ -7,12 +7,23 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Blog signup attribution excludes signups before the first visit and URLs on unrelated hosts
+- Collapsed Analytics navigation starts at the top with more space between icons.
+- Content keeps successful coverage dates and missing-day gaps, and Search Console setup validates paths before saving
+- Private GitHub repositories can be indexed with an organization-scoped GitHub token
+- Search Console preserves historical backfill after empty results and keeps daily collection paused when editing properties.
+- Search Console refreshes historical coverage when properties change and advances normally after empty results
+- Search Console setup keeps saved properties readable and supports disabling collection with invalid drafts.
 - Blog article credits include direct and wrapped author references.
 - Content collection recovers abandoned runs, avoids duplicate work, and preserves missing author names.
 - Daily content metrics recover collection gaps and keep omitted Search Console values uncollected.
 - Fixed Analytics dbt metric lookups that returned a bad-gateway error when the metric existed; the error now names the failing field.
 
 ## 2026-10-19
+
+### Added
+
+- Import from Sigma lists every workbook you can see in Sigma, with search. Workbooks already migrated show greyed out with their owner and open the dashboard in a new tab, so nobody migrates the same workbook twice.
 
 ### Fixed
 
@@ -24,6 +35,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Changed
 
 - Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+### Security
+
+- Creating or revoking a public analytics key now asks you to approve it every time the agent or another app tries it.
 
 ## 2026-10-17
 
@@ -47,6 +62,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- The Content dashboard can show signups per blog article, collected once a day behind a BigQuery cost cap that a dry run measures first
 - Click a table row to see its numbers broken down by app, or another column, in a side panel.
 - Connect a personal Sigma account to import its dashboards
 - First-party charts can read a scheduled warehouse events model instead of the raw event table, so repeat loads reuse BigQuery's cache between model rebuilds.
@@ -104,6 +120,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- A Content dashboard lists every blog article with its author, pageviews, and search clicks, and says when a source failed or isn't set up instead of showing zero
+- Data sources has a Google Search Console card that shows the service account to grant and turns on daily collection
 - Analytics can collect daily GA4 pageviews and Search Console clicks and impressions for each blog article
 - Analytics can collect your blog article list once a day into its own tables, ready for the Content view
 - Click any bar, line point, funnel stage or slice on the first-party dashboard to open the underlying records in a pop-up, with filter, SQL and CSV export.

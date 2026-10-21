@@ -1108,6 +1108,8 @@ export function ReviewCanvasPins({
   const setUnread = useSetReviewThreadUnread();
   const updateComment = useUpdateReviewComment();
   const [canvas, setCanvas] = useState<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const [layoutTick, setLayoutTick] = useState(0);
   const [draftPin, setDraftPin] = useState<ReviewDraftPin | null>(null);
   const [draftAttachments, setDraftAttachments] = useState<
@@ -1964,8 +1966,8 @@ export function ReviewCanvasPins({
     setReplyAttachments([]);
     setReplyMentions([]);
     setExpandedClusterKey(null);
-    if (active) onClose();
-  }, [active, cancelDraft, hidden, onClose]);
+    if (active) onCloseRef.current();
+  }, [active, cancelDraft, hidden]);
 
   const dropCanvasPin = useCallback(
     (canvasPoint: ReviewCanvasPoint) => {
@@ -3977,6 +3979,7 @@ function ReviewThreadPopover({
   onSendToAgent?: () => void;
 }) {
   const t = useT();
+  const editChosenFromMenuRef = useRef(false);
   const rootAuthor = reviewAuthorLabel(thread.root, t("review.reviewer"));
   const avatarUrl = useAvatarUrl(thread.root.authorEmail);
   const [replyUploading, setReplyUploading] = useState(false);
@@ -4015,6 +4018,7 @@ function ReviewThreadPopover({
               mentionLabel={t("review.mention")}
               noMentionsLabel={t("review.noMentions")}
               textareaProps={{ "aria-label": t("review.editComment") }}
+              autoFocus
               disabled={updating}
               onChange={onEditDraftChange}
               onSubmit={() => onEditSubmit()}
@@ -4058,9 +4062,24 @@ function ReviewThreadPopover({
               <IconDots className="size-3.5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent data-review-popover align="end" className="w-44">
+          <DropdownMenuContent
+            data-review-popover
+            align="end"
+            className="w-44"
+            onCloseAutoFocus={(event) => {
+              // Edit puts focus in its composer; leave it there. Other
+              // actions return to the button.
+              if (editChosenFromMenuRef.current) event.preventDefault();
+              editChosenFromMenuRef.current = false;
+            }}
+          >
             {canEdit ? (
-              <DropdownMenuItem onSelect={onEdit}>
+              <DropdownMenuItem
+                onSelect={() => {
+                  editChosenFromMenuRef.current = true;
+                  onEdit();
+                }}
+              >
                 {t("review.editComment")}
               </DropdownMenuItem>
             ) : null}
@@ -4144,6 +4163,7 @@ function ReviewThreadPopover({
                 mentionLabel={t("review.mention")}
                 noMentionsLabel={t("review.noMentions")}
                 textareaProps={{ "data-review-reply-input": true }}
+                autoFocus
                 disabled={replying || resolving || replyUploading}
                 onChange={onReplyDraftChange}
                 onSubmit={() => onReply()}

@@ -53,6 +53,16 @@ export const RECOVERY_UI = [
   "Something went wrong",
 ];
 
+/**
+ * Actions that need approval run over HTTP only for the signed-in app UI, which
+ * proves itself with this capability cookie. A spec that calls one directly
+ * mints it first, as the app's client does before its writes.
+ */
+export async function presentUiCapability(page: Page): Promise<void> {
+  const response = await page.request.get("/_agent-native/ui-capability");
+  expect(response.ok(), `ui-capability (${response.status()})`).toBe(true);
+}
+
 export async function postAction<T = Record<string, unknown>>(
   page: Page,
   name: string,
@@ -1289,6 +1299,8 @@ export async function observeIntegrity(
   await tabs.quiet();
   tabs.captureReadback("before-refresh", id, await getDocument(reader, id));
   for (const page of open) {
+    // Reloading a peer can start another tab's save after the earlier check.
+    await tabs.quiet();
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectEditorReady(page);
   }
@@ -1296,9 +1308,14 @@ export async function observeIntegrity(
 
   await tabs.quiet();
   tabs.captureReadback("before-close", id, await getDocument(reader, id));
-  for (const page of open) await page.close();
+  for (const page of open) {
+    await tabs.quiet();
+    await page.close();
+  }
+  await tabs.quiet();
   const alone = await tabs.open("alone", id);
   await settle("reopened-alone", [alone]);
+  await tabs.quiet();
   await alone.close();
   // Closing the tabs strands any save they sent after the last wait, and a
   // gate may still be fetching its answer; the record must include it.

@@ -401,6 +401,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "للعرض فقط. تتبع هذه الصفحة ملفًا في GitHub وتتحدث بعد كل دفع.",
+  githubSourceOpenFile: "فتح في GitHub",
   textColor: "لون النص",
   backgroundColor: "لون الخلفية",
   defaultColor: "افتراضي",
@@ -420,8 +423,8 @@ const editor = {
   noDocumentSelected: "لم يتم تحديد أي مستند",
   registryBlockLoadError: "تعذر تحميل كتلة {{type}}: {{message}}",
   registryBlockUnreadable: "تعذرت قراءة مصدر الكتلة المحفوظ.",
-  blocksFieldRevisionConflict:
-    "تم تغيير حقل الكتل هذا في مكان آخر. لم يتم حفظ تعديلك؛ ويظهر الآن أحدث إصدار.",
+  blocksFieldEditMovedToEnd:
+    "تم تغيير حقل الكتل هذا في مكان آخر أيضًا. نُقل النص الذي كتبته في الموضع نفسه إلى نهاية الحقل.",
   reconcileConflict: "تم تغيير هذه الصفحة في مكان آخر. لم يتم حفظ تعديلاتك بعد.",
   reconcileFailed: "تعذّر دمج أحدث التغييرات. لم يتم حفظ تعديلاتك بعد.",
   reconcileSaveFailed: "تعذّر حفظ تعديلاتك. راجعها وحاول مرة أخرى.",
@@ -505,6 +508,7 @@ const editor = {
     imageDownloadStarted: "بدأ تنزيل الصورة.",
     imageLinkHint: "يعمل مع أي صورة من الويب",
     imagePreview: "معاينة الصورة",
+    imageUnavailable: "الصورة غير متاحة",
     imageView: "عرض الصورة",
     link: "رابط",
     loadingAssetsPicker: "جارٍ تحميل منتقي الأصول",
@@ -982,6 +986,7 @@ const comments = {
   openRowComments_few: "{{count}} تعليقات مفتوحة على {{title}}",
   openRowComments_many: "{{count}} تعليقًا مفتوحًا على {{title}}",
   openRowComments_other: "{{count}} تعليق مفتوح على {{title}}",
+  openRow: "فتح الصف",
   suggestions: "الاقتراحات",
   suggestionAdd: "إضافة",
   suggestionDelete: "حذف",
@@ -1007,6 +1012,10 @@ const comments = {
   accepted: "مقبولة",
   rejected: "مرفوضة",
   noFilteredComments: "لا توجد تعليقات مطابقة.",
+  tabFilter: "علامة التبويب",
+  allTabs: "كل علامات التبويب",
+  fieldRemoved: "{{name}} (محذوف)",
+  pageBody: "متن الصفحة",
 };
 
 const reviewDiscussions = {
@@ -1189,6 +1198,7 @@ const history = {
   historyGroupAgent: "تشغيل الوكيل",
   historyGroupHuman: "جلسة تحرير",
   historyGroupLegacy: "تعديلات سابقة",
+  historyGroupGitHub: "تمت المزامنة من GitHub",
   historyGroupOperation: "عملية",
   historyGroupRestore: "استعادة",
   historyLoadError: "تعذر تحميل سجل الإصدارات.",
@@ -1410,6 +1420,12 @@ const overrides = {
     addBlockField: "إضافة حقل",
     blockFieldChanged: "تغيّر منذ آخر مرة عرضته فيها",
     blockFieldTabs: "الحقول",
+    blockFieldOpenComments_zero: "{{count}} تعليق مفتوح",
+    blockFieldOpenComments_one: "{{count}} تعليق مفتوح",
+    blockFieldOpenComments_two: "{{count}} تعليقان مفتوحان",
+    blockFieldOpenComments_few: "{{count}} تعليقات مفتوحة",
+    blockFieldOpenComments_many: "{{count}} تعليقًا مفتوحًا",
+    blockFieldOpenComments_other: "{{count}} تعليق مفتوح",
     blockFieldMenu: "خيارات {{name}}",
     blockFieldMenuScope: "مشترك بين كل صفوف هذه المجموعة",
     blockFieldName: "اسم الحقل",

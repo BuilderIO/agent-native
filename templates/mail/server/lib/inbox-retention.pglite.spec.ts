@@ -1,0 +1,905 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The first PGlite boot can exceed the default hook timeout when the whole
+// suite runs in parallel.
+vi.setConfig({ hookTimeout: 60_000, testTimeout: 60_000 });
+
+const NOW = Date.UTC(2026, 9, 20);
+const HOUR = 60 * 60_000;
+const DAY = 24 * HOUR;
+
+type Stores = typeof import("./inbox-store.js");
+type Retention = typeof import("./inbox-retention.js");
+type Exec = { execute: (q: { sql: string; args?: unknown[] }) => Promise<any> };
+
+let stores: Stores;
+let retention: Retention;
+let exec: Exec;
+
+beforeEach(async () => {
+  vi.stubEnv("DATABASE_URL", "pglite:memory");
+  const [{ default: initializeMailDb }, core, storeModule, retentionModule] =
+    await Promise.all([
+      import("../plugins/db.js"),
+      import("@agent-native/core/db"),
+      import("./inbox-store.js"),
+      import("./inbox-retention.js"),
+    ]);
+  await initializeMailDb({});
+  exec = core.getDbExec() as unknown as Exec;
+  await exec.execute({
+    sql: `CREATE TABLE IF NOT EXISTS public.oauth_tokens (
+      provider TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      owner TEXT,
+      tokens TEXT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      revision BIGINT NOT NULL,
+      PRIMARY KEY (provider, account_id)
+    )`,
+  });
+  stores = storeModule;
+  retention = retentionModule;
+});
+
+afterEach(async () => {
+  const { closeDbExec } = await import("@agent-native/core/db");
+  await closeDbExec();
+  Reflect.deleteProperty(globalThis as object, "__agentNativePgliteClients");
+  Reflect.deleteProperty(
+    globalThis as object,
+    "__agentNativePgliteProcessLocks",
+  );
+  Reflect.deleteProperty(
+    globalThis as object,
+    "__agentNativePgliteProcessExitCleanupRegistered",
+  );
+  vi.unstubAllEnvs();
+  vi.resetModules();
+});
+
+function thread(
+  owner: string,
+  account: string,
+  threadId: string,
+  latestDate: number,
+  inInbox: boolean,
+) {
+  return {
+    ownerEmail: owner,
+    accountEmail: account,
+    threadId,
+    inInbox,
+    isUnread: false,
+    isStarred: false,
+    isImportant: false,
+    isAutomated: false,
+    latestDate,
+    latestMessageId: `${threadId}-m`,
+    subject: "subject",
+    snippet: "",
+    fromName: "",
+    fromEmail: "sender@example.com",
+    to: [],
+    labelIds: inInbox ? ["INBOX"] : [],
+    messageIds: [`${threadId}-m`],
+    messageCount: 1,
+    unreadCount: 0,
+    hasAttachments: false,
+    syncedAt: latestDate,
+  };
+}
+
+async function insertThreads(rows: ReturnType<typeof thread>[]) {
+  for (let i = 0; i < rows.length; i += 400) {
+    await stores.upsertInboxThreadRows(rows.slice(i, i + 400));
+  }
+}
+
+async function countRows(owner: string, account: string, inInbox?: 0 | 1) {
+  const { rows } = await exec.execute({
+    sql: `SELECT count(*)::int AS n FROM mail_inbox_threads
+      WHERE owner_email = $1 AND account_email = $2
+      ${inInbox === undefined ? "" : "AND in_inbox = $3"}`,
+    args: inInbox === undefined ? [owner, account] : [owner, account, inInbox],
+  });
+  return Number(rows[0].n);
+}
+
+async function setRowTimes(
+  threadId: string,
+  updatedAt: number,
+  localMutationAt: number | null = null,
+) {
+  await exec.execute({
+    sql: `UPDATE mail_inbox_threads SET updated_at = $1, local_mutation_at = $2 WHERE thread_id = $3`,
+    args: [updatedAt, localMutationAt, threadId],
+  });
+}
+
+describe("trimInboxThreadRows (PGlite)", () => {
+  it("keeps the newest in-inbox rows and never counts archived rows", async () => {
+    const owner = "owner@example.com";
+    const account = "acct@example.com";
+    const inbox = Array.from({ length: 2_050 }, (_, i) =>
+      thread(owner, account, `in-${i}`, 1_000_000 + i, true),
+    );
+    // Archived rows are newer than every inbox row, so they would win a
+    // latest_date-only cap and push inbox rows out.
+    const archived = Array.from({ length: 30 }, (_, i) =>
+      thread(owner, account, `arch-${i}`, 5_000_000 + i, false),
+    );
+    await insertThreads([...inbox, ...archived]);
+
+    const deleted = await stores.trimInboxThreadRows(owner, account);
+
+    expect(deleted).toBe(50);
+    expect(await countRows(owner, account, 1)).toBe(2_000);
+    expect(await countRows(owner, account, 0)).toBe(30);
+    const { rows } = await exec.execute({
+      sql: `SELECT min(latest_date)::bigint AS oldest FROM mail_inbox_threads
+        WHERE owner_email = $1 AND account_email = $2 AND in_inbox = 1`,
+      args: [owner, account],
+    });
+    expect(Number(rows[0].oldest)).toBe(1_000_050);
+  });
+
+  it("leaves another account's rows alone", async () => {
+    const owner = "owner@example.com";
+    await insertThreads([
+      ...Array.from({ length: 5 }, (_, i) =>
+        thread(owner, "a@example.com", `a-${i}`, 1_000 + i, true),
+      ),
+      ...Array.from({ length: 5 }, (_, i) =>
+        thread(owner, "b@example.com", `b-${i}`, 1_000 + i, true),
+      ),
+    ]);
+
+    await stores.trimInboxThreadRows(owner, "a@example.com", 2);
+
+    expect(await countRows(owner, "a@example.com")).toBe(2);
+    expect(await countRows(owner, "b@example.com")).toBe(5);
+  });
+});
+
+describe("tryDeleteInboxThreadRow (PGlite)", () => {
+  it("reports a row updated after the read as not removed, and an absent row as removed", async () => {
+    const owner = "o@example.com";
+    const account = "a@example.com";
+    await insertThreads([thread(owner, account, "t1", NOW, false)]);
+    await setRowTimes("t1", NOW + 1_000);
+
+    expect(
+      await stores.tryDeleteInboxThreadRow(owner, account, "t1", NOW),
+    ).toBe("skipped");
+    expect(await countRows(owner, account)).toBe(1);
+
+    expect(
+      await stores.tryDeleteInboxThreadRow(owner, account, "t1", NOW + 2_000),
+    ).toBe("removed");
+    expect(await countRows(owner, account)).toBe(0);
+    expect(
+      await stores.tryDeleteInboxThreadRow(owner, account, "t1", NOW + 2_000),
+    ).toBe("removed");
+  });
+});
+
+describe("purgeArchivedInboxThreadRows (PGlite)", () => {
+  it("deletes archived rows only once the grace window has passed", async () => {
+    const owner = "owner@example.com";
+    const account = "acct@example.com";
+    await insertThreads([
+      thread(owner, account, "expired", 1, false),
+      thread(owner, account, "recent", 2, false),
+      thread(owner, account, "fenced", 3, false),
+      thread(owner, account, "inbox", 4, true),
+    ]);
+    await setRowTimes("expired", NOW - HOUR);
+    await setRowTimes("recent", NOW - 5 * 60_000);
+    await setRowTimes("fenced", NOW - HOUR, NOW - 60_000);
+    await setRowTimes("inbox", NOW - DAY);
+
+    const deleted = await stores.purgeArchivedInboxThreadRows(
+      owner,
+      account,
+      NOW,
+    );
+
+    expect(deleted).toBe(1);
+    expect(await countRows(owner, account, 0)).toBe(2);
+    expect(await countRows(owner, account, 1)).toBe(1);
+  });
+});
+
+describe("runInboxRetention (PGlite)", () => {
+  async function seedAccount(
+    owner: string,
+    account: string,
+    opts: {
+      lastSyncedAt: number;
+      claimedAt?: number;
+      inboxRows?: number;
+    },
+  ) {
+    await stores.ensureSyncAccountRow(owner, account);
+    await stores.patchSyncAccount(owner, account, {
+      historyId: "42",
+      lastSyncedAt: opts.lastSyncedAt,
+      status: "idle",
+      ...(opts.claimedAt !== undefined
+        ? { syncClaimId: "live-claim", syncClaimedAt: opts.claimedAt }
+        : {}),
+    });
+    await insertThreads(
+      Array.from({ length: opts.inboxRows ?? 3 }, (_, i) =>
+        thread(owner, account, `${owner}-${i}`, NOW - i, true),
+      ),
+    );
+  }
+
+  it("clears inactive and disconnected accounts and keeps connected ones", async () => {
+    const connected = "oauth-acct@example.com";
+    await seedAccount("inactive@example.com", "inactive-acct@example.com", {
+      lastSyncedAt: NOW - 40 * DAY,
+    });
+    await seedAccount("gone@example.com", "gone-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    await seedAccount("managed@example.com", "managed-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    await seedAccount("unverified@example.com", "unverified-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    await seedAccount("oauth@example.com", connected, {
+      lastSyncedAt: NOW - HOUR,
+    });
+    await seedAccount("claimed@example.com", "claimed-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+      claimedAt: NOW - 1_000,
+    });
+    // An archived row older than the grace window on an inactive owner is
+    // removed by the purge before the rule pass runs.
+    await insertThreads([
+      thread(
+        "inactive@example.com",
+        "inactive-acct@example.com",
+        "old-arch",
+        9,
+        false,
+      ),
+    ]);
+    await setRowTimes("old-arch", NOW - HOUR);
+
+    await exec.execute({
+      sql: `INSERT INTO public.oauth_tokens (provider, account_id, owner, tokens, updated_at, revision)
+        VALUES ('google', $1, 'oauth@example.com', '{}', 1, 1)`,
+      args: [connected],
+    });
+
+    const resolveConnectedAccounts = vi.fn(async (owner: string) => {
+      if (owner === "managed@example.com") {
+        return {
+          accounts: ["managed-acct@example.com"],
+          errors: [],
+          verified: true,
+        };
+      }
+      if (owner === "unverified@example.com") {
+        return {
+          accounts: [],
+          errors: [{ email: "x", error: "managed lookup failed" }],
+          verified: false,
+        };
+      }
+      return { accounts: [], errors: [], verified: true };
+    });
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts,
+    });
+
+    expect(summary).toMatchObject({
+      pairs: 6,
+      archivedRowsRemoved: 1,
+      capRowsRemoved: 0,
+      capOwners: 0,
+      ruleRowsRemoved: 6,
+      ruleOwners: 2,
+      pairsReset: 2,
+      pairsSkippedClaimed: 1,
+      pairsSkippedUnverified: 1,
+    });
+    expect(
+      await countRows("inactive@example.com", "inactive-acct@example.com"),
+    ).toBe(0);
+    expect(await countRows("gone@example.com", "gone-acct@example.com")).toBe(
+      0,
+    );
+    expect(
+      await countRows("managed@example.com", "managed-acct@example.com"),
+    ).toBe(3);
+    expect(
+      await countRows("unverified@example.com", "unverified-acct@example.com"),
+    ).toBe(3);
+    expect(await countRows("oauth@example.com", connected)).toBe(3);
+    expect(
+      await countRows("claimed@example.com", "claimed-acct@example.com"),
+    ).toBe(3);
+
+    const { rows } = await exec.execute({
+      sql: `SELECT history_id, status, full_sync_listed_count FROM mail_sync_accounts
+        WHERE owner_email = $1`,
+      args: ["inactive@example.com"],
+    });
+    expect(rows[0]).toMatchObject({
+      history_id: null,
+      status: "idle",
+      full_sync_listed_count: 0,
+    });
+    // An owner whose only account has an OAuth grant is not a candidate, so
+    // the resolver is never consulted for it.
+    expect(resolveConnectedAccounts).not.toHaveBeenCalledWith(
+      "oauth@example.com",
+    );
+  });
+  const NO_GMAIL_SCOPE = JSON.stringify({
+    scope: "openid https://www.googleapis.com/auth/userinfo.email",
+  });
+  const noConnections = async () => ({
+    accounts: [],
+    errors: [],
+    verified: true,
+  });
+
+  async function addGoogleToken(
+    owner: string,
+    account: string,
+    tokens: string,
+  ) {
+    await exec.execute({
+      sql: `INSERT INTO public.oauth_tokens (provider, account_id, owner, tokens, updated_at, revision)
+        VALUES ('google', $1, $2, $3, 1, 1)`,
+      args: [account, owner, tokens],
+    });
+  }
+
+  it("treats a Google grant without a Gmail scope as disconnected", async () => {
+    await seedAccount("scoped@example.com", "scoped-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    await addGoogleToken(
+      "scoped@example.com",
+      "scoped-acct@example.com",
+      NO_GMAIL_SCOPE,
+    );
+    await seedAccount("mail@example.com", "mail-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    await addGoogleToken(
+      "mail@example.com",
+      "mail-acct@example.com",
+      JSON.stringify({
+        scope: "openid https://www.googleapis.com/auth/gmail.modify",
+      }),
+    );
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(summary).toMatchObject({ pairsReset: 1, ruleRowsRemoved: 3 });
+    expect(
+      await countRows("scoped@example.com", "scoped-acct@example.com"),
+    ).toBe(0);
+    expect(await countRows("mail@example.com", "mail-acct@example.com")).toBe(
+      3,
+    );
+  });
+
+  it("fences out the old worker when it takes over a stale claim", async () => {
+    await seedAccount("stale@example.com", "stale-acct@example.com", {
+      lastSyncedAt: NOW - 40 * DAY,
+      claimedAt: NOW - 10 * 60_000,
+    });
+
+    await stores.patchSyncAccount(
+      "stale@example.com",
+      "stale-acct@example.com",
+      {
+        archivePendingIds: ["t1", "t2"],
+        hydratePendingIds: ["t3"],
+      },
+    );
+    expect(
+      (await stores.readSyncAccounts("stale@example.com"))[0].archivePendingIds,
+    ).toEqual(["t1", "t2"]);
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(summary.pairsReset).toBe(1);
+    expect(
+      (await stores.readSyncAccounts("stale@example.com"))[0].archivePendingIds,
+    ).toEqual([]);
+    expect(
+      (await stores.readSyncAccounts("stale@example.com"))[0].hydratePendingIds,
+    ).toEqual([]);
+    await expect(
+      stores.withSyncClaim(
+        "stale@example.com",
+        "stale-acct@example.com",
+        "live-claim",
+        async () => "wrote",
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("does not clear an inactive pair whose owner synced after the scan", async () => {
+    await seedAccount("woke@example.com", "woke-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    const scanned = {
+      ownerEmail: "woke@example.com",
+      accountEmail: "woke-acct@example.com",
+      syncId: "woke@example.com:woke-acct@example.com",
+      inactive: true,
+      claimed: false,
+    };
+
+    expect(await retention.clearPair(scanned, NOW, true)).toBeNull();
+    expect(await countRows("woke@example.com", "woke-acct@example.com")).toBe(
+      3,
+    );
+
+    // The same pair cleared for a missing grant has no inactivity condition.
+    expect(await retention.clearPair(scanned, NOW, false)).toBe(3);
+  });
+  it("leaves a claimed pair's rows alone, so a concurrent archive cannot push valid rows over the cap", async () => {
+    const owner = "busy@example.com";
+    const account = "busy-acct@example.com";
+    await seedAccount(owner, account, {
+      lastSyncedAt: NOW - HOUR,
+      claimedAt: NOW - 1_000,
+      inboxRows: 0,
+    });
+    await addGoogleToken(owner, account, "{}");
+    await insertThreads(
+      Array.from({ length: 2_050 }, (_, i) =>
+        thread(owner, account, `busy-${i}`, 1_000_000 + i, true),
+      ),
+    );
+    // The live sync archives the 100 newest threads mid-pass.
+    await exec.execute({
+      sql: `UPDATE mail_inbox_threads SET in_inbox = 0, updated_at = $1
+        WHERE owner_email = $2 AND latest_date >= $3`,
+      args: [NOW, owner, 1_000_000 + 1_950],
+    });
+
+    const during = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(during).toMatchObject({ capRowsRemoved: 0, pairsSkippedTrim: 1 });
+    expect(await countRows(owner, account, 1)).toBe(1_950);
+
+    await stores.patchSyncAccount(owner, account, {
+      syncClaimId: null,
+      syncClaimedAt: null,
+    });
+    const after = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(after).toMatchObject({ capRowsRemoved: 0, pairsSkippedTrim: 0 });
+    expect(await countRows(owner, account, 1)).toBe(1_950);
+  });
+
+  it("trims an unclaimed pair to the newest rows in one pass", async () => {
+    const owner = "over@example.com";
+    const account = "over-acct@example.com";
+    await seedAccount(owner, account, {
+      lastSyncedAt: NOW - HOUR,
+      inboxRows: 0,
+    });
+    await addGoogleToken(owner, account, "{}");
+    await insertThreads(
+      Array.from({ length: 2_030 }, (_, i) =>
+        thread(owner, account, `over-${i}`, 1_000_000 + i, true),
+      ),
+    );
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(summary).toMatchObject({ capRowsRemoved: 30, capOwners: 1 });
+    expect(await countRows(owner, account, 1)).toBe(2_000);
+    expect((await stores.readSyncAccounts(owner))[0].inboxCapped).toBe(true);
+  });
+  it("invalidates a stale claim while trimming so the delayed worker cannot write after", async () => {
+    const owner = "delayed@example.com";
+    const account = "delayed-acct@example.com";
+    await seedAccount(owner, account, {
+      lastSyncedAt: NOW - HOUR,
+      claimedAt: NOW - 10 * 60_000,
+      inboxRows: 0,
+    });
+    await addGoogleToken(owner, account, "{}");
+    await insertThreads(
+      Array.from({ length: 2_030 }, (_, i) =>
+        thread(owner, account, `delayed-${i}`, 1_000_000 + i, true),
+      ),
+    );
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(summary).toMatchObject({ capRowsRemoved: 30 });
+    await expect(
+      stores.withSyncClaim(owner, account, "live-claim", async () => "wrote"),
+    ).rejects.toThrow();
+  });
+
+  it("sets a dead worker's account back to idle when taking over its stale claim", async () => {
+    const owner = "dead@example.com";
+    const account = "dead-acct@example.com";
+    await seedAccount(owner, account, {
+      lastSyncedAt: NOW - HOUR,
+      claimedAt: NOW - 10 * 60_000,
+      inboxRows: 0,
+    });
+    await addGoogleToken(owner, account, "{}");
+    await stores.patchSyncAccount(owner, account, { status: "syncing" });
+    // An error state is not the dead worker's to overwrite.
+    const errOwner = "err@example.com";
+    await seedAccount(errOwner, "err-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+      claimedAt: NOW - 10 * 60_000,
+      inboxRows: 0,
+    });
+    await addGoogleToken(errOwner, "err-acct@example.com", "{}");
+    await stores.patchSyncAccount(errOwner, "err-acct@example.com", {
+      status: "error",
+    });
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+    info.mockRestore();
+
+    const [taken] = await stores.readSyncAccounts(owner);
+    const [kept] = await stores.readSyncAccounts(errOwner);
+    expect(taken).toMatchObject({ status: "idle", syncClaimId: null });
+    expect(kept).toMatchObject({ status: "error", syncClaimId: null });
+  });
+
+  it("reports unreadable stored sync state as corrupt_state and keeps the raw value", async () => {
+    const owner = "corrupt@example.com";
+    const account = "corrupt-acct@example.com";
+    await stores.ensureSyncAccountRow(owner, account);
+    await exec.execute({
+      sql: `UPDATE mail_sync_accounts
+        SET archive_pending_ids_json = $1, sync_degraded_json = $2, history_id = $3
+        WHERE owner_email = $4`,
+      args: ["{not json", '{"hydrate":"x"}', "12ab", owner],
+    });
+
+    const [row] = await stores.readSyncAccounts(owner);
+
+    expect(row.archivePendingIds).toEqual([]);
+    expect(row.corrupt).toEqual({
+      history_id: "12ab",
+      archive_pending_ids_json: "{not json",
+      sync_degraded_json: '{"hydrate":"x"}',
+    });
+    const { statusFromRow } = await import("./inbox-status.js");
+    expect(statusFromRow(row).degraded).toEqual({
+      count: 3,
+      kind: "corrupt_state",
+    });
+
+    // Persisting the raw values lets a later read still report them.
+    await stores.patchSyncAccount(owner, account, {
+      corrupt: row.corrupt,
+      archivePendingIds: [],
+      degraded: null,
+    });
+    const [again] = await stores.readSyncAccounts(owner);
+    expect(again.corrupt.archive_pending_ids_json).toBe("{not json");
+  });
+
+  it("keeps one owner's rows when their connection lookup throws and cleans the rest", async () => {
+    await seedAccount("a-flaky@example.com", "flaky-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    await seedAccount("b-gone@example.com", "gone-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const resolveConnectedAccounts = vi.fn(async (owner: string) => {
+      if (owner === "a-flaky@example.com") throw new Error("lookup down");
+      return { accounts: [], errors: [], verified: true };
+    });
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts,
+    });
+
+    expect(summary).toMatchObject({
+      pairsReset: 1,
+      pairsSkippedUnverified: 1,
+      resolverErrors: 1,
+    });
+    expect(
+      await countRows("a-flaky@example.com", "flaky-acct@example.com"),
+    ).toBe(3);
+    expect(await countRows("b-gone@example.com", "gone-acct@example.com")).toBe(
+      0,
+    );
+    warn.mockRestore();
+  });
+
+  it("stops at the deadline and resumes after the last finished account", async () => {
+    for (const name of ["a", "b", "c"]) {
+      await seedAccount(
+        `${name}-gone@example.com`,
+        `${name}-acct@example.com`,
+        {
+          lastSyncedAt: NOW - HOUR,
+        },
+      );
+    }
+    // The clock passes the deadline while the first account is processed.
+    const deadlineAt = Date.now() + 60_000;
+    let clock: ReturnType<typeof vi.spyOn> | undefined;
+    const first = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: async (owner: string) => {
+        if (owner === "a-gone@example.com") {
+          clock = vi.spyOn(Date, "now").mockReturnValue(deadlineAt + 1);
+        }
+        return { accounts: [], errors: [], verified: true };
+      },
+      deadlineAt,
+    });
+    clock?.mockRestore();
+
+    expect(first).toMatchObject({ partial: true, pairsReset: 1 });
+    expect(first.resumeAfter).toBe("a-gone@example.com:a-acct@example.com");
+    expect(await countRows("c-gone@example.com", "c-acct@example.com")).toBe(3);
+
+    const second = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+      after: first.resumeAfter!,
+    });
+
+    expect(second).toMatchObject({ partial: false, pairs: 2, pairsReset: 2 });
+    expect(await countRows("c-gone@example.com", "c-acct@example.com")).toBe(0);
+  });
+  it("keeps a failing pair's rows, counts the failure by kind, and carries on with the rest", async () => {
+    await seedAccount("a-ok@example.com", "a-acct@example.com", {
+      lastSyncedAt: NOW - 40 * DAY,
+    });
+    await seedAccount("b-bad@example.com", "b-acct@example.com", {
+      lastSyncedAt: NOW - 40 * DAY,
+    });
+    await seedAccount("c-ok@example.com", "c-acct@example.com", {
+      lastSyncedAt: NOW - 40 * DAY,
+    });
+    const real = stores.purgeArchivedInboxThreadRows;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const purge = vi
+      .spyOn(stores, "purgeArchivedInboxThreadRows")
+      .mockImplementation(async (owner, account, at, db) => {
+        if (owner === "b-bad@example.com") {
+          throw Object.assign(new Error("deadlock for b-bad@example.com"), {
+            code: "40P01",
+          });
+        }
+        return real(owner, account, at, db);
+      });
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+    purge.mockRestore();
+
+    expect(summary).toMatchObject({
+      pairsFailed: 1,
+      failureKinds: { "40P01": 1 },
+      pairsReset: 2,
+      partial: false,
+    });
+    expect(JSON.stringify(summary)).not.toContain("b-bad@example.com");
+    expect(await countRows("a-ok@example.com", "a-acct@example.com")).toBe(0);
+    expect(await countRows("b-bad@example.com", "b-acct@example.com")).toBe(3);
+    expect(await countRows("c-ok@example.com", "c-acct@example.com")).toBe(0);
+    warn.mockRestore();
+  });
+  describe("paged passes", () => {
+    const names = ["a", "b", "c", "d", "e"];
+    const syncId = (name: string) =>
+      `${name}-gone@example.com:${name}-acct@example.com`;
+    const rows = (name: string) =>
+      countRows(`${name}-gone@example.com`, `${name}-acct@example.com`);
+
+    async function seedFive() {
+      for (const name of names) {
+        await seedAccount(
+          `${name}-gone@example.com`,
+          `${name}-acct@example.com`,
+          {
+            lastSyncedAt: NOW - HOUR,
+          },
+        );
+      }
+    }
+
+    it("stops mid-page at the deadline, then resumes from the cursor over later pages", async () => {
+      await seedFive();
+      const deadlineAt = Date.now() + 60_000;
+      let clock: ReturnType<typeof vi.spyOn> | undefined;
+      const saved: string[] = [];
+
+      const first = await retention.runInboxRetention({
+        now: NOW,
+        pageSize: 3,
+        deadlineAt,
+        onPageDone: async (after) => {
+          saved.push(after);
+        },
+        resolveConnectedAccounts: async (owner: string) => {
+          // The clock passes the deadline while the second account is handled.
+          if (owner === "b-gone@example.com") {
+            clock = vi.spyOn(Date, "now").mockReturnValue(deadlineAt + 1);
+          }
+          return { accounts: [], errors: [], verified: true };
+        },
+      });
+      clock?.mockRestore();
+
+      expect(first).toMatchObject({ partial: true, pairs: 3, pairsReset: 2 });
+      expect(first.resumeAfter).toBe(syncId("b"));
+      expect(saved).toEqual([]);
+      expect(await rows("c")).toBe(3);
+
+      const second = await retention.runInboxRetention({
+        now: NOW,
+        pageSize: 3,
+        after: first.resumeAfter!,
+        onPageDone: async (after) => {
+          saved.push(after);
+        },
+        resolveConnectedAccounts: noConnections,
+      });
+
+      expect(second).toMatchObject({ partial: false, pairs: 3, pairsReset: 3 });
+      expect(saved).toEqual([syncId("e")]);
+      for (const name of names) expect(await rows(name)).toBe(0);
+    });
+
+    it("stops on a page boundary without reading the next page", async () => {
+      await seedFive();
+      const deadlineAt = Date.now() + 60_000;
+      let clock: ReturnType<typeof vi.spyOn> | undefined;
+
+      const summary = await retention.runInboxRetention({
+        now: NOW,
+        pageSize: 2,
+        deadlineAt,
+        onPageDone: async () => {
+          clock = vi.spyOn(Date, "now").mockReturnValue(deadlineAt + 1);
+        },
+        resolveConnectedAccounts: noConnections,
+      });
+      clock?.mockRestore();
+
+      expect(summary).toMatchObject({ partial: true, pairs: 2, pairsReset: 2 });
+      expect(summary.resumeAfter).toBe(syncId("b"));
+      expect(await rows("c")).toBe(3);
+    });
+  });
+  it("keeps every row of an owner whose connection lookup was not positively verified", async () => {
+    await seedAccount("cron@example.com", "cron-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    // What a cron sweep with no org context sees for a managed connection.
+    const resolveConnectedAccounts = vi.fn(async () => ({
+      accounts: [],
+      errors: [],
+      verified: false,
+    }));
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts,
+    });
+
+    expect(summary).toMatchObject({
+      pairsReset: 0,
+      pairsSkippedUnverified: 1,
+    });
+    expect(await countRows("cron@example.com", "cron-acct@example.com")).toBe(
+      3,
+    );
+  });
+  it("keeps the raw value of a malformed pending list when queueing more ids", async () => {
+    const owner = "append@example.com";
+    const account = "append-acct@example.com";
+    await stores.ensureSyncAccountRow(owner, account);
+    await stores.patchSyncAccount(owner, account, {
+      syncClaimId: "claim-a",
+      syncClaimedAt: NOW,
+    });
+    await exec.execute({
+      sql: `UPDATE mail_sync_accounts
+        SET hydrate_pending_ids_json = $1, labels_json = $2
+        WHERE owner_email = $3`,
+      args: ['["t0", 7', "not labels", owner],
+    });
+
+    await stores.appendHydratePendingIds(owner, account, "claim-a", ["t1"]);
+
+    const [row] = await stores.readSyncAccounts(owner);
+    expect(row.hydratePendingIds).toEqual(["t1"]);
+    // The bad raw value is kept, not silently replaced by an empty list.
+    expect(row.corrupt).toMatchObject({
+      hydrate_pending_ids_json: '["t0", 7',
+      labels_json: "not labels",
+    });
+    expect(row.labels).toBeNull();
+    const { statusFromRow } = await import("./inbox-status.js");
+    expect(statusFromRow(row).degraded).toMatchObject({
+      kind: "corrupt_state",
+    });
+  });
+  it("aborts a disconnected-account clear when the owner reconnected after the lookup", async () => {
+    await seedAccount("racer@example.com", "racer-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    let reconnected = false;
+    const resolveConnectedAccounts = vi.fn(async () => ({
+      accounts: [],
+      errors: [],
+      verified: true,
+      // Evaluated inside the clear transaction, after the lookup returned.
+      stillCurrent: async () => !reconnected,
+    }));
+    reconnected = true;
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts,
+    });
+
+    expect(summary).toMatchObject({ pairsReset: 0, pairsSkippedActive: 1 });
+    expect(await countRows("racer@example.com", "racer-acct@example.com")).toBe(
+      3,
+    );
+
+    reconnected = false;
+    const again = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts,
+    });
+    expect(again).toMatchObject({ pairsReset: 1 });
+    expect(await countRows("racer@example.com", "racer-acct@example.com")).toBe(
+      0,
+    );
+  });
+});

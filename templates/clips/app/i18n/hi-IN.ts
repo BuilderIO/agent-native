@@ -1794,7 +1794,7 @@ const messages = {
     unmuteMicrophone: "माइक चालू करें",
     uploadVideo: "Upload video (स्थानीयकृत)",
     takeScreenshot: "स्क्रीनशॉट लें",
-    importLoom: "Import Loom (स्थानीयकृत)",
+    importLoom: "वीडियो आयात करें",
     importing: "Importing... (स्थानीयकृत)",
     import: "Import (स्थानीयकृत)",
     recordNew: "नई रिकॉर्डिंग",
@@ -1931,6 +1931,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (स्थानीयकृत)",
     couldNotStartRecording: "Could not start recording (स्थानीयकृत)",
+    intakeStorageUnavailable:
+      "इस लिंक से रिकॉर्ड करने से पहले इसके मालिक को वीडियो स्टोरेज कनेक्ट करना होगा। उनसे स्टोरेज कनेक्ट करने को कहें, फिर दोबारा कोशिश करें।",
+    streamingStorageUnavailable:
+      "मौजूदा स्टोरेज Clips के लिए ज़रूरी resumable upload का समर्थन नहीं करता। संगत प्रदाता सेट करें या workspace के owner या admin से ऐसा करने को कहें, फिर नई रिकॉर्डिंग शुरू करें।",
     couldNotStartRecorder: "Could not start recorder (स्थानीयकृत)",
     openSettings: "Open settings (स्थानीयकृत)",
     openedRecorderInNewTab: "Opened recorder in a new tab (स्थानीयकृत)",
@@ -1964,6 +1968,8 @@ const messages = {
     sessionExpired: "Session expired (स्थानीयकृत)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (स्थानीयकृत)",
+    accountMismatch:
+      "रिकॉर्डिंग की तैयारी शुरू होने के बाद आपका साइन-इन खाता बदल गया। जिस खाते से आपने शुरुआत की थी, उस पर वापस जाएँ और फिर कोशिश करें।",
     logIn: "Log in (स्थानीयकृत)",
     betterInDesktop: "Better in the desktop app (स्थानीयकृत)",
     desktopAppDescription:
@@ -1977,8 +1983,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (स्थानीयकृत)",
     retryUpload: "अपलोड फिर से आज़माएँ",
     tryAgain: "फिर से कोशिश करें",
-    storageConnectedReopeningRecorder:
-      "स्टोरेज कनेक्ट हो गया। रिकॉर्डर फिर से खोला जा रहा है...",
+    storageConnectedRecorderReady:
+      "स्टोरेज कनेक्ट हो गया। तैयार होने पर नई रिकॉर्डिंग शुरू करें।",
     connectStorageToFinish:
       "अगली स्क्रीन पर Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) इस्तेमाल करें या S3-संगत स्टोरेज कॉन्फ़िगर करें। Clips सेव पूरा करेगा।",
     connectStorageToRetryLoom:
@@ -2043,8 +2049,8 @@ const messages = {
       "यह रिकॉर्डिंग अभी प्रोसेस हो रही है, इसलिए Clips ने आपकी कॉपी यहाँ रखी है। इंतज़ार करें या इसे फिर से अपलोड करें।",
   },
   importRoute: {
-    pageTitle: "Loom आयात करें — Clips",
-    title: "Loom आयात करें",
+    pageTitle: "वीडियो आयात करें — Clips",
+    title: "वीडियो आयात करें",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "आयात करें",
     helperText:

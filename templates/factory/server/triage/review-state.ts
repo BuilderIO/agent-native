@@ -53,7 +53,11 @@ export function statusAfterTriageSourceUpdate(
   sourceChanged: boolean,
   reviewStatus: string,
 ): string {
-  if (existingStatus === "resolved") return "resolved";
+  // A person's or a workflow's decision to take an item out of the queue
+  // outlives a later edit to the provider's copy of it.
+  if (existingStatus === "resolved" || existingStatus === "dismissed") {
+    return existingStatus;
+  }
   return sourceChanged ? reviewStatus : (existingStatus ?? reviewStatus);
 }
 

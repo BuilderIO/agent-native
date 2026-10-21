@@ -9,6 +9,7 @@ import { installBuiltinDashboardOnce } from "../server/lib/builtin-dashboards.js
 import {
   contentCollectionConfigSchema,
   searchConsoleSiteSchema,
+  signupsSettingsUpdateSchema,
   storedSearchConsoleSiteSchema,
 } from "../server/lib/content-metrics/config.js";
 import { readContentCollectionStatus } from "../server/lib/content-metrics/status.js";
@@ -49,9 +50,14 @@ export default defineAction({
       .describe(
         'Search Console properties to collect, replacing the saved list, e.g. [{"siteUrl":"sc-domain:example.com","pathPrefix":"/blog/"}].',
       ),
+    signups: signupsSettingsUpdateSchema
+      .optional()
+      .describe(
+        "Per-article signups settings, merged into the saved ones: enabled, signupEventsTable and firstPageviewsTable (project.dataset.table), signupSource (its signups are also counted on their own, as Source signups), signupsSince (YYYY-MM-DD) and maxBytesBilled. The step stays not set up until all are set; measure maxBytesBilled with estimate-content-signups-cost, and get it approved before turning the step on, since every run scans the warehouse.",
+      ),
   }),
   run: async (
-    { enabled, builderBlog, ga4, searchConsole, searchConsoleSites },
+    { enabled, builderBlog, ga4, searchConsole, searchConsoleSites, signups },
     ctx,
   ) => {
     const admin = await requireAnalyticsAdminContext({
@@ -71,6 +77,7 @@ export default defineAction({
         enabled: searchConsole ?? saved.searchConsole.enabled,
         sites: searchConsoleSites ?? saved.searchConsole.sites,
       },
+      signups: { ...saved.signups, ...signups },
     });
     if (enabled && config.searchConsole.enabled) {
       z.array(searchConsoleSiteSchema)

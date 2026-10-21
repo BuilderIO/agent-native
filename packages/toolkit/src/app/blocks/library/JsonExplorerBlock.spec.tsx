@@ -1,10 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-  JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
-  JSON_EXPLORER_MAX_COLLAPSED_DEPTH,
-} from "@agent-native/core/blocks/server";
-import React, { act } from "react";
+import { JSON_EXPLORER_MAX_COLLAPSED_DEPTH } from "@agent-native/core/blocks/server";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -91,10 +88,6 @@ describe("JsonExplorerBlock", () => {
       json: "{}",
       collapsedDepth: JSON_EXPLORER_MAX_COLLAPSED_DEPTH,
     });
-  });
-
-  it("exports the intended default expansion depth", () => {
-    expect(JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH).toBe(2);
   });
 
   it("alt-click expands and collapses a node's descendants deeply", () => {

@@ -8,6 +8,7 @@ import {
   resolveSourceWorkspace,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   applySourceEdit,
   previewSourceDiff,
@@ -83,6 +84,7 @@ export default defineAction({
       fileId: file.id,
       backendKind: "virtual-inline",
       changed: write.changed,
+      _receipt: designOutputWriteReceipt(designId, write.changed ? 1 : 0),
       editsApplied: next.editsApplied,
       versionHash: write.versionHash,
       updatedAt: write.updatedAt,

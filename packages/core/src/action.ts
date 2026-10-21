@@ -64,6 +64,33 @@ import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
+export {
+  ACTION_RECEIPT_SCHEMA_VERSION,
+  DOMAIN_EVENT_CONTENT_TYPE,
+  DOMAIN_EVENT_SPEC_VERSION,
+  ActionReceiptValidationError,
+  assertActionDomainEvent,
+  assertActionReceipt,
+  commitAction,
+  createActionDomainEvent,
+  parseActionDomainEvent,
+  parseActionReceipt,
+  serializeActionDomainEvent,
+  serializeActionReceipt,
+} from "./action-receipt.js";
+export type {
+  ActionAtomicAdapter,
+  ActionAtomicContext,
+  ActionAtomicOutcome,
+  ActionDomainEvent,
+  ActionDomainEventDraft,
+  ActionDomainEventReference,
+  ActionJsonPrimitive,
+  ActionJsonValue,
+  ActionReceipt,
+  ActionReceiptProvenance,
+  CommitActionOptions,
+} from "./action-receipt.js";
 export { ACTION_EXECUTION_KEY };
 
 /**
@@ -2349,6 +2376,30 @@ export function preparedCallArguments(call: PreparedActionCall): unknown {
     );
   }
   return copyActionArguments(prepared.snapshot);
+}
+
+/**
+ * Whether `call` needs a person's approval before it runs, by the action's
+ * `needsApproval`. Every surface that can run an action decides with this, so
+ * a predicate means the same thing to the agent loop, MCP, and HTTP.
+ */
+export async function preparedCallNeedsApproval(
+  entry: {
+    needsApproval?:
+      | boolean
+      | ((args: any, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  },
+  call: PreparedActionCall,
+  ctx: ActionRunContext,
+): Promise<boolean> {
+  const gate = entry.needsApproval;
+  if (typeof gate !== "function") return gate === true;
+  try {
+    return Boolean(await gate(preparedCallArguments(call), ctx));
+  } catch {
+    // coercion-ok: a predicate that cannot decide fails closed and asks.
+    return true;
+  }
 }
 
 /**
