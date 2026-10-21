@@ -48,6 +48,7 @@ import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
@@ -18877,6 +18878,40 @@ describe("runAgentLoop", () => {
     };
     return { engine, streamCalls: () => streamCalls };
   };
+
+  it("keeps the approval gate of an action the dev server loads from its actions folder", async () => {
+    const { engine } = approvalEngine();
+    const handler = vi.fn(async () => "delivered");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": filesystemActionEntry(
+          defineAction({
+            description: "Send an email",
+            schema: z.object({ to: z.string() }),
+            needsApproval: true,
+            run: handler,
+          }),
+        ),
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval_required",
+        tool: "send-email",
+      }),
+    );
+  });
 
   it("runs an action WITHOUT needsApproval normally (no approval_required)", async () => {
     const { engine } = approvalEngine();
