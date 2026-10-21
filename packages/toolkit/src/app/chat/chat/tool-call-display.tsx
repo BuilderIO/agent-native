@@ -1855,17 +1855,18 @@ export function WorkedForSummary({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="agent-kit-density flex items-center gap-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
+        className="agent-kit-density flex w-full items-center gap-1 rounded-lg p-3 text-left text-muted-foreground transition-colors hover:text-foreground"
       >
-        <span className={cn(isRunning && "agent-running-shimmer")}>
-          {label}
-        </span>
         <IconChevronRight
+          aria-hidden="true"
           className={cn(
-            "size-3.5 shrink-0 transition-transform",
+            "size-4 shrink-0 transition-transform",
             open && "rotate-90",
           )}
         />
+        <span className={cn(isRunning && "agent-running-shimmer")}>
+          {label}
+        </span>
       </button>
       <AnimatedCollapse open={open}>
         <WorkSummaryContentContext.Provider value>

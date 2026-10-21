@@ -2795,6 +2795,22 @@ describe("WorkedForSummary", () => {
     expect(container.textContent).toContain("Worked for 5m");
   });
 
+  it("keeps the disclosure chevron before the duration label", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={5_000}>
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    const button = container.querySelector("button[aria-expanded]");
+    expect(button?.children[0]?.tagName.toLowerCase()).toBe("svg");
+    expect(button?.children[1]?.textContent).toBe("Worked for 5s");
+    expect(button?.className).toContain("gap-1");
+    expect(button?.className).toContain("p-3");
+  });
+
   it("applies the running shimmer while the work summary is live", () => {
     act(() => {
       root.render(
