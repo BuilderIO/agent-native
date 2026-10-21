@@ -541,6 +541,28 @@ describe("listWorkspaceApps", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not hide an organization lookup failure behind manifest apps", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+    mocks.getOrgDomain.mockRejectedValueOnce(new Error("database unavailable"));
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-1" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_org_domain_unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("binds hosted registry tokens to the mounted Dispatch path", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(

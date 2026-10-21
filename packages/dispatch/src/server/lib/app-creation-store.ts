@@ -2114,6 +2114,9 @@ export async function listWorkspaceApps(
   if (gatewayApps) {
     return finalize(gatewayApps.apps);
   }
+  if (gatewayDenial && gatewayDenial.statusCode >= 500) {
+    throw gatewayDenial;
+  }
   const unverified = gatewayDenial !== null;
 
   const workspaceRoot = findWorkspaceRoot();
