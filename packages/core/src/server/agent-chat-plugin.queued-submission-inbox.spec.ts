@@ -19,6 +19,7 @@ const inboxHarness = vi.hoisted(() => ({
     | ((runId: string, reason: string) => Promise<boolean>)
     | null,
   turnAbort: null as ((runId: string, reason: string) => Promise<void>) | null,
+  receiptReads: [] as Array<[string, string]>,
 }));
 
 vi.mock("./framework-request-handler.js", async (importOriginal) => {
@@ -73,6 +74,17 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
     await importOriginal<typeof import("../chat-threads/store.js")>();
   return {
     ...actual,
+    getQueuedSubmissionReceiptStatus: async (
+      threadId: string,
+      messageId: string,
+    ) => {
+      inboxHarness.receiptReads.push([threadId, messageId]);
+      return actual.getQueuedSubmissionReceiptStatus(threadId, messageId);
+    },
+    getQueuedSubmissionReceipt: async (threadId: string, messageId: string) => {
+      inboxHarness.receiptReads.push([threadId, messageId]);
+      return actual.getQueuedSubmissionReceipt(threadId, messageId);
+    },
     recordQueuedSubmissionInterruptRun: async (
       input: Parameters<typeof actual.recordQueuedSubmissionInterruptRun>[0],
     ) => {
@@ -271,6 +283,7 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.afterInterruptRunRecorded = null;
     inboxHarness.safeAbort = null;
     inboxHarness.turnAbort = null;
+    inboxHarness.receiptReads.length = 0;
     vi.mocked(getRunById).mockReset();
     vi.mocked(getRunById).mockResolvedValue(null);
   });
@@ -282,6 +295,51 @@ describe("queued submission inbox recurring sweep", () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
+
+  it("reads queued receipt status only after resolving thread access", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    await createThread("user@example.com", { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: "Queued work" },
+      },
+      { actor: { email: "user@example.com", anonymous: false } },
+    );
+
+    const h3App = createApp();
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: { hook: vi.fn() },
+    });
+    await sweepHarness.initPromises.at(-1);
+
+    const receiptPath = (id: string) =>
+      `http://example.test/_agent-native/agent-chat/threads/${encodeURIComponent(id)}/queue/${encodeURIComponent(messageId)}/receipt`;
+    const response = await h3App.fetch(new Request(receiptPath(threadId)));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ state: "queued" });
+    expect(inboxHarness.receiptReads).toEqual([[threadId, messageId]]);
+
+    const inaccessibleThreadId = `thread-${randomUUID()}`;
+    await createThread("another-user@example.com", {
+      id: inaccessibleThreadId,
+    });
+    const inaccessibleResponse = await h3App.fetch(
+      new Request(receiptPath(inaccessibleThreadId)),
+    );
+    expect(inaccessibleResponse.status).toBe(404);
+    expect(inboxHarness.receiptReads).toEqual([[threadId, messageId]]);
+  }, 20_000);
 
   it("keeps a delayed receipt as a per-thread drain barrier", async () => {
     const threadId = `thread-${randomUUID()}`;

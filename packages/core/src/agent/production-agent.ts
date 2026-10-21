@@ -5,7 +5,6 @@ import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
-  MAX_AGENT_REQUEST_ATTACHMENTS,
   parseQueueMessageInput,
   persistableFilePart,
   fingerprintAgentSubmissionAttachment,
@@ -11526,9 +11525,11 @@ async function queueableAttachments(
       storageUploadFailed?: unknown;
     };
     const mediaType =
-      typeof attachment.contentType === "string"
+      typeof attachment.contentType === "string" && attachment.contentType
         ? attachment.contentType
-        : undefined;
+        : typeof attachment.mediaType === "string"
+          ? attachment.mediaType
+          : undefined;
     const inlineData =
       typeof attachment.data === "string"
         ? attachment.data
@@ -11602,9 +11603,7 @@ function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
 function validateQueuedPromotionRequestAttachments(
   value: unknown,
 ): Record<string, unknown>[] | null {
-  if (!Array.isArray(value) || value.length > MAX_AGENT_REQUEST_ATTACHMENTS) {
-    return null;
-  }
+  if (!Array.isArray(value)) return null;
 
   let totalDataChars = 0;
   const attachments: Record<string, unknown>[] = [];
@@ -11661,7 +11660,8 @@ function validateQueuedPromotionRequestAttachments(
   return attachments;
 }
 
-async function readAdmittedQueuedMessagePromotion(opts: {
+/** @internal exported for unit tests only */
+export async function readAdmittedQueuedMessagePromotion(opts: {
   ownerEmail: string | null;
   orgId: string | null;
   threadId?: string;
@@ -11763,6 +11763,7 @@ async function readAdmittedQueuedMessagePromotion(opts: {
   parseQueueMessageInput(
     { ...queuedMessage, threadId: opts.threadId },
     "queuedMessagePromotion",
+    { allowLegacyQueueCount: true },
   );
 
   return {
@@ -12927,6 +12928,17 @@ export function createProductionAgentHandler(
         return null;
       }
 
+      const { resolveThreadAccess } = await import("../chat-threads/store.js");
+      const accessibleThread = await resolveThreadAccess(
+        ownerEmail,
+        threadId,
+        "editor",
+        { orgId: getRequestOrgId() ?? undefined },
+      );
+      if (!accessibleThread) {
+        setResponseStatus(event, 404);
+        return { error: "Thread not found" };
+      }
       const attachmentsForQueue = await queueableAttachments(
         requestAttachments,
         ownerEmail,
@@ -12996,21 +13008,8 @@ export function createProductionAgentHandler(
         };
       }
 
-      const {
-        mutateThreadQueuedMessages,
-        resolveThreadAccess,
-        QueuedSubmissionAdmissionError,
-      } = await import("../chat-threads/store.js");
-      const accessibleThread = await resolveThreadAccess(
-        ownerEmail,
-        threadId,
-        "editor",
-        { orgId: getRequestOrgId() ?? undefined },
-      );
-      if (!accessibleThread) {
-        setResponseStatus(event, 404);
-        return { error: "Thread not found" };
-      }
+      const { mutateThreadQueuedMessages, QueuedSubmissionAdmissionError } =
+        await import("../chat-threads/store.js");
       const requestContext = getRequestContext();
       const actor = {
         email: requestContext?.userEmail ?? ownerEmail,

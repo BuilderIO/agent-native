@@ -57,6 +57,7 @@ import {
   deleteThread,
   forkThread,
   getQueuedSubmissionReceipt,
+  getQueuedSubmissionReceiptStatus,
   getThreadByShareToken,
   hashQueuedSubmissionPayload,
   grantThreadUserShare,
@@ -2988,6 +2989,74 @@ describe("chat thread store", () => {
     ]);
   });
 
+  it("reuses the persisted upload for a matching queued attachment retry", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "queued-upload-retry",
+      text: "Inspect the report",
+      attachments: [
+        {
+          type: "file" as const,
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          fingerprint: "d".repeat(64),
+        },
+      ],
+    };
+    const originalMessage = {
+      id: submissionPayload.id,
+      threadId: "thread-1",
+      text: submissionPayload.text,
+      attachments: [
+        {
+          type: "file",
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          url: "https://files.example.test/first-upload.pdf",
+        },
+      ],
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      {
+        type: "append",
+        message: originalMessage,
+        hashInput: submissionPayload,
+      },
+      { actor },
+    );
+
+    const retried = await mutateThreadQueuedMessages(
+      "thread-1",
+      {
+        type: "append",
+        message: {
+          ...originalMessage,
+          attachments: [
+            {
+              ...originalMessage.attachments[0],
+              url: "https://files.example.test/retry-upload.pdf",
+            },
+          ],
+        },
+        hashInput: submissionPayload,
+      },
+      { actor },
+    );
+
+    expect(retried?.message).toEqual(originalMessage);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      originalMessage,
+    ]);
+    expect(
+      await getQueuedSubmissionReceipt("thread-1", submissionPayload.id),
+    ).toMatchObject({
+      state: "queued",
+      payloadHash: hashQueuedSubmissionPayload("thread-1", submissionPayload),
+    });
+  });
+
   it("restores a missing queue mirror from its receipt and preserves the original payload hash", async () => {
     const actor = { email: "user@example.com", anonymous: false };
     const submissionPayload = {
@@ -3470,6 +3539,44 @@ describe("chat thread store", () => {
     expect(claim?.submissionExpired).toBe(true);
     expect(claim?.claimedMessage).toBeUndefined();
     expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+  });
+
+  it("reports an expired queued receipt without waiting for the inbox sweep", async () => {
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const messageId = "queued-receipt-status-expiry";
+    try {
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: {
+            id: messageId,
+            threadId: "thread-1",
+            text: "Retry the prompt",
+            metadata: {
+              custom: {
+                [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 11_000,
+              },
+            },
+          },
+        },
+        { actor: { email: "user@example.com", anonymous: false } },
+      );
+
+      await expect(
+        getQueuedSubmissionReceiptStatus("thread-1", messageId),
+      ).resolves.toEqual({ state: "queued" });
+      now.mockReturnValue(11_000);
+      await expect(
+        getQueuedSubmissionReceiptStatus("thread-1", messageId),
+      ).resolves.toEqual({ state: "expired" });
+      await expect(
+        getQueuedSubmissionReceipt("thread-1", messageId),
+      ).resolves.toMatchObject({ state: "queued" });
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("anchors a queued retry lifetime to server time before persisting it", async () => {

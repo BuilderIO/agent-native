@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+  MAX_AGENT_REQUEST_ATTACHMENTS,
   fingerprintAgentSubmissionAttachment,
 } from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
@@ -99,6 +100,7 @@ import {
   endsAtContinuationBoundary,
   preloadPlanModeEngineTools,
   queuedPromotionAttachments,
+  readAdmittedQueuedMessagePromotion,
   normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
   readPersistedAllowedActionNames,
@@ -1310,6 +1312,71 @@ describe("queuedPromotionAttachments", () => {
     ]);
 
     expect(attachment?.type).toBe("image");
+  });
+});
+
+describe("readAdmittedQueuedMessagePromotion", () => {
+  it("accepts persisted queues above the current attachment limit", async () => {
+    const threadId = "thread-legacy-queued-attachments";
+    const messageId = "queued-legacy-attachments";
+    const attachments = Array.from(
+      { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+      (_, index) => ({
+        type: "file",
+        name: `file-${index}.pdf`,
+        mediaType: "application/pdf",
+        url: `https://files.example.test/file-${index}.pdf`,
+      }),
+    );
+    const requestAttachments = Array.from(
+      { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+      (_, index) => ({
+        type: "image",
+        name: `image-${index}.png`,
+        contentType: "image/png",
+        url: `https://files.example.test/image-${index}.png`,
+      }),
+    );
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: threadId,
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: messageId,
+              text: "Use the legacy attachments",
+              attachments,
+              requestAttachments,
+              promotionClaim: {
+                id: "claim-legacy-attachments",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+
+    try {
+      const promoted = await readAdmittedQueuedMessagePromotion({
+        ownerEmail: "alice@example.com",
+        orgId: "acme",
+        threadId,
+        messageId,
+        claimId: "claim-legacy-attachments",
+        message: "Use the legacy attachments",
+        continuationRequested: false,
+      });
+
+      expect(promoted?.attachments).toHaveLength(
+        MAX_AGENT_REQUEST_ATTACHMENTS + 1,
+      );
+      expect(promoted?.requestAttachments).toHaveLength(
+        MAX_AGENT_REQUEST_ATTACHMENTS + 1,
+      );
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
   });
 });
 
@@ -4591,6 +4658,90 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("does not upload queued attachments when the thread is inaccessible", async () => {
+    const threadId = "thread-inaccessible-queued-upload";
+    const messageId = "message-inaccessible-queued-upload";
+    const attachment = {
+      type: "image" as const,
+      name: "chart.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${PNG_BASE64}`,
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Review this chart",
+      requestAttachments: [
+        {
+          type: "image" as const,
+          name: attachment.name,
+          contentType: attachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(attachment),
+        },
+      ],
+    };
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const upload = vi
+      .spyOn(fileUploadRegistry, "uploadFile")
+      .mockResolvedValue({
+        url: "https://files.example.test/uploaded.png",
+        provider: "test-storage",
+      });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue(null);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-inaccessible-queued-upload",
+          agentKitMessageId: messageId,
+          submissionPayload,
+          attachments: [attachment],
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).resolves.toEqual({ error: "Thread not found" });
+
+      expect(event.res.status).toBe(404);
+      expect(upload).not.toHaveBeenCalled();
+    } finally {
+      preUpload.mockRestore();
+      upload.mockRestore();
+      resolveThreadAccess.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
   it.each([
     {
       label: "a data URL in the attachment URL field",
@@ -4632,6 +4783,16 @@ describe("createProductionAgentHandler", () => {
       },
       expectsUpload: false,
     },
+    {
+      label: "a file with mediaType only",
+      attachment: {
+        type: "file",
+        name: "report.pdf",
+        mediaType: "application/pdf",
+        url: "https://files.example.test/report.pdf",
+      },
+      expectsUpload: false,
+    },
   ])(
     "queues $label as a durable reference",
     async ({ attachment, expectsUpload }) => {
@@ -4639,7 +4800,7 @@ describe("createProductionAgentHandler", () => {
       const messageId = `message-attachment-${attachment.name}`;
       const identity = {
         name: attachment.name,
-        contentType: attachment.contentType,
+        contentType: attachment.contentType ?? attachment.mediaType,
         fingerprint: fingerprintAgentSubmissionAttachment(attachment),
       };
       const submissionPayload = {
@@ -4653,7 +4814,7 @@ describe("createProductionAgentHandler", () => {
                 {
                   type: "file" as const,
                   name: attachment.name,
-                  mediaType: attachment.contentType,
+                  mediaType: attachment.mediaType ?? attachment.contentType,
                   fingerprint: identity.fingerprint,
                 },
               ],
@@ -4725,6 +4886,11 @@ describe("createProductionAgentHandler", () => {
 
         expect(event.res.status).toBe(202);
         expect(upload).toHaveBeenCalledTimes(expectsUpload ? 1 : 0);
+        if (expectsUpload) {
+          expect(resolveThreadAccess.mock.invocationCallOrder[0]).toBeLessThan(
+            upload.mock.invocationCallOrder[0]!,
+          );
+        }
         expect(result).toMatchObject({
           state: "queued",
           message: { id: messageId },
@@ -4750,6 +4916,12 @@ describe("createProductionAgentHandler", () => {
                 : {
                     type: "file",
                     name: attachment.name,
+                    ...(attachment.mediaType || attachment.contentType
+                      ? {
+                          mediaType:
+                            attachment.mediaType ?? attachment.contentType,
+                        }
+                      : {}),
                     url: expect.any(String),
                   },
             );

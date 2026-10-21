@@ -29,6 +29,7 @@ import {
   isAgentKitProtocolVersion,
   negotiateAgentKitProtocolVersion,
   parseAgentQueuedMessage,
+  parseNullableAgentQueuedSubmissionStatus,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
   persistableFilePart,
@@ -4353,16 +4354,18 @@ export function createAgentNativeAgentKitTransport(
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
       getQueuedSubmissionStatus: async ({ threadId, messageId }) => {
         if (!(await snapshot(threadId))) return null;
-        const { getQueuedSubmissionReceipt } =
-          await import("../../chat-threads/store.js");
-        const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
-        if (!receipt) return null;
-        return {
-          state: receipt.state,
-          ...(receipt.submittedRunId
-            ? { submittedRunId: receipt.submittedRunId }
-            : {}),
-        };
+        const requestHeaders = await headers({ sessionId: threadId });
+        requestHeaders.set(AGENT_CHAT_THREAD_ABSENCE_HEADER, "typed");
+        const response = await fetcher(
+          scopedThreadEndpoint(
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}/queue/${encodeURIComponent(messageId)}/receipt`,
+            options,
+          ),
+          { headers: requestHeaders },
+        );
+        if (response.status === 404) return null;
+        if (!response.ok) throw await responseError(response);
+        return parseNullableAgentQueuedSubmissionStatus(await response.json());
       },
       queueMessage: async ({
         threadId,

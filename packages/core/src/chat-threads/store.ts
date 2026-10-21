@@ -2155,6 +2155,35 @@ export async function getQueuedSubmissionReceipt(
   return readQueuedSubmissionReceipt(getDbExec(), threadId, messageId);
 }
 
+export async function getQueuedSubmissionReceiptStatus(
+  threadId: string,
+  messageId: string,
+): Promise<{ state: QueuedSubmissionState; submittedRunId?: string } | null> {
+  const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+  if (!receipt) return null;
+  if (receipt.state === "queued" && !receipt.message) {
+    throw new TypeError("Stored queued submission receipt has no message.");
+  }
+  if (receipt.state === "submitted" && !receipt.submittedRunId) {
+    throw new TypeError(
+      "Stored submitted receipt has no submitted run identifier.",
+    );
+  }
+  const queuedMessage =
+    receipt.state === "queued" ? receipt.message : undefined;
+  return {
+    state:
+      receipt.state === "queued" &&
+      queuedMessage &&
+      queuedSubmissionExpired(queuedMessage, Date.now())
+        ? "expired"
+        : receipt.state,
+    ...(receipt.submittedRunId
+      ? { submittedRunId: receipt.submittedRunId }
+      : {}),
+  };
+}
+
 /** Checks the inbox inside a caller's transaction before a fresh run claims its slot. */
 export async function hasPendingQueuedSubmissionReceipt(
   tx: DbExec,
@@ -2721,6 +2750,11 @@ export async function mutateThreadQueuedMessages(
                 hashQueuedSubmissionPayload(threadId, existing) !==
                   hashQueuedSubmissionPayload(threadId, mutation.message)
               ) {
+                if (mutation.hashInput && options.actor) {
+                  queuedMessages = current;
+                  response = { message: existing };
+                  break;
+                }
                 throw new QueuedSubmissionAdmissionError(
                   "queued_message_id_conflict",
                   mutation.message.id,

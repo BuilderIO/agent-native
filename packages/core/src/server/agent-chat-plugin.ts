@@ -163,6 +163,7 @@ import {
   forkThread,
   getThread,
   getQueuedSubmissionReceipt,
+  getQueuedSubmissionReceiptStatus,
   listQueuedSubmissionReceipts,
   markQueuedSubmissionSubmitted,
   queuedSubmissionBehaviorMatches,
@@ -7732,6 +7733,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
+            if (
+              method === "GET" &&
+              threadTail[0] === "queue" &&
+              threadTail[1] &&
+              threadTail[2] === "receipt" &&
+              threadTail.length === 3
+            ) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "viewer",
+                { orgId },
+              );
+              if (!thread || !threadMatchesRequestedScope(thread)) {
+                return threadNotFound();
+              }
+              return await getQueuedSubmissionReceiptStatus(
+                threadId,
+                threadTail[1],
+              );
+            }
+
             if (method === "GET") {
               const thread = await resolveThreadAccess(
                 owner,

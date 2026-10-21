@@ -1121,6 +1121,60 @@ describe("useAgentChat readiness gate", () => {
     },
   );
 
+  it.each([
+    { label: "missing status support", mode: "missing" as const },
+    { label: "missing receipt response", mode: "undefined" as const },
+    { label: "HTTP 404", mode: 404 as const },
+    { label: "HTTP 501", mode: 501 as const },
+  ])(
+    "settles a queued turn when receipt status is $label",
+    async ({ mode }) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const client = {
+        ...createSendClient(),
+        sendMessage: vi.fn(async () => ({
+          queuedMessageId: "queued-status-unavailable",
+          activeRunId: "run-active-status-unavailable",
+          completed: Promise.resolve(),
+          cancel: vi.fn(async () => {}),
+        })),
+        ...(mode === "missing"
+          ? {}
+          : {
+              getQueuedSubmissionStatus: vi.fn(async () => {
+                if (mode === "undefined") return undefined as never;
+                throw Object.assign(
+                  new Error("Receipt status is unavailable"),
+                  {
+                    status: mode,
+                    retryable: false,
+                  },
+                );
+              }),
+            }),
+      };
+      createSessionMock.mockReturnValue({
+        client,
+        dispose: vi.fn(async () => {}),
+      });
+      mounted = mountAgentChat();
+      await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+      let dispatchPromise: Promise<boolean> | undefined;
+      await act(async () => {
+        dispatchPromise = mounted?.chat?.send("Queue this prompt");
+        await Promise.resolve();
+      });
+      await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+      await expect(dispatchPromise!).resolves.toBe(true);
+      await vi.waitFor(() => expect(mounted?.chat?.isStreaming).toBe(false));
+      expect(mounted?.chat?.errorCode).toBe(
+        "queued_submission_status_unavailable",
+      );
+      expect(mounted?.chat?.error).toContain("Could not confirm");
+    },
+  );
+
   it("waits for a fresh readiness check after an unavailable boot result", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fetchEligibilityMock.mockRejectedValueOnce(new Error("status unavailable"));

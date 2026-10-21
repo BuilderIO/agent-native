@@ -984,7 +984,13 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           };
           const pollQueuedReceipt = async () => {
             const getStatus = session.client.getQueuedSubmissionStatus;
-            if (!getStatus) return;
+            if (!getStatus) {
+              failQueueReceiptStatus(
+                "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                "queued_submission_status_unavailable",
+              );
+              return;
+            }
             while (!stopReceiptPolling && !controller.signal.aborted) {
               let receipt;
               try {
@@ -1002,7 +1008,13 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
                   error && typeof error === "object" && "status" in error
                     ? error.status
                     : undefined;
-                if (status === 404 || status === 501) return;
+                if (status === 404 || status === 501) {
+                  failQueueReceiptStatus(
+                    "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                    "queued_submission_status_unavailable",
+                  );
+                  return;
+                }
                 const retryable =
                   error && typeof error === "object" && "retryable" in error
                     ? error.retryable
@@ -1018,7 +1030,13 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
                 await waitForQueuedReceiptPoll(controller.signal);
                 continue;
               }
-              if (receipt === undefined) return;
+              if (receipt === undefined) {
+                failQueueReceiptStatus(
+                  "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                  "queued_submission_status_unavailable",
+                );
+                return;
+              }
               if (receipt === null) {
                 failQueueReceiptStatus(
                   "Could not confirm whether this queued message will run. Check the queue before retrying.",
@@ -1096,7 +1114,6 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
               await waitForQueuedReceiptPoll(controller.signal);
             }
           };
-          void pollQueuedReceipt();
           await new Promise<void>((resolve) => {
             let settled = false;
             const finish = () => {
@@ -1125,6 +1142,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
                 activeThreadId,
               );
             }
+            if (!stopReceiptPolling) void pollQueuedReceipt();
           });
         } else if (runId) {
           turnBuffer.awaitingQueuedHandle = false;
