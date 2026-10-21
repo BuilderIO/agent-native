@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   listAppSecretsForScope: vi.fn(),
   readAppSecret: vi.fn(),
   recordAudit: vi.fn(),
+  readOrgMemberRole: vi.fn(),
   writeAppSecret: vi.fn(),
 }));
 
@@ -26,6 +27,11 @@ vi.mock("@agent-native/core/secrets", async (importOriginal) => ({
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: mocks.getDbExec,
+}));
+
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  readOrgMemberRole: (...args: unknown[]) => mocks.readOrgMemberRole(...args),
 }));
 
 vi.mock("@agent-native/core/server/agent-discovery", () => ({
@@ -100,9 +106,7 @@ describe("vault authorization", () => {
   it("rejects an organization member before reading shared vault values", async () => {
     mocks.currentOrgId.mockReturnValue("org_123");
     mocks.currentOwnerEmail.mockReturnValue("member@example.test");
-    mocks.getDbExec.mockReturnValue({
-      execute: vi.fn().mockResolvedValue({ rows: [{ role: "member" }] }),
-    });
+    mocks.readOrgMemberRole.mockResolvedValue("member");
 
     await expect(assertCanManageVault()).rejects.toMatchObject({
       message:
@@ -114,9 +118,7 @@ describe("vault authorization", () => {
   it("rejects organization members before listing or reading grants", async () => {
     mocks.currentOrgId.mockReturnValue("org_123");
     mocks.currentOwnerEmail.mockReturnValue("member@example.test");
-    mocks.getDbExec.mockReturnValue({
-      execute: vi.fn().mockResolvedValue({ rows: [{ role: "member" }] }),
-    });
+    mocks.readOrgMemberRole.mockResolvedValue("member");
 
     await expect(listGrants()).rejects.toThrow(
       "Only organization owners and admins can manage the workspace vault.",
@@ -132,13 +134,27 @@ describe("vault authorization", () => {
     async (role) => {
       mocks.currentOrgId.mockReturnValue("org_123");
       mocks.currentOwnerEmail.mockReturnValue(`${role}@example.test`);
-      mocks.getDbExec.mockReturnValue({
-        execute: vi.fn().mockResolvedValue({ rows: [{ role }] }),
-      });
+      mocks.readOrgMemberRole.mockResolvedValue(role);
 
       await expect(assertCanManageVault()).resolves.toBeUndefined();
     },
   );
+
+  it("caps a delegated owner before vault management", async () => {
+    mocks.currentOrgId.mockReturnValue("org_123");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.readOrgMemberRole.mockResolvedValue("member");
+
+    await expect(assertCanManageVault()).rejects.toMatchObject({
+      statusCode: 403,
+      message:
+        "Only organization owners and admins can manage the workspace vault.",
+    });
+    expect(mocks.readOrgMemberRole).toHaveBeenCalledWith(
+      "org_123",
+      "owner@example.test",
+    );
+  });
 
   it("allows a solo workspace owner to manage their own vault", async () => {
     mocks.currentOrgId.mockReturnValue(null);
@@ -587,6 +603,7 @@ describe("syncGrantsToApp", () => {
   ) {
     mocks.currentOwnerEmail.mockReturnValue(caller.ownerEmail);
     mocks.currentOrgId.mockReturnValue(caller.orgId);
+    mocks.readOrgMemberRole.mockResolvedValue("owner");
     mocks.getOrgSetting.mockResolvedValue(null);
     mocks.getUserSetting.mockResolvedValue(null);
     mocks.discoverAgents.mockResolvedValue([

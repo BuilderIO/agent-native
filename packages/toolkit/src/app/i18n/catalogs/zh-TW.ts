@@ -1875,9 +1875,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "更多資訊",
   "settingsOrg.general.workspaceUrl": "工作區 URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "將其他部署中的成員引導到此工作區。",
+    "跨部署連結此組織的應用程式目錄。",
   "settingsOrg.general.workspaceUrlHelp":
-    "進入其他部署的成員會前往此工作區，而不是空白的應用程式。",
+    "其他部署會使用此 URL 尋找工作區應用程式。此設定不會自動重新導向成員。",
   "settingsOrg.general.editWorkspaceUrl": "編輯工作區 URL",
   "settingsOrg.general.removeWorkspaceUrl": "移除工作區 URL",
   "settingsOrg.general.setWorkspaceUrl": "設定 URL",
@@ -1894,6 +1894,9 @@ const messages: ToolkitAgentChatTranslation = {
     "已設定。讓此工作區中的應用程式互相驗證。",
   "settingsOrg.auth.sharedSecretNotSet":
     "未設定。讓此工作區中的應用程式互相驗證。",
+  "settingsOrg.auth.memberDelegation": "組織成員身分委派",
+  "settingsOrg.auth.memberDelegationHelp":
+    "持有此組織共用密鑰的已連結應用程式在呼叫此應用程式時，可以聲稱是任何一位現任成員。此應用程式會檢查即時成員名單，並將受委派的組織存取權限制為成員層級的權限。",
   "settingsOrg.auth.secretNotSetValue": "未設定",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "顯示",

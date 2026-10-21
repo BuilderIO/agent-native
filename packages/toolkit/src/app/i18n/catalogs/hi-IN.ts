@@ -1979,9 +1979,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "अधिक जानकारी",
   "settingsOrg.general.workspaceUrl": "वर्कस्पेस URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "किसी दूसरे डिप्लॉयमेंट से सदस्यों को इस वर्कस्पेस पर भेजें।",
+    "इस संगठन की ऐप डायरेक्टरी को अलग-अलग डिप्लॉयमेंट में जोड़ें।",
   "settingsOrg.general.workspaceUrlHelp":
-    "जो सदस्य किसी दूसरे डिप्लॉयमेंट पर पहुंचते हैं, वे खाली ऐप के बजाय इस वर्कस्पेस पर जाते हैं।",
+    "दूसरे डिप्लॉयमेंट इस URL का उपयोग वर्कस्पेस ऐप खोजने के लिए करते हैं। इससे सदस्य अपने-आप रीडायरेक्ट नहीं होते।",
   "settingsOrg.general.editWorkspaceUrl": "वर्कस्पेस URL संपादित करें",
   "settingsOrg.general.removeWorkspaceUrl": "वर्कस्पेस URL हटाएं",
   "settingsOrg.general.setWorkspaceUrl": "URL सेट करें",
@@ -1998,6 +1998,9 @@ const messages: ToolkitAgentChatTranslation = {
     "सेट है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
   "settingsOrg.auth.sharedSecretNotSet":
     "सेट नहीं है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
+  "settingsOrg.auth.memberDelegation": "संगठन सदस्य की पहचान का प्रत्यायोजन",
+  "settingsOrg.auth.memberDelegationHelp":
+    "इस साझा संगठन सीक्रेट वाले कनेक्टेड ऐप्स इस ऐप को कॉल करते समय किसी भी वर्तमान सदस्य की पहचान का दावा कर सकते हैं। यह ऐप लाइव सदस्य सूची की जांच करता है और प्रत्यायोजित संगठन एक्सेस को सदस्य-स्तर की अनुमतियों तक सीमित रखता है।",
   "settingsOrg.auth.secretNotSetValue": "सेट नहीं है",
   "settingsOrg.auth.manage": "प्रबंधित करें",
   "settingsOrg.auth.reveal": "दिखाएं",

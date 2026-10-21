@@ -10,6 +10,7 @@ vi.mock("../audit/org-admin.js", () => ({
   recordOrgAdminAuditEvent: recordMock,
 }));
 vi.mock("../server/request-context.js", () => ({
+  getRequestContext: () => undefined,
   getRequestRunContext: getRunContextMock,
   getRequestUserEmail: getUserEmailMock,
 }));

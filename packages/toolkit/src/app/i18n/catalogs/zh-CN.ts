@@ -1869,10 +1869,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.learnMore": "了解更多",
   "settingsOrg.moreInformation": "更多信息",
   "settingsOrg.general.workspaceUrl": "工作区 URL",
-  "settingsOrg.general.workspaceUrlDescription":
-    "将其他部署中的成员引导到此工作区。",
+  "settingsOrg.general.workspaceUrlDescription": "跨部署连接此组织的应用目录。",
   "settingsOrg.general.workspaceUrlHelp":
-    "进入其他部署的成员会前往此工作区，而不是一个空应用。",
+    "其他部署会使用此 URL 查找工作区应用。它不会自动重定向成员。",
   "settingsOrg.general.editWorkspaceUrl": "编辑工作区 URL",
   "settingsOrg.general.removeWorkspaceUrl": "移除工作区 URL",
   "settingsOrg.general.setWorkspaceUrl": "设置 URL",
@@ -1886,6 +1885,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.auth.sharedSecret": "共享密钥",
   "settingsOrg.auth.sharedSecretSet": "已设置。让此工作区中的应用相互验证。",
   "settingsOrg.auth.sharedSecretNotSet": "未设置。让此工作区中的应用相互验证。",
+  "settingsOrg.auth.memberDelegation": "组织成员身份委派",
+  "settingsOrg.auth.memberDelegationHelp":
+    "持有此组织共享密钥的已连接应用在调用此应用时，可以声明为任意一名当前成员。此应用会检查实时成员名单，并将受委派的组织访问权限限制为成员级权限。",
   "settingsOrg.auth.secretNotSetValue": "未设置",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "显示",

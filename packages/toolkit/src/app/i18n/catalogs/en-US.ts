@@ -2011,9 +2011,9 @@ const messages = {
   "settingsOrg.moreInformation": "More information",
   "settingsOrg.general.workspaceUrl": "Workspace URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "Send members to this workspace from another deployment.",
+    "Connect this organization's app directory across deployments.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Members who land on another deployment go to this workspace instead of an empty app.",
+    "Other deployments use this URL to discover workspace apps. It does not automatically redirect members.",
   "settingsOrg.general.editWorkspaceUrl": "Edit workspace URL",
   "settingsOrg.general.removeWorkspaceUrl": "Remove workspace URL",
   "settingsOrg.general.setWorkspaceUrl": "Set URL",
@@ -2030,6 +2030,9 @@ const messages = {
     "Set. Lets the apps in this workspace verify each other.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Not set. Lets the apps in this workspace verify each other.",
+  "settingsOrg.auth.memberDelegation": "Org-member identity delegation",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Connected apps with this shared organization secret can claim any current member's identity when calling this app. This app checks the live member roster and limits delegated organization access to member-level permissions.",
   "settingsOrg.auth.secretNotSetValue": "Not set",
   "settingsOrg.auth.manage": "Manage",
   "settingsOrg.auth.reveal": "Reveal",

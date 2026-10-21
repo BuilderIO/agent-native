@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   hasWorkspaceProviderOAuthCredentials: vi.fn(),
   isProviderApiId: vi.fn(() => false),
   listProviderApiCatalog: vi.fn(() => []),
+  listWorkspaceApps: vi.fn(async () => [
+    { id: "dispatch", name: "Dispatch", status: "ready" },
+  ]),
   listWorkspaceConnectionGrants: vi.fn(),
   listWorkspaceConnectionProviders: vi.fn(),
   listWorkspaceConnectionsForUser: vi.fn(),
@@ -54,9 +57,7 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
 vi.mock("@agent-native/dispatch/actions", () => ({
   dispatchActions: {
     "list-workspace-apps": {
-      run: vi.fn(async () => [
-        { id: "dispatch", name: "Dispatch", status: "ready" },
-      ]),
+      run: mocks.listWorkspaceApps,
     },
   },
 }));
@@ -122,5 +123,15 @@ describe("list-workspace-connections", () => {
 
     expect(result.providers.map((provider) => provider.id)).toEqual(["github"]);
     expect(result.counts.providers).toBe(1);
+  });
+
+  it("preserves workspace app lookup failures instead of returning partial grants", async () => {
+    const error = Object.assign(new Error("Workspace registry unavailable"), {
+      statusCode: 503,
+      errorCode: "workspace_gateway_org_a2a_secret_unavailable",
+    });
+    mocks.listWorkspaceApps.mockRejectedValueOnce(error);
+
+    await expect(action.run({})).rejects.toBe(error);
   });
 });

@@ -37,6 +37,7 @@ import {
   type Resource,
   type TransactionScopedResourceWrite,
 } from "../resources/store.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -232,15 +233,8 @@ async function readOrganizationMembership(
   orgId: string,
   email: string,
 ): Promise<OrganizationMembership | null> {
-  const result = await getDbExec().execute({
-    sql: `SELECT role FROM org_members
-          WHERE org_id = ? AND LOWER(email) = ?
-            AND federation_removal_pending_at IS NULL
-          LIMIT 1`,
-    args: [orgId, email.toLowerCase()],
-  });
-  if (!result.rows.length) return null;
-  return { role: String(result.rows[0]?.role ?? "").toLowerCase() };
+  const role = await readOrgMemberRole(orgId, email);
+  return role ? { role } : null;
 }
 
 async function requireOrganizationMembership(

@@ -2149,9 +2149,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "Plus d’informations",
   "settingsOrg.general.workspaceUrl": "URL de l’espace de travail",
   "settingsOrg.general.workspaceUrlDescription":
-    "Redirigez les membres vers cet espace de travail depuis un autre déploiement.",
+    "Connectez le répertoire d’applications de cette organisation entre les déploiements.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Les membres qui arrivent sur un autre déploiement sont redirigés vers cet espace de travail au lieu d’une application vide.",
+    "Les autres déploiements utilisent cette URL pour découvrir les applications de l’espace de travail. Elle ne redirige pas automatiquement les membres.",
   "settingsOrg.general.editWorkspaceUrl":
     "Modifier l’URL de l’espace de travail",
   "settingsOrg.general.removeWorkspaceUrl":
@@ -2170,6 +2170,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Défini. Permet aux applications de cet espace de travail de se vérifier mutuellement.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Non défini. Permet aux applications de cet espace de travail de se vérifier mutuellement.",
+  "settingsOrg.auth.memberDelegation":
+    "Délégation d’identité des membres de l’organisation",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Les applications connectées qui détiennent ce secret partagé de l’organisation peuvent déclarer l’identité de n’importe quel membre actuel lorsqu’elles appellent cette application. Cette application vérifie la liste des membres en temps réel et limite l’accès délégué à l’organisation aux autorisations du rôle de membre.",
   "settingsOrg.auth.secretNotSetValue": "Non défini",
   "settingsOrg.auth.manage": "Gérer",
   "settingsOrg.auth.reveal": "Afficher",

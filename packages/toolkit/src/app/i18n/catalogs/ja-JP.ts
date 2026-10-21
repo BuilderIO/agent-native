@@ -2012,9 +2012,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "詳しい情報",
   "settingsOrg.general.workspaceUrl": "ワークスペースの URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "別のデプロイからこのワークスペースにメンバーを案内します。",
+    "この組織のアプリディレクトリをデプロイ間で接続します。",
   "settingsOrg.general.workspaceUrlHelp":
-    "別のデプロイにアクセスしたメンバーは、空のアプリではなくこのワークスペースに移動します。",
+    "他のデプロイはこの URL を使ってワークスペースアプリを検出します。メンバーが自動的にリダイレクトされることはありません。",
   "settingsOrg.general.editWorkspaceUrl": "ワークスペースの URL を編集",
   "settingsOrg.general.removeWorkspaceUrl": "ワークスペースの URL を削除",
   "settingsOrg.general.setWorkspaceUrl": "URL を設定",
@@ -2031,6 +2031,9 @@ const messages: ToolkitAgentChatTranslation = {
     "設定済み。このワークスペースのアプリが互いを検証できます。",
   "settingsOrg.auth.sharedSecretNotSet":
     "未設定。このワークスペースのアプリが互いを検証できます。",
+  "settingsOrg.auth.memberDelegation": "組織メンバーの本人確認を委任",
+  "settingsOrg.auth.memberDelegationHelp":
+    "この組織の共有シークレットを持つ接続済みアプリは、このアプリを呼び出す際に現在のメンバーであれば誰でもその本人であると主張できます。このアプリは最新のメンバー一覧を確認し、委任された組織アクセスをメンバー権限に制限します。",
   "settingsOrg.auth.secretNotSetValue": "未設定",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "表示",

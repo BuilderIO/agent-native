@@ -1,7 +1,7 @@
-import { getDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
+  readOrgMemberRole,
 } from "@agent-native/core/server";
 import {
   getOrgSetting,
@@ -78,16 +78,9 @@ function currentAccessScope(): AccessScope {
 async function assertCanManageMcpAppAccess(scope: AccessScope): Promise<void> {
   if (scope.kind === "user") return;
 
-  let role: unknown = null;
+  let role: string | null = null;
   try {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [scope.id, scope.actor.toLowerCase()],
-    });
-    role = rows[0]?.role;
+    role = await readOrgMemberRole(scope.id, scope.actor);
   } catch {
     // Fail closed when org membership cannot be verified.
   }

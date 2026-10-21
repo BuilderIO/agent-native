@@ -733,6 +733,10 @@ vi.mock("@agent-native/core/server", () => ({
     userEmail: mocks.userEmail,
     orgId: mocks.orgId,
   }),
+  readOrgMemberRole: vi.fn(
+    async (orgId: string, email: string) =>
+      mocks.orgRoles.get(`${orgId}:${email.toLowerCase()}`) ?? null,
+  ),
   resolveSecret: vi.fn(async () => null),
   readBody: vi.fn(async (event: { body?: unknown }) => event.body),
 }));

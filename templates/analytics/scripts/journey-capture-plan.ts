@@ -15,7 +15,7 @@ export const DEFAULT_APP_URL = "https://analytics.agent-native.com";
 
 export interface TreeExample {
   sessionId: string;
-  recordingId: string | null;
+  recordingId?: string | null;
   ts: string;
   offsetMs: number | null;
   viewport: { width: number; height: number } | null;
@@ -53,7 +53,11 @@ export function parseTree(raw: unknown): { nodes: TreeNode[] } {
       if (!e || typeof e.sessionId !== "string") {
         fail(`${at}.sessionId`, "must be a string");
       }
-      if (e.recordingId !== null && typeof e.recordingId !== "string") {
+      if (
+        e.recordingId !== undefined &&
+        e.recordingId !== null &&
+        typeof e.recordingId !== "string"
+      ) {
         fail(`${at}.recordingId`, "must be a string or null");
       }
       if (
@@ -74,9 +78,10 @@ export function parseTree(raw: unknown): { nodes: TreeNode[] } {
       ) {
         fail(`${at}.viewport`, "must be { width, height } or null");
       }
+      const recordingId = e.recordingId as string | null | undefined;
       return {
         sessionId: e.sessionId as string,
-        recordingId: e.recordingId as string | null,
+        ...(recordingId !== undefined ? { recordingId } : {}),
         ts: typeof e.ts === "string" ? e.ts : "",
         offsetMs: e.offsetMs as number | null,
         viewport: v
@@ -107,7 +112,11 @@ export interface PlanItem {
 export interface SkippedExample {
   nodeKey: string;
   exampleIndex: number;
-  reason: "no_recording" | "no_offset" | "aspect_out_of_range";
+  reason:
+    | "no_recording"
+    | "replay_unknown"
+    | "no_offset"
+    | "aspect_out_of_range";
 }
 
 export function aspectInRange(
@@ -124,9 +133,10 @@ export function aspectInRange(
 
 /**
  * Up to `perNode` renderable examples per node, in the tree's order. An
- * example with no recording or offset, or a known viewport outside the aspect
- * range, is listed as skipped. An unknown viewport is rendered and checked on
- * the captured size instead.
+ * example with unknown replay availability, a completed lookup with no
+ * recording, no offset, or a known viewport outside the aspect range is listed
+ * as skipped. An unknown viewport is rendered and checked on the captured size
+ * instead.
  */
 export function planCapture(
   tree: { nodes: TreeNode[] },
@@ -139,6 +149,7 @@ export function planCapture(
     node.examples.forEach((example, exampleIndex) => {
       const skip = (reason: SkippedExample["reason"]) =>
         skipped.push({ nodeKey: node.key, exampleIndex, reason });
+      if (example.recordingId === undefined) return skip("replay_unknown");
       if (!example.recordingId) return skip("no_recording");
       if (example.offsetMs === null || example.offsetMs < 0) {
         return skip("no_offset");

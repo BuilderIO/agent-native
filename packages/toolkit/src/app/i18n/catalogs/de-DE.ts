@@ -2116,9 +2116,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "Weitere Informationen",
   "settingsOrg.general.workspaceUrl": "Workspace-URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "Leite Mitglieder von einer anderen Bereitstellung zu diesem Workspace.",
+    "Verbinde das App-Verzeichnis dieser Organisation über Bereitstellungen hinweg.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Mitglieder, die auf einer anderen Bereitstellung landen, kommen zu diesem Workspace statt zu einer leeren App.",
+    "Andere Bereitstellungen verwenden diese URL, um Workspace-Apps zu entdecken. Mitglieder werden nicht automatisch weitergeleitet.",
   "settingsOrg.general.editWorkspaceUrl": "Workspace-URL bearbeiten",
   "settingsOrg.general.removeWorkspaceUrl": "Workspace-URL entfernen",
   "settingsOrg.general.setWorkspaceUrl": "URL festlegen",
@@ -2135,6 +2135,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Festgelegt. Damit können sich die Apps in diesem Workspace gegenseitig verifizieren.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Nicht festgelegt. Damit können sich die Apps in diesem Workspace gegenseitig verifizieren.",
+  "settingsOrg.auth.memberDelegation":
+    "Identitätsdelegierung für Organisationsmitglieder",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Verbundene Apps mit diesem gemeinsamen Organisations-Secret können beim Aufruf dieser App die Identität eines beliebigen aktuellen Mitglieds annehmen. Diese App prüft die aktuelle Mitgliederliste und beschränkt den delegierten Organisationszugriff auf Berechtigungen der Mitgliedsrolle.",
   "settingsOrg.auth.secretNotSetValue": "Nicht festgelegt",
   "settingsOrg.auth.manage": "Verwalten",
   "settingsOrg.auth.reveal": "Anzeigen",

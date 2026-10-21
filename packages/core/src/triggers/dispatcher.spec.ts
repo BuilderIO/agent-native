@@ -4138,7 +4138,19 @@ Handle the event.`,
     expect(startRunMock).not.toHaveBeenCalled();
   });
 
-  it("routes organization events only to their creator and fails closed when membership is unreadable", async () => {
+  it("routes organization events only to their creator and pauses when membership is missing", async () => {
+    let creatorIsMember = true;
+    dbExecuteMock.mockImplementation(async (query: { sql?: string }) => {
+      if (query.sql?.includes('FROM "user"')) {
+        return { rows: [{ exists: 1 }] };
+      }
+      if (query.sql?.includes("FROM org_members")) {
+        return {
+          rows: creatorIsMember ? [{ role: "member" }] : [],
+        };
+      }
+      return { rows: [{ "1": 1 }] };
+    });
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-org-event",
@@ -4179,9 +4191,7 @@ Handle the organization event.`,
     expect(resourcePutMock).not.toHaveBeenCalled();
     expect(startRunMock).not.toHaveBeenCalled();
 
-    dbExecuteMock
-      .mockResolvedValueOnce({ rows: [{ "1": 1 }] })
-      .mockRejectedValueOnce(new Error("connection timeout"));
+    creatorIsMember = false;
     await handler(
       { ok: true },
       {
@@ -4191,14 +4201,17 @@ Handle the organization event.`,
       },
     );
     await vi.waitFor(() => expect(resourcePutMock).toHaveBeenCalled());
+    await waitForEvent("event-org-creator");
 
     expect(startRunMock).not.toHaveBeenCalled();
     const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
-    expect(persisted).toContain("lastStatus: error");
-    expect(persisted).toContain(
-      "Could not verify the automation execution identity",
-    );
-    expect(persisted).toContain('lastErrorCode: "owner_unverifiable"');
+    expect(parseTriggerFrontmatter(persisted).meta).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "owner_missing",
+      pausedReason: "owner_missing",
+    });
+    expect(persisted).toContain("is no longer a member");
   });
 
   it("recovers an event automation left running past the shared stuck window", async () => {
