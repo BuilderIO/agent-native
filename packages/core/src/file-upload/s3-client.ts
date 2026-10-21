@@ -32,9 +32,10 @@ export interface SignedS3RequestOptions {
   range?: string;
   timeoutMs: number;
   /**
-   * The deployment configured this endpoint (not a workspace), so it may sit
-   * on a private network or use plain HTTP. Without it, only the
-   * `S3_ENDPOINT`/`R2_ENDPOINT` endpoint may.
+   * The deployment configured this endpoint and its keys (not a workspace),
+   * so it may sit on a private network or use plain HTTP. Without it, only
+   * the `S3_ENDPOINT`/`R2_ENDPOINT` endpoint may sit on a private network,
+   * and only with the deployment's own keys may it use plain HTTP.
    */
   trustedEndpoint?: boolean;
 }
@@ -93,24 +94,51 @@ export function trustedDeploymentS3Origin(
 }
 
 /**
+ * True when `config` holds the deployment's own S3 settings: the env
+ * `S3_ENDPOINT`/`R2_ENDPOINT` and the env keys. A workspace that saved the
+ * same endpoint with its own keys doesn't count, so its keys never cross the
+ * network over plain HTTP.
+ */
+function usesDeploymentS3Keys(config: S3ClientConfig): boolean {
+  const envAccessKeyId =
+    cleanValue(readDeployCredentialEnv("S3_ACCESS_KEY_ID")) ??
+    cleanValue(readDeployCredentialEnv("R2_ACCESS_KEY_ID"));
+  const envSecretAccessKey =
+    cleanValue(readDeployCredentialEnv("S3_SECRET_ACCESS_KEY")) ??
+    cleanValue(readDeployCredentialEnv("R2_SECRET_ACCESS_KEY"));
+  return (
+    trustedDeploymentS3Origin(config.endpoint) !== undefined &&
+    envAccessKeyId !== undefined &&
+    config.accessKeyId === envAccessKeyId &&
+    config.secretAccessKey === envSecretAccessKey
+  );
+}
+
+/**
  * The slowest an upload may send its body: 32 KiB/s, about 256 kbps. A slow
  * link still finishes, and a hung endpoint still times out.
  */
 const MIN_UPLOAD_BYTES_PER_SECOND = 32 * 1024;
+/** The most extra time any upload gets, however large its body. */
+const MAX_UPLOAD_ALLOWANCE_MS = 15 * 60_000;
 
 function uploadAllowanceMs(body: RequestInit["body"]): number {
   const bytes =
     body instanceof ArrayBuffer || ArrayBuffer.isView(body)
       ? body.byteLength
       : 0;
-  return Math.ceil((bytes / MIN_UPLOAD_BYTES_PER_SECOND) * 1000);
+  return Math.min(
+    Math.ceil((bytes / MIN_UPLOAD_BYTES_PER_SECOND) * 1000),
+    MAX_UPLOAD_ALLOWANCE_MS,
+  );
 }
 
 /**
  * Fetches an S3 URL through the SSRF guard. `timeoutMs` bounds the wait for
  * response headers and then each gap between body chunks, so a hung endpoint
  * can't hold a request open forever. Headers only arrive once an upload's
- * body is sent, so the header wait also allows the body time at 32 KiB/s.
+ * body is sent, so the header wait also allows the body time at 32 KiB/s, up
+ * to 15 more minutes.
  */
 export async function fetchS3WithTimeout(
   url: string,
@@ -424,8 +452,8 @@ export async function signS3Request(
 
 /**
  * Sends a SigV4-signed request through the SSRF guard. Requests carry signed
- * credentials and private bytes, so only an endpoint the deployment configured
- * may use plain HTTP.
+ * credentials and private bytes, so only the deployment's own endpoint and
+ * keys may use plain HTTP.
  */
 export async function signedS3Request(
   config: S3ClientConfig,
@@ -435,7 +463,11 @@ export async function signedS3Request(
   const trustedOrigin = options.trustedEndpoint
     ? new URL(config.endpoint).origin
     : trustedDeploymentS3Origin(config.endpoint);
-  if (new URL(config.endpoint).protocol !== "https:" && !trustedOrigin) {
+  if (
+    new URL(config.endpoint).protocol !== "https:" &&
+    !options.trustedEndpoint &&
+    !usesDeploymentS3Keys(config)
+  ) {
     throw new Error("Storage endpoints saved in settings must use HTTPS");
   }
   const { url, headers } = await signS3Request(config, key, options);

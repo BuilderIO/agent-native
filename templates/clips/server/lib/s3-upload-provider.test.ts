@@ -442,7 +442,10 @@ describe("s3FileUploadProvider", () => {
   });
 
   it("rejects bucket dot segments before using a trusted private endpoint", async () => {
+    // The deployment's own endpoint and keys, so plain HTTP is allowed.
     process.env.S3_ENDPOINT = "http://10.0.0.12:9000/minio/";
+    process.env.S3_ACCESS_KEY_ID = "access";
+    process.env.S3_SECRET_ACCESS_KEY = "secret";
     const values: Record<string, string> = {
       S3_BUCKET: "..",
       S3_ACCESS_KEY_ID: "access",

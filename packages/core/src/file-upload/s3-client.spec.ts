@@ -119,6 +119,14 @@ describe("signS3Request", () => {
 });
 
 describe("signedS3Request", () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    isBlockedMock.mockReset();
+    ssrfSafeFetchMock.mockReset();
+  });
+
   it("refuses plain HTTP unless the deployment configured the endpoint", async () => {
     await expect(
       signedS3Request(
@@ -127,6 +135,52 @@ describe("signedS3Request", () => {
         { method: "GET", timeoutMs: 1_000 },
       ),
     ).rejects.toThrow(/saved in settings must use HTTPS/);
+  });
+
+  it("only sends the deployment's own keys to its plain HTTP endpoint", async () => {
+    Object.assign(process.env, {
+      S3_ENDPOINT: "http://minio.internal:9000",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+    });
+    isBlockedMock.mockResolvedValue(true);
+    ssrfSafeFetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+    const deployment = {
+      ...r2,
+      endpoint: "http://minio.internal:9000",
+      accessKeyId: "deploy-access",
+      secretAccessKey: "deploy-secret",
+    };
+
+    // A workspace that saved the same endpoint with its own keys.
+    await expect(
+      signedS3Request(
+        { ...deployment, accessKeyId: "workspace-access" },
+        "a.png",
+        { method: "GET", timeoutMs: 1_000 },
+      ),
+    ).rejects.toThrow(/saved in settings must use HTTPS/);
+    await expect(
+      signedS3Request(
+        { ...deployment, secretAccessKey: "workspace-secret" },
+        "a.png",
+        { method: "GET", timeoutMs: 1_000 },
+      ),
+    ).rejects.toThrow(/saved in settings must use HTTPS/);
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+
+    const response = await signedS3Request(deployment, "a.png", {
+      method: "GET",
+      timeoutMs: 1_000,
+    });
+    expect(response.status).toBe(200);
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^http:\/\/minio\.internal:9000\//),
+      expect.anything(),
+      expect.objectContaining({
+        allowedPrivateOrigins: ["http://minio.internal:9000"],
+      }),
+    );
   });
 });
 
@@ -175,6 +229,17 @@ describe("fetchS3WithTimeout", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(upload.error).toMatchObject({ name: "TimeoutError" });
     expect(String(upload.error)).toContain("timed out after 3000ms");
+
+    // However large the body, the extra time stops at 15 minutes.
+    const large = outcome(
+      fetchS3WithTimeout(
+        url,
+        { method: "PUT", body: new ArrayBuffer(64 * 1024 * 1024) },
+        1_000,
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(901_000);
+    expect(String(large.error)).toContain("timed out after 901000ms");
   });
 });
 
