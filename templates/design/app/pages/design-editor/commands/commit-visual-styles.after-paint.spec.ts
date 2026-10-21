@@ -4,10 +4,57 @@ import * as Y from "yjs";
 
 import type { ElementInfo } from "@/components/design/types";
 import {
+  __resetCanvasOutcomeTrackingForTests,
+  flushCanvasOutcomeCounts,
+  setCanvasOutcomeContext,
+} from "@/lib/canvas-outcome-tracking";
+import {
   runCommitVisualStyles,
   type CommitVisualStylesArgs,
 } from "@/pages/design-editor/commands/commit-visual-styles";
 import { flushCommitsAfterPaint } from "@/pages/design-editor/commit-after-paint";
+
+const outcomeMocks = vi.hoisted(() => ({ trackDesignRelay: vi.fn() }));
+
+const shader = vi.hoisted(() => ({
+  inFlight: false,
+  settle: undefined as undefined | ((ok: boolean) => void),
+}));
+
+vi.mock(
+  "@/components/design/inspector/GlslShaderPanel",
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    isShaderWriteInFlight: () => shader.inFlight,
+    waitForShaderWriteToSettle: () =>
+      new Promise<void>((resolve, reject) => {
+        shader.settle = (ok) => {
+          shader.inFlight = false;
+          if (ok) resolve();
+          else reject(new Error("shader write failed"));
+        };
+      }),
+  }),
+);
+
+vi.mock("@/lib/design-relay-tracking", () => ({
+  trackDesignRelay: outcomeMocks.trackDesignRelay,
+}));
+
+function styleOutcomes(): Record<string, number> {
+  flushCanvasOutcomeCounts();
+  const out: Record<string, number> = {};
+  for (const [, props] of outcomeMocks.trackDesignRelay.mock.calls) {
+    const { operation, outcome, reason, count } = props as Record<
+      string,
+      string | number
+    >;
+    const key = `${operation}/${outcome}/${reason}`;
+    out[key] = (out[key] ?? 0) + Number(count);
+  }
+  outcomeMocks.trackDesignRelay.mockReset();
+  return out;
+}
 
 const ref = <T>(current: T) => ({ current });
 const fileId = "screen-1";
@@ -455,4 +502,178 @@ it("does not preview a linked image fill before its server mutation resolves", (
     values: { backgroundImage: 'url("https://assets.test/upload.png")' },
   });
   expect(sendStyle).not.toHaveBeenCalled();
+});
+
+it("counts a style commit once, only after the source rewrite lands", () => {
+  __resetCanvasOutcomeTrackingForTests();
+  setCanvasOutcomeContext({ designId: undefined, signedIn: true });
+  styleOutcomes();
+  vi.stubGlobal("window", { __designCanvasSendStyle: vi.fn() });
+  const args = commitArgs();
+
+  runCommitVisualStyles(args, "#target", { color: "rgb(0, 128, 0)" });
+  expect(styleOutcomes()).toEqual({});
+
+  flushCommitsAfterPaint();
+  expect(styleOutcomes()).toEqual({ "style_commit/succeeded/none": 1 });
+});
+
+it("counts a selector that no longer matches as a failed style commit", () => {
+  __resetCanvasOutcomeTrackingForTests();
+  setCanvasOutcomeContext({ designId: undefined, signedIn: true });
+  styleOutcomes();
+  vi.stubGlobal("window", { __designCanvasSendStyle: vi.fn() });
+  const resolvedContent =
+    '<html><body><h1 data-agent-native-node-id="an-first">First</h1></body></html>';
+  let currentContent = resolvedContent;
+  const args = commitArgs({
+    activeCodeLayerProjection: buildCodeLayerProjection(resolvedContent, {
+      source: { kind: "design-file", fileId },
+    }),
+    activeProjectionContent: resolvedContent,
+    getScreenContent: () => currentContent,
+  });
+
+  runCommitVisualStyles(args, "body > h1", { color: "rgb(0, 128, 0)" });
+  currentContent =
+    '<html><body><h1 data-agent-native-node-id="an-second">Second</h1></body></html>';
+  flushCommitsAfterPaint();
+
+  expect(args.queueFileContentSave).not.toHaveBeenCalled();
+  expect(styleOutcomes()).toEqual({ "style_commit/failed/patch_failed": 1 });
+});
+
+it("counts a commit without edit rights as skipped, outside the success rate", () => {
+  __resetCanvasOutcomeTrackingForTests();
+  setCanvasOutcomeContext({ designId: undefined, signedIn: true });
+  styleOutcomes();
+  vi.stubGlobal("window", { __designCanvasSendStyle: vi.fn() });
+  const args = commitArgs({ canEditDesign: false });
+
+  runCommitVisualStyles(args, "#target", { color: "rgb(0, 128, 0)" });
+  flushCommitsAfterPaint();
+
+  expect(styleOutcomes()).toEqual({ "style_commit/skipped/no_edit_rights": 1 });
+});
+
+it("never counts a queued component-instance edit as a success", () => {
+  __resetCanvasOutcomeTrackingForTests();
+  setCanvasOutcomeContext({ designId: undefined, signedIn: true });
+  styleOutcomes();
+  const linkedContent =
+    '<html><body><main id="target" data-agent-native-node-id="target" data-agent-native-component-id="card" style="color: red">Title</main></body></html>';
+  vi.stubGlobal("window", { __designCanvasSendStyle: vi.fn() });
+  const applyLinkedComponentEdit = vi.fn();
+  const args = commitArgs({
+    activeCodeLayerProjection: buildCodeLayerProjection(linkedContent, {
+      source: { kind: "design-file", fileId },
+    }),
+    activeProjectionContent: linkedContent,
+    applyLinkedComponentEdit,
+    getScreenContent: () => linkedContent,
+    selectedElement: { selector: "#target", sourceId: "target" } as ElementInfo,
+  });
+
+  runCommitVisualStyles(args, "#target", { color: "rgb(0, 128, 0)" });
+  flushCommitsAfterPaint();
+
+  expect(applyLinkedComponentEdit).toHaveBeenCalledOnce();
+  expect(styleOutcomes()).toEqual({
+    "style_commit/deferred/linked_edit_queued": 1,
+  });
+});
+
+it("labels a committed fill and a committed move by kind of change", () => {
+  __resetCanvasOutcomeTrackingForTests();
+  setCanvasOutcomeContext({ designId: undefined, signedIn: true });
+  styleOutcomes();
+  vi.stubGlobal("window", { __designCanvasSendStyle: vi.fn() });
+  const args = commitArgs();
+
+  runCommitVisualStyles(args, "#target", { color: "rgb(0, 128, 0)" });
+  runCommitVisualStyles(args, "#target", {
+    position: "relative",
+    left: "12px",
+    top: "4px",
+  });
+  flushCommitsAfterPaint();
+  flushCanvasOutcomeCounts();
+
+  const kinds = outcomeMocks.trackDesignRelay.mock.calls.map(
+    ([, props]) => (props as { style_kind?: string }).style_kind,
+  );
+  expect(kinds.sort()).toEqual(["fill", "position"]);
+});
+
+it.each([
+  ["persisted", "style_commit/succeeded/none"],
+  ["conflict", "style_commit/failed/not_persisted"],
+  ["retryable", "style_commit/deferred/save_unfinished"],
+  ["failed", "style_commit/deferred/save_unfinished"],
+  [false, "style_commit/skipped/no_edit_rights"],
+] as const)(
+  "counts an accepted-source commit by its save result (%s)",
+  async (result, expected) => {
+    __resetCanvasOutcomeTrackingForTests();
+    setCanvasOutcomeContext({ designId: undefined, signedIn: true });
+    styleOutcomes();
+    vi.stubGlobal("window", { __designCanvasSendStyle: vi.fn() });
+    const save = deferred<typeof result>();
+    const args = commitArgs({
+      queueFileContentSave: vi.fn(() => save.promise),
+    });
+
+    runCommitVisualStyles(
+      args,
+      "#target",
+      { backgroundImage: 'url("https://assets.test/upload.png")' },
+      { requirePersistedSourceAcceptance: true },
+    );
+    flushCommitsAfterPaint();
+    expect(styleOutcomes()).toEqual({});
+
+    save.resolve(result);
+    await save.promise;
+    await Promise.resolve();
+    expect(styleOutcomes()).toEqual({ [expected]: 1 });
+  },
+);
+
+it("counts a commit that waited on a shader write once, by its result", async () => {
+  __resetCanvasOutcomeTrackingForTests();
+  setCanvasOutcomeContext({ designId: undefined, signedIn: true });
+  styleOutcomes();
+  vi.stubGlobal("window", { __designCanvasSendStyle: vi.fn() });
+  shader.inFlight = true;
+  const args = commitArgs();
+  vi.mocked(args.commitVisualStyles).mockImplementation(
+    (selector, styles, options) =>
+      runCommitVisualStyles(args, selector, styles, options),
+  );
+
+  runCommitVisualStyles(args, "#target", { color: "rgb(0, 128, 0)" });
+  expect(styleOutcomes()).toEqual({});
+
+  shader.settle!(true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  flushCommitsAfterPaint();
+  expect(args.queueFileContentSave).toHaveBeenCalledOnce();
+  expect(styleOutcomes()).toEqual({ "style_commit/succeeded/none": 1 });
+});
+
+it("counts a commit whose shader wait failed as failed, once", async () => {
+  __resetCanvasOutcomeTrackingForTests();
+  setCanvasOutcomeContext({ designId: undefined, signedIn: true });
+  styleOutcomes();
+  vi.stubGlobal("window", { __designCanvasSendStyle: vi.fn() });
+  shader.inFlight = true;
+  const args = commitArgs();
+
+  runCommitVisualStyles(args, "#target", { color: "rgb(0, 128, 0)" });
+  shader.settle!(false);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(args.commitVisualStyles).not.toHaveBeenCalled();
+  expect(styleOutcomes()).toEqual({
+    "style_commit/failed/shader_write_failed": 1,
+  });
 });

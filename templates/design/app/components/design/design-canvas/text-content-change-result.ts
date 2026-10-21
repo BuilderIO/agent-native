@@ -1,3 +1,7 @@
+import {
+  runCanvasOperation,
+  type CanvasOperationHandle,
+} from "@/lib/canvas-outcome-tracking";
 import type { TextCommitStatus } from "@/pages/design-editor/command-types";
 
 export type QueuePendingTextHostCommit = (
@@ -156,16 +160,7 @@ export function consumePendingTextCreation(
   return true;
 }
 
-export function commitTextContentChange({
-  owner,
-  nodeId,
-  value,
-  isPendingTextCreation,
-  commit,
-  queueHostCommit,
-  cancelHostCommit,
-  requestSnapshot,
-}: {
+type CommitTextContentChangeArgs = {
   owner: string | null;
   nodeId: string | null;
   value: string;
@@ -174,15 +169,41 @@ export function commitTextContentChange({
   queueHostCommit: QueuePendingTextHostCommit;
   cancelHostCommit: CancelPendingTextHostCommit;
   requestSnapshot: () => void;
-}): "published" | "fallback-queued" {
+};
+
+export function commitTextContentChange(
+  args: CommitTextContentChangeArgs,
+): "published" | "fallback-queued" {
+  return runCanvasOperation("text_edit", (op) =>
+    commitTextContentChangeWithOutcome(op, args),
+  );
+}
+
+function commitTextContentChangeWithOutcome(
+  op: CanvasOperationHandle,
+  {
+    owner,
+    nodeId,
+    value,
+    isPendingTextCreation,
+    commit,
+    queueHostCommit,
+    cancelHostCommit,
+    requestSnapshot,
+  }: CommitTextContentChangeArgs,
+): "published" | "fallback-queued" {
   const canFallback = Boolean(
     isPendingTextCreation && owner && nodeId && value.length > 0,
   );
   const queueFallback = () => {
     if (!canFallback || !owner || !nodeId || value.length === 0) return false;
-    return queueHostCommit(owner, nodeId, value, (outcome) => {
+    const queued = queueHostCommit(owner, nodeId, value, (outcome) => {
       if (outcome === "accepted") requestSnapshot();
     });
+    // A queued retry can be cancelled or replaced without settling, so the
+    // edit counts as deferred rather than waiting on a result that may never come.
+    if (queued) op.defer("fallback_queued");
+    return queued;
   };
 
   let status: TextCommitStatus | void;
@@ -201,6 +222,8 @@ export function commitTextContentChange({
   // Any later direct result supersedes an older retry. A retry must never
   // overwrite text that a newer source edit already accepted.
   if (owner && nodeId) cancelHostCommit(owner, nodeId);
+  if (status === "accepted") op.succeed();
+  else if (status === "refused") op.fail("refused");
   requestSnapshot();
   return "published";
 }

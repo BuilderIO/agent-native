@@ -79,6 +79,7 @@ import {
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
+import { useCanvasLoadOutcome } from "@/lib/canvas-load-outcome";
 import {
   resolveDesktopDesignSnapshotLayer,
   useDesktopDesignNativePreview,
@@ -2336,6 +2337,12 @@ export function DesignCanvas({
   const liveEditRestartAttemptRef = useRef(0);
   const liveEditSameInstanceElapsedMsRef = useRef(0);
   const liveEditSameInstanceDelayRef = useRef(LIVE_EDIT_READY_TIMEOUT_MS);
+  // Snapshots and localhost or Fusion previews may never report ready; timing
+  // them would count a missing bridge as a stalled load.
+  const markCanvasLoadReady = useCanvasLoadOutcome({
+    designId,
+    measure: !snapshotOnly && (sourceType ?? "inline") === "inline",
+  });
   const liveEditSameInstanceRearmTimerRef = useRef<number | undefined>(
     undefined,
   );
@@ -4614,6 +4621,7 @@ export function DesignCanvas({
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
         onBridgeReady?.();
+        markCanvasLoadReady();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         flushPendingOneShotMessages();
       }
@@ -4741,6 +4749,7 @@ export function DesignCanvas({
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
+        markCanvasLoadReady();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         if (shouldRefreshRuntimeLayerSnapshot) {
           refreshRuntimeLayerSnapshotAfterReady();
@@ -6225,6 +6234,7 @@ export function DesignCanvas({
       bridgeReadyRef.current = true;
       editorChromeReadyRef.current = true;
       onBridgeReady?.();
+      markCanvasLoadReady();
       refreshRuntimeLayerSnapshotAfterReady();
       flushPendingOneShotMessages();
     }
