@@ -1,5 +1,13 @@
 # @agent-native/toolkit
 
+## 0.212.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.212.1
+
 ## 0.212.0
 
 ### Patch Changes
@@ -1254,15 +1262,5 @@
 ### Patch Changes
 
 - c71d383: Include the shared creative-context and toolkit updates in the next package release.
-
-## 0.13.0
-
-### Minor Changes
-
-- 106af0e: Add dense horizontal variants to the design-tweak controls. `VisualColorPicker`
-  gains a `swatch` variant that drops the value text and caret, an optional
-  `glyph` rendered over the current color, and an app tooltip naming the property
-  it paints. `VisualScrubInput` gains a `steppers` option that replaces the
-  drag-scrub label with minus/plus buttons.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
