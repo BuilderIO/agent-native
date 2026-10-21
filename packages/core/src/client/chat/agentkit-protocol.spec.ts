@@ -3965,39 +3965,71 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("rejects a duplicate run ID for a different runtime turn", async () => {
-    let turn = 0;
-    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-      yield { type: "done", reason: "complete" };
-    }
-    const runtime = createRuntime(events, {
-      async createSession() {
-        return {
-          id: "thread-1",
-          runtimeId: "runtime-test",
-          startTurn: async () => ({
-            id: `turn-${++turn}`,
-            runId: "runtime-run-duplicate",
-            sessionId: "thread-1",
-            events: events(),
-          }),
-        };
-      },
-    });
-    const transport = createAgentKitProtocolAdapter(runtime);
+  it.each([false, true])(
+    "rejects a duplicate run ID for a different runtime turn and closes its transport (cleanup fails: %s)",
+    async (cleanupFails) => {
+      let turn = 0;
+      const discardedStreamClosed = vi.fn(async () => ({
+        done: true as const,
+        value: undefined,
+      }));
+      const discardedTurnClosed = vi.fn(async () => {
+        if (cleanupFails) throw new Error("Discarded transport cleanup failed");
+      });
+      const discardedTurnCancelled = vi.fn(async () => ({
+        status: "cancelled" as const,
+      }));
+      const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
+        [Symbol.asyncIterator]: () => ({
+          next: () =>
+            new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
+          return: discardedStreamClosed,
+        }),
+      };
+      async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      }
+      const runtime = createRuntime(events, {
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn: async () => {
+              turn += 1;
+              return {
+                id: `turn-${turn}`,
+                runId: "runtime-run-duplicate",
+                sessionId: "thread-1",
+                events: turn === 1 ? events() : discardedEvents,
+                ...(turn === 1
+                  ? {}
+                  : {
+                      closeEvents: discardedTurnClosed,
+                      cancel: discardedTurnCancelled,
+                    }),
+              };
+            },
+          };
+        },
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
 
-    await transport.startRun({
-      threadId: "thread-1",
-      messages: [userMessage("Start")],
-    });
-    await expect(
-      transport.startRun({
+      await transport.startRun({
         threadId: "thread-1",
-        messages: [userMessage("Different turn")],
-      }),
-    ).rejects.toThrow("Duplicate AgentKit run id: runtime-run-duplicate");
-    await transport.dispose();
-  });
+        messages: [userMessage("Start")],
+      });
+      await expect(
+        transport.startRun({
+          threadId: "thread-1",
+          messages: [userMessage("Different turn")],
+        }),
+      ).rejects.toThrow("Duplicate AgentKit run id: runtime-run-duplicate");
+      expect(discardedStreamClosed).toHaveBeenCalledOnce();
+      expect(discardedTurnClosed).toHaveBeenCalledOnce();
+      expect(discardedTurnCancelled).not.toHaveBeenCalled();
+      await transport.dispose();
+    },
+  );
 
   it("reuses a queued start while restoring its runtime successor", async () => {
     let releaseTurn!: (turn: AgentChatRuntimeTurn) => void;

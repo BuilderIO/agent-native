@@ -2187,7 +2187,7 @@ export function createAgentKitProtocolAdapter(
     const existingRun = start.attachReplayedRun
       ? findRun(threadId, runId)
       : undefined;
-    if (existingRun) {
+    if (existingRun && (!existingRun.terminal || existingRun.runId !== runId)) {
       // A duplicate queued submission is answered with the run that already
       // took it, replayed from its first event. This adapter reads that run
       // already, so the replay is drained rather than indexed a second time.
@@ -2210,7 +2210,20 @@ export function createAgentKitProtocolAdapter(
       return existingRun.runId;
     }
     pruneRetainedRuns(run.lastAccessedAtMs);
-    const indexedRun = indexRun(run, turn.runId, true);
+    let indexedRun: ProtocolRun;
+    try {
+      indexedRun = indexRun(run, turn.runId, true);
+    } catch (error) {
+      try {
+        await closeDiscardedTurnEvents(turn);
+      } catch (cleanupError) {
+        console.warn(
+          `[agentkit] rejected stream for run ${runId} failed to close`,
+          cleanupError,
+        );
+      }
+      throw error;
+    }
     if (indexedRun !== run) {
       await closeDiscardedTurnEvents(turn);
       return indexedRun.runId;
