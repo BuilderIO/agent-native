@@ -4587,6 +4587,100 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("keeps restored continuation text in order around snapshot tool parts", async () => {
+    const toolPart = {
+      type: "data",
+      mediaType: "application/x-agent-native-repository-part",
+      data: {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "lookup",
+        args: { query: "release" },
+      },
+    };
+    const nextToolPart = {
+      type: "data",
+      mediaType: "application/x-agent-native-repository-part",
+      data: {
+        type: "tool-call",
+        toolCallId: "tool-2",
+        toolName: "search",
+        args: { query: "launch" },
+      },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-tool-interleaved-continuation",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "server-assistant-1",
+                      role: "assistant",
+                      status: "complete",
+                      metadata: { runId: "run-tool-before-continuation" },
+                      content: [
+                        { type: "text", text: "Before" },
+                        {
+                          type: "tool-call",
+                          toolCallId: "tool-1",
+                          toolName: "lookup",
+                          args: { query: "release" },
+                        },
+                        { type: "text", text: " mid" },
+                        {
+                          type: "tool-call",
+                          toolCallId: "tool-2",
+                          toolName: "search",
+                          args: { query: "launch" },
+                        },
+                        { type: "text", text: " after" },
+                      ],
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "assistant-1",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [
+                        { type: "text", text: "Before" },
+                        toolPart,
+                        nextToolPart,
+                      ],
+                      metadata: { runId: "run-tool-before-continuation" },
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-tool-interleaved-continuation",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      {
+        id: "assistant-1",
+        parts: [
+          { type: "text", text: "Before" },
+          toolPart,
+          { type: "text", text: " mid" },
+          nextToolPart,
+          { type: "text", text: " after" },
+        ],
+      },
+    ]);
+    await transport.dispose();
+  });
+
   it("restores the durable reply by run ID when message IDs differ and events are absent", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>
@@ -5578,6 +5672,7 @@ describe("createAgentNativeAgentKitTransport", () => {
   function foldedContinuationThread(options: {
     snapshotSawContinuation: boolean;
     endsWithToolPart?: boolean;
+    textAfterTool?: string;
   }) {
     const assistantEvent = (runId: string, id: string) => ({
       id: `event-${runId}`,
@@ -5625,7 +5720,12 @@ describe("createAgentNativeAgentKitTransport", () => {
               parts: [
                 { type: "text", text: "First half." },
                 ...(options.endsWithToolPart
-                  ? [{ type: "data", data: { toolCallId: "tool-1" } }]
+                  ? [
+                      { type: "data", data: { toolCallId: "tool-1" } },
+                      ...(options.textAfterTool
+                        ? [{ type: "text", text: options.textAfterTool }]
+                        : []),
+                    ]
                   : []),
               ],
             },
@@ -5682,6 +5782,82 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("maps a shared folded assistant snapshot to one durable reply on reload", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-folded",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "user-1",
+                      role: "user",
+                      status: "complete",
+                      content: [{ type: "text", text: "Write forty lines" }],
+                    },
+                    parentId: null,
+                  },
+                  {
+                    message: {
+                      id: "server-run-2",
+                      role: "assistant",
+                      status: { type: "complete", reason: "stop" },
+                      content: [
+                        { type: "text", text: "First half. Second half." },
+                      ],
+                      metadata: {
+                        runId: "run-2",
+                        custom: { foldedRunIds: ["run-1", "run-2"] },
+                      },
+                    },
+                    parentId: "user-1",
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    reloadedPrompt,
+                    {
+                      id: "assistant-shared",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: "First half." }],
+                    },
+                  ],
+                  events: [],
+                  runs: ["run-1", "run-2"].map((id) => ({
+                    id,
+                    threadId: "thread-folded",
+                    status: "completed",
+                    startedAt: "2026-10-01T23:54:00.000Z",
+                    lastSequence: 0,
+                    activeMessageId: "assistant-shared",
+                  })),
+                  activeRunIds: [],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-folded",
+    });
+
+    expect(
+      snapshot?.messages.map((message) => [
+        message.id,
+        message.parts.map((part) => (part.type === "text" ? part.text : "")),
+      ]),
+    ).toEqual([
+      ["user-1", ["Write forty lines"]],
+      ["assistant-shared", ["First half. Second half."]],
+    ]);
+    await transport.dispose();
+  });
+
   it("appends the continuation after a tool part the reloaded page already saved", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>
@@ -5703,6 +5879,33 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(snapshot?.messages[1]?.parts).toMatchObject([
       { type: "text", text: "First half." },
       { type: "data" },
+      { type: "text", text: " Second half." },
+    ]);
+    await transport.dispose();
+  });
+
+  it("keeps hydrated continuation text after the tool part", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json(
+              foldedContinuationThread({
+                snapshotSawContinuation: false,
+                endsWithToolPart: true,
+                textAfterTool: " Second",
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-folded",
+    });
+
+    expect(snapshot?.messages[1]?.parts).toEqual([
+      { type: "text", text: "First half." },
+      { type: "data", data: { toolCallId: "tool-1" } },
       { type: "text", text: " Second half." },
     ]);
     await transport.dispose();
@@ -8590,6 +8793,77 @@ describe("createAgentNativeAgentKitTransport", () => {
       "durable-user-two",
       "durable-assistant-two",
     ]);
+    await transport.dispose();
+  });
+
+  it("hydrates a single-run partial snapshot from the complete durable reply", async () => {
+    const threadId = "thread-partial-durable-reply";
+    const runId = "run-partial-durable-reply";
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: `server-${runId}`,
+                    role: "assistant",
+                    content: [{ type: "text", text: "Answer complete" }],
+                    status: { type: "complete" },
+                    metadata: { runId },
+                  },
+                },
+              ],
+              agentKit: {
+                messages: [
+                  {
+                    id: "snapshot-answer",
+                    role: "assistant",
+                    status: "streaming",
+                    parts: [{ type: "text", text: "Answer" }],
+                    metadata: { runId },
+                  },
+                ],
+                events: [
+                  {
+                    id: `${runId}:1`,
+                    threadId,
+                    runId,
+                    sequence: 1,
+                    occurredAt: "2026-10-01T00:00:00.000Z",
+                    type: "message.created",
+                    message: {
+                      id: "snapshot-answer",
+                      role: "assistant",
+                      parts: [{ type: "text", text: "Answer" }],
+                    },
+                  },
+                ],
+                _mergeRootMessages: true,
+              },
+            }),
+          });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "snapshot-answer",
+    ]);
+    expect(snapshot?.messages[0]?.parts).toEqual([
+      { type: "text", text: "Answer complete" },
+    ]);
+    expect(snapshot?.messages[0]?.status).toBe("complete");
     await transport.dispose();
   });
 
