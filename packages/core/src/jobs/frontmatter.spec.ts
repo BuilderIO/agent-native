@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertDelegatedPolicyId,
   assertJobExecutionTargetFields,
+  assertJobRunnerTarget,
   buildJobResourceContent,
   classifyJobResource,
   droppedJobFrontmatterKeys,
@@ -67,6 +68,50 @@ describe("job resource frontmatter", () => {
       hasExplicitTriggerType: true,
       triggerType: "schedule",
     });
+  });
+
+  it("round-trips a job runner id and keeps it through a scheduler patch", () => {
+    const meta: JobFrontmatter = {
+      schedule: "*/15 * * * *",
+      enabled: true,
+      triggerType: "schedule",
+      runner: "workflow",
+      createdBy: "alice@example.com",
+      nextRun: "2026-07-30T16:00:00.000Z",
+    };
+
+    const content = buildJobResourceContent(meta, "Runs the saved workflow.");
+    expect(parseJobResource(content).meta).toEqual(meta);
+
+    const patched = patchJobFrontmatterFields(content, {
+      lastStatus: "running",
+    });
+    expect(parseJobResource(patched).meta.runner).toBe("workflow");
+    expect(droppedJobFrontmatterKeys(content, patched)).toEqual([]);
+  });
+
+  it("refuses a runner that also targets an execution host", () => {
+    expect(() =>
+      assertJobRunnerTarget({
+        runner: "workflow",
+        executionHostId: "remote-device-laptop",
+      }),
+    ).toThrow(/cannot also target an execution host/);
+    expect(() =>
+      buildJobResourceContent(
+        {
+          schedule: "*/15 * * * *",
+          enabled: true,
+          runner: "workflow",
+          executionHostId: "remote-device-laptop",
+        },
+        "Runs the saved workflow.",
+      ),
+    ).toThrow(/cannot also target an execution host/);
+    expect(() => assertJobRunnerTarget({ runner: "workflow" })).not.toThrow();
+    expect(() =>
+      assertJobRunnerTarget({ executionHostId: "remote-device-laptop" }),
+    ).not.toThrow();
   });
 
   it("drops an unrecognized stored reasoningEffort value instead of parsing it", () => {

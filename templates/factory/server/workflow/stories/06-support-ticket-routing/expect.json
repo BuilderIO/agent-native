@@ -1,0 +1,831 @@
+{
+  "each-category-lands-where-the-story-says": {
+    "ticks": [
+      {
+        "label": "the 10-minute run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 5, "done": 3, "needsManual": 2, "modelCalls": 4 }
+        },
+        "nodes": {
+          "answer": { "in": 2, "ports": { "out": 2 } },
+          "classify": { "in": 5, "ports": { "out": 5 } },
+          "done": { "in": 3, "ports": {} },
+          "finance": { "in": 1, "ports": { "out": 1 } },
+          "hasFigures": { "in": 1, "ports": { "otherwise": 1 } },
+          "jira": { "in": 1, "ports": { "out": 1 } },
+          "lead": { "in": 1, "ports": { "out": 1 } },
+          "leadEmail": { "in": 1, "ports": { "out": 1 } },
+          "manual": { "in": 2, "ports": {} },
+          "note": { "in": 1, "ports": { "out": 1 } },
+          "replyCustomer": { "in": 1, "ports": { "out": 1 } },
+          "route": {
+            "in": 5,
+            "ports": {
+              "route:bug": 1,
+              "route:billing": 2,
+              "route:urgent": 1,
+              "otherwise": 1
+            }
+          },
+          "sendAnswer": { "in": 1, "ports": { "out": 1 } },
+          "stripe": { "in": 2, "ports": { "out": 2 } },
+          "suggest": { "in": 1, "ports": { "out": 1 } },
+          "sure": { "in": 2, "ports": { "match": 1, "otherwise": 1 } },
+          "thread": { "in": 5, "ports": { "out": 5 } },
+          "tickets": { "in": 0, "ports": { "out": 5 } }
+        },
+        "calls": {
+          "pylon.newTickets": 1,
+          "pylon.ticketThread": 5,
+          "jira.createIssue": 1,
+          "pylon.addNote": 2,
+          "pylon.reply": 2,
+          "stripe.customerBilling": 2,
+          "slack.postMessage": 2,
+          "email.send": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "jira",
+            "item": "t-bug",
+            "operation": "jira.createIssue",
+            "fields": {
+              "issueType": "Bug",
+              "projectKey": "EXAMPLE",
+              "title": "Export fails with a blank page",
+              "description": "A customer reports that export shows a blank page. Ticket: https://pylon.example.test/issues/t-bug"
+            },
+            "receipt": { "status": "done", "externalRef": "EXAMPLE-1" }
+          },
+          {
+            "node": "note",
+            "item": "t-bug",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-bug",
+              "bodyHtml": "Logged in Jira: EXAMPLE-1"
+            },
+            "receipt": { "status": "done", "externalRef": "note-1" }
+          },
+          {
+            "node": "replyCustomer",
+            "item": "t-bug",
+            "operation": "pylon.reply",
+            "fields": {
+              "ticketId": "t-bug",
+              "messageId": "msg-t-bug",
+              "bodyHtml": "Thanks, we have logged this and will follow up."
+            },
+            "receipt": { "status": "done", "externalRef": "reply-1" }
+          },
+          {
+            "node": "sendAnswer",
+            "item": "t-bill-ok",
+            "operation": "pylon.reply",
+            "fields": {
+              "ticketId": "t-bill-ok",
+              "messageId": "msg-t-bill-ok",
+              "bodyHtml": "Your latest invoice is paid and your plan is Pro."
+            },
+            "receipt": { "status": "done", "externalRef": "reply-2" }
+          },
+          {
+            "node": "finance",
+            "item": "t-bill-unsure",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0FINANCE",
+              "text": "Draft for Was I refunded for September?: You may be owed a $12.00 refund for September."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760004000.000001",
+              "url": "https://slack.example.test/archives/D0LEAD/p1760004000000001"
+            }
+          },
+          {
+            "node": "lead",
+            "item": "t-urgent",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "support-lead@example.test",
+              "text": "Urgent ticket: Our whole team is locked out"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760004000.000002",
+              "url": "https://slack.example.test/archives/D0LEAD/p1760004000000002"
+            }
+          },
+          {
+            "node": "leadEmail",
+            "item": "t-urgent",
+            "operation": "email.send",
+            "fields": {
+              "to": "support-lead@example.test",
+              "subject": "Urgent ticket: Our whole team is locked out",
+              "body": "The whole team is locked out."
+            },
+            "receipt": { "status": "done", "externalRef": "mail-1" }
+          },
+          {
+            "node": "suggest",
+            "item": "t-other",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-other",
+              "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+            },
+            "receipt": { "status": "done", "externalRef": "note-2" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "classify",
+            "mode": "perItem",
+            "items": [
+              "t-bug",
+              "t-bill-ok",
+              "t-bill-unsure",
+              "t-urgent",
+              "t-other"
+            ]
+          },
+          { "node": "jira", "mode": "perItem", "items": ["t-bug"] },
+          {
+            "node": "answer",
+            "mode": "perItem",
+            "items": ["t-bill-ok", "t-bill-unsure"]
+          },
+          { "node": "suggest", "mode": "perItem", "items": ["t-other"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {
+      "t-bug": "resolved",
+      "t-bill-ok": "resolved",
+      "t-other": "resolved",
+      "t-bill-unsure": "needs_manual",
+      "t-urgent": "needs_manual"
+    },
+    "cursors": { "tickets": "2026-10-19T11:59:00Z" },
+    "journeys": {
+      "t-bill-ok": [
+        "decision@route:route:billing",
+        "decision@sure:match",
+        "decision@hasFigures:otherwise",
+        "effect@sendAnswer",
+        "ended@done:done"
+      ],
+      "t-bill-unsure": [
+        "decision@route:route:billing",
+        "decision@sure:otherwise",
+        "effect@finance",
+        "ended@manual:needsManual"
+      ],
+      "t-bug": [
+        "decision@route:route:bug",
+        "effect@jira",
+        "effect@note",
+        "effect@replyCustomer",
+        "ended@done:done"
+      ],
+      "t-urgent": [
+        "decision@route:route:urgent",
+        "effect@lead",
+        "effect@leadEmail",
+        "ended@manual:needsManual"
+      ],
+      "t-other": [
+        "decision@route:otherwise",
+        "effect@suggest",
+        "ended@done:done"
+      ]
+    }
+  },
+  "a-model-claiming-support-for-an-invented-fact-is-believed": {
+    "ticks": [
+      {
+        "label": "the 10-minute run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 2 }
+        },
+        "nodes": {
+          "answer": { "in": 1, "ports": { "out": 1 } },
+          "classify": { "in": 1, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "hasFigures": { "in": 1, "ports": { "otherwise": 1 } },
+          "route": { "in": 1, "ports": { "route:billing": 1 } },
+          "sendAnswer": { "in": 1, "ports": { "out": 1 } },
+          "stripe": { "in": 1, "ports": { "out": 1 } },
+          "sure": { "in": 1, "ports": { "match": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "tickets": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "pylon.newTickets": 1,
+          "pylon.ticketThread": 1,
+          "stripe.customerBilling": 1,
+          "pylon.reply": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "sendAnswer",
+            "item": "t-bill-claimed",
+            "operation": "pylon.reply",
+            "fields": {
+              "ticketId": "t-bill-claimed",
+              "messageId": "msg-t-bill-claimed",
+              "bodyHtml": "We refunded the duplicate charge."
+            },
+            "receipt": { "status": "done", "externalRef": "reply-1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "classify",
+            "mode": "perItem",
+            "items": ["t-bill-claimed"]
+          },
+          { "node": "answer", "mode": "perItem", "items": ["t-bill-claimed"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "t-bill-claimed": "resolved" },
+    "cursors": { "tickets": "2026-10-19T11:59:00Z" },
+    "journeys": {
+      "t-bill-claimed": [
+        "decision@route:route:billing",
+        "decision@sure:match",
+        "decision@hasFigures:otherwise",
+        "effect@sendAnswer",
+        "ended@done:done"
+      ]
+    }
+  },
+  "an-answer-that-states-an-amount-or-a-date-goes-to-finance-whatever-the-model-says": {
+    "ticks": [
+      {
+        "label": "the 10-minute run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "needsManual": 1, "modelCalls": 2 }
+        },
+        "nodes": {
+          "answer": { "in": 1, "ports": { "out": 1 } },
+          "classify": { "in": 1, "ports": { "out": 1 } },
+          "finance": { "in": 1, "ports": { "out": 1 } },
+          "hasFigures": { "in": 1, "ports": { "match": 1 } },
+          "manual": { "in": 1, "ports": {} },
+          "route": { "in": 1, "ports": { "route:billing": 1 } },
+          "stripe": { "in": 1, "ports": { "out": 1 } },
+          "sure": { "in": 1, "ports": { "match": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "tickets": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "pylon.newTickets": 1,
+          "pylon.ticketThread": 1,
+          "stripe.customerBilling": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "finance",
+            "item": "t-bill-claimed",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0FINANCE",
+              "text": "Draft for Did you refund my duplicate charge?: We refunded the duplicate charge of $40.00 on October 3, 2026."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760004000.000001",
+              "url": "https://slack.example.test/archives/D0LEAD/p1760004000000001"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "classify",
+            "mode": "perItem",
+            "items": ["t-bill-claimed"]
+          },
+          { "node": "answer", "mode": "perItem", "items": ["t-bill-claimed"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "t-bill-claimed": "needs_manual" },
+    "cursors": { "tickets": "2026-10-19T11:59:00Z" },
+    "journeys": {
+      "t-bill-claimed": [
+        "decision@route:route:billing",
+        "decision@sure:match",
+        "decision@hasFigures:match",
+        "effect@finance",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "a-ticket-whose-classification-cannot-be-read-fails-alone": {
+    "ticks": [
+      {
+        "label": "the run that fails one ticket",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 2,
+            "done": 1,
+            "itemFailures": 1,
+            "modelCalls": 2,
+            "retryParked": 1
+          }
+        },
+        "nodes": {
+          "classify": {
+            "in": 2,
+            "ports": { "out": 1 },
+            "status": "failed",
+            "error": "ai_invalid_output"
+          },
+          "done": { "in": 1, "ports": {} },
+          "jira": { "in": 1, "ports": { "out": 1 } },
+          "note": { "in": 1, "ports": { "out": 1 } },
+          "replyCustomer": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:bug": 1 } },
+          "thread": { "in": 2, "ports": { "out": 2 } },
+          "tickets": { "in": 0, "ports": { "out": 2 } }
+        },
+        "calls": {
+          "pylon.newTickets": 1,
+          "pylon.ticketThread": 2,
+          "jira.createIssue": 1,
+          "pylon.addNote": 1,
+          "pylon.reply": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "jira",
+            "item": "t-bug",
+            "operation": "jira.createIssue",
+            "fields": {
+              "issueType": "Bug",
+              "projectKey": "EXAMPLE",
+              "title": "Export fails with a blank page",
+              "description": "A customer reports that export shows a blank page. Ticket: https://pylon.example.test/issues/t-bug"
+            },
+            "receipt": { "status": "done", "externalRef": "EXAMPLE-1" }
+          },
+          {
+            "node": "note",
+            "item": "t-bug",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-bug",
+              "bodyHtml": "Logged in Jira: EXAMPLE-1"
+            },
+            "receipt": { "status": "done", "externalRef": "note-1" }
+          },
+          {
+            "node": "replyCustomer",
+            "item": "t-bug",
+            "operation": "pylon.reply",
+            "fields": {
+              "ticketId": "t-bug",
+              "messageId": "msg-t-bug",
+              "bodyHtml": "Thanks, we have logged this and will follow up."
+            },
+            "receipt": { "status": "done", "externalRef": "reply-1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "classify",
+            "mode": "perItem",
+            "items": ["t-bug", "t-other"]
+          },
+          { "node": "jira", "mode": "perItem", "items": ["t-bug"] }
+        ]
+      },
+      {
+        "label": "the next run",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "classify": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          }
+        },
+        "calls": { "pylon.newTickets": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [{ "node": "classify", "mode": "perItem", "items": ["t-other"] }]
+      }
+    ],
+    "parked": [
+      {
+        "item": "t-other",
+        "node": "classify",
+        "wait": "retry",
+        "dueAt": "2026-10-19T12:20:00.000Z",
+        "counters": { "attempts": 2 }
+      }
+    ],
+    "statuses": { "t-bug": "resolved" },
+    "cursors": { "tickets": "2026-10-19T11:59:00Z" },
+    "journeys": {
+      "t-bug": [
+        "decision@route:route:bug",
+        "effect@jira",
+        "effect@note",
+        "effect@replyCustomer",
+        "ended@done:done"
+      ],
+      "t-other": [
+        "error@classify:ai_invalid_output",
+        "parked@classify",
+        "woke@classify:?",
+        "error@classify:ai_invalid_output",
+        "parked@classify"
+      ]
+    }
+  },
+  "an-unreadable-ticket-that-is-offered-again-is-handed-to-a-person-on-the-third-try": {
+    "ticks": [
+      {
+        "label": "first attempt",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1
+          }
+        },
+        "nodes": {
+          "classify": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "tickets": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": { "pylon.newTickets": 1, "pylon.ticketThread": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [{ "node": "classify", "mode": "perItem", "items": ["t-other"] }]
+      },
+      {
+        "label": "second attempt",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "classify": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          }
+        },
+        "calls": { "pylon.newTickets": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [{ "node": "classify", "mode": "perItem", "items": ["t-other"] }]
+      },
+      {
+        "label": "third attempt",
+        "at": "2026-10-19T12:20:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "needsManual": 1,
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "classify": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          }
+        },
+        "calls": { "pylon.newTickets": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [{ "node": "classify", "mode": "perItem", "items": ["t-other"] }]
+      }
+    ],
+    "parked": [],
+    "statuses": { "t-other": "needs_manual" },
+    "cursors": { "tickets": "2026-10-19T11:59:00Z" },
+    "journeys": {
+      "t-other": [
+        "error@classify:ai_invalid_output",
+        "parked@classify",
+        "woke@classify:?",
+        "error@classify:ai_invalid_output",
+        "parked@classify",
+        "woke@classify:?",
+        "error@classify:ai_invalid_output",
+        "ended@classify:needsManual"
+      ]
+    }
+  },
+  "a-ticket-offered-again-after-it-was-handled-is-not-handled-twice": {
+    "ticks": [
+      {
+        "label": "the ticket is handled",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 2 }
+        },
+        "nodes": {
+          "classify": { "in": 1, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "jira": { "in": 1, "ports": { "out": 1 } },
+          "note": { "in": 1, "ports": { "out": 1 } },
+          "replyCustomer": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:bug": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "tickets": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "pylon.newTickets": 1,
+          "pylon.ticketThread": 1,
+          "jira.createIssue": 1,
+          "pylon.addNote": 1,
+          "pylon.reply": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "jira",
+            "item": "t-bug",
+            "operation": "jira.createIssue",
+            "fields": {
+              "issueType": "Bug",
+              "projectKey": "EXAMPLE",
+              "title": "Export fails with a blank page",
+              "description": "A customer reports that export shows a blank page. Ticket: https://pylon.example.test/issues/t-bug"
+            },
+            "receipt": { "status": "done", "externalRef": "EXAMPLE-1" }
+          },
+          {
+            "node": "note",
+            "item": "t-bug",
+            "operation": "pylon.addNote",
+            "fields": {
+              "ticketId": "t-bug",
+              "bodyHtml": "Logged in Jira: EXAMPLE-1"
+            },
+            "receipt": { "status": "done", "externalRef": "note-1" }
+          },
+          {
+            "node": "replyCustomer",
+            "item": "t-bug",
+            "operation": "pylon.reply",
+            "fields": {
+              "ticketId": "t-bug",
+              "messageId": "msg-t-bug",
+              "bodyHtml": "Thanks, we have logged this and will follow up."
+            },
+            "receipt": { "status": "done", "externalRef": "reply-1" }
+          }
+        ],
+        "ai": [
+          { "node": "classify", "mode": "perItem", "items": ["t-bug"] },
+          { "node": "jira", "mode": "perItem", "items": ["t-bug"] }
+        ]
+      },
+      {
+        "label": "the ticket is offered again",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "pylon.newTickets": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "t-bug": "resolved" },
+    "cursors": { "tickets": "2026-10-19T11:59:00Z" },
+    "journeys": {
+      "t-bug": [
+        "decision@route:route:bug",
+        "effect@jira",
+        "effect@note",
+        "effect@replyCustomer",
+        "ended@done:done"
+      ]
+    }
+  },
+  "a-thread-that-returns-nothing-is-a-failed-lookup-not-an-empty-ticket": {
+    "ticks": [
+      {
+        "label": "the 10-minute run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "needsManual": 1, "itemFailures": 1 }
+        },
+        "nodes": {
+          "thread": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "lookup_failed"
+          },
+          "tickets": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": { "pylon.newTickets": 1, "pylon.ticketThread": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "t-bug": "needs_manual" },
+    "cursors": { "tickets": "2026-10-19T11:59:00Z" },
+    "journeys": {
+      "t-bug": ["error@thread:lookup_failed", "ended@thread:needsManual"]
+    }
+  },
+  "a-test-of-the-classify-node-runs-on-a-sample-ticket-and-sends-nothing": {
+    "ticks": [
+      {
+        "label": "test classify",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "test",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "modelCalls": 1 } },
+        "nodes": { "classify": { "in": 1, "ports": { "out": 1 } } },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [{ "node": "classify", "mode": "perItem", "items": ["t-sample"] }]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {}
+  },
+  "a-dry-run-sends-nothing": {
+    "ticks": [
+      {
+        "label": "dry run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "dry",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 5, "done": 3, "needsManual": 2, "modelCalls": 4 }
+        },
+        "nodes": {
+          "answer": { "in": 2, "ports": { "out": 2 } },
+          "classify": { "in": 5, "ports": { "out": 5 } },
+          "done": { "in": 3, "ports": {} },
+          "finance": { "in": 1, "ports": { "out": 1 } },
+          "hasFigures": { "in": 1, "ports": { "otherwise": 1 } },
+          "jira": { "in": 1, "ports": { "out": 1 } },
+          "lead": { "in": 1, "ports": { "out": 1 } },
+          "leadEmail": { "in": 1, "ports": { "out": 1 } },
+          "manual": { "in": 2, "ports": {} },
+          "note": { "in": 1, "ports": { "out": 1 } },
+          "replyCustomer": { "in": 1, "ports": { "out": 1 } },
+          "route": {
+            "in": 5,
+            "ports": {
+              "route:bug": 1,
+              "route:billing": 2,
+              "route:urgent": 1,
+              "otherwise": 1
+            }
+          },
+          "sendAnswer": { "in": 1, "ports": { "out": 1 } },
+          "stripe": { "in": 2, "ports": { "out": 2 } },
+          "suggest": { "in": 1, "ports": { "out": 1 } },
+          "sure": { "in": 2, "ports": { "match": 1, "otherwise": 1 } },
+          "thread": { "in": 5, "ports": { "out": 5 } },
+          "tickets": { "in": 0, "ports": { "out": 5 } }
+        },
+        "calls": {
+          "pylon.newTickets": 1,
+          "pylon.ticketThread": 5,
+          "stripe.customerBilling": 2
+        },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "classify",
+            "mode": "perItem",
+            "items": [
+              "t-bug",
+              "t-bill-ok",
+              "t-bill-unsure",
+              "t-urgent",
+              "t-other"
+            ]
+          },
+          { "node": "jira", "mode": "perItem", "items": ["t-bug"] },
+          {
+            "node": "answer",
+            "mode": "perItem",
+            "items": ["t-bill-ok", "t-bill-unsure"]
+          },
+          { "node": "suggest", "mode": "perItem", "items": ["t-other"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "t-bill-ok": [
+        "decision@route:route:billing",
+        "decision@sure:match",
+        "decision@hasFigures:otherwise",
+        "effect@sendAnswer",
+        "ended@done:done"
+      ],
+      "t-bill-unsure": [
+        "decision@route:route:billing",
+        "decision@sure:otherwise",
+        "effect@finance",
+        "ended@manual:needsManual"
+      ],
+      "t-bug": [
+        "decision@route:route:bug",
+        "effect@jira",
+        "effect@note",
+        "effect@replyCustomer",
+        "ended@done:done"
+      ],
+      "t-urgent": [
+        "decision@route:route:urgent",
+        "effect@lead",
+        "effect@leadEmail",
+        "ended@manual:needsManual"
+      ],
+      "t-other": [
+        "decision@route:otherwise",
+        "effect@suggest",
+        "ended@done:done"
+      ]
+    }
+  }
+}

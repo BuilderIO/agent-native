@@ -1,0 +1,11 @@
+{
+  "mail": {
+    "nudge": {
+      "perItem": {
+        "*": {
+          "body": "Hi Nadia, welcome aboard. The quickest way to see value is to create your first project from the dashboard; the docs walk through it in two minutes: https://docs.example.test/getting-started"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,1385 @@
+{
+  "an-answered-incident-resolves-into-a-postmortem-draft": {
+    "ticks": [
+      {
+        "label": "the spike is paged",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "ack": { "in": 1, "ports": { "parked": 1 } },
+          "pageEmail": { "in": 1, "ports": { "out": 1 } },
+          "pageSlack": { "in": 1, "ports": { "out": 1 } },
+          "spikes": { "in": 0, "ports": { "out": 1 } },
+          "summarize": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.postMessage": 1, "email.send": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "pageSlack",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000001"
+            }
+          },
+          {
+            "node": "pageEmail",
+            "item": "issue-4821",
+            "operation": "email.send",
+            "fields": {
+              "to": "oncall@example.test",
+              "subject": "Incident: TypeError in checkout: cannot read 'total' of undefined",
+              "body": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          { "node": "summarize", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      },
+      {
+        "label": "nothing is due yet",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the answer is seen: now waiting for the fix",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "parked": 1, "woke": 1 } },
+        "nodes": {
+          "ack": { "in": 0, "ports": { "replied": 1 } },
+          "resolved": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "still open",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "sentry.issueStatus": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "still open",
+        "at": "2026-10-19T12:45:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "sentry.issueStatus": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "resolved: the postmortem is written",
+        "at": "2026-10-19T13:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 1, "woke": 1 }
+        },
+        "nodes": {
+          "announce": { "in": 1, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "gather": { "in": 1, "ports": { "out": 1 } },
+          "notion": { "in": 1, "ports": { "out": 1 } },
+          "postmortem": { "in": 1, "ports": { "out": 1 } },
+          "resolved": { "in": 0, "ports": { "met": 1 } }
+        },
+        "calls": {
+          "sentry.issueStatus": 1,
+          "sentry.issueEvents": 1,
+          "notion.createPage": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "page-1",
+              "url": "https://notion.example.test/page-1"
+            }
+          },
+          {
+            "node": "announce",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Postmortem draft: https://notion.example.test/page-1"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000002"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "postmortem", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "issue-4821": "resolved" },
+    "cursors": {},
+    "journeys": {
+      "issue-4821": [
+        "effect@pageSlack",
+        "effect@pageEmail",
+        "parked@ack",
+        "woke@ack:replied",
+        "parked@resolved",
+        "woke@resolved:met",
+        "effect@notion",
+        "effect@announce",
+        "ended@done:done"
+      ]
+    }
+  },
+  "nobody-answers-so-the-escalation-contact-is-told-and-the-issue-still-resolves": {
+    "ticks": [
+      {
+        "label": "the spike is paged",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "ack": { "in": 1, "ports": { "parked": 1 } },
+          "pageEmail": { "in": 1, "ports": { "out": 1 } },
+          "pageSlack": { "in": 1, "ports": { "out": 1 } },
+          "spikes": { "in": 0, "ports": { "out": 1 } },
+          "summarize": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.postMessage": 1, "email.send": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "pageSlack",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000001"
+            }
+          },
+          {
+            "node": "pageEmail",
+            "item": "issue-4821",
+            "operation": "email.send",
+            "fields": {
+              "to": "oncall@example.test",
+              "subject": "Incident: TypeError in checkout: cannot read 'total' of undefined",
+              "body": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          { "node": "summarize", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      },
+      {
+        "label": "fifteen minutes: the escalation contact is paged",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "parked": 1, "woke": 1 } },
+        "nodes": {
+          "ack": { "in": 0, "ports": { "timedOut": 1 } },
+          "escalate": { "in": 1, "ports": { "out": 1 } },
+          "escalateEmail": { "in": 1, "ports": { "out": 1 } },
+          "resolved": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": { "slack.postMessage": 1, "email.send": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "escalate",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "escalation@example.test",
+              "text": "Nobody answered: TypeError in checkout: cannot read 'total' of undefined"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/D0ESCALATION/p1760001000000002"
+            }
+          },
+          {
+            "node": "escalateEmail",
+            "item": "issue-4821",
+            "operation": "email.send",
+            "fields": {
+              "to": "escalation@example.test",
+              "subject": "Unanswered incident: TypeError in checkout: cannot read 'total' of undefined",
+              "body": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-2" }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "the issue is resolved: the postmortem is written",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 1, "woke": 1 }
+        },
+        "nodes": {
+          "announce": { "in": 1, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "gather": { "in": 1, "ports": { "out": 1 } },
+          "notion": { "in": 1, "ports": { "out": 1 } },
+          "postmortem": { "in": 1, "ports": { "out": 1 } },
+          "resolved": { "in": 0, "ports": { "met": 1 } }
+        },
+        "calls": {
+          "sentry.issueStatus": 1,
+          "sentry.issueEvents": 1,
+          "notion.createPage": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "page-1",
+              "url": "https://notion.example.test/page-1"
+            }
+          },
+          {
+            "node": "announce",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Postmortem draft: https://notion.example.test/page-1"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000003",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000003"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "postmortem", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "issue-4821": "resolved" },
+    "cursors": {},
+    "journeys": {
+      "issue-4821": [
+        "effect@pageSlack",
+        "effect@pageEmail",
+        "parked@ack",
+        "woke@ack:timedOut",
+        "effect@escalate",
+        "effect@escalateEmail",
+        "parked@resolved",
+        "woke@resolved:met",
+        "effect@notion",
+        "effect@announce",
+        "ended@done:done"
+      ]
+    }
+  },
+  "an-issue-with-no-recorded-events-gets-a-postmortem-with-an-empty-timeline": {
+    "ticks": [
+      {
+        "label": "the spike is paged",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "ack": { "in": 1, "ports": { "parked": 1 } },
+          "pageEmail": { "in": 1, "ports": { "out": 1 } },
+          "pageSlack": { "in": 1, "ports": { "out": 1 } },
+          "spikes": { "in": 0, "ports": { "out": 1 } },
+          "summarize": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.postMessage": 1, "email.send": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "pageSlack",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000001"
+            }
+          },
+          {
+            "node": "pageEmail",
+            "item": "issue-4821",
+            "operation": "email.send",
+            "fields": {
+              "to": "oncall@example.test",
+              "subject": "Incident: TypeError in checkout: cannot read 'total' of undefined",
+              "body": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          { "node": "summarize", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      },
+      {
+        "label": "fifteen minutes: the escalation contact is paged",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "parked": 1, "woke": 1 } },
+        "nodes": {
+          "ack": { "in": 0, "ports": { "timedOut": 1 } },
+          "escalate": { "in": 1, "ports": { "out": 1 } },
+          "escalateEmail": { "in": 1, "ports": { "out": 1 } },
+          "resolved": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": { "slack.postMessage": 1, "email.send": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "escalate",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "escalation@example.test",
+              "text": "Nobody answered: TypeError in checkout: cannot read 'total' of undefined"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/D0ESCALATION/p1760001000000002"
+            }
+          },
+          {
+            "node": "escalateEmail",
+            "item": "issue-4821",
+            "operation": "email.send",
+            "fields": {
+              "to": "escalation@example.test",
+              "subject": "Unanswered incident: TypeError in checkout: cannot read 'total' of undefined",
+              "body": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-2" }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "the issue is resolved: a postmortem is written from no events",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 1, "woke": 1 }
+        },
+        "nodes": {
+          "announce": { "in": 1, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "gather": { "in": 1, "ports": { "out": 1 } },
+          "notion": { "in": 1, "ports": { "out": 1 } },
+          "postmortem": { "in": 1, "ports": { "out": 1 } },
+          "resolved": { "in": 0, "ports": { "met": 1 } }
+        },
+        "calls": {
+          "sentry.issueStatus": 1,
+          "sentry.issueEvents": 1,
+          "notion.createPage": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError with no recorded events",
+              "body": "## Summary\nSentry recorded no events for this issue, so there is no timeline.\n\n## Impact\nNo recorded event states the impact.\n\n## Causes\nNo recorded event shows a cause."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "page-1",
+              "url": "https://notion.example.test/page-1"
+            }
+          },
+          {
+            "node": "announce",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Postmortem draft: https://notion.example.test/page-1"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000003",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000003"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "postmortem", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "issue-4821": "resolved" },
+    "cursors": {},
+    "journeys": {
+      "issue-4821": [
+        "effect@pageSlack",
+        "effect@pageEmail",
+        "parked@ack",
+        "woke@ack:timedOut",
+        "effect@escalate",
+        "effect@escalateEmail",
+        "parked@resolved",
+        "woke@resolved:met",
+        "effect@notion",
+        "effect@announce",
+        "ended@done:done"
+      ]
+    }
+  },
+  "still-open-after-48-hours-tells-the-incident-owner": {
+    "ticks": [
+      {
+        "label": "the spike is paged",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "ack": { "in": 1, "ports": { "parked": 1 } },
+          "pageEmail": { "in": 1, "ports": { "out": 1 } },
+          "pageSlack": { "in": 1, "ports": { "out": 1 } },
+          "spikes": { "in": 0, "ports": { "out": 1 } },
+          "summarize": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.postMessage": 1, "email.send": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "pageSlack",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000001"
+            }
+          },
+          {
+            "node": "pageEmail",
+            "item": "issue-4821",
+            "operation": "email.send",
+            "fields": {
+              "to": "oncall@example.test",
+              "subject": "Incident: TypeError in checkout: cannot read 'total' of undefined",
+              "body": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          { "node": "summarize", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      },
+      {
+        "label": "the answer is seen",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "parked": 1, "woke": 1 } },
+        "nodes": {
+          "ack": { "in": 0, "ports": { "replied": 1 } },
+          "resolved": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "still open",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "sentry.issueStatus": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "a day later, still open",
+        "at": "2026-10-20T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "sentry.issueStatus": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "a minute short of the limit",
+        "at": "2026-10-21T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "sentry.issueStatus": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the 48-hour limit",
+        "at": "2026-10-21T12:15:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 1, "woke": 1 }
+        },
+        "nodes": {
+          "manual": { "in": 1, "ports": {} },
+          "owner": { "in": 1, "ports": { "out": 1 } },
+          "resolved": { "in": 0, "ports": { "timedOut": 1 } }
+        },
+        "calls": { "sentry.issueStatus": 1, "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "owner",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "incident-owner@example.test",
+              "text": "TypeError in checkout: cannot read 'total' of undefined is still open after 48 hours."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/D0INCIDENT/p1760001000000002"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "issue-4821": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "issue-4821": [
+        "effect@pageSlack",
+        "effect@pageEmail",
+        "parked@ack",
+        "woke@ack:replied",
+        "parked@resolved",
+        "woke@resolved:timedOut",
+        "effect@owner",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "a-failed-status-read-is-neither-resolved-nor-a-timeout": {
+    "ticks": [
+      {
+        "label": "the spike is paged",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "ack": { "in": 1, "ports": { "parked": 1 } },
+          "pageEmail": { "in": 1, "ports": { "out": 1 } },
+          "pageSlack": { "in": 1, "ports": { "out": 1 } },
+          "spikes": { "in": 0, "ports": { "out": 1 } },
+          "summarize": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.postMessage": 1, "email.send": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "pageSlack",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000001"
+            }
+          },
+          {
+            "node": "pageEmail",
+            "item": "issue-4821",
+            "operation": "email.send",
+            "fields": {
+              "to": "oncall@example.test",
+              "subject": "Incident: TypeError in checkout: cannot read 'total' of undefined",
+              "body": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          { "node": "summarize", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      },
+      {
+        "label": "the answer is seen",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "parked": 1, "woke": 1 } },
+        "nodes": {
+          "ack": { "in": 0, "ports": { "replied": 1 } },
+          "resolved": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the status cannot be read",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "itemFailures": 1, "stillWaiting": 1 }
+        },
+        "nodes": {
+          "resolved": {
+            "in": 0,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "sentry.issueStatus": 3 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "still open",
+        "at": "2026-10-19T12:45:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "sentry.issueStatus": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "at the deadline the status cannot be read",
+        "at": "2026-10-21T12:15:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "itemFailures": 1, "stillWaiting": 1 }
+        },
+        "nodes": {
+          "resolved": {
+            "in": 0,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "sentry.issueStatus": 3 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "read again: still open, the limit has passed",
+        "at": "2026-10-21T12:30:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 1, "woke": 1 }
+        },
+        "nodes": {
+          "manual": { "in": 1, "ports": {} },
+          "owner": { "in": 1, "ports": { "out": 1 } },
+          "resolved": { "in": 0, "ports": { "timedOut": 1 } }
+        },
+        "calls": { "sentry.issueStatus": 1, "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "owner",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "incident-owner@example.test",
+              "text": "TypeError in checkout: cannot read 'total' of undefined is still open after 48 hours."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/D0INCIDENT/p1760001000000002"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "issue-4821": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "issue-4821": [
+        "effect@pageSlack",
+        "effect@pageEmail",
+        "parked@ack",
+        "woke@ack:replied",
+        "parked@resolved",
+        "error@resolved:provider_error",
+        "error@resolved:provider_error",
+        "woke@resolved:timedOut",
+        "effect@owner",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "the-model-cannot-summarize-so-nobody-is-paged-and-a-person-is-handed-the-incident": {
+    "ticks": [
+      {
+        "label": "first try",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1
+          }
+        },
+        "nodes": {
+          "spikes": { "in": 0, "ports": { "out": 1 } },
+          "summarize": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [
+          { "node": "summarize", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      },
+      {
+        "label": "second try",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "summarize": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [
+          { "node": "summarize", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      },
+      {
+        "label": "third try",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "needsManual": 1,
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "summarize": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [
+          { "node": "summarize", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "issue-4821": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "issue-4821": [
+        "error@summarize:ai_invalid_output",
+        "parked@summarize",
+        "woke@summarize:?",
+        "error@summarize:ai_invalid_output",
+        "parked@summarize",
+        "woke@summarize:?",
+        "error@summarize:ai_invalid_output",
+        "ended@summarize:needsManual"
+      ]
+    }
+  },
+  "notion-down-leaves-the-incident-for-a-person": {
+    "ticks": [
+      {
+        "label": "the spike is paged",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "ack": { "in": 1, "ports": { "parked": 1 } },
+          "pageEmail": { "in": 1, "ports": { "out": 1 } },
+          "pageSlack": { "in": 1, "ports": { "out": 1 } },
+          "spikes": { "in": 0, "ports": { "out": 1 } },
+          "summarize": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.postMessage": 1, "email.send": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "pageSlack",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000001"
+            }
+          },
+          {
+            "node": "pageEmail",
+            "item": "issue-4821",
+            "operation": "email.send",
+            "fields": {
+              "to": "oncall@example.test",
+              "subject": "Incident: TypeError in checkout: cannot read 'total' of undefined",
+              "body": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          { "node": "summarize", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      },
+      {
+        "label": "the answer is seen",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "parked": 1, "woke": 1 } },
+        "nodes": {
+          "ack": { "in": 0, "ports": { "replied": 1 } },
+          "resolved": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "resolved: Notion fails",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "woke": 1,
+            "retryParked": 1
+          }
+        },
+        "nodes": {
+          "gather": { "in": 1, "ports": { "out": 1 } },
+          "notion": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          },
+          "postmortem": { "in": 1, "ports": { "out": 1 } },
+          "resolved": { "in": 0, "ports": { "met": 1 } }
+        },
+        "calls": {
+          "sentry.issueStatus": 1,
+          "sentry.issueEvents": 1,
+          "notion.createPage": 3
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": { "status": "failed" }
+          },
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": { "status": "failed" }
+          },
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": { "status": "failed" }
+          }
+        ],
+        "ai": [
+          { "node": "postmortem", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      },
+      {
+        "label": "second try",
+        "at": "2026-10-19T12:45:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "itemFailures": 1, "retryParked": 1, "retried": 1 }
+        },
+        "nodes": {
+          "notion": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "notion.createPage": 3 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": { "status": "failed" }
+          },
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": { "status": "failed" }
+          },
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": { "status": "failed" }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "third try",
+        "at": "2026-10-19T13:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 1, "itemFailures": 1, "retried": 1 }
+        },
+        "nodes": {
+          "notion": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "notion.createPage": 3 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": { "status": "failed" }
+          },
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": { "status": "failed" }
+          },
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": { "status": "failed" }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "issue-4821": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "issue-4821": [
+        "effect@pageSlack",
+        "effect@pageEmail",
+        "parked@ack",
+        "woke@ack:replied",
+        "parked@resolved",
+        "woke@resolved:met",
+        "error@notion:provider_error",
+        "parked@notion",
+        "woke@notion:?",
+        "error@notion:provider_error",
+        "parked@notion",
+        "woke@notion:?",
+        "error@notion:provider_error",
+        "ended@notion:needsManual"
+      ]
+    }
+  },
+  "the-same-issue-offered-again-is-paged-once": {
+    "ticks": [
+      {
+        "label": "the spike is paged",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 1, "parked": 1 }
+        },
+        "nodes": {
+          "ack": { "in": 1, "ports": { "parked": 1 } },
+          "pageEmail": { "in": 1, "ports": { "out": 1 } },
+          "pageSlack": { "in": 1, "ports": { "out": 1 } },
+          "spikes": { "in": 0, "ports": { "out": 1 } },
+          "summarize": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.postMessage": 1, "email.send": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "pageSlack",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000001"
+            }
+          },
+          {
+            "node": "pageEmail",
+            "item": "issue-4821",
+            "operation": "email.send",
+            "fields": {
+              "to": "oncall@example.test",
+              "subject": "Incident: TypeError in checkout: cannot read 'total' of undefined",
+              "body": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [
+          { "node": "summarize", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      },
+      {
+        "label": "offered again while waiting for an answer",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "offered again",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the answer is seen",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "parked": 1, "woke": 1 } },
+        "nodes": {
+          "ack": { "in": 0, "ports": { "replied": 1 } },
+          "resolved": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "offered again while waiting for the fix",
+        "at": "2026-10-19T12:20:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "still open",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "sentry.issueStatus": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "resolved: the postmortem is written",
+        "at": "2026-10-19T13:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 1, "woke": 1 }
+        },
+        "nodes": {
+          "announce": { "in": 1, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "gather": { "in": 1, "ports": { "out": 1 } },
+          "notion": { "in": 1, "ports": { "out": 1 } },
+          "postmortem": { "in": 1, "ports": { "out": 1 } },
+          "resolved": { "in": 0, "ports": { "met": 1 } }
+        },
+        "calls": {
+          "sentry.issueStatus": 1,
+          "sentry.issueEvents": 1,
+          "notion.createPage": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notion",
+            "item": "issue-4821",
+            "operation": "notion.createPage",
+            "fields": {
+              "parentPageId": "page-1",
+              "title": "[Draft] Checkout TypeError on release 2026.10.19-1",
+              "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "page-1",
+              "url": "https://notion.example.test/page-1"
+            }
+          },
+          {
+            "node": "announce",
+            "item": "issue-4821",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "oncall@example.test",
+              "text": "Postmortem draft: https://notion.example.test/page-1"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/D0ONCALL/p1760001000000002"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "postmortem", "mode": "perItem", "items": ["issue-4821"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "issue-4821": "resolved" },
+    "cursors": {},
+    "journeys": {
+      "issue-4821": [
+        "effect@pageSlack",
+        "effect@pageEmail",
+        "parked@ack",
+        "woke@ack:replied",
+        "parked@resolved",
+        "woke@resolved:met",
+        "effect@notion",
+        "effect@announce",
+        "ended@done:done"
+      ]
+    }
+  }
+}
