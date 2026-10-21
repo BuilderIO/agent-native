@@ -22,6 +22,7 @@ import {
   findFileUrls,
   isVercelEnvVarAbsent,
   missingDocCommands,
+  observeDeployMarkerResponse,
   PRESET_SHAPES,
   redactSecrets,
   schedulerCheckIsAfter,
@@ -249,6 +250,25 @@ describe("scheduled wake observation", () => {
       () => schedulerCheckIsAfter("not-a-timestamp", 0),
       /invalid check timestamp/,
     );
+  });
+});
+
+describe("deploy marker observation", () => {
+  it("keeps the first marker timestamp while waiting for settle hits", () => {
+    const first = observeDeployMarkerResponse(
+      { consecutiveHits: 0, firstObservedAt: undefined },
+      true,
+      100,
+    );
+    const second = observeDeployMarkerResponse(first, true, 200);
+    const reset = observeDeployMarkerResponse(second, false, 300);
+    const afterReset = observeDeployMarkerResponse(reset, true, 400);
+
+    assert.equal(first.firstObservedAt, 100);
+    assert.equal(second.firstObservedAt, 100);
+    assert.equal(reset.firstObservedAt, 100);
+    assert.equal(afterReset.firstObservedAt, 100);
+    assert.equal(afterReset.consecutiveHits, 1);
   });
 });
 

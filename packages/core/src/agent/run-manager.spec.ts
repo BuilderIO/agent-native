@@ -1032,6 +1032,85 @@ describe("run manager soft timeout", () => {
     consoleError.mockRestore();
   });
 
+  it("preserves an abort that wins while checkpoint status lookup is pending", async () => {
+    const runId = "run-checkpoint-read-failure-after-abort";
+    const threadId = "thread-checkpoint-read-failure-after-abort";
+    const events: AgentChatEvent[] = [];
+    const statusRead =
+      Promise.withResolvers<Awaited<ReturnType<typeof getRunById>>>();
+    vi.mocked(persistRunCheckpointEvent).mockResolvedValueOnce();
+    vi.mocked(getRunById).mockImplementationOnce(() => statusRead.promise);
+    const run = startRun(
+      runId,
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.advanceTimersByTimeAsync(11);
+    await vi.waitFor(() => expect(getRunById).toHaveBeenCalledWith(runId));
+    expect(abortRun(runId, "user")).toBe(true);
+    statusRead.reject(new Error("database read unavailable"));
+    await run.finalized;
+
+    expect(markRunAborted).toHaveBeenCalledWith(runId, "user");
+    expect(run.status).toBe("aborted");
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "run_terminal_lookup_failed" }),
+    );
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      "errored",
+      expect.anything(),
+    );
+  });
+
+  it("lets checkpoint lookup failures replace a staged continuation terminal", async () => {
+    const runId = "run-checkpoint-read-failure-terminal-priority";
+    const threadId = "thread-checkpoint-read-failure-terminal-priority";
+    const events: AgentChatEvent[] = [];
+    vi.mocked(persistRunCheckpointEvent).mockResolvedValueOnce();
+    vi.mocked(getRunById).mockRejectedValueOnce(
+      new Error("database read unavailable"),
+    );
+    const run = startRun(
+      runId,
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.continuationTerminalEvent = {
+      type: "auto_continue",
+      reason: "stream_ended",
+    };
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.advanceTimersByTimeAsync(11);
+    await run.finalized;
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "run_terminal_lookup_failed",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "auto_continue" }),
+    );
+    expect(run.status).toBe("errored");
+  });
+
   it.each(["completed", "errored", "truncated"] as const)(
     "runs completion handling after a checkpoint observes persisted %s status",
     async (persistedStatus) => {

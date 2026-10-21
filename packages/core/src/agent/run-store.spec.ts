@@ -683,6 +683,20 @@ describe("run store", () => {
     ]);
   });
 
+  it("parses each ordinary hot-path run event once", async () => {
+    const eventData = '{"type":"thinking","text":"working"}';
+    const parse = vi.spyOn(JSON, "parse");
+
+    try {
+      await insertRunEvent("run-single-event-parse", 0, eventData);
+      expect(
+        parse.mock.calls.filter(([value]) => value === eventData),
+      ).toHaveLength(1);
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
   it("stores run events without inline image bytes", async () => {
     await insertRunEvent(
       "run-image",

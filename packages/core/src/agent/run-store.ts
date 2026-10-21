@@ -3742,12 +3742,13 @@ export async function getRunAbortState(
 function persistedRunEventData(
   eventData: string,
   inputSource?: "execution",
+  parsedEvent?: Record<string, unknown> & { type: string },
 ): string {
   const stripped = stripInlineBytesFromJson(eventData, "placeholder");
-  const original = JSON.parse(eventData);
+  const original = parsedEvent ?? JSON.parse(eventData);
   if (original.type === "approval_required") {
     return JSON.stringify({
-      ...JSON.parse(stripped),
+      ...(stripped === eventData ? original : JSON.parse(stripped)),
       approvalKey: approvalKeyForHistory(original.approvalKey),
     });
   }
@@ -3760,7 +3761,7 @@ function persistedRunEventData(
     original.inputStoredFingerprint !== undefined
   )
     return stripped;
-  const stored = JSON.parse(stripped);
+  const stored = stripped === eventData ? original : JSON.parse(stripped);
   // Only fresh execution input can establish identity; reserialization cannot recover lost arguments.
   return JSON.stringify({
     ...stored,
@@ -3806,12 +3807,13 @@ export async function insertRunEvent(
   },
 ): Promise<void> {
   await ensureRunTables();
+  const event = parseRunEventData(eventData, `run ${runId} sequence ${seq}`);
   const storedEventData = persistedRunEventData(
     eventData,
     options?.toolInputSource,
+    event,
   );
   const eventAt = options?.eventAt ?? Date.now();
-  const event = parseRunEventData(eventData, `run ${runId} sequence ${seq}`);
   const resolvesCheckpoint =
     terminalStatusForEvent(event as AgentChatEvent) !== null;
   // The reaper must wait for the marker's commit before exposing a successor.

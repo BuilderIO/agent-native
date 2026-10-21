@@ -67,6 +67,7 @@ import {
   extractFencedBlock,
   findFileUrls,
   isVercelEnvVarAbsent,
+  observeDeployMarkerResponse,
   PRESET_SHAPES,
   redactSecrets,
   schedulerCheckIsAfter,
@@ -544,7 +545,7 @@ async function pullWithRetry(image: string, cwd: string): Promise<void> {
 
 interface RunningApp {
   baseUrl: string;
-  /** Time after the host served the deployment marker unique to this run. */
+  /** First time the host served this run's unique deploy marker. */
   deployedAt?: number;
   /** Absent where the host gives the check no restart to perform. */
   restart?(): Promise<void>;
@@ -600,8 +601,11 @@ async function waitForNewDeploy(
   baseUrl: string,
   marker: DeployMarker,
   logs: () => string,
-): Promise<void> {
-  let hits = 0;
+): Promise<number> {
+  let observation = {
+    consecutiveHits: 0,
+    firstObservedAt: undefined as number | undefined,
+  };
   await waitFor(
     "the new deploy to answer at its address",
     READY_TIMEOUT_MS,
@@ -609,11 +613,19 @@ async function waitForNewDeploy(
       const response = await fetchWithTimeout(`${baseUrl}${marker.urlPath}`);
       const isNewDeploy =
         response.status === 200 && (await response.text()) === marker.nonce;
-      hits = isNewDeploy ? hits + 1 : 0;
-      return hits >= DEPLOY_SETTLE_HITS;
+      observation = observeDeployMarkerResponse(
+        observation,
+        isNewDeploy,
+        Date.now(),
+      );
+      return observation.consecutiveHits >= DEPLOY_SETTLE_HITS;
     },
   );
   await waitForReady(baseUrl, () => null, logs);
+  if (observation.firstObservedAt === undefined) {
+    throw new Error("The new deploy marker was never observed.");
+  }
+  return observation.firstObservedAt;
 }
 
 async function startNodeServer(
@@ -1123,10 +1135,10 @@ async function deployToNetlify(
   const baseUrl = `https://${siteName}.netlify.app`;
   const logs = () =>
     `No server log is available from Netlify here; the site is ${baseUrl}.`;
-  await step("wait for the new deploy to answer", () =>
+  const deployedAt = await step("wait for the new deploy to answer", () =>
     waitForNewDeploy(baseUrl, marker, logs),
   );
-  return { baseUrl, deployedAt: Date.now(), logs };
+  return { baseUrl, deployedAt, logs };
 }
 
 async function deployToVercel(

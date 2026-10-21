@@ -2061,10 +2061,20 @@ export function startRun(
         }
       }
       if (checkpointStatusReadFailed || checkpointUnknownStatus !== null) {
-        run.status = "errored";
         const event = checkpointStatusReadFailed
           ? RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT
           : UNKNOWN_RUN_STATUS_ERROR_EVENT;
+        const abortAlreadyWon =
+          run.status === "aborted" && run.abortReason !== undefined;
+        if (!abortAlreadyWon) {
+          run.status = "errored";
+          if (!eventPersistenceError) {
+            pendingTerminalEvent = {
+              seq: peekRunEventSeq(run),
+              event: { ...event },
+            };
+          }
+        }
         if (checkpointUnknownStatus !== null) {
           console.error(
             "[run-manager] checkpoint observed an unknown persisted run status",
@@ -2072,16 +2082,18 @@ export function startRun(
             checkpointUnknownStatus,
           );
         }
-        pendingTerminalEvent ??= {
-          seq: peekRunEventSeq(run),
-          event: { ...event },
-        };
       }
       const resolveTerminalEventForCompletion = () => {
-        if (run.status === "aborted") return null;
+        if (run.status === "aborted" && run.abortReason !== undefined)
+          return null;
         if (eventPersistenceError) {
           return pendingTerminalEvent
             ? { ...pendingTerminalEvent, seq: run.events.length }
+            : null;
+        }
+        if (checkpointStatusReadFailed || checkpointUnknownStatus !== null) {
+          return pendingTerminalEvent
+            ? { ...pendingTerminalEvent, seq: peekRunEventSeq(run) }
             : null;
         }
         const continuationTerminalEvent = run.continuationTerminalEvent

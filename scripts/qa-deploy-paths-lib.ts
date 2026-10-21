@@ -168,6 +168,24 @@ export function schedulerCheckIsAfter(
   return checkedAt > deployedAt;
 }
 
+export interface DeployMarkerObservation {
+  consecutiveHits: number;
+  firstObservedAt: number | undefined;
+}
+
+export function observeDeployMarkerResponse(
+  previous: DeployMarkerObservation,
+  isNewDeploy: boolean,
+  observedAt: number,
+): DeployMarkerObservation {
+  return isNewDeploy
+    ? {
+        consecutiveHits: previous.consecutiveHits + 1,
+        firstObservedAt: previous.firstObservedAt ?? observedAt,
+      }
+    : { ...previous, consecutiveHits: 0 };
+}
+
 export function missingDocCommands(
   mdx: string,
   commands: readonly string[],
