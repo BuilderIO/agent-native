@@ -2014,6 +2014,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (Localisé)",
     couldNotStartRecording: "Could not start recording (Localisé)",
+    intakeStorageUnavailable:
+      "Le propriétaire de ce lien doit connecter un stockage vidéo avant que vous puissiez enregistrer. Demandez-lui de le faire, puis réessayez.",
+    streamingStorageUnavailable:
+      "Le stockage actuel ne prend pas en charge l’envoi reprenable requis par Clips. Configurez un fournisseur compatible ou demandez au propriétaire ou à l’admin de l’espace de travail. Puis démarrez un nouvel enregistrement.",
     couldNotStartRecorder: "Could not start recorder (Localisé)",
     openSettings: "Open settings (Localisé)",
     openedRecorderInNewTab: "Opened recorder in a new tab (Localisé)",
@@ -2047,6 +2051,8 @@ const messages = {
     sessionExpired: "Session expired (Localisé)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (Localisé)",
+    accountMismatch:
+      "Le compte connecté a changé après le début de la préparation de l’enregistrement. Reconnectez-vous au compte utilisé au départ, puis réessayez.",
     logIn: "Log in (Localisé)",
     betterInDesktop: "Better in the desktop app (Localisé)",
     desktopAppDescription:
@@ -2060,8 +2066,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (Localisé)",
     retryUpload: "Réessayer l’envoi",
     tryAgain: "Réessayer",
-    storageConnectedReopeningRecorder:
-      "Stockage connecté. Réouverture de l’enregistreur...",
+    storageConnectedRecorderReady:
+      "Stockage connecté. Démarrez un nouvel enregistrement quand vous le souhaitez.",
     connectStorageToFinish:
       "Sur l’écran suivant, utilisez le stockage Builder.io (stockage et IA dans l’offre gratuite) ou configurez un stockage compatible S3. Clips terminera l’enregistrement.",
     connectStorageToRetryLoom:

@@ -7,7 +7,7 @@ import {
   type TranscriptImportError,
 } from "@shared/transcript-import";
 import { IconFileUpload, IconLoader2 } from "@tabler/icons-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -70,6 +70,13 @@ export function TranscriptImportButton({
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const label = t("transcriptImport.addFile");
+  // The caller clears `replacement` as soon as the question is answered, a
+  // few frames before the dialog finishes closing, so the dialog keeps the
+  // last file it asked about.
+  const [shownReplacement, setShownReplacement] = useState(replacement);
+  if (replacement && replacement !== shownReplacement) {
+    setShownReplacement(replacement);
+  }
 
   // aria-disabled, not disabled: a disabled button cannot take the focus the
   // replace dialog hands back while the import is still saving.
@@ -210,7 +217,7 @@ export function TranscriptImportButton({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t("transcriptImport.replaceDescription", {
-                fileName: replacement?.fileName ?? "",
+                fileName: shownReplacement?.fileName ?? "",
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
