@@ -4656,6 +4656,26 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBe(true);
   });
 
+  it.each([
+    ["an app send", { submitMessageId: "submit-app-deferred" }, true],
+    ["a typed send", undefined, false],
+  ] as const)(
+    "remembers whether a deferred submission was %s",
+    async (_label, options, fromApp) => {
+      chatMocks.history = { isRestoring: true };
+      const ref = createRef<AssistantChatHandle>();
+      await mount(baseProps(), ref);
+
+      await act(async () => {
+        await ref.current?.sendMessage("Queue this", undefined, options);
+      });
+
+      const stored = JSON.stringify([...chatMocks.appState.values()]);
+      expect(stored).toContain("Queue this");
+      expect(stored.includes('"deferredFromApp":true')).toBe(fromApp);
+    },
+  );
+
   it("uploads inline images before storing a deferred submission", async () => {
     chatMocks.history = { isRestoring: true };
     const submissionExpiresAt = Date.now() + 20_000;
@@ -5766,6 +5786,43 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.transportOptions.scope).toEqual({
       type: "workspace-app",
       id: "app-two",
+    });
+  });
+
+  it("tells the turn which surface and sender it came from, and sends it once", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit("Typed by the user", [], [], {
+        intent: "immediate",
+      });
+    });
+    await act(async () => {
+      await ref.current!.sendMessage("Sent by the app", undefined, {
+        submitMessageId: "submit-app",
+        surface: "deck-outline",
+      });
+    });
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps()}
+          ref={ref}
+          placeholder="Re-rendered"
+        />,
+      );
+    });
+
+    const metadata = chatMocks.control.sendMessage.mock.calls.map(
+      ([input]) => (input as { metadata: Record<string, unknown> }).metadata,
+    );
+    expect(metadata).toHaveLength(2);
+    expect(metadata[0]).not.toHaveProperty("submitMessageId");
+    expect(metadata[0]).not.toHaveProperty("agentNativeSurface");
+    expect(metadata[1]).toMatchObject({
+      submitMessageId: "submit-app",
+      agentNativeSurface: "deck-outline",
     });
   });
 

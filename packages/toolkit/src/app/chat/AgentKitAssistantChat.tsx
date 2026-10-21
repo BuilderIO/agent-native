@@ -645,6 +645,8 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   deferredAgentId?: string | null;
   deferredContextScope?: AgentKitAssistantChatProps["contextScope"] | null;
   deferredSubmissionId?: string;
+  /** The deferred send came from app code, whose id the deferral drops. */
+  deferredFromApp?: boolean;
 };
 
 function isSubmissionExpired(submissionExpiresAt: number | undefined): boolean {
@@ -3588,6 +3590,9 @@ const AgentKitAssistantChatBody = forwardRef<
                 agentNativeDeferredSubmissionId: options.deferredSubmissionId,
               }
             : {}),
+          ...(options.deferredFromApp
+            ? { agentNativeDeferredFromApp: true }
+            : {}),
           ...(retryRequestAttachments.length
             ? { agentNativeRetryRequestAttachments: retryRequestAttachments }
             : {}),
@@ -3603,6 +3608,7 @@ const AgentKitAssistantChatBody = forwardRef<
             ? { submitMessageId: options.submitMessageId }
             : {}),
           ...(options.usageLabel ? { usageLabel: options.usageLabel } : {}),
+          ...(options.surface ? { agentNativeSurface: options.surface } : {}),
           ...(options.trackInRunsTray ? { trackInRunsTray: true } : {}),
           ...(skipAmbientSelectionContext
             ? { agentNativeSkipPendingSelectionContext: true }
@@ -3850,6 +3856,7 @@ const AgentKitAssistantChatBody = forwardRef<
               deferredOptions.skipAmbientSelectionContext = true;
             }
             delete deferredOptions.submitMessageId;
+            if (submitMessageId) deferredOptions.deferredFromApp = true;
             delete deferredOptions.attachments;
             deferredOptions.contextAlreadyIncluded = true;
             deferredOptions.deferredRequestAttachments = requestAttachments;

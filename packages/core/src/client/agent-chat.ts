@@ -19,6 +19,10 @@ import {
   sendToBuilderChat,
 } from "./builder-frame.js";
 import {
+  DEFAULT_TURN_SURFACE,
+  trackRoutedTurnSubmitted,
+} from "./chat/turn-submitted-telemetry.js";
+import {
   isEmbedAuthActive,
   isEmbedMcpChatBridgeActive,
   markEmbedMcpChatBridgeActive,
@@ -1049,6 +1053,8 @@ export interface ParsedSubmitChat {
   submissionExpiresAt?: number;
   usageLabel?: string;
   approvedToolCalls?: string[];
+  /** The sender's `preset`, reported as the turn's analytics surface. */
+  surface?: string;
 }
 
 const MAX_SUBMIT_APPROVED_TOOL_CALLS = 200;
@@ -1188,6 +1194,7 @@ export function parseSubmitChatMessage(
       : {}),
     usageLabel: nonEmptyString(raw.usageLabel),
     approvedToolCalls: parseSubmitChatApprovedToolCalls(raw.approvedToolCalls),
+    surface: nonEmptyString(raw.preset),
   };
 }
 
@@ -1239,6 +1246,28 @@ export function routesToCodeFrame(
   return !keepsApprovalInAppChat(opts);
 }
 
+/** A send that delivers a non-blank prompt; only these count as a turn. */
+function submitsMessage(opts: AgentChatMessage): boolean {
+  return opts.submit !== false && !!opts.message.trim();
+}
+
+/** A submitted prompt that leaves this page for Builder or an MCP host. */
+function trackRoutedSend(
+  opts: AgentChatMessage,
+  routedTo: "builder" | "mcp_host",
+  submitMessageId: string | undefined,
+  requestMode: string | undefined,
+): void {
+  // Typed as a string, but JS callers reach this too; a tracker never throws.
+  if (typeof opts.message !== "string" || !submitsMessage(opts)) return;
+  trackRoutedTurnSubmitted({
+    routedTo,
+    surface: opts.preset ?? DEFAULT_TURN_SURFACE,
+    submitMessageId,
+    requestMode,
+  });
+}
+
 function sendToAgentChatInternal(
   opts: AgentChatMessage,
   forceMcpAppWrapperRelay = false,
@@ -1262,7 +1291,7 @@ function sendToAgentChatInternal(
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
-  if (opts.submit !== false && opts.message.trim()) {
+  if (submitsMessage(opts)) {
     trackEvent("app.first_action", {
       action: "chat_submit",
       surface: opts.preset ?? "chat",
@@ -1272,6 +1301,7 @@ function sendToAgentChatInternal(
     });
   }
   if (isCodeRequest && isInBuilderFrame()) {
+    trackRoutedSend(opts, "builder", opts.submitMessageId, requestMode);
     sendToBuilderChat({
       message: opts.message,
       context: opts.context,
@@ -1296,6 +1326,7 @@ function sendToAgentChatInternal(
   };
 
   if (forceMcpAppWrapperRelay && mcpBridgeEnabled) {
+    trackRoutedSend(opts, "mcp_host", submitMessageId, requestMode);
     window.parent.postMessage(
       payload,
       getFramePostMessageTargetOrigin() || "*",
@@ -1304,6 +1335,7 @@ function sendToAgentChatInternal(
   }
 
   if (opts.submit !== false && !localChatTarget && mcpBridgeEnabled) {
+    trackRoutedSend(opts, "mcp_host", submitMessageId, requestMode);
     if (opts.targetTabId) {
       window.parent.postMessage(
         payload,
@@ -1477,17 +1509,24 @@ export function sendToAgentChatAndConfirm(
       );
     }
     return Promise.resolve(hostDelivery)
-      .then((delivered) =>
-        delivered === false
-          ? confirmAgentChatSubmit(opts, options, tabId, (submission) =>
-              sendToAgentChatInternal(submission, true),
-            )
-          : {
-              tabId,
-              delivered: delivered === true,
-              ...(delivered === true ? {} : { reason: "host-unconfirmed" }),
-            },
-      )
+      .then((delivered) => {
+        if (delivered === false) {
+          return confirmAgentChatSubmit(opts, options, tabId, (submission) =>
+            sendToAgentChatInternal(submission, true),
+          );
+        }
+        trackRoutedSend(
+          opts,
+          "mcp_host",
+          options?.submitMessageId,
+          requestMode,
+        );
+        return {
+          tabId,
+          delivered: delivered === true,
+          ...(delivered === true ? {} : { reason: "host-unconfirmed" }),
+        };
+      })
       .catch(() => ({ tabId, delivered: false, reason: "host-rejected" }));
   }
   return confirmAgentChatSubmit(opts, options, tabId, sendToAgentChat);

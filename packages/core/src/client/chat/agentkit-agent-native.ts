@@ -4911,6 +4911,9 @@ export function createAgentNativeAgentKitTransport(
       onRunOutcome({
         runId: record.turnId,
         threadId,
+        ...(typeof record.requestTurnId === "string"
+          ? { turnId: record.requestTurnId }
+          : {}),
         outcome: runOutcomeForCode(code),
         ...(code ? { code } : {}),
         ...(error instanceof Error && error.message

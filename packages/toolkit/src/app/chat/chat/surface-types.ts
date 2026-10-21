@@ -61,6 +61,8 @@ export interface AssistantChatSendOptions {
   approvedToolCalls?: string[];
   /** Send as a protocol continuation that stays out of visible history. */
   hideUserMessage?: boolean;
+  /** The app surface this send came from, reported with the turn's analytics. */
+  surface?: string;
 }
 
 export type AssistantChatSubmitResult =
