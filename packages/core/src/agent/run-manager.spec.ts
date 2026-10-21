@@ -7918,7 +7918,14 @@ describe("run manager soft timeout", () => {
       "run_event_persistence_failed",
       expect.anything(),
     );
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      run.runId,
+      "aborted",
+      expect.objectContaining({
+        terminalReason: "aborted:user",
+      }),
+    );
+    expect(setRunTerminalReason).not.toHaveBeenCalledWith(
       run.runId,
       "aborted:user",
     );
