@@ -20,10 +20,29 @@ interface DocText {
   segments: TextSegment[];
 }
 
+// Documents are immutable, and every anchor and suggestion on a Page reads the
+// same one, so each document's text is built once per separator pair.
+const docTexts = new WeakMap<ProseMirrorNode, Map<string, DocText>>();
+
 export function buildDocText(
   doc: ProseMirrorNode,
   blockSeparator = "",
   hardBreakSeparator: "" | "\n" = "",
+): DocText {
+  const key = `${hardBreakSeparator}|${blockSeparator}`;
+  let built = docTexts.get(doc);
+  const known = built?.get(key);
+  if (known) return known;
+  const docText = computeDocText(doc, blockSeparator, hardBreakSeparator);
+  if (!built) docTexts.set(doc, (built = new Map()));
+  built.set(key, docText);
+  return docText;
+}
+
+function computeDocText(
+  doc: ProseMirrorNode,
+  blockSeparator: string,
+  hardBreakSeparator: "" | "\n",
 ): DocText {
   let text = "";
   let hasTextblock = false;

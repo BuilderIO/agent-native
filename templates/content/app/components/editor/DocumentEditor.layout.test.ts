@@ -3359,8 +3359,8 @@ describe("document editor layout", () => {
     expect(source).toMatch(
       /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
     );
-    expect(source).toContain(
-      "if (!pendingSuggestionDecision?.continueSuggesting) return savedSuggestions",
+    expect(source).toMatch(
+      /if \(!pendingSuggestionDecision\?\.continueSuggesting && !proposalMembers\)\s+return savedSuggestions/,
     );
     expect(decision).not.toContain("setIsSuggesting(false)");
   });

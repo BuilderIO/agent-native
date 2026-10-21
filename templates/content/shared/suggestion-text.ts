@@ -172,7 +172,38 @@ export function suggestionTextPresentation(
   return nodes;
 }
 
+// Each suggestion is presented from its own copy of the Page, and the editor
+// asks again on every highlight rebuild, so recent Pages keep their results.
+const presentationsBySource = new Map<
+  string,
+  Map<string, SuggestionPresentationNode[] | null>
+>();
+
 export function suggestionTextPresentationForSource(
+  content: string,
+  context: SuggestionPresentationContext,
+): SuggestionPresentationNode[] | null {
+  const key = `${context.from}:${context.to}:${content}`;
+  let known = presentationsBySource.get(context.source);
+  if (known) {
+    presentationsBySource.delete(context.source);
+    presentationsBySource.set(context.source, known);
+    if (known.has(key)) return known.get(key)!;
+  } else {
+    if (presentationsBySource.size >= 128)
+      presentationsBySource.delete(presentationsBySource.keys().next().value!);
+    known = new Map();
+    presentationsBySource.set(context.source, known);
+  }
+  const presentation = computeSuggestionTextPresentationForSource(
+    content,
+    context,
+  );
+  known.set(key, presentation);
+  return presentation;
+}
+
+function computeSuggestionTextPresentationForSource(
   content: string,
   context: SuggestionPresentationContext,
 ): SuggestionPresentationNode[] | null {

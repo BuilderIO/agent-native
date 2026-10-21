@@ -2233,14 +2233,26 @@ function parseLeafTag(
   return null;
 }
 
+// Suggestion presentation canonicalizes the same few Pages once per suggestion
+// on every render, so recent results are kept.
+const recentCanonicalNfm = new Map<string, string>();
+
 export function canonicalizeNfm(nfm: string | null | undefined): string {
+  const source = nfm ?? "";
+  const known = recentCanonicalNfm.get(source);
+  if (known !== undefined) return known;
   const previous = suppressTerminalFillerTrim;
   suppressTerminalFillerTrim = true;
+  let canonical: string;
   try {
-    return docToNfm(nfmToDoc(nfm ?? ""));
+    canonical = docToNfm(nfmToDoc(source));
   } finally {
     suppressTerminalFillerTrim = previous;
   }
+  if (recentCanonicalNfm.size >= 8)
+    recentCanonicalNfm.delete(recentCanonicalNfm.keys().next().value!);
+  recentCanonicalNfm.set(source, canonical);
+  return canonical;
 }
 
 function countLocalMdxNodes(
