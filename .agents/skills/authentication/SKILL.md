@@ -268,16 +268,20 @@ names an accountable `ownerEmail`, `team`, `riskTier`, `purpose`, a `lifecycle`
 ## A2A Identity
 
 Set a distinct `A2A_SECRET` (same value) on apps that must verify each other's
-user identity. Only this deployment secret may sign a per-user A2A assertion;
-mint it from the authenticated request context. The shared organization
-`a2a_secret` proves organization scope only. Its subject/email claims are
-ignored, so it cannot impersonate a member or carry human approval into A2A or
-MCP. Keep each organization's secret different from `A2A_SECRET`.
+deployment-secret user assertions; mint those from the authenticated request
+context. The shared organization `a2a_secret` normally proves organization
+scope only. A separate `agent-native-org-member-delegation` assertion can carry
+a current member's identity only when the receiver's owner explicitly enables
+it, the org secret differs from `A2A_SECRET`, the audience and short expiry
+verify, and the receiver's current roster contains that email. Its org role is
+capped at `member`, so it cannot carry owner/admin authority or human approval.
+Keep each organization's secret different from `A2A_SECRET`.
 
 - Outbound calls sign user assertions with `A2A_SECRET` and verify them
   cryptographically at the receiver.
-- Organization-secret calls run as an organization principal without a user
-  email; user-owned reads, tasks, and approvals need a verified user assertion.
+- Ordinary organization-secret calls run as an organization principal without
+  a user email. Opted-in member delegation may access that member's user-scoped
+  data, but does not grant org owner/admin actions or approval authority.
 - Without a verifiable credential, production rejects A2A calls; local dev can
   remain open.
 

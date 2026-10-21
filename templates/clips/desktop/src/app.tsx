@@ -96,6 +96,7 @@ import {
   RecordingRecoveryPage,
   type RecordingRecoveryProps,
 } from "./components/RecordingRecovery";
+import { RewindCaptureStatus } from "./components/RewindCaptureStatus";
 import { ShortcutKeycaps } from "./components/ShortcutKeycaps";
 import { SourceRow, type CaptureSource } from "./components/SourceRow";
 import { Switch } from "./components/Switch";
@@ -8151,10 +8152,12 @@ function Setup({
               >
                 {screenMemoryMessage.text}
               </p>
-            ) : rewindOn && rewindStatusPresentation.hasError ? (
-              <p className="text-xs text-destructive">
-                {rewindStatusPresentation.detail}
-              </p>
+            ) : null}
+            {rewindOn ? (
+              <RewindCaptureStatus
+                status={screenMemoryStatus}
+                presentation={rewindStatusPresentation}
+              />
             ) : null}
           </SettingsRow>
           {rewindOn ? (

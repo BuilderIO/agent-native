@@ -820,6 +820,63 @@ describe("handleJsonRpc", () => {
     expect(executeReadOnlyAction).toHaveBeenCalledOnce();
   });
 
+  it("preserves org-member assurance for synchronous A2A calls", async () => {
+    const delegatedContextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: getRequestContext()?.a2aIdentityAssurance ?? "none",
+            },
+          ],
+        },
+      }),
+      executeReadOnlyAction: async () => ({
+        status: "completed",
+        output: getRequestContext()?.a2aIdentityAssurance ?? "none",
+      }),
+    };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "owner@builder.io",
+      __a2aVerifiedOrgId: "org-builder",
+      __a2aIdentityAssurance: "org-member",
+      __a2aAudienceVerified: true,
+    };
+
+    const sent = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hello" }],
+          },
+        },
+      },
+      event,
+      delegatedContextConfig,
+    );
+    expect(sent.result.status.message.parts[0].text).toBe("org-member");
+
+    const invoked = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "actions/invoke",
+        params: { action: "read", input: {} },
+      },
+      event,
+      delegatedContextConfig,
+    );
+    expect(invoked.result.output).toBe("org-member");
+  });
+
   it("uses the verified stable org id for direct action access", async () => {
     const executeReadOnlyAction = vi.fn(async () => ({
       status: "completed" as const,
@@ -2072,6 +2129,49 @@ describe("handleJsonRpc", () => {
     const chunks = event.node.res._writes.join("");
     expect(chunks).toContain("event-present");
     expect(chunks).not.toContain("event-missing");
+  });
+
+  it("preserves org-member assurance through streaming A2A calls", async () => {
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "owner@builder.io",
+      __a2aVerifiedOrgId: "org-builder",
+      __a2aIdentityAssurance: "org-member",
+    };
+    const delegatedContextConfig: A2AConfig = {
+      ...customHandler,
+      streaming: true,
+      handler: async function* () {
+        yield {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: getRequestContext()?.a2aIdentityAssurance ?? "none",
+            },
+          ],
+        };
+      },
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/stream",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hello" }],
+          },
+        },
+      },
+      event,
+      delegatedContextConfig,
+    );
+
+    expect(event.node.res._writes.join("")).toContain("org-member");
+    expect(event.node.res._writes.join("")).not.toContain("none");
   });
 
   it("scopes streamed tasks to the caller's verified organization", async () => {
@@ -3460,6 +3560,76 @@ describe("handleJsonRpc", () => {
     expect(followup.result.status.message.parts[0].text).toBe(
       "https://legacy.example.test",
     );
+  });
+
+  it("carries org-member assurance through an async processor hop", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: getRequestContext()?.a2aIdentityAssurance ?? "none",
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "owner@builder.io",
+      __a2aVerifiedOrgId: "org-builder",
+      __a2aOrgDomain: "builder.io",
+      __a2aIdentityAssurance: "org-member",
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hello" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+    expect(result.error).toBeUndefined();
+
+    const { getTask } = await import("./task-store.js");
+    expect(
+      (await getTask(result.result.id))?.metadata?.__a2a_processor,
+    ).toMatchObject({ identityAssurance: "org-member" });
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(result.result.id, contextConfig);
+
+    const followupEvent = mockEvent();
+    followupEvent.context = {
+      __a2aVerifiedEmail: "owner@builder.io",
+      __a2aVerifiedOrgId: "org-builder",
+      __a2aOrgDomain: "builder.io",
+      __a2aIdentityAssurance: "org-member",
+    };
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: result.result.id },
+      },
+      followupEvent,
+      contextConfig,
+    );
+
+    expect(followup.result.status.message.parts[0].text).toBe("org-member");
   });
 
   it("keeps a verified identity without an org id in personal scope", async () => {

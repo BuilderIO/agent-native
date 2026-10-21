@@ -98,6 +98,7 @@ export default function WorkspaceAppCatchAllRoute() {
         <ActionQueryError
           error={appsQuery.error}
           onRetry={() => void appsQuery.refetch()}
+          queryName="list-workspace-apps"
         />
       </DispatchShell>
     );

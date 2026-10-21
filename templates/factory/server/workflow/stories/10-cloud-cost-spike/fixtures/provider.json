@@ -1,0 +1,1235 @@
+{
+  "bigquery.billingQuery": {
+    "spikeDay": {
+      "ok": true,
+      "items": [
+        {
+          "id": "Compute Engine|2026-10-11",
+          "externalId": "Compute Engine|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-11",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-12",
+          "externalId": "Compute Engine|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-12",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-13",
+          "externalId": "Compute Engine|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-13",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-14",
+          "externalId": "Compute Engine|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-14",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-15",
+          "externalId": "Compute Engine|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-15",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-16",
+          "externalId": "Compute Engine|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-16",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-17",
+          "externalId": "Compute Engine|2026-10-17",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-17T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-17",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-18",
+          "externalId": "Compute Engine|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-18",
+            "cost": 200
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-11",
+          "externalId": "Cloud CDN|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-11",
+            "cost": 50
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-12",
+          "externalId": "Cloud CDN|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-12",
+            "cost": 50
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-13",
+          "externalId": "Cloud CDN|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-13",
+            "cost": 50
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-14",
+          "externalId": "Cloud CDN|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-14",
+            "cost": 50
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-15",
+          "externalId": "Cloud CDN|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-15",
+            "cost": 50
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-16",
+          "externalId": "Cloud CDN|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-16",
+            "cost": 50
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-17",
+          "externalId": "Cloud CDN|2026-10-17",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-17T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-17",
+            "cost": 50
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-18",
+          "externalId": "Cloud CDN|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-18",
+            "cost": 120
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-11",
+          "externalId": "Cloud Storage|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-11",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-12",
+          "externalId": "Cloud Storage|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-12",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-13",
+          "externalId": "Cloud Storage|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-13",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-14",
+          "externalId": "Cloud Storage|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-14",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-15",
+          "externalId": "Cloud Storage|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-15",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-16",
+          "externalId": "Cloud Storage|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-16",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-17",
+          "externalId": "Cloud Storage|2026-10-17",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-17T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-17",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-18",
+          "externalId": "Cloud Storage|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-18",
+            "cost": 21
+          }
+        },
+        {
+          "id": "Networking|2026-10-11",
+          "externalId": "Networking|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-11",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-12",
+          "externalId": "Networking|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-12",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-13",
+          "externalId": "Networking|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-13",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-14",
+          "externalId": "Networking|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-14",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-15",
+          "externalId": "Networking|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-15",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-16",
+          "externalId": "Networking|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-16",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-17",
+          "externalId": "Networking|2026-10-17",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-17T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-17",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-18",
+          "externalId": "Networking|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-18",
+            "cost": 4
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-11",
+          "externalId": "BigQuery|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-11",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-12",
+          "externalId": "BigQuery|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-12",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-13",
+          "externalId": "BigQuery|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-13",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-14",
+          "externalId": "BigQuery|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-14",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-15",
+          "externalId": "BigQuery|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-15",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-16",
+          "externalId": "BigQuery|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-16",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-17",
+          "externalId": "BigQuery|2026-10-17",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-17T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-17",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-18",
+          "externalId": "BigQuery|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-18",
+            "cost": 360
+          }
+        },
+        {
+          "id": "Vertex AI|2026-10-18",
+          "externalId": "Vertex AI|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Vertex AI",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "Vertex AI",
+            "date": "2026-10-18",
+            "cost": 80
+          }
+        }
+      ]
+    },
+    "quietDay": {
+      "ok": true,
+      "items": [
+        {
+          "id": "Cloud Storage|2026-10-11",
+          "externalId": "Cloud Storage|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-11",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-12",
+          "externalId": "Cloud Storage|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-12",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-13",
+          "externalId": "Cloud Storage|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-13",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-14",
+          "externalId": "Cloud Storage|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-14",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-15",
+          "externalId": "Cloud Storage|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-15",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-16",
+          "externalId": "Cloud Storage|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-16",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-17",
+          "externalId": "Cloud Storage|2026-10-17",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-17T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-17",
+            "cost": 20
+          }
+        },
+        {
+          "id": "Cloud Storage|2026-10-18",
+          "externalId": "Cloud Storage|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud Storage",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud Storage",
+            "date": "2026-10-18",
+            "cost": 21
+          }
+        },
+        {
+          "id": "Networking|2026-10-11",
+          "externalId": "Networking|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-11",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-12",
+          "externalId": "Networking|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-12",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-13",
+          "externalId": "Networking|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-13",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-14",
+          "externalId": "Networking|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-14",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-15",
+          "externalId": "Networking|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-15",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-16",
+          "externalId": "Networking|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-16",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-17",
+          "externalId": "Networking|2026-10-17",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-17T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-17",
+            "cost": 2
+          }
+        },
+        {
+          "id": "Networking|2026-10-18",
+          "externalId": "Networking|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Networking",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "Networking",
+            "date": "2026-10-18",
+            "cost": 4
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-11",
+          "externalId": "BigQuery|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-11",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-12",
+          "externalId": "BigQuery|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-12",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-13",
+          "externalId": "BigQuery|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-13",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-14",
+          "externalId": "BigQuery|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-14",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-15",
+          "externalId": "BigQuery|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-15",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-16",
+          "externalId": "BigQuery|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-16",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-17",
+          "externalId": "BigQuery|2026-10-17",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-17T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-17",
+            "cost": 300
+          }
+        },
+        {
+          "id": "BigQuery|2026-10-18",
+          "externalId": "BigQuery|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "BigQuery",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "BigQuery",
+            "date": "2026-10-18",
+            "cost": 360
+          }
+        },
+        {
+          "id": "Vertex AI|2026-10-18",
+          "externalId": "Vertex AI|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Vertex AI",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "Vertex AI",
+            "date": "2026-10-18",
+            "cost": 80
+          }
+        }
+      ]
+    },
+    "costsAsTheHostDeliversThem": {
+      "ok": true,
+      "items": [
+        {
+          "id": "Compute Engine|2026-10-11",
+          "externalId": "Compute Engine|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-11",
+            "cost": "100"
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-12",
+          "externalId": "Compute Engine|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-12",
+            "cost": "100"
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-13",
+          "externalId": "Compute Engine|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-13",
+            "cost": "100"
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-14",
+          "externalId": "Compute Engine|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-14",
+            "cost": "100"
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-15",
+          "externalId": "Compute Engine|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-15",
+            "cost": "100"
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-16",
+          "externalId": "Compute Engine|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-16",
+            "cost": "100"
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-17",
+          "externalId": "Compute Engine|2026-10-17",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-17T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-17",
+            "cost": "100"
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-18",
+          "externalId": "Compute Engine|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-18",
+            "cost": "200"
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-11",
+          "externalId": "Cloud CDN|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-11",
+            "cost": "50"
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-12",
+          "externalId": "Cloud CDN|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-12",
+            "cost": "50"
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-13",
+          "externalId": "Cloud CDN|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-13",
+            "cost": "50"
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-14",
+          "externalId": "Cloud CDN|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-14",
+            "cost": "50"
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-15",
+          "externalId": "Cloud CDN|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-15",
+            "cost": "50"
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-16",
+          "externalId": "Cloud CDN|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-16",
+            "cost": "50"
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-17",
+          "externalId": "Cloud CDN|2026-10-17",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-17T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-17",
+            "cost": "50"
+          }
+        },
+        {
+          "id": "Cloud CDN|2026-10-18",
+          "externalId": "Cloud CDN|2026-10-18",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Cloud CDN",
+          "occurredAt": "2026-10-18T00:00:00.000Z",
+          "extras": {
+            "service": "Cloud CDN",
+            "date": "2026-10-18",
+            "cost": "120"
+          }
+        }
+      ]
+    },
+    "dataEndsBeforeYesterday": {
+      "ok": true,
+      "items": [
+        {
+          "id": "Compute Engine|2026-10-11",
+          "externalId": "Compute Engine|2026-10-11",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-11T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-11",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-12",
+          "externalId": "Compute Engine|2026-10-12",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-12T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-12",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-13",
+          "externalId": "Compute Engine|2026-10-13",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-13T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-13",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-14",
+          "externalId": "Compute Engine|2026-10-14",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-14T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-14",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-15",
+          "externalId": "Compute Engine|2026-10-15",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-15T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-15",
+            "cost": 100
+          }
+        },
+        {
+          "id": "Compute Engine|2026-10-16",
+          "externalId": "Compute Engine|2026-10-16",
+          "kind": "spike",
+          "provider": "bigquery",
+          "title": "Compute Engine",
+          "occurredAt": "2026-10-16T00:00:00.000Z",
+          "extras": {
+            "service": "Compute Engine",
+            "date": "2026-10-16",
+            "cost": 1000
+          }
+        }
+      ]
+    }
+  },
+  "github.mergedPullRequests": {
+    "recent": {
+      "ok": true,
+      "output": {
+        "total_count": 2,
+        "items": [
+          {
+            "number": 412,
+            "title": "Scale up compute workers for the export queue",
+            "html_url": "https://github.example.test/example-org/example-repo/pull/412",
+            "merged_at": "2026-10-18T22:10:00Z"
+          },
+          {
+            "number": 415,
+            "title": "Add the nightly CDN cache purge",
+            "html_url": "https://github.example.test/example-org/example-repo/pull/415",
+            "merged_at": "2026-10-19T01:30:00Z"
+          }
+        ]
+      }
+    }
+  },
+  "slack.postMessage": {
+    "posted": {
+      "match": [
+        {
+          "when": {
+            "to": "escalation@example.test"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "channel": "D0ESCALATE",
+              "ts": "1760001000.00000{n}",
+              "permalink": "https://slack.example.test/archives/D0ESCALATE/p176000100000000{n}"
+            },
+            "externalRef": "1760001000.00000{n}",
+            "url": "https://slack.example.test/archives/D0ESCALATE/p176000100000000{n}"
+          }
+        },
+        {
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "channel": "{fields.to}",
+              "ts": "1760001000.00000{n}",
+              "permalink": "https://slack.example.test/archives/{fields.to}/p176000100000000{n}"
+            },
+            "externalRef": "1760001000.00000{n}",
+            "url": "https://slack.example.test/archives/{fields.to}/p176000100000000{n}"
+          }
+        }
+      ]
+    }
+  },
+  "email.send": {
+    "sent": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "messageRef": "msg-{n}"
+      },
+      "externalRef": "msg-{n}"
+    }
+  }
+}

@@ -51,6 +51,9 @@ const getThreadMock = vi.hoisted(() =>
 );
 const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => true));
 const subscribeAllMock = vi.hoisted(() => vi.fn());
+const intervalWorkerHarness = vi.hoisted(() => ({
+  worker: undefined as ((signal: AbortSignal) => Promise<void>) | undefined,
+}));
 const emitMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
@@ -328,7 +331,10 @@ vi.mock("../event-bus/index.js", () => ({
   unsubscribe: vi.fn(),
 }));
 vi.mock("../server/interval-job.js", () => ({
-  startIntervalJob: vi.fn(() => ({ stop: vi.fn() })),
+  startIntervalJob: vi.fn((worker) => {
+    intervalWorkerHarness.worker = worker;
+    return { stop: vi.fn() };
+  }),
 }));
 vi.mock("../jobs/sweep-hooks.js", () => ({
   registerRecurringSweepHandler: registerRecurringSweepHandlerMock,
@@ -464,6 +470,36 @@ function busEventHandler(eventName: string) {
 }
 
 describe("trigger dispatcher", () => {
+  it("does not subscribe to a manual automation even with stale event metadata", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "manual-automation",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/on-demand.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: manual
+event: manual.stale.event
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Run on demand.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: { name: "test-engine", defaultModel: "test-model" } as any,
+      model: "test-model",
+    });
+
+    await expect(hasEventAutomation("manual.stale.event")).resolves.toBe(false);
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
   it("reports when durable event subscriptions cannot be refreshed", async () => {
     resourceListAllOwnersMock.mockRejectedValueOnce(
       new Error("resource store unavailable"),
@@ -1207,7 +1243,12 @@ Respond to the event.`,
     resourcePutIfCurrentMock.mockImplementation(
       async (input: { owner: string; path: string; content: string }) => {
         await resourcePutMock(input.owner, input.path, input.content);
-        return { id: input.owner + input.path };
+        return {
+          id: input.owner + input.path,
+          owner: input.owner,
+          path: input.path,
+          content: input.content,
+        };
       },
     );
     createThreadMock.mockResolvedValue({ id: "thread-1" });
@@ -1272,9 +1313,10 @@ Respond to the event.`,
 
   async function waitForEvent(eventId: string, status = "completed") {
     await vi.waitFor(() => {
-      expect(
-        triggerQueueMocks.rows.find((row) => row.eventId === eventId)?.status,
-      ).toBe(status);
+      const row = triggerQueueMocks.rows.find(
+        (candidate) => candidate.eventId === eventId,
+      );
+      expect(row?.status, JSON.stringify(row)).toBe(status);
     });
   }
 
@@ -1384,8 +1426,9 @@ Respond to the event.`,
           getActions: () => ({}),
           getSystemPrompt: async () => "system",
         };
-        isProductionServerlessRuntimeMock.mockReturnValueOnce(true);
+        isProductionServerlessRuntimeMock.mockReturnValue(true);
         await initTriggerDispatcher(deps);
+        isProductionServerlessRuntimeMock.mockReturnValue(false);
         if (source === "webhook") {
           webhook = dispatchAutomationWebhookTask({
             kind: "automation-webhook",
@@ -1619,7 +1662,7 @@ Respond to the event.`,
         getSystemPrompt: async () => "system",
       });
 
-      const worker = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+      const worker = intervalWorkerHarness.worker;
       expect(worker).toBeTypeOf("function");
       const signal = new AbortController().signal;
 
@@ -3373,6 +3416,107 @@ Respond to the event.`,
     expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
+  it("pauses an event automation that names a job runner instead of running its placeholder body as a prompt", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-runner-event",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/runner-event.md",
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: event",
+          "event: qa.event.runner",
+          "mode: agentic",
+          "runner: workflow",
+          "createdBy: alice+triggers@agent-native.test",
+          "---",
+          "",
+          "Runs the saved workflow.",
+        ].join("\n"),
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+    await busEventHandler("qa.event.runner")(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-runner",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-runner");
+
+    const persisted = parseTriggerFrontmatter(
+      resourcePutMock.mock.calls.at(-1)![2],
+    ).meta;
+    expect(persisted).toMatchObject({
+      enabled: false,
+      runner: "workflow",
+      lastStatus: "paused",
+      lastErrorCode: "config_invalid",
+      lastError: expect.stringContaining('Job runner "workflow"'),
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
+  it("settles a webhook for a job runner automation as refused instead of running it as a prompt", async () => {
+    const owner = "alice+triggers@agent-native.test";
+    const path = "jobs/runner-webhook.md";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-runner-webhook",
+        owner,
+        path,
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: webhook",
+          "mode: agentic",
+          "runner: workflow",
+          "createdBy: alice+triggers@agent-native.test",
+          "---",
+          "",
+          "Runs the saved workflow.",
+        ].join("\n"),
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    await expect(
+      dispatchAutomationWebhookTask({
+        kind: "automation-webhook",
+        automationId: "resource-runner-webhook",
+        owner,
+        path,
+        eventId: "runner-webhook-event",
+        payload: { messageId: "message-1" },
+      }),
+    ).resolves.toBe("completed");
+
+    expect(
+      parseTriggerFrontmatter(resourcePutMock.mock.calls.at(-1)![2]).meta,
+    ).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "config_invalid",
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
   it("does not run a shared event automation for a mismatched event owner", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -3410,6 +3554,49 @@ Respond to the event.`,
     await waitForEvent("event-owner-mismatch");
 
     expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("loads prompt resources for the trigger run owner", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "__shared__",
+        path: "jobs/shared-inbox-alert.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: qa.event.prompt
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+runAs: creator
+---
+
+Respond to the event.`,
+      },
+    ]);
+    const getSystemPrompt = vi.fn(async () => "system");
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt,
+      model: "test-model",
+    });
+
+    const handler = busEventHandler("qa.event.prompt");
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-1",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+
+    await waitForEvent("event-1");
+    expect(getSystemPrompt).toHaveBeenCalledWith(
+      "alice+triggers@agent-native.test",
+    );
   });
 
   it("passes automation context to action suppliers and enforces persisted MCP tools", async () => {
@@ -3951,7 +4138,19 @@ Handle the event.`,
     expect(startRunMock).not.toHaveBeenCalled();
   });
 
-  it("routes organization events only to their creator and fails closed when membership is unreadable", async () => {
+  it("routes organization events only to their creator and pauses when membership is missing", async () => {
+    let creatorIsMember = true;
+    dbExecuteMock.mockImplementation(async (query: { sql?: string }) => {
+      if (query.sql?.includes('FROM "user"')) {
+        return { rows: [{ exists: 1 }] };
+      }
+      if (query.sql?.includes("FROM org_members")) {
+        return {
+          rows: creatorIsMember ? [{ role: "member" }] : [],
+        };
+      }
+      return { rows: [{ "1": 1 }] };
+    });
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-org-event",
@@ -3992,9 +4191,7 @@ Handle the organization event.`,
     expect(resourcePutMock).not.toHaveBeenCalled();
     expect(startRunMock).not.toHaveBeenCalled();
 
-    dbExecuteMock
-      .mockResolvedValueOnce({ rows: [{ "1": 1 }] })
-      .mockRejectedValueOnce(new Error("connection timeout"));
+    creatorIsMember = false;
     await handler(
       { ok: true },
       {
@@ -4004,14 +4201,17 @@ Handle the organization event.`,
       },
     );
     await vi.waitFor(() => expect(resourcePutMock).toHaveBeenCalled());
+    await waitForEvent("event-org-creator");
 
     expect(startRunMock).not.toHaveBeenCalled();
     const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
-    expect(persisted).toContain("lastStatus: error");
-    expect(persisted).toContain(
-      "Could not verify the automation execution identity",
-    );
-    expect(persisted).toContain('lastErrorCode: "owner_unverifiable"');
+    expect(parseTriggerFrontmatter(persisted).meta).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "owner_missing",
+      pausedReason: "owner_missing",
+    });
+    expect(persisted).toContain("is no longer a member");
   });
 
   it("recovers an event automation left running past the shared stuck window", async () => {

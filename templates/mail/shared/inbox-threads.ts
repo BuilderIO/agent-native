@@ -80,6 +80,16 @@ export type InboxSyncAccountStatus = {
    */
   state: "initial" | "ready" | "error" | "needs_reauth";
   backfillPending?: boolean;
+  /**
+   * Some threads keep failing to read from Gmail, so their cached rows may be
+   * stale. The sync retries them every step; `kind` is an error class only.
+   */
+  degraded?: { count: number; kind: string };
+  /**
+   * The cached inbox stops at the cap while Gmail has more, so counts are lower
+   * bounds and the list is not complete.
+   */
+  reachedCap?: boolean;
   pushWatch?: InboxPushWatch;
   lastSyncedAt: number | null;
   error?: string;

@@ -30,23 +30,68 @@ export interface DataChartSeriesDefinition {
   color?: string;
 }
 
+export type DataWidgetActionIcon = "explore" | "camera" | "notebook";
+
+export interface DataWidgetAction {
+  label: string;
+  href: string;
+  icon?: DataWidgetActionIcon;
+}
+
 export interface DataChartWidget {
   type: "bar" | "line" | "area";
   title?: string;
+  layout?: "horizontal" | "vertical";
+  xAxisTitle?: string;
+  yAxisTitle?: string;
+  showValueLabels?: boolean;
+  /** Total chart-body height in pixels, including content padding. */
+  contentHeight?: number;
+  /** Inner chart-body padding in pixels. */
+  contentPadding?: number;
+  /** Font family token used by chart labels. Defaults to the app's sans font. */
+  labelFontFamily?: "sans" | "serif" | "mono";
+  /** Chart-label size in pixels. Defaults to 11. */
+  labelFontSize?: number;
+  axisTitleFontSize?: number;
+  axisTitleFontWeight?: 400 | 500;
+  valueLabelFontSize?: number;
+  valueLabelFontWeight?: 400 | 500;
   xKey: string;
   series: DataChartSeriesDefinition[];
   data: Array<Record<string, unknown>>;
   sampled?: boolean;
+  actions?: DataWidgetAction[];
 }
 
 export interface DataWidgetDisplay {
   title?: string;
   description?: string;
-  primaryAction?: {
-    label: string;
-    href: string;
-  };
+  primaryAction?: DataWidgetAction;
+  sources?: DataWidgetDataSource[];
+  actions?: DataWidgetDisplayAction[];
 }
+
+export interface DataWidgetDataSource {
+  id?: string;
+  label: string;
+  href?: string;
+}
+
+export type DataWidgetDisplayAction =
+  | {
+      id?: string;
+      type: "link";
+      label: string;
+      href: string;
+      icon?: DataWidgetActionIcon;
+    }
+  | {
+      id?: string;
+      type: "copy";
+      label: string;
+      text: string;
+    };
 
 export interface DataWidgetResultMetadata {
   widgetId?: string;
@@ -145,6 +190,48 @@ export function isDataChartWidget(value: unknown): value is DataChartWidget {
   if (!isRecord(value)) return false;
   return (
     (value.type === "bar" || value.type === "line" || value.type === "area") &&
+    (value.layout === undefined ||
+      value.layout === "horizontal" ||
+      value.layout === "vertical") &&
+    (value.xAxisTitle === undefined || typeof value.xAxisTitle === "string") &&
+    (value.yAxisTitle === undefined || typeof value.yAxisTitle === "string") &&
+    (value.showValueLabels === undefined ||
+      typeof value.showValueLabels === "boolean") &&
+    (value.contentHeight === undefined ||
+      (typeof value.contentHeight === "number" &&
+        Number.isFinite(value.contentHeight) &&
+        value.contentHeight > 0 &&
+        value.contentHeight <= 1200)) &&
+    (value.contentPadding === undefined ||
+      (typeof value.contentPadding === "number" &&
+        Number.isFinite(value.contentPadding) &&
+        value.contentPadding >= 0 &&
+        value.contentPadding <= 64)) &&
+    (value.labelFontFamily === undefined ||
+      value.labelFontFamily === "sans" ||
+      value.labelFontFamily === "serif" ||
+      value.labelFontFamily === "mono") &&
+    (value.labelFontSize === undefined ||
+      (typeof value.labelFontSize === "number" &&
+        Number.isInteger(value.labelFontSize) &&
+        value.labelFontSize >= 8 &&
+        value.labelFontSize <= 24)) &&
+    (value.axisTitleFontSize === undefined ||
+      (typeof value.axisTitleFontSize === "number" &&
+        Number.isInteger(value.axisTitleFontSize) &&
+        value.axisTitleFontSize >= 8 &&
+        value.axisTitleFontSize <= 24)) &&
+    (value.axisTitleFontWeight === undefined ||
+      value.axisTitleFontWeight === 400 ||
+      value.axisTitleFontWeight === 500) &&
+    (value.valueLabelFontSize === undefined ||
+      (typeof value.valueLabelFontSize === "number" &&
+        Number.isInteger(value.valueLabelFontSize) &&
+        value.valueLabelFontSize >= 8 &&
+        value.valueLabelFontSize <= 24)) &&
+    (value.valueLabelFontWeight === undefined ||
+      value.valueLabelFontWeight === 400 ||
+      value.valueLabelFontWeight === 500) &&
     isString(value.xKey) &&
     Array.isArray(value.series) &&
     value.series.every(
@@ -154,26 +241,89 @@ export function isDataChartWidget(value: unknown): value is DataChartWidget {
         isString(series.label) &&
         (series.color === undefined || typeof series.color === "string"),
     ) &&
+    (value.actions === undefined ||
+      (Array.isArray(value.actions) &&
+        value.actions.every(isDataWidgetAction))) &&
     Array.isArray(value.data) &&
     value.data.every(isRecord)
   );
 }
 
-function isPrimaryAction(
-  value: unknown,
-): value is NonNullable<DataWidgetDisplay["primaryAction"]> {
-  return isRecord(value) && isString(value.label) && isString(value.href);
+function isDataWidgetActionIcon(value: unknown): value is DataWidgetActionIcon {
+  return value === "explore" || value === "camera" || value === "notebook";
 }
 
-function normalizeDisplay(value: unknown): DataWidgetDisplay | undefined {
-  if (!isRecord(value)) return undefined;
+function isDataWidgetAction(value: unknown): value is DataWidgetAction {
+  return (
+    isRecord(value) &&
+    isString(value.label) &&
+    isString(value.href) &&
+    (value.icon === undefined || isDataWidgetActionIcon(value.icon))
+  );
+}
+
+function normalizePrimaryAction(value: unknown): DataWidgetAction | undefined {
+  if (!isRecord(value) || !isString(value.label) || !isString(value.href)) {
+    return undefined;
+  }
+  return {
+    label: value.label,
+    href: value.href,
+    ...(isDataWidgetActionIcon(value.icon) ? { icon: value.icon } : {}),
+  };
+}
+
+function isDataWidgetDataSource(value: unknown): value is DataWidgetDataSource {
+  return (
+    isRecord(value) &&
+    isString(value.label) &&
+    (value.id === undefined || typeof value.id === "string") &&
+    (value.href === undefined || isString(value.href))
+  );
+}
+
+function isDataWidgetDisplayAction(
+  value: unknown,
+): value is DataWidgetDisplayAction {
+  if (
+    !isRecord(value) ||
+    !isString(value.label) ||
+    (value.id !== undefined && typeof value.id !== "string")
+  ) {
+    return false;
+  }
+  if (value.type === "link") {
+    return (
+      isString(value.href) &&
+      (value.icon === undefined || isDataWidgetActionIcon(value.icon))
+    );
+  }
+  if (value.type === "copy") return isString(value.text);
+  return false;
+}
+
+function normalizeDisplay(
+  value: unknown,
+): DataWidgetDisplay | null | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) return null;
+  if (
+    (value.sources !== undefined &&
+      (!Array.isArray(value.sources) ||
+        !value.sources.every(isDataWidgetDataSource))) ||
+    (value.actions !== undefined &&
+      (!Array.isArray(value.actions) ||
+        !value.actions.every(isDataWidgetDisplayAction)))
+  ) {
+    return null;
+  }
   return {
     title: typeof value.title === "string" ? value.title : undefined,
     description:
       typeof value.description === "string" ? value.description : undefined,
-    primaryAction: isPrimaryAction(value.primaryAction)
-      ? value.primaryAction
-      : undefined,
+    primaryAction: normalizePrimaryAction(value.primaryAction),
+    sources: value.sources as DataWidgetDataSource[] | undefined,
+    actions: value.actions as DataWidgetDisplayAction[] | undefined,
   };
 }
 
@@ -239,6 +389,8 @@ export function normalizeDataWidgetResult(
   if (!isRecord(value)) return null;
   const widget = normalizeDataWidgetKind(value.widget);
   if (!widget) return null;
+  const display = normalizeDisplay(value.display);
+  if (display === null) return null;
 
   const table = isDataTableWidget(value.table) ? value.table : undefined;
   const chartSeries = isDataChartWidget(value.chartSeries)
@@ -248,7 +400,7 @@ export function normalizeDataWidgetResult(
     widgetId: typeof value.widgetId === "string" ? value.widgetId : undefined,
     title: typeof value.title === "string" ? value.title : undefined,
     summary: isRecord(value.summary) ? value.summary : undefined,
-    display: normalizeDisplay(value.display),
+    display,
   };
 
   if (widget === DATA_TABLE_WIDGET) {
@@ -347,14 +499,35 @@ const dataChartSeriesDefinitionSchema = z
   })
   .passthrough();
 
+const dataWidgetActionSchema = z
+  .object({
+    label: z.string().min(1),
+    href: z.string().min(1),
+    icon: z.enum(["explore", "camera", "notebook"]).optional(),
+  })
+  .passthrough();
+
 export const dataChartWidgetSchema = z
   .object({
     type: z.enum(["bar", "line", "area"]),
     title: z.string().optional(),
+    layout: z.enum(["horizontal", "vertical"]).optional(),
+    xAxisTitle: z.string().optional(),
+    yAxisTitle: z.string().optional(),
+    showValueLabels: z.boolean().optional(),
+    contentHeight: z.number().positive().max(1200).optional(),
+    contentPadding: z.number().min(0).max(64).optional(),
+    labelFontFamily: z.enum(["sans", "serif", "mono"]).optional(),
+    labelFontSize: z.number().int().min(8).max(24).optional(),
+    axisTitleFontSize: z.number().int().min(8).max(24).optional(),
+    axisTitleFontWeight: z.union([z.literal(400), z.literal(500)]).optional(),
+    valueLabelFontSize: z.number().int().min(8).max(24).optional(),
+    valueLabelFontWeight: z.union([z.literal(400), z.literal(500)]).optional(),
     xKey: z.string().min(1),
     series: z.array(dataChartSeriesDefinitionSchema).min(1),
     data: z.array(z.record(z.string(), z.unknown())),
     sampled: z.boolean().optional(),
+    actions: z.array(dataWidgetActionSchema).optional(),
   })
   .passthrough();
 
@@ -362,14 +535,45 @@ const primaryActionSchema = z
   .object({
     label: z.string().min(1),
     href: z.string().min(1),
+    icon: z.enum(["explore", "camera", "notebook"]).optional(),
   })
   .passthrough();
+
+const dataWidgetDataSourceSchema = z
+  .object({
+    id: z.string().optional(),
+    label: z.string().min(1),
+    href: z.string().min(1).optional(),
+  })
+  .passthrough();
+
+const dataWidgetDisplayActionSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      id: z.string().optional(),
+      type: z.literal("link"),
+      label: z.string().min(1),
+      href: z.string().min(1),
+      icon: z.enum(["explore", "camera", "notebook"]).optional(),
+    })
+    .passthrough(),
+  z
+    .object({
+      id: z.string().optional(),
+      type: z.literal("copy"),
+      label: z.string().min(1),
+      text: z.string().min(1),
+    })
+    .passthrough(),
+]);
 
 const dataWidgetDisplaySchema = z
   .object({
     title: z.string().optional(),
     description: z.string().optional(),
     primaryAction: primaryActionSchema.optional(),
+    sources: z.array(dataWidgetDataSourceSchema).optional(),
+    actions: z.array(dataWidgetDisplayActionSchema).optional(),
   })
   .passthrough();
 

@@ -26,6 +26,18 @@ export const NATIVE_GLOBAL_BINDINGS = NATIVE_RENDER_GLOBALS.slice(
   NATIVE_RENDER_GLOBALS.indexOf("struct VertexOutput"),
 );
 
+export function nativeGlobalBindingsForUniformFloats(
+  uniformFloats: 128 | 256,
+): string {
+  if (uniformFloats === 128) return NATIVE_GLOBAL_BINDINGS;
+  if (uniformFloats === 256)
+    return NATIVE_GLOBAL_BINDINGS.replace(
+      "params: array<vec4f, 32>",
+      "params: array<vec4f, 64>",
+    );
+  throw new RangeError("Native uniformFloats must be 128 or 256.");
+}
+
 export const NATIVE_GRAPH_GLOBALS = NATIVE_RENDER_GLOBALS.slice(
   0,
   NATIVE_RENDER_GLOBALS.indexOf("@group(0) @binding(2)"),

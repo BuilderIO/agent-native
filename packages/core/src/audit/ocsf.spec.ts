@@ -117,6 +117,7 @@ describe("auditEventToOcsf", () => {
         networkId: "peer-app",
         networkPeer: "https://peer.example.test",
         app: "mail",
+        identityAssurance: "org-member",
       }),
     );
     expect(out.activity_id).toBe(1);
@@ -139,6 +140,7 @@ describe("auditEventToOcsf", () => {
       network_protocol: "a2a",
       network_id: "peer-app",
       network_peer: "https://peer.example.test",
+      identity_assurance: "org-member",
     });
   });
 

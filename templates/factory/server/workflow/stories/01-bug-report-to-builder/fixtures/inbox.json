@@ -1,0 +1,77 @@
+{
+  "feedback": {
+    "nothing": { "items": [] },
+    "m1": {
+      "items": [
+        {
+          "id": "m1",
+          "externalId": "C0FEEDBACK:1760000000.000100",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Checkout button does nothing",
+          "text": "Clicking Pay does nothing.",
+          "author": "reporter-1@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "extras": {}
+        }
+      ]
+    },
+    "threeReports": {
+      "items": [
+        {
+          "id": "m1",
+          "externalId": "C0FEEDBACK:1760000000.000100",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Checkout button does nothing",
+          "text": "Clicking Pay does nothing.",
+          "author": "reporter-1@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "extras": {}
+        },
+        {
+          "id": "m2",
+          "externalId": "C0FEEDBACK:1760000000.000200",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Pay button dead on checkout",
+          "text": "Nothing happens when I press Pay.",
+          "author": "reporter-2@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000200",
+          "occurredAt": "2026-10-19T11:52:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000200"
+          },
+          "extras": {}
+        },
+        {
+          "id": "m3",
+          "externalId": "C0FEEDBACK:1760000000.000300",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Export to CSV downloads an empty file",
+          "text": "The CSV has only the header row.",
+          "author": "reporter-3@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000300",
+          "occurredAt": "2026-10-19T11:55:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000300"
+          },
+          "extras": {}
+        }
+      ]
+    }
+  }
+}

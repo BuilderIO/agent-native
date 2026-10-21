@@ -27,6 +27,7 @@ import {
   componentIndexId,
   componentNameFor,
 } from "../shared/component-model.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 export class ComponentRenameAmbiguousError extends Error {
@@ -119,7 +120,12 @@ export default defineAction({
       throw new ComponentRenameAmbiguousError();
     }
     if (newName === oldName) {
-      return { designId, componentId, renamed: false };
+      return {
+        designId,
+        componentId,
+        renamed: false,
+        _receipt: designOutputWriteReceipt(designId, 0),
+      };
     }
     const oldIndexId = componentIndexId(designId, oldName);
     const newIndexId = componentIndexId(designId, newName);
@@ -185,7 +191,14 @@ export default defineAction({
     const changed = batches.filter(
       ({ file, content }) => file.content !== content,
     );
-    if (changed.length === 0) return { designId, componentId, renamed: false };
+    if (changed.length === 0) {
+      return {
+        designId,
+        componentId,
+        renamed: false,
+        _receipt: designOutputWriteReceipt(designId, 0),
+      };
+    }
 
     await snapshotDesignBeforeAgentEdit(designId, context);
     const entered = htmlFiles.map((file) => file.id).sort();
@@ -287,6 +300,7 @@ export default defineAction({
         newName,
         renamed: true,
         files: result.files,
+        _receipt: designOutputWriteReceipt(designId, changed.length),
       };
     } finally {
       entered.forEach((id) => agentLeaveDocument(id));

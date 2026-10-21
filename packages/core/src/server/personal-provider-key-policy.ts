@@ -138,22 +138,50 @@ function forgetRequestRestrictions(): void {
   if (ctx && typeof ctx === "object") _requestRestrictions.delete(ctx);
 }
 
+function isDelegatedRequestIdentityMismatch(
+  orgId: string,
+  email: string,
+): boolean {
+  const requestContext = getRequestContext();
+  return (
+    requestContext?.a2aIdentityAssurance === "org-member" &&
+    (requestContext.userEmail?.trim().toLowerCase() !==
+      email.trim().toLowerCase() ||
+      requestContext.orgId?.trim() !== orgId.trim())
+  );
+}
+
+/** Resolve the role visible to this request without changing unrelated role reads. */
+export function effectiveOrgMemberRole(
+  role: unknown,
+  orgId: string,
+  email: string,
+): OrgRole | null {
+  if (isDelegatedRequestIdentityMismatch(orgId, email)) return null;
+  const verifiedRole =
+    role === "owner" || role === "admin" || role === "member" ? role : null;
+  const requestContext = getRequestContext();
+  const isDelegatedRequest =
+    requestContext?.a2aIdentityAssurance === "org-member";
+
+  return verifiedRole && isDelegatedRequest ? "member" : verifiedRole;
+}
+
 /** The member's role in `orgId`, or null when not a member. Throws when unreadable. */
 export async function readOrgMemberRole(
   orgId: string,
   email: string,
 ): Promise<OrgRole | null> {
+  if (isDelegatedRequestIdentityMismatch(orgId, email)) return null;
+  const normalizedEmail = email.trim().toLowerCase();
   const { rows } = await getDbExec().execute({
     sql: `SELECT role FROM org_members
           WHERE org_id = ? AND LOWER(email) = ?
             AND federation_removal_pending_at IS NULL
           LIMIT 1`,
-    args: [orgId, email.toLowerCase()],
+    args: [orgId, normalizedEmail],
   });
-  const role = rows[0]?.role;
-  return role === "owner" || role === "admin" || role === "member"
-    ? role
-    : null;
+  return effectiveOrgMemberRole(rows[0]?.role, orgId, email);
 }
 
 async function resolvePolicyOrgId(

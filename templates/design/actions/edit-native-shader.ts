@@ -16,6 +16,7 @@ import {
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
 import { resolveCodeLayerTarget } from "../shared/code-layer.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { authoredSourceBindingsAvailable } from "../shared/native-authored-source-bindings.js";
 import {
   editNativeEffectHtml,
@@ -440,6 +441,7 @@ export default defineAction({
         executionHash,
         approvedDefinitionHashes: hashes,
         approvalChanged: changed,
+        _receipt: designOutputWriteReceipt(designId, 0),
         validation: {
           cpuSchemaAndGraph: "passed" as const,
           gpuCompiled: false,
@@ -832,6 +834,7 @@ export default defineAction({
       path: file.filename,
       content: write.content,
       changed: write.changed,
+      _receipt: designOutputWriteReceipt(designId, write.changed ? 1 : 0),
       versionHash: write.versionHash,
       updatedAt: write.updatedAt,
       instanceIds: committed.document?.instances.map((item) => item.id) ?? [],

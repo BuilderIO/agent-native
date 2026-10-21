@@ -145,6 +145,11 @@ describe("import-figma-clipboard", () => {
     } as any);
 
     expect(result.strategy).toBe("restNodes");
+    expect(result._receipt).toMatchObject({
+      changed: true,
+      verified: true,
+      subject: "resolved-design-id",
+    });
     expect(result.figma).toEqual({
       fileKey: FILE_KEY,
       nodeIds: ["1:1"],

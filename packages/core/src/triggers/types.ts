@@ -5,6 +5,10 @@ import type {
 } from "../jobs/frontmatter.js";
 
 export interface TriggerFrontmatter extends JobFrontmatter {
+  /**
+   * "schedule" = cron-based, "event" = event-bus dispatch, "manual" =
+   * explicit run-now only, and "webhook" = authenticated inbound request.
+   */
   triggerType: JobTriggerType;
   mode: JobExecutionMode;
 }

@@ -13,6 +13,9 @@ import {
   DOCUMENT_PIXEL_V2_EFFECTS,
   HISTORICAL_DOCUMENT_PIXEL_EFFECTS,
 } from "./native-effect-document-pixels-v2";
+import { FOLDED_MESH_EFFECT } from "./native-effect-folded-mesh";
+import { FOLDED_MESH_V1_EFFECT } from "./native-effect-folded-mesh-v1";
+import { FOLDED_MESH_V2_EFFECT } from "./native-effect-folded-mesh-v2";
 import { NATIVE_EFFECT_GALLERY_ADDITIONS } from "./native-effect-gallery-additions";
 import { LIQUID_GLASS_EFFECT as LIQUID_GLASS_V1_EFFECT } from "./native-effect-liquid-glass-v1";
 import { LIQUID_GLASS_EFFECT as LIQUID_GLASS_V2_EFFECT } from "./native-effect-liquid-glass-v2";
@@ -390,6 +393,7 @@ if (galleryCandidates.length !== galleryCandidateIds.size)
   throw new Error("Native shader gallery selection is incomplete.");
 
 export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
+  FOLDED_MESH_EFFECT,
   ...tierOneCatalogDefinitions,
   ...galleryCandidates,
   ...NATIVE_EFFECT_V3_DEFINITIONS,
@@ -415,6 +419,8 @@ export const NATIVE_EFFECT_LATEST_DEFINITIONS: readonly EffectDefinition[] =
   NATIVE_EFFECT_DEFINITION_CATALOG;
 
 export const NATIVE_EFFECT_BUILTIN_VERSIONS: readonly EffectDefinition[] = [
+  FOLDED_MESH_V1_EFFECT,
+  FOLDED_MESH_V2_EFFECT,
   ...HISTORICAL_DOCUMENT_PIXEL_EFFECTS,
   LIQUID_METAL_V1_EFFECT,
   LIQUID_METAL_V2_EFFECT,

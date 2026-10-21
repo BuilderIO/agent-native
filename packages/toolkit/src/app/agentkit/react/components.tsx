@@ -136,6 +136,7 @@ import {
   type AgentKitSuggestionsRenderProps,
   type AgentRunFailureRenderProps,
 } from "./context.js";
+import { orderMessageContent } from "./message-content-order.js";
 import { AgentStreamingText } from "./streaming-text.js";
 
 // AgentKit React installs without @agent-native/core, so it repeats core's
@@ -1907,7 +1908,9 @@ function AgentWorkDisclosure({
   current?: ReactNode;
   children: ReactNode;
 }) {
+  const { slots } = useAgentKit();
   const [open, setOpen] = useState(false);
+  const Summary = slots.workedForSummary;
   return (
     <details
       className="agentkit-activities"
@@ -1924,18 +1927,30 @@ function AgentWorkDisclosure({
           setOpen((value) => !value);
         }}
       >
-        <span className="agentkit-activities-summary-content">
-          {label ? (
-            <span className="agentkit-activities-heading">
-              <span className="agentkit-activities-label">{label}</span>
+        {Summary ? (
+          <Summary
+            label={label}
+            running={running}
+            expandable={expandable}
+            open={open}
+            current={current}
+          />
+        ) : (
+          <>
+            <IconChevronRight
+              aria-hidden="true"
+              className="agentkit-icon agentkit-summary-chevron"
+            />
+            <span className="agentkit-activities-summary-content">
+              {label ? (
+                <span className="agentkit-activities-heading">
+                  <span className="agentkit-activities-label">{label}</span>
+                </span>
+              ) : null}
+              {current}
             </span>
-          ) : null}
-          {current}
-        </span>
-        <IconChevronRight
-          aria-hidden="true"
-          className="agentkit-icon agentkit-summary-chevron"
-        />
+          </>
+        )}
       </summary>
       {children}
     </details>
@@ -3787,7 +3802,7 @@ export function AgentMessageView({
   value: message,
   threadId,
 }: AgentKitRenderProps<AgentMessage>) {
-  const { labels, slots } = useAgentKit();
+  const { labels, slots, resolveMessageContentOrder } = useAgentKit();
   const thread = useAgentThread(threadId);
   const visibleMessage = stripAgentMessageContext(message);
   const Supplement = slots.messageSupplement;
@@ -3812,6 +3827,13 @@ export function AgentMessageView({
       thread.annotationMessageIds[annotation.id] === message.id &&
       !embeddedAnnotationIds.has(annotation.id),
   );
+  const orderedContent = orderMessageContent(
+    visibleMessage,
+    visibleMessage.parts,
+    attachedWidgets,
+    thread.events,
+    resolveMessageContentOrder,
+  );
   if (
     !message.parts.length &&
     !attachedWidgets.length &&
@@ -3830,21 +3852,18 @@ export function AgentMessageView({
       aria-busy={message.status === "streaming"}
     >
       <div className="agentkit-message-content">
-        {visibleMessage.parts.map((part, index) => (
+        {orderedContent.map((item, index) => (
           <AgentMessagePartView
-            key={`${message.id}-${index}`}
-            value={part}
+            key={item.key}
+            value={
+              item.type === "widget"
+                ? { type: "widget", widget: item.widget }
+                : item.part
+            }
             threadId={threadId}
             active={message.status === "streaming"}
             resetKey={`${threadId}:${message.id}:${index}`}
             userMessage={message.role === "user"}
-          />
-        ))}
-        {attachedWidgets.map((widget) => (
-          <AgentMessagePartView
-            key={widget.id}
-            value={{ type: "widget", widget }}
-            threadId={threadId}
           />
         ))}
         {attachedAnnotations.length ? (

@@ -1385,6 +1385,12 @@ describe("runDuplicateScreen", () => {
       fileType: "html",
       createdAt: "2026-10-14T00:00:00.000Z",
       renderable: true,
+      _receipt: {
+        changed: true,
+        verified: true,
+        summary: "Design output: 1 files saved.",
+        subject: "design-1",
+      },
       urlPath: null,
     });
     await duplicate;

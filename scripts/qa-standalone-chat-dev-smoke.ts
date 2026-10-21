@@ -1179,7 +1179,8 @@ async function waitForChatPage(
         timeoutMs: 60_000,
       });
       const chat = page.locator("section.agentkit-chat");
-      const modelButton = page.locator(
+      const composerFooter = chat.locator(".agentkit-chat-footer");
+      const modelButton = composerFooter.locator(
         '[data-agent-composer-slot="model-button"]',
       );
       await chat.waitFor({ state: "visible", timeout: 15_000 });
@@ -1321,6 +1322,9 @@ async function waitForStableChatSurface(
 
 async function waitForComposerControls(page: Page): Promise<void> {
   const timeout = isCi ? 120_000 : 30_000;
+  const composerFooter = page.locator(
+    "section.agentkit-chat .agentkit-chat-footer",
+  );
   for (const slot of [
     "editor-input",
     "toolbar",
@@ -1330,7 +1334,7 @@ async function waitForComposerControls(page: Page): Promise<void> {
     "voice-button",
     "send-button",
   ]) {
-    await page
+    await composerFooter
       .locator(`[data-agent-composer-slot="${slot}"]`)
       .waitFor({ state: "visible", timeout });
   }

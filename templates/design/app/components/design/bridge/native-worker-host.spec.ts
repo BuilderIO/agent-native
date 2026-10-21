@@ -459,6 +459,27 @@ describe("NativeWorkerHost lifecycle", () => {
       viewport: { x: 20, y: 0, width: 100, height: 100 },
     };
     await host.sendScene(camera, [], { retainActiveCommitsWhileStaged: true });
+    expect(worker.messages[worker.messages.length - 1]).toEqual({
+      type: "camera",
+      sceneId: "scene",
+      generation: 2,
+      baseGeneration: 1,
+      sourceEpoch: 7,
+      authoredEpoch: 3,
+      viewport: camera.viewport,
+      width: 100,
+      height: 100,
+      pixelRatio: 1,
+      clock: active.clock,
+    });
+    await host.sendScene({ ...camera, generation: 3 }, [], {
+      retainActiveCommitsWhileStaged: true,
+    });
+    expect(worker.messages[worker.messages.length - 1]).toMatchObject({
+      type: "camera",
+      generation: 3,
+      baseGeneration: 1,
+    });
     worker.receive({
       type: "committed",
       sceneId: "scene",
@@ -472,44 +493,44 @@ describe("NativeWorkerHost lifecycle", () => {
     worker.receive({
       type: "committed",
       sceneId: "scene",
-      generation: 2,
+      generation: 3,
       sourceEpoch: 7,
       frame: 1,
       presentedAtMs: 48,
       timeSeconds: 0.032,
     });
-    expect(commits).toEqual([1, 1, 1, 2]);
-    await host.sendScene({ ...camera, generation: 3 }, [], {
+    expect(commits).toEqual([1, 1, 1, 3]);
+    await host.sendScene({ ...camera, generation: 4 }, [], {
       retainActiveCommitsWhileStaged: true,
     });
     worker.receive({
       type: "error",
       sceneId: "scene",
-      generation: 3,
+      generation: 4,
       code: "gpu-validation",
       message: "The camera scene failed validation.",
     });
     worker.receive({
       type: "committed",
       sceneId: "scene",
-      generation: 2,
+      generation: 3,
       sourceEpoch: 7,
       frame: 2,
       presentedAtMs: 64,
       timeSeconds: 0.048,
     });
-    expect(commits).toEqual([1, 1, 1, 2, 2]);
-    await host.sendScene({ ...camera, generation: 4, sourceEpoch: 8 }, []);
+    expect(commits).toEqual([1, 1, 1, 3, 3]);
+    await host.sendScene({ ...camera, generation: 5, sourceEpoch: 8 }, []);
     worker.receive({
       type: "committed",
       sceneId: "scene",
-      generation: 2,
+      generation: 3,
       sourceEpoch: 7,
       frame: 3,
       presentedAtMs: 80,
       timeSeconds: 0.064,
     });
-    expect(commits).toEqual([1, 1, 1, 2, 2]);
+    expect(commits).toEqual([1, 1, 1, 3, 3]);
     host.dispose();
   });
 

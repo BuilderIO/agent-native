@@ -103,6 +103,13 @@ beforeEach(async () => {
       created_at TEXT NOT NULL,
       notified_at TEXT
     );
+    CREATE TABLE organizations (
+      id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT
+    );
+    CREATE TABLE org_members (
+      id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
+      federation_removal_pending_at BIGINT
+    );
   `);
   db = drizzle(pglite.db);
   registerShareableResource({
@@ -312,9 +319,16 @@ describe("resolveAccessStatus", () => {
     const lentTo: Array<string | undefined> = [];
     const lentRows: unknown[] = [];
 
-    beforeEach(() => {
+    beforeEach(async () => {
       lentTo.length = 0;
       lentRows.length = 0;
+      await pglite.query("INSERT INTO organizations (id) VALUES (?)", [
+        spaceOrgId,
+      ]);
+      await pglite.query(
+        "INSERT INTO org_members (id, org_id, email) VALUES ('space-member', ?, ?)",
+        [spaceOrgId, spaceMemberEmail],
+      );
       registerShareableResource({
         type: spacedType,
         resourceTable: docs,
@@ -345,6 +359,25 @@ describe("resolveAccessStatus", () => {
       expect(await statusAs(spaceMemberEmail, "in-space", spacedType)).toEqual({
         state: "allowed",
         role: "viewer",
+      });
+    });
+
+    it("does not authorize a stale organization in a fallback context", async () => {
+      await insertDoc({ id: "stale-space" });
+      await shareWithOrg("stale-space", spaceOrgId);
+      await pglite.exec(
+        "UPDATE org_members SET federation_removal_pending_at = 1",
+      );
+      expect(
+        await statusAs(spaceMemberEmail, "stale-space", spacedType),
+      ).toEqual({
+        state: "denied",
+      });
+      await pglite.exec("DELETE FROM org_members");
+      expect(
+        await statusAs(spaceMemberEmail, "stale-space", spacedType),
+      ).toEqual({
+        state: "denied",
       });
     });
 

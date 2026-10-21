@@ -1866,6 +1866,10 @@ const messages = {
     uploadFailed: "上傳失敗",
     uploadFailedAtChunk: "第 {{chunk}}/{{total}} 個區塊上傳失敗：{{message}}",
     couldNotStartRecording: "無法開始錄製",
+    intakeStorageUnavailable:
+      "此連結的擁有者必須先連結影片儲存空間，您才能開始錄製。請對方連結儲存空間後再試一次。",
+    streamingStorageUnavailable:
+      "目前的儲存空間不支援 Clips 所需的可續傳上傳。請設定相容的供應商，或請工作區擁有者或管理員協助，然後開始新的錄製。",
     couldNotStartRecorder: "無法啟動錄製工具",
     openSettings: "開啟設定",
     openedRecorderInNewTab: "已在新分頁開啟錄製工具",
@@ -1894,6 +1898,8 @@ const messages = {
     savingRecording: "正在儲存您的錄製…",
     sessionExpired: "工作階段已過期",
     sessionExpiredDescription: "您的登入工作階段已過期。請重新登入以開始錄製。",
+    accountMismatch:
+      "開始準備錄製後，登入的帳戶已變更。請切換回一開始使用的帳戶，然後再試一次。",
     logIn: "登入",
     betterInDesktop: "桌面應用程式體驗更好",
     desktopAppDescription:
@@ -1907,8 +1913,7 @@ const messages = {
     openRecorderInTab: "在分頁中開啟錄製工具",
     retryUpload: "重試上傳",
     tryAgain: "再試一次",
-    storageConnectedReopeningRecorder:
-      "儲存空間已連線。正在重新開啟錄製工具...",
+    storageConnectedRecorderReady: "儲存空間已連線。準備好後即可開始新的錄製。",
     connectStorageToFinish:
       "在下一個畫面使用 Builder.io 儲存空間（免費方案儲存空間和 AI），或設定 S3 相容儲存空間。Clips 會完成儲存。",
     connectStorageToRetryLoom:

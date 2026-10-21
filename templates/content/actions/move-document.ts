@@ -16,6 +16,7 @@ import {
 } from "../server/lib/documents.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { movePageToSpace } from "./_move-page-to-space.js";
 import {
   documentsPositionScope,
@@ -284,6 +285,12 @@ export default defineAction({
 
     const access = await assertDocumentMutationAccess(id, "editor", "id");
     const existing = access.resource;
+    if (
+      (args.spaceId && args.spaceId !== existing.spaceId) ||
+      (args.parentId !== undefined && args.parentId !== existing.parentId)
+    ) {
+      assertSourceAllowsPageEdit(existing, "move");
+    }
     const ownerEmail = existing.ownerEmail as string;
     const db = getDb();
 
