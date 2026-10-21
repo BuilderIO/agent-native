@@ -26,6 +26,7 @@ import {
 function readLedger(raw: Record<string, unknown> | null): {
   schemaVersion: 1;
   contexts: NativeRenderContext[];
+  requestRevision?: string;
 } {
   if (raw === null) return { schemaVersion: 1, contexts: [] };
   const parsed = nativeRenderContextLedgerSchema.safeParse(raw);
@@ -97,7 +98,7 @@ export async function registerNativeRenderContext(
         errorCode: "native_export_context_capacity",
         statusCode: 409,
       });
-    const next = { schemaVersion: 1 as const, contexts };
+    const next = { ...ledger, contexts };
     const exportRaw = await readNativeLocalExportState(
       designId,
       parsedTabId.data,

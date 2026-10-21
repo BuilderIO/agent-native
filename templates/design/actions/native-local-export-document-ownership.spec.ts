@@ -8,6 +8,7 @@ const DESIGN_ID = "design-test";
 const mocks = vi.hoisted(() => ({
   states: new Map<string, unknown>(),
   afterLedgerCommit: undefined as (() => void) | undefined,
+  afterExportRead: undefined as (() => Promise<void>) | undefined,
   classifyNavigation: vi.fn(() => "matching"),
   readVersion: vi.fn(async () => ({
     versionHash: "source-v1",
@@ -31,6 +32,15 @@ const mocks = vi.hoisted(() => ({
         nextValue: unknown;
       }>,
     ) => {
+      if (
+        operations.some(
+          ({ expectedValue, nextValue }) =>
+            expectedValue === null && nextValue === null,
+        )
+      )
+        throw new Error(
+          "Application state CAS cannot replace absence with absence.",
+        );
       if (
         operations.some(
           ({ key, expectedValue }) =>
@@ -77,8 +87,14 @@ vi.mock("./_native-local-export-server.js", async (importOriginal) => {
     expireNativeLocalExportState: async (state: unknown) => state,
     planNativeLocalExportDocumentRegistration:
       original.planNativeLocalExportDocumentRegistration,
-    readNativeLocalExportState: async (designId: string, tabId: string) =>
-      mocks.states.get(`native-local-export:${designId}:${tabId}`) ?? null,
+    readNativeLocalExportState: async (designId: string, tabId: string) => {
+      const state =
+        mocks.states.get(`native-local-export:${designId}:${tabId}`) ?? null;
+      const afterRead = mocks.afterExportRead;
+      mocks.afterExportRead = undefined;
+      if (afterRead) await afterRead();
+      return state;
+    },
     readNativeLocalExportVersion: mocks.readVersion,
     requireNativeLocalExportTabId: () => TAB_ID,
   };
@@ -109,6 +125,7 @@ function run(action: unknown, args: unknown): Promise<any> {
 beforeEach(() => {
   mocks.states.clear();
   mocks.afterLedgerCommit = undefined;
+  mocks.afterExportRead = undefined;
   mocks.classifyNavigation.mockReset();
   mocks.classifyNavigation.mockReturnValue("matching");
   mocks.read.mockClear();
@@ -297,6 +314,30 @@ describe("native local export document ownership", () => {
         targetDocumentId: DOCUMENT_ID,
       }),
     ]);
+  });
+
+  it("adopts a pending request inserted after registration reads absent export state", async () => {
+    mocks.states.set("native-render-contexts-v1", {
+      schemaVersion: 1,
+      contexts: [
+        { tabId: TAB_ID, designId: DESIGN_ID, expiresAt: Date.now() + 30_000 },
+      ],
+    });
+    let requestId: string | undefined;
+    mocks.afterExportRead = async () => {
+      const created = await run(request, requestInput);
+      requestId = created.requestId;
+    };
+
+    await registerNativeRenderContext(DESIGN_ID, DOCUMENT_ID);
+
+    expect(
+      mocks.states.get(`native-local-export:${DESIGN_ID}:${TAB_ID}`),
+    ).toMatchObject({
+      requestId,
+      status: "pending",
+      targetDocumentId: DOCUMENT_ID,
+    });
   });
 
   it("rejects an export when its selected context changes during source preparation", async () => {

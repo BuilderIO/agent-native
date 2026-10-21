@@ -41,6 +41,7 @@ export const nativeRenderContextLedgerSchema = z
     contexts: z
       .array(nativeRenderContextSchema)
       .max(NATIVE_RENDER_CONTEXT_LIMIT),
+    requestRevision: z.string().uuid().optional(),
   })
   .strict();
 

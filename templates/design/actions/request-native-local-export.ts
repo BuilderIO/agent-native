@@ -96,7 +96,10 @@ export default defineAction({
       {
         key: NATIVE_RENDER_CONTEXT_LEDGER_KEY,
         expectedValue: snapshot.rawLedger,
-        nextValue: snapshot.rawLedger ?? { schemaVersion: 1, contexts: [] },
+        nextValue: {
+          ...(snapshot.rawLedger ?? { schemaVersion: 1, contexts: [] }),
+          requestRevision: crypto.randomUUID(),
+        },
       },
       { key, expectedValue: current, nextValue: request },
     ]);
