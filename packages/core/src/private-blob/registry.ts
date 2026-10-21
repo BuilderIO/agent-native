@@ -11,6 +11,7 @@ import {
   type BlobEncryptionParams,
 } from "./blob-crypto.js";
 import {
+  isPrivateBlobError,
   PrivateBlobError,
   PrivateBlobRangeError,
   type PrivateBlobFailureKind,
@@ -378,7 +379,17 @@ export interface PrivateBlobStorageReadiness {
 }
 
 export async function getPrivateBlobStorageReadinessForRequest(): Promise<PrivateBlobStorageReadiness> {
-  const privateProvider = await getActivePrivateBlobProviderForRequest();
+  let privateProvider: PrivateBlobProvider | null;
+  try {
+    privateProvider = await getActivePrivateBlobProviderForRequest();
+  } catch (error) {
+    // Settings that are saved but can't be used mean storage isn't ready.
+    // Puts still fail with the reason instead of using other storage.
+    if (isPrivateBlobError(error) && error.kind === "not_configured") {
+      return { configured: false, providerId: null };
+    }
+    throw error;
+  }
   if (privateProvider) {
     return { configured: true, providerId: privateProvider.id };
   }

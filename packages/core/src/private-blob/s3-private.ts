@@ -179,8 +179,12 @@ function assertSecureEndpoint(source: CredentialSource, endpoint: string) {
   );
 }
 
-/** The first of a setting's names that resolves for this request. */
+/**
+ * A setting's value for this request. Its S3_ and R2_ names are one setting:
+ * a saved value beats env under either name, and within one place S3_ wins.
+ */
 async function resolveSetting(field: StorageField) {
+  const found = [];
   for (const key of STORAGE_KEYS[field]) {
     const detail = await resolveSecretDetailed(key);
     // A settings read that failed must not quietly send the blob to other
@@ -192,9 +196,23 @@ async function resolveSetting(field: StorageField) {
         { cause: detail.cause },
       );
     }
-    if (detail.value) return { ...detail, value: detail.value };
+    if (detail.value) found.push({ ...detail, value: detail.value });
   }
-  return null;
+  const saved = found.filter(
+    (detail) => detail.source && detail.source !== "env",
+  );
+  if (
+    saved.length === 2 &&
+    (saved[0].source !== saved[1].source ||
+      saved[0].scopeId !== saved[1].scopeId)
+  ) {
+    const [primary, legacy] = STORAGE_KEYS[field];
+    throw new PrivateBlobError(
+      `Storage settings save ${primary} and ${legacy} in different places`,
+      "not_configured",
+    );
+  }
+  return saved[0] ?? found[0] ?? null;
 }
 
 /**

@@ -905,6 +905,93 @@ describe("S3 private blob providers", () => {
     ).resolves.toMatchObject({ provider: "s3-private" });
   });
 
+  it("treats S3_ and R2_ names as one setting, with saved values first", async () => {
+    const { s3PrivateBlobProvider } = await import("./s3-private.js");
+    const { objects } = fakeBucket();
+    useEnvBucket();
+    const userSaved: Record<string, string> = {
+      R2_ENDPOINT: "https://user.r2.example.test",
+      R2_BUCKET: "user-bucket",
+      R2_ACCESS_KEY_ID: "user-access",
+      R2_SECRET_ACCESS_KEY: "user-secret",
+    };
+    readAppSecretsMock.mockResolvedValue(
+      new Map(
+        Object.entries(userSaved).map(([key, value]) => [key, { value }]),
+      ),
+    );
+    resolveSecretDetailedMock.mockImplementation(async (key: string) => {
+      if (userSaved[key]) {
+        return {
+          value: userSaved[key],
+          lookupFailed: false,
+          source: "user",
+          scopeId: "owner@example.test",
+        };
+      }
+      return process.env[key]
+        ? { value: process.env[key], lookupFailed: false, source: "env" }
+        : { value: null, lookupFailed: false };
+    });
+
+    await s3PrivateBlobProvider.put({ data: new TextEncoder().encode("mine") });
+    expect([...objects.keys()][0]).toMatch(/^\/user-bucket\//);
+
+    // The same setting saved under both names in different places is
+    // ambiguous, so the put fails.
+    resolveSecretDetailedMock.mockImplementation(async (key: string) =>
+      key === "S3_BUCKET"
+        ? {
+            value: "org-bucket",
+            lookupFailed: false,
+            source: "org",
+            scopeId: "org-1",
+          }
+        : userSaved[key]
+          ? {
+              value: userSaved[key],
+              lookupFailed: false,
+              source: "user",
+              scopeId: "owner@example.test",
+            }
+          : { value: null, lookupFailed: false },
+    );
+    await expect(
+      s3PrivateBlobProvider.put({ data: new Uint8Array([1]) }),
+    ).rejects.toMatchObject({
+      kind: "not_configured",
+      message:
+        "Storage settings save S3_BUCKET and R2_BUCKET in different places",
+    });
+  });
+
+  it("reports unusable saved settings as not ready, while puts still fail", async () => {
+    const { ensureS3PrivateBlobProviders } = await import("./s3-private.js");
+    const registry = await import("./registry.js");
+    fakeBucket();
+    ensureS3PrivateBlobProviders();
+    resolveSecretDetailedMock.mockImplementation(async (key: string) =>
+      key === "S3_BUCKET"
+        ? {
+            value: "user-bucket",
+            lookupFailed: false,
+            source: "user",
+            scopeId: "owner@example.test",
+          }
+        : { value: null, lookupFailed: false },
+    );
+    readAppSecretsMock.mockResolvedValue(
+      new Map([["S3_BUCKET", { value: "user-bucket" }]]),
+    );
+
+    await expect(
+      registry.getPrivateBlobStorageReadinessForRequest(),
+    ).resolves.toEqual({ configured: false, providerId: null });
+    await expect(
+      registry.putPrivateBlob({ data: new Uint8Array([1]) }),
+    ).rejects.toMatchObject({ kind: "not_configured" });
+  });
+
   it("registers the workspace bucket ahead of the hosted bucket, once", async () => {
     const { ensureS3PrivateBlobProviders } = await import("./s3-private.js");
     const registry = await import("./registry.js");
