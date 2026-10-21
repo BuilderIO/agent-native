@@ -183,18 +183,33 @@ async function resolveBucketScope(): Promise<ResolvedBucket | null> {
 async function resolveRequestBucket(): Promise<ResolvedBucket | null> {
   const resolved = await resolveBucketScope();
   if (!resolved || resolved.config.publicBaseUrl) return resolved;
-  // A public URL saved in another scope may still serve this bucket, so it
-  // counts too: the blob is then stored encrypted.
-  const publicBaseUrl = await resolveSetting("publicBaseUrl");
+  const publicBaseUrl =
+    (await resolveSetting("publicBaseUrl"))?.value ??
+    envPublicBaseUrlFor(resolved.config.bucket);
   return publicBaseUrl
     ? {
         ...resolved,
         config: {
           ...resolved.config,
-          publicBaseUrl: publicBaseUrl.value.trim().replace(/\/+$/, ""),
+          publicBaseUrl: publicBaseUrl.trim().replace(/\/+$/, ""),
         },
       }
     : resolved;
+}
+
+/**
+ * The deployment's public URL when it may serve `bucket`: env names no
+ * bucket, or names this one. It counts even when this request may not use
+ * the deployment's credentials, because it only decides whether to encrypt.
+ */
+function envPublicBaseUrlFor(bucket: string): string | undefined {
+  const value = (field: StorageField) =>
+    cleanValue(process.env[STORAGE_KEYS[field][0]]) ??
+    cleanValue(process.env[STORAGE_KEYS[field][1]]);
+  const publicBaseUrl = value("publicBaseUrl");
+  if (!publicBaseUrl) return undefined;
+  const envBucket = value("bucket");
+  return !envBucket || envBucket === bucket ? publicBaseUrl : undefined;
 }
 
 function readHostedBucketConfig(options: {
@@ -261,13 +276,24 @@ function decodeDescriptor(handle: PrivateBlobHandle): S3BlobDescriptor {
   return descriptor;
 }
 
+function normalizedEndpoint(endpoint: string): string | undefined {
+  if (!URL.canParse(endpoint)) return undefined;
+  const url = new URL(endpoint);
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+}
+
 /**
- * Env and hosted buckets come from deployment config, so their endpoints may
- * be on a private network. Handles can't be forged, so the endpoint a handle
- * records for those sources came from deployment config too.
+ * Whether a request may reach this endpoint on a private network: only when
+ * it is the hosted bucket's endpoint as configured now. The request layer
+ * gives env endpoints the same check against S3_ENDPOINT/R2_ENDPOINT, and
+ * never trusts endpoints saved in workspace settings. An old handle's
+ * endpoint loses that trust once the deployment stops using it.
  */
-function trustsEndpoint(source: CredentialSource): boolean {
-  return source.kind !== "secret";
+function trustsEndpoint(source: CredentialSource, endpoint: string): boolean {
+  if (source.kind !== "hosted") return false;
+  const hosted = readHostedBucketConfig({ forExistingObject: true });
+  const current = hosted ? normalizedEndpoint(hosted.endpoint) : undefined;
+  return current !== undefined && current === normalizedEndpoint(endpoint);
 }
 
 async function clientConfigFor(
@@ -327,7 +353,7 @@ async function putBlob(
       ? "application/octet-stream"
       : input.mimeType || "application/octet-stream",
     timeoutMs: PUT_TIMEOUT_MS,
-    trustedEndpoint: trustsEndpoint(bucket.source),
+    trustedEndpoint: trustsEndpoint(bucket.source, bucket.config.endpoint),
   });
   if (!response.ok) throw await readFailure(response, "PutObject");
   await cancelS3ResponseBody(response);
@@ -366,7 +392,7 @@ async function readBlob(
     {
       method: "GET",
       timeoutMs: GET_TIMEOUT_MS,
-      trustedEndpoint: trustsEndpoint(descriptor.source),
+      trustedEndpoint: trustsEndpoint(descriptor.source, descriptor.endpoint),
     },
   );
   if (!response.ok) throw await readFailure(response, "GetObject");
@@ -436,7 +462,7 @@ async function readBlobRange(
       method: "GET",
       range: `bytes=${range.start}-${range.end ?? ""}`,
       timeoutMs: GET_TIMEOUT_MS,
-      trustedEndpoint: trustsEndpoint(descriptor.source),
+      trustedEndpoint: trustsEndpoint(descriptor.source, descriptor.endpoint),
     },
   );
   if (response.status === 416) {
@@ -485,7 +511,7 @@ async function deleteBlob(providerId: string, handle: PrivateBlobHandle) {
     {
       method: "DELETE",
       timeoutMs: DELETE_TIMEOUT_MS,
-      trustedEndpoint: trustsEndpoint(descriptor.source),
+      trustedEndpoint: trustsEndpoint(descriptor.source, descriptor.endpoint),
     },
   );
   if (!response.ok && response.status !== 404) {

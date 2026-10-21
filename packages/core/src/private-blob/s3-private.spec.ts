@@ -468,6 +468,86 @@ describe("S3 private blob providers", () => {
     expect(s3FetchMock).not.toHaveBeenCalled();
   });
 
+  it("encrypts when only the deployment's env names a public URL for the bucket", async () => {
+    const { s3PrivateBlobProvider } = await import("./s3-private.js");
+    const { objects } = fakeBucket();
+    readAppSecretsMock.mockResolvedValue(
+      new Map(
+        Object.entries({
+          S3_ENDPOINT: "https://user.storage.example.test",
+          S3_BUCKET: "shared-bucket",
+          S3_ACCESS_KEY_ID: "user-access",
+          S3_SECRET_ACCESS_KEY: "user-secret",
+        }).map(([key, value]) => [key, { value }]),
+      ),
+    );
+    // This request may not use the deployment's credentials, so env values
+    // never resolve for it.
+    resolveSecretDetailedMock.mockImplementation(async (key: string) =>
+      key === "S3_BUCKET"
+        ? {
+            value: "shared-bucket",
+            lookupFailed: false,
+            source: "user",
+            scopeId: "owner@example.test",
+          }
+        : { value: null, lookupFailed: false },
+    );
+    process.env.S3_PUBLIC_BASE_URL = "https://files.example.test";
+
+    process.env.S3_BUCKET = "shared-bucket";
+    const named = await s3PrivateBlobProvider.put({
+      data: new TextEncoder().encode("internal dashboard"),
+    });
+    delete process.env.S3_BUCKET;
+    const unnamed = await s3PrivateBlobProvider.put({
+      data: new TextEncoder().encode("internal dashboard"),
+    });
+    process.env.S3_BUCKET = "other-bucket";
+    const other = await s3PrivateBlobProvider.put({
+      data: new TextEncoder().encode("internal dashboard"),
+    });
+
+    expect(named.encrypted).toBe(true);
+    expect(unnamed.encrypted).toBe(true);
+    expect(other.encrypted).toBe(false);
+    expect(
+      [...objects.values()].filter(({ body }) =>
+        text(body).includes("internal dashboard"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("stops trusting a private hosted endpoint once the deployment moves off it", async () => {
+    const { hostedPrivateBlobProvider } = await import("./s3-private.js");
+    fakeBucket();
+    isBlockedUrlMock.mockResolvedValue(true);
+    const hostedStorage = {
+      enabled: true,
+      bucket: "hosted-private",
+      accessKeyId: "hosted-access",
+      secretAccessKey: "hosted-secret",
+      region: "auto",
+    };
+    defineAppConfig({
+      hostedStorage: { ...hostedStorage, endpoint: "http://10.0.0.5:9000/" },
+    });
+    const handle = await hostedPrivateBlobProvider.put({
+      data: new TextEncoder().encode("hosted image"),
+    });
+    await expect(hostedPrivateBlobProvider.read(handle)).resolves.toBeTruthy();
+
+    resetAppConfigForTests();
+    defineAppConfig({
+      hostedStorage: { ...hostedStorage, endpoint: "http://10.0.0.7:9000" },
+    });
+    s3FetchMock.mockClear();
+    await expect(hostedPrivateBlobProvider.read(handle)).rejects.toThrow(
+      /SSRF blocked/,
+    );
+    expect(s3FetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects partial responses that aren't the requested bytes", async () => {
     const { s3PrivateBlobProvider } = await import("./s3-private.js");
     fakeBucket();
