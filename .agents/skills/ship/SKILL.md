@@ -381,11 +381,11 @@ owner. Keep each Slack reply to one short sentence in plain, non-technical
 language, followed by the exact bot disclosure `this was sent from a bot.` Say
 what changed. If `🎫` is used, briefly name what still needs investigation or
 action and its owner when known. Do not explain absent reactions or include
-implementation, CI, or publisher details. For a beta-eligible app PR linked to
-an owned feedback thread, the `/ship` task that completes the merge may send
-the one-time update described in the [shared beta procedure](../review-latest-feedback/references/slack-reaction-replies.md#one-time-beta-update-after-merge).
-This is a narrow authorization for that update only; other Slack replies and
-reactions require `review-latest-feedback` to own the action or be requested.
+implementation, CI, or publisher details. Normal `/ship` does not monitor beta
+publication or send beta timing updates. When beta verification is explicitly
+requested or a concrete beta-specific risk applies, use `/ship-and-monitor`;
+only the assigned check owner may send a post-merge update under the [beta
+update guidance](../review-latest-feedback/references/slack-reaction-replies.md#beta-updates-for-assigned-checks).
 Keep publisher details in the ship ledger.
 
 Close linked GitHub issues as soon as their accepted fix is verified in the

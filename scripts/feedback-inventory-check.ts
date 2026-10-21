@@ -1557,12 +1557,14 @@ function publicActionSummaryMatchesAction(
   }
   const normalizedAction = normalizeReplyPhrase(action);
   const normalizedSummary = normalizeReplyPhrase(publicActionSummary);
+  const summaryWordCount = normalizedSummary.split(" ").filter(Boolean).length;
   const summaryWords = normalizedSummary
     .split(" ")
     .filter(
       (word) => !["this", "that", "it", "something", "anything"].includes(word),
     );
   return (
+    summaryWordCount <= 12 &&
     summaryWords.length >= 2 &&
     (normalizedAction === normalizedSummary ||
       normalizedAction.startsWith(`${normalizedSummary} `))
@@ -2447,7 +2449,14 @@ function validateStatusReactionLanguage(
   const activeHandoffs = handoffs.filter(
     (handoff) => handoff.status !== "completed",
   );
-  if (activeHandoffs.length === 0 && reporterRequests.length === 0) return;
+  if (activeHandoffs.length === 0 && reporterRequests.length === 0) {
+    if (pendingActionSummary !== undefined) {
+      throw new Error(
+        `${parentName}: pendingActionSummary is only valid while a tracked action remains open`,
+      );
+    }
+    return;
+  }
 
   const summary = pendingActionSummary ?? "";
   const normalizedSummary = normalizeReplyPhrase(summary);
@@ -9852,6 +9861,7 @@ if (args[0] === "--self-test" && args.length === 1) {
               : "no human answer arrived four days after the request";
             const statusReply: StatusReply = {
               ...originalStatus,
+              pendingActionSummary: undefined,
               ts: answered ? "13.000000" : "345612.000000",
               disposition: statusDisposition,
               evidence: statusEvidence,
@@ -12628,6 +12638,13 @@ if (args[0] === "--self-test" && args.length === 1) {
             },
           },
         ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "In progress",
+          evidence: "the completed handoff has an incomplete completion record",
+          text: "In progress: The completed handoff has an incomplete completion record. this was sent from a bot.",
+          pendingActionSummary: undefined,
+        },
       }),
     },
     {
@@ -13581,6 +13598,32 @@ if (args[0] === "--self-test" && args.length === 1) {
         "active 🎫 summary must include every pending action and known owner",
       );
     }
+    const overlongAction =
+      "review the workspace connection settings before publishing the updated release notes for the product launch to all active workspaces";
+    expectStatusLanguageFailure(
+      "exact reporter action is too long for a public summary",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          `Clarification needed: Please ${overlongAction}. this was sent from a bot.`,
+          [],
+          [
+            {
+              scope: "publish the release notes",
+              action: overlongAction,
+              publicActionSummary: overlongAction,
+              requestReply: {
+                ts: "11.500000",
+                threadParentTs: "10.000000",
+                actorId: "USWEEPER",
+                text: `Please ${overlongAction}.`,
+              },
+            },
+          ],
+          overlongAction,
+        ),
+      "active 🎫 summary must include every pending action and known owner",
+    );
     expectStatusLanguageFailure(
       "malformed pending summary has a field diagnostic",
       () =>
@@ -13592,6 +13635,25 @@ if (args[0] === "--self-test" && args.length === 1) {
           42 as unknown as string,
         ),
       "pendingActionSummary must be a string",
+    );
+    expectStatusLanguageFailure(
+      "pending summary is rejected after every tracked action closes",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test closed reporter request",
+          "Fixed: corrected the reported behavior. this was sent from a bot.",
+          [
+            {
+              scope: "verify the publish",
+              owner: "Alex Rivera",
+              action: "check the beta publish",
+              status: "completed",
+            },
+          ],
+          [],
+          "Alex Rivera will check the beta site",
+        ),
+      "pendingActionSummary is only valid while a tracked action remains open",
     );
     expectStatusLanguageFailure(
       "malformed public summary does not throw a TypeError",
@@ -15498,6 +15560,13 @@ if (args[0] === "--self-test" && args.length === 1) {
           },
         },
       ],
+      statusReply: {
+        ...firstPage.parents[1]!.statusReply!,
+        disposition: "In progress",
+        evidence: "the completed handoff has an incomplete completion record",
+        text: "In progress: The completed handoff has an incomplete completion record. this was sent from a bot.",
+        pendingActionSummary: undefined,
+      },
     });
     try {
       validateTestInventory(completedHandoffWithoutEvidence);

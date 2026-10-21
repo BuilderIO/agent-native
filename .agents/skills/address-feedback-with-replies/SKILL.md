@@ -134,13 +134,12 @@ item is in scope, add `👀` before investigation or delegation.
 During triage and replies, follow `review-latest-feedback`'s single-owner
 rule: use one owner-thread reply for a cluster and list duplicate source
 permalinks there unless a distinct question or update needs a separate reply.
-For a linked beta app PR, follow `review-latest-feedback`'s post-merge beta
-rule's bounded procedure. Send the PR link and 24-hour expectation only when
-the matching run selects the site within its 15-minute window. If the window
-expires without selection, the timeout is terminal for this merge task; no
-later beta update is expected from it, even if a subsequent run selects the
-site. A separately requested beta check may report its own result and owns any
-correction. Do not assign a future check to the completed sweep.
+Normal `/ship` does not monitor beta publication or send beta timing updates.
+When a beta check is explicitly requested or a concrete beta-specific risk
+applies, `/ship-and-monitor` owns that check; name its owner before promising a
+24-hour publish expectation, and make that owner responsible for rechecking
+and correcting a missed publish. Do not assign future beta follow-up to a
+completed feedback sweep.
 
 A tracked clear bug or authorized upvoted improvement receives at most one
 disposition per run. **Verified locally**, **Built - live unverified**,
@@ -155,12 +154,11 @@ Terminal dispositions: **Fixed**, **Shipped**, **Live verified**,
 concise **Skipped** reply if absent.
 **Fixed** closes the issue after a verified source fix merges; publication,
 beta, and live verification follow separately. Use **In progress** while the
-source PR is open. Link the PR and say merge is pending. Give beta timing only
-if the matching run selects the affected site within the shared procedure's
-15-minute window after merge reaches `origin/main`; if the window expires, no
-later update is expected from that merge task. Follow
-`review-latest-feedback`'s reply reference for the short post-merge update and
-any correction.
+source PR is open. Link the PR and say merge is pending. Do not poll for beta
+publication or promise beta timing as part of normal `/ship`. An explicitly
+requested beta check may report timing only when it has an assigned owner who
+will recheck and correct a missed publish; follow
+`review-latest-feedback`'s beta update guidance.
 **In progress** is an open ownership state. Do not send an interim progress
 reply for work fixed in the same run. If work continues beyond this run, follow
 `review-latest-feedback` and post one brief update only when the next step
@@ -306,9 +304,9 @@ Say what changed. Use `🎫` only for unresolved work; if you use it, briefly sa
 what remains to investigate or what action is needed, and name its owner when
 known. Do not mention or explain absent reactions. The Slack `🎫` reaction does
 not mean an external tracker ticket was created or assigned. For a beta app fix
-in an open PR, link it and say merge is pending. Give beta timing only if the
-matching run selects the site within the shared procedure's 15-minute window;
-after timeout, no later update is expected from that merge task. If work
+in an open PR, link it and say merge is pending. Do not give beta timing as
+part of normal `/ship`; only an explicitly requested or concrete-risk beta
+check with an assigned owner may report an expectation. If work
 continues beyond this run, name the next action only when a reporter needs to
 know it.
 For a clarification, ask one direct question only when reporter input changes
@@ -322,14 +320,11 @@ count as the status reply.
 
 ## Beta availability
 
-Keep merge, publisher, and live verification details in the recap. For a
-linked beta-eligible app PR, follow the bounded procedure in
-`review-latest-feedback`'s post-merge beta reference. Only post the PR link and
-24-hour expectation if the matching run selects the affected site within its
-15-minute window. If selection does not happen in that window, no later update
-is expected from that merge task, even if a subsequent run selects the site. A
-separately requested beta check may report its own result and owns any
-correction. Say the site is on beta only when `/ship-and-monitor` or an
+Keep merge, publisher, and live verification details in the recap. Normal
+`/ship` does not poll beta publication or send beta timing updates. An
+explicitly requested or concrete-risk beta check may report an expectation
+only when it has an assigned owner who will recheck and correct a missed
+publish. Say the site is on beta only when `/ship-and-monitor` or an
 explicitly requested beta check verifies it is current. Use `🎫` only when
 another person or team must act. Do not say the site is live until checked.
 Answer direct reporter follow-ups.

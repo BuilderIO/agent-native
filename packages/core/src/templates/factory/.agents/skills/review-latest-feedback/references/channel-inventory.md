@@ -336,11 +336,13 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   and the owner's captured reply. Do not require the full internal evidence in
   their Slack text. For active `🎫` actions, add a short plain-language
   `pendingActionSummary` to `statusReply` that names every open action and its
-  known owner, and include it in the reply. Keep the exact action in the
-  internal ledger. When that wording is too technical or long for Slack, add a
+  known owner, and include it in the reply; omit it when no tracked action
+  remains open. Keep the exact action in the internal ledger. When that wording
+  is too technical or long for Slack, add a
   concise plain-language `publicActionSummary` using the opening words of the
-  action and leaving trailing implementation detail out. The checker requires
-  that phrase to match the action. Use the summary in public status replies and
+  action and leaving trailing implementation detail out. It must have at least
+  two meaningful words and no more than 12 words; the checker requires the
+  phrase to match the action. Use the summary in public status replies and
   other readbacks that do not prove owner acceptance. For an accepted handoff,
   the owner's explicit acceptance and the direct request before contextual
   assent must name the full recorded action, even when a shorter public

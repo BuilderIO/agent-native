@@ -27,38 +27,18 @@ Do not send a routine second reply just to announce a merge or publication.
 
 <!-- framework-repo-only:start -->
 
-### One-time beta update after merge
+### Beta updates for assigned checks
 
-For a beta-eligible app PR linked to a thread already owned by
-`review-latest-feedback`, only the task that completes the merge may send this
-one update. `/ship` and `/ship-now` each have this narrow authorization; it
-does not authorize any other Slack reply or reaction. A normal feedback sweep
-does not own the update or monitor publication.
-
-After confirming the PR merge commit is in freshly fetched `origin/main`, read
-the PR's `mergeCommit.oid`. Find the run for
-`.github/workflows/deploy-beta-sites-prebuilt.yml` with event `push`, branch
-`main`, and `head_sha` equal to that commit. If a queued run was coalesced, a
-later `push` run may be used only when its head is a verified descendant of the
-merge commit. In the `Discover beta sites` job, inspect the `Build the beta site
-matrix` step and require its `Publishing ... beta sites:` line to include the
-affected site's ID. Use `scripts/netlify-beta-targets.ts` to map changed paths
-to the site ID.
-
-Check every two minutes for up to 15 minutes after the merge. If no eligible
-run reaches site selection in that window, its logs are unavailable, or the
-site is not selected, record the run and result in the ship ledger and do not
-send an ETA. That timeout is terminal for this merge task: no later beta update
-is expected from it, even if a subsequent run selects the site. A separate,
-explicitly requested beta check may report its own result. If the site is
-selected within the window, post one short sentence in the same thread with the
-PR link and say it is expected on beta within 24 hours, then add the exact bot
-disclosure. This is an expectation, not a guarantee. Selection is not proof of
-publication: do not wait for deployment to finish or say the site is live.
-Only `/ship-and-monitor` or an explicitly requested beta check verifies that
-the site is current. If a later in-scope beta check finds a publish failure or
-the site is not current after 24 hours, that check's owner handles the
-correction in the same thread.
+Normal `/ship` does not poll beta publication or send beta timing updates.
+Independent beta behavior checks run only when requested or when a concrete
+beta-specific risk requires proof; use `/ship-and-monitor` for that work.
+When a beta check is explicitly requested and assigned, only that check's
+owner may send a post-merge update in an already-owned feedback thread. The
+owner may give a 24-hour expectation only after confirming that the affected
+site was selected for publication and taking responsibility to recheck and
+correct a missed publish. Otherwise, give no ETA. Site selection is not proof
+of publication; never say the site is live until the assigned check verifies
+it.
 
 <!-- framework-repo-only:end -->
 
@@ -327,9 +307,11 @@ partial fix resolved the whole report.
 
 <!-- framework-repo-only:start -->
 
-For beta app fixes, keep publisher details in the recap and follow the
-[one-time beta update after merge](#one-time-beta-update-after-merge) procedure.
-Use `🎫` only when another person or team must act. Keep hashes, branch names,
+For beta app fixes, keep publisher details in the recap. Normal `/ship` does
+not poll beta publication or send timing updates; use the [beta update guidance
+for assigned checks](#beta-updates-for-assigned-checks) only when such a check
+is explicitly requested or a concrete beta-specific risk applies. Use `🎫`
+only when another person or team must act. Keep hashes, branch names,
 CI, workflow details, and run IDs out of reporter replies. For package work,
 distinguish the source PR from any release PR and registry proof; source merge
 alone does not establish publication. Give no ETA for a pending package

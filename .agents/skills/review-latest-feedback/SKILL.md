@@ -406,10 +406,10 @@ action closes. Never imply that an external ticket was created or assigned.
 <!-- framework-repo-only:start -->
 ### After a PR merges
 
-For a beta-eligible app PR linked to an owned feedback thread, only the task
-that completes the merge may send the one-time update. `/ship` and `/ship-now`
-have this narrow authorization. Follow the [bounded beta update procedure](references/slack-reaction-replies.md#one-time-beta-update-after-merge);
-normal feedback sweeps do not wait for or monitor publication.
+Normal `/ship` does not monitor beta publication or send beta timing updates.
+When beta verification is explicitly requested or a concrete beta-specific
+risk applies, follow `/ship-and-monitor`; only an assigned check owner may send
+a post-merge update under the [beta update guidance](references/slack-reaction-replies.md#beta-updates-for-assigned-checks).
 <!-- framework-repo-only:end -->
 
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
