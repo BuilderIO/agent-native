@@ -81,9 +81,27 @@ describe("text edit outcomes", () => {
     expect(result).toBe("fallback-queued");
     expect(totals()).toEqual({ "text_edit/deferred/fallback_queued": 1 });
 
-    // A retry may settle, be cancelled or be replaced; none of it adds a count.
+    // The retry counts on its own, so the edit is never counted twice.
     settle!("accepted");
-    expect(totals()).toEqual({});
+    expect(totals()).toEqual({ "text_retry/succeeded/none": 1 });
+  });
+
+  it("counts a retry that could not write the text as failed", () => {
+    commitTextContentChange(
+      commitArgs({
+        isPendingTextCreation: true,
+        commit: () => "refused" as const,
+        // Settles before the queue call returns, as a retry with no writer does.
+        queueHostCommit: vi.fn((_owner, _node, _text, onSettled) => {
+          onSettled?.("failed");
+          return true;
+        }),
+      }),
+    );
+    expect(totals()).toEqual({
+      "text_edit/deferred/fallback_queued": 1,
+      "text_retry/failed/not_written": 1,
+    });
   });
 
   it("counts a refusal that could not be queued as failed", () => {

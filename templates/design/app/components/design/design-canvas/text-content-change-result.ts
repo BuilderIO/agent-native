@@ -1,4 +1,5 @@
 import {
+  recordCanvasOutcome,
   runCanvasOperation,
   type CanvasOperationHandle,
 } from "@/lib/canvas-outcome-tracking";
@@ -199,9 +200,15 @@ function commitTextContentChangeWithOutcome(
     if (!canFallback || !owner || !nodeId || value.length === 0) return false;
     const queued = queueHostCommit(owner, nodeId, value, (outcome) => {
       if (outcome === "accepted") requestSnapshot();
+      recordCanvasOutcome(
+        "text_retry",
+        outcome === "accepted" ? "succeeded" : "failed",
+        outcome === "accepted" ? "none" : "not_written",
+      );
     });
     // A queued retry can be cancelled or replaced without settling, so the
-    // edit counts as deferred rather than waiting on a result that may never come.
+    // edit counts as deferred rather than waiting on a result that may never
+    // come. A retry that does settle counts on its own, as `text_retry`.
     if (queued) op.defer("fallback_queued");
     return queued;
   };

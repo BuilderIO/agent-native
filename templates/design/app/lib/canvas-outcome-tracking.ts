@@ -21,6 +21,7 @@ const CANVAS_OPERATIONS = [
   "save_replay",
   "style_commit",
   "text_edit",
+  "text_retry",
 ] as const;
 export type CanvasOperation = (typeof CANVAS_OPERATIONS)[number];
 
@@ -72,8 +73,9 @@ export const CANVAS_OUTCOME_REASONS = [
   "selector_missing",
   "shader_write_failed",
   "snapshot_not_loaded",
-  // text_edit
+  // text_edit / text_retry
   "fallback_queued",
+  "not_written",
   "refused",
 ] as const;
 export type CanvasOutcomeReason = (typeof CANVAS_OUTCOME_REASONS)[number];
