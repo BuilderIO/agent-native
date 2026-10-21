@@ -9119,6 +9119,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   messageId: receipt.messageId,
                   claimId,
                 });
+                deferReceipt(receipt.threadId);
               } catch (releaseError) {
                 console.error(
                   `[agent-chat] could not release queued submission ${receipt.messageId}:`,

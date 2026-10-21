@@ -10419,21 +10419,18 @@ describe("createAgentNativeAgentKitTransport", () => {
     ).rejects.toThrow("thread missing-thread does not exist");
   });
 
-  it("reads queued receipt status only after resolving an accessible thread", async () => {
+  it("uses the scoped receipt endpoint to check queued submission status", async () => {
     const threadId = "thread-queued-receipt-status";
-    let threadExists = true;
+    let receiptExists = true;
     const fetcher = vi.fn(async (input: string | URL | Request) => {
-      if (String(input).endsWith(`/threads/${threadId}`)) {
-        return threadExists
-          ? json({ id: threadId, threadData: JSON.stringify({}) })
-          : json({ error: "Not found" }, 404);
-      }
       if (
         String(input).endsWith(
           `/threads/${threadId}/queue/queued-message/receipt`,
         )
       ) {
-        return json({ state: "submitted", submittedRunId: "run-submitted" });
+        return receiptExists
+          ? json({ state: "submitted", submittedRunId: "run-submitted" })
+          : json({ error: "Not found" }, 404);
       }
       return json({ error: "Not found" }, 404);
     });
@@ -10456,15 +10453,16 @@ describe("createAgentNativeAgentKitTransport", () => {
         `/_agent-native/agent-chat/threads/${threadId}/queue/queued-message/receipt`,
         expect.objectContaining({ headers: expect.any(Headers) }),
       );
+      expect(fetcher).toHaveBeenCalledTimes(1);
 
-      threadExists = false;
+      receiptExists = false;
       await expect(
         transport.getQueuedSubmissionStatus?.({
           threadId,
           messageId: "queued-message",
         }),
       ).resolves.toBeNull();
-      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(fetcher).toHaveBeenCalledTimes(2);
     } finally {
       await transport.dispose();
     }

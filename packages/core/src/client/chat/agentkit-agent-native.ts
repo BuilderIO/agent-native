@@ -4353,7 +4353,6 @@ export function createAgentNativeAgentKitTransport(
         threadSnapshotWithActiveRun(threadId),
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
       getQueuedSubmissionStatus: async ({ threadId, messageId }) => {
-        if (!(await snapshot(threadId))) return null;
         const requestHeaders = await headers({ sessionId: threadId });
         requestHeaders.set(AGENT_CHAT_THREAD_ABSENCE_HEADER, "typed");
         const response = await fetcher(

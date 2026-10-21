@@ -20,6 +20,7 @@ const inboxHarness = vi.hoisted(() => ({
     | null,
   turnAbort: null as ((runId: string, reason: string) => Promise<void>) | null,
   receiptReads: [] as Array<[string, string]>,
+  failActiveRunCheckThreadId: null as string | null,
 }));
 
 vi.mock("./framework-request-handler.js", async (importOriginal) => {
@@ -133,11 +134,15 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
       }
       return {};
     },
-    getActiveRunForThreadAsync: vi.fn(async (threadId: string) =>
-      inboxHarness.activeRun?.threadId === threadId
+    getActiveRunForThreadAsync: vi.fn(async (threadId: string) => {
+      if (inboxHarness.failActiveRunCheckThreadId === threadId) {
+        inboxHarness.failActiveRunCheckThreadId = null;
+        throw new Error("active run status unavailable after claiming head");
+      }
+      return inboxHarness.activeRun?.threadId === threadId
         ? inboxHarness.activeRun
-        : null,
-    ),
+        : null;
+    }),
     abortRunAtSafeBoundaryDurably: vi.fn(
       async (runId: string, reason: string) => {
         const aborted = await inboxHarness.safeAbort?.(runId, reason);
@@ -284,6 +289,7 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.safeAbort = null;
     inboxHarness.turnAbort = null;
     inboxHarness.receiptReads.length = 0;
+    inboxHarness.failActiveRunCheckThreadId = null;
     vi.mocked(getRunById).mockReset();
     vi.mocked(getRunById).mockResolvedValue(null);
   });
@@ -478,6 +484,109 @@ describe("queued submission inbox recurring sweep", () => {
     await expect(
       getQueuedSubmissionReceipt(otherThreadId, "independent-thread"),
     ).resolves.toMatchObject({ state: "submitted" });
+  }, 20_000);
+
+  it("defers a thread after a claimed receipt is retried and released", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const otherThreadId = `thread-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    await createThread(actor.email, { id: threadId });
+    await createThread(actor.email, { id: otherThreadId });
+    for (const [receiptThreadId, message] of [
+      [threadId, { id: "retry-head" }],
+      [threadId, { id: "later-same-thread" }],
+      [otherThreadId, { id: "independent-thread" }],
+    ] as const) {
+      await mutateThreadQueuedMessages(
+        receiptThreadId,
+        {
+          type: "append",
+          message: {
+            ...message,
+            threadId: receiptThreadId,
+            text: message.id,
+          },
+        },
+        { actor },
+      );
+    }
+    inboxHarness.failActiveRunCheckThreadId = threadId;
+    inboxHarness.admit = async (body) => {
+      const receiptThreadId = String(body.threadId);
+      const messageId = String(body.agentKitMessageId);
+      const receipt = await getQueuedSubmissionReceipt(
+        receiptThreadId,
+        messageId,
+      );
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const runId = `run-${messageId}`;
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId: receiptThreadId,
+          messageId,
+          runId,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return runId;
+    };
+
+    const h3App = createApp();
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: {
+        hook(name, callback) {
+          if (name === "close") sweepHarness.closeHooks.push(callback);
+        },
+      },
+    });
+    await sweepHarness.initPromises.at(-1);
+
+    try {
+      const response = await h3App.fetch(
+        new Request(`http://example.test${RECURRING_JOBS_SWEEP_PATH}`, {
+          method: "GET",
+          headers: { authorization: "Bearer sweep-test-secret" },
+        }),
+      );
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({
+        queuedSubmissionDrain: {
+          scanned: 3,
+          claimed: 2,
+          submitted: 1,
+          deferred: 2,
+          failed: 1,
+        },
+      });
+      expect(
+        inboxHarness.admissions.map((body) => body.agentKitMessageId),
+      ).toEqual(["independent-thread"]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, "retry-head"),
+      ).resolves.toMatchObject({ state: "queued" });
+      await expect(
+        getQueuedSubmissionReceipt(threadId, "later-same-thread"),
+      ).resolves.toMatchObject({ state: "queued" });
+      await expect(
+        getQueuedSubmissionReceipt(otherThreadId, "independent-thread"),
+      ).resolves.toMatchObject({ state: "submitted" });
+    } finally {
+      consoleError.mockRestore();
+    }
   }, 20_000);
 
   it("admits a queued receipt once through the authenticated sweep", async () => {
