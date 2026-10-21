@@ -1199,9 +1199,6 @@ jobs:
           migration_response_file="$(mktemp "$RUNNER_TEMP/netlify-crm-database.XXXXXX")"
           migration_error_file="$(mktemp "$RUNNER_TEMP/netlify-crm-database-error.XXXXXX")"
           trap 'rm -f "$migration_environment_file" "$migration_response_file" "$migration_error_file"' EXIT
-          netlify api getEnvVars \
-            --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\",\"scope\":\"builds\"}" \
-            > "$migration_environment_file"
           if netlify api getSiteDatabase \
             --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" \
             > "$migration_response_file" 2> "$migration_error_file"; then
@@ -1219,6 +1216,9 @@ jobs:
               echo "::error::Netlify could not resolve the production database for $NETLIFY_SITE_ID ($migration_error_label)."
               exit 1
             fi
+            netlify api getEnvVars \
+              --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\",\"scope\":\"builds\"}" \
+              > "$migration_environment_file"
             migration_database_url="$(
               BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts \
                 < "$migration_environment_file"

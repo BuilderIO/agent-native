@@ -2437,8 +2437,20 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(migration, /inputs\.target == 'production'/);
     assert.match(migration, /inputs\.deploy_mode == 'production'/);
     assert.match(migration, /source_template == 'crm'/);
-    assert.match(migration, /getSiteDatabase/);
-    assert.match(migration, /getEnvVars/);
+    const databaseLookup = migration.indexOf("if netlify api getSiteDatabase");
+    const notFoundCheck = migration.indexOf(
+      "if ! grep -Eq '^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found",
+    );
+    const environmentLookup = migration.indexOf("netlify api getEnvVars");
+    const fallbackLookup = migration.lastIndexOf(
+      'BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts',
+    );
+    assert.ok(
+      databaseLookup >= 0 &&
+        databaseLookup < notFoundCheck &&
+        notFoundCheck < environmentLookup &&
+        environmentLookup < fallbackLookup,
+    );
     assert.match(migration, /scope.*builds/);
     assert.ok(
       migration.includes(`grep -Eq '${NETLIFY_NOT_FOUND_ERROR_PATTERN}'`),
