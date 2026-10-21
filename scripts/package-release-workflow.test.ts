@@ -13,6 +13,7 @@ import {
   isAlreadyStaged,
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
+import { syncCommunityQrCoreLock } from "./sync-community-qr-core-lock.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -209,10 +210,16 @@ describe("npm package release workflow", () => {
       );
     }
 
-    for (const coreVersion of ["0.204.1", "0.205.1"]) {
+    assert.equal(
+      semver.satisfies("0.204.1", corePeerRange),
+      false,
+      "Toolkit must require Core 0.205.1, which first includes the session slot export",
+    );
+
+    for (const coreVersion of ["0.205.1"]) {
       assert.ok(
         semver.satisfies(coreVersion, corePeerRange),
-        `Toolkit must accept Core ${coreVersion} with the sanitizer export`,
+        `Toolkit must accept Core ${coreVersion} with the session slot export`,
       );
     }
 
@@ -383,7 +390,7 @@ describe("npm package release workflow", () => {
       .scripts as Record<string, string>;
     assert.equal(
       packageScripts["changeset:release-version"],
-      "pnpm changeset:version && pnpm changelog:compact",
+      "pnpm changeset:version && pnpm exec tsx scripts/sync-community-qr-core-lock.ts && pnpm changelog:compact",
     );
 
     const consume = releaseSteps.find(
@@ -424,6 +431,37 @@ describe("npm package release workflow", () => {
     assert(changesetsIndex < consumeIndex);
     assert(consumeIndex < restoreIndex);
     assert(changesetsIndex < restoreIndex);
+  });
+
+  it("syncs the community QR release importer to the in-repo Core package", () => {
+    const lockfile = `lockfileVersion: '9.0'
+importers:
+  templates/community/qr:
+    dependencies:
+      '@agent-native/core':
+        specifier: ^0.212.0
+        version: 0.212.0(425ad63e441766c7cc702a9e78bce500)
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
+
+  templates/analytics:
+    dependencies: {}
+`;
+
+    const updated = syncCommunityQrCoreLock(lockfile, "^0.213.0");
+
+    assert.match(
+      updated,
+      /specifier: \^0\.213\.0\n        version: link:\.\.\/\.\.\/\.\.\/packages\/core/,
+    );
+    assert.match(updated, /specifier: \^3\.4\.9\n        version: 3\.4\.9/);
+    assert.match(updated, /  templates\/analytics:\n    dependencies: \{\}/);
+    assert.equal(syncCommunityQrCoreLock(updated, "^0.213.0"), updated);
+    assert.throws(
+      () => syncCommunityQrCoreLock("importers: {}\n", "^0.213.0"),
+      /Missing templates\/community\/qr importer/,
+    );
   });
 
   describe("dev snapshot publishing", () => {
