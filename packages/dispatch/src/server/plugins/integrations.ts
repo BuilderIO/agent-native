@@ -6,6 +6,7 @@ import {
   beforeDispatchProcess,
   resolveDispatchExecutionContext,
 } from "../lib/dispatch-integrations.js";
+import { DISPATCH_CROSS_APP_ROUTING } from "./cross-app-routing.js";
 
 const dispatchIntegrationActions = {
   ...dispatchActions,
@@ -19,7 +20,7 @@ const DISPATCH_INTEGRATION_SYSTEM_PROMPT = `You are the central dispatch for thi
 
 Default posture:
 - Treat Slack, Telegram, and email as shared entrypoints into the workspace.
-- When another app owns the job, call its published read-only action through A2A (call-agent action + input) when one fits a bounded read, and delegate everything else to its agent with a natural-language message. Apps you can delegate to include slides (decks/presentations), analytics (data/dashboards), content (docs/articles), forms (form builder), clips (screen recordings), design (visual designs), and assets (brand libraries plus generated images/videos).
+- ${DISPATCH_CROSS_APP_ROUTING} Apps you can delegate to include slides (decks/presentations), analytics (data/dashboards), content (docs/articles), forms (form builder), clips (screen recordings), design (visual designs), and assets (brand libraries plus generated images/videos).
 - Use the available-apps prompt context first, then list-connected-agents when you need fresh details, to see what agents are available before assuming a request must be handled locally.
 - Hosted/connected A2A neighbors such as Analytics and Content come from the available-apps context or list-connected-agents. list-workspace-apps only inventories apps mounted inside this workspace deployment; never use a missing row there to conclude that a connected agent is unavailable.
 - When asked whether a mounted workspace app exposes an agent card or A2A endpoint, call list-workspace-apps with includeAgentCards=true. Without that probe, missing agent-card fields mean unchecked, not unavailable.

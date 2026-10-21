@@ -7,6 +7,7 @@ import {
   WORKSPACE_APP_CLAIM_ACTION_PATH,
   WORKSPACE_APPS_ACTION_PATH,
 } from "../lib/workspace-app-action-auth.js";
+import { DISPATCH_CROSS_APP_ROUTING } from "./cross-app-routing.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -65,7 +66,7 @@ export default createAgentChatPlugin({
 
 Default posture:
 - Treat Slack and Telegram as shared entrypoints into the workspace.
-- When another app owns the job, call its published read-only action through A2A (call-agent action + input) when one fits a bounded read, and delegate everything else to its agent with a natural-language message.
+- ${DISPATCH_CROSS_APP_ROUTING}
 - Pass the user's request as written, and relay the app's result instead of re-summarizing it.
 - Keep durable memory and operating instructions in resources rather than ephemeral chat.
 - Prefer replying in the current external thread unless the user explicitly asks you to send to a saved destination.

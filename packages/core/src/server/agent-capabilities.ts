@@ -3,6 +3,7 @@ import { A2AClient, A2ANoJsonRpcInterfaceError } from "../a2a/client.js";
 import { resolveRemoteAgentToken } from "../a2a/remote-agent-auth.js";
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
 import { type DiscoveredAgent } from "./agent-discovery.js";
+import { DIRECT_ACTION_ROUTING } from "./direct-action-routing.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 export const MAX_APPS = 30;
@@ -226,7 +227,7 @@ export function formatCapabilitySummary(
       .map((skill) => skill.id);
     const capabilityLines = [
       readOnly.length
-        ? `Read-only actions (direct action + input): ${readOnly.join(", ")}`
+        ? `Read-only actions (direct action + input once app="${peer.agent.id}" shows the full input): ${readOnly.join(", ")}`
         : "",
       messageOnly.length
         ? `Message-only capabilities (use a natural-language message): ${messageOnly.join(", ")}`
@@ -245,7 +246,7 @@ export function formatCapabilitySummary(
     "",
     lines.join("\n\n"),
     "",
-    "When a listed read-only action fits a bounded read and its full input is shown, call it with call-agent action + input; that skips a full agent run in the target. If the direct call fails, send a message instead of guessing. Otherwise delegate with a natural-language message; the receiving app owns interpretation and its local tools. Use message for creates, updates, deletes, sends, saves, publishes, or any other side effect. Prefer the app that owns the data over rebuilding its capability here.",
+    `${DIRECT_ACTION_ROUTING} With a message, the receiving app owns interpretation and its local tools. Prefer the app that owns the data over rebuilding its capability here.`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -265,7 +266,10 @@ const NESTED_SCHEMA_KEYS = [
 // Callers build a direct `input` from this line, so it must never look more
 // complete than the published schema: an unknown schema is not an empty one,
 // and nested fields either show in full or send the caller to a message.
-function formatSkillInput(skill: AgentSkill): string {
+function formatSkillInput(skill: AgentSkill): {
+  text: string;
+  complete: boolean;
+} {
   const schema = skill.inputSchema as
     | {
         properties?: Record<string, Record<string, unknown>>;
@@ -274,10 +278,12 @@ function formatSkillInput(skill: AgentSkill): string {
     | undefined;
   const properties = schema?.properties;
   if (!properties || typeof properties !== "object") {
-    return " — input schema not published (use message)";
+    return { text: " — input schema not published", complete: false };
   }
   const names = Object.keys(properties);
-  if (names.length === 0) return " — input: {} (no fields)";
+  if (names.length === 0) {
+    return { text: " — input: {} (no fields)", complete: true };
+  }
 
   const required = new Set(
     Array.isArray(schema?.required)
@@ -302,7 +308,10 @@ function formatSkillInput(skill: AgentSkill): string {
         : String(field.type);
       return `${name}${required.has(name) ? "*" : "?"}: ${rendered}`;
     });
-    return ` — input: { ${fields.join(", ")} } (* = required)`;
+    return {
+      text: ` — input: { ${fields.join(", ")} } (* = required)`,
+      complete: true,
+    };
   }
 
   const {
@@ -311,8 +320,13 @@ function formatSkillInput(skill: AgentSkill): string {
     ...contract
   } = schema as Record<string, unknown>;
   const json = JSON.stringify(contract);
-  if (json.length <= MAX_INPUT_SCHEMA_CHARS) return ` — input schema: ${json}`;
-  return ` — input: { ${names.join(", ")} } (nested input not shown: use message)`;
+  if (json.length <= MAX_INPUT_SCHEMA_CHARS) {
+    return { text: ` — input schema: ${json}`, complete: true };
+  }
+  return {
+    text: ` — input: { ${names.join(", ")} } (nested input not shown)`,
+    complete: false,
+  };
 }
 
 export function formatCapabilityDetail(
@@ -335,14 +349,15 @@ export function formatCapabilityDetail(
       ? truncate(skill.description, MAX_DESCRIPTION_CHARS)
       : skill.name || "(no description)";
     const readOnly = isReadOnlySkill(skill);
+    const input = formatSkillInput(skill);
     const classification = readOnly
-      ? ""
+      ? input.complete
+        ? ""
+        : " (message only; full input not shown)"
       : skill.readOnly === false || skill.publicAgent?.readOnly === false
         ? " (mutating)"
         : " (message only; direct reads unavailable)";
-    return `- ${skill.id}${classification}: ${summary}${
-      formatSkillInput(skill) ?? ""
-    }`;
+    return `- ${skill.id}${classification}: ${summary}${input.text}`;
   });
 
   return [

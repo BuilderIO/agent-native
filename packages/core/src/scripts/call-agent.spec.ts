@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { A2ATaskTerminalError } from "../a2a/client.js";
 import { RemoteAgentCredentialRejectedError } from "../a2a/remote-agent-auth.js";
 import type { ActionRunContext } from "../action.js";
+import { DIRECT_ACTION_ROUTING } from "../server/direct-action-routing.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
@@ -192,17 +193,9 @@ describe("call-agent action", () => {
   it("defaults cross-app work to the receiving specialist agent", async () => {
     const { tool } = await import("./call-agent.js");
 
-    expect(tool.description).toContain(
-      "Prefer action + input when the target publishes a read-only action that fits a bounded read",
-    );
+    expect(tool.description).toContain(DIRECT_ACTION_ROUTING);
     expect(tool.description).toContain(
       "Send the user's request as asked; do not expand its scope",
-    );
-    expect(tool.description).toContain(
-      "if a direct call fails or the full input isn't shown, send the objective as message instead",
-    );
-    expect(tool.description).toContain(
-      "never switch to a direct action to work around a slow or failed message",
     );
     expect(tool.description).toContain(
       "ONLY use it when the user's requested outcome depends on data or a capability only that app can provide",
@@ -219,9 +212,6 @@ describe("call-agent action", () => {
     );
     expect(tool.description).toContain(
       "Assets being available, convenient, or able to enrich imagery is not enough to delegate",
-    );
-    expect(tool.description).toContain(
-      "Never put a create, update, delete, send, save, publish, or any other side effect in action",
     );
   });
 

@@ -42,6 +42,7 @@ import {
   findAgent,
   type DiscoveredAgent,
 } from "../server/agent-discovery.js";
+import { DIRECT_ACTION_ROUTING } from "../server/direct-action-routing.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -705,7 +706,7 @@ function stringifyManagedAgentApprovalInput(
 
 export const tool: ActionTool = {
   description:
-    "Ask a DIFFERENT, separately-deployed app's agent over A2A. ONLY use it when the user's requested outcome depends on data or a capability only that app can provide, or the user explicitly asks you to involve it; availability alone is not a reason. Prefer action + input when the target publishes a read-only action that fits a bounded read and describe-workspace-apps (with that app) shows its full input; it skips a full agent run in the target. Otherwise use message, so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Send the user's request as asked; do not expand its scope. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead. Never guess an action's input schema or receiver-owned query logic: if a direct call fails or the full input isn't shown, send the objective as message instead, and never switch to a direct action to work around a slow or failed message. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
+    `Ask a DIFFERENT, separately-deployed app's agent over A2A. ONLY use it when the user's requested outcome depends on data or a capability only that app can provide, or the user explicitly asks you to involve it; availability alone is not a reason. ${DIRECT_ACTION_ROUTING} A message lets the receiving specialist interpret the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions; never guess its query logic. Send the user's request as asked; do not expand its scope. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. ` +
     'For generated media, use the current app\'s image-generation action or provider when it has one. Call Assets (agent="assets") only when the user explicitly requests its brand library, or the requested capability is exclusive to Assets and unavailable locally. Assets being available, convenient, or able to enrich imagery is not enough to delegate; keep edits and placement in the current app. ' +
     "IMPORTANT — handling the response: " +
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +

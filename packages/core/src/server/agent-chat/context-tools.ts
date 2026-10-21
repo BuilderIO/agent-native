@@ -9,6 +9,7 @@ import {
   DATA_WIDGET_MAX_ROWS,
   dataWidgetResultSchema,
 } from "../../data-widgets/index.js";
+import { DIRECT_ACTION_ROUTING } from "../direct-action-routing.js";
 import { getRequestRunContext } from "../request-context.js";
 import { createOpenSettingsPageTool } from "./open-settings-page-tool.js";
 
@@ -144,7 +145,7 @@ Prefer \`web-request\` for simple API calls and static pages. Use browser automa
 
 The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app's agent (A2A protocol). It is **not** for calling actions within the current app.
 
-When the target publishes a read-only action that fits a bounded read and \`describe-workspace-apps\` (with that \`app\`) shows its full input, call it with \`action\` + \`input\`; that skips a full agent run in the target. Otherwise send a natural-language \`message\`: the receiving app owns interpretation and runs with its own instructions, skills, connected sources, data dictionary, and tools. Do not choose its provider, schema, query, joins, or SQL for it. Direct \`action\` mode is never for a create, update, delete, send, save, publish, or other side effect. Send the user's request as asked, without expanding its scope. If a direct call fails or its full input isn't shown, send a message instead of guessing; never switch to a direct action to work around a slow or failed message.
+${DIRECT_ACTION_ROUTING} With a message, the receiving app owns interpretation and runs with its own instructions, skills, connected sources, data dictionary, and tools. Do not choose its provider, schema, query, joins, or SQL for it. Send the user's request as asked, without expanding its scope.
 
 **NEVER use \`call-agent\` to:**
 - Call your own app by name

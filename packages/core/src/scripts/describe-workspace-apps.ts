@@ -7,10 +7,10 @@ import {
   MAX_APPS,
 } from "../server/agent-capabilities.js";
 import { discoverAgents, findAgent } from "../server/agent-discovery.js";
+import { DIRECT_ACTION_ROUTING } from "../server/direct-action-routing.js";
 
 export const tool: ActionTool = {
-  description:
-    "Describe what the OTHER apps in this workspace can do for this app, read live from each peer's published A2A agent card. Use when the current request needs another app's data or capability and either the owning peer is known (pass `app` to see the read-only actions it publishes) or you cannot tell which peer owns it or whether a known peer can provide it, or when the user asks which app can do the job. Do not use it as a preflight for ordinary local work. Call a published read-only action directly when one fits a bounded read; otherwise ask the owning app's agent with a natural-language call-agent message. Published actions are bounded contracts, not a substitute for the specialist agent. Pass `app` for one peer's full capability list. This is generated from live deployments - never hand-maintain or cache a list of workspace apps in code, docs, or markdown.",
+  description: `Describe what the OTHER apps in this workspace can do for this app, read live from each peer's published A2A agent card. Use when the current request needs another app's data or capability and either the owning peer is known (pass \`app\` to see the read-only actions it publishes) or you cannot tell which peer owns it or whether a known peer can provide it, or when the user asks which app can do the job. Do not use it as a preflight for ordinary local work. ${DIRECT_ACTION_ROUTING} Published actions are bounded contracts, not a substitute for the specialist agent. Pass \`app\` for one peer's full capability list. This is generated from live deployments - never hand-maintain or cache a list of workspace apps in code, docs, or markdown.`,
   parameters: {
     type: "object",
     properties: {
@@ -41,7 +41,7 @@ export async function run(
     return formatCapabilityDetail(
       await loadCapabilities(agent),
       (appId) =>
-        `When a listed read-only action fits a bounded read, call it with call-agent: agent="${appId}", action="<name>", input={...}. Otherwise ask this specialist with call-agent: agent="${appId}", message="<objective>". Use message for creates, updates, deletes, sends, saves, publishes, or any other side effect.`,
+        `${DIRECT_ACTION_ROUTING} Direct: call-agent agent="${appId}", action="<name>", input={...}, only for an action above with no "message only" mark. Message: call-agent agent="${appId}", message="<objective>".`,
     );
   }
 

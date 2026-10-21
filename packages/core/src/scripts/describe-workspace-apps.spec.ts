@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
 import { _resetCapabilityCacheForTests } from "../server/agent-capabilities.js";
 import type { DiscoveredAgent } from "../server/agent-discovery.js";
+import { DIRECT_ACTION_ROUTING } from "../server/direct-action-routing.js";
 
 const getAgentCard = vi.fn();
 const discoverAgents = vi.fn();
@@ -94,7 +95,7 @@ describe("describe-workspace-apps", () => {
   });
 
   it("makes the receiving specialist agent the default cross-app path", () => {
-    expect(tool.description).toContain("natural-language call-agent message");
+    expect(tool.description).toContain(DIRECT_ACTION_ROUTING);
     expect(tool.description).toContain(
       "not a substitute for the specialist agent",
     );
@@ -130,7 +131,7 @@ describe("describe-workspace-apps", () => {
     const output = await run({}, undefined, "coach");
 
     expect(output).toContain(
-      "Read-only actions (direct action + input): query-events",
+      'Read-only actions (direct action + input once app="analytics" shows the full input): query-events',
     );
     expect(output).toContain(
       "Message-only capabilities (use a natural-language message): create-campaign",
@@ -262,7 +263,7 @@ describe("describe-workspace-apps", () => {
     const output = await run({ app: "analytics" }, undefined, "coach");
 
     expect(output).toContain(
-      "no-schema: Run a bounded analytics query. — input schema not published (use message)",
+      "no-schema (message only; full input not shown): Run a bounded analytics query. — input schema not published",
     );
     expect(output).toContain(
       "no-fields: Run a bounded analytics query. — input: {} (no fields)",
@@ -274,7 +275,7 @@ describe("describe-workspace-apps", () => {
       'nested: Run a bounded analytics query. — input schema: {"type":"object","properties":{"filter":{"type":"object","properties":{"owner":{"type":"string"}}}}}',
     );
     expect(output).toContain(
-      "huge: Run a bounded analytics query. — input: { rows } (nested input not shown: use message)",
+      "huge (message only; full input not shown): Run a bounded analytics query. — input: { rows } (nested input not shown)",
     );
   });
 

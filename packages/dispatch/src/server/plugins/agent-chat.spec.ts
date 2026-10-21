@@ -45,4 +45,20 @@ describe("Dispatch agent chat plugin", () => {
       }),
     );
   });
+
+  it("routes cross-app work through call-agent's gated rule", async () => {
+    const { DISPATCH_CROSS_APP_ROUTING } =
+      await import("./cross-app-routing.js");
+    await import("./agent-chat.js");
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      systemPrompt: string;
+    };
+
+    expect(options.systemPrompt).toContain(DISPATCH_CROSS_APP_ROUTING);
+    expect(DISPATCH_CROSS_APP_ROUTING).toContain(
+      "only after describe-workspace-apps shows its full input",
+    );
+    expect(DISPATCH_CROSS_APP_ROUTING).toContain("after any failed call");
+    expect(options.systemPrompt).not.toContain("Heavily delegate");
+  });
 });

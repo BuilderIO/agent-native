@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDbExec } from "../db/client.js";
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
+import { DIRECT_ACTION_ROUTING } from "./direct-action-routing.js";
 
 const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
@@ -2479,7 +2480,11 @@ describe("loadResourcesForPrompt", () => {
         "Use `call-agent` only when the user's requested outcome depends on data or a capability only that app can provide",
       );
       expect(prompt).toContain(
-        "When that need is a bounded read from a known app, call `describe-workspace-apps` with that `app`",
+        "When that need targets a known app, call `describe-workspace-apps` with that `app`",
+      );
+      expect(prompt).toContain(DIRECT_ACTION_ROUTING);
+      expect(prompt).toContain(
+        "Jobs that need the specialist's judgment or generate content go by message too",
       );
       expect(prompt).toContain(
         "Also use `describe-workspace-apps` when that relevant cross-app need exists",
