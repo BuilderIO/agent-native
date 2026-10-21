@@ -19,6 +19,57 @@
 - Improved native capture lifecycle tracking and session-token storage so
   uploads and companion actions recover cleanly across app restarts.
 
+## 0.1.183
+
+### Patch Changes
+
+- Updated dependencies [fb0f136]
+- Updated dependencies [ef5327d]
+- Updated dependencies [3b8788a]
+- Updated dependencies [71749d3]
+- Updated dependencies [71749d3]
+- Updated dependencies [71749d3]
+- Updated dependencies [71749d3]
+- Updated dependencies [71749d3]
+- Updated dependencies [daa04e7]
+- Updated dependencies [70e6f58]
+- Updated dependencies [71749d3]
+- Updated dependencies [9d61445]
+- Updated dependencies [9d61445]
+- Updated dependencies [9d61445]
+- Updated dependencies [9d61445]
+- Updated dependencies [9d61445]
+- Updated dependencies [9d61445]
+- Updated dependencies [565a819]
+- Updated dependencies [565a819]
+- Updated dependencies [f8d0086]
+- Updated dependencies [96e2cf6]
+- Updated dependencies [d24c71c]
+- Updated dependencies [abdfc9d]
+- Updated dependencies [9f7d0d4]
+- Updated dependencies [a4f940a]
+- Updated dependencies
+- Updated dependencies [b45465b]
+- Updated dependencies [abdfc9d]
+- Updated dependencies [71749d3]
+- Updated dependencies [565a819]
+- Updated dependencies [ec68a31]
+- Updated dependencies [acbcb0b]
+- Updated dependencies [4c5ce0f]
+- Updated dependencies [71749d3]
+- Updated dependencies [9d61445]
+- Updated dependencies [9d61445]
+- Updated dependencies [565a819]
+- Updated dependencies [71749d3]
+- Updated dependencies [86f60e5]
+- Updated dependencies [72e097a]
+- Updated dependencies [71749d3]
+- Updated dependencies [1d3c941]
+- Updated dependencies [b36f7c5]
+- Updated dependencies [70ad3e4]
+  - @agent-native/core@0.212.0
+  - @agent-native/agentkit@0.212.0
+
 ## 0.1.182
 
 ### Patch Changes
@@ -2389,14 +2440,5 @@
 
 - Updated dependencies [60aaea8]
   - @agent-native/core@0.168.5
-
-## 0.1.84
-
-### Patch Changes
-
-- Updated dependencies [4e1ce88]
-- Updated dependencies [4e1ce88]
-- Updated dependencies [4e1ce88]
-  - @agent-native/core@0.168.4
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

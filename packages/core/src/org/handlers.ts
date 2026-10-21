@@ -40,7 +40,10 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { verifyFederatedWorkspaceIconOwner } from "../icon-assets/workspace-transport.js";
 import { offboardMember } from "../identity/offboard.js";
-import { getAppProductionUrl } from "../server/app-url.js";
+import {
+  getAppProductionUrl,
+  resolveAppRuntimeUrl,
+} from "../server/app-url.js";
 import {
   isTrustedSelfHostedRuntime,
   resolveVercelDeploymentProtectionHeaders,
@@ -94,6 +97,22 @@ import { parseWorkspaceUrl } from "./workspace-url.js";
 
 const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
 const pendingFederatedOrgSyncs = new Map<string, Promise<void>>();
+
+function isSameDeploymentWorkspaceAgent(agentUrl: string): boolean {
+  const runtimeUrl = resolveAppRuntimeUrl();
+  if (!runtimeUrl) return false;
+  try {
+    const agent = new URL(agentUrl);
+    const runtime = new URL(runtimeUrl);
+    return (
+      (agent.protocol === "https:" || agent.protocol === "http:") &&
+      agent.origin === runtime.origin
+    );
+  } catch {
+    // coercion-ok: Invalid URLs cannot be trusted as secret-sync recipients.
+    return false;
+  }
+}
 
 function parseRequiredAuthProvider(value: unknown): RequiredAuthProvider {
   if (value === null || value === undefined) return null;
@@ -2056,14 +2075,71 @@ export const syncA2ASecretHandler = defineEventHandler(
 
     const signSecret = overrideSignSecret || secret;
 
-    const { discoverAgents } = await import("../server/agent-discovery.js");
+    const {
+      discoverAgents,
+      getBuiltinAgentsForSeeding,
+      loadWorkspaceAppsManifest,
+    } = await import("../server/agent-discovery.js");
     const [{ signA2AOrganizationToken }, { canonicalA2AAudience }] =
       await Promise.all([
         import("../a2a/client.js"),
         import("../a2a/audience.js"),
       ]);
 
-    const agents = await discoverAgents();
+    // Only first-party built-ins and apps mounted on this deployment may receive
+    // the organization secret. A workspace manifest can contain external URLs.
+    const [discoveredAgents, builtins, workspaceApps] = await Promise.all([
+      discoverAgents(),
+      Promise.resolve(getBuiltinAgentsForSeeding()),
+      loadWorkspaceAppsManifest(),
+    ]);
+    const registeredBuiltins = new Map(
+      builtins.map((agent) => [agent.id, agent.url]),
+    );
+    const registeredWorkspacePaths = new Map<string, string>();
+    for (const app of workspaceApps ?? []) {
+      try {
+        const path = app.path;
+        if (path) registeredWorkspacePaths.set(app.id, path);
+      } catch (error) {
+        console.warn(
+          "[org] skipped malformed workspace app during A2A secret sync",
+          { errorType: error instanceof Error ? error.name : "unknown" },
+        );
+      }
+    }
+    const matchesPath = (url: string, registeredPath: string): boolean => {
+      try {
+        const actual = new URL(url);
+        const expectedPath = new URL(
+          registeredPath,
+          `${resolveAppRuntimeUrl()?.replace(/\/$/, "") ?? ""}/`,
+        );
+        return (
+          actual.origin === expectedPath.origin &&
+          actual.pathname.replace(/\/$/, "") ===
+            expectedPath.pathname.replace(/\/$/, "")
+        );
+      } catch (error) {
+        console.warn("[org] skipped invalid A2A secret sync recipient URL", {
+          errorType: error instanceof Error ? error.name : "unknown",
+        });
+        return false;
+      }
+    };
+    const agents = discoveredAgents.filter((agent) => {
+      if (agent.source === "builtin") {
+        const trustedUrl = registeredBuiltins.get(agent.id);
+        return Boolean(trustedUrl && matchesPath(agent.url, trustedUrl));
+      }
+      if (
+        agent.source !== "workspace" ||
+        !isSameDeploymentWorkspaceAgent(agent.url)
+      )
+        return false;
+      const registeredPath = registeredWorkspacePaths.get(agent.id);
+      return Boolean(registeredPath && matchesPath(agent.url, registeredPath));
+    });
 
     const results: Array<{
       id: string;

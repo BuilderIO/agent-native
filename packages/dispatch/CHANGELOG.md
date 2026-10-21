@@ -1,5 +1,22 @@
 # @agent-native/dispatch
 
+## 0.40.30
+
+### Patch Changes
+
+- 96e2cf6: Discover and rank authorized workspace apps across the organization directory, and add Lab-gated installs from reviewed, pinned community app templates.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [71749d3]
+- Updated dependencies [9d61445]
+- Updated dependencies [96e2cf6]
+- Updated dependencies
+- Updated dependencies [ae5a212]
+- Updated dependencies [71749d3]
+- Updated dependencies [71749d3]
+- Updated dependencies [9fcbe67]
+- Updated dependencies [66ae94a]
+  - @agent-native/toolkit@0.212.0
+
 ## 0.40.29
 
 ### Patch Changes
@@ -1289,11 +1306,5 @@
 - 772f59a: Report the embedded workspace app to the Dispatch agent as structured context. `/apps/<id>` now resolves to a `workspace-app` navigation view that keeps the app id and in-app path instead of collapsing to the apps list, and `view-screen` emits an `embeddedApp` block for both that route and chat-first mode, where the route stays on `/chat` and the open app is named only by `chat-first-pane` state. An app that is open but cannot be identified reports `status: "unknown"` rather than a default or an omitted field.
 - 772f59a: Share the canonical localized authentication copy with native sign-in surfaces
   and allow authenticated packaged callers to mint workspace embed sessions.
-
-## 0.28.1
-
-### Patch Changes
-
-- 2107a36: Retry cross-app embed session authentication with the shared A2A secret when a workspace target rejects an unsynchronized organization secret.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

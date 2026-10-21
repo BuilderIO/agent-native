@@ -323,6 +323,7 @@ import {
 import {
   buildRecentUserRequestContext,
   buildJevRequestContext,
+  buildWorkspaceAppRequestContext,
   preloadJevTools,
 } from "./jev-tool-prefetch.js";
 import {
@@ -13458,6 +13459,9 @@ export function createProductionAgentHandler(
         orgId: getRequestOrgId() ?? null,
       }).catch(() => readAgentLoopSettings({}));
 
+    const promptRunContext = ensureRequestRunContext();
+    if (promptRunContext) promptRunContext.appDiscoveryQuery = requestMessage;
+
     let systemPromptError: Error | null = null;
     const systemPromptThunk = (): Promise<string> =>
       (async (): Promise<string> => {
@@ -13898,6 +13902,12 @@ export function createProductionAgentHandler(
       withoutUnavailableNote(screenBlock) +
       withoutUnavailableNote(urlBlock) +
       withoutUnavailableNote(selectionBlock);
+    const workspaceAppRequest = buildWorkspaceAppRequestContext({
+      request: requestMessage,
+      history: requestHistory,
+      structuredHistory: requestStructuredHistory,
+      selectedObjectContext: withoutUnavailableNote(selectionBlock),
+    });
     const screenStatus = worstContextStatus(...Object.values(screenStatuses));
     const surfacedActionRegistry =
       requestMode === "plan"
@@ -13949,7 +13959,10 @@ export function createProductionAgentHandler(
       }),
       preloadJevContextWithStatus({
         request: jevRequestContext,
+        appRequest: workspaceAppRequest,
         appId: options.appId,
+        selfAppId: options.appId,
+        workspaceAppsEnabled: Boolean(requestActions["call-agent"]),
         owner: ownerEmail ?? undefined,
         orgId: getRequestOrgId() ?? null,
         apiKey: jevContextCredentials.apiKey,
@@ -13966,6 +13979,12 @@ export function createProductionAgentHandler(
     ]);
     const jevContext = jevPreload.context;
     if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
+    if (jevPreload.relevantAppsContext) {
+      systemPrompt = `${systemPrompt}\n\n${jevPreload.relevantAppsContext}`;
+    }
+    if (runContext && jevPreload.appSelection) {
+      runContext.appDiscoverySelection = jevPreload.appSelection;
+    }
     const prefetchStatus = worstContextStatus(
       jevPreload.status,
       preparedReferenceStatus,
@@ -13995,6 +14014,17 @@ export function createProductionAgentHandler(
               governance: "inherited",
               content: jevContext,
               sourceRef: { scope: "jev" },
+            },
+          ])
+        : []),
+      ...(jevPreload.relevantAppsContext
+        ? await buildSystemManifestSections([
+            {
+              label: "Relevant workspace apps",
+              provenance: "runtime-context",
+              governance: "inherited",
+              content: jevPreload.relevantAppsContext,
+              sourceRef: { scope: "workspace-apps" },
             },
           ])
         : []),
