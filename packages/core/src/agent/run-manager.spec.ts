@@ -2950,7 +2950,7 @@ describe("run manager soft timeout", () => {
     expect(markRunAborted).toHaveBeenCalledTimes(2);
   });
 
-  it("does not persist an abort after the event flush fails", async () => {
+  it("retries durable abort persistence after the event flush fails", async () => {
     const persistenceError = new Error("event flush unavailable");
     const consoleError = vi
       .spyOn(console, "error")
@@ -2976,9 +2976,14 @@ describe("run manager soft timeout", () => {
       consoleError.mockRestore();
     }
 
-    expect(markRunAborted).not.toHaveBeenCalled();
-    expect(run.status).toBe("aborted");
     await run.finalized;
+
+    expect(markRunAborted).toHaveBeenCalledWith(
+      "run-abort-event-flush-failure",
+      "user",
+    );
+    expect(markRunAborted).toHaveBeenCalledOnce();
+    expect(run.status).toBe("aborted");
   });
 
   it("repairs an abort marker after a terminal run rejects queued events", async () => {

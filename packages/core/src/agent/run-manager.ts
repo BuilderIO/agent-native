@@ -2285,13 +2285,13 @@ export function startRun(
         );
       };
 
-      if (executionLeaseClaimFailed) {
-        terminalPersistenceEstablished = false;
-      } else if (finalStatus === "aborted") {
-        if (
-          run.abortPersistenceManaged ||
-          run.abortReason === "superseded" ||
-          run.abortReason === "execution_lease_lost"
+      if (executionLeaseClaimFailed || finalStatus === "aborted") {
+        if (!executionLeaseClaimFailed && run.abortPersistenceManaged) {
+          terminalPersistenceEstablished = true;
+        } else if (
+          !executionLeaseClaimFailed &&
+          (run.abortReason === "superseded" ||
+            run.abortReason === "execution_lease_lost")
         ) {
           terminalPersistenceEstablished = false;
         } else {
@@ -2302,7 +2302,9 @@ export function startRun(
                 runId,
                 run.abortReason ?? "execution-lease-claim-failed",
               );
-            const aborted = await withWorkerFence(persistAtomicAbort);
+            const aborted = executionLeaseClaimFailed
+              ? await persistAtomicAbort()
+              : await withWorkerFence(persistAtomicAbort);
             terminalPersistenceEstablished = aborted
               ? true
               : await withWorkerFence(reconcileTerminalRun);
