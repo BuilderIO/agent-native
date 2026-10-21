@@ -2807,7 +2807,7 @@ describe("WorkedForSummary", () => {
     const button = container.querySelector("button[aria-expanded]");
     expect(button?.children[0]?.tagName.toLowerCase()).toBe("svg");
     expect(button?.children[1]?.textContent).toBe("Worked for 5s");
-    expect(button?.className).toContain("gap-1");
+    expect(button?.className.split(/\s+/)).toContain("gap-1");
     expect(button?.className).toContain("p-3");
     expect(button?.className).toContain("text-start");
     expect(button?.className).not.toContain("text-left");
