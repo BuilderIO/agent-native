@@ -1146,11 +1146,13 @@ describe("isWorkspaceAppAccessAllowed", () => {
 
   describe("unavailable outcome names its cause", () => {
     beforeEach(() => {
+      invalidateMemberOrgCaches();
       vi.spyOn(console, "error").mockImplementation(() => {});
     });
 
     afterEach(() => {
       vi.restoreAllMocks();
+      invalidateMemberOrgCaches();
     });
 
     function stubDirectory(origin: string) {
@@ -1173,6 +1175,33 @@ describe("isWorkspaceAppAccessAllowed", () => {
         status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
         reason: "a2a-secret-missing",
         audience: "https://no-secret.example.test/dispatch",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("reports an organization secret lookup failure without calling the registry", async () => {
+      stubDirectory("https://secret-lookup.example.test/dispatch");
+      mocks.execute.mockImplementation(async ({ sql }: { sql?: string }) => {
+        if (sql?.includes("SELECT allowed_domain")) {
+          return { rows: [{ allowed_domain: "example.test" }] };
+        }
+        if (sql?.includes("SELECT a2a_secret")) {
+          throw new Error("org secret store unavailable");
+        }
+        throw new Error(`Unexpected org query: ${sql}`);
+      });
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", {
+          email: "member@example.com",
+          orgId: "org-secret-lookup-failure",
+        }),
+      ).resolves.toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "org-a2a-secret-lookup-failed",
+        audience: "https://secret-lookup.example.test/dispatch",
       });
       expect(fetchMock).not.toHaveBeenCalled();
     });
