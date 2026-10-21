@@ -360,6 +360,7 @@ export function DispatchControlPlane() {
         <ActionQueryError
           error={appsQuery.error}
           onRetry={() => void appsQuery.refetch()}
+          queryName="list-workspace-apps"
         />
       ) : (
         <AppsPanel apps={workspaceApps ?? []} isLoading={appsLoading} />

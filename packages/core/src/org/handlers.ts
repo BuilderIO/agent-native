@@ -1996,6 +1996,7 @@ export const setA2ASecretHandler = defineEventHandler(
       sql: `UPDATE organizations SET a2a_secret = ? WHERE id = ?`,
       args: [secret, ctx.orgId],
     });
+    invalidateMemberOrgCaches();
 
     return { a2aSecret: secret, previousSecret };
   },
@@ -2340,6 +2341,7 @@ export const receiveA2ASecretHandler = defineEventHandler(
       sql: `UPDATE organizations SET a2a_secret = ? WHERE id = ?`,
       args: [newSecret, localOrgId],
     });
+    invalidateMemberOrgCaches();
 
     return { ok: true, orgId: localOrgId };
   },

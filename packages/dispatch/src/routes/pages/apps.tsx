@@ -185,12 +185,14 @@ function AppsRoute() {
             <ActionQueryError
               error={appsQuery.error}
               onRetry={() => void appsQuery.refetch()}
+              queryName="list-workspace-apps"
             />
           ) : null}
           {connectedAppsQuery.isError ? (
             <ActionQueryError
               error={connectedAppsQuery.error}
               onRetry={() => void connectedAppsQuery.refetch()}
+              queryName="list-connected-agents"
             />
           ) : null}
           {showAppSkeletons ? (
