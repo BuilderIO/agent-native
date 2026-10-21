@@ -12,11 +12,12 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app/chat/ownership-history"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["@agent-native/core", "react"],
+      "dependencies": ["@agent-native/core", "react", "sonner"],
       "protectedImports": [
         "@agent-native/core/client/agent-chat",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/use-avatar",
         "@agent-native/toolkit/chat-history/ChatHistoryRail",
         "@agent-native/toolkit/chat-history/ChatHistoryList",
         "@agent-native/toolkit/chat-history/useChatHistoryRailController"
