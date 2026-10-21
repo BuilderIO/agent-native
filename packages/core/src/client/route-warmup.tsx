@@ -54,13 +54,17 @@ const PREFETCH_ATTR = "data-an-prefetch";
 // preloads nothing has used yet, and logs "was preloaded using link preload but
 // not used within a few seconds" for each one. Warmed route modules are for
 // later navigations, so their modulepreload links wait until that check has
-// run. Data warmup is a plain fetch and starts right away.
+// run. Until then the module files are fetched into the HTTP cache instead:
+// built assets are immutable, so an early click still skips the network, and
+// WebKit only reports link preloads. Data warmup is a plain fetch and starts
+// right away.
 const MODULE_WARMUP_DELAY_AFTER_LOAD_MS = 4_000;
 // A third-party script that never finishes holds the load event back
 // indefinitely, so modules warm anyway after this long without one.
 const MODULE_WARMUP_MAX_WAIT_FOR_LOAD_MS = 10_000;
 const warmedDataRoutes = new Set<string>();
 const warmedRouteAssets = new Set<string>();
+const fetchedRouteAssets = new Set<string>();
 
 let cachedManifest: ReactRouterManifest | undefined;
 let cachedManifestRoutesSignature = "";
@@ -410,6 +414,21 @@ function warmRouteAssetsForHref(href: string) {
   }
 }
 
+function fetchRouteAssetsForHref(href: string) {
+  for (const assetUrl of routeAssetUrlsForHref(href)) {
+    if (warmedRouteAssets.has(assetUrl) || fetchedRouteAssets.has(assetUrl)) {
+      continue;
+    }
+    fetchedRouteAssets.add(assetUrl);
+    window
+      .fetch(assetUrl, { credentials: "same-origin", priority: "low" })
+      .then((response) => (response.ok ? response.arrayBuffer() : undefined))
+      .catch(() => {
+        fetchedRouteAssets.delete(assetUrl);
+      });
+  }
+}
+
 function msSinceLoadEventEnd(): number {
   const [entry] = performance.getEntriesByType?.("navigation") ?? [];
   const loadEventEnd = (entry as PerformanceNavigationTiming | undefined)
@@ -496,6 +515,7 @@ function resetRouteWarmupCachesForTests() {
   cachedManifestRouteTree = [];
   warmedDataRoutes.clear();
   warmedRouteAssets.clear();
+  fetchedRouteAssets.clear();
 }
 
 export function AgentNativeRouteWarmup({
@@ -586,9 +606,10 @@ export function AgentNativeRouteWarmup({
       }
     };
 
-    function warmHref(href: string) {
-      if (modulesHeld) {
+    function warmHref(href: string, fromIntent = false) {
+      if (modulesHeld && !fromIntent) {
         heldModuleHrefs.add(href);
+        fetchRouteAssetsForHref(href);
       } else if (warmModules) {
         warmRouteAssetsForHref(href);
       }
@@ -661,11 +682,13 @@ export function AgentNativeRouteWarmup({
       if (!link || !isWarmableAnchor(link)) return;
       const mode = linkWarmupMode(link, resolved.strategy);
       if (mode === "none") return;
-      warmHref(link.href);
+      // Hover, touch and focus usually come just before a click, so they
+      // preload right away even during the hold: the click uses the preload
+      // before WebKit's check, and an early click doesn't wait for the module
+      // to compile.
+      warmHref(link.href, true);
     };
 
-    // Hover and focus are held too: a pointer crossing the sidebar on its way
-    // elsewhere would otherwise preload modules nobody opens.
     const cancelModuleHold = warmModules
       ? afterUnusedPreloadCheck(() => {
           modulesHeld = false;

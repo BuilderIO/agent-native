@@ -72,6 +72,12 @@ describe("AgentNativeRouteWarmup", () => {
     });
   }
 
+  function fetchedPaths(): string[] {
+    return fetchMock.mock.calls
+      .map(([input]) => new URL(String(input), window.location.href).pathname)
+      .sort();
+  }
+
   function warmedModulePaths(): string[] {
     return Array.from(
       document.querySelectorAll<HTMLLinkElement>(WARMUP_SELECTOR),
@@ -83,8 +89,13 @@ describe("AgentNativeRouteWarmup", () => {
     await mount();
 
     expect(warmedModulePaths()).toEqual([]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/screenshots.data");
+    // The module files go into the HTTP cache with plain fetches meanwhile.
+    expect(fetchedPaths()).toEqual([
+      "/assets/IconCamera-GhI789.js",
+      "/assets/root-AbC123.js",
+      "/assets/screenshots-DeF456.js",
+      "/screenshots.data",
+    ]);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_999);
@@ -149,7 +160,7 @@ describe("AgentNativeRouteWarmup", () => {
     expect(warmedModulePaths()).toHaveLength(3);
   });
 
-  it("holds hover warmup during the window too", async () => {
+  it("preloads a hovered link right away, even during the hold", async () => {
     setReadyState("complete");
     document.body.innerHTML = '<a href="/screenshots">Screenshots</a>';
     container = document.createElement("div");
@@ -158,18 +169,18 @@ describe("AgentNativeRouteWarmup", () => {
       root = createRoot(container);
       root.render(<AgentNativeRouteWarmup config={{ strategy: "intent" }} />);
     });
+    expect(warmedModulePaths()).toEqual([]);
 
     const link = document.querySelector("a")!;
     await act(async () => {
       link.dispatchEvent(new Event("pointerover", { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(1_000);
     });
-    expect(warmedModulePaths()).toEqual([]);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3_000);
-    });
-    expect(warmedModulePaths()).toHaveLength(3);
+    expect(warmedModulePaths()).toEqual([
+      "/assets/root-AbC123.js",
+      "/assets/screenshots-DeF456.js",
+      "/assets/IconCamera-GhI789.js",
+    ]);
+    expect(fetchedPaths()).toEqual(["/screenshots.data"]);
   });
 
   it("drops the hold when it unmounts", async () => {
