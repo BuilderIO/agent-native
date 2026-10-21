@@ -142,6 +142,7 @@ const {
   createProviderApiRuntime,
   getProviderApiConfig,
   isValidProviderApiBaseUrl,
+  listProviderApiIdsForTemplateUse,
   resolveProviderApiOAuthAccessToken,
 } = await import("./index.js");
 const { createGitHubRepoFilesAction } =
@@ -171,6 +172,19 @@ describe("provider API base URL validation", () => {
     ["not a URL", false],
   ])("validates Gong base URL %s", (value, expected) => {
     expect(isValidProviderApiBaseUrl("gong", value)).toBe(expected);
+  });
+});
+
+describe("provider API template-use allow-list", () => {
+  it("supports Slides 2 with its own template-use id", () => {
+    expect(listProviderApiIdsForTemplateUse("slides-2")).toEqual([
+      "google_drive",
+      "google_slides",
+    ]);
+    expect(listProviderApiIdsForTemplateUse("slides")).toEqual([
+      "google_drive",
+      "google_slides",
+    ]);
   });
 });
 

@@ -49,12 +49,12 @@ export function DataInsightsWidget({ result }: { result: DataWidgetResult }) {
         </div>
       </div>
       {result.chartSeries ? (
-        <DataChartWidget chart={result.chartSeries} />
+        <DataChartWidget chart={result.chartSeries} display={result.display} />
       ) : null}
       {result.table ? (
         <DataTableWidget
           table={result.table}
-          action={result.display?.primaryAction}
+          display={result.chartSeries ? undefined : result.display}
         />
       ) : null}
     </div>

@@ -41,6 +41,11 @@ export default defineAction({
         ? "Cleared file storage credentials"
         : "Saved file storage settings",
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async ({ operation, ...values }, ctx) =>
     operation === "clear"
       ? clearFileStorage(ctx)

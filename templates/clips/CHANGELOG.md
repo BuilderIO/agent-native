@@ -59,6 +59,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Rewind settings now show whether Rewind is remembering screen only or screen + audio.
 - Clips detects browser meetings more reliably and keeps notes until the meeting stop and transcript save are confirmed.
 - Clips detects browser meetings sooner, asks before starting when the active tab is unclear, and retries failed stops.
 - Desktop dictation confirms when text is pasted or copied and keeps transcripts available when saving fails.

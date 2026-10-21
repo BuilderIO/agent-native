@@ -1068,6 +1068,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "Verarbeitet",
   "tool.workedFor": "{{duration}} verarbeitet",
   "widget.chart": "Diagramm",
+  "widget.chartActions": "Diagrammaktionen",
+  "widget.dataSources": "Datenquellen",
+  "widget.tableActions": "Tabellenaktionen",
   "widget.dataChart": "Datendiagramm",
   "widget.dataInsights": "Datenerkenntnisse",
   "widget.dataTable": "Datentabelle",
@@ -2204,6 +2207,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Prüfe deine E-Mails, um die Änderung zu bestätigen.",
   "settingsShell.account.languageAndRegion": "Sprache und Region",
   "settingsShell.account.languageDescription": "Gilt auf allen deinen Geräten.",
+  "settingsShell.account.appearance": "Darstellung",
+  "settingsShell.account.themeFamily": "Farbschema",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "Originalfarben der App",
+  "settingsShell.account.themeFamilySaveError":
+    "Das Farbschema konnte nicht aktualisiert werden. Versuch es noch einmal.",
   "settingsShell.account.manage": "Verwalten",
   "settingsShell.account.name": "Name",
   "settingsShell.account.nameDescription":

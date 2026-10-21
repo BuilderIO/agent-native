@@ -104,7 +104,14 @@ export function planNativePreviewViewport(input: {
   height: number;
   display: NativePreviewBox;
   clips: readonly NativePreviewBox[];
-}): { scale: number; viewport: NativePreviewBox } | null {
+}): {
+  scale: number;
+  scaleX: number;
+  scaleY: number;
+  maxViewportWidth: number;
+  maxViewportHeight: number;
+  viewport: NativePreviewBox;
+} | null {
   const { width, height, display, clips } = input;
   if (
     ![width, height, display.width, display.height].every(
@@ -130,15 +137,109 @@ export function planNativePreviewViewport(input: {
     bottom = Math.min(bottom, clip.y + clip.height);
   }
   if (right <= left || bottom <= top) return null;
+  const maxViewportWidth = Math.min(
+    width,
+    ...clips.map((clip) => stableClipExtent(clip.width / scaleX, width)),
+  );
+  const maxViewportHeight = Math.min(
+    height,
+    ...clips.map((clip) => stableClipExtent(clip.height / scaleY, height)),
+  );
+  const viewport = {
+    x: Math.max(0, (left - display.x) / scaleX),
+    y: Math.max(0, (top - display.y) / scaleY),
+    width: (right - left) / scaleX,
+    height: (bottom - top) / scaleY,
+  };
   return {
     scale: Math.max(scaleX, scaleY),
-    viewport: {
-      x: Math.max(0, (left - display.x) / scaleX),
-      y: Math.max(0, (top - display.y) / scaleY),
-      width: (right - left) / scaleX,
-      height: (bottom - top) / scaleY,
-    },
+    scaleX,
+    scaleY,
+    maxViewportWidth,
+    maxViewportHeight,
+    viewport,
   };
+}
+
+function stableClipExtent(extent: number, rootExtent: number): number {
+  const measurementTolerance = Math.max(0.0001, extent * 0.0001);
+  return Math.min(rootExtent, Math.ceil(extent + measurementTolerance));
+}
+
+export function nativePreviewAllocationViewport(input: {
+  viewport: NativePreviewBox;
+  rootWidth: number;
+  rootHeight: number;
+  maxViewportWidth: number;
+  maxViewportHeight: number;
+}): NativePreviewBox {
+  const { viewport, rootWidth, rootHeight } = input;
+  const maxWidth = input.maxViewportWidth;
+  const maxHeight = input.maxViewportHeight;
+  if (
+    ![
+      viewport.x,
+      viewport.y,
+      viewport.width,
+      viewport.height,
+      rootWidth,
+      rootHeight,
+      maxWidth,
+      maxHeight,
+    ].every(Number.isFinite) ||
+    rootWidth <= 0 ||
+    rootHeight <= 0 ||
+    viewport.x < 0 ||
+    viewport.y < 0 ||
+    viewport.width <= 0 ||
+    viewport.height <= 0 ||
+    maxWidth <= 0 ||
+    maxHeight <= 0 ||
+    maxWidth > rootWidth ||
+    maxHeight > rootHeight ||
+    viewport.x + viewport.width > rootWidth + 0.001 ||
+    viewport.y + viewport.height > rootHeight + 0.001 ||
+    viewport.width > maxWidth + 0.001 ||
+    viewport.height > maxHeight + 0.001
+  )
+    throw new RangeError("Invalid native preview allocation geometry.");
+  const xMin = Math.max(0, viewport.x + viewport.width - maxWidth);
+  const xMax = Math.min(viewport.x, rootWidth - maxWidth);
+  const yMin = Math.max(0, viewport.y + viewport.height - maxHeight);
+  const yMax = Math.min(viewport.y, rootHeight - maxHeight);
+  if (xMin > xMax + 0.001 || yMin > yMax + 0.001)
+    throw new RangeError(
+      "The native preview allocation cannot cover its viewport.",
+    );
+  return {
+    x: Math.min(xMax, Math.max(xMin, viewport.x)),
+    y: Math.min(yMax, Math.max(yMin, viewport.y)),
+    width: maxWidth,
+    height: maxHeight,
+  };
+}
+
+export function nativePreviewStableAllocationOrExactViewport(input: {
+  viewport: NativePreviewBox;
+  rootWidth: number;
+  rootHeight: number;
+  maxViewportWidth: number;
+  maxViewportHeight: number;
+  density: number;
+  maxDimension: number;
+  maxPixels: number;
+  pixelPadding?: number;
+}): NativePreviewBox {
+  const candidate = nativePreviewAllocationViewport(input);
+  const physical = nativePreviewPhysicalViewport(candidate, input.density);
+  const padding = input.pixelPadding ?? 0;
+  if (
+    physical.width + padding <= input.maxDimension &&
+    physical.height + padding <= input.maxDimension &&
+    (physical.width + padding) * (physical.height + padding) <= input.maxPixels
+  )
+    return candidate;
+  return input.viewport;
 }
 
 export function nativePreviewPhysicalViewport(
@@ -161,5 +262,29 @@ export function nativePreviewPhysicalViewport(
     y,
     width: Math.ceil((viewport.x + viewport.width) * density) - x,
     height: Math.ceil((viewport.y + viewport.height) * density) - y,
+  };
+}
+
+export function nativePreviewStablePhysicalViewport(
+  viewport: NativePreviewBox,
+  density: number,
+  pixelPadding = 1,
+): NativePreviewBox {
+  if (
+    ![viewport.x, viewport.y, viewport.width, viewport.height, density].every(
+      Number.isFinite,
+    ) ||
+    viewport.width <= 0 ||
+    viewport.height <= 0 ||
+    density <= 0 ||
+    !Number.isSafeInteger(pixelPadding) ||
+    pixelPadding < 0
+  )
+    throw new RangeError("Invalid native preview stable physical viewport.");
+  return {
+    x: Math.floor(viewport.x * density),
+    y: Math.floor(viewport.y * density),
+    width: Math.ceil(viewport.width * density) + pixelPadding,
+    height: Math.ceil(viewport.height * density) + pixelPadding,
   };
 }

@@ -95,6 +95,8 @@ export interface AppProvidersProps {
    */
   ownsDocument?: boolean;
 
+  enableThemeFamily?: boolean;
+
   documentTitleFallback?: string;
 
   children: React.ReactNode;
@@ -397,6 +399,8 @@ function AgentEngineReadinessBootstrap() {
   return null;
 }
 
+const ThemeFamilySync = React.lazy(() => import("./ThemeFamilySync.js"));
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -507,6 +511,7 @@ export function AppProviders({
   i18n,
   documentTitleFallback,
   ownsDocument = true,
+  enableThemeFamily = true,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? (
@@ -543,6 +548,11 @@ export function AppProviders({
         children
       ) : (
         <>
+          {ownsDocument && enableThemeFamily ? (
+            <React.Suspense fallback={null}>
+              <ThemeFamilySync />
+            </React.Suspense>
+          ) : null}
           <AgentEngineReadinessBootstrap />
           <FirstRunOnboardingStartupGate
             suppressSurface={skipFirstRunOnboarding}

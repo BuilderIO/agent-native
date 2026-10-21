@@ -26,6 +26,7 @@ import {
 import { useLocation, useNavigation } from "react-router";
 import { toast } from "sonner";
 
+import { GitHubLinkDialogHost } from "@/components/editor/database/GitHubLinkDialog";
 import { DocumentEditor } from "@/components/editor/DocumentEditor";
 import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
@@ -497,6 +498,7 @@ export function Layout({ children }: LayoutProps) {
           </>
         )}
       </div>
+      <GitHubLinkDialogHost />
     </HeaderActionsProvider>
   );
 }

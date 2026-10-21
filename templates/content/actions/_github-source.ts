@@ -31,6 +31,7 @@ import {
   GITHUB_SOURCE_MAX_IMAGE_BYTES,
   GITHUB_SOURCE_TYPE,
   githubBranchCandidates,
+  githubFieldExamples,
   githubFieldPropertyInput,
   githubFolderLabel,
   githubFolderWebUrl,
@@ -41,6 +42,7 @@ import {
   parseGitHubFolderUrl,
   type GitHubFieldType,
   type GitHubFolderLocation,
+  type GitHubFolderPreview,
   type GitHubSourceProblemCode,
   type GitHubSourceSkipReason,
 } from "../shared/github-source.js";
@@ -78,6 +80,7 @@ import {
   githubSourceMetadataRecord,
   readGitHubSourceState,
   rememberedSkips,
+  type GitHubReadSkip,
   type GitHubSourceState,
 } from "./_github-source-metadata.js";
 import {
@@ -87,7 +90,7 @@ import {
   withPositionLock,
 } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
-import { trashDocumentSubtree } from "./delete-document.js";
+import { lockLifecycleGroup, trashDocumentSubtree } from "./delete-document.js";
 
 type Db = ReturnType<typeof getDb>;
 type DatabaseRow = typeof schema.contentDatabases.$inferSelect;
@@ -201,6 +204,7 @@ const PROBLEM_STATUS: Record<GitHubSourceProblemCode, number> = {
   rate_limited: 429,
   too_large: 413,
   unavailable: 502,
+  sync_failed: 500,
   storage_unavailable: 503,
 };
 
@@ -337,37 +341,6 @@ function frontmatterValues(
   return draft.frontmatter.unmapped ?? {};
 }
 
-export interface GitHubFolderPreview {
-  location: GitHubFolderLocation;
-  label: string;
-  folderUrl: string;
-  commitSha: string;
-  markdownFiles: number;
-  skipped: Array<{ path: string; reason: GitHubSourceSkipReason }>;
-  /** Columns the frontmatter would become, with the type each would get. */
-  fields: Array<{ key: string; type: GitHubFieldType; examples: string[] }>;
-  sample: Array<{ path: string; title: string }>;
-  /** How many files the field types were read from. */
-  sampledFiles: number;
-  /** Image files in the folder, which pages show from Content's file storage. */
-  images: number;
-  /** Whether file storage is set up to hold those images. */
-  storageReady: boolean;
-}
-
-function exampleText(value: unknown): string {
-  if (typeof value === "string") return value.slice(0, 80);
-  if (Array.isArray(value)) {
-    return value
-      .map((entry) =>
-        typeof entry === "string" ? entry : JSON.stringify(entry),
-      )
-      .join(", ")
-      .slice(0, 80);
-  }
-  return JSON.stringify(value).slice(0, 80);
-}
-
 /**
  * Reports what linking the folder would create without creating anything:
  * how many files become rows, which are skipped and why, and the columns the
@@ -439,10 +412,7 @@ export async function previewGitHubFolder(
     fields: [...valuesByKey].map(([key, values]) => ({
       key,
       type: inferGitHubFieldType(key, values),
-      examples: values
-        .filter((value) => value !== null && value !== "")
-        .slice(0, 3)
-        .map(exampleText),
+      examples: githubFieldExamples(values),
     })),
     sample,
     sampledFiles: sample.length,
@@ -786,6 +756,26 @@ function emptyResult(
     imagesWaiting: 0,
     problem,
   };
+}
+
+/**
+ * The problem a sync records when it fails for a reason it can't name, like a
+ * database error. The GitHub client names its own failures, a dropped
+ * connection included, so this one isn't GitHub's.
+ */
+function unexpectedProblem(
+  at: string,
+): NonNullable<GitHubSourceState["problem"]> {
+  return {
+    code: "sync_failed",
+    message: "The sync failed. The background sync tries again.",
+    at,
+  };
+}
+
+/** A sync that failed before it could record why. */
+export function unexpectedSyncFailure(at: string): GitHubSyncResult {
+  return emptyResult("error", null, unexpectedProblem(at));
 }
 
 /** The status problem for images a sync couldn't store, if there are any. */
@@ -1552,23 +1542,33 @@ async function recordStillLinked(tx: Db, row: SourceRow) {
  */
 async function trashRow(run: SyncRun, row: SourceRow): Promise<boolean> {
   return run.db.transaction(async (tx: Db) => {
+    const { ownerEmail } = run.database;
+    // The page's other collections may sort before this one, so the whole
+    // group is locked in order before the link check takes this collection.
+    const locks = await lockLifecycleGroup(tx, {
+      operation: "trash",
+      roots: [{ id: row.documentId, ownerEmail }],
+      alsoLockDatabaseIds: [run.database.id],
+    });
     await lockLinkedCollection(tx, run);
     if (!(await recordStillLinked(tx, row))) return false;
     const [document] = await tx
-      .select({
-        ownerEmail: schema.documents.ownerEmail,
-        trashedAt: schema.documents.trashedAt,
-      })
+      .select({ trashedAt: schema.documents.trashedAt })
       .from(schema.documents)
-      .where(eq(schema.documents.id, row.documentId));
+      .where(
+        and(
+          eq(schema.documents.id, row.documentId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      );
     let moved = false;
     if (document && !document.trashedAt) {
       await trashDocumentSubtree(
         tx,
         row.documentId,
-        document.ownerEmail,
+        ownerEmail,
         run.now,
-        undefined,
+        locks,
         "github",
       );
       moved = true;
@@ -1643,6 +1643,11 @@ export interface SyncGitHubSourceOptions {
   force?: boolean;
   /** Rethrow a missing GitHub connection so an interactive caller can offer to connect. */
   throwConnectionErrors?: boolean;
+  /**
+   * Rethrow a failure the sync can't name, like a database error, once it's
+   * on the link, for a caller that reports failures as errors.
+   */
+  throwUnexpectedErrors?: boolean;
   /** Ends the sync early, as its time budget would, such as when the server stops. */
   signal?: AbortSignal;
 }
@@ -1704,6 +1709,19 @@ export async function syncGitHubSource(
     () => budget.abort(),
     Math.max(0, deadline - Date.now()),
   );
+  // Counts what this run writes. A run that fails partway still reports the
+  // rows it changed first, so readers hear about them.
+  const result = emptyResult("synced", null);
+  // Files this run read and had to skip. A run that fails partway keeps
+  // them too, so the next one doesn't read them again.
+  let readSkipsSoFar: GitHubReadSkip[] | null = null;
+  const failed = (problem: GitHubSourceState["problem"]): GitHubSyncResult => ({
+    ...emptyResult("error", state.pendingCommitSha, problem),
+    created: result.created,
+    updated: result.updated,
+    renamed: result.renamed,
+    trashed: result.trashed,
+  });
   const endBudget = () => budget.abort();
   if (options.signal?.aborted) endBudget();
   options.signal?.addEventListener("abort", endBudget, { once: true });
@@ -1862,7 +1880,18 @@ export async function syncGitHubSource(
       run.documentIdByPath.set(folderRelative(run, path), row.documentId);
     }
 
+    // A file skipped once it was read is skipped again while its blob is the
+    // same, so it isn't read again. It has no row to record that on.
+    const readSkipsByPath = new Map(
+      state.readSkips.map((skip) => [skip.path, skip] as const),
+    );
+    const stillSkipped: GitHubReadSkip[] = [];
     const work = planned.filter((file) => {
+      const skip = readSkipsByPath.get(file.entry.path);
+      if (skip?.blobSha === file.entry.sha) {
+        stillSkipped.push(skip);
+        return false;
+      }
       const previous = file.row ? rowState(file.row) : null;
       return (
         !previous ||
@@ -1880,9 +1909,10 @@ export async function syncGitHubSource(
       (a, b) =>
         (cutShort.get(a.repoPath) ?? 0) - (cutShort.get(b.repoPath) ?? 0),
     );
-    const result = emptyResult("synced", head.sha);
-    result.unchanged = planned.length - work.length;
-    const skippedFiles = [...files.skipped];
+    result.commitSha = head.sha;
+    result.unchanged = planned.length - work.length - stillSkipped.length;
+    const readSkips: GitHubReadSkip[] = [...stillSkipped];
+    readSkipsSoFar = readSkips;
     let done = 0;
     let cutShortPath: string | null = null;
     for (const file of work) {
@@ -1923,7 +1953,11 @@ export async function syncGitHubSource(
       }
       if (typeof outcome === "string") result[outcome] += 1;
       else
-        skippedFiles.push({ path: file.entry.path, reason: outcome.skipped });
+        readSkips.push({
+          path: file.entry.path,
+          reason: outcome.skipped,
+          blobSha: file.entry.sha,
+        });
       done += 1;
     }
     const remainingFiles = work.length - done;
@@ -1957,40 +1991,55 @@ export async function syncGitHubSource(
     // moved it for two minutes. One that got nowhere waits its turn, as a
     // failed check does.
     const countsAsCheck = complete || (done === 0 && result.trashed === 0);
-    const skipped = rememberedSkips(
-      skippedFiles.sort((a, b) => (a.path < b.path ? -1 : 1)),
-    );
+    const skippedFiles = [...files.skipped, ...readSkips];
+    const skipped = rememberedSkips(skippedFiles);
     await release(
-      (current) => ({
-        ...current,
-        checkedAt: now,
-        problem: result.problem,
-        files: files.markdown.length,
-        skipped,
-        imagesWaiting: result.imagesWaiting,
-        ...(complete
-          ? {
-              syncedCommitSha: head.sha,
-              syncedAt: new Date().toISOString(),
-              headEtag: head.etag,
-              pendingCommitSha: null,
-              progress: null,
-              cutShort: [],
-            }
-          : {
-              pendingCommitSha: head.sha,
-              cutShort: cutShortPath
-                ? [
-                    ...current.cutShort.filter((path) => path !== cutShortPath),
-                    cutShortPath,
-                  ]
-                : current.cutShort,
-              progress: {
-                done: work.length - remainingFiles + result.trashed,
-                total: work.length + result.trashed + gone.size,
-              },
-            }),
-      }),
+      (current) => {
+        // A run that carries on a push sees only the files left, so it keeps
+        // the total the push started with and counts what's left against it.
+        // The count never goes back.
+        const before =
+          current.pendingCommitSha === head.sha ? current.progress : null;
+        const total = before?.total ?? work.length + result.trashed + gone.size;
+        const progress = {
+          done: Math.min(
+            total,
+            Math.max(before?.done ?? 0, total - result.remaining),
+          ),
+          total,
+        };
+        return {
+          ...current,
+          checkedAt: now,
+          problem: result.problem,
+          files: files.markdown.length,
+          skipped,
+          skippedCount: skippedFiles.length,
+          readSkips,
+          imagesWaiting: result.imagesWaiting,
+          ...(complete
+            ? {
+                syncedCommitSha: head.sha,
+                syncedAt: new Date().toISOString(),
+                headEtag: head.etag,
+                pendingCommitSha: null,
+                progress: null,
+                cutShort: [],
+              }
+            : {
+                pendingCommitSha: head.sha,
+                cutShort: cutShortPath
+                  ? [
+                      ...current.cutShort.filter(
+                        (path) => path !== cutShortPath,
+                      ),
+                      cutShortPath,
+                    ]
+                  : current.cutShort,
+                progress,
+              }),
+        };
+      },
       () => ({
         syncState: complete ? "linked" : "refreshing",
         freshness: complete ? "fresh" : "stale",
@@ -2017,16 +2066,33 @@ export async function syncGitHubSource(
           lastRefreshedAt: now,
         }),
       ).catch(warnLeaseNotReleased);
-      return emptyResult("error", state.pendingCommitSha, {
+      return failed({
         code: "unavailable",
         message:
           "GitHub didn't answer in time. The background sync tries again.",
         at: now,
       });
     }
-    const problem = problemFrom(error, now);
+    // A contract error, like the link going away mid-sync, is the caller's to
+    // see. Anything else the sync can't name is still a failed check: the
+    // status line shows it and the next sync tries again.
+    const named = problemFrom(error, now);
+    const problem =
+      named ??
+      (error instanceof ActionContractError ? null : unexpectedProblem(now));
+    if (!named && problem) {
+      console.warn(
+        "[github-source] sync failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     await release(
-      (current) => ({ ...current, checkedAt: now, problem }),
+      (current) => ({
+        ...current,
+        checkedAt: now,
+        problem,
+        ...(readSkipsSoFar ? { readSkips: readSkipsSoFar } : {}),
+      }),
       () => ({
         syncState: "error",
         freshness: "stale",
@@ -2038,7 +2104,8 @@ export async function syncGitHubSource(
     if (problem.code === "connection" && options.throwConnectionErrors) {
       throw error;
     }
-    return emptyResult("error", state.pendingCommitSha, problem);
+    if (!named && options.throwUnexpectedErrors) throw error;
+    return failed(problem);
   } finally {
     clearTimeout(budgetTimer);
     options.signal?.removeEventListener("abort", endBudget);
@@ -2078,6 +2145,8 @@ export async function createGitHubSourceLink(args: {
     cutShort: [],
     files: preview.markdownFiles,
     skipped: rememberedSkips(preview.skipped),
+    skippedCount: preview.skipped.length,
+    readSkips: [],
     problem: null,
     claim: null,
   };
@@ -2161,6 +2230,11 @@ export function githubPreviewSummary(preview: GitHubFolderPreview) {
         ),
       )}.`
     : " It has no frontmatter columns.";
+  // Columns come from the first files only; later ones can differ.
+  const sampled =
+    preview.sampledFiles < preview.markdownFiles
+      ? ` That frontmatter is read from ${preview.sampledFiles} of its ${preview.markdownFiles} files, so the others can add columns or change their types.`
+      : "";
   const skipped = preview.skipped.length
     ? ` ${preview.skipped.length} skipped: ${listWithMore(
         preview.skipped.map(
@@ -2172,7 +2246,7 @@ export function githubPreviewSummary(preview: GitHubFolderPreview) {
     preview.images > 0 && !preview.storageReady
       ? ` Its ${preview.images === 1 ? "image won't" : `${preview.images} images won't`} show until file storage is set up in Settings → File uploads.`
       : "";
-  return `${preview.label} at ${preview.commitSha.slice(0, 7)} has ${preview.markdownFiles} Markdown ${preview.markdownFiles === 1 ? "file" : "files"}.${columns}${skipped}${images}`;
+  return `${preview.label} at ${preview.commitSha.slice(0, 7)} has ${preview.markdownFiles} Markdown ${preview.markdownFiles === 1 ? "file" : "files"}.${columns}${sampled}${skipped}${images}`;
 }
 
 export function githubSyncSummary(label: string, result: GitHubSyncResult) {
