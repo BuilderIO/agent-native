@@ -192,7 +192,12 @@ describe("call-agent action", () => {
   it("defaults cross-app work to the receiving specialist agent", async () => {
     const { tool } = await import("./call-agent.js");
 
-    expect(tool.description).toContain("Use message by default");
+    expect(tool.description).toContain(
+      "Prefer action + input when the target publishes a read-only action that fits a bounded read",
+    );
+    expect(tool.description).toContain(
+      "Send the user's request as asked; do not expand its scope",
+    );
     expect(tool.description).toContain(
       "ONLY use it when the user's requested outcome depends on data or a capability only that app can provide",
     );
@@ -208,9 +213,6 @@ describe("call-agent action", () => {
     );
     expect(tool.description).toContain(
       "Assets being available, convenient, or able to enrich imagery is not enough to delegate",
-    );
-    expect(tool.description).toContain(
-      "never expose or call a direct action to work around",
     );
     expect(tool.description).toContain(
       "Never put a create, update, delete, send, save, publish, or any other side effect in action",

@@ -2479,7 +2479,10 @@ describe("loadResourcesForPrompt", () => {
         "Use `call-agent` only when the user's requested outcome depends on data or a capability only that app can provide",
       );
       expect(prompt).toContain(
-        "Use `describe-workspace-apps` only when that relevant cross-app need exists",
+        "When that need is a bounded read from a known app, call `describe-workspace-apps` with that `app`",
+      );
+      expect(prompt).toContain(
+        "Also use `describe-workspace-apps` when that relevant cross-app need exists",
       );
       expect(prompt).toContain(
         "you cannot tell which peer owns it or whether a known peer can provide it",

@@ -144,7 +144,7 @@ Prefer \`web-request\` for simple API calls and static pages. Use browser automa
 
 The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app's agent (A2A protocol). It is **not** for calling actions within the current app.
 
-Use a natural-language \`message\` by default. The receiving app owns interpretation and runs with its own instructions, skills, connected sources, data dictionary, and tools. Do not choose its provider, schema, query, joins, or SQL for it. A direct \`action\` + \`input\` call is only for an exact bounded read whose complete contract is already known; it is never for a create, update, delete, send, save, publish, or other side effect, and it is never a workaround for unreliable delegation.
+When the target publishes a read-only action that fits a bounded read, call it with \`action\` + \`input\` (get its contract from \`describe-workspace-apps\` with that \`app\`); that skips a full agent run in the target. Otherwise send a natural-language \`message\`: the receiving app owns interpretation and runs with its own instructions, skills, connected sources, data dictionary, and tools. Do not choose its provider, schema, query, joins, or SQL for it. Direct \`action\` mode is never for a create, update, delete, send, save, publish, or other side effect. Send the user's request as asked, without expanding its scope.
 
 **NEVER use \`call-agent\` to:**
 - Call your own app by name

@@ -65,7 +65,8 @@ export default createAgentChatPlugin({
 
 Default posture:
 - Treat Slack and Telegram as shared entrypoints into the workspace.
-- Heavily delegate domain work to specialized agents through A2A when another app owns the job.
+- When another app owns the job, call its published read-only action through A2A (call-agent action + input) when one fits a bounded read, and delegate everything else to its agent with a natural-language message.
+- Pass the user's request as written, and relay the app's result instead of re-summarizing it.
 - Keep durable memory and operating instructions in resources rather than ephemeral chat.
 - Prefer replying in the current external thread unless the user explicitly asks you to send to a saved destination.
 
