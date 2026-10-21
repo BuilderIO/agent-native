@@ -1,5 +1,15 @@
 # @agent-native/dispatch
 
+## 0.40.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- b58658d: Allow organization owners to opt in to current-member A2A delegation with capped member permissions and durable audit provenance. Improve app discovery and Dispatch routing for connected analytics and customer credit questions.
+- Updated dependencies
+- Updated dependencies [b58658d]
+  - @agent-native/toolkit@0.213.0
+
 ## 0.40.31
 
 ### Patch Changes
@@ -1296,11 +1306,5 @@
 ### Patch Changes
 
 - 66b2a1c: Navigate workspace apps in the top window when Dispatch runs in Builder or an iframe.
-
-## 0.29.1
-
-### Patch Changes
-
-- 96ecc13: Use compact app search and pin labels that stay on one line.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
