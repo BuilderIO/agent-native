@@ -407,7 +407,7 @@ describe("AgentKitChat", () => {
       /\.agentkit-transcript \{[^}]*inline-size: min\(100%, 47rem\);/,
     );
     expect(styles).toMatch(
-      /\.agentkit-transcript-content \{[\s\S]*inline-size: min\(100%, var\(--agentkit-transcript-lane-width, 47rem\)\);[\s\S]*margin-inline: auto;[\s\S]*inset-inline-start: clamp\([\s\S]*var\(--agentkit-transcript-lane-offset-inline, 0px\);[\s\S]*padding: 1\.5rem 1rem;[\s\S]*padding-block-start: var\(--agentkit-transcript-top-inset, 1\.5rem\);/,
+      /\.agentkit-transcript-content \{[\s\S]*inline-size: min\(100%, var\(--agentkit-transcript-lane-width, 47rem\)\);[\s\S]*margin-inline: auto;[\s\S]*inset-inline-start: clamp\([\s\S]*var\(--agentkit-transcript-lane-offset-inline, 0px\),[\s\S]*padding: 1\.5rem 1rem;[\s\S]*padding-block-start: var\(--agentkit-transcript-top-inset, 1\.5rem\);/,
     );
     expect(styles).toContain(
       "margin-block: 0 var(--agentkit-transcript-message-gap, 1.25rem);",
