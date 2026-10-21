@@ -499,7 +499,12 @@ describe("Markdown import", () => {
         { sourcePath: "launch-plan.md" },
       );
       expect(page.content).toBe(stored);
-      expect(page.report.notes).toEqual([]);
+      // A one-page import has no page for a relative link to point at.
+      expect(
+        page.report.notes.filter(
+          (note) => note.kind !== "link-target-not-imported",
+        ),
+      ).toEqual([]);
     });
 
     it("names each other field the import leaves out", () => {
