@@ -115,10 +115,20 @@ export async function listNativeRenderContexts(
   designId: string,
   targetTabId?: string,
 ): Promise<NativeRenderContext[]> {
+  return (await readNativeRenderContextSnapshot(designId, targetTabId))
+    .contexts;
+}
+
+export async function readNativeRenderContextSnapshot(
+  designId: string,
+  targetTabId?: string,
+): Promise<{
+  contexts: NativeRenderContext[];
+  rawLedger: Record<string, unknown> | null;
+}> {
   await assertAccess("design", designId, "viewer");
-  const ledger = readLedger(
-    await readAppState(NATIVE_RENDER_CONTEXT_LEDGER_KEY),
-  );
+  const rawLedger = await readAppState(NATIVE_RENDER_CONTEXT_LEDGER_KEY);
+  const ledger = readLedger(rawLedger);
   const now = Date.now();
   const candidates = ledger.contexts.filter(
     (entry) =>
@@ -131,13 +141,21 @@ export async function listNativeRenderContexts(
       (await navigationMatches(designId, entry.tabId)) ? entry : null,
     ),
   );
-  return active.filter((entry): entry is NativeRenderContext => entry !== null);
+  return {
+    contexts: active.filter(
+      (entry): entry is NativeRenderContext => entry !== null,
+    ),
+    rawLedger,
+  };
 }
 
 export async function resolveNativeRenderContextTarget(
   designId: string,
   targetTabId: string,
-): Promise<NativeRenderContext> {
+): Promise<{
+  context: NativeRenderContext;
+  rawLedger: Record<string, unknown>;
+}> {
   const parsedTabId =
     nativeRenderContextSchema.shape.tabId.safeParse(targetTabId);
   if (!parsedTabId.success)
@@ -145,12 +163,14 @@ export async function resolveNativeRenderContextTarget(
       errorCode: "native_export_context_not_found",
       statusCode: 404,
     });
-  const active = await listNativeRenderContexts(designId, targetTabId);
-  const target = active.find((entry) => entry.tabId === targetTabId);
-  if (!target)
+  const snapshot = await readNativeRenderContextSnapshot(designId, targetTabId);
+  const context = snapshot.contexts.find(
+    (entry) => entry.tabId === targetTabId,
+  );
+  if (!context || !snapshot.rawLedger)
     fail("No live matching Design editor context was found.", {
       errorCode: "native_export_context_not_found",
       statusCode: 404,
     });
-  return target;
+  return { context, rawLedger: snapshot.rawLedger };
 }

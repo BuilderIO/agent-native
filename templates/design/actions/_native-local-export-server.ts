@@ -59,7 +59,8 @@ export async function readNativeLocalExportState(
       errorCode: "native_export_request_unreadable",
       statusCode: 422,
     });
-  return parsed.data;
+  // CAS compares serialized JSON, so keep the validated value's stored key order.
+  return raw as NativeLocalExportState;
 }
 
 export async function readNativeLocalExportVersion(
@@ -140,11 +141,13 @@ export async function markNativeLocalExportDocumentReplaced(
     if (!raw) return;
     const current = await expireNativeLocalExportState(raw);
     if (
-      (current.status !== "running" &&
+      (current.status !== "pending" &&
+        current.status !== "running" &&
         current.status !== "uploading" &&
         current.status !== "cancel-requested") ||
-      !current.ownerDocumentId ||
-      current.ownerDocumentId === documentId
+      (current.status === "pending"
+        ? current.targetDocumentId === documentId
+        : !current.ownerDocumentId || current.ownerDocumentId === documentId)
     )
       return;
     const failed: NativeLocalExportState = {
