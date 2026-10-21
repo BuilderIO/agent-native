@@ -2809,6 +2809,8 @@ describe("WorkedForSummary", () => {
     expect(button?.children[1]?.textContent).toBe("Worked for 5s");
     expect(button?.className).toContain("gap-1");
     expect(button?.className).toContain("p-3");
+    expect(button?.className).toContain("text-start");
+    expect(button?.className).not.toContain("text-left");
   });
 
   it("applies the running shimmer while the work summary is live", () => {

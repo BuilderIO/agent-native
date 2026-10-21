@@ -1855,7 +1855,7 @@ export function WorkedForSummary({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="agent-kit-density flex w-full items-center gap-1 rounded-lg p-3 text-left text-muted-foreground transition-colors hover:text-foreground"
+        className="agent-kit-density flex w-full items-center gap-1 rounded-lg p-3 text-start text-muted-foreground transition-colors hover:text-foreground"
       >
         <IconChevronRight
           aria-hidden="true"
