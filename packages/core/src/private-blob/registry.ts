@@ -318,13 +318,17 @@ async function isProviderConfiguredForRequest(
 }
 
 /**
- * The provider that stores this put: a provider that claims it through
- * `handles` (such as one app's logo storage) when one is configured, else the
- * general provider for this request.
+ * The provider that stores this put: the one config selects, for every put;
+ * else a provider that claims it through `handles` (such as one app's logo
+ * storage) when one is configured; else the general provider for this
+ * request.
  */
 async function getPrivateBlobProviderForPut(
   request: PrivateBlobPutRequest,
 ): Promise<PrivateBlobProvider | null> {
+  if (getAppConfig().privateBlob.provider) {
+    return getActivePrivateBlobProviderForRequest();
+  }
   for (const provider of providers.values()) {
     if (!provider.handles?.(request)) continue;
     if (await isProviderConfiguredForRequest(provider)) return provider;

@@ -533,6 +533,27 @@ describe("private blob registry", () => {
       ).resolves.toMatchObject({ id: "general" });
     });
 
+    it("sends claimed puts to the provider config selects", async () => {
+      const registry = await freshRegistry();
+      resetAppConfigForTests();
+      registry.registerPrivateBlobProvider(
+        memoryProvider("logos", {
+          handles: (request) => request.metadata?.purpose === "logo",
+        }),
+      );
+      registry.registerPrivateBlobProvider(memoryProvider("general"));
+      registry.registerPrivateBlobProvider(memoryProvider("chosen"));
+      defineAppConfig({ privateBlob: { provider: "chosen" } });
+
+      await expect(
+        registry.putPrivateBlob({
+          data: new Uint8Array([1]),
+          mimeType: "image/png",
+          metadata: { purpose: "logo", organizationId: "org-1" },
+        }),
+      ).resolves.toMatchObject({ provider: "chosen" });
+    });
+
     it("falls back to the general provider when a claiming provider isn't configured", async () => {
       const registry = await freshRegistry();
       registry.registerPrivateBlobProvider(
