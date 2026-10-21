@@ -3846,6 +3846,12 @@ export async function insertRunEvent(
 ): Promise<void> {
   await ensureRunTables();
   const event = parseRunEventData(eventData, `run ${runId} sequence ${seq}`);
+  const continuationReason =
+    options?.allowContinuationTerminal &&
+    event.type === "auto_continue" &&
+    isContinuationTerminalReason(event.reason)
+      ? event.reason
+      : null;
   const storedEventData = persistedRunEventData(
     eventData,
     options?.toolInputSource,
@@ -3881,10 +3887,7 @@ export async function insertRunEvent(
               });
             }
           }
-          const continuationReasonSql = CONTINUATION_TERMINAL_EVENT_REASONS.map(
-            () => "?",
-          ).join(", ");
-          const runAdmissionPredicate = options?.allowContinuationTerminal
+          const runAdmissionPredicate = continuationReason
             ? `AND NOT EXISTS (
                 SELECT 1 FROM agent_runs AS aborted_turn
                 WHERE aborted_turn.thread_id = run.thread_id
@@ -3894,11 +3897,11 @@ export async function insertRunEvent(
               )
               AND (
                 run.status = 'running'
-                OR (run.status = 'truncated' AND run.terminal_reason IN (${continuationReasonSql}))
+                OR (run.status = 'truncated' AND run.terminal_reason = ?)
               )`
             : "AND run.status = 'running'";
-          const runAdmissionArgs = options?.allowContinuationTerminal
-            ? [...CONTINUATION_TERMINAL_EVENT_REASONS]
+          const runAdmissionArgs = continuationReason
+            ? [continuationReason]
             : [];
           const insertSql = options?.requireInserted
             ? `WITH eligible_run AS MATERIALIZED (
@@ -3987,9 +3990,9 @@ export async function insertRunEvent(
             | undefined;
           const status = runRow?.status;
           const continuationTerminalEligible =
-            options?.allowContinuationTerminal === true &&
+            continuationReason !== null &&
             status === "truncated" &&
-            isContinuationTerminalReason(runRow?.terminal_reason) &&
+            runRow?.terminal_reason === continuationReason &&
             runRow?.turn_aborted !== true &&
             runRow?.turn_aborted !== "true";
           return {
