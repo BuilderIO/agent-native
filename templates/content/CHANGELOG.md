@@ -11,6 +11,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-19
 
+### Added
+
+- List rows can be customized: start from a preset like **Checklist**, then choose what shows before, under, and after each title
+
 ### Improved
 
 - You can comment on text in any Blocks field tab; each tab shows its open comments, and the Comments panel groups and filters them by tab
@@ -18,6 +22,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- List views no longer run off the side of the screen on phones
 - Edits made from a block's menu or a table's row and column menus, such as deleting a table, adding a row or turning off the header row, are now saved instead of coming back after a reload
 - Starting a comment puts the cursor in the comment box, ready to type.
 - Table row and column options now appear for the row or column under the pointer, Escape selects the cell before leaving the editor, wide tables keep their add-column control on screen on phones, and a tap near a table's edge on a touch screen edits the cell there instead of adding a row or column

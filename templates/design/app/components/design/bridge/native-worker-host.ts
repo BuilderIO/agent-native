@@ -345,7 +345,21 @@ export class NativeWorkerHost {
           { type: "asset", ...asset },
           asset.kind === "bitmap" ? [asset.bitmap] : [asset.data],
         );
-      this.post({ type: "scene", scene });
+      if (retainActiveCommits) {
+        this.post({
+          type: "camera",
+          sceneId: scene.sceneId,
+          generation: scene.generation,
+          baseGeneration: active!.generation,
+          sourceEpoch: scene.sourceEpoch,
+          authoredEpoch: scene.authoredEpoch,
+          viewport: scene.viewport,
+          width: scene.width,
+          height: scene.height,
+          pixelRatio: scene.pixelRatio,
+          clock: scene.clock,
+        });
+      } else this.post({ type: "scene", scene });
       this.stagedScene = scene;
       this.retainActiveCommitsWhileStaged = retainActiveCommits;
     } catch (error) {

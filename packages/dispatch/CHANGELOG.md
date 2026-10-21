@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.40.34
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [05d1481]
+  - @agent-native/toolkit@0.214.0
+
 ## 0.40.33
 
 ### Patch Changes
@@ -1303,11 +1312,5 @@
 ### Patch Changes
 
 - 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
-
-## 0.29.3
-
-### Patch Changes
-
-- 8cab236: Speed up workspace app opens in Dispatch by reusing the app catalog cache and deferring granted-app discovery until needed.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
