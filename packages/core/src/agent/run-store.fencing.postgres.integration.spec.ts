@@ -26,6 +26,7 @@ import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
   beginAgentExecutionStep,
+  CHECKPOINT_TERMINAL_EVENT_SEQ,
   claimTaskExecutionLease,
   claimTurnExecutionLease,
   completeAgentExecutionStep,
@@ -34,6 +35,7 @@ import {
   insertRunEvent,
   markAgentExecutionStepDispatched,
   markTurnAborted,
+  persistRunCheckpointEvent,
   reapIfStale,
   recordLateAgentExecutionStepOutcome,
   renewTaskExecutionLease,
@@ -453,7 +455,7 @@ describe.skipIf(!databaseUrl)(
       });
     }, 45_000);
 
-    it("does not acknowledge a durable abort before terminal persistence across worker retries", async () => {
+    it("rolls back a failed abort and retries terminal persistence across workers", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const threadId = `${prefix}:abort-thread`;
         const turnId = `${prefix}:abort-turn`;
@@ -502,8 +504,8 @@ describe.skipIf(!databaseUrl)(
             SELECT status, terminal_reason FROM agent_runs WHERE id = ${runId}
           `;
           expect(afterFailure).toMatchObject({
-            status: "aborted",
-            terminal_reason: "aborted:user",
+            status: "running",
+            terminal_reason: null,
           });
           const missingTerminal = await sql`
             SELECT seq FROM agent_run_events
@@ -552,6 +554,143 @@ describe.skipIf(!databaseUrl)(
         }
       });
     }, 45_000);
+
+    it.each([
+      { outcome: "committed", failCheckpoint: false },
+      { outcome: "rolled back", failCheckpoint: true },
+    ])(
+      "keeps durable Stop authoritative when a concurrent checkpoint is $outcome",
+      async ({ failCheckpoint }) => {
+        await withTestDatabase(async (sql, prefix) => {
+          const threadId = `${prefix}:checkpoint-stop-thread`;
+          const turnId = `${prefix}:checkpoint-stop-turn`;
+          const runId = `${prefix}:checkpoint-stop-run`;
+          const checkpointDb = postgres(databaseUrl!, { max: 1 });
+          const stopDb = postgres(databaseUrl!, { max: 1 });
+          const gateKey = Math.floor(Math.random() * 2_000_000_000) + 1;
+          const suffix = randomUUID().replaceAll("-", "");
+          const trigger = `checkpoint_stop_gate_${suffix}`;
+          let checkpoint: Promise<void> | undefined;
+          let stop: Promise<"aborted" | "already_terminal"> | undefined;
+
+          try {
+            await createThread("checkpoint-stop@example.com", {
+              id: threadId,
+            });
+            await insertRun(runId, threadId, turnId);
+            await sql.unsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$
+              BEGIN
+                IF NEW.id = '${runId}' AND NEW.terminal_reason = 'auto_continue' THEN
+                  PERFORM pg_advisory_xact_lock(${gateKey});
+                  IF current_setting('agent.harness_fail_checkpoint', true) = 'true' THEN
+                    RAISE EXCEPTION 'injected checkpoint transaction failure';
+                  END IF;
+                END IF;
+                RETURN NEW;
+              END $$`);
+            await sql.unsafe(`CREATE TRIGGER ${trigger} BEFORE UPDATE OF terminal_reason ON agent_runs
+              FOR EACH ROW EXECUTE FUNCTION ${trigger}()`);
+
+            if (failCheckpoint) {
+              await checkpointDb.unsafe(
+                "SET agent.harness_fail_checkpoint = 'true'",
+              );
+            }
+            await sql`SELECT pg_advisory_lock(${gateKey})`;
+            const [{ pid: checkpointPid }] =
+              await checkpointDb`SELECT pg_backend_pid() AS pid`;
+            const [{ pid: stopPid }] =
+              await stopDb`SELECT pg_backend_pid() AS pid`;
+
+            checkpoint = withDbExec(executor(checkpointDb), () =>
+              persistRunCheckpointEvent(
+                runId,
+                { type: "auto_continue", reason: "no_progress" },
+                "auto_continue",
+              ),
+            );
+            await expect
+              .poll(async () => {
+                const [activity] = await sql`
+                  SELECT wait_event FROM pg_stat_activity WHERE pid = ${checkpointPid}
+                `;
+                return activity?.wait_event;
+              })
+              .toBe("advisory");
+
+            stop = withDbExec(executor(stopDb), () =>
+              markTurnAborted(threadId, turnId),
+            );
+            await expect
+              .poll(async () => {
+                const [activity] = await sql`
+                  SELECT ${checkpointPid} = ANY(pg_blocking_pids(${stopPid})) AS blocked
+                `;
+                return activity?.blocked;
+              })
+              .toBe(true);
+
+            await sql`SELECT pg_advisory_unlock(${gateKey})`;
+            if (failCheckpoint) {
+              await expect(checkpoint).rejects.toThrow(
+                "injected checkpoint transaction failure",
+              );
+            } else {
+              await expect(checkpoint).resolves.toBeUndefined();
+            }
+            await expect(stop).resolves.toBe("aborted");
+
+            const [run] = await sql`
+              SELECT status, abort_reason, terminal_reason, thread_projection_pending
+              FROM agent_runs WHERE id = ${runId}
+            `;
+            expect(run).toMatchObject({
+              status: "aborted",
+              abort_reason: "user",
+              terminal_reason: "aborted:user",
+              thread_projection_pending: false,
+            });
+
+            const events = await sql`
+              SELECT seq, event_data::jsonb AS event_data
+              FROM agent_run_events WHERE run_id = ${runId} ORDER BY seq
+            `;
+            expect(
+              events.some((event) => event.event_data.type === "auto_continue"),
+            ).toBe(false);
+            expect(
+              events.some(
+                (event) =>
+                  event.event_data.type === "done" &&
+                  event.event_data.reason === "done",
+              ),
+            ).toBe(false);
+            expect(events).toHaveLength(1);
+            expect(events[0]?.event_data).toMatchObject({
+              type: "done",
+              reason: "user",
+            });
+            expect(Number(events[0]?.seq)).not.toBe(
+              CHECKPOINT_TERMINAL_EVENT_SEQ,
+            );
+
+            const projectedThread = await getThread(threadId);
+            expect(projectedThread).toMatchObject({
+              threadData: "{}",
+              preview: "",
+              messageCount: 0,
+            });
+          } finally {
+            await sql`SELECT pg_advisory_unlock(${gateKey})`;
+            await Promise.allSettled([checkpoint, stop]);
+            await sql.unsafe(`DROP TRIGGER IF EXISTS ${trigger} ON agent_runs`);
+            await sql.unsafe(`DROP FUNCTION IF EXISTS ${trigger}()`);
+            await Promise.all([checkpointDb.end(), stopDb.end()]);
+          }
+        });
+      },
+      45_000,
+    );
 
     it("serializes stale reapers across two PostgreSQL sessions", async () => {
       await withTestDatabase(async (sql, prefix) => {
