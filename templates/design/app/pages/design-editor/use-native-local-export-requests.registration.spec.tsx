@@ -319,6 +319,83 @@ describe("native render-context registration", () => {
     }
   });
 
+  it("retries one unbound claim after the request is adopted by this document", async () => {
+    vi.useFakeTimers();
+    const documentId = nativeLocalExportDocumentId(document);
+    let request: NativeLocalExportState = {
+      designId: "design-a",
+      fileId: "screen-a",
+      expectedVersionHash: "v1",
+      export: {
+        format: "png",
+        viewport: { width: 640, height: 480 },
+        pixelRatio: 1,
+      },
+      schemaVersion: 1,
+      requestId: "00000000-0000-4000-8000-000000000003",
+      tabId: "tab-1",
+      status: "pending",
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    };
+    const transportError = new TypeError("Failed to fetch");
+    let claims = 0;
+    client.readClientAppState.mockImplementation(async (key: string) =>
+      key === "native-local-export:design-a:tab-1" ? request : null,
+    );
+    client.callAction.mockImplementation(async (name?: string) => {
+      if (name === "claim-native-local-export") {
+        claims += 1;
+        if (claims === 1) throw transportError;
+        return {
+          ...request,
+          status: "running",
+          ownerDocumentId: documentId,
+        };
+      }
+      return { status: "completed" };
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onError = vi.fn();
+    const onExport = vi.fn(async () => ({ attachmentRef: "ref", bytes: 1 }));
+    const Probe = () => {
+      useNativeLocalExportRequests({
+        designId: "design-a",
+        isSignedIn: true,
+        enabled: true,
+        onError,
+        onExport,
+      });
+      return null;
+    };
+    try {
+      await act(async () => root.render(<Probe />));
+      expect(claims).toBe(1);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(transportError);
+
+      request = { ...request, targetDocumentId: documentId };
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(claims).toBe(2);
+      expect(onExport).toHaveBeenCalledTimes(1);
+      expect(client.callAction).toHaveBeenCalledWith(
+        "finish-native-local-export",
+        expect.objectContaining({
+          requestId: request.requestId,
+          result: { status: "completed", attachmentRef: "ref" },
+        }),
+      );
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      client.callAction.mockImplementation(async () => undefined);
+      client.readClientAppState.mockImplementation(async (key: string) =>
+        key === "navigation:tab-1" ? client.navigation : null,
+      );
+    }
+  });
+
   it("keeps a deferred read rejection quiet after sign-out", async () => {
     let rejectRead!: (error: Error) => void;
     const pendingRead = new Promise<unknown>((_, reject) => {

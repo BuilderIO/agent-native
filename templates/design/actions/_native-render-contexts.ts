@@ -1,8 +1,9 @@
 import { fail } from "@agent-native/core/action";
 import {
-  compareAndSetAppState,
+  compareAndSetManyAppState,
   getCurrentRequestBrowserTabId,
   readAppState,
+  type AppStateCompareAndSetOperation,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -10,13 +11,16 @@ import {
   NATIVE_RENDER_CONTEXT_LEDGER_KEY,
   NATIVE_RENDER_CONTEXT_LIMIT,
   NATIVE_RENDER_CONTEXT_TTL_MS,
+  nativeLocalExportStateKey,
   nativeRenderContextLedgerSchema,
   nativeRenderContextSchema,
   type NativeRenderContext,
 } from "../shared/native-local-export.js";
 import {
   classifyNativeLocalExportNavigation,
-  markNativeLocalExportDocumentReplaced,
+  expireNativeLocalExportState,
+  planNativeLocalExportDocumentRegistration,
+  readNativeLocalExportState,
 } from "./_native-local-export-server.js";
 
 function readLedger(raw: Record<string, unknown> | null): {
@@ -94,16 +98,30 @@ export async function registerNativeRenderContext(
         statusCode: 409,
       });
     const next = { schemaVersion: 1 as const, contexts };
-    if (
-      await compareAndSetAppState(NATIVE_RENDER_CONTEXT_LEDGER_KEY, raw, next)
-    ) {
-      await markNativeLocalExportDocumentReplaced(
-        designId,
-        parsedTabId.data,
-        documentId,
-      );
-      return context;
-    }
+    const exportRaw = await readNativeLocalExportState(
+      designId,
+      parsedTabId.data,
+    );
+    const exportCurrent = exportRaw
+      ? await expireNativeLocalExportState(exportRaw)
+      : null;
+    const exportNext = exportCurrent
+      ? planNativeLocalExportDocumentRegistration(exportCurrent, documentId)
+      : null;
+    const operations: AppStateCompareAndSetOperation[] = [
+      {
+        key: NATIVE_RENDER_CONTEXT_LEDGER_KEY,
+        expectedValue: raw,
+        nextValue: next,
+      },
+    ];
+    if (exportCurrent && exportNext !== exportCurrent)
+      operations.push({
+        key: nativeLocalExportStateKey(designId, parsedTabId.data),
+        expectedValue: exportCurrent,
+        nextValue: exportNext,
+      });
+    if (await compareAndSetManyAppState(operations)) return context;
   }
   fail("Native editor context changed concurrently. Retry.", {
     errorCode: "native_export_context_conflict",

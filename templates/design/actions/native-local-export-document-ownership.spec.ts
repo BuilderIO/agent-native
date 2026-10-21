@@ -7,6 +7,7 @@ const DESIGN_ID = "design-test";
 
 const mocks = vi.hoisted(() => ({
   states: new Map<string, unknown>(),
+  afterLedgerCommit: undefined as (() => void) | undefined,
   classifyNavigation: vi.fn(() => "matching"),
   readVersion: vi.fn(async () => ({
     versionHash: "source-v1",
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     )
       return false;
     mocks.states.set(key, next);
+    if (key === "native-render-contexts-v1") mocks.afterLedgerCommit?.();
     return true;
   }),
   saveMany: vi.fn(
@@ -39,6 +41,8 @@ const mocks = vi.hoisted(() => ({
         return false;
       for (const { key, nextValue } of operations)
         mocks.states.set(key, nextValue);
+      if (operations.some(({ key }) => key === "native-render-contexts-v1"))
+        mocks.afterLedgerCommit?.();
       return true;
     },
   ),
@@ -71,8 +75,8 @@ vi.mock("./_native-local-export-server.js", async (importOriginal) => {
     assertNativeLocalExportEditor: vi.fn(),
     classifyNativeLocalExportNavigation: mocks.classifyNavigation,
     expireNativeLocalExportState: async (state: unknown) => state,
-    markNativeLocalExportDocumentReplaced:
-      original.markNativeLocalExportDocumentReplaced,
+    planNativeLocalExportDocumentRegistration:
+      original.planNativeLocalExportDocumentRegistration,
     readNativeLocalExportState: async (designId: string, tabId: string) =>
       mocks.states.get(`native-local-export:${designId}:${tabId}`) ?? null,
     readNativeLocalExportVersion: mocks.readVersion,
@@ -104,6 +108,7 @@ function run(action: unknown, args: unknown): Promise<any> {
 
 beforeEach(() => {
   mocks.states.clear();
+  mocks.afterLedgerCommit = undefined;
   mocks.classifyNavigation.mockReset();
   mocks.classifyNavigation.mockReturnValue("matching");
   mocks.read.mockClear();
@@ -276,6 +281,22 @@ describe("native local export document ownership", () => {
       status: "running",
       ownerDocumentId: DOCUMENT_ID,
     });
+  });
+
+  it("commits registration and pending adoption in one visible transition", async () => {
+    await run(request, requestInput);
+    const key = `native-local-export:${DESIGN_ID}:${TAB_ID}`;
+    const seen: unknown[] = [];
+    mocks.afterLedgerCommit = () => seen.push(mocks.states.get(key));
+
+    await registerNativeRenderContext(DESIGN_ID, DOCUMENT_ID);
+
+    expect(seen).toEqual([
+      expect.objectContaining({
+        status: "pending",
+        targetDocumentId: DOCUMENT_ID,
+      }),
+    ]);
   });
 
   it("rejects an export when its selected context changes during source preparation", async () => {

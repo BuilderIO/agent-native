@@ -17,7 +17,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("../server/source-workspace.js", () => ({}));
 
 import {
-  markNativeLocalExportDocumentReplaced,
+  planNativeLocalExportDocumentRegistration,
   readNativeLocalExportState,
 } from "./_native-local-export-server";
 
@@ -48,88 +48,56 @@ describe("native local export state read", () => {
     expect(JSON.stringify(state)).toBe(JSON.stringify(stored));
   });
 
-  it("retires a pending request bound to another document", async () => {
-    mocks.read.mockResolvedValue(stored);
-    mocks.save.mockReset().mockResolvedValue(true);
-
-    await markNativeLocalExportDocumentReplaced(
-      "design-test",
-      "test-tab",
-      "33333333-3333-4333-8333-333333333333",
-    );
-
-    expect(mocks.save).toHaveBeenCalledWith(
-      "native-local-export:design-test:test-tab",
-      stored,
-      expect.objectContaining({
-        status: "failed",
-        failure: expect.objectContaining({ code: "client-unavailable" }),
-      }),
-    );
+  it("retires a pending request bound to another document", () => {
+    expect(
+      planNativeLocalExportDocumentRegistration(
+        stored,
+        "33333333-3333-4333-8333-333333333333",
+      ),
+    ).toMatchObject({
+      status: "failed",
+      failure: { code: "client-unavailable" },
+    });
   });
 
-  it("adopts an unbound pending request and preserves it on heartbeat", async () => {
-    let current: unknown = { ...stored, targetDocumentId: undefined };
-    mocks.read.mockImplementation(async () => current);
-    mocks.save.mockReset().mockImplementation(async (_key, expected, next) => {
-      if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
-      current = next;
-      return true;
-    });
-
-    await markNativeLocalExportDocumentReplaced(
-      "design-test",
-      "test-tab",
+  it("adopts an unbound pending request and preserves it on heartbeat", () => {
+    const adopted = planNativeLocalExportDocumentRegistration(
+      { ...stored, targetDocumentId: undefined },
       stored.targetDocumentId,
     );
-    expect(current).toMatchObject({
+    expect(adopted).toMatchObject({
       status: "pending",
       targetDocumentId: stored.targetDocumentId,
     });
-    await markNativeLocalExportDocumentReplaced(
-      "design-test",
-      "test-tab",
-      stored.targetDocumentId,
-    );
-    expect(mocks.save).toHaveBeenCalledTimes(1);
+    expect(
+      planNativeLocalExportDocumentRegistration(
+        adopted,
+        stored.targetDocumentId,
+      ),
+    ).toBe(adopted);
   });
 
-  it("does not replace a request claimed concurrently by the same document", async () => {
-    let current: unknown = { ...stored, targetDocumentId: undefined };
-    mocks.read.mockImplementation(async () => current);
-    mocks.save.mockReset().mockImplementationOnce(async () => {
-      current = {
-        ...stored,
-        targetDocumentId: undefined,
-        status: "running",
-        ownerDocumentId: stored.targetDocumentId,
-      };
-      return false;
-    });
-
-    await markNativeLocalExportDocumentReplaced(
-      "design-test",
-      "test-tab",
-      stored.targetDocumentId,
-    );
-
-    expect(current).toMatchObject({
-      status: "running",
+  it("preserves a request already claimed by the registering document", () => {
+    const running = {
+      ...stored,
+      targetDocumentId: undefined,
+      status: "running" as const,
       ownerDocumentId: stored.targetDocumentId,
-    });
-    expect(mocks.save).toHaveBeenCalledTimes(1);
+    };
+    expect(
+      planNativeLocalExportDocumentRegistration(
+        running,
+        stored.targetDocumentId,
+      ),
+    ).toBe(running);
   });
 
-  it("keeps a pending request bound to the registered document", async () => {
-    mocks.read.mockResolvedValue(stored);
-    mocks.save.mockClear();
-
-    await markNativeLocalExportDocumentReplaced(
-      "design-test",
-      "test-tab",
-      stored.targetDocumentId,
-    );
-
-    expect(mocks.save).not.toHaveBeenCalled();
+  it("keeps a pending request bound to the registered document", () => {
+    expect(
+      planNativeLocalExportDocumentRegistration(
+        stored,
+        stored.targetDocumentId,
+      ),
+    ).toBe(stored);
   });
 });

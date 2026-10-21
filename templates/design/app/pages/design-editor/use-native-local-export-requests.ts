@@ -317,7 +317,7 @@ export function useNativeLocalExportRequests(args: {
     let registered = false;
     let registrationFailures = 0;
     let readFailureReported = false;
-    let attemptedRequestId: string | undefined;
+    let attemptedRequestKey: string | undefined;
     const register = async () => {
       if (registering || controller.signal.aborted) return;
       registering = true;
@@ -364,12 +364,10 @@ export function useNativeLocalExportRequests(args: {
         const request = nativeLocalExportStateSchema.parse(raw);
         readFailureReported = false;
         readingState = false;
-        if (
-          request.status !== "pending" ||
-          request.requestId === attemptedRequestId
-        )
+        const requestKey = `${request.requestId}:${request.targetDocumentId ?? ""}`;
+        if (request.status !== "pending" || requestKey === attemptedRequestKey)
           return;
-        attemptedRequestId = request.requestId;
+        attemptedRequestKey = requestKey;
         await executeNativeLocalExportRequest({
           request,
           designId,
