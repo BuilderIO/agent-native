@@ -3895,10 +3895,8 @@ export async function insertRunEvent(
                   AND aborted_turn.dispatch_mode = 'turn-abort'
                   AND aborted_turn.status = 'aborted'
               )
-              AND (
-                run.status = 'running'
-                OR (run.status = 'truncated' AND run.terminal_reason = ?)
-              )`
+              AND run.status = 'truncated'
+              AND run.terminal_reason = ?`
             : "AND run.status = 'running'";
           const runAdmissionArgs = continuationReason
             ? [continuationReason]
@@ -3997,7 +3995,10 @@ export async function insertRunEvent(
             runRow?.turn_aborted !== "true";
           return {
             rowsAffected,
-            terminalRun: status !== "running" && !continuationTerminalEligible,
+            terminalRun:
+              status !== undefined &&
+              status !== "running" &&
+              !continuationTerminalEligible,
             persistedIdentically,
           };
         };

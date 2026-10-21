@@ -2057,6 +2057,8 @@ export function startRun(
       let eventPersistenceError: unknown = null;
       let runTerminalErrorCode: string | undefined;
       let terminalPersistenceEstablished = false;
+      let continuationStatusPersistedBeforeEvent = false;
+      let suppressContinuationEvent = false;
       try {
         await persistenceChain;
         await run.abortPersistencePromise;
@@ -2207,7 +2209,9 @@ export function startRun(
       let volatileTerminalEvent: RunEvent | null = null;
       const terminalStatusOptions = {
         ...(completionError ? { threadProjectionPending: true } : {}),
-        ...(checkpointBoundaryStarted ? { terminalReason } : {}),
+        ...(checkpointBoundaryStarted || persistedStatus === "truncated"
+          ? { terminalReason }
+          : {}),
       };
       const persistTerminalStatus = () =>
         Object.keys(terminalStatusOptions).length === 0
@@ -2223,6 +2227,22 @@ export function startRun(
               threadProjectionPending: true,
             })
           : reconcileTerminalRunFromEvents(runId);
+      const reportTerminalStatusPersistenceError = (error: unknown) => {
+        captureError(error, {
+          route: "/_agent-native/agent-chat",
+          aiTraceId: runId,
+          tags: {
+            source: "agent-run-manager",
+            phase: "terminal-status-persistence",
+            errorCode: "run_terminal_status_persistence_failed",
+          },
+          extra: { runId, threadId, turnId: run.turnId },
+        });
+        console.error(
+          "[run-manager] terminal status persistence error:",
+          error instanceof Error ? error.message : error,
+        );
+      };
 
       if (finalStatus === "completed" || finalStatus === "errored") {
         const terminalEventToEmit: AgentChatEvent = eventPersistenceError
@@ -2246,8 +2266,38 @@ export function startRun(
                       ? "Agent response could not be saved."
                       : "Agent run ended unexpectedly",
                   };
+        if (terminalEventToEmit.type === "auto_continue") {
+          if (persistedStatus !== "truncated") {
+            suppressContinuationEvent = true;
+          } else {
+            try {
+              await insertRunPromise;
+              continuationStatusPersistedBeforeEvent = await withWorkerFence(
+                persistTerminalStatus,
+              );
+              if (!continuationStatusPersistedBeforeEvent) {
+                await withWorkerFence(reconcileTerminalRun);
+                const persistedRun = await getRunById(runId);
+                continuationStatusPersistedBeforeEvent =
+                  persistedRun?.status === "truncated" &&
+                  persistedRun.terminalReason === terminalReason;
+              }
+              if (continuationStatusPersistedBeforeEvent) {
+                terminalPersistenceEstablished = true;
+              } else {
+                suppressContinuationEvent = true;
+              }
+            } catch (error) {
+              suppressContinuationEvent = true;
+              reportTerminalStatusPersistenceError(error);
+            }
+          }
+        }
         const last = run.events[run.events.length - 1];
-        if (!last || !isTerminalRunEvent(last.event)) {
+        if (
+          (!last || !isTerminalRunEvent(last.event)) &&
+          !suppressContinuationEvent
+        ) {
           const terminal: RunEvent = {
             seq: terminalEventForCompletion?.seq ?? allocateRunEventSeq(run),
             event: terminalEventToEmit,
@@ -2294,23 +2344,6 @@ export function startRun(
         if (!executionLeaseClaimFailed) mirrorInFlightMarker(false);
       }
 
-      const reportTerminalStatusPersistenceError = (error: unknown) => {
-        captureError(error, {
-          route: "/_agent-native/agent-chat",
-          aiTraceId: runId,
-          tags: {
-            source: "agent-run-manager",
-            phase: "terminal-status-persistence",
-            errorCode: "run_terminal_status_persistence_failed",
-          },
-          extra: { runId, threadId, turnId: run.turnId },
-        });
-        console.error(
-          "[run-manager] terminal status persistence error:",
-          error instanceof Error ? error.message : error,
-        );
-      };
-
       if (executionLeaseClaimFailed || finalStatus === "aborted") {
         if (!executionLeaseClaimFailed && run.abortPersistenceManaged) {
           terminalPersistenceEstablished = true;
@@ -2342,8 +2375,13 @@ export function startRun(
         }
       } else {
         try {
-          await insertRunPromise;
-          if (!terminalPersistenceError || eventPersistenceError) {
+          if (!continuationStatusPersistedBeforeEvent) {
+            await insertRunPromise;
+          }
+          if (
+            !continuationStatusPersistedBeforeEvent &&
+            (!terminalPersistenceError || eventPersistenceError)
+          ) {
             let statusUpdated = false;
             try {
               statusUpdated = await withWorkerFence(persistTerminalStatus);

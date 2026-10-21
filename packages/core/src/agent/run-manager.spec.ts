@@ -755,7 +755,7 @@ describe("run manager soft timeout", () => {
     await replacement.finalized;
   });
 
-  it("emits an internal continuation signal and aborts the run chunk", async () => {
+  it("persists truncated status before publishing a timeout continuation", async () => {
     const events: AgentChatEvent[] = [];
     let aborted = false;
     let abortReason: unknown;
@@ -778,6 +778,7 @@ describe("run manager soft timeout", () => {
     run.subscribers.add((event) => events.push(event.event));
 
     await vi.advanceTimersByTimeAsync(11);
+    await run.finalized;
 
     expect(aborted).toBe(true);
     expect(abortReason).toBe("run_timeout");
@@ -788,6 +789,28 @@ describe("run manager soft timeout", () => {
       }),
     );
     expect(run.status).toBe("completed");
+    const truncatedStatusWriteIndex =
+      updateRunStatusIfRunning.mock.calls.findIndex(
+        ([id, status, options]) =>
+          id === "run-soft-timeout" &&
+          status === "truncated" &&
+          options?.terminalReason === "run_timeout",
+      );
+    const continuationEventWriteIndex = mockInsertRunEvent.mock.calls.findIndex(
+      ([id, , eventData]) =>
+        id === "run-soft-timeout" &&
+        (JSON.parse(String(eventData)) as AgentChatEvent).type ===
+          "auto_continue",
+    );
+    expect(truncatedStatusWriteIndex).toBeGreaterThanOrEqual(0);
+    expect(continuationEventWriteIndex).toBeGreaterThanOrEqual(0);
+    expect(
+      updateRunStatusIfRunning.mock.invocationCallOrder[
+        truncatedStatusWriteIndex
+      ],
+    ).toBeLessThan(
+      mockInsertRunEvent.mock.invocationCallOrder[continuationEventWriteIndex],
+    );
     await vi.waitFor(() =>
       expectTerminalReasonWrite("run-soft-timeout", "run_timeout"),
     );
@@ -4766,6 +4789,30 @@ describe("run manager soft timeout", () => {
         allowContinuationTerminal: true,
       },
     );
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-server-continuation-terminal",
+      "truncated",
+      { terminalReason: "stream_ended" },
+    );
+    const truncatedWriteIndex = updateRunStatusIfRunning.mock.calls.findIndex(
+      ([id, status, options]) =>
+        id === "run-server-continuation-terminal" &&
+        status === "truncated" &&
+        options?.terminalReason === "stream_ended",
+    );
+    const continuationWriteIndex = mockInsertRunEvent.mock.calls.findIndex(
+      ([id, , eventData]) =>
+        id === "run-server-continuation-terminal" &&
+        (JSON.parse(String(eventData)) as AgentChatEvent).type ===
+          "auto_continue",
+    );
+    expect(truncatedWriteIndex).toBeGreaterThanOrEqual(0);
+    expect(continuationWriteIndex).toBeGreaterThanOrEqual(0);
+    expect(
+      updateRunStatusIfRunning.mock.invocationCallOrder[truncatedWriteIndex],
+    ).toBeLessThan(
+      mockInsertRunEvent.mock.invocationCallOrder[continuationWriteIndex],
+    );
   });
 
   it("emits a terminal event the callback installed even when the loop already stashed one", async () => {
@@ -4839,9 +4886,10 @@ describe("run manager soft timeout", () => {
     ]);
     expect(events).not.toContainEqual({ type: "done" });
     expect(run.status).toBe("completed");
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-foreground-tool-only",
-      "stream_ended",
+      "truncated",
+      { terminalReason: "stream_ended" },
     );
   });
 
@@ -4883,9 +4931,10 @@ describe("run manager soft timeout", () => {
       type: "auto_continue",
       reason: "stream_ended",
     });
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-foreground-tool-error",
-      "stream_ended",
+      "truncated",
+      { terminalReason: "stream_ended" },
     );
   });
 
@@ -4938,9 +4987,10 @@ describe("run manager soft timeout", () => {
       type: "auto_continue",
       reason: "stream_ended",
     });
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-precondition-tool-error",
-      "stream_ended",
+      "truncated",
+      { terminalReason: "stream_ended" },
     );
   });
 
@@ -5082,9 +5132,10 @@ describe("run manager soft timeout", () => {
     });
     expect(events).not.toContainEqual({ type: "done" });
     expect(run.status).toBe("completed");
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-action-preparation-only",
-      "stream_ended",
+      "truncated",
+      { terminalReason: "stream_ended" },
     );
   });
 

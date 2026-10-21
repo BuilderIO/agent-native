@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   assertDocContract,
+  captureDeployReadyBaseline,
   containerReachableDatabaseUrl,
   databaseUrlFor,
   DEPLOY_DATABASE_NAME_PATTERN,
@@ -254,21 +255,35 @@ describe("scheduled wake observation", () => {
 });
 
 describe("deploy marker observation", () => {
-  it("keeps the first marker timestamp while waiting for settle hits", () => {
-    const first = observeDeployMarkerResponse(
-      { consecutiveHits: 0, firstObservedAt: undefined },
-      true,
-      100,
-    );
-    const second = observeDeployMarkerResponse(first, true, 200);
-    const reset = observeDeployMarkerResponse(second, false, 300);
-    const afterReset = observeDeployMarkerResponse(reset, true, 400);
+  it("counts only consecutive new-deploy marker responses", () => {
+    const first = observeDeployMarkerResponse({ consecutiveHits: 0 }, true);
+    const second = observeDeployMarkerResponse(first, true);
+    const reset = observeDeployMarkerResponse(second, false);
+    const afterReset = observeDeployMarkerResponse(reset, true);
 
-    assert.equal(first.firstObservedAt, 100);
-    assert.equal(second.firstObservedAt, 100);
-    assert.equal(reset.firstObservedAt, 100);
-    assert.equal(afterReset.firstObservedAt, 100);
+    assert.deepEqual(first, { consecutiveHits: 1 });
+    assert.deepEqual(second, { consecutiveHits: 2 });
+    assert.deepEqual(reset, { consecutiveHits: 0 });
     assert.equal(afterReset.consecutiveHits, 1);
+  });
+
+  it("captures the scheduler baseline after deploy readiness", async () => {
+    const steps: string[] = [];
+    const deployedAt = await captureDeployReadyBaseline(
+      async () => {
+        steps.push("marker-settled");
+      },
+      async () => {
+        steps.push("ready");
+      },
+      () => {
+        steps.push("baseline");
+        return 400;
+      },
+    );
+
+    assert.deepEqual(steps, ["marker-settled", "ready", "baseline"]);
+    assert.equal(deployedAt, 400);
   });
 });
 

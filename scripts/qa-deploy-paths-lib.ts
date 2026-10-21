@@ -170,20 +170,25 @@ export function schedulerCheckIsAfter(
 
 export interface DeployMarkerObservation {
   consecutiveHits: number;
-  firstObservedAt: number | undefined;
 }
 
 export function observeDeployMarkerResponse(
   previous: DeployMarkerObservation,
   isNewDeploy: boolean,
-  observedAt: number,
 ): DeployMarkerObservation {
   return isNewDeploy
-    ? {
-        consecutiveHits: previous.consecutiveHits + 1,
-        firstObservedAt: previous.firstObservedAt ?? observedAt,
-      }
-    : { ...previous, consecutiveHits: 0 };
+    ? { consecutiveHits: previous.consecutiveHits + 1 }
+    : { consecutiveHits: 0 };
+}
+
+export async function captureDeployReadyBaseline(
+  waitForMarkerSettle: () => Promise<void>,
+  waitForReady: () => Promise<void>,
+  now: () => number = Date.now,
+): Promise<number> {
+  await waitForMarkerSettle();
+  await waitForReady();
+  return now();
 }
 
 export function missingDocCommands(

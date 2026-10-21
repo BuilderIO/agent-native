@@ -56,6 +56,7 @@ import {
 } from "./qa-deploy-paths-cloud";
 import {
   assertDocContract,
+  captureDeployReadyBaseline,
   containerReachableDatabaseUrl,
   databaseUrlFor,
   DEPLOY_DOC_CONTRACTS,
@@ -602,30 +603,25 @@ async function waitForNewDeploy(
   marker: DeployMarker,
   logs: () => string,
 ): Promise<number> {
-  let observation = {
-    consecutiveHits: 0,
-    firstObservedAt: undefined as number | undefined,
-  };
-  await waitFor(
-    "the new deploy to answer at its address",
-    READY_TIMEOUT_MS,
+  return captureDeployReadyBaseline(
     async () => {
-      const response = await fetchWithTimeout(`${baseUrl}${marker.urlPath}`);
-      const isNewDeploy =
-        response.status === 200 && (await response.text()) === marker.nonce;
-      observation = observeDeployMarkerResponse(
-        observation,
-        isNewDeploy,
-        Date.now(),
+      let observation = { consecutiveHits: 0 };
+      await waitFor(
+        "the new deploy to answer at its address",
+        READY_TIMEOUT_MS,
+        async () => {
+          const response = await fetchWithTimeout(
+            `${baseUrl}${marker.urlPath}`,
+          );
+          const isNewDeploy =
+            response.status === 200 && (await response.text()) === marker.nonce;
+          observation = observeDeployMarkerResponse(observation, isNewDeploy);
+          return observation.consecutiveHits >= DEPLOY_SETTLE_HITS;
+        },
       );
-      return observation.consecutiveHits >= DEPLOY_SETTLE_HITS;
     },
+    () => waitForReady(baseUrl, () => null, logs),
   );
-  await waitForReady(baseUrl, () => null, logs);
-  if (observation.firstObservedAt === undefined) {
-    throw new Error("The new deploy marker was never observed.");
-  }
-  return observation.firstObservedAt;
 }
 
 async function startNodeServer(
