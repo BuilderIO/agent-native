@@ -443,8 +443,8 @@ const editor = {
   registryBlockLoadError:
     "Impossible de charger le bloc {{type}} : {{message}}",
   registryBlockUnreadable: "La source enregistrée du bloc est illisible.",
-  blocksFieldRevisionConflict:
-    "Ce champ de blocs a été modifié ailleurs. Votre modification n’a pas été enregistrée ; la dernière version est maintenant affichée.",
+  blocksFieldEditMovedToEnd:
+    "Ce champ de blocs a aussi été modifié ailleurs. Le texte que vous avez saisi au même endroit a été déplacé à la fin du champ.",
   reconcileConflict:
     "Cette page a été modifiée ailleurs. Vos modifications ne sont pas encore enregistrées.",
   reconcileFailed:
@@ -1039,6 +1039,10 @@ const comments = {
   accepted: "Acceptés",
   rejected: "Refusés",
   noFilteredComments: "Aucun commentaire correspondant.",
+  tabFilter: "Onglet",
+  allTabs: "Tous les onglets",
+  fieldRemoved: "{{name}} (supprimé)",
+  pageBody: "Corps de la page",
 };
 
 const reviewDiscussions = {
@@ -1462,6 +1466,9 @@ const overrides = {
     addBlockField: "Ajouter un champ",
     blockFieldChanged: "Modifié depuis votre dernière consultation",
     blockFieldTabs: "Champs",
+    blockFieldOpenComments_one: "{{count}} commentaire ouvert",
+    blockFieldOpenComments_many: "{{count}} commentaires ouverts",
+    blockFieldOpenComments_other: "{{count}} commentaires ouverts",
     blockFieldMenu: "Options de {{name}}",
     blockFieldMenuScope: "Partagé par toutes les lignes de cette collection",
     blockFieldName: "Nom du champ",

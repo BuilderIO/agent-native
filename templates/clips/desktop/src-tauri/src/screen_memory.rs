@@ -37,7 +37,7 @@ const EXCLUSION_MARKERS_IN_FLIGHT_MASK: u64 = 0xFFFF << 1;
 const CAPTURE_START_GATE_GENERATION_INCREMENT: u64 = 1 << 17;
 const CAPTURE_START_GATE_GENERATION_MASK: u64 = !(CAPTURE_START_GATE_GENERATION_INCREMENT - 1);
 const SCREEN_MEMORY_MCP_NAME: &str = "clips-screen-memory";
-
+const RETENTION_SWEEP_INTERVAL: Duration = Duration::from_secs(10 * 60);
 static SEGMENT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Default)]
@@ -45,6 +45,9 @@ pub struct ScreenMemoryState {
     inner: Mutex<ScreenMemoryRuntime>,
     indexing: Mutex<()>,
     transition: Mutex<()>,
+    // Pruning rewrites the event log through a temporary file, so an append that lands
+    // between its read and its rename would be lost.
+    event_log: Mutex<()>,
     // Exclusion markers increment before locking `inner`; the reservation CAS
     // orders replacement starts against those immediate markers.
     capture_start_gate: Arc<AtomicU64>,
@@ -2219,6 +2222,8 @@ fn append_event(app: &AppHandle, event: ScreenMemoryEvent) {
 
 fn append_event_inner(app: &AppHandle, event: &ScreenMemoryEvent) -> Result<(), String> {
     let path = screen_memory_events_path(app)?;
+    let state = app.state::<ScreenMemoryState>();
+    let _event_log = state.event_log.lock().map_err(|error| error.to_string())?;
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -3926,10 +3931,44 @@ fn export_recent(app: &AppHandle, minutes: u64) -> Result<ScreenMemoryExportResu
     })
 }
 
+pub fn spawn_retention_sweeper(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        if let Err(err) = sweep_expired_history(&app) {
+            eprintln!("[clips-tray] Rewind retention sweep failed: {err}");
+        }
+        std::thread::sleep(RETENTION_SWEEP_INTERVAL);
+    });
+}
+
+fn sweep_expired_history(app: &AppHandle) -> Result<(), String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data directory unavailable: {e}"))?;
+    if !holds_history(&data_dir.join(SCREEN_MEMORY_DIR))? {
+        return Ok(());
+    }
+    let state = app.state::<ScreenMemoryState>();
+    let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    // A running producer prunes on every segment rotation.
+    let capturing = state
+        .inner
+        .lock()
+        .map_err(|error| error.to_string())?
+        .active
+        .is_some();
+    if capturing {
+        return Ok(());
+    }
+    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+    prune_segments(app, &config)
+}
+
 fn prune_segments(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
     let segments = recent_segments(app, None)?;
     let cutoff = Utc::now() - ChronoDuration::hours(config.retention_hours as i64);
     let mut kept_bytes = 0_u64;
+    let mut live_segment_ids = in_flight_segment_ids(app)?;
     for segment in segments {
         let ended_at = DateTime::parse_from_rfc3339(&segment.ended_at)
             .map(|value| value.with_timezone(&Utc))
@@ -3938,11 +3977,102 @@ fn prune_segments(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), St
         kept_bytes = kept_bytes.saturating_add(segment.bytes);
         if (expired || kept_bytes > config.max_bytes) && !segment_is_pinned(app, &segment.id) {
             delete_segment(app, &segment.id)?;
+        } else {
+            live_segment_ids.insert(sanitize_segment_id(&segment.id));
         }
     }
+    remove_orphaned_segment_files(&screen_memory_dir(app)?, cutoff.into(), &live_segment_ids)?;
     prune_events(app, cutoff)?;
     refresh_rewind_chapters(app)?;
     Ok(())
+}
+
+fn in_flight_segment_ids(app: &AppHandle) -> Result<BTreeSet<String>, String> {
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+    Ok(runtime
+        .active
+        .iter()
+        .chain(
+            runtime
+                .suspended_active
+                .iter()
+                .map(|suspended| &suspended.active),
+        )
+        .map(|active| sanitize_segment_id(&active.id))
+        .collect())
+}
+
+// Files whose metadata is missing or unreadable (a segment cut off by a quit or crash, or one
+// written by an older build) are invisible to the metadata pass, so they age out by their
+// last write. Only segment files match: the event log, chapters, egress log and agent
+// handoffs keep their own lifecycles.
+fn remove_orphaned_segment_files(
+    dir: &Path,
+    cutoff: std::time::SystemTime,
+    live_segment_ids: &BTreeSet<String>,
+) -> Result<(), String> {
+    for entry in
+        std::fs::read_dir(dir).map_err(|e| format!("screen memory directory read failed: {e}"))?
+    {
+        let entry =
+            entry.map_err(|error| format!("screen memory directory entry failed: {error}"))?;
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        let segment_id = file_name.split('.').next().unwrap_or(file_name);
+        if !segment_id.starts_with("segment-") || live_segment_ids.contains(segment_id) {
+            continue;
+        }
+        if last_written_before(entry.metadata(), cutoff)? {
+            remove_file_if_exists(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn holds_history(dir: &Path) -> Result<bool, String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(format!("screen memory directory read failed: {err}")),
+    };
+    history_entries_present(entries)
+}
+
+fn history_entries_present(
+    entries: impl IntoIterator<Item = std::io::Result<std::fs::DirEntry>>,
+) -> Result<bool, String> {
+    let mut has_history = false;
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| format!("screen memory directory entry failed: {error}"))?;
+        let file_name = entry.file_name();
+        has_history |= file_name == SCREEN_MEMORY_EVENTS_JSONL
+            || file_name
+                .to_str()
+                .is_some_and(|name| name.starts_with("segment-"));
+    }
+    Ok(has_history)
+}
+
+fn last_written_before(
+    metadata: std::io::Result<std::fs::Metadata>,
+    cutoff: std::time::SystemTime,
+) -> Result<bool, String> {
+    let metadata = match metadata {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("screen memory file metadata failed: {error}")),
+    };
+    if !metadata.is_file() {
+        return Ok(false);
+    }
+    let modified = metadata
+        .modified()
+        .map_err(|error| format!("screen memory file modification time unavailable: {error}"))?;
+    Ok(modified < cutoff)
 }
 
 fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
@@ -3950,12 +4080,6 @@ fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
     if !path.exists() {
         return Ok(());
     }
-    let file = File::open(&path).map_err(|e| format!("screen memory events open failed: {e}"))?;
-    let retained = BufReader::new(file)
-        .lines()
-        .map_while(Result::ok)
-        .filter_map(|line| serde_json::from_str::<ScreenMemoryEvent>(&line).ok())
-        .collect::<Vec<_>>();
     let mut coverage = recent_segments(app, None)?
         .into_iter()
         .filter_map(|segment| {
@@ -3969,22 +4093,113 @@ fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
             ))
         })
         .collect::<Vec<_>>();
-    if let Some(active) = app
-        .state::<ScreenMemoryState>()
-        .inner
-        .lock()
-        .ok()
-        .and_then(|runtime| {
+    let state = app.state::<ScreenMemoryState>();
+    {
+        let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        coverage.extend(in_flight_event_coverage(
             runtime
                 .active
                 .as_ref()
-                .map(|active| active.started_at_iso.clone())
-        })
-        .and_then(|started_at| DateTime::parse_from_rfc3339(&started_at).ok())
-    {
-        coverage.push((active.with_timezone(&Utc), Utc::now()));
+                .map(|active| active.started_at_iso.as_str()),
+            runtime.suspended_active.as_ref().map(|suspended| {
+                (
+                    suspended.active.started_at_iso.as_str(),
+                    suspended.ended_at_iso.as_str(),
+                )
+            }),
+            Utc::now(),
+        )?);
     }
-    let retained = retain_events_with_media_coverage(retained, cutoff, &coverage);
+    prune_events_path(&state.event_log, &path, cutoff, &coverage)
+}
+
+fn in_flight_event_coverage(
+    active_started_at: Option<&str>,
+    suspended_range: Option<(&str, &str)>,
+    now: DateTime<Utc>,
+) -> Result<Vec<(DateTime<Utc>, DateTime<Utc>)>, String> {
+    let parse = |value: &str| {
+        DateTime::parse_from_rfc3339(value)
+            .map(|value| value.with_timezone(&Utc))
+            .map_err(|error| format!("screen memory capture time invalid: {error}"))
+    };
+    let mut coverage = Vec::new();
+    if let Some(started_at) = active_started_at {
+        coverage.push((parse(started_at)?, now));
+    }
+    if let Some((started_at, ended_at)) = suspended_range {
+        coverage.push((parse(started_at)?, parse(ended_at)?));
+    }
+    Ok(coverage)
+}
+
+fn prune_events_path(
+    event_log: &Mutex<()>,
+    path: &Path,
+    cutoff: DateTime<Utc>,
+    coverage: &[(DateTime<Utc>, DateTime<Utc>)],
+) -> Result<(), String> {
+    let _event_log = event_log.lock().map_err(|error| error.to_string())?;
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("screen memory events open failed: {error}")),
+    };
+    prune_events_from_reader(BufReader::new(file), path, cutoff, coverage)
+}
+
+fn prune_events_from_reader(
+    mut reader: impl BufRead,
+    path: &Path,
+    cutoff: DateTime<Utc>,
+    coverage: &[(DateTime<Utc>, DateTime<Utc>)],
+) -> Result<(), String> {
+    let source_modified = std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .map_err(|error| format!("screen memory events modification time unavailable: {error}"))?;
+    let mut events = Vec::new();
+    let mut malformed = Vec::new();
+    loop {
+        let mut line = Vec::new();
+        let read = reader
+            .read_until(b'\n', &mut line)
+            .map_err(|error| format!("screen memory events read failed: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        match serde_json::from_slice::<ScreenMemoryEvent>(&line) {
+            Ok(event) => events.push(event),
+            Err(_) => malformed.push(line),
+        }
+    }
+    if !malformed.is_empty() {
+        // The segment prefix gives quarantined records the same bounded orphan-file
+        // retention as interrupted captures, using the source log's last write time.
+        let quarantine = path.with_file_name(format!(
+            "segment-events-quarantine-{}-{}.jsonl",
+            Utc::now().timestamp_millis(),
+            SEGMENT_COUNTER.fetch_add(1, Ordering::Relaxed),
+        ));
+        let mut file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(&quarantine)
+            .map_err(|error| format!("screen memory event quarantine failed: {error}"))?;
+        for line in &malformed {
+            file.write_all(line)
+                .map_err(|error| format!("screen memory event quarantine write failed: {error}"))?;
+        }
+        file.set_modified(source_modified)
+            .map_err(|error| format!("screen memory event quarantine timestamp failed: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("screen memory event quarantine sync failed: {error}"))?;
+        eprintln!(
+            "[clips-tray] quarantined {} malformed Screen Memory events in {}",
+            malformed.len(),
+            quarantine.display(),
+        );
+    }
+    let retained = retain_events_with_media_coverage(events, cutoff, coverage);
     let temporary_path = path.with_extension("jsonl.tmp");
     let mut file = File::create(&temporary_path)
         .map_err(|e| format!("screen memory events rewrite failed: {e}"))?;
@@ -4131,15 +4346,8 @@ fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, Stri
         remove_file_if_exists(&segment_metadata_path(app, &segment.id)?)?;
         deleted_segments += 1;
     }
-    for entry in std::fs::read_dir(&dir)
-        .map_err(|e| format!("screen memory directory read failed: {e}"))?
-        .flatten()
-    {
-        let path = entry.path();
-        if path.is_file() {
-            remove_file_if_exists(&path)?;
-        }
-    }
+    let event_log = state.as_ref().map(|state| &state.event_log);
+    clear_history_files(&dir, event_log)?;
     crate::rewind_chapters::clear(&dir)?;
     crate::rewind_clip::clear_preview_artifacts(app)?;
     if let Some(state) = state.as_ref() {
@@ -4152,6 +4360,23 @@ fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, Stri
         deleted_segments,
         deleted_bytes,
     })
+}
+
+fn clear_history_files(dir: &Path, event_log: Option<&Mutex<()>>) -> Result<(), String> {
+    let _event_log = event_log
+        .map(|event_log| event_log.lock().map_err(|error| error.to_string()))
+        .transpose()?;
+    for entry in std::fs::read_dir(dir)
+        .map_err(|error| format!("screen memory directory read failed: {error}"))?
+    {
+        let entry =
+            entry.map_err(|error| format!("screen memory directory entry failed: {error}"))?;
+        let path = entry.path();
+        if path.is_file() {
+            remove_file_if_exists(&path)?;
+        }
+    }
+    Ok(())
 }
 
 fn remove_file_if_exists(path: &Path) -> Result<(), String> {
@@ -4608,6 +4833,143 @@ command = "keep"
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    fn retention_fixture_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "clips-retention-{label}-{}-{}",
+            std::process::id(),
+            SEGMENT_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_aged(path: &Path, age: Duration) {
+        std::fs::write(path, b"history").unwrap();
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - age)
+            .unwrap();
+    }
+
+    const HOUR: Duration = Duration::from_secs(60 * 60);
+
+    #[test]
+    fn orphaned_segment_files_age_out_while_live_and_unrelated_files_stay() {
+        let dir = retention_fixture_dir("orphans");
+        let handoffs = dir.join("agent-handoffs");
+        std::fs::create_dir_all(&handoffs).unwrap();
+        let expired = [
+            "segment-1-0.mov",
+            "segment-1-0.system.wav",
+            "segment-1-0.microphone.wav",
+            "segment-1-0.json",
+            "segment-1-0.ocr.jsonl",
+            "segment-1-0.transcript.jsonl",
+        ];
+        let kept = [
+            "segment-2-0.mov",
+            "segment-3-0.mov",
+            "segment-3-0.json",
+            "events.jsonl",
+            "chapters.json",
+            "egress.jsonl",
+        ];
+        for name in expired {
+            write_aged(&dir.join(name), 9 * HOUR);
+        }
+        write_aged(&dir.join("segment-2-0.mov"), HOUR / 2);
+        for name in &kept[1..] {
+            write_aged(&dir.join(name), 9 * HOUR);
+        }
+        write_aged(&handoffs.join("request.mp4"), 9 * HOUR);
+        let live = BTreeSet::from(["segment-3-0".to_string()]);
+
+        remove_orphaned_segment_files(&dir, std::time::SystemTime::now() - 8 * HOUR, &live)
+            .unwrap();
+
+        assert!(expired.iter().all(|name| !dir.join(name).exists()));
+        assert!(kept.iter().all(|name| dir.join(name).exists()));
+        assert!(handoffs.join("request.mp4").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn orphan_cleanup_stays_within_its_bundle_directory() {
+        let dir = retention_fixture_dir("bundle-boundary");
+        let current = dir.join("current").join(SCREEN_MEMORY_DIR);
+        let sibling = dir.join("sibling").join(SCREEN_MEMORY_DIR);
+        for bundle in [&current, &sibling] {
+            std::fs::create_dir_all(bundle).unwrap();
+            write_aged(&bundle.join("segment-1-0.mov"), 25 * HOUR);
+        }
+
+        remove_orphaned_segment_files(
+            &current,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+
+        assert!(!current.join("segment-1-0.mov").exists());
+        assert_eq!(
+            std::fs::read(sibling.join("segment-1-0.mov")).unwrap(),
+            b"history"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn retention_probe_reports_unreadable_entries_instead_of_absent_history() {
+        let result = history_entries_present([Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "injected directory-entry failure",
+        ))]);
+        assert!(result.unwrap_err().contains("directory entry failed"));
+    }
+
+    #[test]
+    fn retention_preserves_metadata_errors_other_than_absence() {
+        let result = last_written_before(
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected metadata denial",
+            )),
+            std::time::SystemTime::now(),
+        );
+        assert!(result.unwrap_err().contains("injected metadata denial"));
+    }
+
+    // Windows caches DirEntry metadata, so unlinking exercises this lookup only on Unix.
+    #[cfg(unix)]
+    #[test]
+    fn retention_treats_a_vanished_file_as_already_removed() {
+        let dir = retention_fixture_dir("vanished-file");
+        let path = dir.join("segment-1-0.mov");
+        write_aged(&path, 9 * HOUR);
+        let entry = std::fs::read_dir(&dir).unwrap().next().unwrap().unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        assert!(
+            !last_written_before(entry.metadata(), std::time::SystemTime::now() - 8 * HOUR)
+                .unwrap()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn retention_sweep_skips_folders_without_history() {
+        let dir = retention_fixture_dir("no-history");
+        assert!(!holds_history(&dir).unwrap());
+        assert!(!holds_history(&dir.join("missing")).unwrap());
+        std::fs::write(dir.join("egress.jsonl"), b"{}").unwrap();
+        assert!(!holds_history(&dir).unwrap());
+        std::fs::write(dir.join("segment-1-0.mov"), b"history").unwrap();
+        assert!(holds_history(&dir).unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn segment_metadata_preserves_exclusion_taint_and_defaults_legacy_rows() {
         let tainted: ScreenMemorySegmentMetadata = serde_json::from_value(serde_json::json!({
@@ -4726,6 +5088,206 @@ command = "keep"
         assert!(!rows.exists());
         assert!(!status.exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn event_pruning_keeps_the_original_log_when_a_later_line_is_unreadable() {
+        struct UnreadableTail;
+        impl std::io::Read for UnreadableTail {
+            fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("injected read failure"))
+            }
+        }
+        let dir = retention_fixture_dir("unreadable-events");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut original = serde_json::to_vec(&event("2026-07-14T11:59:59Z")).unwrap();
+        original.push(b'\n');
+        let first_line_len = original.len();
+        original.extend_from_slice(&serde_json::to_vec(&event("2026-07-14T12:00:01Z")).unwrap());
+        std::fs::write(&path, &original).unwrap();
+
+        let reader = BufReader::new(std::io::Read::chain(
+            std::io::Cursor::new(&original[..first_line_len]),
+            UnreadableTail,
+        ));
+        let result = prune_events_from_reader(
+            reader,
+            &path,
+            cutoff,
+            &[(cutoff, cutoff + ChronoDuration::hours(1))],
+        );
+
+        assert!(result.unwrap_err().contains("events read failed"));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(!path.with_extension("jsonl.tmp").exists());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn malformed_events_are_quarantined_without_blocking_retention() {
+        let dir = retention_fixture_dir("invalid-events");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut original = serde_json::to_vec(&event("2026-07-14T11:59:59Z")).unwrap();
+        original.extend_from_slice(b"\n{incomplete event}\n\xff\n");
+        let mut expected = serde_json::to_vec(&event("2026-07-14T12:00:01Z")).unwrap();
+        expected.push(b'\n');
+        original.extend_from_slice(&expected);
+        std::fs::write(&path, original).unwrap();
+        let source_modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let event_log = Mutex::new(());
+        let coverage = [(cutoff, cutoff + ChronoDuration::hours(1))];
+
+        prune_events_path(&event_log, &path, cutoff, &coverage).unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        let quarantines = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with("segment-events-quarantine-")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(quarantines.len(), 1);
+        let quarantine = &quarantines[0];
+        assert_eq!(
+            std::fs::metadata(quarantine).unwrap().modified().unwrap(),
+            source_modified
+        );
+        assert_eq!(
+            std::fs::read(quarantine).unwrap(),
+            b"{incomplete event}\n\xff\n"
+        );
+        prune_events_path(&event_log, &path, cutoff, &coverage).unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        remove_orphaned_segment_files(
+            &dir,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        assert!(quarantine.exists());
+        File::options()
+            .write(true)
+            .open(quarantine)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - 9 * HOUR)
+            .unwrap();
+        remove_orphaned_segment_files(
+            &dir,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        assert!(!quarantine.exists());
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn event_pruning_rewrites_a_complete_log_with_retained_events() {
+        let dir = retention_fixture_dir("complete-events");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut original = serde_json::to_vec(&event("2026-07-14T11:59:59Z")).unwrap();
+        original.push(b'\n');
+        let retained = serde_json::to_vec(&event("2026-07-14T12:00:01Z")).unwrap();
+        original.extend_from_slice(&retained);
+        std::fs::write(&path, original).unwrap();
+
+        prune_events_path(
+            &Mutex::new(()),
+            &path,
+            cutoff,
+            &[(cutoff, cutoff + ChronoDuration::hours(1))],
+        )
+        .unwrap();
+
+        let mut expected = retained;
+        expected.push(b'\n');
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        assert!(!path.with_extension("jsonl.tmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clear_history_waits_for_an_event_log_rewrite_before_removing_files() {
+        let dir = retention_fixture_dir("clear-during-rewrite");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let temporary_path = path.with_extension("jsonl.tmp");
+        std::fs::write(&path, b"old history").unwrap();
+        std::fs::write(&temporary_path, b"retained history").unwrap();
+        let event_log = Arc::new(Mutex::new(()));
+        let rewrite = event_log.lock().unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let clear_dir = dir.clone();
+        let clear_log = event_log.clone();
+        let clear = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            finished_tx
+                .send(clear_history_files(&clear_dir, Some(&clear_log)))
+                .unwrap();
+        });
+        started_rx.recv().unwrap();
+        assert!(matches!(
+            finished_rx.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        std::fs::rename(temporary_path, &path).unwrap();
+        drop(rewrite);
+        finished_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        clear.join().unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn suspended_segment_events_remain_within_their_exact_capture_coverage() {
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let coverage = in_flight_event_coverage(
+            None,
+            Some(("2026-07-14T12:01:00Z", "2026-07-14T12:05:00Z")),
+            cutoff + ChronoDuration::hours(1),
+        )
+        .unwrap();
+        let retained = retain_events_with_media_coverage(
+            vec![
+                event("2026-07-14T11:59:59Z"),
+                event("2026-07-14T12:03:00Z"),
+                event("2026-07-14T12:06:00Z"),
+            ],
+            cutoff,
+            &coverage,
+        );
+        assert_eq!(
+            retained
+                .iter()
+                .map(|event| event.captured_at.as_str())
+                .collect::<Vec<_>>(),
+            ["2026-07-14T12:03:00Z"]
+        );
+        assert!(
+            in_flight_event_coverage(None, Some(("invalid", "2026-07-14T12:05:00Z")), cutoff)
+                .is_err()
+        );
     }
 
     #[test]

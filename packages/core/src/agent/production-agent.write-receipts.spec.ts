@@ -245,19 +245,20 @@ describe("write receipts in the agent loop", () => {
   });
 
   it("does not retry or annotate a clean verified:true write", async () => {
+    const receipt: WriteReceipt = {
+      changed: true,
+      verified: true,
+      summary: "Saved and checked.",
+      subject: "design-1",
+    };
     const result = await run({
       turns: [[toolCall()], [text("Updated and checked.")]],
-      action: writeAction({
-        _receipt: {
-          changed: true,
-          verified: true,
-          summary: "Saved and checked.",
-        },
-      }),
+      action: writeAction({ _receipt: receipt }),
     });
 
     expect(result.streamCalls()).toBe(2);
     expect(result.texts).toEqual(["Updated and checked."]);
+    expect(result.toolDone).toMatchObject({ receipt });
     expect(result.usage.receiptUnverifiedCount).toBeUndefined();
     expect(result.usage.receiptChangedFalseCount).toBeUndefined();
   });

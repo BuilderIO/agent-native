@@ -9,6 +9,7 @@ const jobMocks = vi.hoisted(() => ({
   useRunAutomationNow: vi.fn(),
   useAutomations: vi.fn(),
   useAutomationRuns: vi.fn(),
+  useAutomationEvents: vi.fn(),
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
   useRecurringJobs: vi.fn(),
@@ -18,6 +19,7 @@ const jobMocks = vi.hoisted(() => ({
 vi.mock("./use-jobs.js", () => ({
   useAutomations: jobMocks.useAutomations,
   useAutomationRuns: jobMocks.useAutomationRuns,
+  useAutomationEvents: jobMocks.useAutomationEvents,
   useManageAutomation: jobMocks.useManageAutomation,
   useManageRecurringJob: jobMocks.useManageRecurringJob,
   useRecurringJobs: jobMocks.useRecurringJobs,
@@ -29,6 +31,10 @@ vi.mock("../chat/index.js", () => ({
   AgentAskPopover: ({ title, label }: { title: string; label?: string }) => (
     <button type="button">{label ?? title}</button>
   ),
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => ({ data: { orgId: "org-a", orgName: "Acme" } }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -93,6 +99,7 @@ describe("AgentJobsTab blocked automation", () => {
     );
     jobMocks.useAutomations.mockReturnValue(queryResult([]));
     jobMocks.useAutomationRuns.mockReturnValue(queryResult([]));
+    jobMocks.useAutomationEvents.mockReturnValue(queryResult([]));
     jobMocks.useManageRecurringJob.mockReturnValue({
       error: null,
       isPending: false,

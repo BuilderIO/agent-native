@@ -1,0 +1,772 @@
+{
+  "each-alert-lands-where-the-story-says": {
+    "ticks": [
+      {
+        "label": "the hourly run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 6,
+            "done": 1,
+            "dismissed": 1,
+            "needsManual": 4,
+            "modelCalls": 2
+          }
+        },
+        "nodes": {
+          "alerts": { "in": 0, "ports": { "out": 6 } },
+          "assess": { "in": 6, "ports": { "out": 6 } },
+          "builder": { "in": 1, "ports": { "out": 1 } },
+          "dismissed": { "in": 1, "ports": {} },
+          "handed": { "in": 1, "ports": {} },
+          "manual": { "in": 4, "ports": {} },
+          "notify": { "in": 4, "ports": { "out": 4 } },
+          "notifyEmail": { "in": 4, "ports": { "out": 4 } },
+          "route": {
+            "in": 6,
+            "ports": { "route:safe": 1, "route:unreachable": 1, "otherwise": 4 }
+          }
+        },
+        "calls": {
+          "github.listSecurityAlerts": 1,
+          "builder.start": 1,
+          "slack.postMessage": 4,
+          "email.send": 4
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "builder",
+            "item": "alert-101",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-alert-101",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Upgrade lodash from 4.17.20 to 4.17.21 in package.json and the lockfile, run the tests, and open a pull request. Change nothing else."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-alert-101",
+              "url": "https://builder.example.test/p/project-1/factory-alert-101"
+            }
+          },
+          {
+            "node": "notify",
+            "item": "alert-102",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "security-owner@example.test",
+              "text": "Alert needs a person: serialize-javascript: remote code execution"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760003000.000001",
+              "url": "https://slack.example.test/archives/D0SECURITY/p1760003000000001"
+            }
+          },
+          {
+            "node": "notify",
+            "item": "alert-103",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "security-owner@example.test",
+              "text": "Alert needs a person: express: open redirect"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760003000.000002",
+              "url": "https://slack.example.test/archives/D0SECURITY/p1760003000000002"
+            }
+          },
+          {
+            "node": "notify",
+            "item": "alert-105",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "security-owner@example.test",
+              "text": "Alert needs a person: ws: crash on malformed header"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760003000.000003",
+              "url": "https://slack.example.test/archives/D0SECURITY/p1760003000000003"
+            }
+          },
+          {
+            "node": "notify",
+            "item": "alert-106",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "security-owner@example.test",
+              "text": "Alert needs a person: webpack: path traversal in dev server"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760003000.000004",
+              "url": "https://slack.example.test/archives/D0SECURITY/p1760003000000004"
+            }
+          },
+          {
+            "node": "notifyEmail",
+            "item": "alert-102",
+            "operation": "email.send",
+            "fields": {
+              "to": "security-owner@example.test",
+              "subject": "Security alert: serialize-javascript: remote code execution",
+              "body": "Critical severity: a person decides even when the fix is a patch."
+            },
+            "receipt": { "status": "done", "externalRef": "mail-1" }
+          },
+          {
+            "node": "notifyEmail",
+            "item": "alert-103",
+            "operation": "email.send",
+            "fields": {
+              "to": "security-owner@example.test",
+              "subject": "Security alert: express: open redirect",
+              "body": "express is only used by the dev server in this repository, so it looks unreachable, but the severity is high and the fix is a code change."
+            },
+            "receipt": { "status": "done", "externalRef": "mail-2" }
+          },
+          {
+            "node": "notifyEmail",
+            "item": "alert-105",
+            "operation": "email.send",
+            "fields": {
+              "to": "security-owner@example.test",
+              "subject": "Security alert: ws: crash on malformed header",
+              "body": "ws is used in a websocket helper; it is unclear whether the malformed header can reach it."
+            },
+            "receipt": { "status": "done", "externalRef": "mail-3" }
+          },
+          {
+            "node": "notifyEmail",
+            "item": "alert-106",
+            "operation": "email.send",
+            "fields": {
+              "to": "security-owner@example.test",
+              "subject": "Security alert: webpack: path traversal in dev server",
+              "body": "The fix needs a major webpack upgrade, which changes the build."
+            },
+            "receipt": { "status": "done", "externalRef": "mail-4" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "assess",
+            "mode": "perItem",
+            "items": [
+              "alert-101",
+              "alert-102",
+              "alert-103",
+              "alert-104",
+              "alert-105",
+              "alert-106"
+            ],
+            "tools": ["github.readFile", "github.searchCode"]
+          },
+          { "node": "builder", "mode": "perItem", "items": ["alert-101"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {
+      "alert-101": "automation_started",
+      "alert-102": "needs_manual",
+      "alert-103": "needs_manual",
+      "alert-105": "needs_manual",
+      "alert-106": "needs_manual",
+      "alert-104": "dismissed"
+    },
+    "recorded": {
+      "alert-101": {
+        "severity": "medium",
+        "package": "lodash",
+        "ecosystem": "npm",
+        "manifestPath": "package.json",
+        "ghsaId": "GHSA-example-101",
+        "builderTaskId": "project-1:factory-alert-101",
+        "projectId": "project-1",
+        "branchName": "factory-alert-101",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "alert-101": [
+        "decision@route:route:safe",
+        "effect@builder",
+        "ended@handed:done"
+      ],
+      "alert-102": [
+        "decision@route:otherwise",
+        "effect@notify",
+        "effect@notifyEmail",
+        "ended@manual:needsManual"
+      ],
+      "alert-103": [
+        "decision@route:otherwise",
+        "effect@notify",
+        "effect@notifyEmail",
+        "ended@manual:needsManual"
+      ],
+      "alert-104": [
+        "decision@route:route:unreachable",
+        "ended@dismissed:dismissed"
+      ],
+      "alert-105": [
+        "decision@route:otherwise",
+        "effect@notify",
+        "effect@notifyEmail",
+        "ended@manual:needsManual"
+      ],
+      "alert-106": [
+        "decision@route:otherwise",
+        "effect@notify",
+        "effect@notifyEmail",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "a-fix-that-touches-a-sensitive-area-goes-to-a-person": {
+    "ticks": [
+      {
+        "label": "the hourly run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "needsManual": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "alerts": { "in": 0, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "manual": { "in": 1, "ports": {} },
+          "notify": { "in": 1, "ports": { "out": 1 } },
+          "notifyEmail": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "otherwise": 1 } }
+        },
+        "calls": {
+          "github.listSecurityAlerts": 1,
+          "slack.postMessage": 1,
+          "email.send": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notify",
+            "item": "alert-107",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "security-owner@example.test",
+              "text": "Alert needs a person: jsonwebtoken: weak signature validation"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760003000.000001",
+              "url": "https://slack.example.test/archives/D0SECURITY/p1760003000000001"
+            }
+          },
+          {
+            "node": "notifyEmail",
+            "item": "alert-107",
+            "operation": "email.send",
+            "fields": {
+              "to": "security-owner@example.test",
+              "subject": "Security alert: jsonwebtoken: weak signature validation",
+              "body": "The patch touches token verification, which is an auth area."
+            },
+            "receipt": { "status": "done", "externalRef": "mail-1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "assess",
+            "mode": "perItem",
+            "items": ["alert-107"],
+            "tools": ["github.readFile", "github.searchCode"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "alert-107": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "alert-107": [
+        "decision@route:otherwise",
+        "effect@notify",
+        "effect@notifyEmail",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "an-ai-turn-that-fails-never-dismisses-the-alert": {
+    "ticks": [
+      {
+        "label": "the hourly run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1
+          }
+        },
+        "nodes": {
+          "alerts": { "in": 0, "ports": { "out": 1 } },
+          "assess": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "github.listSecurityAlerts": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "assess",
+            "mode": "perItem",
+            "items": ["alert-101"],
+            "tools": ["github.readFile", "github.searchCode"]
+          }
+        ]
+      }
+    ],
+    "parked": [
+      {
+        "item": "alert-101",
+        "node": "assess",
+        "wait": "retry",
+        "dueAt": "2026-10-19T12:05:00.000Z",
+        "counters": { "attempts": 1 }
+      }
+    ],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "alert-101": ["error@assess:provider_error", "parked@assess"]
+    }
+  },
+  "a-start-that-timed-out-is-never-sent-twice": {
+    "ticks": [
+      {
+        "label": "the start times out",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "needsManual": 1,
+            "needsCheck": 1,
+            "modelCalls": 2
+          }
+        },
+        "nodes": {
+          "alerts": { "in": 0, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "builder": {
+            "in": 1,
+            "ports": {},
+            "status": "needs_check",
+            "error": "effect_needs_check"
+          },
+          "route": { "in": 1, "ports": { "route:safe": 1 } }
+        },
+        "calls": { "github.listSecurityAlerts": 1, "builder.start": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "builder",
+            "item": "alert-101",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-alert-101",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Upgrade lodash from 4.17.20 to 4.17.21 in package.json and the lockfile, run the tests, and open a pull request. Change nothing else."
+            },
+            "receipt": { "status": "started" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "assess",
+            "mode": "perItem",
+            "items": ["alert-101"],
+            "tools": ["github.readFile", "github.searchCode"]
+          },
+          { "node": "builder", "mode": "perItem", "items": ["alert-101"] }
+        ]
+      },
+      {
+        "label": "the alert is offered again",
+        "at": "2026-10-19T13:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "github.listSecurityAlerts": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "alert-101": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "alert-101": [
+        "decision@route:route:safe",
+        "error@builder:effect_needs_check",
+        "ended@builder:needsManual"
+      ]
+    }
+  },
+  "a-token-that-cannot-read-alerts-fails-the-run-loudly": {
+    "ticks": [
+      {
+        "label": "the hourly run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "failed",
+          "counts": {},
+          "error": "credential_missing"
+        },
+        "nodes": {
+          "alerts": {
+            "in": 0,
+            "ports": {},
+            "status": "failed",
+            "error": "credential_missing"
+          },
+          "assess": { "in": 0, "ports": {}, "status": "skipped" },
+          "builder": { "in": 0, "ports": {}, "status": "skipped" },
+          "dismissed": { "in": 0, "ports": {}, "status": "skipped" },
+          "handed": { "in": 0, "ports": {}, "status": "skipped" },
+          "manual": { "in": 0, "ports": {}, "status": "skipped" },
+          "notify": { "in": 0, "ports": {}, "status": "skipped" },
+          "notifyEmail": { "in": 0, "ports": {}, "status": "skipped" },
+          "route": { "in": 0, "ports": {}, "status": "skipped" }
+        },
+        "calls": { "github.listSecurityAlerts": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {}
+  },
+  "a-dry-run-hands-nothing-to-builder-and-tells-no-one": {
+    "ticks": [
+      {
+        "label": "dry run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "dry",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 6,
+            "done": 1,
+            "dismissed": 1,
+            "needsManual": 4,
+            "modelCalls": 2
+          }
+        },
+        "nodes": {
+          "alerts": { "in": 0, "ports": { "out": 6 } },
+          "assess": { "in": 6, "ports": { "out": 6 } },
+          "builder": { "in": 1, "ports": { "out": 1 } },
+          "dismissed": { "in": 1, "ports": {} },
+          "handed": { "in": 1, "ports": {} },
+          "manual": { "in": 4, "ports": {} },
+          "notify": { "in": 4, "ports": { "out": 4 } },
+          "notifyEmail": { "in": 4, "ports": { "out": 4 } },
+          "route": {
+            "in": 6,
+            "ports": { "route:safe": 1, "route:unreachable": 1, "otherwise": 4 }
+          }
+        },
+        "calls": { "github.listSecurityAlerts": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "assess",
+            "mode": "perItem",
+            "items": [
+              "alert-101",
+              "alert-102",
+              "alert-103",
+              "alert-104",
+              "alert-105",
+              "alert-106"
+            ],
+            "tools": ["github.readFile", "github.searchCode"]
+          },
+          { "node": "builder", "mode": "perItem", "items": ["alert-101"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "alert-101": [
+        "decision@route:route:safe",
+        "effect@builder",
+        "ended@handed:done"
+      ],
+      "alert-102": [
+        "decision@route:otherwise",
+        "effect@notify",
+        "effect@notifyEmail",
+        "ended@manual:needsManual"
+      ],
+      "alert-103": [
+        "decision@route:otherwise",
+        "effect@notify",
+        "effect@notifyEmail",
+        "ended@manual:needsManual"
+      ],
+      "alert-104": [
+        "decision@route:route:unreachable",
+        "ended@dismissed:dismissed"
+      ],
+      "alert-105": [
+        "decision@route:otherwise",
+        "effect@notify",
+        "effect@notifyEmail",
+        "ended@manual:needsManual"
+      ],
+      "alert-106": [
+        "decision@route:otherwise",
+        "effect@notify",
+        "effect@notifyEmail",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "an-alert-handed-to-builder-is-listed-again-and-builder-is-not-started-twice": {
+    "ticks": [
+      {
+        "label": "the alert is handed to Builder",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 2 }
+        },
+        "nodes": {
+          "alerts": { "in": 0, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "builder": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "route": { "in": 1, "ports": { "route:safe": 1 } }
+        },
+        "calls": { "github.listSecurityAlerts": 1, "builder.start": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "builder",
+            "item": "alert-101",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-alert-101",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Upgrade lodash from 4.17.20 to 4.17.21 in package.json and the lockfile, run the tests, and open a pull request. Change nothing else."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-alert-101",
+              "url": "https://builder.example.test/p/project-1/factory-alert-101"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "assess",
+            "mode": "perItem",
+            "items": ["alert-101"],
+            "tools": ["github.readFile", "github.searchCode"]
+          },
+          { "node": "builder", "mode": "perItem", "items": ["alert-101"] }
+        ]
+      },
+      {
+        "label": "the alert is listed again",
+        "at": "2026-10-19T13:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 2 }
+        },
+        "nodes": {
+          "alerts": { "in": 0, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "builder": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "route": { "in": 1, "ports": { "route:safe": 1 } }
+        },
+        "calls": { "github.listSecurityAlerts": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "assess",
+            "mode": "perItem",
+            "items": ["alert-101"],
+            "tools": ["github.readFile", "github.searchCode"]
+          },
+          { "node": "builder", "mode": "perItem", "items": ["alert-101"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "alert-101": "automation_started" },
+    "recorded": {
+      "alert-101": {
+        "severity": "medium",
+        "package": "lodash",
+        "ecosystem": "npm",
+        "manifestPath": "package.json",
+        "ghsaId": "GHSA-example-101",
+        "builderTaskId": "project-1:factory-alert-101",
+        "projectId": "project-1",
+        "branchName": "factory-alert-101",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "alert-101": [
+        "decision@route:route:safe",
+        "effect@builder",
+        "ended@handed:done",
+        "decision@route:route:safe",
+        "effect@builder",
+        "ended@handed:done"
+      ]
+    }
+  },
+  "a-refused-start-hands-the-alert-to-a-person-at-once": {
+    "ticks": [
+      {
+        "label": "the gate refuses, a person is told",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "needsManual": 1,
+            "itemFailures": 1,
+            "modelCalls": 2
+          }
+        },
+        "nodes": {
+          "alerts": { "in": 0, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "builder": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "operation_not_allowed"
+          },
+          "route": { "in": 1, "ports": { "route:safe": 1 } }
+        },
+        "calls": { "github.listSecurityAlerts": 1, "builder.start": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "builder",
+            "item": "alert-101",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-alert-101",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Upgrade lodash from 4.17.20 to 4.17.21 in package.json and the lockfile, run the tests, and open a pull request. Change nothing else."
+            },
+            "receipt": { "status": "failed" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "assess",
+            "mode": "perItem",
+            "items": ["alert-101"],
+            "tools": ["github.readFile", "github.searchCode"]
+          },
+          { "node": "builder", "mode": "perItem", "items": ["alert-101"] }
+        ]
+      },
+      {
+        "label": "an hour on, not tried again",
+        "at": "2026-10-19T13:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "github.listSecurityAlerts": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "two hours on, not tried again",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "github.listSecurityAlerts": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "alert-101": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "alert-101": [
+        "decision@route:route:safe",
+        "error@builder:operation_not_allowed",
+        "ended@builder:needsManual"
+      ]
+    }
+  }
+}

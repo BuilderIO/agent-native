@@ -1943,9 +1943,20 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   );
 }
 
+function cleanupBrowserSessionErrorText(error: string | Error) {
+  if (typeof error === "string") return error;
+  // WebKit puts this fetch failure's URL on the first stack line instead of
+  // Error.message. Other stack frames are not request identity evidence.
+  const firstLine = error.stack?.split("\n", 1)[0];
+  return firstLine?.startsWith("Fetch API cannot load ")
+    ? firstLine
+    : error.message;
+}
+
 export function isPotentialCleanupRecoveryPageBrowserSessionError(
-  message: string,
+  error: string | Error,
 ) {
+  const message = cleanupBrowserSessionErrorText(error);
   if (
     message ===
     "[Agent-Native browser session] poll failed: TypeError: Load failed"
@@ -1995,7 +2006,7 @@ export function shouldRetainCleanupRecoveryClaimEvidence(
 }
 
 export function isExpectedCleanupRecoveryPageBrowserSessionError(
-  message: string,
+  error: string | Error,
   candidates: Array<{
     url: string;
     pathname: string;
@@ -2011,6 +2022,7 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
     requestWasPendingAtNavigation: boolean;
   }>,
 ) {
+  const message = cleanupBrowserSessionErrorText(error);
   const corsUrl =
     /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
       message,
@@ -2081,10 +2093,11 @@ export function isExpectedCleanupBrowserSessionHeartbeatConsoleError(
 }
 
 export function isExpectedCleanupNavigationError(
-  message: string,
+  error: string | Error,
   candidates: WatchedRequestNavigationCandidate[],
   navigationStarted: boolean,
 ) {
+  const message = cleanupBrowserSessionErrorText(error);
   return (
     navigationStarted &&
     (isExpectedWatchedRequestCorsError(

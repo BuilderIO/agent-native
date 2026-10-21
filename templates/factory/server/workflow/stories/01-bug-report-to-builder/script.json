@@ -1,0 +1,1241 @@
+{
+  "scenarios": {
+    "a-clear-bug-goes-to-builder-and-the-reporter-is-told": {
+      "description": "A clear, low-risk, high-confidence report is grouped, handed to Builder on a branch named for its group, and its thread is told once Builder accepted.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives"
+        }
+      ]
+    },
+    "missing-info-asks-waits-is-woken-and-assessed-again": {
+      "description": "A report with no steps gets one question, waits parked, is woken by the reply (two replies at once count as one), is read and assessed again, and then goes to Builder.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "withReply"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "needsInfo",
+          "calls": 1
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "ask",
+          "recording": "q1"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives, a question is asked"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing to do yet",
+          "at": "+5m"
+        },
+        {
+          "kind": "tick",
+          "label": "still waiting",
+          "at": "+10m"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "at": "+12m",
+          "author": "reporter-1@example.test",
+          "text": "Chrome 118 on a Mac"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "at": "+13m",
+          "author": "colleague@example.test",
+          "text": "It is the latest Chrome"
+        },
+        {
+          "kind": "tick",
+          "label": "the reply is seen",
+          "at": "+15m"
+        }
+      ]
+    },
+    "gives-up-after-two-questions": {
+      "description": "A report that is still unclear after its second answer is not asked a third time: the second reply leaves by Limit reached and the triage owner is told.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "needsInfo"
+        },
+        {
+          "kind": "ai",
+          "node": "ask",
+          "recording": "q1",
+          "calls": 1
+        },
+        {
+          "kind": "ai",
+          "node": "ask",
+          "recording": "q2"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives, question one",
+          "at": "+0m"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "at": "+12m",
+          "author": "reporter-1@example.test",
+          "text": "Chrome"
+        },
+        {
+          "kind": "tick",
+          "label": "the first reply, question two",
+          "at": "+15m"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "at": "+20m",
+          "author": "reporter-1@example.test",
+          "text": "Chrome 118"
+        },
+        {
+          "kind": "tick",
+          "label": "the second reply, the owner is told",
+          "at": "+30m"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing more happens",
+          "at": "+45m"
+        }
+      ]
+    },
+    "nobody-answers-for-24-hours": {
+      "description": "A question nobody answers is re-checked every 15 minutes, never mistaken for an answer, and after 24 hours the triage owner is told.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "needsInfo"
+        },
+        {
+          "kind": "ai",
+          "node": "ask",
+          "recording": "q1"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives, a question is asked",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "checked, no reply",
+          "at": "+15m"
+        },
+        {
+          "kind": "tick",
+          "label": "checked, no reply",
+          "at": "+23h"
+        },
+        {
+          "kind": "tick",
+          "label": "24 hours have passed",
+          "at": "+24h5m"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing more happens",
+          "at": "+24h20m"
+        }
+      ]
+    },
+    "a-bot-message-is-not-a-reply": {
+      "description": "A message from a bot in the thread does not wake the report; the next person's answer does.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "withReply"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "needsInfo",
+          "calls": 1
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "ask",
+          "recording": "q1"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives, a question is asked",
+          "at": "+0m"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "at": "+5m",
+          "author": "helper-bot@example.test",
+          "text": "Thanks for the report, a person will look.",
+          "bot": true
+        },
+        {
+          "kind": "tick",
+          "label": "only a bot has written",
+          "at": "+15m"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "at": "+20m",
+          "author": "reporter-1@example.test",
+          "text": "Chrome 118 on a Mac"
+        },
+        {
+          "kind": "tick",
+          "label": "a person answered",
+          "at": "+30m"
+        }
+      ]
+    },
+    "a-thread-that-cannot-be-read-is-not-an-empty-thread": {
+      "description": "At the deadline a failed read of the thread (Slack is down) is not a timeout and spends no attempt: the item keeps waiting, the next read finds nobody and only then is the owner told.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "needsInfo"
+        },
+        {
+          "kind": "ai",
+          "node": "ask",
+          "recording": "q1"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives, a question is asked",
+          "at": "+0m"
+        },
+        {
+          "kind": "threadReadFails",
+          "count": 3,
+          "retryable": true,
+          "message": "Slack is down"
+        },
+        {
+          "kind": "tick",
+          "label": "the deadline, and Slack is down",
+          "at": "+24h5m"
+        },
+        {
+          "kind": "tick",
+          "label": "Slack is back, nobody answered",
+          "at": "+24h20m"
+        }
+      ]
+    },
+    "each-route-ends-where-the-story-says": {
+      "description": "A not-a-bug report is dismissed with its reason, a clear but risky report goes to a person, and a report a person already claimed is dismissed. None of them reaches Builder or the grouping step.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "mixed"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "threeReports",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "three reports arrive"
+        }
+      ]
+    },
+    "two-related-reports-become-one-task": {
+      "description": "Two reports of one defect share a group and make one Builder task on one branch; a third, unrelated report gets its own. Every reporter is told in their own thread, once, and all three rows are handed off.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "related"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "threeReports",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "three reports arrive"
+        }
+      ]
+    },
+    "a-start-confirmed-on-another-branch-is-never-announced": {
+      "description": "When Builder answers with a branch other than the one asked for, the reporter is not told it started: a person is warned and the report waits for them.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "otherBranch"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "Builder answers with another branch",
+          "at": "+0m"
+        }
+      ]
+    },
+    "a-failed-tell-is-retried-without-starting-builder-again": {
+      "description": "When Builder started but the reply in the thread failed because Slack is down, the item is set aside for a retry; five minutes on it tells the reporter without starting Builder again.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "failsOnce",
+          "calls": 3
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 2
+        },
+        {
+          "kind": "tick",
+          "label": "Builder started, Slack is down",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "the report is offered again",
+          "at": "+6m"
+        }
+      ]
+    },
+    "a-refused-start-fails-the-item-and-nobody-is-told": {
+      "description": "When the dispatch gate in the start operation refuses, the item fails, the reporter is not told Builder started, and a person gets it at once: the same start would be refused again, so it is not tried again when the report is offered later.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "refused"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "refused, a person is told",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "offered again, not tried again",
+          "at": "+5m"
+        },
+        {
+          "kind": "tick",
+          "label": "offered again, still not tried again",
+          "at": "+10m"
+        }
+      ]
+    },
+    "a-timed-out-start-is-never-retried-blind": {
+      "description": "A start that may have happened goes to a person at once and is never started again, even when the report is offered again: one group never makes two branches.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "timedOut"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 2
+        },
+        {
+          "kind": "tick",
+          "label": "the start times out",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "the report is offered again",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-tick-that-dies-after-asking-never-asks-twice": {
+      "description": "A tick that dies right after posting the question leaves a started receipt; the next tick that takes the report finds it and hands the report to a person instead of asking again.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "diesAfterCall",
+          "calls": 1
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "needsInfo"
+        },
+        {
+          "kind": "ai",
+          "node": "ask",
+          "recording": "q1"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 2
+        },
+        {
+          "kind": "tick",
+          "label": "the tick dies after asking",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "the lease has run out, the report is taken again",
+          "at": "+20m"
+        }
+      ]
+    },
+    "a-parked-report-is-found-again-after-a-restart": {
+      "description": "The process restarts while a report waits; the reply is still found and the report goes on to Builder.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "withReply"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "needsInfo",
+          "calls": 1
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "ask",
+          "recording": "q1"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives, a question is asked",
+          "at": "+0m"
+        },
+        {
+          "kind": "restart"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "at": "+12m",
+          "author": "reporter-1@example.test",
+          "text": "Chrome 118 on a Mac"
+        },
+        {
+          "kind": "tick",
+          "label": "the reply is seen",
+          "at": "+15m"
+        }
+      ]
+    },
+    "the-same-group-offered-again-is-not-started-twice": {
+      "description": "A report offered again after it was handed off finds its receipts done: Builder is not started a second time and the thread is not told a second time.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 2
+        },
+        {
+          "kind": "tick",
+          "label": "handed off",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "offered again",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-dry-run-asks-nothing-and-parks-nothing": {
+      "description": "A dry run assesses the report but sends no question, parks nothing and writes no status.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "needsInfo"
+        },
+        {
+          "kind": "ai",
+          "node": "ask",
+          "recording": "q1"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "dry run",
+          "at": "+0m",
+          "mode": "dry"
+        }
+      ]
+    }
+  }
+}

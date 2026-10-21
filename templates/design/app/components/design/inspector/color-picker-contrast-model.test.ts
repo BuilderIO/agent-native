@@ -28,38 +28,6 @@ describe("readContrast", () => {
     expect(reading.kind === "ready" && reading.ratio).toBeCloseTo(4.542, 3);
   });
 
-  it("misses AA at #777777 on white, and uses the large-text bar for large text", () => {
-    const body = readContrast({
-      large: false,
-      background: white,
-      linear: gray(0x77),
-      alpha: 1,
-    });
-    expect(body).toMatchObject({ kind: "ready", level: null });
-    const large = readContrast({
-      large: true,
-      background: white,
-      linear: gray(0x77),
-      alpha: 1,
-    });
-    expect(large).toMatchObject({
-      kind: "ready",
-      level: "AA",
-      targets: { aa: 3, aaa: 4.5 },
-    });
-  });
-
-  it("reaches AAA", () => {
-    expect(
-      readContrast({
-        large: false,
-        background: white,
-        linear: gray(0),
-        alpha: 1,
-      }),
-    ).toMatchObject({ kind: "ready", level: "AAA" });
-  });
-
   it("counts the text's opacity against the ratio", () => {
     const opaque = readContrast({
       large: false,

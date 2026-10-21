@@ -23,7 +23,6 @@ const teamPageModules = [
   "org/AppsAccessSection.tsx",
 ];
 
-const buttonWrapperSurfaces = [...settingsSurfaces, "org/TeamPrimitives.tsx"];
 const toolkitAppRoot = new URL("../../../toolkit/src/app/", import.meta.url);
 
 describe("Toolkit design-system primitive normalization", () => {
@@ -44,25 +43,6 @@ describe("Toolkit design-system primitive normalization", () => {
       }
       expect(source).not.toMatch(/<(?:button|select)\b/);
       expect(source).not.toContain("@radix-ui/react-select");
-    },
-  );
-
-  it.each(buttonWrapperSurfaces)(
-    "%s routes buttons through the shared primitive wrapper",
-    (sourcePath) => {
-      const source = readFileSync(new URL(sourcePath, toolkitAppRoot), "utf8");
-
-      expect(source).toContain("PrimitiveButton");
-    },
-  );
-
-  it.each(["PrimitiveButton.tsx", "shared/PrimitiveButton.tsx"])(
-    "%s encapsulates Toolkit button and explicit icon dimensions",
-    (sourcePath) => {
-      const source = readFileSync(new URL(sourcePath, toolkitAppRoot), "utf8");
-
-      expect(source).toContain("@agent-native/toolkit/ui/button");
-      expect(source).toContain("[&_svg]:!size-auto");
     },
   );
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   expectedCanvasScaleAtZoomPercent,
+  readStableZoomUntilAvailable,
   readZoomUntilAvailable,
   waitForAnimationFrame,
 } from "./runtime-budget-zoom.ts";
@@ -14,6 +15,36 @@ describe("runtime budget zoom waits", () => {
   it("rejects unavailable or invalid zoom measurements", () => {
     expect(expectedCanvasScaleAtZoomPercent(null, 60, 13)).toBeNull();
     expect(expectedCanvasScaleAtZoomPercent(53.3, 0, 13)).toBeNull();
+  });
+
+  it("waits for the route, canvas transform, and readout to agree and settle", async () => {
+    let now = 0;
+    const reads = [
+      { routeZoom: 60, canvasScale: 60, labelZoom: 55 },
+      { routeZoom: 60, canvasScale: 53.3, labelZoom: 60 },
+      { routeZoom: 60, canvasScale: 53.3, labelZoom: 60 },
+      { routeZoom: 60, canvasScale: 53.3, labelZoom: 60 },
+    ];
+    const waits: number[] = [];
+
+    const zoom = await readStableZoomUntilAvailable(
+      async () =>
+        reads.shift() ?? {
+          routeZoom: null,
+          canvasScale: null,
+          labelZoom: null,
+        },
+      async (milliseconds) => {
+        waits.push(milliseconds);
+        now += milliseconds;
+      },
+      1_000,
+      async () => {},
+      () => now,
+    );
+
+    expect(zoom).toEqual({ routeZoom: 60, canvasScale: 53.3, labelZoom: 60 });
+    expect(waits).toEqual([100, 100, 100]);
   });
 
   it("retries an unreadable zoom before its deadline", async () => {

@@ -8,6 +8,7 @@ import {
   acquireCollabPollBoost,
   noteCollabPollActivity,
   registerCollabActivityResource,
+  registerOwnCollabSource,
   subscribeSyncEvents,
   type SyncEvent,
 } from "../client/use-db-sync.js";
@@ -343,6 +344,7 @@ class CollabDocConnection {
     }
     if (!this.requestSource && sub.requestSource) {
       this.requestSource = sub.requestSource;
+      registerOwnCollabSource(sub.requestSource);
     }
     if (!this.started) {
       this.started = true;
