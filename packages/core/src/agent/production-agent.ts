@@ -8,8 +8,10 @@ import {
   MAX_AGENT_REQUEST_ATTACHMENTS,
   parseQueueMessageInput,
   persistableFilePart,
+  fingerprintAgentSubmissionAttachment,
   submissionAttachmentsMatch,
   type AgentQueuedMessage,
+  type AgentRequestAttachment,
   type AgentRunOptions,
   type AgentSubmissionReference,
   type AgentSubmissionPayload,
@@ -11419,12 +11421,49 @@ interface AdmittedQueuedMessagePromotion {
   options?: AgentRunOptions;
 }
 
+interface QueueableAttachments {
+  attachments: FilePart[];
+  requestAttachments: AgentRequestAttachment[];
+}
+
+function requestAttachmentIndexes(
+  submission: AgentSubmissionPayload,
+  attachments: AgentChatAttachment[],
+): Set<number> | null {
+  const unmatched = new Set(attachments.map((_, index) => index));
+  for (const identity of submission.attachments ?? []) {
+    const match = [...unmatched].find(
+      (index) =>
+        fingerprintAgentSubmissionAttachment(attachments[index], "file") ===
+        identity.fingerprint,
+    );
+    if (match === undefined) return null;
+    unmatched.delete(match);
+  }
+
+  const requestIndexes = new Set<number>();
+  for (const identity of submission.requestAttachments ?? []) {
+    const match = [...unmatched].find(
+      (index) =>
+        attachments[index]?.type === "image" &&
+        fingerprintAgentSubmissionAttachment(attachments[index], "image") ===
+          identity.fingerprint,
+    );
+    if (match === undefined) return null;
+    unmatched.delete(match);
+    requestIndexes.add(match);
+  }
+  return requestIndexes;
+}
+
 async function queueableAttachments(
   attachments: AgentChatAttachment[],
   ownerEmail: string | null,
-): Promise<FilePart[] | null> {
+  requestAttachmentIndexes: ReadonlySet<number>,
+): Promise<QueueableAttachments | null> {
   const files: FilePart[] = [];
-  for (const attachment of attachments) {
+  const requestFiles: AgentRequestAttachment[] = [];
+  for (const [index, attachment] of attachments.entries()) {
     if (attachment.displayOnly === true) continue;
     if (
       attachment.type !== "image" &&
@@ -11490,10 +11529,23 @@ async function queueableAttachments(
         }
       }
     }
+    if (requestAttachmentIndexes.has(index)) {
+      if (!part.url || !hasDurableAttachmentUrl(part.url)) return null;
+      const referenceUrl = attachment.referenceUrl;
+      if (referenceUrl && !hasDurableAttachmentUrl(referenceUrl)) return null;
+      requestFiles.push({
+        type: "image",
+        name: attachment.name,
+        ...(mediaType ? { contentType: mediaType } : {}),
+        url: part.url,
+        ...(referenceUrl ? { referenceUrl } : {}),
+      });
+      continue;
+    }
     if (!part.url && !part.fileId) return null;
     files.push(part);
   }
-  return files;
+  return { attachments: files, requestAttachments: requestFiles };
 }
 
 function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
@@ -11781,6 +11833,7 @@ export function queuedPromotionAttachments(
         : {}),
       ...(data ? { data } : {}),
       ...(imageUrl ? { url: imageUrl } : {}),
+      ...(referenceUrl ? { referenceUrl } : {}),
       ...(fileId ? { id: fileId } : {}),
     } as AgentChatAttachment;
     const replacementIndex =
@@ -12732,6 +12785,13 @@ export function createProductionAgentHandler(
       setResponseStatus(event, 400);
       return { error: "submissionPayload does not match this message" };
     }
+    const submissionRequestAttachmentIndexes = submissionPayload
+      ? requestAttachmentIndexes(submissionPayload, requestAttachments)
+      : new Set<number>();
+    if (!submissionRequestAttachmentIndexes) {
+      setResponseStatus(event, 400);
+      return { error: "submissionPayload does not match this message" };
+    }
     let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
     let requestDisplayMessage = displayMessage;
     let requestContext = buildRecentUserRequestContext({
@@ -12778,6 +12838,7 @@ export function createProductionAgentHandler(
       const attachmentsForQueue = await queueableAttachments(
         requestAttachments,
         ownerEmail,
+        submissionRequestAttachmentIndexes,
       );
       if (!attachmentsForQueue) {
         if (
@@ -12809,8 +12870,11 @@ export function createProductionAgentHandler(
             threadId,
             id: agentKitMessageId,
             text: queueText,
-            ...(attachmentsForQueue.length
-              ? { attachments: attachmentsForQueue }
+            ...(attachmentsForQueue.attachments.length
+              ? { attachments: attachmentsForQueue.attachments }
+              : {}),
+            ...(attachmentsForQueue.requestAttachments.length
+              ? { requestAttachments: attachmentsForQueue.requestAttachments }
               : {}),
             ...(submittedReferences.length
               ? { references: submittedReferences }
@@ -12877,8 +12941,11 @@ export function createProductionAgentHandler(
         id: agentKitMessageId,
         threadId,
         createdAt: new Date().toISOString(),
-        ...(attachmentsForQueue.length
-          ? { attachments: attachmentsForQueue }
+        ...(attachmentsForQueue.attachments.length
+          ? { attachments: attachmentsForQueue.attachments }
+          : {}),
+        ...(attachmentsForQueue.requestAttachments.length
+          ? { requestAttachments: attachmentsForQueue.requestAttachments }
           : {}),
       };
       let result;

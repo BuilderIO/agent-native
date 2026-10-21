@@ -4160,6 +4160,174 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("preserves optimized image references through busy admission and promotion", async () => {
+    const threadId = "thread-optimized-image-admission";
+    const messageId = "message-optimized-image-admission";
+    const referenceUrl = "https://files.example.test/reference-original.png";
+    const resizedUrl = "https://files.example.test/reference-resized.jpg";
+    const reference = {
+      type: "file" as const,
+      name: "reference-original.png",
+      mediaType: "image/png",
+      contentType: "image/png",
+      url: referenceUrl,
+      referenceOnly: true,
+    };
+    const optimizedImage = {
+      type: "image" as const,
+      name: "reference-original.png",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${JPEG_BASE64}`,
+      url: resizedUrl,
+      referenceUrl,
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Use this reference",
+      attachments: [
+        {
+          type: "file" as const,
+          name: reference.name,
+          mediaType: reference.mediaType,
+          fingerprint: fingerprintAgentSubmissionAttachment(reference, "file"),
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image" as const,
+          name: optimizedImage.name,
+          contentType: optimizedImage.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(
+            optimizedImage,
+            "image",
+          ),
+        },
+      ],
+    };
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const upload = vi
+      .spyOn(fileUploadRegistry, "uploadFile")
+      .mockResolvedValue({
+        url: "https://files.example.test/reference-resized-durable.jpg",
+        provider: "test-storage",
+      });
+    const append = vi
+      .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+      .mockImplementation(
+        async (_id, mutation) =>
+          ({
+            queuedMessages: [
+              mutation.type === "append" ? mutation.message : {},
+            ] as never,
+            message: mutation.type === "append" ? mutation.message : undefined,
+          }) as never,
+      );
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-optimized-image-admission",
+          agentKitMessageId: messageId,
+          submissionPayload,
+          attachments: [reference, optimizedImage],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(202);
+      expect(result).toMatchObject({
+        state: "queued",
+        message: { id: messageId },
+      });
+      expect(upload).toHaveBeenCalledOnce();
+      const mutation = append.mock.calls[0]?.[1];
+      expect(mutation?.type).toBe("append");
+      if (mutation?.type === "append") {
+        expect(mutation.message.attachments).toEqual([
+          {
+            type: "file",
+            name: reference.name,
+            mediaType: reference.mediaType,
+            url: referenceUrl,
+          },
+        ]);
+        expect(mutation.message.requestAttachments).toEqual([
+          {
+            type: "image",
+            name: optimizedImage.name,
+            contentType: optimizedImage.contentType,
+            url: "https://files.example.test/reference-resized-durable.jpg",
+            referenceUrl,
+          },
+        ]);
+        expect(
+          queuedPromotionAttachments(
+            mutation.message.attachments ?? [],
+            mutation.message.requestAttachments,
+          ),
+        ).toEqual([
+          {
+            type: "file",
+            name: reference.name,
+            mediaType: reference.mediaType,
+            contentType: reference.contentType,
+            url: referenceUrl,
+            referenceOnly: true,
+          },
+          {
+            type: "image",
+            name: optimizedImage.name,
+            contentType: optimizedImage.contentType,
+            url: "https://files.example.test/reference-resized-durable.jpg",
+            referenceUrl,
+          },
+        ]);
+      }
+    } finally {
+      preUpload.mockRestore();
+      upload.mockRestore();
+      append.mockRestore();
+      readReceipt.mockRestore();
+      resolveThreadAccess.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
   it("rejects mismatched attachments before a free-slot run can dispatch", async () => {
     const threadId = "thread-attachment-identity-mismatch";
     const messageId = "message-attachment-identity-mismatch";
