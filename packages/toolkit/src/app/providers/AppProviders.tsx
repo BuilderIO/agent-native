@@ -13,7 +13,6 @@ import {
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
 } from "@agent-native/core/client/theme";
-import { useThemeFamily } from "@agent-native/core/client/ui";
 import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
 import { useAgentEngineConfigured } from "@agent-native/core/client/use-agent-engine-configured";
 import { useSession } from "@agent-native/core/client/use-session";
@@ -95,6 +94,8 @@ export interface AppProvidersProps {
    * theme by toggling `.dark` on the mount node instead.
    */
   ownsDocument?: boolean;
+
+  enableThemeFamily?: boolean;
 
   documentTitleFallback?: string;
 
@@ -398,10 +399,7 @@ function AgentEngineReadinessBootstrap() {
   return null;
 }
 
-function ThemeFamilySync() {
-  useThemeFamily();
-  return null;
-}
+const ThemeFamilySync = React.lazy(() => import("./ThemeFamilySync.js"));
 
 function ProvidersInner({
   queryClient,
@@ -513,6 +511,7 @@ export function AppProviders({
   i18n,
   documentTitleFallback,
   ownsDocument = true,
+  enableThemeFamily = false,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? (
@@ -549,7 +548,11 @@ export function AppProviders({
         children
       ) : (
         <>
-          {ownsDocument ? <ThemeFamilySync /> : null}
+          {ownsDocument && enableThemeFamily ? (
+            <React.Suspense fallback={null}>
+              <ThemeFamilySync />
+            </React.Suspense>
+          ) : null}
           <AgentEngineReadinessBootstrap />
           <FirstRunOnboardingStartupGate
             suppressSurface={skipFirstRunOnboarding}
