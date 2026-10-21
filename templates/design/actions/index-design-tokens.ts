@@ -15,6 +15,7 @@ import {
   type DesignToken,
 } from "../shared/design-token-types.js";
 import {
+  isSafeCssTokenValue,
   isDirectCssVarSelectionKey,
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
@@ -67,7 +68,7 @@ export default defineAction({
       source: unknown,
       opts?: { accumulate?: boolean },
     ): void => {
-      if (typeof value !== "string") return;
+      if (typeof value !== "string" || !isSafeCssTokenValue(value)) return;
       const src = typeof source === "string" && source ? source : "Unknown";
 
       const existing = opts?.accumulate ? rawTokens.get(cssVar) : undefined;

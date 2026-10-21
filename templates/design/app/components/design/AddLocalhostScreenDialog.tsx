@@ -149,7 +149,19 @@ export function AddLocalhostScreenDialog({
     canAddRoutes &&
     customPath.length > 0 &&
     !routes.some((route) => route.path === customPath);
+  const showNoLocalConnectionHint =
+    !connectionsFetching &&
+    !connectionError &&
+    availableConnections.length === 0 &&
+    search.trim().length === 0;
+  const showNoDiscoveredRoutes =
+    !connectionsFetching &&
+    !connectionError &&
+    Boolean(selectedConnection) &&
+    routes.length === 0 &&
+    search.trim().length === 0;
   const showNoRoutes =
+    search.trim().length > 0 &&
     !connectionsFetching &&
     !connectionError &&
     filteredRoutes.length === 0 &&
@@ -281,6 +293,16 @@ export function AddLocalhostScreenDialog({
             {connectionError ? (
               <CommandEmpty role="alert">
                 {t("common.genericError")}
+              </CommandEmpty>
+            ) : null}
+            {showNoLocalConnectionHint ? (
+              <CommandEmpty>
+                {t("designEditor.import.localDescription")}
+              </CommandEmpty>
+            ) : null}
+            {showNoDiscoveredRoutes ? (
+              <CommandEmpty>
+                {t("designEditor.addLocalhostScreen.noDiscoveredRoutes")}
               </CommandEmpty>
             ) : null}
             {showNoRoutes ? (

@@ -1,14 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { withExecutionFence } from "../agent/execution-fence.js";
 import type { DbExec, DbExecStatement } from "../db/client.js";
 
 const executeMock = vi.hoisted(() => vi.fn());
 const transactionMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: executeMock, transaction: transactionMock }),
-}));
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  const db = {
+    execute: async (q: string | { sql: string }) =>
+      storeLedgerResult(typeof q === "string" ? q : q.sql) ?? executeMock(q),
+    transaction: transactionMock,
+  };
+  return {
+    getDbExec: () => db,
+  };
+});
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn(),
@@ -32,6 +42,7 @@ vi.mock("../secrets/crypto.js", () => ({
 }));
 
 import {
+  deleteAutomationRunsWithDb,
   finishAutomationRun,
   attachAutomationRunThread,
   listLatestAutomationRuns,
@@ -77,6 +88,26 @@ describe("automation run history", () => {
     );
   });
 
+  it("cleans all history for a reusable owner and automation name through the caller transaction", async () => {
+    const transactionExecute = vi.fn().mockResolvedValue({
+      rows: [],
+      rowsAffected: 3,
+    });
+
+    await deleteAutomationRunsWithDb(
+      { execute: transactionExecute },
+      "alice@example.com",
+      "digest",
+    );
+
+    expect(transactionExecute).toHaveBeenCalledWith({
+      sql: expect.stringContaining(
+        "DELETE FROM automation_runs WHERE owner = ? AND automation = ?",
+      ),
+      args: ["alice@example.com", "digest"],
+    });
+  });
+
   it("reports a failed required thread attachment when no history row was written", async () => {
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
     await expect(
@@ -97,6 +128,102 @@ describe("automation run history", () => {
     ).rejects.toMatchObject({
       errorCode: "background_automation_history_write_failed",
     });
+  });
+
+  it("commits an automation outcome under the current execution lease", async () => {
+    const statements: DbExecStatement[] = [];
+    executeMock.mockImplementation(async (statement: DbExecStatement) => {
+      statements.push(statement);
+      if (statement.sql.includes("FROM agent_execution_leases")) {
+        return { rows: [{ generation: "4" }], rowsAffected: 1 };
+      }
+      if (statement.sql.startsWith("SELECT owner")) {
+        return {
+          rows: [row({ run_id: "worker", thread_id: "thread" })],
+          rowsAffected: 1,
+        };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await withExecutionFence(
+      {
+        threadId: "thread",
+        turnId: "turn",
+        runId: "worker",
+        generation: "4",
+      },
+      () => finishAutomationRun("run-1", "success"),
+    );
+
+    expect(transactionMock).toHaveBeenCalledOnce();
+    expect(statements.map(({ sql }) => sql)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("FROM agent_execution_leases"),
+        expect.stringContaining("SELECT owner"),
+        expect.stringContaining("UPDATE automation_runs"),
+      ]),
+    );
+    const update = statements.find(({ sql }) =>
+      sql.startsWith("UPDATE automation_runs"),
+    );
+    expect(update?.sql).toContain("AND run_id IS NOT DISTINCT FROM ?");
+    expect(update?.sql).toContain("AND thread_id IS NOT DISTINCT FROM ?");
+    expect(update?.args).toEqual(expect.arrayContaining(["worker", "thread"]));
+    expect(emitMock).toHaveBeenCalledOnce();
+  });
+
+  it("fences history links to the active run and thread", async () => {
+    const statements: DbExecStatement[] = [];
+    executeMock.mockImplementation(async (statement: DbExecStatement) => {
+      statements.push(statement);
+      if (statement.sql.includes("FROM agent_execution_leases")) {
+        return { rows: [{ generation: "4" }], rowsAffected: 1 };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await withExecutionFence(
+      {
+        threadId: "thread",
+        turnId: "turn",
+        runId: "worker",
+        generation: "4",
+      },
+      () => attachAutomationRunThread("run-1", "thread", "worker"),
+    );
+
+    const update = statements.find(({ sql }) =>
+      sql.startsWith("UPDATE automation_runs"),
+    );
+    expect(transactionMock).toHaveBeenCalledOnce();
+    expect(update?.sql).toContain("AND run_id IS NOT DISTINCT FROM ?");
+    expect(update?.sql).toContain("AND thread_id IS NOT DISTINCT FROM ?");
+    expect(update?.args).toEqual(expect.arrayContaining(["worker", "thread"]));
+  });
+
+  it("does not write automation history after the execution lease is lost", async () => {
+    const statements: DbExecStatement[] = [];
+    executeMock.mockImplementation(async (statement: DbExecStatement) => {
+      statements.push(statement);
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(
+      withExecutionFence(
+        {
+          threadId: "thread",
+          turnId: "turn",
+          runId: "worker",
+          generation: "4",
+        },
+        () => finishAutomationRun("run-1", "success"),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.sql).toContain("FROM agent_execution_leases");
+    expect(emitMock).not.toHaveBeenCalled();
   });
 
   it.each(["success", "interrupted"] as const)(
@@ -1140,7 +1267,114 @@ describe("automation run history", () => {
     );
     const prune = statements.find((sql) => sql.startsWith("DELETE FROM"));
     expect(prune).toBeDefined();
-    expect(prune).toContain("LIMIT 50");
+    expect(prune).toContain("OFFSET 50");
     expect(prune).toContain("NOT IN ('evaluating', 'pending', 'sending')");
+  });
+
+  it("evicts skipped ticks before success and error rows and never drops unfinished or alerting rows", async () => {
+    await startAutomationRun({
+      owner: "alice@example.com",
+      automation: "digest",
+      path: "jobs/digest.md",
+    });
+    const prune = executeMock.mock.calls
+      .map((call) => call[0] as DbExecStatement)
+      .find((statement) => statement.sql.startsWith("DELETE FROM"))!;
+
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT PRIMARY KEY, owner TEXT NOT NULL, automation TEXT NOT NULL,
+        status TEXT NOT NULL, started_at BIGINT NOT NULL, finished_at BIGINT,
+        failure_alert_state TEXT
+      )`);
+      const insert = (
+        id: string,
+        status: string,
+        startedAt: number,
+        finishedAt: number | null,
+        alertState: string | null = null,
+        automation = "digest",
+      ) =>
+        pglite.query(
+          `INSERT INTO automation_runs (id, owner, automation, status, started_at, finished_at, failure_alert_state)
+           VALUES ($1, 'alice@example.com', $2, $3, $4, $5, $6)`,
+          [id, automation, status, startedAt, finishedAt, alertState],
+        );
+      // Oldest first: one unfinished row, the oldest real run (still alerting),
+      // then 50 newer real runs and 30 skipped ticks newer than every real run.
+      await insert("running", "running", 1, null);
+      await insert("real-oldest", "error", 2, 2, "pending");
+      for (let n = 1; n <= 50; n++)
+        await insert(`real-${n}`, "success", 2 + n, 2 + n);
+      for (let n = 1; n <= 30; n++)
+        await insert(`skipped-${n}`, "skipped", 100 + n, 100 + n);
+      await insert("other", "skipped", 1, 1, null, "other-automation");
+
+      await pglite.query(prune.sql, prune.args);
+
+      const kept = (
+        await pglite.query<{ id: string }>(
+          `SELECT id FROM automation_runs WHERE automation = 'digest' ORDER BY id`,
+        )
+      ).rows.map((row) => row.id);
+      // Real runs fill the 50-row budget, so every skipped tick goes. The
+      // alerting row is past the budget but is not deleted while it alerts.
+      expect(kept).toContain("running");
+      expect(kept).toContain("real-oldest");
+      expect(kept.filter((id) => id.startsWith("real-"))).toHaveLength(51);
+      expect(kept.some((id) => id.startsWith("skipped-"))).toBe(false);
+      const other = await pglite.query(
+        `SELECT id FROM automation_runs WHERE automation = 'other-automation'`,
+      );
+      expect(other.rows).toHaveLength(1);
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it("keeps the newest skipped ticks when real runs leave room in the retention budget", async () => {
+    await startAutomationRun({
+      owner: "alice@example.com",
+      automation: "digest",
+      path: "jobs/digest.md",
+    });
+    const prune = executeMock.mock.calls
+      .map((call) => call[0] as DbExecStatement)
+      .find((statement) => statement.sql.startsWith("DELETE FROM"))!;
+
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT PRIMARY KEY, owner TEXT NOT NULL, automation TEXT NOT NULL,
+        status TEXT NOT NULL, started_at BIGINT NOT NULL, finished_at BIGINT,
+        failure_alert_state TEXT
+      )`);
+      for (let n = 1; n <= 40; n++)
+        await pglite.query(
+          `INSERT INTO automation_runs VALUES ($1, 'alice@example.com', 'digest', 'success', $2, $2, NULL)`,
+          [`real-${n}`, n],
+        );
+      for (let n = 1; n <= 30; n++)
+        await pglite.query(
+          `INSERT INTO automation_runs VALUES ($1, 'alice@example.com', 'digest', 'skipped', $2, $2, NULL)`,
+          [`skipped-${n}`, 100 + n],
+        );
+
+      await pglite.query(prune.sql, prune.args);
+
+      const kept = (
+        await pglite.query<{ id: string }>(
+          `SELECT id FROM automation_runs ORDER BY started_at`,
+        )
+      ).rows.map((row) => row.id);
+      expect(kept).toHaveLength(50);
+      expect(kept.filter((id) => id.startsWith("real-"))).toHaveLength(40);
+      expect(kept.filter((id) => id.startsWith("skipped-"))).toEqual(
+        Array.from({ length: 10 }, (_, n) => `skipped-${n + 21}`),
+      );
+    } finally {
+      await pglite.close();
+    }
   });
 });

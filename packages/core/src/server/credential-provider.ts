@@ -179,6 +179,7 @@ export function readDeployCredentialEnv(key: string): string | undefined {
   ) {
     return undefined;
   }
+  if (isNetlifyAiGatewayInjected(key)) return undefined;
   return process.env[key] || undefined;
 }
 
@@ -195,6 +196,40 @@ const DEPLOY_LLM_PROVIDER_ENV_KEYS = new Set([
   "TYPESAFE_API_KEY",
   "VOYAGE_API_KEY",
 ]);
+
+const DEPLOY_LLM_BASE_URL_ENV_KEYS = new Set([
+  "ANTHROPIC_BASE_URL",
+  "GOOGLE_GEMINI_BASE_URL",
+  "OPENAI_BASE_URL",
+  "OPENROUTER_BASE_URL",
+  "TYPESAFE_BASE_URL",
+]);
+
+const NETLIFY_AI_GATEWAY_PATH = "/.netlify/ai";
+
+/**
+ * Netlify AI Gateway fills these provider vars at runtime on every credit-based
+ * team that has not opted out, billing the deployer's Netlify credits. They
+ * are not a model credential the app owner chose, and counting them hides the
+ * Connect AI step. Netlify never writes them when the owner set their own, so a
+ * match is always the gateway's.
+ */
+function isNetlifyAiGatewayInjected(key: string): boolean {
+  const value = process.env[key]?.trim();
+  if (!value) return false;
+  if (DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key)) {
+    const gatewayKey = process.env.NETLIFY_AI_GATEWAY_KEY?.trim();
+    return !!gatewayKey && value === gatewayKey;
+  }
+  if (DEPLOY_LLM_BASE_URL_ENV_KEYS.has(key)) {
+    const gatewayUrl = process.env.NETLIFY_AI_GATEWAY_URL?.trim();
+    return (
+      value.includes(NETLIFY_AI_GATEWAY_PATH) ||
+      (!!gatewayUrl && value.startsWith(gatewayUrl))
+    );
+  }
+  return false;
+}
 
 const BUILDER_CREDITS_DEPLOY_ENV_KEYS = new Set([
   "BUILDER_GATEWAY_SPACE_ID",
@@ -249,6 +284,7 @@ export function canUseDeployCredentialFallbackForRequest(
   ) {
     return false;
   }
+  if (key && isNetlifyAiGatewayInjected(key)) return false;
   if (key && BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) {
     return isTrustedSelfHostedRuntime();
   }
@@ -458,6 +494,36 @@ const NOT_FOUND: ScopedCredentialResult = {
   lookupFailed: false,
 };
 
+/**
+ * Host hook: an app hosted inside Builder, with Builder as its identity
+ * provider, already holds the caller's own Builder credential. When a
+ * provider answers for the request's user, every Builder-backed feature (the
+ * AI gateway engine, Fusion containers, credits, deploys) uses that
+ * credential instead of a stored per-app Builder connection, so Builder sees
+ * and authorizes the real user in the real space.
+ */
+export interface DelegatedBuilderCredentials {
+  /** The user's own bearer (e.g. a Builder Firebase ID token). */
+  token: string;
+  /** The Builder space the user is acting in. */
+  spaceId: string;
+  userId?: string;
+}
+
+let delegatedBuilderCredentials:
+  | ((email: string) => DelegatedBuilderCredentials | null)
+  | null = null;
+
+export function registerDelegatedBuilderCredentials(
+  provider: ((email: string) => DelegatedBuilderCredentials | null) | null,
+): void {
+  delegatedBuilderCredentials = provider;
+}
+
+function delegatedFor(email: string): DelegatedBuilderCredentials | null {
+  return delegatedBuilderCredentials?.(email) ?? null;
+}
+
 async function resolveScopedBuilderCredential(
   key: string,
   identity?: BuilderCredentialLookupIdentity,
@@ -465,6 +531,15 @@ async function resolveScopedBuilderCredential(
   const email =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return NOT_FOUND;
+  const delegated = delegatedFor(email);
+  if (delegated) {
+    if (key === "BUILDER_PRIVATE_KEY") {
+      return { value: delegated.token, source: "user", lookupFailed: false };
+    }
+    if (key === "BUILDER_PUBLIC_KEY") {
+      return { value: delegated.spaceId, source: "user", lookupFailed: false };
+    }
+  }
 
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";
@@ -666,6 +741,25 @@ async function resolveScopedBuilderCredentials(
   const email =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return { creds: null, lookupFailed: false };
+  const delegated = delegatedFor(email);
+  if (delegated) {
+    return {
+      creds: {
+        privateKey: delegated.token,
+        publicKey: delegated.spaceId,
+        userId: delegated.userId ?? null,
+        orgName: null,
+        orgKind: null,
+        subscription: null,
+        subscriptionLevel: null,
+        subscriptionName: null,
+        isEnterprise: null,
+        isFreeAccount: null,
+        source: "user",
+      },
+      lookupFailed: false,
+    };
+  }
 
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";

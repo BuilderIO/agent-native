@@ -27,6 +27,7 @@ import {
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import {
@@ -1272,6 +1273,7 @@ export default defineAction({
       prompt: prompt ?? "Pick a direction",
       variantSetId,
       count: screens.length,
+      _receipt: designOutputWriteReceipt(designId, savedScreenCount),
       screens,
       path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
       embed: true,

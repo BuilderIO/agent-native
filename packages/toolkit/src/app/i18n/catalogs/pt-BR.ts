@@ -175,6 +175,28 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Política de Privacidade",
   "onboarding.builderConsentAnd": "e",
   "onboarding.builderExistingAccount": "Tenho uma conta Builder.io",
+  "onboarding.creditsTitle":
+    "Experimente com 60 créditos Agent gratuitos por mês",
+  "onboarding.creditsTitleClips":
+    "Experimente com armazenamento de vídeo grátis e 60 créditos Agent por mês",
+  "onboarding.creditsActivate": "Ativar créditos gratuitos",
+  "onboarding.creditsFinePrint":
+    "Isto criará uma conta Builder.io gratuita. Ao continuar, você concorda com nossos",
+  "onboarding.creditsMoreInfo": "Mais informações",
+  "onboarding.creditsSubtitle":
+    "Ganhe créditos gratuitos para LLMs, Jev, armazenamento e muito mais para este app em um clique com a Builder.io.",
+  "onboarding.creditsLearnMore": "Saiba mais",
+  "onboarding.creditsSkip": "Pular",
+  "onboarding.creditsSkipConfirmTitle": "Tem certeza?",
+  "onboarding.creditsSkipConfirmBody":
+    "Apps Agent-Native precisam de um LLM conectado para usar a maioria dos recursos. A maioria das funcionalidades não funciona sem um.",
+  "onboarding.creditsSkipGoBack": "Voltar",
+  "onboarding.creditsSkipAnyway": "Pular mesmo assim",
+  "onboarding.creditsUseCustomKeys": "Usar chaves personalizadas",
+  "onboarding.creditsAboutLabel": "Sobre os créditos gratuitos",
+  "onboarding.creditsActivating": "Ativando créditos gratuitos",
+  "onboarding.creditsActivatingTooltip":
+    "A Builder oferece créditos gratuitos para LLMs, Jev, armazenamento e muito mais, para você usar os recursos de IA deste app sem suas próprias chaves.",
   "onboarding.builderConnect": "Conectar Builder.io",
   "onboarding.builderActivating":
     "Ativando os créditos gratuitos do Builder.io",
@@ -216,6 +238,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Vetores semânticos",
   "onboarding.capability.embeddings.why":
     "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
+  "onboarding.capability.webSearch.label": "Pesquisa na Web",
+  "onboarding.capability.webSearch.keySummary": "Pesquisa na Web",
+  "onboarding.capability.webSearch.why":
+    "Pesquise em fontes públicas atuais na Web. A pesquisa gerenciada pelo Builder usa os créditos de IA incluídos, sem exigir uma chave de pesquisa separada.",
   "onboarding.capability.systemOne.why":
     "Jev é um modelo de decisão opcional que ajuda a escolher ferramentas e habilidades relevantes antes da primeira solicitação de modelo do agente.",
   "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
@@ -433,6 +459,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "Pesquisando...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Ontem",
+  "history.mine": "Meus chats",
+  "history.sharedWithYou": "Compartilhados com você",
+  "history.showAll": "Mostrar tudo",
+  "history.showLess": "Mostrar menos",
+  "history.loadMore": "Ver mais",
+  "history.loadingMore": "Carregando...",
+  "history.retry": "Tentar novamente",
+  "history.loadFailed": "Não foi possível carregar os chats",
+  "history.loadMoreFailed": "Não foi possível carregar mais chats",
+  "history.emptyMine": "Nenhum chat ainda",
+  "history.emptyShared": "Nenhum chat foi compartilhado com você",
+  "history.ownedBy": "Proprietário: {{name}}",
+  "history.accessDirect": "Compartilhados com você",
+  "history.accessOrganization": "Compartilhado com sua organização",
   "integrations.availableSection": "Integrações disponíveis",
   "integrations.connectedSection": "Conectado",
   "integrations.goToApiKeys": "Ir para chaves de API",
@@ -682,7 +722,28 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, contatos, empresas, negócios, tickets, análise de clientes",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "Quando um HubSpot MCP Auth App gerenciado pelo espaço de trabalho estiver configurado, qualquer membro pode conectar uma conta pessoal do HubSpot com OAuth e PKCE. Caso contrário, crie o app no HubSpot Developer Platform antes de conectar. O conector OAuth existente do HubSpot continua disponível para as ações do app.",
+    "Cada pessoa conecta sua própria conta do HubSpot depois que um proprietário configura o HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "Configurar o HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "Um proprietário configura o HubSpot MCP uma vez. Depois, cada membro conecta a própria conta.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus":
+    "É necessário configurar o espaço de trabalho",
+  "mcpIntegrations.hubspot.setupChecking":
+    "Verificando a configuração do espaço de trabalho…",
+  "mcpIntegrations.hubspot.setupUnavailable":
+    "Status da configuração indisponível",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "Não foi possível verificar as configurações OAuth do espaço de trabalho. Tente novamente.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Crie um HubSpot MCP Auth App e adicione o ID e o segredo do cliente em Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Peça a um proprietário para criar um HubSpot MCP Auth App e adicionar o ID e o segredo do cliente em Agent-Native settings → API keys. Depois da configuração, você poderá conectar sua própria conta do HubSpot.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Entre em um espaço de trabalho antes de conectar o HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Adicionar credenciais do espaço de trabalho",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Verificar novamente",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Tentar novamente",
   "mcpIntegrations.catalog.pylon.description":
     "Pesquise e atualize dados de suporte do Pylon.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -994,6 +1055,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "Trabalhou",
   "tool.workedFor": "Trabalhou por {{duration}}",
   "widget.chart": "Gráfico",
+  "widget.chartActions": "Ações do gráfico",
+  "widget.dataSources": "Fontes de dados",
+  "widget.tableActions": "Ações da tabela",
   "widget.dataChart": "Gráfico de dados",
   "widget.dataInsights": "Insights de dados",
   "widget.dataTable": "Tabela de dados",
@@ -1554,6 +1618,17 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "Visualizador",
   "share.viewerDescription": "Pode visualizar",
   "share.userGroup": "Grupo de usuários",
+  "share.ownedByAnyone": "De qualquer pessoa",
+  "share.ownedByMe": "Meus",
+  "share.sharedWithMe": "Compartilhado comigo",
+  "share.confirmOrganizationTitle": "Compartilhar com sua organização?",
+  "share.confirmOrganizationTitleNamed": "Compartilhar com {{organization}}?",
+  "share.confirmOrganizationDescription":
+    "Todas as pessoas da sua organização, incluindo novos membros, poderão abrir isto e ver tudo o que há nele, incluindo mensagens, arquivos e outros conteúdos. Você pode alterar isso depois.",
+  "share.confirmOrganizationDescriptionNamed":
+    "Todas as pessoas de {{organization}}, incluindo novos membros, poderão abrir isto e ver tudo o que há nele, incluindo mensagens, arquivos e outros conteúdos. Você pode alterar isso depois.",
+  "share.confirmOrganizationAction": "Compartilhar com a organização",
+  "share.confirmOrganizationSharing": "Compartilhando...",
   "settings.emailTitle": "E-mail",
   "settings.emailChange": "Alterar e-mail",
   "settings.emailChanging": "Enviando...",
@@ -1958,6 +2033,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "Agente via {{protocol}}",
   "settings.audit.allApps": "Todos os apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Aprovação",
+  "settings.audit.approvalAgentChat": "Aprovado no chat do agente",
+  "settings.audit.approvalA2AReview":
+    "Aprovado na página de revisão de ações do agente",
+  "settings.audit.approvalMcpClient":
+    "Aceito pelo cliente MCP (não verificado)",
   "settings.audit.changedBy": "Alterado por",
   "settings.audit.close": "Fechar",
   "settings.audit.empty": "Nenhuma alteração neste período.",
@@ -1971,9 +2052,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "Últimos 90 dias",
   "settings.audit.loadFailed": "Não foi possível carregar o log de auditoria.",
   "settings.audit.loading": "Carregando log de auditoria",
+  "settings.audit.oauthClient": "Cliente OAuth",
   "settings.audit.onBehalfOf": "Em nome de",
   "settings.audit.range": "Período",
   "settings.audit.refused": "Recusado",
+  "settings.audit.reportedClient": "Cliente autodeclarado",
   "settings.audit.result": "Resultado",
   "settings.audit.showMore": "Mostrar mais {{count}}",
   "settings.audit.succeeded": "Concluído",
@@ -2046,9 +2129,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "Mais informações",
   "settingsOrg.general.workspaceUrl": "URL do espaço de trabalho",
   "settingsOrg.general.workspaceUrlDescription":
-    "Envie os membros para este espaço de trabalho a partir de outra implantação.",
+    "Conecte o diretório de apps desta organização entre implantações.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Os membros que chegarem a outra implantação vão para este espaço de trabalho em vez de um app vazio.",
+    "Outras implantações usam esta URL para descobrir apps do espaço de trabalho. Os membros não são redirecionados automaticamente.",
   "settingsOrg.general.editWorkspaceUrl": "Editar URL do espaço de trabalho",
   "settingsOrg.general.removeWorkspaceUrl": "Remover URL do espaço de trabalho",
   "settingsOrg.general.setWorkspaceUrl": "Definir URL",
@@ -2065,6 +2148,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Definido. Permite que os apps deste espaço de trabalho verifiquem uns aos outros.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Não definido. Permite que os apps deste espaço de trabalho verifiquem uns aos outros.",
+  "settingsOrg.auth.memberDelegation":
+    "Delegação de identidade de membros da organização",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Apps conectados que tenham este segredo compartilhado da organização podem declarar a identidade de qualquer membro atual ao chamar este app. Este app verifica a lista de membros em tempo real e limita o acesso delegado à organização às permissões do nível de membro.",
   "settingsOrg.auth.secretNotSetValue": "Não definido",
   "settingsOrg.auth.manage": "Gerenciar",
   "settingsOrg.auth.reveal": "Mostrar",
@@ -2136,6 +2223,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "Idioma e região",
   "settingsShell.account.languageDescription":
     "Vale para todos os seus dispositivos.",
+  "settingsShell.account.appearance": "Aparência",
+  "settingsShell.account.themeFamily": "Família do tema",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "Cores originais do app",
+  "settingsShell.account.themeFamilySaveError":
+    "Não foi possível atualizar o tema. Tente novamente.",
   "settingsShell.account.manage": "Gerenciar",
   "settingsShell.account.name": "Nome",
   "settingsShell.account.nameDescription":
@@ -2784,6 +2877,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Modelo padrão do app",
   "settingsShell.search.backgroundAgents": "Agentes em segundo plano",
   "settingsShell.search.browserAutomation": "Automação de navegador",
+  "settingsShell.search.webSearch": "Pesquisa na Web",
   "settingsShell.search.connectedAgents": "Agentes conectados",
   "settingsShell.search.database": "Banco de dados",
   "settingsShell.search.defaultModel": "Modelo padrão",
@@ -2924,6 +3018,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Faz alterações no código a partir da produção.",
   "settingsInfra.whyBrowser":
     "Permite que o agente use um navegador em produção.",
+  "settingsInfra.whyWebSearch":
+    "Encontra informações públicas atuais e documentação oficial.",
   "settingsInfra.provider": "Provedor",
   "settingsInfra.keyOrg": "Usa a chave do {{provider}} da organização.",
   "settingsInfra.manageKey": "Gerenciar chave",
@@ -3088,6 +3184,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Desconectado aqui. O acesso pode continuar ativo no ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "Apps de código aberto podem ser usados sem solicitação quando executados localmente com um callback de loopback; não é necessário solicitar acesso de parceiro. Apps hospedados em *.agent-native.com precisam da aprovação do operador e de um callback hospedado.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Use o acesso ao plano do ChatGPT com uma conta pessoal. No desenvolvimento local, defina access.autoCreateDefaultOrg como false antes de entrar.",
+  "settingsModel.chatgptScopeUnresolved":
+    "O app não conseguiu confirmar o escopo da sua conta. Conclua a configuração local e recarregue as configurações.",
   "settingsModel.chatgptNoDirectUse":
     "Reconecte e permita o acesso direto aos modelos para usar esta conta do ChatGPT.",
   "settingsModel.chatgptReconnect": "Reconectar",
@@ -3289,6 +3389,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "O relatório não foi anexado.",
   "reportProblem.agentMessage":
     "Algo deu errado no app. Use o relatório do problema anexado para explicar o que aconteceu.",
+  "unsupportedDevice.title": "Abra em uma tela maior",
+  "unsupportedDevice.titleDeck": "Abra esta apresentação em uma tela maior",
+  "unsupportedDevice.titleDesign": "Abra este design em uma tela maior",
+  "unsupportedDevice.body":
+    "O {{app}} funciona em iPad, tablets e computadores. Envie o link para você mesmo para continuar por lá.",
+  "unsupportedDevice.email": "Enviar o link por e-mail",
+  "unsupportedDevice.share": "Compartilhar link",
+  "unsupportedDevice.copy": "Copiar link",
+  "unsupportedDevice.copyFailed": "Não foi possível copiar o link",
+  "unsupportedDevice.copied": "Link copiado",
+  "unsupportedDevice.emailSubject": "Abra o {{app}} no seu computador",
 };
 
 export default messages;

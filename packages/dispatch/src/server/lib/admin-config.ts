@@ -1,8 +1,9 @@
-import { getAppConfig } from "@agent-native/core/server";
+import { getAppConfig, getRequestContext } from "@agent-native/core/server";
 
 export function isDispatchEnvironmentAdmin(email: string): boolean {
   const normalized = email.trim().toLowerCase();
   if (!normalized) return false;
+  if (getRequestContext()?.a2aIdentityAssurance === "org-member") return false;
   const config = getAppConfig().dispatch;
   return [
     ...config.adminEmails,

@@ -1217,6 +1217,171 @@ describe("Chromium reparent matrix", () => {
     },
   );
 
+  it(
+    "resolves source-equivalent selectors when inserting into the running DOM",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+        <main>
+          <section data-agent-native-edit-overlay="test-overlay"></section>
+          <section id="hero">The other matching identity</section>
+          <section data-loc="hero" id="anchor" style="display:flex;gap:12px;padding:16px">
+            <div id="existing">Existing</div>
+          </section>
+        </main>
+      </body></html>`);
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 42,
+              html: '<div data-agent-native-node-id="source-equivalent-copy">Copy</div>',
+              anchorSelector:
+                "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+              anchorSourceId: "hero",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+
+      const result = await page.evaluate(() => {
+        const copy = document.querySelector(
+          '[data-agent-native-node-id="source-equivalent-copy"]',
+        );
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        return {
+          parent: copy?.parentElement?.id ?? null,
+          applied: messages.some(
+            (message) =>
+              message.type === "runtime-structure-insert-applied" &&
+              message.requestId === "42",
+          ),
+        };
+      });
+      expect(result.parent).toBe("anchor");
+      expect(result.applied).toBe(true);
+      await page.close();
+    },
+  );
+
+  it(
+    "rejects a source-equivalent anchor outside its repeated source-id matches",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+        <main>
+          <section id="first" data-loc="shared-anchor">First source instance</section>
+          <section id="second" data-loc="shared-anchor">Second source instance</section>
+          <section id="unrelated" style="display:flex">Unrelated sibling</section>
+        </main>
+      </body></html>`);
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 48,
+              html: '<div data-agent-native-node-id="unrelated-copy">Copy</div>',
+              anchorSelector:
+                "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(3)",
+              anchorSourceId: "shared-anchor",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+
+      const result = await page.evaluate(() => {
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        return {
+          copyCount: document.querySelectorAll(
+            '[data-agent-native-node-id="unrelated-copy"]',
+          ).length,
+          rejected: messages.find(
+            (message) =>
+              message.type === "runtime-structure-insert-rejected" &&
+              message.requestId === 48,
+          ),
+          applied: messages.some(
+            (message) =>
+              message.type === "runtime-structure-insert-applied" &&
+              message.requestId === "48",
+          ),
+        };
+      });
+      expect(result).toEqual({
+        copyCount: 0,
+        rejected: expect.objectContaining({ reason: "anchor-unresolved" }),
+        applied: false,
+      });
+      await page.close();
+    },
+  );
+
+  it("measures a source-equivalent selector in the running DOM", async () => {
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 700 },
+    });
+    await page.setContent(`<!doctype html><html><body>
+      <main>
+        <button data-agent-native-edit-overlay="test-overlay"></button>
+        <button id="measure-target" style="width:80px;height:40px">Target</button>
+      </main>
+    </body></html>`);
+    await installBridge(page);
+
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: window,
+          data: {
+            type: "agent-native:measure-selection",
+            correlationId: "source-equivalent-measurement",
+            screenId: "matrix-screen",
+            selector:
+              "source-equivalent:v1:body > main:nth-of-type(1) > button:nth-of-type(1)",
+          },
+        }),
+      );
+    });
+
+    const measured = await page.evaluate(() => {
+      const messages = (
+        window as Window & { __matrixMessages?: Record<string, unknown>[] }
+      ).__matrixMessages!;
+      return messages.find(
+        (message) =>
+          message.type === "agent-native:selection-measured" &&
+          message.correlationId === "source-equivalent-measurement",
+      )?.payload as Record<string, unknown> | null;
+    });
+    expect(measured).toMatchObject({
+      tagName: "button",
+      sourceId: "measure-target",
+    });
+    await page.close();
+  });
+
   it("applies a validated grid cell to host-supplied cross-screen markup", async () => {
     const page = await browser.newPage({
       viewport: { width: 900, height: 700 },

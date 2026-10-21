@@ -1,5 +1,14 @@
 export { FileReference } from "./extensions/FileReference.js";
 export {
+  ComposerContextBanner,
+  type ComposerContextBannerProps,
+} from "./ComposerContextBanner.js";
+export {
+  ComposerModePicker,
+  type ComposerModeOption,
+  type ComposerModePickerProps,
+} from "./ComposerModePicker.js";
+export {
   useComposerDefaultActions,
   mergeComposerMenuItems,
 } from "./ComposerPlusMenu.js";
@@ -20,6 +29,7 @@ export {
   type ComposerContextPickerSelection,
   type ComposerContextPickerFooterAction,
 } from "./ComposerContextMenu.js";
+export { ComposerContextPickerDialog } from "./ComposerContextPickerDialog.js";
 export {
   areComposerContextItemsReady,
   composerContextFits,

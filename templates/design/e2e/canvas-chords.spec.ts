@@ -1,5 +1,6 @@
 import { type BrowserContext, type Locator, type Page } from "@playwright/test";
 
+import { buildCodeLayerProjection } from "../shared/code-layer";
 import { appPath, designFrame, panTargetIntoUnobscuredCanvas } from "./helpers";
 import {
   childrenOf,
@@ -10,6 +11,8 @@ import {
   type App,
   type SavedNode,
 } from "./rails";
+
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
 const CHORDS_HTML = `<!doctype html>
 <html lang="en">
@@ -371,6 +374,81 @@ async function renderedBounds(app: App, nodeId: string) {
   });
 }
 
+async function relativeLayerStyleSnapshot(app: App, nodeId: string) {
+  return app.node(nodeId).evaluate((element) => {
+    const inline = element.style;
+    const computed = getComputedStyle(element);
+    const parent = element.parentElement;
+    if (!parent) throw new Error("Relative layer has no containing element");
+    const parentStyle = getComputedStyle(parent);
+    return {
+      dir: element.getAttribute("dir"),
+      inline: {
+        position: inline.position,
+        left: inline.left,
+        right: inline.right,
+        top: inline.top,
+        bottom: inline.bottom,
+        width: inline.width,
+        height: inline.height,
+        marginTop: inline.marginTop,
+        marginRight: inline.marginRight,
+        marginBottom: inline.marginBottom,
+        marginLeft: inline.marginLeft,
+        backgroundColor: inline.backgroundColor,
+        gridRowStart: inline.gridRowStart,
+        gridColumnStart: inline.gridColumnStart,
+        justifySelf: inline.justifySelf,
+        alignSelf: inline.alignSelf,
+      },
+      computed: {
+        direction: computed.direction,
+        position: computed.position,
+        left: computed.left,
+        right: computed.right,
+        top: computed.top,
+        bottom: computed.bottom,
+        width: computed.width,
+        height: computed.height,
+        marginTop: computed.marginTop,
+        marginRight: computed.marginRight,
+        marginBottom: computed.marginBottom,
+        marginLeft: computed.marginLeft,
+        backgroundColor: computed.backgroundColor,
+        gridRowStart: computed.gridRowStart,
+        gridColumnStart: computed.gridColumnStart,
+        justifySelf: computed.justifySelf,
+        alignSelf: computed.alignSelf,
+      },
+      parent: {
+        direction: parentStyle.direction,
+        display: parentStyle.display,
+        width: parentStyle.width,
+        height: parentStyle.height,
+        gridTemplateColumns: parentStyle.gridTemplateColumns,
+        gridTemplateRows: parentStyle.gridTemplateRows,
+      },
+    };
+  });
+}
+
+async function savedInlinePositionStyle(app: App, node: SavedNode | undefined) {
+  if (!node) throw new Error("Expected saved layer is missing");
+  const cssText = node.attrs.style;
+  if (cssText === undefined) throw new Error("Saved layer has no inline style");
+  return app.page.evaluate((styleText) => {
+    const element = document.createElement("div");
+    element.setAttribute("style", styleText);
+    return {
+      position: element.style.position,
+      left: element.style.left,
+      right: element.style.right,
+      top: element.style.top,
+      bottom: element.style.bottom,
+    };
+  }, cssText);
+}
+
 async function replaceGeometryTextTarget(
   app: App,
   context: BrowserContext,
@@ -485,6 +563,18 @@ async function selectLayerRow(page: Page, name: string): Promise<void> {
     button.locator('xpath=ancestor::*[@role="treeitem"][1]'),
   ).toHaveAttribute("aria-selected", "true");
   await input.fill("");
+}
+
+async function clickWithModifier(
+  page: Page,
+  point: { x: number; y: number },
+): Promise<void> {
+  await page.keyboard.down(MOD);
+  try {
+    await page.mouse.click(point.x, point.y);
+  } finally {
+    await page.keyboard.up(MOD);
+  }
 }
 
 async function pressEditorKey(page: Page, key: string): Promise<void> {
@@ -1196,6 +1286,398 @@ test.describe("canvas chords", () => {
     }
   });
 
+  test("Keyboard repeat paste moves relative roots 16px under an RTL containing block", async ({
+    app,
+    context,
+  }) => {
+    const html = `<!doctype html><html lang="en"><body style="margin:0">
+      <main data-agent-native-node-id="rtl-root" data-agent-native-layer-name="RTL root" dir="rtl" style="position:relative;display:grid;grid-template-columns:900px;grid-template-rows:600px;width:900px;height:600px;direction:rtl">
+        <div data-agent-native-node-id="rtl-source" data-agent-native-layer-name="RTL relative source" dir="ltr" style="grid-area:1 / 1;justify-self:start;align-self:start;position:relative;left:40.25px;right:7.75px;top:12.5px;bottom:9.25px;width:60px;height:30px;margin:0;background:#22c55e"></div>
+      </main>
+    </body></html>`;
+    const { id, before } = await openChords(app, html);
+    const record = await app.savedRecord(id);
+    const fileId = record.files.find(
+      (file) => file.filename === "index.html",
+    )!.id;
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: new URL(appPath("/")).origin,
+    });
+
+    const sourceBounds = await renderedBounds(app, "rtl-source");
+    expect(sourceBounds).toMatchObject({ width: 60, height: 30 });
+    await selectLayerRow(app.page, "RTL relative source");
+    await pressEditorKey(app.page, "ControlOrMeta+C");
+    const copiedEntries = await app.page.evaluate(async () => {
+      const clipboardPath = "/app/lib/design-clipboard.ts";
+      const { readDesignClipboardPayloadFromSystem } = await import(
+        clipboardPath
+      );
+      const result = await readDesignClipboardPayloadFromSystem();
+      if (result.status !== "found") {
+        throw new Error(`The copied Design payload is ${result.status}`);
+      }
+      return result.value.payload.entries.map(
+        (entry: {
+          rootNodeId?: string;
+          sourceRelativeOffset?: { x: number; y: number } | null;
+        }) => ({
+          rootNodeId: entry.rootNodeId,
+          sourceRelativeOffset: entry.sourceRelativeOffset,
+        }),
+      );
+    });
+    expect(copiedEntries).toEqual([
+      { rootNodeId: "rtl-source", sourceRelativeOffset: { x: -7.75, y: 12.5 } },
+    ]);
+    await pressEditorKey(app.page, "ControlOrMeta+V");
+    await expect
+      .poll(async () => (await app.savedNodes(id)).size)
+      .toBe(before.size + 1);
+    await app.settled();
+    const afterFirstPaste = await app.savedNodes(id);
+    const firstCopy = newNodes(before, afterFirstPaste)[0]!;
+    expect(firstCopy).toBeDefined();
+    expect(firstCopy.parent).toBe("rtl-root");
+    expect(firstCopy.attrs["data-agent-native-layer-name"]).toBe(
+      "RTL relative source",
+    );
+    expectOnlyChanged(before, afterFirstPaste, [firstCopy.id]);
+    const sourceStyle = await relativeLayerStyleSnapshot(app, "rtl-source");
+    expect(sourceStyle).toMatchObject({
+      dir: "ltr",
+      inline: {
+        position: "relative",
+        left: "40.25px",
+        right: "7.75px",
+        top: "12.5px",
+        bottom: "9.25px",
+        width: "60px",
+        height: "30px",
+        marginTop: "0px",
+        marginRight: "0px",
+        marginBottom: "0px",
+        marginLeft: "0px",
+        gridRowStart: "1",
+        gridColumnStart: "1",
+        justifySelf: "start",
+        alignSelf: "start",
+      },
+      computed: {
+        direction: "ltr",
+        position: "relative",
+        left: "40.25px",
+        right: "7.75px",
+        top: "12.5px",
+        bottom: "9.25px",
+        width: "60px",
+        height: "30px",
+        marginTop: "0px",
+        marginRight: "0px",
+        marginBottom: "0px",
+        marginLeft: "0px",
+        backgroundColor: "rgb(34, 197, 94)",
+        gridRowStart: "1",
+        gridColumnStart: "1",
+        justifySelf: "start",
+        alignSelf: "start",
+      },
+      parent: {
+        direction: "rtl",
+        display: "grid",
+        width: "900px",
+        height: "600px",
+        gridTemplateColumns: "900px",
+        gridTemplateRows: "600px",
+      },
+    });
+    expect(await relativeLayerStyleSnapshot(app, firstCopy.id)).toEqual(
+      sourceStyle,
+    );
+    const firstCopyBounds = await renderedBounds(app, firstCopy.id);
+    expect(firstCopyBounds).toEqual(sourceBounds);
+
+    const movedHtml = await app.page.evaluate(
+      ({ source, nodeId }) => {
+        const document = new DOMParser().parseFromString(source, "text/html");
+        const target = Array.from(
+          document.querySelectorAll<HTMLElement>("[data-agent-native-node-id]"),
+        ).find(
+          (element) =>
+            element.getAttribute("data-agent-native-node-id") === nodeId,
+        );
+        if (!target) throw new Error("The first relative copy is missing");
+        const right = Number.parseFloat(target.style.right);
+        const top = Number.parseFloat(target.style.top);
+        if (!Number.isFinite(right) || !Number.isFinite(top)) {
+          throw new Error("The first relative copy has unreadable insets");
+        }
+        target.style.right = `${right - 16}px`;
+        target.style.top = `${top + 16}px`;
+        return `<!doctype html>${document.documentElement.outerHTML}`;
+      },
+      { source: await app.savedHtml(id), nodeId: firstCopy.id },
+    );
+    const move = await app.page.request.post(
+      appPath("/_agent-native/actions/update-file"),
+      { data: { id: fileId, content: movedHtml } },
+    );
+    expect(move.ok(), `update-file ${move.status()}`).toBe(true);
+    await expect
+      .poll(async () => {
+        const moved = (await app.savedNodes(id)).get(firstCopy.id);
+        const position = await savedInlinePositionStyle(app, moved);
+        return { right: position.right, top: position.top };
+      })
+      .toEqual({ right: "-8.25px", top: "28.5px" });
+    const expectedMovedBounds = {
+      ...firstCopyBounds,
+      x: firstCopyBounds.x + 16,
+      y: firstCopyBounds.y + 16,
+    };
+    await expect
+      .poll(() => renderedBounds(app, firstCopy.id))
+      .toEqual(expectedMovedBounds);
+    await expect
+      .poll(() =>
+        app.node(firstCopy.id).evaluate((element) => {
+          const styles = getComputedStyle(element);
+          return {
+            position: styles.position,
+            right: styles.right,
+            top: styles.top,
+          };
+        }),
+      )
+      .toEqual({
+        position: "relative",
+        right: "-8.25px",
+        top: "28.5px",
+      });
+    const firstMovedBounds = await renderedBounds(app, firstCopy.id);
+    expect(firstMovedBounds.x).toBe(firstCopyBounds.x + 16);
+    expect(firstMovedBounds.y).toBe(firstCopyBounds.y + 16);
+    expect(await renderedBounds(app, "rtl-source")).toEqual(sourceBounds);
+    const firstMovedNodes = await app.savedNodes(id);
+    expect(styleOf(firstMovedNodes.get("rtl-source"))).toEqual(
+      styleOf(before.get("rtl-source")),
+    );
+    expect(
+      await savedInlinePositionStyle(app, firstMovedNodes.get(firstCopy.id)),
+    ).toMatchObject({
+      position: "relative",
+      right: "-8.25px",
+      top: "28.5px",
+    });
+
+    const firstCopyLayer = buildCodeLayerProjection(await app.savedHtml(id), {
+      source: { kind: "design-file", fileId },
+    }).nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === firstCopy.id,
+    );
+    expect(firstCopyLayer).toBeDefined();
+    const layerSearch = app.page.getByPlaceholder("Search layers...");
+    await expect(layerSearch).toBeVisible();
+    await layerSearch.fill("RTL relative source");
+    const firstCopyButton = app.page
+      .getByRole("tree", { name: "Layers" })
+      .locator(
+        `[data-layer-row-button][data-layer-node-id="${firstCopyLayer!.id}"]`,
+      );
+    await expect(firstCopyButton).toBeVisible();
+    await firstCopyButton.click();
+    await expect
+      .poll(() => app.selectedLayers())
+      .toEqual(["RTL relative source"]);
+    await expect
+      .poll(() =>
+        firstCopyButton
+          .locator('xpath=ancestor::*[@role="treeitem"][1]')
+          .getAttribute("aria-selected"),
+      )
+      .toBe("true");
+    await pressEditorKey(app.page, "ControlOrMeta+V");
+    await expect
+      .poll(async () => (await app.savedNodes(id)).size)
+      .toBe(firstMovedNodes.size + 1);
+    await app.settled();
+
+    const afterRepeat = await app.savedNodes(id);
+    const secondCopy = newNodes(firstMovedNodes, afterRepeat)[0]!;
+    expect(secondCopy).toBeDefined();
+    expect(secondCopy.parent).toBe("rtl-root");
+    const secondCopyPosition = await savedInlinePositionStyle(app, secondCopy);
+    expect(secondCopyPosition.position).toBe("relative");
+    const secondBounds = await renderedBounds(app, secondCopy.id);
+    expect(secondBounds.x).toBe(firstMovedBounds.x + 16);
+    expect(secondBounds.y).toBe(firstMovedBounds.y + 16);
+    expect(styleOf(afterRepeat.get("rtl-source"))).toEqual(
+      styleOf(before.get("rtl-source")),
+    );
+    expect(await renderedBounds(app, "rtl-source")).toEqual(sourceBounds);
+    expectOnlyChanged(before, afterRepeat, [firstCopy.id, secondCopy.id]);
+    expect(secondCopyPosition).toEqual({
+      position: "relative",
+      left: "24.25px",
+      top: "44.5px",
+      right: "auto",
+      bottom: "auto",
+    });
+  });
+
+  test("Keyboard paste preserves relative roots without an anchor across screens", async ({
+    app,
+    context,
+  }) => {
+    const sourceHtml = `<!doctype html><html lang="en"><body style="margin:0">
+      <main data-agent-native-node-id="no-anchor-root" data-agent-native-layer-name="No-anchor root" dir="rtl" style="position:relative;direction:rtl;width:900px;height:600px">
+        <div data-agent-native-node-id="no-anchor-source" data-agent-native-layer-name="Relative no anchor" dir="ltr" style="position:relative;left:40.25px;right:7.75px;top:12.5px;bottom:9.25px;width:60px;height:30px;margin:0;background:#22c55e"></div>
+      </main>
+    </body></html>`;
+    const destinationHtml =
+      '<!doctype html><html lang="en"><body style="margin:0;min-height:600px"></body></html>';
+    const id = await app.seed(sourceHtml, {
+      files: { "screen-b.html": destinationHtml },
+    });
+    const { files } = await app.savedRecord(id);
+    const sourceFileId = files.find(
+      (file) => file.filename === "index.html",
+    )!.id;
+    const destinationFileId = files.find(
+      (file) => file.filename === "screen-b.html",
+    )!.id;
+    const metadata = {
+      sourceType: "inline",
+      width: 900,
+      height: 600,
+      heightMode: "fixed",
+      heightPinned: true,
+    };
+    const frames = await app.page.request.post(
+      appPath("/_agent-native/actions/update-design"),
+      {
+        data: {
+          id,
+          dataOperations: [
+            {
+              op: "set",
+              path: ["canvasFrames", sourceFileId],
+              value: { x: 0, y: 0, width: 900, height: 600 },
+            },
+            {
+              op: "set",
+              path: ["canvasFrames", destinationFileId],
+              value: { x: 1000, y: 0, width: 900, height: 600 },
+            },
+            {
+              op: "set",
+              path: ["screenMetadata", sourceFileId],
+              value: metadata,
+            },
+            {
+              op: "set",
+              path: ["screenMetadata", destinationFileId],
+              value: metadata,
+            },
+          ],
+        },
+      },
+    );
+    expect(frames.ok(), `update-design ${frames.status()}`).toBe(true);
+    await app.page.goto(appPath(`/design/${id}?view=overview`), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(app.page.locator("[data-screen-shell]")).toHaveCount(2);
+    await app.zoomToFit();
+    await app.settled();
+
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: new URL(appPath("/")).origin,
+    });
+
+    const sourceBounds = await app.designRect("no-anchor-source", "index.html");
+    const sourceNodesBefore = await app.savedNodes(id, "index.html");
+    const sourcePoint = await app.pagePoint(
+      sourceBounds.x + sourceBounds.width / 2,
+      sourceBounds.y + sourceBounds.height / 2,
+      "index.html",
+    );
+    await app.page.mouse.click(sourcePoint.x, sourcePoint.y);
+    await expect
+      .poll(() => app.selectedLayers())
+      .toEqual(["Relative no anchor"]);
+    await app.page.keyboard.press("ControlOrMeta+C");
+    await app.page
+      .locator(`[data-frame-id="${destinationFileId}"] [data-frame-label]`)
+      .click();
+    await expect
+      .poll(() => new URL(app.page.url()).searchParams.get("screen"))
+      .toBe(destinationFileId);
+    await app.page.keyboard.press("Escape");
+    await expect.poll(() => app.selectedLayers()).toEqual([]);
+    await expect
+      .poll(() => new URL(app.page.url()).searchParams.get("screen"))
+      .toBe(destinationFileId);
+    await expect(
+      app.page.locator(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${destinationFileId}"]`,
+      ),
+    ).toBeVisible();
+    const destinationBefore = await app.savedNodes(id, "screen-b.html");
+    expect(
+      [...destinationBefore.values()].filter(
+        (node) =>
+          node.tag !== "html" && node.tag !== "head" && node.tag !== "body",
+      ),
+    ).toEqual([]);
+    await app.page.keyboard.press("ControlOrMeta+V");
+    await expect
+      .poll(async () => (await app.savedNodes(id, "screen-b.html")).size)
+      .toBe(destinationBefore.size + 1);
+    await app.settled();
+
+    const sourceNodes = await app.savedNodes(id, "index.html");
+    const destinationNodes = await app.savedNodes(id, "screen-b.html");
+    const pastedNodes = newNodes(destinationBefore, destinationNodes);
+    expect(pastedNodes).toHaveLength(1);
+    const pasted = pastedNodes[0];
+    expect(pasted).toBeDefined();
+    expect(pasted!.attrs["data-agent-native-layer-name"]).toBe(
+      "Relative no anchor",
+    );
+    expect(pasted!.parent).toBe(
+      [...destinationNodes.values()].find((node) => node.tag === "body")?.id,
+    );
+    expect(await savedInlinePositionStyle(app, pasted)).toMatchObject({
+      position: "relative",
+      left: "40.25px",
+      right: "7.75px",
+      top: "12.5px",
+      bottom: "9.25px",
+    });
+    expect(
+      await app.node(pasted!.id, "screen-b.html").evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return {
+          position: getComputedStyle(element).position,
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+        };
+      }),
+    ).toEqual({
+      position: "relative",
+      x: 40.25,
+      y: 12.5,
+      width: 60,
+      height: 30,
+    });
+    expect(sourceNodes).toEqual(sourceNodesBefore);
+    expectOnlyChanged(destinationBefore, destinationNodes, [pasted!.id]);
+  });
+
   test("Keyboard paste and replacement measure the active breakpoint preview", async ({
     app,
     context,
@@ -1477,11 +1959,10 @@ test.describe("canvas chords", () => {
     const { id, before } = await openChords(app, INLINE_CHILD_HTML);
     await selectLayerRow(app.page, "Holder");
     const box = (await app.node("ic-text").locator("span").boundingBox())!;
-    for (let i = 0; i < 3; i += 1) {
-      await app.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-      // Spaced out so the browser sees three single clicks, not a double/triple click.
-      await app.page.waitForTimeout(500);
-    }
+    await clickWithModifier(app.page, {
+      x: box.x + box.width / 2,
+      y: box.y + box.height / 2,
+    });
     await expect
       .poll(
         () => app.selectedLayers(),
@@ -1549,10 +2030,7 @@ test.describe("canvas chords", () => {
       ),
       "the click point is on the canvas, not the editor chrome",
     ).toBe(true);
-    for (let i = 0; i < 3; i += 1) {
-      await page.mouse.click(point.x, point.y);
-      await page.waitForTimeout(500);
-    }
+    await clickWithModifier(page, point);
 
     await expect
       .poll(
@@ -1579,7 +2057,10 @@ test.describe("canvas chords", () => {
     await selectLayerRow(app.page, "Holder");
     await pressEditorKey(app.page, `ControlOrMeta+C`);
     const box = (await app.node("ic-text").locator("span").boundingBox())!;
-    await app.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await clickWithModifier(app.page, {
+      x: box.x + box.width / 2,
+      y: box.y + box.height / 2,
+    });
     await expect
       .poll(
         () => app.selectedLayers(),

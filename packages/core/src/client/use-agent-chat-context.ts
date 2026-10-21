@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
+  AGENT_CHAT_CONTEXT_STATE_KEY,
   clearAgentChatContext,
   filterAgentChatContextItems,
   getAgentChatContextState,
@@ -13,7 +14,7 @@ import {
   type AgentChatContextSetOptions,
   type AgentChatContextState,
 } from "./agent-chat.js";
-import { useChangeVersion } from "./use-change-version.js";
+import { useChangeVersions } from "./use-change-version.js";
 
 export interface UseAgentChatContextResult extends AgentChatContextState {
   set(item: AgentChatContextSetOptions): void;
@@ -23,7 +24,10 @@ export interface UseAgentChatContextResult extends AgentChatContextState {
 }
 
 export function useAgentChatContext(enabled = true): UseAgentChatContextResult {
-  const appStateVersion = useChangeVersion("app-state");
+  const appStateVersion = useChangeVersions([
+    `app-state:${AGENT_CHAT_CONTEXT_STATE_KEY}`,
+    "app-state:*",
+  ]);
   const state = useSyncExternalStore(
     subscribeAgentChatContext,
     getAgentChatContextState,

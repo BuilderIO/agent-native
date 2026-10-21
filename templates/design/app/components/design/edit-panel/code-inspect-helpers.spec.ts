@@ -204,6 +204,15 @@ describe("openingTagOf / truncateOpeningTag / elementHtmlPreview", () => {
     );
   });
 
+  it("shows text the editor wrapped in a data-an-text span as authored", () => {
+    expect(
+      elementHtmlPreview({
+        html: `<button data-agent-native-node-id="alpha"><span data-an-text="" data-agent-native-node-id="an-1">Alpha Button</span></button>`,
+        tagName: "button",
+      }),
+    ).toBe(`<button>\n  Alpha Button\n</button>`);
+  });
+
   it("leaves tag-looking text in raw-text elements and comments untouched", () => {
     const literalTag =
       '<span style="color: red" data-agent-native-node-id="literal">Text</span>';

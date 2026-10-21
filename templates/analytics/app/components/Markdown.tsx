@@ -20,6 +20,11 @@ export default function Markdown({ content }: { content: string }) {
   return <div dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
+export function InlineMarkdownLinks({ content }: { content: string }) {
+  const html = useMemo(() => renderInlineLinks(content), [content]);
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 type MarkdownLabels = (typeof enUSMessages)["markdown"];
 
 const DEFAULT_MARKDOWN_LABELS = enUSMessages.markdown;
@@ -197,6 +202,30 @@ function renderInline(text: string): string {
         return `<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
       })
   );
+}
+
+export function renderInlineLinks(text: string): string {
+  const linkPattern = /(?<!!)\[([^\]]+)\]\(([^)]+)\)/g;
+  const out: string[] = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(linkPattern)) {
+    const index = match.index;
+    const [markdown, label, rawUrl] = match;
+    const safeUrl = sanitizeUrl(rawUrl);
+    out.push(escapeHtml(text.slice(cursor, index)));
+    if (safeUrl === "#") {
+      out.push(escapeHtml(markdown));
+    } else {
+      out.push(
+        `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">${escapeHtml(label)}</a>`,
+      );
+    }
+    cursor = index + markdown.length;
+  }
+
+  out.push(escapeHtml(text.slice(cursor)));
+  return out.join("");
 }
 
 export function renderMarkdown(

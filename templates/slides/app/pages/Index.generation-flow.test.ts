@@ -312,6 +312,13 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("Never issue parallel writes to the same deck");
   });
 
+  it("keeps slide authoring inside Slides instead of handing decks to Design", () => {
+    expect(flow).toContain("SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION,");
+    expect(generationLibSource).toContain(
+      "Keep deck generation and edits in Slides",
+    );
+  });
+
   it("keeps unreferenced decks coherent instead of inventing text-covering boxes", () => {
     expect(flow).toContain(
       "No design system or style reference was selected. Call `get-workspace-defaults`",

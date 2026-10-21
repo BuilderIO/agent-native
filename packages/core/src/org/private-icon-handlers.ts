@@ -22,6 +22,7 @@ import {
   type WorkspaceIconAuthority,
 } from "../icon-assets/workspace-transport.js";
 import { getSession } from "../server/auth.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { getOrgContext } from "./context.js";
 import { validateFederatedOrganizationMembership } from "./federation.js";
@@ -160,22 +161,13 @@ export const readWorkspacePrivateIconHandler = defineEventHandler(
       });
     }
     const [, library, orgId, assetId] = match;
-    const membership = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-          WHERE org_id = ? AND LOWER(email) = ?
-            AND federation_removal_pending_at IS NULL LIMIT 1`,
-      args: [orgId, session.email.toLowerCase()],
-    });
-    if (!membership.rows.length)
+    const role = await readOrgMemberRole(orgId, session.email);
+    if (!role)
       throw createError({
         statusCode: 404,
         message: "Workspace icon not found",
       });
-    if (
-      library &&
-      membership.rows[0]?.role !== "owner" &&
-      membership.rows[0]?.role !== "admin"
-    ) {
+    if (library && role !== "owner" && role !== "admin") {
       throw createError({
         statusCode: 404,
         message: "Workspace icon not found",

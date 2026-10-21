@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   >(),
   settings: new Map<string, Record<string, unknown>>(),
   revision: 1,
+  mutationTail: Promise.resolve(),
 }));
 
 function rowKey(provider: string, accountId: string): string {
@@ -117,9 +118,19 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
         current: Record<string, unknown> | null,
       ) => Record<string, unknown> | Promise<Record<string, unknown>>,
     ) => {
-      const next = await updater(state.settings.get(key) ?? null);
-      state.settings.set(key, structuredClone(next));
-      return structuredClone(next);
+      const previous = state.mutationTail;
+      let release!: () => void;
+      state.mutationTail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        const next = await updater(state.settings.get(key) ?? null);
+        state.settings.set(key, structuredClone(next));
+        return structuredClone(next);
+      } finally {
+        release();
+      }
     },
   ),
 }));
@@ -127,12 +138,14 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
 import {
   readOAuthCredentialState,
   resolveOAuthCredentialAccess,
+  resolveOAuthTokenBundleAccess,
   markOAuthReconnectRequired,
   revokeOAuthCredential,
   saveOAuthCredential,
   type OAuthCredential,
   type OAuthCredentialIdentity,
 } from "./lifecycle.js";
+import { replaceOAuthTokensIfRevision } from "./store.js";
 
 const identity: OAuthCredentialIdentity = {
   provider: "builder",
@@ -161,14 +174,151 @@ function credential(
   };
 }
 
+function barrier() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
 beforeEach(() => {
   state.rows.clear();
   state.settings.clear();
   state.revision = 1;
+  state.mutationTail = Promise.resolve();
   vi.clearAllMocks();
 });
 
 describe("OAuth credential lifecycle", () => {
+  it("coalesces concurrent flat token refreshes and persists the rotated bundle", async () => {
+    const sigmaIdentity: OAuthCredentialIdentity = {
+      provider: "sigma",
+      accountId: "sigma-account",
+      resource: "provider-api",
+      owner: { scope: "user", id: "Alice@Example.com" },
+    };
+    state.rows.set(rowKey("sigma", "sigma-account"), {
+      tokens: {
+        access_token: "expired-access-token",
+        refresh_token: "old-refresh-token",
+        expiry_date: Date.now() - 1_000,
+      },
+      owner: "Alice@Example.com",
+      revision: 4,
+      legacyRevision: 4,
+      storageVersion: "sigma-storage-4",
+    });
+
+    let releaseRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let refreshStarted!: () => void;
+    const refreshStartedPromise = new Promise<void>((resolve) => {
+      refreshStarted = resolve;
+    });
+    let waiterStarted!: () => void;
+    const waiterStartedPromise = new Promise<void>((resolve) => {
+      waiterStarted = resolve;
+    });
+    let nextHolder = 0;
+    const dependencies = {
+      holderId: () => `sigma-refresh-holder-${nextHolder++}`,
+      sleep: async () => {
+        waiterStarted();
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      },
+    };
+    const refresh = vi.fn(async (tokens: Record<string, unknown>) => {
+      refreshStarted();
+      await refreshGate;
+      return {
+        ...tokens,
+        access_token: "fresh-access-token",
+        refresh_token: "rotated-refresh-token",
+        expiry_date: Date.now() + 3_600_000,
+      };
+    });
+    const options = {
+      storageOwner: "Alice@Example.com",
+      shouldRefresh: (tokens: Record<string, unknown>, now: number) =>
+        typeof tokens.expiry_date === "number" &&
+        tokens.expiry_date <= now + 60_000,
+      refresh,
+      leaseMs: 3_000,
+      waitMs: 1,
+      maxWaitMs: 2_000,
+      dependencies,
+    };
+
+    const first = resolveOAuthTokenBundleAccess(sigmaIdentity, options);
+    await refreshStartedPromise;
+    const second = resolveOAuthTokenBundleAccess(sigmaIdentity, options);
+    await waiterStartedPromise;
+    expect(refresh).toHaveBeenCalledOnce();
+    releaseRefresh();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ access_token: "fresh-access-token" }),
+      expect.objectContaining({ access_token: "fresh-access-token" }),
+    ]);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(
+      state.rows.get(rowKey("sigma", "sigma-account"))?.tokens,
+    ).toMatchObject({
+      access_token: "fresh-access-token",
+      refresh_token: "rotated-refresh-token",
+    });
+  });
+
+  it("returns a newer stored bundle instead of overwriting it after refresh", async () => {
+    const sigmaIdentity: OAuthCredentialIdentity = {
+      provider: "sigma",
+      accountId: "sigma-account",
+      resource: "provider-api",
+      owner: { scope: "user", id: "alice@example.com" },
+    };
+    state.rows.set(rowKey("sigma", "sigma-account"), {
+      tokens: {
+        access_token: "expired-access-token",
+        refresh_token: "old-refresh-token",
+        expiry_date: Date.now() - 1_000,
+      },
+      owner: "alice@example.com",
+      revision: 4,
+      legacyRevision: 4,
+      storageVersion: "sigma-storage-4",
+    });
+
+    const result = await resolveOAuthTokenBundleAccess(sigmaIdentity, {
+      storageOwner: "alice@example.com",
+      shouldRefresh: (tokens: Record<string, unknown>, now: number) =>
+        typeof tokens.expiry_date === "number" &&
+        tokens.expiry_date <= now + 60_000,
+      refresh: async () => {
+        state.rows.set(rowKey("sigma", "sigma-account"), {
+          tokens: {
+            access_token: "newer-authorization-token",
+            expiry_date: Date.now() + 3_600_000,
+          },
+          owner: "alice@example.com",
+          revision: 50,
+          legacyRevision: 50,
+          storageVersion: "sigma-storage-50",
+        });
+        return {
+          access_token: "stale-refresh-token",
+          refresh_token: "stale-rotated-refresh-token",
+          expiry_date: Date.now() + 3_600_000,
+        };
+      },
+    });
+
+    expect(result.access_token).toBe("newer-authorization-token");
+    expect(replaceOAuthTokensIfRevision).not.toHaveBeenCalled();
+  });
+
   it("binds custody to provider, resource, and normalized owner", async () => {
     await saveOAuthCredential(identity, credential());
 
@@ -550,124 +700,224 @@ describe("OAuth credential lifecycle", () => {
     expect(competingRefresh).not.toHaveBeenCalled();
   });
 
-  it("reloads the winning rotation when a successful redeemer loses its lease", async () => {
-    await saveOAuthCredential(
-      identity,
-      credential({ expiresAt: Date.now() - 1 }),
-    );
-    let finishStaleRefresh!: () => void;
-    const staleRefreshGate = new Promise<void>((resolve) => {
-      finishStaleRefresh = resolve;
-    });
-    let finishWinningRefresh!: () => void;
-    const winningRefreshGate = new Promise<void>((resolve) => {
-      finishWinningRefresh = resolve;
-    });
-    const staleRefresh = vi.fn(async ({ credential: current }) => {
-      await staleRefreshGate;
-      return {
-        ...current,
-        tokens: {
-          ...current.tokens,
-          access_token: "<STALE_ACCESS_TOKEN>",
-          refresh_token: "<STALE_REFRESH_TOKEN>",
-        },
-        tokenExpiresAt: Date.now() + 3_600_000,
-      };
-    });
-    const winningRefresh = vi.fn(async ({ credential: current }) => {
-      await winningRefreshGate;
-      return {
-        ...current,
-        tokens: {
-          ...current.tokens,
-          access_token: "<WINNING_ACCESS_TOKEN>",
-          refresh_token: "<WINNING_REFRESH_TOKEN>",
-        },
-        tokenExpiresAt: Date.now() + 3_600_000,
-      };
-    });
+  it.each(["active", "abandoned"] as const)(
+    "handles lease loss after a successful redemption with an %s winning lease",
+    async (winningLease) => {
+      // The lease protocol uses this clock; real CPU delays cannot expire it.
+      // Heartbeat scheduling is exercised separately by the renewal test.
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      try {
+        const clock = { now: Date.now() };
+        await saveOAuthCredential(
+          identity,
+          credential({ expiresAt: clock.now - 1 }),
+        );
+        const staleEntered = barrier();
+        const staleRefreshGate = barrier();
+        const winnerEntered = barrier();
+        const winningRefreshGate = barrier();
+        const staleWaiting = barrier();
+        const resumeStale = barrier();
+        const staleRefresh = vi.fn(async ({ credential: current }) => {
+          staleEntered.release();
+          await staleRefreshGate.promise;
+          return {
+            ...current,
+            tokens: {
+              ...current.tokens,
+              access_token: "<STALE_ACCESS_TOKEN>",
+              refresh_token: "<STALE_REFRESH_TOKEN>",
+            },
+            tokenExpiresAt: clock.now + 3_600_000,
+          };
+        });
+        const winningRefresh = vi.fn(async ({ credential: current }) => {
+          winnerEntered.release();
+          await winningRefreshGate.promise;
+          return {
+            ...current,
+            tokens: {
+              ...current.tokens,
+              access_token: "<WINNING_ACCESS_TOKEN>",
+              refresh_token: "<WINNING_REFRESH_TOKEN>",
+            },
+            tokenExpiresAt: clock.now + 3_600_000,
+          };
+        });
 
-    const stale = resolveOAuthCredentialAccess(identity, {
-      refresh: staleRefresh,
-      leaseMs: 12,
-      waitMs: 1,
-      maxWaitMs: 1_000,
-      dependencies: { holderId: () => "stale-holder" },
-    });
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    const key = [...state.settings.keys()][0];
-    const leasedRevision = [...state.rows.values()][0]!.revision;
-    state.settings.set(key, {
-      holder: "winning-holder",
-      revision: leasedRevision,
-      expiresAt: Date.now() + 10_000,
-    });
-    const winner = resolveOAuthCredentialAccess(identity, {
-      refresh: winningRefresh,
-      leaseMs: 12,
-      waitMs: 1,
-      maxWaitMs: 1_000,
-      dependencies: { holderId: () => "winning-holder" },
-    });
-    await vi.waitFor(() => expect(winningRefresh).toHaveBeenCalledTimes(1));
-    finishStaleRefresh();
-    await new Promise((resolve) => setTimeout(resolve, 2));
-    finishWinningRefresh();
+        const stale = resolveOAuthCredentialAccess(identity, {
+          refresh: staleRefresh,
+          leaseMs: 12,
+          waitMs: 1,
+          maxWaitMs: 1_000,
+          dependencies: {
+            holderId: () => "stale-holder",
+            now: () => clock.now,
+            sleep: async () => {
+              staleWaiting.release();
+              await resumeStale.promise;
+            },
+          },
+        });
+        await staleEntered.promise;
+        const key = [...state.settings.keys()][0];
+        const leasedRevision = [...state.rows.values()][0]!.revision;
+        state.settings.set(key, {
+          holder: "winning-holder",
+          revision: leasedRevision,
+          expiresAt: clock.now + 10_000,
+        });
+        const winner = resolveOAuthCredentialAccess(identity, {
+          refresh: winningRefresh,
+          leaseMs: 12,
+          waitMs: 1,
+          maxWaitMs: 1_000,
+          dependencies: {
+            holderId: () => "winning-holder",
+            now: () => clock.now,
+          },
+        });
+        await winnerEntered.promise;
+        expect(state.settings.get(key)).toEqual({
+          holder: "winning-holder",
+          revision: leasedRevision,
+          expiresAt: clock.now + 12,
+        });
+        if (winningLease === "abandoned") clock.now += 13;
+        staleRefreshGate.release();
+        await staleWaiting.promise;
+        await expect(
+          readOAuthCredentialState(identity, { now: clock.now }),
+        ).resolves.toMatchObject({
+          kind: "expired",
+          revision: leasedRevision,
+          credential: {
+            tokens: {
+              access_token: "<ACCESS_TOKEN>",
+              refresh_token: "<REFRESH_TOKEN>",
+            },
+          },
+        });
 
-    await expect(Promise.all([stale, winner])).resolves.toEqual([
-      expect.objectContaining({ accessToken: "<WINNING_ACCESS_TOKEN>" }),
-      expect.objectContaining({ accessToken: "<WINNING_ACCESS_TOKEN>" }),
-    ]);
-    expect(staleRefresh).toHaveBeenCalledTimes(1);
-    expect(winningRefresh).toHaveBeenCalledTimes(1);
-    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
-      kind: "connected",
-      credential: {
-        tokens: { refresh_token: "<WINNING_REFRESH_TOKEN>" },
-      },
-    });
-  });
+        if (winningLease === "abandoned") {
+          resumeStale.release();
+          await expect(stale).resolves.toMatchObject({
+            accessToken: null,
+            state: { kind: "reconnect_required" },
+          });
+          winningRefreshGate.release();
+          await expect(winner).resolves.toMatchObject({
+            accessToken: null,
+            state: { kind: "reconnect_required" },
+          });
+          await expect(
+            readOAuthCredentialState(identity, { now: clock.now }),
+          ).resolves.toMatchObject({
+            kind: "reconnect_required",
+            revision: leasedRevision + 1,
+            credential: {
+              tokens: {
+                access_token: "<ACCESS_TOKEN>",
+                refresh_token: "<REFRESH_TOKEN>",
+              },
+              oauthLifecycle: { reconnectReason: "refresh_failed" },
+            },
+          });
+        } else {
+          winningRefreshGate.release();
+          await expect(winner).resolves.toMatchObject({
+            accessToken: "<WINNING_ACCESS_TOKEN>",
+          });
+          resumeStale.release();
+
+          await expect(Promise.all([stale, winner])).resolves.toEqual([
+            expect.objectContaining({ accessToken: "<WINNING_ACCESS_TOKEN>" }),
+            expect.objectContaining({ accessToken: "<WINNING_ACCESS_TOKEN>" }),
+          ]);
+          await expect(
+            readOAuthCredentialState(identity),
+          ).resolves.toMatchObject({
+            kind: "connected",
+            revision: leasedRevision + 1,
+            credential: {
+              tokens: { refresh_token: "<WINNING_REFRESH_TOKEN>" },
+            },
+          });
+        }
+        expect(staleRefresh).toHaveBeenCalledTimes(1);
+        expect(winningRefresh).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("reloads the winning rotation instead of marking reconnect after lease loss", async () => {
-    await saveOAuthCredential(
-      identity,
-      credential({ expiresAt: Date.now() - 1 }),
-    );
-    let rejectRefresh!: () => void;
-    const refreshGate = new Promise<never>((_resolve, reject) => {
-      rejectRefresh = () => reject(new Error("rotating token already used"));
-    });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const clock = { now: Date.now() };
+      await saveOAuthCredential(
+        identity,
+        credential({ expiresAt: clock.now - 1 }),
+      );
+      const refreshEntered = barrier();
+      const rejectRefresh = barrier();
+      const staleWaiting = barrier();
+      const resumeStale = barrier();
+      const refresh = vi.fn(async () => {
+        refreshEntered.release();
+        await rejectRefresh.promise;
+        throw new Error("rotating token already used");
+      });
 
-    const pending = resolveOAuthCredentialAccess(identity, {
-      refresh: async () => refreshGate,
-      leaseMs: 12,
-      waitMs: 1,
-      maxWaitMs: 1_000,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    const key = [...state.settings.keys()][0];
-    const leasedRevision = [...state.rows.values()][0]!.revision;
-    state.settings.set(key, {
-      holder: "competing-process",
-      revision: leasedRevision,
-      expiresAt: Date.now() + 10_000,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    rejectRefresh();
-    await new Promise((resolve) => setTimeout(resolve, 2));
-    await saveOAuthCredential(
-      identity,
-      credential({
-        access: "<WINNING_ACCESS_TOKEN>",
-        refresh: "<WINNING_REFRESH_TOKEN>",
-      }),
-    );
+      const pending = resolveOAuthCredentialAccess(identity, {
+        refresh,
+        leaseMs: 12,
+        waitMs: 1,
+        maxWaitMs: 1_000,
+        dependencies: {
+          now: () => clock.now,
+          sleep: async () => {
+            staleWaiting.release();
+            await resumeStale.promise;
+          },
+        },
+      });
+      await refreshEntered.promise;
+      const key = [...state.settings.keys()][0];
+      const leasedRevision = [...state.rows.values()][0]!.revision;
+      state.settings.set(key, {
+        holder: "competing-process",
+        revision: leasedRevision,
+        expiresAt: clock.now + 10_000,
+      });
+      clock.now += 13;
+      rejectRefresh.release();
+      await staleWaiting.promise;
+      await expect(
+        readOAuthCredentialState(identity, { now: clock.now }),
+      ).resolves.toMatchObject({ kind: "expired", revision: leasedRevision });
+      await saveOAuthCredential(
+        identity,
+        credential({
+          access: "<WINNING_ACCESS_TOKEN>",
+          refresh: "<WINNING_REFRESH_TOKEN>",
+        }),
+      );
+      resumeStale.release();
 
-    await expect(pending).resolves.toMatchObject({
-      accessToken: "<WINNING_ACCESS_TOKEN>",
-      state: { kind: "connected" },
-    });
+      await expect(pending).resolves.toMatchObject({
+        accessToken: "<WINNING_ACCESS_TOKEN>",
+        state: { kind: "connected" },
+      });
+      expect(refresh).toHaveBeenCalledTimes(1);
+      await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+        kind: "connected",
+        credential: { tokens: { refresh_token: "<WINNING_REFRESH_TOKEN>" } },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("never redeems a rotating refresh token again after its lease expires in flight", async () => {

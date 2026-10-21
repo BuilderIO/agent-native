@@ -1,3 +1,7 @@
+import { and, eq, lte } from "drizzle-orm";
+
+import { triageItems } from "../db/schema.js";
+
 export interface TriageReviewSnapshot {
   title?: string | null;
   summary?: string | null;
@@ -5,6 +9,27 @@ export interface TriageReviewSnapshot {
   coverage?: string | null;
   lastSeenAt?: string | null;
   headSha?: string | null;
+}
+
+export function triageSourceUpsertGuard(
+  existing:
+    | Pick<typeof triageItems.$inferSelect, "status" | "updatedAt">
+    | undefined,
+  nextStatus: string,
+  now: string,
+) {
+  // The provider snapshot can be older than a successful manual outcome.
+  if (existing) {
+    return and(
+      eq(triageItems.updatedAt, existing.updatedAt),
+      eq(triageItems.status, existing.status),
+    )!;
+  }
+
+  return and(
+    lte(triageItems.updatedAt, now),
+    eq(triageItems.status, nextStatus),
+  )!;
 }
 
 export function hasTriageSourceChanged(
@@ -28,6 +53,11 @@ export function statusAfterTriageSourceUpdate(
   sourceChanged: boolean,
   reviewStatus: string,
 ): string {
+  // A person's or a workflow's decision to take an item out of the queue
+  // outlives a later edit to the provider's copy of it.
+  if (existingStatus === "resolved" || existingStatus === "dismissed") {
+    return existingStatus;
+  }
   return sourceChanged ? reviewStatus : (existingStatus ?? reviewStatus);
 }
 

@@ -66,6 +66,7 @@ type ThumbnailRecording = {
   baseImageUrl?: string | null;
   expiresAt?: string | null;
   organizationId?: string | null;
+  ownerEmail?: string | null;
   password?: string | null;
   sharePasswordVersion?: string | null;
   trashedAt?: string | null;
@@ -184,17 +185,48 @@ function defaultSocialImageResponse(): Response {
   });
 }
 
-async function fetchThumbnail(sourceUrl: string): Promise<Response> {
+/** `work`'s result, or null if `deadline` passes before it starts or settles. */
+async function settleBy<T>(
+  work: () => Promise<T>,
+  deadline: number,
+): Promise<T | null> {
+  if (Date.now() >= deadline) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      work(),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), deadline - Date.now());
+      }),
+    ]);
+    // The timer can fire late, so the clock, not the race, says what was late.
+    return Date.now() < deadline ? result : null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchThumbnail(
+  sourceUrl: string,
+  deadline = Date.now() + FETCH_TIMEOUT_MS,
+): Promise<Response> {
   let currentUrl = sourceUrl;
   const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
 
   for (let redirects = 0; redirects <= 4; redirects++) {
-    if (await isBlockedExtensionUrlWithDns(currentUrl)) {
-      return imageResponse(null, "text/plain", 403);
+    // A DNS lookup cannot be cancelled, so the check gets only the budget
+    // left; a host it could not clear in time is refused, not fetched.
+    const blocked = await settleBy(
+      () => isBlockedExtensionUrlWithDns(currentUrl),
+      deadline,
+    );
+    if (blocked === null) {
+      throw new Error("Thumbnail fetch ran out of time before the host check");
     }
+    if (blocked) return imageResponse(null, "text/plain", 403);
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), deadline - Date.now());
     let upstream: Response;
     try {
       const fetchOptions: RequestInit & { dispatcher?: unknown } = {
@@ -244,7 +276,66 @@ async function fetchHostedThumbnail(
     timeoutMs: FETCH_TIMEOUT_MS,
   });
   if (!upstream) return imageResponse(null, "text/plain", 404);
+  return bucketImageResponse(upstream);
+}
 
+/**
+ * Reads a thumbnail from the owner's own bucket with the bucket's credentials,
+ * so it loads even when the bucket sits on a private address the public fetch
+ * refuses. The credentials are the owner's workspace secrets, so they resolve
+ * under the owner, not the viewer. Null means the bucket did not serve it.
+ */
+async function fetchOwnBucketThumbnail(
+  sourceUrl: string,
+  recordingId: string,
+  recording: ThumbnailRecording,
+): Promise<Response | null> {
+  let upstream: Response | null;
+  try {
+    upstream = await runWithRequestContext(
+      {
+        userEmail: recording.ownerEmail ?? undefined,
+        orgId: recording.organizationId ?? undefined,
+      },
+      () =>
+        fetchS3ObjectByUrl(sourceUrl, {
+          recordingId,
+          storageMode: "own",
+          timeoutMs: FETCH_TIMEOUT_MS,
+        }),
+    );
+  } catch (error) {
+    // A bucket that is down or misconfigured still leaves the public URL.
+    captureRouteError(error, {
+      route: "api/thumbnail",
+      extra: { recordingId },
+    });
+    return null;
+  }
+  if (!upstream?.ok) {
+    // A 5xx is the bucket failing, not a file it lacks, and the public
+    // fallback's answer would hide it.
+    if (upstream && upstream.status >= 500) {
+      captureStorageStatus(upstream.status, recordingId);
+    }
+    await upstream?.body?.cancel().catch(() => {});
+    return null;
+  }
+  return bucketImageResponse(upstream);
+}
+
+function captureStorageStatus(status: number, recordingId: string): void {
+  captureRouteError(
+    new Error(`Storage provider returned ${status} for thumbnail`),
+    {
+      route: "api/thumbnail",
+      tags: { upstreamStatus: String(status) },
+      extra: { recordingId },
+    },
+  );
+}
+
+async function bucketImageResponse(upstream: Response): Promise<Response> {
   const contentType =
     upstream.headers
       .get("content-type")
@@ -283,6 +374,7 @@ async function loadRecording(recordingId: string, event: H3Event) {
         storageMode: schema.recordings.storageMode,
         expiresAt: schema.recordings.expiresAt,
         organizationId: schema.recordings.organizationId,
+        ownerEmail: schema.recordings.ownerEmail,
         password: schema.recordings.password,
         sharePasswordVersion: schema.recordings.sharePasswordVersion,
         trashedAt: schema.recordings.trashedAt,
@@ -320,6 +412,7 @@ async function loadRecording(recordingId: string, event: H3Event) {
     .select({
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      storageMode: schema.recordings.storageMode,
       trashedAt: schema.recordings.trashedAt,
     })
     .from(schema.recordings)
@@ -336,6 +429,9 @@ async function loadRecording(recordingId: string, event: H3Event) {
       thumbnailUrl: footage.thumbnailUrl,
       animatedThumbnailUrl: footage.animatedThumbnailUrl,
       baseImageUrl: null,
+      // Its files sit where the footage was stored; only the access and the
+      // owner credentials come from the Clip.
+      storageMode: footage.storageMode,
     },
     role,
     gateId,
@@ -451,27 +547,30 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       try {
-        // Imported thumbnails (e.g. Loom's) live outside the bucket, so only
-        // URLs inside it take the recording-bound private fetch.
-        const isHostedObject =
-          recording.storageMode === "hosted" &&
-          (await isUrlInS3Storage(resolvedSourceUrl, {
-            storageMode: "hosted",
-          })) !== false;
-        const response = isHostedObject
-          ? await fetchHostedThumbnail(resolvedSourceUrl, recordingId)
-          : await fetchThumbnail(resolvedSourceUrl);
+        let response: Response;
+        if (recording.storageMode === "hosted") {
+          // Imported thumbnails (e.g. Loom's) live outside the bucket, so only
+          // URLs inside it take the recording-bound private fetch.
+          const isHostedObject =
+            (await isUrlInS3Storage(resolvedSourceUrl, {
+              storageMode: "hosted",
+            })) !== false;
+          response = isHostedObject
+            ? await fetchHostedThumbnail(resolvedSourceUrl, recordingId)
+            : await fetchThumbnail(resolvedSourceUrl);
+        } else {
+          // Both reads share one budget: a bucket that hangs would otherwise
+          // make the public fallback wait out a second timeout.
+          const deadline = Date.now() + FETCH_TIMEOUT_MS;
+          response =
+            (await fetchOwnBucketThumbnail(
+              resolvedSourceUrl,
+              recordingId,
+              recording,
+            )) ?? (await fetchThumbnail(resolvedSourceUrl, deadline));
+        }
         if (response.status >= 500) {
-          captureRouteError(
-            new Error(
-              `Storage provider returned ${response.status} for thumbnail`,
-            ),
-            {
-              route: "api/thumbnail",
-              tags: { upstreamStatus: String(response.status) },
-              extra: { recordingId },
-            },
-          );
+          captureStorageStatus(response.status, recordingId);
         }
         const contentType = response.headers
           .get("content-type")

@@ -156,7 +156,13 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       scopes: ["repo", "read:org", "read:user", "user:email"],
     },
     capabilities: ["search", "import", "code", "docs"],
-    recommendedTemplateUses: ["brain", "analytics", "dispatch", "factory"],
+    recommendedTemplateUses: [
+      "brain",
+      "analytics",
+      "content",
+      "dispatch",
+      "factory",
+    ],
   }),
   defineWorkspaceConnectionProvider({
     id: "figma",
@@ -488,6 +494,12 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
         required: false,
       },
     ],
+    oauth: {
+      provider: "sigma",
+      authorizationUrl: "https://aws-api.sigmacomputing.com/mcp/authorize",
+      tokenUrl: "https://aws-api.sigmacomputing.com/mcp/token",
+      scopes: ["api:access"],
+    },
     capabilities: ["search"],
     recommendedTemplateUses: ["analytics"],
   }),

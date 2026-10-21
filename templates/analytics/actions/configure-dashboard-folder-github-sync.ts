@@ -24,6 +24,13 @@ const linkSchema = z.object({
 });
 
 export default defineAction({
+  // Linking or unlinking replaces the stored link and clears each dashboard's
+  // sync base, which only a later sync can rebuild.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Link a dashboard folder to a GitHub repo folder for sync, or unlink it by passing link null. " +
     "Linking or unlinking clears each dashboard's sync base, so the next preview starts from scratch. " +

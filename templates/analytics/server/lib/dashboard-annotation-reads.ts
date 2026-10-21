@@ -11,16 +11,20 @@ import {
   type DashboardAnnotationSummary,
   type DashboardAnnotationsUnreadable,
 } from "./dashboard-annotation-summary.js";
-import { loadDashboardSeed } from "./dashboard-seeds.js";
-import { getDashboard } from "./dashboards-store.js";
 import { listDataNotes } from "./data-notes-store.js";
 import { listKeyDateSets } from "./key-dates-store.js";
+import { openDashboard } from "./open-dashboard.js";
 
-/** The key-date sets and data notes one dashboard draws, read from the scope it draws them from. */
+/**
+ * The key-date sets and data notes one dashboard draws, read from the scope it
+ * draws them from. `searchParams` are the page's URL filters when it is on
+ * screen.
+ */
 export async function loadDashboardAnnotationSummary(
   drawn: DashboardAnnotationScope,
   dashboardId: string,
   config: Record<string, unknown>,
+  searchParams?: Record<string, string>,
 ): Promise<DashboardAnnotationSummary | DashboardAnnotationsUnreadable> {
   try {
     const [sets, notes] = await Promise.all([
@@ -32,6 +36,7 @@ export async function loadDashboardAnnotationSummary(
       config,
       sets,
       notes,
+      { searchParams },
     );
     if (drawn.editable) return summary;
     // As list-key-dates and list-data-notes: no sets where no chart can draw
@@ -71,7 +76,8 @@ export async function readDashboardForPlacement(
   dashboardId: string,
   caller: AnnotationScope,
 ): Promise<DashboardPlacementCheck> {
-  const dashboard = await getDashboard(dashboardId, caller);
+  const opened = await openDashboard(dashboardId, caller);
+  const dashboard = opened?.saved;
   if (dashboard && dashboard.kind !== "sql") {
     return {
       unavailable:
@@ -89,7 +95,7 @@ export async function readDashboardForPlacement(
   }
   const config = dashboard
     ? (dashboard.config as Record<string, unknown>)
-    : loadDashboardSeed(dashboardId);
+    : opened?.builtin?.config;
   if (!config) {
     fail(`Dashboard "${dashboardId}" was not found.`, {
       errorCode: "dashboard_not_found",

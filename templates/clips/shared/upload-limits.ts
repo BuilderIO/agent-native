@@ -17,3 +17,18 @@ function resolveMaxUploadBytes(): number {
 }
 
 export const MAX_UPLOAD_BYTES = resolveMaxUploadBytes();
+
+/**
+ * Bytes as MB or GB (1024-based) to one decimal. Round a file's size up and a
+ * limit down, so a refused file never reads as fitting under its limit.
+ */
+export function formatUploadBytes(
+  bytes: number,
+  rounding: "up" | "down",
+): string {
+  const mib = 1024 * 1024;
+  const gib = 1024 * mib;
+  const round = rounding === "up" ? Math.ceil : Math.floor;
+  const tenths = (unit: number) => round((bytes / unit) * 10) / 10;
+  return bytes >= gib ? `${tenths(gib)} GB` : `${tenths(mib)} MB`;
+}

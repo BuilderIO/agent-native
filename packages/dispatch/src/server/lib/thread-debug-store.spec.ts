@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createDbExec: vi.fn(),
   orgId: null as string | null,
   ownerEmail: "owner@example.com",
+  delegatedOrgMember: false,
   dispatchConfig: {
     adminEmails: [] as string[],
     workspaceOwnerEmails: [] as string[],
@@ -20,10 +21,29 @@ vi.mock("@agent-native/core/db", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getRequestContext: () =>
+    mocks.delegatedOrgMember
+      ? {
+          a2aIdentityAssurance: "org-member",
+          userEmail: mocks.ownerEmail,
+          orgId: mocks.orgId,
+        }
+      : undefined,
   getAppConfig: () => ({
     dispatch: mocks.dispatchConfig,
     observability: { superOrgId: mocks.superOrgId },
   }),
+  readOrgMemberRole: async (orgId: string, email: string) => {
+    const result = await mocks.currentExecute({
+      sql: "SELECT role FROM org_members",
+      args: [orgId, email.toLowerCase()],
+    });
+    const role = result.rows[0]?.role;
+    if (mocks.delegatedOrgMember && (role === "owner" || role === "admin")) {
+      return "member";
+    }
+    return typeof role === "string" ? role : null;
+  },
 }));
 
 vi.mock("./dispatch-store.js", () => ({
@@ -114,6 +134,7 @@ describe("thread-debug-store", () => {
   beforeEach(() => {
     mocks.orgId = null;
     mocks.ownerEmail = "owner@example.com";
+    mocks.delegatedOrgMember = false;
     mocks.dispatchConfig.adminEmails = [];
     mocks.dispatchConfig.workspaceOwnerEmails = [];
     mocks.dispatchConfig.defaultOwnerEmail = undefined;
@@ -458,7 +479,50 @@ describe("thread-debug-store", () => {
     expect(result.thread.ownerEmail).toBe("outsider@example.com");
   });
 
+  it("scopes a delegated owner assertion to its own transcripts", async () => {
+    mocks.orgId = "org-1";
+    mocks.ownerEmail = "owner@example.com";
+    mocks.delegatedOrgMember = true;
+    mocks.currentExecute.mockImplementation(async ({ sql, args }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      if (sql.includes("FROM chat_threads")) {
+        expect(sql).toContain("owner_email = ?");
+        expect(args).toContain("owner@example.com");
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    await expect(
+      getAgentThreadDebug({ threadId: "other-members-thread" }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
   it("keeps explicit remote sources admin-only", async () => {
+    vi.stubEnv("REMOTE_DATABASE_URL", "postgres://remote/db");
+
+    await expect(
+      listAgentRunFailures({ sourceId: "remote" }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message:
+        "Only Dispatch admins can inspect thread databases from other apps.",
+    });
+    expect(mocks.createDbExec).not.toHaveBeenCalled();
+  });
+
+  it("does not let an environment admin assertion inspect remote transcripts", async () => {
+    mocks.orgId = "org-1";
+    mocks.ownerEmail = "platform-admin@example.com";
+    mocks.delegatedOrgMember = true;
+    mocks.dispatchConfig.adminEmails = ["platform-admin@example.com"];
+    mocks.currentExecute.mockImplementation(async ({ sql }) =>
+      sql.includes("SELECT role FROM org_members")
+        ? { rows: [{ role: "owner" }] }
+        : { rows: [] },
+    );
     vi.stubEnv("REMOTE_DATABASE_URL", "postgres://remote/db");
 
     await expect(

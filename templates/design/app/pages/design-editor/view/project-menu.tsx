@@ -16,6 +16,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
+import { getDesignHostMenuItems } from "@/host/host-menu-items";
 
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorClipboard } from "../domains/use-editor-clipboard";
@@ -129,6 +130,12 @@ export function renderProjectMenu({
           suppressProjectMenuReturnFocusRef.current = false;
         }}
       >
+        {getDesignHostMenuItems().map((item) => (
+          <DropdownMenuItem key={item.id} onClick={item.onSelect}>
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+        {getDesignHostMenuItems().length > 0 ? <DropdownMenuSeparator /> : null}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             {t("designEditor.appMenu.file")}

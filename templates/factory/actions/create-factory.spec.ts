@@ -56,24 +56,19 @@ beforeEach(() => {
 });
 
 describe("create-factory", () => {
-  it("creates a name-only factory with a minimal graph and no automations", async () => {
+  it("creates a name-only factory as a registry row with no graph and no automations", async () => {
     const insertedDefinitions: unknown[] = [];
     const insertedVersions: unknown[] = [];
     getDbMock.mockReturnValue({
-      transaction: vi.fn(async (callback: (tx: unknown) => Promise<void>) => {
-        const tx = {
-          insert: vi.fn((table: unknown) => ({
-            values: vi.fn(async (row: unknown) => {
-              if (table === factoryDefinitions) insertedDefinitions.push(row);
-              if (table === factoryGraphVersions) insertedVersions.push(row);
-              if (table === triageConfig) {
-                throw new Error("triage config should not be inserted");
-              }
-            }),
-          })),
-        };
-        await callback(tx);
-      }),
+      insert: vi.fn((table: unknown) => ({
+        values: vi.fn(async (row: unknown) => {
+          if (table === factoryDefinitions) insertedDefinitions.push(row);
+          if (table === factoryGraphVersions) insertedVersions.push(row);
+          if (table === triageConfig) {
+            throw new Error("triage config should not be inserted");
+          }
+        }),
+      })),
     });
 
     const { default: action } = await import("./create-factory.js");
@@ -86,24 +81,25 @@ describe("create-factory", () => {
       ok: true,
       factoryId: "support-triage",
       name: "Support triage",
-      graphVersion: 1,
       enabledAutomations: [],
     });
-    expect(insertedDefinitions).toHaveLength(1);
-    expect(insertedVersions).toHaveLength(1);
+    expect(insertedDefinitions).toEqual([
+      expect.objectContaining({
+        id: "support-triage",
+        name: "Support triage",
+        graphVersion: 1,
+        graphJson: "{}",
+      }),
+    ]);
+    expect(insertedVersions).toHaveLength(0);
     expect(writeAppStateForCurrentTabMock).not.toHaveBeenCalled();
   });
 
-  it("opens Inbox when the agent creates a factory", async () => {
+  it("opens the factory when the agent creates one", async () => {
     getDbMock.mockReturnValue({
-      transaction: vi.fn(async (callback: (tx: unknown) => Promise<void>) => {
-        const tx = {
-          insert: vi.fn(() => ({
-            values: vi.fn(async () => undefined),
-          })),
-        };
-        await callback(tx);
-      }),
+      insert: vi.fn(() => ({
+        values: vi.fn(async () => undefined),
+      })),
     });
 
     const { default: action } = await import("./create-factory.js");

@@ -1,5 +1,7 @@
 import type { AgentSqlQuery } from "@agent-native/core/agent-sql";
 
+import { FirstPartyAnalyticsValidationError } from "./first-party-analytics-errors.js";
+
 const POSTGRES_SET_RETURNING_FUNCTIONS = new Set([
   "generate_series",
   "generate_subscripts",
@@ -229,7 +231,8 @@ export function validateAnalyticsSqlFunctions(
     )
       continue;
     if (dialect === "postgres" && POSTGRES_SET_RETURNING_FUNCTIONS.has(name)) {
-      throw new Error(
+      throw new FirstPartyAnalyticsValidationError(
+        "unsupported_function",
         `First-party analytics queries cannot call set-returning function ${token.value}`,
       );
     }
@@ -253,7 +256,8 @@ export function validateAnalyticsSqlFunctions(
       !allowedFunction ||
       !allowedSchema
     ) {
-      throw new Error(
+      throw new FirstPartyAnalyticsValidationError(
+        "unsupported_function",
         `First-party analytics queries cannot call unapproved SQL function ${token.value}`,
       );
     }

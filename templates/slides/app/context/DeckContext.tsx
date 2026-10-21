@@ -45,6 +45,7 @@ import { toast } from "sonner";
 
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
+import type { AnimationTrigger } from "../../shared/api";
 import { deckContentSignature as stableDeckContentSignature } from "../../shared/deck-content";
 import {
   isMergeSafeDeckPatchOperations,
@@ -416,11 +417,15 @@ export interface Slide {
 
 export type AnimationType = "appear" | "fade" | "slide-up" | "zoom";
 
+/** "with-previous" plays in the same click as the step before it. */
+export type { AnimationTrigger };
+
 export interface SlideAnimation {
   id: string;
   elementIndex: number;
   elementPath?: number[];
   byParagraph?: boolean;
+  trigger?: AnimationTrigger;
   type: AnimationType;
 }
 

@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
 import { fetchOrgApps } from "@agent-native/core/mcp";
 import {
   addFirstPartyRemoteServer,
@@ -7,7 +6,10 @@ import {
   listRemoteServers,
   removeRemoteServer,
 } from "@agent-native/core/mcp-client";
-import { refreshMcpManagerForPrincipal } from "@agent-native/core/server";
+import {
+  readOrgMemberRole,
+  refreshMcpManagerForPrincipal,
+} from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -41,13 +43,7 @@ async function listAssetsServers(orgId: string) {
 }
 
 async function assertCanManageOrgMcp(orgId: string, userEmail: string) {
-  const result = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 LIMIT 1`,
-    args: [orgId, userEmail.toLowerCase()],
-  });
-  const role = String(
-    (result.rows[0] as { role?: unknown } | undefined)?.role,
-  ).toLowerCase();
+  const role = await readOrgMemberRole(orgId, userEmail);
   if (role !== "owner" && role !== "admin") {
     throw new Error(
       "Only organization owners and admins can connect org-scoped MCP servers.",

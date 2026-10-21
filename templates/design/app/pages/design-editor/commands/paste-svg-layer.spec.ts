@@ -61,6 +61,7 @@ function elementInfoFor(nodeId: string, tagName = "div"): ElementInfo {
     classes: [],
     computedStyles: {},
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+    parentBoundingRect: { x: 0, y: 0, width: 800, height: 600 },
   } as unknown as ElementInfo;
 }
 
@@ -191,10 +192,12 @@ describe("resolvePastedSvgInsertionOptions", () => {
       targetFileId: "screen-1",
     });
 
-    expect(options).toMatchObject({ placement: "inside" });
+    expect(options).toMatchObject({
+      placement: "inside",
+      positions: [{ x: 360, y: 280, space: "visual" }],
+    });
     expect(options.stripRootPosition).toBeUndefined();
     expect(options.targetSelectors).toContain(selector);
-    expect(options.positions).toBeUndefined();
   });
 
   it("uses the paste point when there is no selection", () => {
@@ -263,6 +266,24 @@ describe("resolvePastedSvgInsertionOptions", () => {
 });
 
 describe("runPastedSvgLayer", () => {
+  it("reports missing freeform geometry before publishing the SVG", () => {
+    stubDomParser();
+    const fixture = pastedSvgArgs();
+    fixture.args.selectedElement = elementInfoFor("caption", "p");
+    fixture.args.selectedLayerTargets = [];
+    delete fixture.args.selectedElement.parentBoundingRect;
+    expect(
+      runPastedSvgLayer(fixture.args, '<svg width="10" height="12"></svg>'),
+    ).toBe(true);
+    expect(insertClonedHtmlLayersMock).not.toHaveBeenCalled();
+    expect(fixture.args.applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(fixture.args.selectInsertedLayers).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "designEditor.toasts.primitiveInsertFailed",
+      { id: "paste-position-geometry-unavailable" },
+    );
+  });
+
   it("keeps a nested pasted SVG positioned above positioned siblings", () => {
     stubDomParser();
     const fixture = pastedSvgArgs();
@@ -279,6 +300,35 @@ describe("runPastedSvgLayer", () => {
     expect(insertClonedHtmlLayersMock.mock.calls[0]?.[2]).not.toHaveProperty(
       "stripRootPosition",
     );
+  });
+
+  it("anchors keyboard SVG paste at the selected frame origin", () => {
+    stubDomParser();
+    const fixture = pastedSvgArgs();
+    const target = selectedLayerTarget("screen-1", "paste-target");
+    Object.assign(target.elementInfo.boundingRect, {
+      x: 80,
+      y: 90,
+      width: 260,
+      height: 180,
+    });
+    const args = fixture.args as PastedSvgLayerArgs;
+    args.selectedLayerTargets = [target];
+    args.canvasContainerRef = {
+      current: {
+        querySelector: () => ({
+          getBoundingClientRect: () => ({ width: 1200, height: 1024 }),
+        }),
+      } as unknown as HTMLDivElement,
+    };
+
+    expect(runPastedSvgLayer(args, '<svg width="10" height="12"></svg>')).toBe(
+      true,
+    );
+    expect(insertClonedHtmlLayersMock.mock.calls[0]?.[2]).toMatchObject({
+      placement: "inside",
+      positions: [{ x: 0, y: 0, space: "visual" }],
+    });
   });
 
   it("reports when an active SVG write is refused", () => {

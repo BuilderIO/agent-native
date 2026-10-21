@@ -237,6 +237,7 @@ describe("DocsLanguageSuggestion", () => {
   it("keeps localized routes and explicit preferences quiet", () => {
     expect(
       shouldSuggestDocsLocale({
+        pathname: "/",
         routeLocale: "fr-FR",
         browserLocale: "fr-FR",
         storedPreference: null,
@@ -246,6 +247,7 @@ describe("DocsLanguageSuggestion", () => {
 
     expect(
       shouldSuggestDocsLocale({
+        pathname: "/",
         routeLocale: "en-US",
         browserLocale: "fr-FR",
         storedPreference: "en-US",
@@ -255,11 +257,30 @@ describe("DocsLanguageSuggestion", () => {
 
     expect(
       shouldSuggestDocsLocale({
+        pathname: "/",
         routeLocale: "en-US",
         browserLocale: "fr-FR",
         storedPreference: null,
         dismissedTarget: "fr-FR",
       }),
     ).toBe(false);
+  });
+
+  it("stays quiet on English-only campaign pages", () => {
+    const state = {
+      routeLocale: "en-US",
+      browserLocale: "fr-FR",
+      storedPreference: null,
+      dismissedTarget: null,
+    } as const;
+
+    expect(shouldSuggestDocsLocale({ ...state, pathname: "/" })).toBe(true);
+    for (const pathname of [
+      "/articles/",
+      "/articles/topic/agents/",
+      "/use-cases/",
+      "/use-cases/startup-pitch-deck/",
+    ])
+      expect(shouldSuggestDocsLocale({ ...state, pathname })).toBe(false);
   });
 });

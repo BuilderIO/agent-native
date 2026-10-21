@@ -31,6 +31,7 @@ import {
   BUILTIN_AGENTS_ENV_KEY,
   workspaceBuiltinAgentsJson,
 } from "../server/builtin-agents.js";
+import { parseAgentProfileMetadataFields } from "../shared/agent-profile.js";
 import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -97,6 +98,7 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
   "avif",
   "css",
   "gif",
+  "html",
   "ico",
   "jpeg",
   "jpg",
@@ -105,6 +107,7 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
   "map",
   "mp4",
   "pdf",
+  "pck",
   "png",
   "svg",
   "txt",
@@ -124,6 +127,7 @@ interface WorkspaceAppManifestEntry {
   id: string;
   name: string;
   description: string;
+  "agent-native"?: { whenToUse?: string[]; aliases?: string[] };
   path: string;
   homePath: string;
   url?: string;
@@ -890,11 +894,18 @@ function vercelImmutableAssetHeaderRoutes(
 ): Array<Record<string, any>> {
   return apps.flatMap((app) => {
     const staticDir = path.join(outputDir, "static", app);
-    return collectImmutableAssetPaths(staticDir).map((assetPath) => ({
-      src: vercelRouteSrc(`/${app}${assetPath}`),
-      headers: IMMUTABLE_ASSET_CACHE_HEADERS,
-      continue: true,
-    }));
+    const assetPaths = collectImmutableAssetPaths(staticDir);
+    if (assetPaths.length === 0) return [];
+
+    return [
+      {
+        src: `^(?:${assetPaths
+          .map((assetPath) => vercelRouteSrc(`/${app}${assetPath}`))
+          .join("|")})$`,
+        headers: IMMUTABLE_ASSET_CACHE_HEADERS,
+        continue: true,
+      },
+    ];
   });
 }
 
@@ -1614,6 +1625,9 @@ function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {
         continue;
       }
       const ext = path.extname(entry.name).slice(1).toLowerCase();
+      // The app root HTML shell must keep the server's routing contract.
+      if (!relativeDirectory && entry.name.toLowerCase() === "index.html")
+        continue;
       if (NETLIFY_PUBLIC_ASSET_EXTENSIONS.has(ext)) {
         assetPaths.push(relativePath);
       }
@@ -1904,10 +1918,43 @@ async function readWorkspaceAppManifest(
       packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
     const protectedPaths =
       packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
+    const agentNative = pkg?.["agent-native"];
+    const profile = parseAgentProfileMetadataFields({
+      description: pkg?.description,
+      ...(agentNative &&
+      typeof agentNative === "object" &&
+      ("whenToUse" in agentNative || "aliases" in agentNative)
+        ? {
+            ...("whenToUse" in agentNative
+              ? { whenToUse: agentNative.whenToUse }
+              : {}),
+            ...("aliases" in agentNative
+              ? { aliases: agentNative.aliases }
+              : {}),
+          }
+        : {}),
+    });
+    if (profile.invalidFields.length) {
+      console.warn(
+        `[workspace] Ignoring invalid agent profile metadata in ${app}: ${profile.invalidFields.join(", ")}`,
+      );
+    }
     entries.push({
       id: app,
       name: pkg?.displayName || titleCase(app),
-      description: pkg?.description || "",
+      description: profile.metadata.description ?? "",
+      ...(profile.metadata.whenToUse || profile.metadata.aliases
+        ? {
+            "agent-native": {
+              ...(profile.metadata.whenToUse
+                ? { whenToUse: profile.metadata.whenToUse }
+                : {}),
+              ...(profile.metadata.aliases
+                ? { aliases: profile.metadata.aliases }
+                : {}),
+            },
+          }
+        : {}),
       path: appPath,
       homePath: normalizeWorkspaceAppHomePath(
         explicit?.homePath ??

@@ -30,6 +30,7 @@ describe("screen auto layout", () => {
     const body = projection.nodes.find((node) => node.tag === "body");
     expect(body?.style.display).toBe("flex");
     expect(body?.style["flex-direction"]).toBe("row");
+    expect(body?.layout.alignItems).toBe("flex-start");
     expect(body?.style.gap).toBe("20px");
     expect(body?.style.padding).toBe("12px");
     const nodes = new Map(projection.nodes.map((node) => [node.id, node]));
@@ -39,6 +40,35 @@ describe("screen auto layout", () => {
       expect(child?.style.left).toBeUndefined();
       expect(child?.style.top).toBeUndefined();
     }
+  });
+
+  it("keeps a centred, max-width block child filling the body once it becomes a flex column", () => {
+    const soleChildStyle = (child: string) => {
+      const result = enableInlineScreenAutoLayout({
+        content: `<!doctype html><html><body style="margin:0">${child}</body></html>`,
+        width: 1440,
+        height: 900,
+      });
+      expect(result.status).toBe("applied");
+      const projection = buildCodeLayerProjection(result.content);
+      const body = projection.nodes.find((node) => node.tag === "body");
+      expect(body?.style["flex-direction"]).toBe("column");
+      return projection.nodes.find((node) => node.id === body?.children[0])
+        ?.style;
+    };
+
+    expect(
+      soleChildStyle(
+        `<main style="max-width:720px;margin:0 auto;padding:48px 32px">Main</main>`,
+      ),
+    ).toMatchObject({ width: "100%", "max-width": "720px", margin: "0 auto" });
+    expect(
+      soleChildStyle(`<aside style="width:200px;margin:0 auto">Fixed</aside>`)
+        ?.width,
+    ).toBe("200px");
+    expect(
+      soleChildStyle(`<span style="margin:0 auto">Inline</span>`)?.width,
+    ).toBeUndefined();
   });
 
   it("uses one fragment root but rejects multiple roots instead of inventing a wrapper", () => {

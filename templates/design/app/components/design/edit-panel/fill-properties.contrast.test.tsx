@@ -29,6 +29,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 vi.mock("@/components/ui/popover", () => ({
   Popover: ({ children }: { children?: unknown }) => children as never,
   PopoverTrigger: ({ children }: { children?: unknown }) => children as never,
+  PopoverAnchor: ({ children }: { children?: unknown }) => children as never,
   PopoverContent: () => null,
 }));
 

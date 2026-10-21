@@ -568,6 +568,26 @@ describe("action discovery", () => {
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
 
+  it(
+    "merges invite-organization-member as an approval-gated agent and MCP tool",
+    async () => {
+      const registry: Record<string, any> = {};
+      await mergeCoreSharingActions(registry);
+
+      const invite = registry["invite-organization-member"];
+      expect(invite).toBeDefined();
+      expect(invite.needsApproval).toBe(true);
+      expect(invite.allowPersistentApproval).toBe(false);
+      expect(invite.toolCallable).toBe(false);
+      expect(invite.agentTool).not.toBe(false);
+      expect(invite.mcpTool).not.toBe(false);
+      expect(registry["list-organization-members"].http).toEqual({
+        method: "GET",
+      });
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
   it("preserves WebMCP capability scopes in the action registry", () => {
     const registry = loadActionsFromStaticRegistry({
       "visual-edit": {
@@ -615,6 +635,31 @@ describe("action discovery", () => {
       "Template share override",
     );
     expect(registry["unshare-resource"]).toBeDefined();
+  });
+
+  it("merges automation editor actions without exposing them as agent tools", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    for (const name of [
+      "list-recurring-jobs",
+      "manage-recurring-job",
+      "run-automation-now",
+      "list-automation-runs",
+      "list-automations",
+      "list-automation-events",
+      "manage-automation",
+      "search-automation-accounts",
+    ]) {
+      expect(registry[name], `${name} should be merged`).toBeDefined();
+      expect(registry[name].agentTool).toBe(false);
+    }
+    expect(registry["list-automation-events"].http).toEqual({ method: "GET" });
+    expect(registry["list-automation-events"].readOnly).toBe(true);
+    expect(registry["search-automation-accounts"].http).toEqual({
+      method: "GET",
+    });
+    expect(registry["search-automation-accounts"].readOnly).toBe(true);
   });
 
   it("merges localization preference actions", async () => {
@@ -710,6 +755,9 @@ describe("action discovery", () => {
     expect(registry["restore-resource-version"].frameworkGroup).toBe("history");
     expect(registry["set-feature-flag"].frameworkGroup).toBe("featureFlags");
     expect(registry["change-password"].frameworkGroup).toBe("userProfile");
+    expect(registry["search-automation-accounts"].frameworkGroup).toBe(
+      "automation",
+    );
     expect(registry["upload-image"].frameworkGroup).toBeUndefined();
     expect(registry["call-mcp-tool"].frameworkGroup).toBeUndefined();
   });
