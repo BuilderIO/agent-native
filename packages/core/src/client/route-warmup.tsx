@@ -50,6 +50,15 @@ declare global {
 }
 
 const PREFETCH_ATTR = "data-an-prefetch";
+// WebKit checks once, 3 seconds after the window's load event, for link
+// preloads nothing has used yet, and logs "was preloaded using link preload but
+// not used within a few seconds" for each one. Warmed route modules are for
+// later navigations, so their modulepreload links wait until that check has
+// run. Data warmup is a plain fetch and starts right away.
+const MODULE_WARMUP_DELAY_AFTER_LOAD_MS = 4_000;
+// A third-party script that never finishes holds the load event back
+// indefinitely, so modules warm anyway after this long without one.
+const MODULE_WARMUP_MAX_WAIT_FOR_LOAD_MS = 10_000;
 const warmedDataRoutes = new Set<string>();
 const warmedRouteAssets = new Set<string>();
 
@@ -401,6 +410,37 @@ function warmRouteAssetsForHref(href: string) {
   }
 }
 
+function msSinceLoadEventEnd(): number {
+  const [entry] = performance.getEntriesByType?.("navigation") ?? [];
+  const loadEventEnd = (entry as PerformanceNavigationTiming | undefined)
+    ?.loadEventEnd;
+  return loadEventEnd ? Math.max(0, performance.now() - loadEventEnd) : 0;
+}
+
+function afterUnusedPreloadCheck(callback: () => void): () => void {
+  let timer: number | undefined;
+  const startTimer = () => {
+    if (timer !== undefined) window.clearTimeout(timer);
+    timer = window.setTimeout(
+      callback,
+      Math.max(0, MODULE_WARMUP_DELAY_AFTER_LOAD_MS - msSinceLoadEventEnd()),
+    );
+  };
+  if (document.readyState === "complete") {
+    startTimer();
+  } else {
+    window.addEventListener("load", startTimer, { once: true });
+    timer = window.setTimeout(() => {
+      window.removeEventListener("load", startTimer);
+      callback();
+    }, MODULE_WARMUP_MAX_WAIT_FOR_LOAD_MS);
+  }
+  return () => {
+    window.removeEventListener("load", startTimer);
+    if (timer !== undefined) window.clearTimeout(timer);
+  };
+}
+
 function linkWarmupMode(
   link: HTMLAnchorElement,
   strategy: AgentNativeRouteWarmupStrategy,
@@ -484,6 +524,8 @@ export function AgentNativeRouteWarmup({
     const dataRetryAttempts = new Map<string, number>();
     const retryTimers = new Set<number>();
     const observedLinks = new WeakSet<HTMLAnchorElement>();
+    const heldModuleHrefs = new Set<string>();
+    let modulesHeld = warmModules;
     let active = 0;
     let stopped = false;
     let scheduleTimer: number | undefined;
@@ -545,7 +587,11 @@ export function AgentNativeRouteWarmup({
     };
 
     function warmHref(href: string) {
-      if (warmModules) warmRouteAssetsForHref(href);
+      if (modulesHeld) {
+        heldModuleHrefs.add(href);
+      } else if (warmModules) {
+        warmRouteAssetsForHref(href);
+      }
       if (!warmData) return;
       for (const dataUrl of dataRouteUrlsForHref(href)) {
         if (warmedDataRoutes.has(dataUrl)) continue;
@@ -618,6 +664,16 @@ export function AgentNativeRouteWarmup({
       warmHref(link.href);
     };
 
+    // Hover and focus are held too: a pointer crossing the sidebar on its way
+    // elsewhere would otherwise preload modules nobody opens.
+    const cancelModuleHold = warmModules
+      ? afterUnusedPreloadCheck(() => {
+          modulesHeld = false;
+          for (const href of heldModuleHrefs) warmRouteAssetsForHref(href);
+          heldModuleHrefs.clear();
+        })
+      : undefined;
+
     schedule();
     const observer = new MutationObserver(schedule);
     observer.observe(document.documentElement, {
@@ -639,6 +695,7 @@ export function AgentNativeRouteWarmup({
 
     return () => {
       stopped = true;
+      cancelModuleHold?.();
       if (scheduleTimer !== undefined) window.clearTimeout(scheduleTimer);
       for (const timer of retryTimers) window.clearTimeout(timer);
       retryTimers.clear();
