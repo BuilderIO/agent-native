@@ -1548,9 +1548,47 @@ function hasConcisePublicEvidenceSummary(reply: StatusReply): boolean {
   );
 }
 
+const publicActionSummaryFillerWords = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "be",
+  "been",
+  "but",
+  "by",
+  "can",
+  "could",
+  "do",
+  "for",
+  "from",
+  "have",
+  "if",
+  "in",
+  "is",
+  "it",
+  "may",
+  "might",
+  "of",
+  "on",
+  "or",
+  "please",
+  "should",
+  "the",
+  "that",
+  "this",
+  "to",
+  "was",
+  "were",
+  "will",
+  "with",
+  "would",
+]);
+
 function publicActionSummaryMatchesAction(
   action: string,
   publicActionSummary: unknown,
+  owner?: string,
 ): boolean {
   if (typeof publicActionSummary !== "string" || !publicActionSummary.trim()) {
     return false;
@@ -1563,9 +1601,19 @@ function publicActionSummaryMatchesAction(
     .filter(
       (word) => !["this", "that", "it", "something", "anything"].includes(word),
     );
+  const ownerWords = new Set(
+    normalizeReplyPhrase(owner ?? "")
+      .split(" ")
+      .filter(Boolean),
+  );
+  const hasActionWord = summaryWords.some(
+    (word) =>
+      !ownerWords.has(word) && !publicActionSummaryFillerWords.has(word),
+  );
   return (
     summaryWordCount <= 12 &&
     summaryWords.length >= 2 &&
+    (ownerWords.size === 0 || hasActionWord) &&
     (normalizedAction === normalizedSummary ||
       normalizedAction.startsWith(`${normalizedSummary} `))
   );
@@ -1583,6 +1631,7 @@ function replyNamesRecordedAction(
   text: string,
   action: string,
   publicActionSummary?: unknown,
+  owner?: string,
 ): boolean {
   return (
     replyNamesHandoffAction(
@@ -1590,7 +1639,7 @@ function replyNamesRecordedAction(
       publicActionSummaryForReply(action, publicActionSummary),
     ) &&
     (publicActionSummary === undefined ||
-      publicActionSummaryMatchesAction(action, publicActionSummary))
+      publicActionSummaryMatchesAction(action, publicActionSummary, owner))
   );
 }
 
@@ -1732,6 +1781,7 @@ function validateHandoffAcceptance(
           request.text,
           handoff.action,
           handoff.publicActionSummary,
+          handoff.owner,
         )
       ) {
         throw new Error(
@@ -1960,6 +2010,14 @@ function validateHistoricalReactionMarks(
       );
     }
     const previous = mark.previousStatus;
+    if (
+      typeof previous.disposition !== "string" ||
+      !previous.disposition.trim()
+    ) {
+      throw new Error(
+        `${label}.previousStatus.disposition must be a non-empty string`,
+      );
+    }
     const previousTs = slackTimestamp(
       previous.ts,
       `${label}.previousStatus.ts`,
@@ -2223,6 +2281,7 @@ function validateHistoricalReactionMarks(
         !publicActionSummaryMatchesAction(
           handoff.action,
           handoff.publicActionSummary,
+          handoff.owner,
         ))
     ) {
       throw new Error(
@@ -2234,6 +2293,7 @@ function validateHistoricalReactionMarks(
         previous.text,
         handoff.action,
         handoff.publicActionSummary,
+        handoff.owner,
       )
     ) {
       throw new Error(
@@ -2329,6 +2389,7 @@ function validateHistoricalReactionMarks(
         withdrawal.text,
         handoff.action,
         handoff.publicActionSummary,
+        handoff.owner,
       ) ||
       previousTs >= withdrawalTs
     ) {
@@ -2477,6 +2538,7 @@ function validateStatusReactionLanguage(
           !publicActionSummaryMatchesAction(
             handoff.action,
             handoff.publicActionSummary,
+            handoff.owner,
           )) ||
         (handoff.owner.toLowerCase() !== "unassigned" &&
           !replyNamesHandoffOwner(summary, handoff)),
@@ -3174,6 +3236,7 @@ function validateHandoffDefinitions(
       !publicActionSummaryMatchesAction(
         handoff.action,
         handoff.publicActionSummary,
+        handoff.owner,
       )
     ) {
       throw new Error(
@@ -13598,6 +13661,28 @@ if (args[0] === "--self-test" && args.length === 1) {
         "active 🎫 summary must include every pending action and known owner",
       );
     }
+    for (const publicActionSummary of ["Morgan Lee", "Morgan Lee will"]) {
+      expectStatusLanguageFailure(
+        `handoff summary contains only the owner's name and filler words: ${publicActionSummary}`,
+        () =>
+          validateStatusReactionLanguage(
+            "self-test handoff request",
+            `In progress: ${publicActionSummary} choose the remaining behavior. this was sent from a bot.`,
+            [
+              {
+                scope: "remaining design choice",
+                owner: "Morgan Lee",
+                action: "Morgan Lee will choose the remaining behavior",
+                publicActionSummary,
+                status: "accepted",
+              },
+            ],
+            [],
+            publicActionSummary,
+          ),
+        "active 🎫 summary must include every pending action and known owner",
+      );
+    }
     const overlongAction =
       "review the workspace connection settings before publishing the updated release notes for the product launch to all active workspaces";
     expectStatusLanguageFailure(
@@ -14960,6 +15045,26 @@ if (args[0] === "--self-test" && args.length === 1) {
       "historical ticket needs a prior stated disposition",
       historicalTicketWithoutStatedDisposition,
       "historical 🎫 needs a prior disposition stated in its captured reply",
+    );
+    const historicalTicketMissingDisposition = structuredClone(
+      historicalTicketInventory,
+    );
+    const missingDispositionTicket =
+      historicalTicketMissingDisposition.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "10.000000",
+      )?.historicalReactionMarks?.find((mark) => mark.emoji === "ticket");
+    if (!missingDispositionTicket?.previousStatus) {
+      throw new Error(
+        "Feedback inventory checker self-test fixture is incomplete",
+      );
+    }
+    Object.assign(missingDispositionTicket.previousStatus, {
+      disposition: undefined,
+    });
+    expectHistoricalMarkFailure(
+      "historical ticket with a missing disposition has a field diagnostic",
+      historicalTicketMissingDisposition,
+      "previousStatus.disposition must be a non-empty string",
     );
     expectHistoricalMarkFailure(
       "historical ticket withdrawal needs the assigned owner's reply",

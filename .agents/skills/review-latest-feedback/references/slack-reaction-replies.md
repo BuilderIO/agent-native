@@ -33,12 +33,12 @@ Normal `/ship` does not poll beta publication or send beta timing updates.
 Independent beta behavior checks run only when requested or when a concrete
 beta-specific risk requires proof; use `/ship-and-monitor` for that work.
 When a beta check is explicitly requested and assigned, only that check's
-owner may send a post-merge update in an already-owned feedback thread. The
-owner may give a 24-hour expectation only after confirming that the affected
-site was selected for publication and taking responsibility to recheck and
-correct a missed publish. Otherwise, give no ETA. Site selection is not proof
-of publication; never say the site is live until the assigned check verifies
-it.
+owner may send a post-merge update in an already-owned feedback thread. Include
+a link to the merged PR. Give a 24-hour expectation only after a named owner has
+a durable follow-up scheduled to recheck and correct a missed publish;
+otherwise, report the verified state and omit the ETA. Site selection is not
+proof of publication; never say the site is live until the assigned check
+verifies it.
 
 <!-- framework-repo-only:end -->
 
