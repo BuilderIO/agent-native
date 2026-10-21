@@ -1927,6 +1927,7 @@ export interface QueuedSubmissionReceipt {
   submittedRunId?: string;
   interruptRunId?: string;
   retryAfter?: number;
+  retryCount: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -2084,6 +2085,10 @@ function queuedSubmissionReceiptFromRow(
   }
   const orgId = row.actor_org_id;
   const orgScope = row.actor_org_scope;
+  const retryCount = Number(row.retry_count);
+  if (!Number.isSafeInteger(retryCount) || retryCount < 0) {
+    throw new TypeError("Stored queued submission retry count is malformed.");
+  }
   return {
     threadId,
     messageId,
@@ -2114,12 +2119,13 @@ function queuedSubmissionReceiptFromRow(
       ? { interruptRunId: row.interrupt_run_id }
       : {}),
     ...(row.retry_after != null ? { retryAfter: Number(row.retry_after) } : {}),
+    retryCount,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };
 }
 
-const QUEUED_SUBMISSION_COLUMNS = `thread_id, message_id, state, actor_email, actor_auth_user_id, actor_identity_authenticated_at_ms, actor_name, actor_org_id, actor_org_scope, actor_anonymous, payload_hash, payload_json, submitted_run_id, interrupt_run_id, retry_after, created_at, updated_at`;
+const QUEUED_SUBMISSION_COLUMNS = `thread_id, message_id, state, actor_email, actor_auth_user_id, actor_identity_authenticated_at_ms, actor_name, actor_org_id, actor_org_scope, actor_anonymous, payload_hash, payload_json, submitted_run_id, interrupt_run_id, retry_after, retry_count, created_at, updated_at`;
 
 async function readQueuedSubmissionReceipt(
   db: DbExec,
@@ -2437,7 +2443,7 @@ export async function retryQueuedSubmissionReceipt(
   threadId: string,
   messageId: string,
   retryAfter: number,
-  options: { claimId?: string } = {},
+  options: { claimId?: string; countRetry?: boolean } = {},
 ): Promise<boolean> {
   await ensureTable();
   const result = await mutateThreadQueuedMessages(threadId, {
@@ -2445,6 +2451,7 @@ export async function retryQueuedSubmissionReceipt(
     messageId,
     retryAfter,
     ...(options.claimId ? { claimId: options.claimId } : {}),
+    ...(options.countRetry ? { countRetry: true } : {}),
   });
   return result?.receiptUpdated === true;
 }
@@ -2541,6 +2548,7 @@ export type ThreadQueuedMessageMutation =
       messageId: string;
       retryAfter: number;
       claimId?: string;
+      countRetry?: boolean;
     }
   | { type: "blockReceipt"; messageId: string; claimId?: string }
   | {
@@ -3224,7 +3232,7 @@ export async function mutateThreadQueuedMessages(
             const updated =
               mutation.type === "retryReceipt"
                 ? await tx.execute({
-                    sql: `UPDATE agent_chat_submission_inbox SET retry_after = ?, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                    sql: `UPDATE agent_chat_submission_inbox SET retry_after = ?${mutation.countRetry ? ", retry_count = retry_count + 1" : ""}, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
                     args: [
                       mutation.retryAfter,
                       Date.now(),

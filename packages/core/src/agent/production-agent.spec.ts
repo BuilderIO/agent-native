@@ -4270,7 +4270,7 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
-  it("preserves inbox ordering for a fresh start without receipt metadata", async () => {
+  it("does not let request-supplied internal continuation bypass inbox ordering", async () => {
     const threadId = "thread-legacy-queued-order-barrier";
     const resolveThreadAccess = vi
       .spyOn(chatThreadStore, "resolveThreadAccess")
@@ -4300,6 +4300,7 @@ describe("createProductionAgentHandler", () => {
           message: "A fresh direct start",
           threadId,
           turnId: "turn-after-accepted-queue",
+          internalContinuation: true,
         }),
       }),
     );

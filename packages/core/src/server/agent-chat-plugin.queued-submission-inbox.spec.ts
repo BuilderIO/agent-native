@@ -12,11 +12,18 @@ const sweepHarness = vi.hoisted(() => ({
 
 const inboxHarness = vi.hoisted(() => ({
   admissions: [] as Array<Record<string, unknown>>,
+  admissionAttempts: [] as string[],
   admit: null as ((body: Record<string, any>) => Promise<string>) | null,
+  admissionThrow: null as { messageId: string; error: unknown } | null,
   admissionFailure: null as {
     messageId: string;
     status: number;
     response: Record<string, unknown>;
+  } | null,
+  failReceiptRead: null as {
+    threadId: string;
+    messageId: string;
+    call: number;
   } | null,
   activeRun: null as Record<string, unknown> | null,
   afterInterruptRunRecorded: null as (() => Promise<void>) | null,
@@ -92,6 +99,18 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
     },
     getQueuedSubmissionReceipt: async (threadId: string, messageId: string) => {
       inboxHarness.receiptReads.push([threadId, messageId]);
+      const readCount = inboxHarness.receiptReads.filter(
+        ([readThreadId, readMessageId]) =>
+          readThreadId === threadId && readMessageId === messageId,
+      ).length;
+      if (
+        inboxHarness.failReceiptRead?.threadId === threadId &&
+        inboxHarness.failReceiptRead.messageId === messageId &&
+        inboxHarness.failReceiptRead.call === readCount
+      ) {
+        inboxHarness.failReceiptRead = null;
+        throw new Error("Test receipt read failure");
+      }
       return actual.getQueuedSubmissionReceipt(threadId, messageId);
     },
     recordQueuedSubmissionInterruptRun: async (
@@ -135,8 +154,14 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
     createProductionAgentHandler: () => async (event: any) => {
       const body = event.context?.__agentChatBackgroundBody;
       if (body) {
+        const messageId = String(body.queuedMessageId ?? "");
+        inboxHarness.admissionAttempts.push(messageId);
+        const admissionThrow = inboxHarness.admissionThrow;
+        if (admissionThrow?.messageId === messageId) {
+          throw admissionThrow.error;
+        }
         const admissionFailure = inboxHarness.admissionFailure;
-        if (admissionFailure?.messageId === body.queuedMessageId) {
+        if (admissionFailure?.messageId === messageId) {
           event.res.status = admissionFailure.status;
           return admissionFailure.response;
         }
@@ -304,6 +329,34 @@ import { closeDbExec, getDbExec } from "../db/client.js";
 import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
 
+async function createSweepHandler() {
+  const h3App = createApp();
+  createAgentChatPlugin({
+    actions: () => ({}),
+    a2aAgentDelegation: false,
+    frameworkTools: "minimal",
+    leanPrompt: true,
+    mcp: { enabled: false },
+  })({
+    h3App,
+    hooks: {
+      hook(name, callback) {
+        if (name === "close") sweepHarness.closeHooks.push(callback);
+      },
+    },
+  });
+  const initPromise = sweepHarness.initPromises.at(-1);
+  if (!initPromise) throw new Error("Sweep initialization was not registered");
+  await initPromise;
+  return () =>
+    h3App.fetch(
+      new Request(`http://example.test${RECURRING_JOBS_SWEEP_PATH}`, {
+        method: "GET",
+        headers: { authorization: "Bearer sweep-test-secret" },
+      }),
+    );
+}
+
 describe("queued submission inbox recurring sweep", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "test");
@@ -314,8 +367,11 @@ describe("queued submission inbox recurring sweep", () => {
     sweepHarness.settingsEmitter = new EventEmitter();
     sweepHarness.closeHooks.length = 0;
     inboxHarness.admissions.length = 0;
+    inboxHarness.admissionAttempts.length = 0;
     inboxHarness.admit = null;
+    inboxHarness.admissionThrow = null;
     inboxHarness.admissionFailure = null;
+    inboxHarness.failReceiptRead = null;
     inboxHarness.activeRun = null;
     inboxHarness.afterInterruptRunRecorded = null;
     inboxHarness.safeAbort = null;
@@ -764,6 +820,267 @@ describe("queued submission inbox recurring sweep", () => {
       submittedRunId: `run-${nextMessageId}`,
     });
   }, 20_000);
+
+  it("blocks a non-retryable thrown admission and advances the same-thread queue", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const headMessageId = "non-retryable-admission-head";
+    const nextMessageId = "next-after-non-retryable-admission";
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    await createThread(actor.email, { id: threadId });
+    for (const messageId of [headMessageId, nextMessageId]) {
+      await mutateThreadQueuedMessages(
+        threadId,
+        {
+          type: "append",
+          message: { id: messageId, threadId, text: messageId },
+        },
+        { actor },
+      );
+    }
+    inboxHarness.admissionThrow = {
+      messageId: headMessageId,
+      error: Object.assign(new Error("invalid admission"), {
+        retryable: false,
+      }),
+    };
+    inboxHarness.admit = async (body) => {
+      const receipt = await getQueuedSubmissionReceipt(
+        String(body.threadId),
+        String(body.agentKitMessageId),
+      );
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId: receipt.threadId,
+          messageId: receipt.messageId,
+          runId: `run-${receipt.messageId}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${receipt.messageId}`;
+    };
+
+    try {
+      const sweep = await createSweepHandler();
+      const response = await sweep();
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        queuedSubmissionDrain: {
+          scanned: 2,
+          blocked: 1,
+          submitted: 1,
+          deferred: 0,
+          failed: 0,
+        },
+      });
+      expect(inboxHarness.admissionAttempts).toEqual([
+        headMessageId,
+        nextMessageId,
+      ]);
+      expect(
+        inboxHarness.admissions.map((body) => body.queuedMessageId),
+      ).toEqual([nextMessageId]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, headMessageId),
+      ).resolves.toMatchObject({ state: "blocked", retryCount: 0 });
+      await expect(
+        getQueuedSubmissionReceipt(threadId, nextMessageId),
+      ).resolves.toMatchObject({ state: "submitted" });
+    } finally {
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
+  it("caps retries for a retryable thrown admission and advances the same-thread queue", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const headMessageId = "retryable-admission-head";
+    const nextMessageId = "next-after-retryable-admission";
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    await createThread(actor.email, { id: threadId });
+    for (const messageId of [headMessageId, nextMessageId]) {
+      await mutateThreadQueuedMessages(
+        threadId,
+        {
+          type: "append",
+          message: { id: messageId, threadId, text: messageId },
+        },
+        { actor },
+      );
+    }
+    inboxHarness.admissionThrow = {
+      messageId: headMessageId,
+      error: Object.assign(new Error("temporary admission failure"), {
+        retryable: true,
+      }),
+    };
+    inboxHarness.admit = async (body) => {
+      const receipt = await getQueuedSubmissionReceipt(
+        String(body.threadId),
+        String(body.agentKitMessageId),
+      );
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId: receipt.threadId,
+          messageId: receipt.messageId,
+          runId: `run-${receipt.messageId}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${receipt.messageId}`;
+    };
+
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const sweep = await createSweepHandler();
+      let headReceipt = await getQueuedSubmissionReceipt(
+        threadId,
+        headMessageId,
+      );
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const response = await sweep();
+        expect(response.status).toBe(200);
+        headReceipt = await getQueuedSubmissionReceipt(threadId, headMessageId);
+        if (headReceipt?.state === "blocked") break;
+        now += 10_001;
+      }
+
+      expect(headReceipt).toMatchObject({ state: "blocked", retryCount: 5 });
+      expect(
+        inboxHarness.admissionAttempts.filter((id) => id === headMessageId),
+      ).toHaveLength(6);
+      expect(
+        inboxHarness.admissions.map((body) => body.queuedMessageId),
+      ).toEqual([nextMessageId]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, nextMessageId),
+      ).resolves.toMatchObject({ state: "submitted" });
+    } finally {
+      clock.mockRestore();
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
+  it.each([
+    ["after admission throws", true, 2, "queued"],
+    ["after admission returns", false, 3, "submitted"],
+  ] as const)(
+    "defers a thread when receipt verification fails %s",
+    async (_caseName, throwAdmission, failedRead, headState) => {
+      const threadId = `thread-${randomUUID()}`;
+      const otherThreadId = `thread-${randomUUID()}`;
+      const headMessageId = "receipt-verification-head";
+      const laterMessageId = "later-after-receipt-verification";
+      const independentMessageId = "independent-after-receipt-verification";
+      const actor = { email: "inbox-owner@example.com", anonymous: false };
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      await createThread(actor.email, { id: threadId });
+      await createThread(actor.email, { id: otherThreadId });
+      for (const [receiptThreadId, messageId] of [
+        [threadId, headMessageId],
+        [threadId, laterMessageId],
+        [otherThreadId, independentMessageId],
+      ] as const) {
+        await mutateThreadQueuedMessages(
+          receiptThreadId,
+          {
+            type: "append",
+            message: {
+              id: messageId,
+              threadId: receiptThreadId,
+              text: messageId,
+            },
+          },
+          { actor },
+        );
+      }
+      if (throwAdmission) {
+        inboxHarness.admissionThrow = {
+          messageId: headMessageId,
+          error: new Error("admission failed"),
+        };
+      }
+      inboxHarness.failReceiptRead = {
+        threadId,
+        messageId: headMessageId,
+        call: failedRead,
+      };
+      inboxHarness.admit = async (body) => {
+        const receipt = await getQueuedSubmissionReceipt(
+          String(body.threadId),
+          String(body.agentKitMessageId),
+        );
+        if (!receipt)
+          throw new Error("Queued receipt disappeared before admit");
+        const db = getDbExec();
+        if (!db.transaction)
+          throw new Error("Test database has no transaction");
+        await db.transaction((tx) =>
+          markQueuedSubmissionSubmitted(tx, {
+            threadId: receipt.threadId,
+            messageId: receipt.messageId,
+            runId: `run-${receipt.messageId}`,
+            actor: receipt.actor,
+            message: receipt.message,
+          }),
+        );
+        return `run-${receipt.messageId}`;
+      };
+
+      try {
+        const sweep = await createSweepHandler();
+        const response = await sweep();
+
+        expect(response.status).toBe(500);
+        await expect(response.json()).resolves.toMatchObject({
+          queuedSubmissionDrain: {
+            scanned: 3,
+            claimed: 2,
+            submitted: 1,
+            deferred: 2,
+            failed: 1,
+          },
+        });
+        expect(inboxHarness.admissionAttempts).toEqual([
+          headMessageId,
+          independentMessageId,
+        ]);
+        expect(
+          inboxHarness.admissions.some(
+            (body) => body.queuedMessageId === laterMessageId,
+          ),
+        ).toBe(false);
+        await expect(
+          getQueuedSubmissionReceipt(threadId, headMessageId),
+        ).resolves.toMatchObject({ state: headState });
+        await expect(
+          getQueuedSubmissionReceipt(threadId, laterMessageId),
+        ).resolves.toMatchObject({ state: "queued" });
+        await expect(
+          getQueuedSubmissionReceipt(otherThreadId, independentMessageId),
+        ).resolves.toMatchObject({ state: "submitted" });
+      } finally {
+        consoleError.mockRestore();
+      }
+    },
+    20_000,
+  );
 
   it("defers a thread after a claimed receipt is retried and released", async () => {
     const threadId = `thread-${randomUUID()}`;

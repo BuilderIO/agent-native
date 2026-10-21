@@ -1900,16 +1900,6 @@ export async function tryClaimRunSlot(
         } as const;
       }
     }
-    if (await options?.hasPendingQueuedSubmission?.(tx)) {
-      return {
-        result: {
-          claimed: false,
-          activeRunId: null,
-          queuedSubmissionPending: true,
-        },
-      } as const;
-    }
-
     // Admitted under the thread's slot lock, so two tabs continuing the same
     // stop start one run and the count of continuations stays exact.
     if (continueOf) {
@@ -1976,6 +1966,16 @@ export async function tryClaimRunSlot(
           },
         } as const;
       }
+    }
+
+    if (!continueOf && (await options?.hasPendingQueuedSubmission?.(tx))) {
+      return {
+        result: {
+          claimed: false,
+          activeRunId: null,
+          queuedSubmissionPending: true,
+        },
+      } as const;
     }
 
     const continuationOrder =

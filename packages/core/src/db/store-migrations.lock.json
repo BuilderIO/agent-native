@@ -357,6 +357,10 @@
     {
       "name": "chat-thread-inbox-thread-order-index",
       "checksum": "78d46649cafade48"
+    },
+    {
+      "name": "chat-thread-inbox-retry-count",
+      "checksum": "b25ff25b6a61ccc9"
     }
   ],
   "checkpoints": [

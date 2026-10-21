@@ -273,6 +273,7 @@ describe("chat thread store", () => {
           interrupt_active_run: args[11],
           submitted_run_id: submitted ? args[12] : null,
           retry_after: null,
+          retry_count: 0,
           move_to_top_at: null,
           queue_order: submissionRows.length + 1,
           created_at: args[submitted ? 13 : 12],
@@ -388,6 +389,9 @@ describe("chat thread store", () => {
         if (!submission) return { rows: [], rowsAffected: 0 };
         Object.assign(submission, {
           retry_after: args[0],
+          ...(sql.includes("retry_count = retry_count + 1")
+            ? { retry_count: Number(submission.retry_count ?? 0) + 1 }
+            : {}),
           updated_at: args[1],
         });
         return { rows: [], rowsAffected: 1 };
@@ -2893,6 +2897,9 @@ describe("chat thread store", () => {
     expect(
       await retryQueuedSubmissionReceipt("thread-1", interrupt.id, retryAfter),
     ).toBe(true);
+    await expect(
+      getQueuedSubmissionReceipt("thread-1", interrupt.id),
+    ).resolves.toMatchObject({ retryCount: 0 });
 
     await expect(
       listQueuedSubmissionReceipts({ threadId: "thread-1", now: Date.now() }),

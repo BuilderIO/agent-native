@@ -331,6 +331,8 @@ import { getForwardedRequestOrigin } from "./request-origin.js";
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
+const MAX_QUEUED_SUBMISSION_RETRIES = 5;
+
 type AgentChatRunTrackingSource = Pick<
   TrackingMeta,
   "userId" | "authUserId" | "anonymousId" | "sessionId"
@@ -8972,6 +8974,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   { error, receiptError },
                 );
                 claimId = undefined;
+                deferReceipt(receipt.threadId);
                 continue;
               }
               if (afterError?.state === "submitted") {
@@ -8979,11 +8982,38 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimId = undefined;
                 continue;
               }
+              const nonRetryableError =
+                error !== null &&
+                typeof error === "object" &&
+                "retryable" in error &&
+                (error as { retryable?: unknown }).retryable === false;
+              const retryLimitReached =
+                (afterError?.retryCount ?? 0) >= MAX_QUEUED_SUBMISSION_RETRIES;
+              if (nonRetryableError || retryLimitReached) {
+                const blocked = await blockQueuedSubmissionReceipt(
+                  receipt.threadId,
+                  receipt.messageId,
+                  { claimId },
+                );
+                await mutateThreadQueuedMessages(receipt.threadId, {
+                  type: "release",
+                  messageId: receipt.messageId,
+                  claimId,
+                });
+                claimId = undefined;
+                if (blocked) result.blocked += 1;
+                else deferReceipt(receipt.threadId);
+                console.error(
+                  `[agent-chat] queued submission admission could not be retried for ${receipt.messageId}:`,
+                  error,
+                );
+                continue;
+              }
               await retryQueuedSubmissionReceipt(
                 receipt.threadId,
                 receipt.messageId,
                 Date.now() + 10_000,
-                { claimId },
+                { claimId, countRetry: true },
               );
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
@@ -9034,6 +9064,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error,
               );
               claimId = undefined;
+              deferReceipt(receipt.threadId);
               await stream
                 ?.cancel()
                 .catch((cancelError) =>
@@ -9078,12 +9109,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               responseBody?.retryable === true ||
               (responseBody?.retryable !== false &&
                 (responseStatus >= 500 || responseCode === "run_slot_busy"));
-            if (retryableAdmission) {
+            if (
+              retryableAdmission &&
+              (admittedReceipt?.retryCount ?? 0) < MAX_QUEUED_SUBMISSION_RETRIES
+            ) {
               await retryQueuedSubmissionReceipt(
                 receipt.threadId,
                 receipt.messageId,
                 Date.now() + 10_000,
-                { claimId },
+                { claimId, countRetry: true },
               );
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",

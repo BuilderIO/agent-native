@@ -3,4 +3,4 @@
 "@agent-native/agentkit": patch
 ---
 
-Preserve accepted inbox order, effective run settings, and inline attachment identity when Agent-Native chat submissions are queued or promoted.
+Preserve accepted inbox order, bounded retry behavior, effective run settings, and inline attachment identity when Agent-Native chat submissions are queued or promoted.

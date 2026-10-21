@@ -14769,11 +14769,7 @@ export function createProductionAgentHandler(
       try {
         const runThreadId = threadId;
         const shouldPreserveQueuedOrder = Boolean(
-          !queuedMessageId &&
-          !queuedMessageClaimId &&
-          !internalContinuation &&
-          !continueOf &&
-          !isBackgroundWorker,
+          !queuedMessageId && !queuedMessageClaimId && !isBackgroundWorker,
         );
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,

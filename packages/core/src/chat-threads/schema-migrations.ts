@@ -122,4 +122,12 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
         WHERE state = 'queued'
     `,
   },
+  {
+    version: 8,
+    name: "chat-thread-inbox-retry-count",
+    sql: `
+      ALTER TABLE agent_chat_submission_inbox
+        ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0
+    `,
+  },
 ];
