@@ -132,6 +132,38 @@ describe("DataChartRenderer theme colors", () => {
     expect(Number(largestValueLabel?.[1])).toBeLessThan(590);
   });
 
+  it("places negative horizontal value labels outside the bar's left edge", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: -123456 }],
+          showValueLabels: true,
+        }}
+      />,
+    );
+    const negativeBarX = markup.match(/<rect x="([\d.]+)"/);
+    const negativeBarLabel = markup.match(
+      /<text x="([\d.]+)"[^>]*text-anchor="end">-123,456<\/text>/,
+    );
+    const categoryLabel = markup.match(
+      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" text-anchor="end">Monday<\/text>/,
+    );
+
+    expect(negativeBarX).not.toBeNull();
+    expect(negativeBarLabel).not.toBeNull();
+    expect(Number(negativeBarLabel?.[1])).toBeLessThan(
+      Number(negativeBarX?.[1]),
+    );
+    expect(categoryLabel).not.toBeNull();
+    expect(
+      Number(negativeBarLabel?.[1]) - Number(categoryLabel?.[1]),
+    ).toBeGreaterThan(60);
+  });
+
   it.each(["line", "area"] as const)(
     "renders requested value labels for %s charts",
     (type) => {
@@ -153,6 +185,33 @@ describe("DataChartRenderer theme colors", () => {
 
       expect(markup).toContain(">7</text>");
       expect(markup).toContain('font-weight="400"');
+    },
+  );
+
+  it.each(["line", "area"] as const)(
+    "keeps the final %s value label inside the chart bounds",
+    (type) => {
+      const markup = renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type,
+            xKey: "day",
+            series: [{ key: "value", label: "Value" }],
+            data: [
+              { day: "Monday", value: 4 },
+              { day: "Tuesday", value: 11 },
+              { day: "Wednesday", value: 123456789 },
+            ],
+            showValueLabels: true,
+          }}
+        />,
+      );
+      const finalValueLabel = markup.match(
+        /<text x="([\d.]+)" y="[\d.]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="end">123,456,789<\/text>/,
+      );
+
+      expect(finalValueLabel).not.toBeNull();
+      expect(Number(finalValueLabel?.[1])).toBeLessThan(640);
     },
   );
 });

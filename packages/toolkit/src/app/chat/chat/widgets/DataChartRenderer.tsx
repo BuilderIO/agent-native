@@ -91,14 +91,14 @@ function ChartBody({
         ),
       )
     : 0;
-  const horizontalValueWidth =
+  const horizontalPositiveValueWidth =
     isHorizontalBar && chart.showValueLabels
       ? Math.max(
           0,
           ...chart.data.flatMap((row) =>
             chart.series
               .map((series) => numericValue(row, series.key))
-              .filter((value): value is number => value !== null && value > 0)
+              .filter((value): value is number => value !== null && value >= 0)
               .map((value) =>
                 estimateTextWidth(
                   formatTick(value),
@@ -108,12 +108,35 @@ function ChartBody({
           ),
         )
       : 0;
+  const horizontalNegativeValueWidth =
+    isHorizontalBar && chart.showValueLabels
+      ? Math.max(
+          0,
+          ...chart.data.flatMap((row) =>
+            chart.series
+              .map((series) => numericValue(row, series.key))
+              .filter((value): value is number => value !== null && value < 0)
+              .map((value) =>
+                estimateTextWidth(
+                  formatTick(value),
+                  chart.valueLabelFontSize ?? 11,
+                ),
+              ),
+          ),
+        )
+      : 0;
+  const categoryMargin =
+    Math.max(MARGIN.left, horizontalCategoryWidth + 14) +
+    (chart.yAxisTitle ? 20 : 0);
+  const categoryLabelX = categoryMargin - 8;
   const margin = {
     ...MARGIN,
     left:
-      Math.max(MARGIN.left, horizontalCategoryWidth + 14) +
-      (chart.yAxisTitle ? 20 : 0),
-    right: Math.max(MARGIN.right, horizontalValueWidth + 13),
+      categoryMargin +
+      (horizontalNegativeValueWidth > 0
+        ? horizontalNegativeValueWidth + 13
+        : 0),
+    right: Math.max(MARGIN.right, horizontalPositiveValueWidth + 13),
     bottom: MARGIN.bottom + (chart.xAxisTitle ? 16 : 0),
   };
   const plotWidth = WIDTH - margin.left - margin.right;
@@ -201,7 +224,7 @@ function ChartBody({
         isHorizontalBar ? (
           <text
             key={`${index}-${String(row[chart.xKey] ?? "")}`}
-            x={margin.left - 8}
+            x={categoryLabelX}
             y={yForRow(index) + labelFontSize * 0.35}
             fill="hsl(var(--muted-foreground))"
             fontSize={labelFontSize}
@@ -302,7 +325,11 @@ function ChartBody({
                 />
                 {chart.showValueLabels ? (
                   <text
-                    x={isHorizontalBar ? valueX + 5 : x + width / 2}
+                    x={
+                      isHorizontalBar
+                        ? valueX + (value < 0 ? -5 : 5)
+                        : x + width / 2
+                    }
                     y={
                       isHorizontalBar
                         ? y + height / 2 + valueLabelFontSize * 0.35
@@ -311,7 +338,9 @@ function ChartBody({
                     fill="hsl(var(--muted-foreground))"
                     fontSize={valueLabelFontSize}
                     fontWeight={valueLabelFontWeight}
-                    textAnchor={isHorizontalBar ? "start" : "middle"}
+                    textAnchor={
+                      isHorizontalBar ? (value < 0 ? "end" : "start") : "middle"
+                    }
                   >
                     {formatTick(value)}
                   </text>
@@ -399,7 +428,13 @@ function ChartBody({
                     fill="hsl(var(--muted-foreground))"
                     fontSize={valueLabelFontSize}
                     fontWeight={valueLabelFontWeight}
-                    textAnchor="middle"
+                    textAnchor={
+                      point.x <= margin.left
+                        ? "start"
+                        : point.x >= WIDTH - margin.right
+                          ? "end"
+                          : "middle"
+                    }
                   >
                     {formatTick(point.value)}
                   </text>
