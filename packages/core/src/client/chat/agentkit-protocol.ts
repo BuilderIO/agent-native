@@ -4775,6 +4775,9 @@ export function createAgentKitProtocolAdapter(
     transport.cancelUpload = hostOperations.cancelUpload;
   if (hostOperations?.listQueuedMessages)
     transport.listQueuedMessages = hostOperations.listQueuedMessages;
+  if (hostOperations?.getQueuedSubmissionStatus)
+    transport.getQueuedSubmissionStatus =
+      hostOperations.getQueuedSubmissionStatus;
   if (hostOperations?.queueMessage) {
     transport.queueMessage = (input, context) => {
       const metadata = mergeTrustedProtocolMetadata(

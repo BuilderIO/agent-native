@@ -10419,6 +10419,58 @@ describe("createAgentNativeAgentKitTransport", () => {
     ).rejects.toThrow("thread missing-thread does not exist");
   });
 
+  it("reads queued receipt status only after resolving an accessible thread", async () => {
+    const threadId = "thread-queued-receipt-status";
+    const getQueuedSubmissionReceipt = vi.fn(async () => ({
+      state: "submitted" as const,
+      submittedRunId: "run-submitted",
+    }));
+    vi.doMock("../../chat-threads/store.js", () => ({
+      getQueuedSubmissionReceipt,
+    }));
+    let threadExists = true;
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(`/threads/${threadId}`)) {
+        return threadExists
+          ? json({ id: threadId, threadData: JSON.stringify({}) })
+          : json({ error: "Not found" }, 404);
+      }
+      return json({ error: "Not found" }, 404);
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    try {
+      await expect(
+        transport.getQueuedSubmissionStatus?.({
+          threadId,
+          messageId: "queued-message",
+        }),
+      ).resolves.toEqual({
+        state: "submitted",
+        submittedRunId: "run-submitted",
+      });
+      expect(getQueuedSubmissionReceipt).toHaveBeenCalledWith(
+        threadId,
+        "queued-message",
+      );
+
+      threadExists = false;
+      await expect(
+        transport.getQueuedSubmissionStatus?.({
+          threadId,
+          messageId: "queued-message",
+        }),
+      ).resolves.toBeNull();
+      expect(getQueuedSubmissionReceipt).toHaveBeenCalledOnce();
+    } finally {
+      await transport.dispose();
+      vi.doUnmock("../../chat-threads/store.js");
+    }
+  });
+
   it("preserves an unreadable error response as an explicit request failure", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(
