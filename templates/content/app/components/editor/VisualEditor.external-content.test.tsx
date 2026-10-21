@@ -14,6 +14,20 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
+// Text holding this marker can't be read as Markdown.
+const UNREADABLE = "[unreadable]";
+
+vi.mock("@shared/nfm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@shared/nfm")>();
+  return {
+    ...actual,
+    nfmToDoc: (content: string) => {
+      if (content.includes(UNREADABLE)) throw new Error("Unreadable Markdown");
+      return actual.nfmToDoc(content);
+    },
+  };
+});
+
 import { VisualEditor, type VisualEditorExternalContent } from "./VisualEditor";
 
 describe("VisualEditor external content", () => {
@@ -162,5 +176,15 @@ describe("VisualEditor external content", () => {
 
     expect(merge).toHaveBeenCalledExactlyOnceWith(null);
     expect(paragraphs(liveEditor())).toEqual(["Theirs"]);
+  });
+
+  it("keeps its text when the merged text can't be read", async () => {
+    await act(async () => render(null));
+    const merge = vi.fn(() => `One ${UNREADABLE}`);
+
+    await act(async () => render({ key: "11:1", merge }));
+
+    expect(merge).toHaveBeenCalledTimes(1);
+    expect(paragraphs(liveEditor())).toEqual(["One", "Two"]);
   });
 });

@@ -3894,14 +3894,17 @@ export function VisualEditor({
       // being reported would only undo it.
       draftEmissionGenerationRef.current += 1;
       const parsed = parseNfmForCollabReconcile(editor, next);
-      if (!parsed || applyDocSurgically(editor, parsed) === "failed") {
+      // Text the editor can't hold would throw here or empty the editor, so
+      // the editor keeps what it shows.
+      if (!parsed) return;
+      if (applyDocSurgically(editor, parsed) === "failed") {
         editor
           .chain()
           .command(({ tr }) => {
             tr.setMeta("addToHistory", false);
             return true;
           })
-          .setContent(nfmToDoc(next), { emitUpdate: false })
+          .setContent(parsed.toJSON(), { emitUpdate: false })
           .run();
       }
     };
