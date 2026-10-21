@@ -263,7 +263,7 @@ describe("s3FileUploadProvider endpoint safety", () => {
   it("refuses a private-network endpoint saved in workspace settings", async () => {
     const secrets: Record<string, string> = {
       ...bucket,
-      S3_ENDPOINT: "http://10.0.0.5:9000",
+      S3_ENDPOINT: "https://10.0.0.5:9000",
     };
     resolveSecretMock.mockImplementation(
       async (key: string) => secrets[key] ?? null,
@@ -276,6 +276,26 @@ describe("s3FileUploadProvider endpoint safety", () => {
         id: "uploads/a.png",
       }),
     ).rejects.toThrow(/SSRF blocked/);
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a plain HTTP endpoint saved in workspace settings", async () => {
+    isBlockedUrlMock.mockResolvedValue(false);
+    const secrets: Record<string, string> = {
+      ...bucket,
+      S3_ENDPOINT: "http://s3.example.com",
+    };
+    resolveSecretMock.mockImplementation(
+      async (key: string) => secrets[key] ?? null,
+    );
+
+    await expect(upload()).rejects.toThrow(/must use HTTPS/);
+    await expect(
+      s3FileUploadProvider.delete!({
+        url: "https://cdn.example.com/assets/uploads/a.png",
+        id: "uploads/a.png",
+      }),
+    ).rejects.toThrow(/must use HTTPS/);
     expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
   });
 

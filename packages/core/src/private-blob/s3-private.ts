@@ -28,6 +28,7 @@ import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import type { SecretScope } from "../secrets/register.js";
 import { readAppSecrets } from "../secrets/storage.js";
 import {
+  prefetchSecrets,
   readDeployCredentialEnv,
   resolveSecretDetailed,
 } from "../server/credential-provider.js";
@@ -196,9 +197,28 @@ async function resolveSetting(field: StorageField) {
   return null;
 }
 
+/**
+ * Saved storage settings without a bucket still mean the workspace chose its
+ * own storage, so the put fails rather than using the hosted bucket.
+ */
+async function assertNoSavedSettingsWithoutBucket(): Promise<void> {
+  for (const field of ["endpoint", "accessKeyId", "secretAccessKey"] as const) {
+    const detail = await resolveSetting(field);
+    if (detail?.source && detail.source !== "env") {
+      throw new PrivateBlobError(
+        `Storage settings are incomplete: missing ${STORAGE_KEYS.bucket[0]}`,
+        "not_configured",
+      );
+    }
+  }
+}
+
 async function resolveBucketScope(): Promise<ResolvedBucket | null> {
   const detail = await resolveSetting("bucket");
-  if (!detail) return null;
+  if (!detail) {
+    await assertNoSavedSettingsWithoutBucket();
+    return null;
+  }
   const source: CredentialSource =
     detail.source && detail.source !== "env" && detail.scopeId
       ? { kind: "secret", scope: detail.source, scopeId: detail.scopeId }
@@ -225,6 +245,7 @@ async function resolveBucketScope(): Promise<ResolvedBucket | null> {
  * when this request may use them.
  */
 async function resolveRequestBucket(): Promise<ResolvedBucket | null> {
+  await prefetchSecrets(Object.values(STORAGE_KEYS).flat());
   const resolved = await resolveBucketScope();
   if (!resolved || resolved.config.publicBaseUrl) return resolved;
   const publicBaseUrl =
@@ -345,7 +366,15 @@ async function clientConfigFor(
 ): Promise<S3ClientConfig> {
   assertSecureEndpoint(descriptor.source, descriptor.endpoint);
   const credentials = await readCredentialsForSource(descriptor.source);
-  if (!credentials) {
+  // Credentials only go to the endpoint and bucket they're configured for
+  // now. Once settings point elsewhere, blobs stored under the old ones can't
+  // be read with the new credentials.
+  if (
+    !credentials ||
+    normalizedEndpoint(credentials.endpoint) !==
+      normalizedEndpoint(descriptor.endpoint) ||
+    credentials.bucket !== descriptor.bucket
+  ) {
     throw new PrivateBlobError(
       "The storage that holds this private blob is no longer configured",
       "not_configured",
