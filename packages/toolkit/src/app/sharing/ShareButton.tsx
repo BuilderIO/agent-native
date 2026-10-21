@@ -646,7 +646,13 @@ function SharePanel(
         </div>
       ) : null}
 
-      {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
+      {showShareLinks && shareUrlPlacement === "bottom" ? (
+        // The tabbed layout reorders its sections with `order-*`, so links
+        // placed at the bottom need an order of their own to stay last.
+        <div className={props.agentTabContent ? "order-3" : undefined}>
+          {shareLinks}
+        </div>
+      ) : null}
 
       {props.shareFooterContent}
     </div>

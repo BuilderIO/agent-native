@@ -1211,17 +1211,14 @@ describe("available action prompt rendering", () => {
     ).toEqual(["common", "share-resource"]);
   });
 
-  it("points to tool-search for actions omitted from the initial tool set, without re-listing loaded actions (already covered by native tool schemas)", () => {
+  it("leaves deferred actions to the agent loop's Tool index instead of a count", () => {
     const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
       actions,
       "tool",
       ["common"],
     );
 
-    expect(prompt).not.toContain("`common`");
-    expect(prompt).not.toContain("`rare`");
-    expect(prompt).toContain("1 less-common app action is available on demand");
-    expect(prompt).toContain("`tool-search`");
+    expect(prompt).toBe("");
   });
 
   it("returns nothing when every action is already loaded and none has a native widget", () => {

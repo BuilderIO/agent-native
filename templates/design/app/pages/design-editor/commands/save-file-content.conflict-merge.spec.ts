@@ -206,6 +206,21 @@ describe("runSaveFileContent concurrent edit merge", () => {
     );
   });
 
+  it("drops the journaled save the server rejected with a conflict", async () => {
+    const { args, pending } = setup({
+      mutate: async () => {
+        throw conflict();
+      },
+      base: undefined,
+    });
+    const entry = { key: "outbox-entry" };
+    args.createFileSaveOutboxEntry = vi.fn(() => entry as never);
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("conflict");
+
+    expect(args.acknowledgeOutboxEntry).toHaveBeenCalledWith(entry);
+  });
+
   it("does not publish an accepted request after a newer save supersedes it", async () => {
     const mutation = deferred<unknown>();
     const { args, pending, latestFileSaveForUnloadRef } = setup({

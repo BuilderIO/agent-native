@@ -2,11 +2,14 @@
 export const FALLBACK_FRAME_SECONDS = 1 / 30;
 
 const DURATION_SAMPLES = 15;
-// One step back can measure a held still screen; a few samples outvote it.
+// One step can measure a briefly held screen; a few samples outvote it.
 const MIN_DURATION_SAMPLES = 3;
 // Until the frame length is measured, search finely enough for 60 fps.
 const UNMEASURED_PRECISION_SECONDS = 0.5 / 60;
-const MAX_DURATION_SAMPLE_SECONDS = 1;
+// Longer frames are still screens a screen recording held, not its frame
+// rate. Steps through an idle stretch would otherwise learn the hold and aim
+// forward steps past the frames that follow it.
+const MAX_DURATION_SAMPLE_SECONDS = 0.1;
 const PRESENTED_FRAME_TIMEOUT_MS = 1000;
 // Doubling from 1.5 frames, this reaches past any clip, so a long-held still
 // screen can't stall a step; seeking past the clip's end stops it sooner.
@@ -48,7 +51,7 @@ export function frameTimeMs(mediaTimeSeconds: number): number {
 /**
  * Follows the frames a video element actually presents, through
  * `requestVideoFrameCallback`, and learns the clip's frame length from
- * consecutive frames during playback.
+ * consecutive frames during playback and from steps.
  */
 export class VideoFrameClock {
   private handle: number | null = null;
@@ -137,8 +140,8 @@ export class VideoFrameClock {
   }
 
   /**
-   * Typical frame length, or null until playback or step backs have measured
-   * a few frames; the median shrugs off dropped and held frames.
+   * Typical frame length, or null until playback or steps have measured a
+   * few frames; the median shrugs off dropped and held frames.
    */
   frameSeconds(): number | null {
     if (this.durations.length < MIN_DURATION_SAMPLES) return null;
@@ -412,5 +415,8 @@ async function stepWithinSpan(
   if (shownNow !== next) {
     await showAt(target, clock, frameTimeMs(next));
   }
+  // Nothing new showed between `start` and `next`, so this is how long the
+  // frame stepped off lasts.
+  clock.recordFrameSeconds(next - start);
   return false;
 }

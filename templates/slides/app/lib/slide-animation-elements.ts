@@ -860,7 +860,14 @@ export function getSlideAnimationTargetKey(
   target: AnimationTarget,
 ): string | null {
   const doc = new DOMParser().parseFromString(html, "text/html");
-  const root = doc.querySelector(".fmd-slide");
+  return getSlideAnimationTargetKeyIn(doc.querySelector(".fmd-slide"), target);
+}
+
+/** `getSlideAnimationTargetKey` against a root the caller already parsed. */
+export function getSlideAnimationTargetKeyIn(
+  root: Element | null,
+  target: AnimationTarget,
+): string | null {
   if (!root) return null;
 
   const element = resolveSlideAnimationElement(root, target);

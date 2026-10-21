@@ -12,6 +12,7 @@ import {
   type SourcedTranscriptSegment,
   type TranscriptLine,
 } from "./transcription-engine";
+import { allocateVoiceRunId } from "./voice-dictation-lifecycle";
 
 const WHISPER_STOP_SETTLE_MS = 1500;
 const WEB_SPEECH_STOP_SETTLE_MS = 1200;
@@ -351,10 +352,12 @@ export async function startTranscriptionCapture(
   const lines: TranscriptLine[] = [];
   let disposed = false;
   let paused = false;
+  let resumingRunId: number | null = null;
   let desiredPaused = false;
   let transitioning = false;
   let pauseFinalsSettleUntil = 0;
   let transitionFailure: string | null = null;
+  const settlingRunDeadlines = new Map<number, number>();
   const unlistens: UnlistenFn[] = [];
   const timeline = createActiveTimeline();
 
@@ -377,10 +380,21 @@ export async function startTranscriptionCapture(
   });
 
   let engine: TranscriptionEngine;
+  let activeRunId = allocateVoiceRunId();
   try {
     unlistens.push(
       await onFinalTranscript((event) => {
-        if (disposed) return;
+        const receivedAt = Date.now();
+        for (const [runId, deadline] of settlingRunDeadlines) {
+          if (deadline < receivedAt) settlingRunDeadlines.delete(runId);
+        }
+        const isSettlingRun =
+          typeof event.runId === "number" &&
+          (settlingRunDeadlines.get(event.runId) ?? 0) >= receivedAt;
+        const isActiveRun =
+          event.runId === activeRunId &&
+          (!paused || event.runId === resumingRunId);
+        if (disposed || (!isActiveRun && !isSettlingRun)) return;
         appendFinalTranscript(event, lines);
       }),
     );
@@ -390,6 +404,8 @@ export async function startTranscriptionCapture(
       captureSystem,
       voiceProcessing: opts?.voiceProcessing,
       emitPartials: false,
+      runId: activeRunId,
+      canContinue: () => !disposed,
     });
     console.log(
       `[clips-recorder] transcription started (${engine} mic${captureSystem ? "+system" : ""})`,
@@ -408,36 +424,56 @@ export async function startTranscriptionCapture(
     try {
       if (desiredPaused) {
         const pauseBoundaryMs = timeline.current();
-        await stopTranscriptionEngine(engine);
+        await stopTranscriptionEngine(engine, activeRunId);
         timeline.pause(pauseBoundaryMs);
         paused = true;
         pauseFinalsSettleUntil = Date.now() + WHISPER_STOP_SETTLE_MS;
+        settlingRunDeadlines.set(activeRunId, pauseFinalsSettleUntil);
         console.log(`[clips-recorder] transcription paused (${engine})`);
       } else {
-        const nextEngine = await startTranscriptionEngine({
-          mic,
-          captureSystem,
-          voiceProcessing: opts?.voiceProcessing,
-          emitPartials: false,
-        });
-        if (disposed) {
-          await stopTranscriptionEngine(nextEngine).catch(() => {});
-          return;
-        }
+        const nextRunId = allocateVoiceRunId();
+        activeRunId = nextRunId;
+        resumingRunId = nextRunId;
         try {
-          await resetTranscriptionTimeline(nextEngine, timeline.current());
-        } catch (err) {
-          await stopTranscriptionEngine(nextEngine).catch(() => {});
-          throw err;
+          const nextEngine = await startTranscriptionEngine({
+            mic,
+            captureSystem,
+            voiceProcessing: opts?.voiceProcessing,
+            emitPartials: false,
+            runId: nextRunId,
+            canContinue: () => !disposed,
+          });
+          if (disposed) {
+            await stopTranscriptionEngine(nextEngine, nextRunId).catch(
+              () => {},
+            );
+            return;
+          }
+          try {
+            await resetTranscriptionTimeline(
+              nextEngine,
+              nextRunId,
+              timeline.current(),
+            );
+          } catch (err) {
+            await stopTranscriptionEngine(nextEngine, nextRunId).catch(
+              () => {},
+            );
+            throw err;
+          }
+          if (disposed) {
+            await stopTranscriptionEngine(nextEngine, nextRunId).catch(
+              () => {},
+            );
+            return;
+          }
+          engine = nextEngine;
+          timeline.resume();
+          paused = false;
+          console.log(`[clips-recorder] transcription resumed (${engine})`);
+        } finally {
+          if (resumingRunId === nextRunId) resumingRunId = null;
         }
-        if (disposed) {
-          await stopTranscriptionEngine(nextEngine).catch(() => {});
-          return;
-        }
-        engine = nextEngine;
-        timeline.resume();
-        paused = false;
-        console.log(`[clips-recorder] transcription resumed (${engine})`);
       }
     } catch (err) {
       transitionFailure = `Local transcription ${desiredPaused ? "pause" : "resume"} failed; engine still ${paused ? "paused" : "live"}.`;
@@ -462,7 +498,7 @@ export async function startTranscriptionCapture(
         return captured();
       }
       try {
-        await stopTranscriptionEngine(engine);
+        await stopTranscriptionEngine(engine, activeRunId);
       } catch (err) {
         console.warn("[clips-recorder] transcription stop failed:", err);
         cleanup();
@@ -475,7 +511,7 @@ export async function startTranscriptionCapture(
     async cancel() {
       if (!paused) {
         try {
-          await stopTranscriptionEngine(engine);
+          await stopTranscriptionEngine(engine, activeRunId);
         } catch {
           // ignore
         }
@@ -494,7 +530,7 @@ export async function startTranscriptionCapture(
     },
     async resetTimeline() {
       timeline.reset(!desiredPaused);
-      await resetTranscriptionTimeline(engine, timeline.current());
+      await resetTranscriptionTimeline(engine, activeRunId, timeline.current());
     },
   };
 }

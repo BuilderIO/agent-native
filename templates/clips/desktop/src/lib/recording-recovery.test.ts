@@ -56,6 +56,9 @@ describe("recording recovery state", () => {
   it("only shows the recovery banner on the signed-in recorder surface", () => {
     expect(shouldShowRecordingRecoveryBanner("recorder", true)).toBe(true);
     expect(shouldShowRecordingRecoveryBanner("recorder", false)).toBe(false);
+    expect(shouldShowRecordingRecoveryBanner("recorder", false, true)).toBe(
+      true,
+    );
     expect(shouldShowRecordingRecoveryBanner("settings", true)).toBe(false);
     expect(shouldShowRecordingRecoveryBanner("recovery", true)).toBe(false);
   });

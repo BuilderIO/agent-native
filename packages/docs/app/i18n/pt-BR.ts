@@ -732,6 +732,9 @@ const ptBR = {
     waitlistUnavailable:
       "As inscrições na lista de espera ainda não estão disponíveis neste ambiente. Tente o site de documentação hospedado.",
     launchBuilder: "Abrir o Builder",
+    newAppPrompt: "Crie um novo app Agent-Native.",
+    customizeTemplatePrompt:
+      "Personalize o modelo Agent-Native {{template}} para o meu fluxo de trabalho.",
   },
   templateCard: {
     pasteIntoTerminal: "Cole em seu terminal.",
@@ -2776,7 +2779,9 @@ const ptBR = {
     blueprintInstaller: "Instalador Blueprint",
     chat: "Chat",
     chatOverview: "Visão geral",
-    chatFirstEdits: "Seu primeiro recurso",
+    chatFeatures: "Funcionalidades",
+    chatAgent: "Conversar com o Agent",
+    chatIntegrations: "Uso entre apps",
     chatDevelopers: "Guia do desenvolvedor",
     calendar: "Calendário",
     calendarOverview: "Visão geral",

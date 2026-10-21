@@ -73,6 +73,7 @@ type SidebarDashboard = {
   visibility?: Visibility;
   ownerEmail?: string | null;
   demo?: boolean;
+  builtin?: boolean;
   /** Owner label, set only when another dashboard shares this title. */
   ownerHint?: string;
   parentId?: string;
@@ -485,6 +486,7 @@ function SortableRow({
   isActive,
   favoriteIds,
   onToggleFavorite,
+  readOnly,
   onDelete,
   onRename,
   onArchive,
@@ -504,6 +506,8 @@ function SortableRow({
   isActive: boolean;
   favoriteIds: Set<string>;
   onToggleFavorite: (key: string) => void;
+  /** Built-ins are not saved rows, so every mutating menu item would fail. */
+  readOnly?: boolean;
   onDelete: () => Promise<void> | void;
   onRename: (name: string) => Promise<void> | void;
   onArchive?: () => Promise<void> | void;
@@ -789,95 +793,104 @@ function SortableRow({
                 setIsRenaming(true);
               }}
             >
-              <DropdownMenuItem
-                onSelect={() => {
-                  setRenameValue(name);
-                  pendingRenameRef.current = true;
-                  setMenuOpen(false);
-                }}
-              >
-                <IconPencil className="me-2 h-3.5 w-3.5" />
-                {t("sidebar.rename")}
-              </DropdownMenuItem>
-              {onSetVisibility && visibility !== undefined && (
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    void runSetVisibility(
-                      visibility === "private" ? "org" : "private",
-                    );
-                  }}
-                >
-                  {visibility === "private" ? (
-                    <IconUsersGroup className="me-2 h-3.5 w-3.5" />
-                  ) : (
-                    <IconLock className="me-2 h-3.5 w-3.5" />
-                  )}
-                  {visibility === "private"
-                    ? t("sidebar.shareWithOrg")
-                    : t("sidebar.makePrivate")}
+              {readOnly ? (
+                <DropdownMenuItem onSelect={copyLink}>
+                  <IconLink className="me-2 h-3.5 w-3.5" />
+                  {t("sidebar.copyLink")}
                 </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onSelect={copyLink}>
-                <IconLink className="me-2 h-3.5 w-3.5" />
-                {t("sidebar.copyLink")}
-              </DropdownMenuItem>
-              {onUnhide && hidden ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void runUnhide();
-                  }}
-                >
-                  <IconEye className="me-2 h-3.5 w-3.5" />
-                  {t("sidebar.unhide")}
-                </DropdownMenuItem>
-              ) : onHide ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void runHide();
-                  }}
-                >
-                  <IconEyeOff className="me-2 h-3.5 w-3.5" />
-                  {t("sidebar.hide")}
-                </DropdownMenuItem>
-              ) : null}
-              <DropdownMenuSeparator />
-              {onArchive ? (
+              ) : (
                 <>
                   <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      void runArchive();
+                    onSelect={() => {
+                      setRenameValue(name);
+                      pendingRenameRef.current = true;
+                      setMenuOpen(false);
                     }}
                   >
-                    <IconArchive className="me-2 h-3.5 w-3.5" />
-                    {t("sidebar.archive")}
+                    <IconPencil className="me-2 h-3.5 w-3.5" />
+                    {t("sidebar.rename")}
                   </DropdownMenuItem>
+                  {onSetVisibility && visibility !== undefined && (
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        void runSetVisibility(
+                          visibility === "private" ? "org" : "private",
+                        );
+                      }}
+                    >
+                      {visibility === "private" ? (
+                        <IconUsersGroup className="me-2 h-3.5 w-3.5" />
+                      ) : (
+                        <IconLock className="me-2 h-3.5 w-3.5" />
+                      )}
+                      {visibility === "private"
+                        ? t("sidebar.shareWithOrg")
+                        : t("sidebar.makePrivate")}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onSelect={copyLink}>
+                    <IconLink className="me-2 h-3.5 w-3.5" />
+                    {t("sidebar.copyLink")}
+                  </DropdownMenuItem>
+                  {onUnhide && hidden ? (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void runUnhide();
+                      }}
+                    >
+                      <IconEye className="me-2 h-3.5 w-3.5" />
+                      {t("sidebar.unhide")}
+                    </DropdownMenuItem>
+                  ) : onHide ? (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void runHide();
+                      }}
+                    >
+                      <IconEyeOff className="me-2 h-3.5 w-3.5" />
+                      {t("sidebar.hide")}
+                    </DropdownMenuItem>
+                  ) : null}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      requestDashboardDelete();
-                    }}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <IconTrash className="me-2 h-3.5 w-3.5" />
-                    {t("sidebar.delete")}
-                  </DropdownMenuItem>
+                  {onArchive ? (
+                    <>
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void runArchive();
+                        }}
+                      >
+                        <IconArchive className="me-2 h-3.5 w-3.5" />
+                        {t("sidebar.archive")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          requestDashboardDelete();
+                        }}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <IconTrash className="me-2 h-3.5 w-3.5" />
+                        {t("sidebar.delete")}
+                      </DropdownMenuItem>
+                    </>
+                  ) : (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        requestDashboardDelete();
+                      }}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <IconTrash className="me-2 h-3.5 w-3.5" />
+                      {t("sidebar.delete")}
+                    </DropdownMenuItem>
+                  )}
                 </>
-              ) : (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    requestDashboardDelete();
-                  }}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <IconTrash className="me-2 h-3.5 w-3.5" />
-                  {t("sidebar.delete")}
-                </DropdownMenuItem>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -989,6 +1002,7 @@ function SortableDashboardItem({
       isActive={isActive}
       favoriteIds={favoriteIds}
       onToggleFavorite={onToggleFavorite}
+      readOnly={d.builtin}
       onDelete={() => onDelete(d)}
       onRename={(name) => onRename(d, name)}
       onArchive={
@@ -1187,6 +1201,7 @@ type SqlDashboardListItem = {
   visibility?: Visibility;
   ownerEmail?: string | null;
   demo?: boolean;
+  builtin?: boolean;
   parentId?: string;
   folderId?: string;
 };
@@ -1220,6 +1235,7 @@ async function fetchSqlDashboards(
             : t("sidebar.untitledDashboard"),
         visibility: d.visibility as Visibility,
         ...(d.demo === true ? { demo: true } : {}),
+        ...(d.builtin === true ? { builtin: true } : {}),
         ...(ownerEmail ? { ownerEmail } : {}),
         parentId:
           typeof d.parentId === "string" && d.parentId.trim().length > 0
@@ -1726,6 +1742,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       visibility: d.visibility,
       ownerEmail: d.ownerEmail,
       demo: d.demo,
+      builtin: d.builtin,
       parentId: d.parentId,
       folderId: d.folderId,
     }));
@@ -2276,7 +2293,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             collapsed={true}
           />
           <nav className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-2 py-3">
-            <div className="my-auto flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-3">
               {collapsedNavItems.map((item) => {
                 const Icon = item.icon;
                 return (

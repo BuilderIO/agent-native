@@ -14,6 +14,7 @@ describe("list-agent-engines", () => {
   beforeEach(() => {
     vi.doUnmock("../../server/credential-provider.js");
     vi.resetModules();
+    vi.doUnmock("../../server/credential-provider.js");
     vi.unstubAllEnvs();
     delete process.env.AGENT_ENGINE;
     delete process.env.AGENT_MODEL;

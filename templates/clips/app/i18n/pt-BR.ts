@@ -695,6 +695,14 @@ const messages = {
       "Linha {{line}}: este horário vem antes do horário anterior.",
     errorPastEnd: "Linha {{line}}: este horário é posterior ao fim do vídeo.",
   },
+  transcriptHistory: {
+    title: "Transcrições anteriores",
+    automatic: "Automática",
+    restore: "Restaurar",
+    restored: "Transcrição restaurada",
+    restoreFailed: "Não foi possível restaurar a transcrição",
+    undo: "Desfazer",
+  },
   thumbnailPicker: {
     failedCapture: "Falha ao capturar o quadro",
     failedGif: "Falha ao gerar GIF — tente um intervalo menor",
@@ -968,8 +976,8 @@ const messages = {
     labMeetings: "Reuniões e transcrição",
     labMeetingsDescription:
       "Experimente a captura e a transcrição automáticas de reuniões.",
-    labWisprFlow: "Ditado por voz",
-    labWisprFlowDescription:
+    labVoiceDictation: "Ditado por voz",
+    labVoiceDictationDescription:
       "Mostre ou oculte o ditado por voz no Clips Desktop.",
     labLookbackContext: "Incluir o tempo de tela anterior",
     labLookbackContextDescription:
@@ -1405,6 +1413,16 @@ const messages = {
     playClip: "Reproduzir clipe",
     unsupportedFormat:
       "Este navegador não consegue reproduzir este vídeo. Tente abrir o link no Chrome, Edge ou Firefox.",
+    youtubeLoading: "Carregando o player do YouTube",
+    youtubeUnavailable: "Este vídeo do YouTube é privado ou foi removido.",
+    youtubeEmbedBlocked:
+      "O proprietário deste vídeo não permite que ele seja reproduzido fora do YouTube.",
+    youtubeInvalid: "Este link do YouTube não leva a um vídeo reproduzível.",
+    youtubePlaybackFailed:
+      "O YouTube não conseguiu reproduzir este vídeo aqui.",
+    youtubeApiUnavailable:
+      "O player do YouTube não carregou. Verifique sua conexão ou seu bloqueador de conteúdo e recarregue a página.",
+    watchOnYouTube: "Assistir no YouTube",
   },
   searchBar: {
     placeholder: "Pesquisar gravações…",
@@ -1683,15 +1701,31 @@ const messages = {
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
+  chapterList: {
+    add: "Adicionar capítulos",
+    editLabel: "Editar capítulos",
+    placeholder: "0:00 Introdução\n1:30 Próxima seção",
+    errorLineShape:
+      'Linha {{line}}: coloque um tempo e depois um título, ex.: "0:48 Datas das notas salvas".',
+    errorBadTime: 'Linha {{line}}: "{{value}}" não é um tempo como 0:48.',
+    errorDuplicate: "Linha {{line}}: já existe um capítulo em {{value}}.",
+    errorPastEnd: "Linha {{line}}: {{value}} fica depois do fim do clipe.",
+    changedWhileEditing:
+      "Os capítulos mudaram enquanto você editava. Confira suas linhas e salve de novo para substituí-los.",
+  },
   chapters: {
-    title: "Chapters",
-    addHere: "Add here",
-    empty: "No chapters yet.",
-    remove: "Remove chapter",
-    saveFailed: "Failed to save chapters",
-    duplicateAtPoint: "A chapter already exists at this point",
-    defaultTitle: "Chapter {{count}}",
-    seekTo: "Seek to {{time}}",
+    title: "Capítulos",
+    addHere: "Adicionar aqui",
+    empty: "Ainda não há capítulos.",
+    remove: "Remover capítulo",
+    saveFailed: "Não foi possível salvar os capítulos",
+    changedElsewhere:
+      "Os capítulos foram alterados em outro lugar, então sua última alteração não foi salva.",
+    unreadable:
+      "Alguns capítulos salvos não podem ser lidos, então as alterações não podem ser salvas aqui. Peça ao agente para substituir os capítulos.",
+    duplicateAtPoint: "Já existe um capítulo neste ponto",
+    defaultTitle: "Capítulo {{count}}",
+    seekTo: "Ir para {{time}}",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z)",
@@ -1819,7 +1853,7 @@ const messages = {
     unmuteMicrophone: "Ativar microfone",
     uploadVideo: "Upload video",
     takeScreenshot: "Fazer captura de tela",
-    importLoom: "Import Loom",
+    importLoom: "Importar vídeo",
     importing: "Importing...",
     import: "Import",
     recordNew: "Nova gravação",
@@ -1961,6 +1995,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}}",
     couldNotStartRecording: "Could not start recording",
+    intakeStorageUnavailable:
+      "O proprietário deste link precisa conectar um armazenamento de vídeo antes que você possa gravar. Peça que ele faça isso e tente novamente.",
+    streamingStorageUnavailable:
+      "O armazenamento atual não oferece suporte ao envio retomável exigido pelo Clips. Configure um provedor compatível ou peça a um proprietário ou administrador do workspace para fazer isso. Depois, inicie uma nova gravação.",
     couldNotStartRecorder: "Could not start recorder",
     openSettings: "Open settings",
     openedRecorderInNewTab: "Opened recorder in a new tab",
@@ -1971,6 +2009,8 @@ const messages = {
       "É necessário conectar o armazenamento para concluir a importação do Loom",
     loomImported: "Loom imported",
     couldNotImportLoom: "Não foi possível importar esse Loom.",
+    youtubeImported: "Vídeo do YouTube adicionado",
+    couldNotImportVideo: "Não foi possível importar esse vídeo.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Link copiado",
@@ -1990,6 +2030,8 @@ const messages = {
     sessionExpired: "Session expired",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording.",
+    accountMismatch:
+      "A conta conectada mudou depois que você começou a preparar a gravação. Volte para a conta que estava usando no início e tente novamente.",
     logIn: "Log in",
     betterInDesktop: "Better in the desktop app",
     desktopAppDescription:
@@ -2003,8 +2045,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab",
     retryUpload: "Tentar enviar novamente",
     tryAgain: "Tentar novamente",
-    storageConnectedReopeningRecorder:
-      "Armazenamento conectado. Reabrindo o gravador...",
+    storageConnectedRecorderReady:
+      "Armazenamento conectado. Inicie uma nova gravação quando estiver pronto.",
     connectStorageToFinish:
       "Na próxima tela, use o armazenamento do Builder.io (armazenamento e IA no plano gratuito) ou configure um armazenamento compatível com S3. Clips concluirá o salvamento.",
     connectStorageToRetryLoom:
@@ -2072,12 +2114,12 @@ const messages = {
       "Esta gravação ainda está sendo processada, então o Clips manteve sua cópia aqui. Aguarde ou envie de novo.",
   },
   importRoute: {
-    pageTitle: "Importar Loom — Clips",
-    title: "Importar Loom",
+    pageTitle: "Importar vídeo — Clips",
+    title: "Importar vídeo",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importar",
     helperText:
-      "Funciona muito bem com o Loom. Você também pode colar um link de outra gravação de tela ou arquivo de vídeo.",
+      "Funciona muito bem com o Loom e o YouTube. Você também pode colar um link de outra gravação de tela ou arquivo de vídeo.",
     stageFetching: "Trazendo seu vídeo…",
     stageUploading: "Enviando o material bruto…",
     stageTranscript: "Tornando a fala e o visual na tela legíveis pelo agente…",
@@ -2122,6 +2164,32 @@ const messages = {
     copy: "Copiar",
     copied: "Copiado",
     copyFailed: "Não foi possível copiar",
+    flowStarting: "Iniciando ditado…",
+    flowFinalizing: "Finalizando o ditado…",
+    flowBusy: "Finalizando o ditado anterior…",
+    flowTranscribing: "Transcrevendo…",
+    flowCleaning: "Ajustando o texto…",
+    flowPasting: "Colando o texto…",
+    flowSavingHistory: "Salvando no histórico…",
+    flowPasted: "Colado",
+    flowCopied: "Copiado para a área de transferência",
+    flowPastedHistoryFailed: "Colado, mas não salvo no histórico",
+    flowCopiedHistoryFailed: "Copiado, mas não salvo no histórico",
+    flowHistoryNotSaved: "O ditado não foi salvo no histórico",
+    flowPermissionFailed: "A permissão do microfone está desativada",
+    flowMicrophoneUnavailable: "Microfone indisponível",
+    flowProviderFailed: "Não foi possível transcrever a fala",
+    flowMeetingCaptureActive: "Pare a gravação da reunião antes de ditar",
+    flowPasteFailed: "Não foi possível colar a transcrição",
+    flowCancelled: "Ditado cancelado",
+    flowRetryHistory: "Tentar salvar o histórico novamente",
+    flowDismiss: "Fechar",
+    flowTranscriptRecovery: "Recuperação da transcrição",
+    flowOriginalTranscript: "Mostrar transcrição original",
+    flowCleanupSkipped: "Ajuste do texto ignorado; texto original mantido",
+    flowBacktrackSkipped: "Edição ignorada; texto reconhecido mantido",
+    flowCancelDictation: "Cancelar ditado",
+    flowCopying: "Copiando a transcrição…",
     aiProcessed: "Processado por IA",
     aiCleaned: "Limpo com IA",
     original: "Original",

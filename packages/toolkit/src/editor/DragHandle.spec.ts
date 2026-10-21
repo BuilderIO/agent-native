@@ -5,6 +5,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DRAG_HANDLE_UI_EVENT,
   DragHandle,
   dragPreviewTransform,
   type DragHandleOptions,
@@ -340,6 +341,50 @@ describe("DragHandle menu", () => {
       expect(editor.state.doc.childCount).toBe(2);
       expect(childText(editor, 0)).toBe("First");
       expect(childText(editor, 1)).toBe("Second");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("marks menu and drag edits as user actions", () => {
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
+    const uiEvents: unknown[] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) uiEvents.push(transaction.getMeta("uiEvent"));
+    });
+
+    try {
+      for (const label of ["Insert block below", "Duplicate", "Delete"]) {
+        hoverAt(32, 12);
+        clickHandle(handle);
+        clickMenuItem(label);
+      }
+      hoverAt(32, 12);
+      handle.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          clientX: 12,
+          clientY: 12,
+        }),
+      );
+      document.dispatchEvent(
+        new MouseEvent("mousemove", {
+          bubbles: true,
+          clientX: 12,
+          clientY: 56,
+        }),
+      );
+      document.dispatchEvent(
+        new MouseEvent("mouseup", {
+          bubbles: true,
+          button: 0,
+          clientX: 12,
+          clientY: 56,
+        }),
+      );
+
+      expect(uiEvents).toEqual(Array(4).fill(DRAG_HANDLE_UI_EVENT));
     } finally {
       editor.destroy();
     }

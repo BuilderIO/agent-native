@@ -2748,8 +2748,10 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       );
     }
 
-    await page.getByRole("button", { name: "Speaker Notes" }).click();
-    const notes = page.getByPlaceholder("Add speaker notes...");
+    await page
+      .getByRole("button", { name: "Speaker notes", exact: true })
+      .click();
+    const notes = page.getByRole("textbox", { name: "Speaker notes" });
     const expectedNotes = await exerciseControl(notes, "speaker notes", true);
     let notesSlide: { notes?: string } | undefined;
     const notesSaved = await waitFor(
@@ -2827,8 +2829,6 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     }
     await exerciseControl(editComment, "comment edit", true);
     await editComment.press("Escape");
-    await page.getByRole("button", { name: "More" }).click();
-    await page.locator("[data-toolbar-pin-button]").click();
     const [pinTarget] = await listTargets(page, slideTwo);
     if (!pinTarget)
       throw new Error("second slide has no comment anchor target");
@@ -2842,7 +2842,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     await exerciseControl(pinComment, "pinned comment composer", true);
     await pinComment.press("Escape");
     await page.getByRole("button", { name: "More" }).click();
-    await page.locator("[data-toolbar-pin-button]").click();
+    await page.getByRole("menuitem", { name: /^Comments/ }).click();
 
     const deckTitle = page
       .locator('[data-slides-editor-root="true"] input[type="text"]')

@@ -78,3 +78,46 @@ for (const { title, lastMove } of [
     });
   });
 }
+
+test("an Alt pressed after the last move does not copy at a release the move never reached", async ({
+  app,
+}) => {
+  const id = await app.seed(FIXTURE);
+  await app.open(id);
+  await app.zoomToFit();
+  const grab = await app.pagePoint(750, 355);
+  await app.page.mouse.click(grab.x, grab.y);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Source"]);
+  const before = await app.savedNodes(id);
+  const move = await app.pagePoint(347, 195);
+  const release = await app.pagePoint(350, 205);
+
+  await app.page.mouse.move(grab.x, grab.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(grab.x + 10, grab.y + 6, { steps: 5 });
+  await app.page.mouse.move(move.x, move.y, { steps: 20 });
+  await app.page.keyboard.down("Alt");
+  const cdp = await app.page.context().newCDPSession(app.page);
+  try {
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: release.x,
+      y: release.y,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+      modifiers: 1,
+    });
+  } finally {
+    await cdp.detach();
+    await app.page.keyboard.up("Alt");
+  }
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  expectOnlyChanged(before, after, ["source"]);
+  expect(styleOf(after.get("source"))).toMatchObject({
+    left: "100px",
+    top: "150px",
+  });
+});

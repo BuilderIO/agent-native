@@ -12,6 +12,7 @@ import {
   isDesignHotkeyEditableTarget,
   isDesignHistoryHotkeyTarget,
   isNativeKeyboardActivationTarget,
+  isOptedInDesignHistoryHotkey,
   useDesignHotkeys,
   type UseDesignHotkeysProps,
 } from "./useDesignHotkeys";
@@ -41,6 +42,53 @@ describe("isDesignHotkeyEditableTarget", () => {
 
     markedInput.remove();
     ordinaryInput.remove();
+  });
+});
+
+describe("isOptedInDesignHistoryHotkey", () => {
+  it("hands Undo and Redo from an opted-in open picker to the editor, and nothing else", async () => {
+    const picker = document.createElement("div");
+    picker.setAttribute("data-radix-popper-content-wrapper", "");
+    picker.setAttribute("data-design-history-hotkeys", "true");
+    const slider = document.createElement("div");
+    picker.append(slider);
+    const plainPicker = document.createElement("div");
+    plainPicker.setAttribute("data-radix-popper-content-wrapper", "");
+    const plainSlider = document.createElement("div");
+    plainPicker.append(plainSlider);
+    document.body.append(picker, plainPicker);
+    const keydown = (target: Element, init: KeyboardEventInit) => {
+      const event = new KeyboardEvent("keydown", { bubbles: true, ...init });
+      Object.defineProperty(event, "target", { value: target });
+      return event;
+    };
+
+    await withNavigatorPlatform("MacIntel", () => {
+      expect(isDesignHotkeyBlockedByOpenLayer(slider)).toBe(true);
+      for (const init of [
+        { key: "z", metaKey: true },
+        { key: "z", metaKey: true, shiftKey: true },
+        { key: "y", metaKey: true },
+      ]) {
+        expect(isOptedInDesignHistoryHotkey(keydown(slider, init))).toBe(true);
+        expect(isOptedInDesignHistoryHotkey(keydown(plainSlider, init))).toBe(
+          false,
+        );
+      }
+      expect(
+        isOptedInDesignHistoryHotkey(
+          keydown(slider, { key: "z", metaKey: true, altKey: true }),
+        ),
+      ).toBe(false);
+      expect(
+        isOptedInDesignHistoryHotkey(
+          keydown(slider, { key: "d", metaKey: true }),
+        ),
+      ).toBe(false);
+    });
+
+    picker.remove();
+    plainPicker.remove();
   });
 });
 

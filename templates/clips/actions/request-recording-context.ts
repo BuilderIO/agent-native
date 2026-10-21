@@ -18,6 +18,11 @@ const MAX_STARTUP_DELAY_MS = 10 * 60 * 1000;
 const CLIENT_CLOCK_SKEW_TOLERANCE_MS = 120 * 1000;
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Ask for the last N seconds of screen history before an owned Clip started. The context is saved as passive metadata that never changes the Clip's video, and it is shared with the Clip under the Clip's own share rules. Returns the existing active item when there is one.",
   schema: z.object({

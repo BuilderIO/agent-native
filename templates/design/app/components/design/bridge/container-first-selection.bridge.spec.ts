@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-function hydratedEditorChromeBridgeScript(): string {
+function hydratedEditorChromeBridgeScript(textEditingEnabled = false): string {
   return (
     editorChromeBridgeScript
       .replace("__READ_ONLY__", "false")
-      .replace("__TEXT_EDITING_ENABLED__", "false")
+      .replace("__TEXT_EDITING_ENABLED__", String(textEditingEnabled))
       .replace("__EDITOR_CHROME_SCALE_X__", "1")
       .replace("__EDITOR_CHROME_SCALE_Y__", "1")
       .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
@@ -126,7 +126,99 @@ const DRILL_SCOPE_SIBLING_FIXTURE = `<!doctype html><html><body style="margin:0"
   </div>
 </body></html>`;
 
+const AUTO_LAYOUT_CHILD_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="screen-root" data-agent-native-layer-name="Screen"
+       data-an-primitive="frame"
+       style="position:absolute;left:0;top:0;width:520px;height:420px;background:#111827">
+    <div data-agent-native-node-id="podcast-row" data-agent-native-layer-name="Podcast row"
+         style="position:absolute;left:20px;top:20px;display:flex;width:300px;height:120px;background:#1f2937">
+      <div data-agent-native-node-id="card-a" data-agent-native-layer-name="Podcast card A"
+           style="width:120px;height:80px;background:#3b82f6"></div>
+      <div data-agent-native-node-id="card-b" data-agent-native-layer-name="Podcast card B"
+           style="width:120px;height:80px;background:#ec4899"></div>
+    </div>
+  </div>
+</body></html>`;
+
 describe("container-first click selection", () => {
+  it("advances from an auto-layout child to its child after host selection sync", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(AUTO_LAYOUT_CHILD_FIXTURE);
+      const selected: string[] = [];
+      await page.exposeFunction("__pushSelected", (id: string) =>
+        selected.push(id),
+      );
+      await page.evaluate(() => {
+        window.addEventListener("message", (event: MessageEvent) => {
+          const data = event.data as {
+            type?: string;
+            payload?: { sourceId?: string };
+          };
+          if (data?.type !== "element-select" || !data.payload?.sourceId) {
+            return;
+          }
+          const id = data.payload.sourceId;
+          (window as any).__pushSelected(id);
+          const selector = `[data-agent-native-node-id="${id}"]`;
+          window.postMessage(
+            {
+              type: "select-element",
+              selector,
+              selectorCandidates: [selector],
+            },
+            "*",
+          );
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      await page.mouse.click(80, 60);
+      await vi.waitFor(() => expect(selected.length).toBe(1));
+      await page.waitForTimeout(25);
+      await page.mouse.click(80, 60);
+      await vi.waitFor(() => expect(selected.length).toBe(2));
+
+      expect(selected).toEqual(["podcast-row", "card-a"]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("advances into a selected auto-layout child after a pointer selection", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(AUTO_LAYOUT_CHILD_FIXTURE);
+      const selected: string[] = [];
+      await page.exposeFunction("__pushSelected", (id: string) =>
+        selected.push(id),
+      );
+      await page.evaluate(() => {
+        window.addEventListener("message", (event: MessageEvent) => {
+          const data = event.data as {
+            type?: string;
+            payload?: { sourceId?: string };
+          };
+          if (data?.type === "element-select") {
+            void (window as any).__pushSelected(data.payload?.sourceId ?? "");
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      await page.mouse.click(80, 60);
+      await vi.waitFor(() => expect(selected.length).toBe(1));
+      await page.mouse.click(80, 60);
+      await vi.waitFor(() => expect(selected.length).toBe(2));
+
+      expect(selected).toEqual(["podcast-row", "card-a"]);
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("clicking a child nested inside Card selects Card, not the child", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
@@ -198,6 +290,64 @@ describe("container-first click selection", () => {
       await browser.close();
     }
   });
+
+  it.each(["Meta", "Control"] as const)(
+    "does not count a %s click as the first half of a plain double-click",
+    async (modifier) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(DEEP_SELECTION_FIXTURE);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.evaluate(() => {
+          (window as any).__selectionIds = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.data?.type === "element-select") {
+              (window as any).__selectionIds.push(
+                event.data.payload?.sourceId ?? "",
+              );
+            }
+          });
+        });
+
+        await page.evaluate(() => {
+          const selector = '[data-agent-native-node-id="grandchild"]';
+          window.postMessage(
+            {
+              type: "select-element",
+              selector,
+              selectorCandidates: [selector],
+            },
+            "*",
+          );
+        });
+        await page.waitForFunction(() =>
+          (window as any).__selectionIds.includes("grandchild"),
+        );
+
+        await page.keyboard.down(modifier);
+        await page.mouse.click(100, 100);
+        await page.keyboard.up(modifier);
+        await page.mouse.click(100, 100);
+        await page.waitForFunction(
+          () => (window as any).__selectionIds.length >= 3,
+        );
+
+        const selectedIds = await page.evaluate(
+          () => (window as any).__selectionIds as string[],
+        );
+        expect(selectedIds).toEqual([
+          "grandchild",
+          "middle-frame",
+          "middle-frame",
+        ]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 
   it("keeps a host-selected nested leaf's sibling directly reachable", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -301,7 +451,7 @@ describe("container-first click selection", () => {
       );
       expect(selectedIds.slice(0, 3)).toEqual([
         "middle-frame",
-        "grandchild",
+        "middle-frame",
         "outer-frame",
       ]);
     } finally {
@@ -520,7 +670,9 @@ describe("container-first click selection", () => {
     try {
       const page = await browser.newPage();
       await page.setContent(DRILL_SCOPE_FIXTURE);
-      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
       await page.evaluate(() => {
         (window as any).__selectionIds = [];
         window.addEventListener("message", (event: MessageEvent) => {

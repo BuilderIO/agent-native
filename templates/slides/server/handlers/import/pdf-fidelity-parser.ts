@@ -717,6 +717,7 @@ async function buildTextElements(
           fontFamily: run.fontFamily,
         })),
         alignment,
+        lineSpacing: 1,
         ...(spaceBeforePt > 0 ? { spaceBeforePt } : {}),
       };
     });

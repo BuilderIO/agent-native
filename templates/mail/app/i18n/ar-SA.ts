@@ -306,7 +306,10 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "إثراء جهات الاتصال وبيانات الشركة",
       hubspotDescription: "جهات اتصال CRM والصفقات والتذاكر",
-      gongDescription: "المكالمات الحديثة وذكاء المحادثات",
+      gongDescription: "سجل مكالمات Gong",
+      gongAccessCheckFailed: "تعذّر التحقق مما إذا كان بإمكانك ربط Gong.",
+      gongKeyPlaceholder: "مفتاح API لـ Gong",
+      gongKeyFormatHint: "أدخل مفتاح الوصول والسر بالتنسيق access_key:secret.",
       pylonDescription: "مشكلات الدعم وبيانات الحساب",
       gongCalls: "مكالمات Gong",
       deals: "الصفقات",
@@ -428,6 +431,7 @@ const messages = {
       tryDifferentKeywords: "جرّب كلمات مفتاحية مختلفة",
       nothingHere: "لا يوجد شيء هنا بعد",
       loadingMore: "جار تحميل المزيد...",
+      openAllMailForOlder: "افتح كل البريد للرسائل الأقدم",
     },
     toasts: {
       noEmailSelected: "لم يتم تحديد بريد.",
@@ -458,6 +462,7 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "تم إرسال الرسالة.",
       failedToSaveDraft: "تعذر حفظ المسودة.",
+      failedToRefreshInbox: "تعذر تحديث صندوق الوارد. حاول مرة أخرى بعد قليل.",
       failedToDeleteDraft: "تعذر حذف المسودة.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",

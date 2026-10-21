@@ -663,6 +663,47 @@ async function loadAndResolveAccess(
   };
 }
 
+/**
+ * Host hook: for resources that live inside another product (a design bound
+ * to a Builder project), the host is the authority on who may open them. The
+ * resolver returns a role, `null` to deny, or `undefined` to fall through to
+ * AN's own owner/org/share rules. AN keeps no copy of the host's members,
+ * orgs or roles: it asks, per resource, per request.
+ */
+export type HostAccessResolver = (
+  resource: any,
+  ctx: AccessContext,
+) => Promise<ResolvedAccess["role"] | null | undefined>;
+
+const hostAccessResolvers = new Map<string, HostAccessResolver>();
+
+export function registerHostAccessResolver(
+  resourceType: string,
+  resolver: HostAccessResolver | null,
+): void {
+  if (resolver) hostAccessResolvers.set(resourceType, resolver);
+  else hostAccessResolvers.delete(resourceType);
+}
+
+async function ownerOrAdminRole(
+  reg: ShareableResourceRegistration,
+  resource: any,
+  ctx: AccessContext,
+  normalizedUserEmail: string | null | undefined,
+): Promise<"owner" | "admin" | undefined> {
+  if (
+    normalizedUserEmail &&
+    normalizeEmailForAccess(resource.ownerEmail) === normalizedUserEmail &&
+    ownerMatchesActiveScope(reg, resource, ctx)
+  ) {
+    return "owner";
+  }
+  if (reg.canManageAccess && (await reg.canManageAccess(resource, ctx))) {
+    return "admin";
+  }
+  return undefined;
+}
+
 async function accessToResource(
   reg: ShareableResourceRegistration,
   resourceId: string,
@@ -683,16 +724,23 @@ async function accessToResource(
     return membership;
   };
 
-  if (
-    normalizedUserEmail &&
-    normalizeEmailForAccess(resource.ownerEmail) === normalizedUserEmail &&
-    ownerMatchesActiveScope(reg, resource, ctx)
-  ) {
-    return { role: "owner", resource };
-  }
-  if (reg.canManageAccess && (await reg.canManageAccess(resource, ctx))) {
-    return { role: "admin", resource };
-  }
+  // A host can deny outright. When it grants access, the resource's owner
+  // and admins keep their own roles; the host's role covers everyone else.
+  const hostResolver = hostAccessResolvers.get(reg.type);
+  const hosted =
+    hostResolver && normalizedUserEmail
+      ? await hostResolver(resource, ctx)
+      : undefined;
+  if (hosted === null) return null;
+
+  const managingRole = await ownerOrAdminRole(
+    reg,
+    resource,
+    ctx,
+    normalizedUserEmail,
+  );
+  if (managingRole) return { role: managingRole, resource };
+  if (hosted !== undefined) return { role: hosted, resource };
   const role = await highestShareRole(
     reg,
     resourceId,

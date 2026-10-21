@@ -246,6 +246,28 @@ describe("ensureRecordingThumbnail", () => {
     });
   });
 
+  it("marks a YouTube-embed-backed recording as terminally unavailable", async () => {
+    const { db, updateSet } = createDb(
+      recording({ videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw" }),
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(result).toEqual({
+      recordingId: "rec-1",
+      status: "skipped-youtube-embed",
+      changed: false,
+    });
+    expect(updateSet).toHaveBeenCalledWith({
+      thumbnailStatus: "none",
+      thumbnailFailureReason: "skipped-youtube-embed",
+    });
+  });
+
   it("does not persist a status for a retryable failure", async () => {
     const { db, update } = createDb(recording());
     mocks.getDb.mockReturnValue(db);

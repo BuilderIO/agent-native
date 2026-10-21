@@ -1,23 +1,26 @@
 ---
 name: image-generation-via-a2a
-description: When a slides deck needs images, delegate to the Assets app over A2A so generations are grounded in the user's brand library — never call an image-generation API directly from slides.
+description: Generate slide images locally by default; use Assets over A2A only for a user-requested brand-library generation or an Assets-exclusive capability.
 ---
 
-# Image generation via A2A
+# Slide Image Generation
 
-Slides never calls an image-generation API itself when Assets is reachable.
-Assets owns brand libraries, presets, provenance, and the generation audit log,
-so every improvement there has to reach decks for free.
+Generate images through Slides' local provider by default. Call Assets only when
+the user asks for its brand library or the image requires an asset or capability
+only Assets provides. Do not delegate because Assets is available or because a
+deck has a linked design system. Set `useBrandLibrary: true` on
+`generate-image-api` only for that explicit Assets need.
 
-Both entry points share one delegation helper,
+When `useBrandLibrary: true`, both entry points use the delegation helper in
 `server/lib/assets-image-delegation.ts`:
 
 1. **`generate-image-api`** — the action the agent and the editor's image panel
-   use. It delegates to Assets, then returns `source: "assets-a2a"` with the
+   use. With `useBrandLibrary: true`, it delegates to Assets, then returns `source: "assets-a2a"` with the
    Assets reply verbatim (plus `url` when a `previewUrl`/`downloadUrl` was
    parseable).
 2. **`pnpm action generate-image`** — the CLI script, for local runs that want
-   files on disk. Same delegation, prints the reply verbatim.
+   files on disk. Pass `--use-brand-library` to delegate; otherwise it uses the
+   local provider.
 
 The helper resolves Assets through agent discovery (target `assets`, which also
 matches `images`), so a workspace with both apps mounted needs no configuration.
@@ -50,16 +53,21 @@ output is **not** brand-grounded and the action says so: it returns
 `source: "slides-fallback"` with a `fallbackReason`. Report that honestly
 rather than presenting a fallback image as a library generation.
 
-There is no direct Builder.io image-generation path in slides. If a user wants
-Builder-managed generation, that belongs in Assets, behind the same delegation.
+There is no direct Builder.io image-generation path in Slides. If a user asks
+for Builder-managed generation, that belongs in Assets, behind the explicit
+brand-library delegation.
 
-## Calling explicitly from the agent
+## Brand-library generation
 
-Call the action with the destination so Assets can ground the generation:
+Only when the user asks for Assets' brand library or an Assets-exclusive
+capability, call the action with `useBrandLibrary: true` and the destination:
 
 ```
-generate-image-api { prompt, deckId, slideId, slideContent }
+generate-image-api { prompt, useBrandLibrary: true, deckId, slideId, slideContent }
 ```
+
+For ordinary image generation, call `generate-image-api` without
+`useBrandLibrary`; it uses the local provider and never contacts Assets.
 
 For direct insertion, add `insertIntoSlide: true`. This requires both IDs and
 only returns `inserted: true` after Slides writes the transformed HTML through
@@ -100,9 +108,8 @@ Assets reply when the action could not parse one. This applies whether the
 request came from the editor's image panel or from a plain chat message like
 "generate a photo of a monstera".
 
-The delegation message already instructs Assets to mark generations with
-`source: "a2a"` and `callerAppId: "slides"` when it calls `generate-image-batch`
-or `refine-image`. That keeps the Assets audit log useful for design review.
+When the user requests the Assets brand library, the delegation marks images
+with `source: "a2a"` and `callerAppId: "slides"` in the Assets audit log.
 
 ## Multi-slide image generation
 
@@ -114,7 +121,11 @@ single `add-slide` or `update-slide` call.
 
 ## Iteration
 
-When the user gives feedback ("make slide 3's hero darker, more navy"), ask Assets to run `refine-image` with the previous `assetId` (extracted from the `previewUrl` returned earlier) plus the new feedback. Replace only the slide-3 `<img src="...">` with the new URL. Do **not** delete the prior asset — it stays in the library so the user can pick which version to keep.
+When the user gives feedback on an Assets image, or explicitly asks for Assets
+to refine it, call `refine-image` with the previous `assetId` (from its
+`previewUrl`) and the new feedback. Replace only the affected slide image. Do
+not delete the prior Assets asset; it stays in the library so the user can pick
+which version to keep. For a locally generated image, keep refinement local.
 
 ## Cross-app reply parsing
 

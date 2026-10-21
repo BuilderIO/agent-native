@@ -712,11 +712,13 @@ export const parityMatrix: ParityRow[] = [
       "change-content-database-source-role",
       "disconnect-content-database-source",
       "get-content-database-source",
+      "link-github-folder",
       "list-builder-cms-models",
       "list-notion-database-sources",
       "preview-content-database-source-attach",
       "refresh-content-database-source",
       "suggest-source-join-key",
+      "sync-github-folder",
     ],
     exception: null,
     reliabilityRisk: "none",
@@ -726,6 +728,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
+      "actions/github-source.db.test.ts",
       "actions/resync-content-database-source.db.test.ts",
     ],
     evalScenarioIds: ["database-source-scope"],
@@ -1102,6 +1105,28 @@ export const parityMatrix: ParityRow[] = [
     spinePriority: "P0",
     testCoverage: "seeded",
     followUpPR: null,
+  },
+  {
+    id: "comments.collection-overview",
+    surface: "comments",
+    label:
+      "See which Collection rows and Property values have open comments, and read every row's threads at once",
+    uiEntrypoints: [
+      "app/components/editor/database/database-item-comments.tsx",
+      "app/components/editor/property-comments.tsx",
+    ],
+    durableEffect:
+      "Collection reads return each readable row's open-thread count and per-Property counts; list-content-database-comments returns every readable row's threads with their text or Property target.",
+    uiImplementation:
+      "Table rows and cells show counts from the Collection read and open the row's Comments; agents read all threads through list-content-database-comments.",
+    status: "action-backed",
+    actions: ["list-content-database-comments", "add-comment"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/content-database-comments.db.test.ts"],
   },
   {
     id: "versions.history-and-restore",

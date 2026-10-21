@@ -1,6 +1,7 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { resolveSourceEquivalentSelector } from "@shared/source-equivalent-selector";
 
 import type { ElementInfo } from "@/components/design/types";
 import { designSelectionStateKeysForTab } from "@/hooks/use-navigation-state";
@@ -201,7 +202,10 @@ export function withMeasuredGeometry(
   for (const frame of frames) {
     let node: Element | null = null;
     try {
-      node = frame.contentDocument?.querySelector(selector) ?? null;
+      const frameDocument = frame.contentDocument;
+      node = frameDocument
+        ? resolveSourceEquivalentSelector(frameDocument, selector)
+        : null;
     } catch {
       node = null;
     }

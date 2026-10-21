@@ -73,9 +73,12 @@ export function isSafeCssVarName(value: string): boolean {
 }
 
 export function isSafeCssTokenValue(value: string): boolean {
+  const trimmed = value.trim();
   return (
     value.length > 0 &&
     value.length <= 300 &&
+    (!trimmed.startsWith("#") ||
+      /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(trimmed)) &&
     !/[;{}]/.test(value) &&
     hasOnlySafeCssAttrTypeSyntax(value) &&
     !/\/\*/.test(value) &&

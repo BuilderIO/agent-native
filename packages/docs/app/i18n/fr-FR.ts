@@ -736,6 +736,9 @@ const frFR = {
     waitlistUnavailable:
       "Les inscriptions à la liste d'attente ne sont pas encore disponibles dans cet environnement. Essayez plutôt le site de documentation hébergé.",
     launchBuilder: "Lancer Builder",
+    newAppPrompt: "Crée une nouvelle application Agent-Native.",
+    customizeTemplatePrompt:
+      "Personnalise le modèle Agent-Native {{template}} selon mon flux de travail.",
   },
   templateCard: {
     pasteIntoTerminal: "Collez dans votre terminal.",
@@ -2796,7 +2799,9 @@ const frFR = {
     blueprintInstaller: "Installateur Blueprint",
     chat: "Chat",
     chatOverview: "Vue d'ensemble",
-    chatFirstEdits: "Votre première fonctionnalité",
+    chatFeatures: "Fonctionnalités",
+    chatAgent: "Parler à l'agent",
+    chatIntegrations: "Utilisation multi-apps",
     chatDevelopers: "Guide développeur",
     calendar: "Calendrier",
     calendarOverview: "Vue d'ensemble",

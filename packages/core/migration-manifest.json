@@ -4755,6 +4755,9 @@
     "@agent-native/agentkit/react/chat": {
       "to": "@agent-native/toolkit/app/agentkit"
     },
+    "@agent-native/agentkit/react/styles.css": {
+      "to": "@agent-native/toolkit/app/agentkit/react/styles.css"
+    },
     "@agent-native/core/client/clipboard": {
       "to": "@agent-native/toolkit/clipboard"
     },

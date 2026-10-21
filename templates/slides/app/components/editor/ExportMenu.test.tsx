@@ -62,6 +62,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "A copy of this deck was created in your Google Drive.",
         "editorExport.googleSlidesGoTo": "Go to Google Slides",
         "editorExport.downloadHtml": "Download as HTML",
+        "editorExport.downloadPdf": "Download as PDF",
+        "editorExport.downloadPptx": "Download as PPTX",
+        "editorToolbar.export": "Export",
         "editorExport.duplicateDeck": "Duplicate deck",
         "editorExport.export": "Export",
         "editorExport.exportAndDuplicate": "Export and duplicate",
@@ -93,6 +96,7 @@ import {
 
 import {
   canExportPptxFromServer,
+  ExportDropdown,
   ExportMenu,
   ExportSubmenu,
   type ExportMenuHandle,
@@ -382,6 +386,57 @@ describe("<ExportMenu>", () => {
     fireEvent.click(screen.getByText("Export as PPTX"));
 
     await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
+  });
+
+  it("lists the downloads under the top-bar Export button and runs them through the headless handle", async () => {
+    const onExportPptx = vi.fn().mockResolvedValue(undefined);
+    const ref = createRef<ExportMenuHandle>();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ExportMenu
+          ref={ref}
+          headless
+          hasSlides
+          deckId="deck-1"
+          deckTitle="Quarterly Review"
+          onDuplicate={vi.fn()}
+          onExportPdf={vi.fn()}
+          onExportPptx={onExportPptx}
+        />
+        <ExportDropdown exportMenuRef={ref} hasSlides showGoogleSlides />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Export" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    for (const name of [
+      "Download as HTML",
+      "Download as PDF",
+      "Download as PPTX",
+      "Export to Google Slides",
+    ]) {
+      expect(await screen.findByRole("menuitem", { name })).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole("menuitem", { name: "Download as PPTX" }));
+
+    await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
+  });
+
+  it("disables the top-bar Export button for an empty deck", () => {
+    render(
+      <ExportDropdown
+        exportMenuRef={{ current: null }}
+        hasSlides={false}
+        showGoogleSlides={false}
+      />,
+    );
+
+    expect(
+      (screen.getByRole("button", { name: "Export" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 
   it("exports the converted deck to Google Slides", async () => {

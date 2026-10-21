@@ -74,6 +74,7 @@ vi.mock("../server/source-workspace.js", () => ({
 
 import { uploadFile } from "@agent-native/core/file-upload";
 
+import { readLiveSourceFile } from "../server/source-workspace.js";
 import action, {
   chromiumUnavailableReason,
   contrastRatio,
@@ -102,6 +103,22 @@ describe("public design screenshot access", () => {
       "viewer",
       { includePublic: true },
     );
+  });
+});
+
+describe("native screenshot boundary", () => {
+  it("rejects an unreadable native manifest before invoking headless Chromium", async () => {
+    vi.mocked(readLiveSourceFile).mockResolvedValueOnce({
+      content:
+        '<script type="application/x-agent-native-effects">{bad}</script>',
+    } as never);
+    playwrightMocks.importPlaywright.mockClear();
+    await expect(
+      action.run({ fileId: "file_1" } as never, {} as never),
+    ).rejects.toMatchObject({
+      errorCode: "native_export_live_frame_required",
+    });
+    expect(playwrightMocks.importPlaywright).not.toHaveBeenCalled();
   });
 });
 

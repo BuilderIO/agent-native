@@ -851,14 +851,25 @@ them; marking them applied would leave fresh installs without default rows.
    upgrades it; `db/schema-catalog.ts` is the dump and fingerprint code step 4
    reuses. Step 4 adds a second comparison: snapshot-fresh against
    step-by-step-fresh.
-4. **Framework snapshot.** `pnpm gen:schema-snapshot` runs the release step on
-   an empty PGlite database and writes two checked-in files: the resulting
-   schema as SQL, and the ledger rows it implies. The generator backs a
-   staleness guard, as `store-registry.generated.ts` does, so adding a
-   migration without regenerating fails CI. The runner applies the snapshot as
-   in the diagram above. *Exit:* a fresh framework release runs a handful of
-   statements instead of ~2,400 calls, and the convergence test also compares
-   snapshot-fresh against step-by-step-fresh.
+4. **Framework snapshot. Done.** `pnpm gen:schema-snapshot` runs the release
+   step step by step on an empty PGlite database and writes
+   `db/schema-snapshot.generated.ts`: the schema as an ordered list of
+   statements (function bodies contain semicolons, so it is not one script),
+   the framework tables it created, and the schema migrations it recorded.
+   When the store runner prepares the ledger on a database with no ledger and
+   none of those tables, it runs the snapshot in one transaction and records
+   the covered migrations with `source = 'snapshot'`; data migrations and
+   anything added since run step by step after it. This applies to the release
+   step and to a first local boot; hosted requests never use it, and a
+   database any older core touched upgrades step by step. The module is
+   imported only when a database is actually fresh.
+   *Measured:* a fresh release drops from 2,490 statements to 681, of which
+   589 are the snapshot's own statements in one transaction (no catalog
+   probes, no replay); the rest are data migrations, ledger and lock
+   bookkeeping and the sharing indexes. `release-schema.snapshot.spec.ts`
+   proves snapshot-fresh equals step-by-step-fresh (schema and ledger) and
+   fails when the snapshot no longer covers every schema migration the stores
+   declare, which is the "regenerate" signal.
 5. **Templates (Q7).** Generate the same snapshot for each template's own
    tables once templates declare them with `defineStore`. Generated apps
    already use managed Drizzle migrations (`db/drizzle-migrations.ts`); this

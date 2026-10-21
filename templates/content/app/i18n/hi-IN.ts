@@ -397,6 +397,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "केवल देखने के लिए। यह पेज GitHub की एक फ़ाइल का अनुसरण करता है और हर push के बाद अपडेट होता है।",
+  githubSourceOpenFile: "GitHub में खोलें",
   textColor: "टेक्स्ट का रंग",
   backgroundColor: "पृष्ठभूमि का रंग",
   defaultColor: "डिफ़ॉल्ट",
@@ -503,6 +506,7 @@ const editor = {
     imageDownloadStarted: "छवि डाउनलोड प्रारंभ हुआ.",
     imageLinkHint: "वेब से किसी भी छवि के साथ काम करता है",
     imagePreview: "छवि पूर्वावलोकन",
+    imageUnavailable: "छवि उपलब्ध नहीं है",
     imageView: "छवि दृश्य",
     link: "लिंक",
     loadingAssetsPicker: "संपत्ति पिकर लोड हो रहा है",
@@ -960,6 +964,15 @@ const comments = {
   hideIndicators: "टिप्पणियाँ और हाइलाइट छिपाएँ",
   showIndicators: "टिप्पणियाँ और हाइलाइट दिखाएँ",
   unanchored: "हाइलाइट उपलब्ध नहीं है",
+  propertyEmpty: "खाली",
+  propertyRemoved: "{{name}} (हटाई गई)",
+  propertyWas: "पहले {{value}} था",
+  commentOnProperty: "{{name}} पर टिप्पणी करें",
+  openPropertyComments_one: "{{name}} पर {{count}} खुली टिप्पणी",
+  openPropertyComments_other: "{{name}} पर {{count}} खुली टिप्पणियाँ",
+  openRowComments_one: "{{title}} पर {{count}} खुली टिप्पणी",
+  openRowComments_other: "{{title}} पर {{count}} खुली टिप्पणियाँ",
+  openRow: "पंक्ति खोलें",
   suggestions: "सुझाव",
   suggestionAdd: "जोड़ें",
   suggestionDelete: "हटाएँ",
@@ -981,6 +994,10 @@ const comments = {
   accepted: "स्वीकृत",
   rejected: "अस्वीकृत",
   noFilteredComments: "कोई मेल खाती टिप्पणी नहीं।",
+  tabFilter: "टैब",
+  allTabs: "सभी टैब",
+  fieldRemoved: "{{name}} (हटाया गया)",
+  pageBody: "पेज का मुख्य भाग",
 };
 
 const reviewDiscussions = {
@@ -1164,6 +1181,7 @@ const history = {
   historyGroupAgent: "एजेंट रन",
   historyGroupHuman: "संपादन सत्र",
   historyGroupLegacy: "पुराने संपादन",
+  historyGroupGitHub: "GitHub से सिंक किया गया",
   historyGroupOperation: "कार्रवाई",
   historyGroupRestore: "पुनर्स्थापना",
   historyLoadError: "संस्करण इतिहास लोड नहीं किया जा सका।",
@@ -1378,8 +1396,23 @@ const overrides = {
     plainText: "सादा टेक्स्ट",
     searchLanguages: "भाषाएं खोजें...",
     noBlocksFields: "कोई Blocks फ़ील्ड नहीं है। प्रॉपर्टी मेनू से एक जोड़ें।",
-    reorderField: "{{name}} को फिर से क्रमबद्ध करें",
-    toggleField: "{{name}} टॉगल करें",
+    addBlockField: "फ़ील्ड जोड़ें",
+    blockFieldChanged: "पिछली बार देखने के बाद से बदला गया",
+    blockFieldTabs: "फ़ील्ड",
+    blockFieldOpenComments_one: "{{count}} खुली टिप्पणी",
+    blockFieldOpenComments_other: "{{count}} खुली टिप्पणियाँ",
+    blockFieldMenu: "{{name}} के विकल्प",
+    blockFieldMenuScope: "इस संग्रह की हर पंक्ति में साझा",
+    blockFieldName: "फ़ील्ड का नाम",
+    renameBlockField: "नाम बदलें",
+    renameBlockFieldFailed: "फ़ील्ड का नाम नहीं बदला जा सका",
+    deleteBlockField: "हटाएँ",
+    deleteBlockFieldFailed: "फ़ील्ड हटाया नहीं जा सका",
+    deleteBlockFieldQuestion: "“{{name}}” हटाएँ?",
+    deleteBlockFieldDescription:
+      "इससे इस संग्रह की हर पंक्ति से “{{name}}” और उसका टेक्स्ट हट जाएगा। इसे पूर्ववत नहीं किया जा सकता।",
+    deleteBlockFieldBodyWarning:
+      "“{{name}}” पेज का मुख्य भाग है, इसलिए हर पंक्ति का मुख्य टेक्स्ट भी हट जाएगा।",
   },
   comments: {
     add: "टिप्पणी जोड़ें...",

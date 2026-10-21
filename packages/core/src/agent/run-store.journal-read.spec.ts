@@ -9,7 +9,6 @@ import {
 } from "./run-store.js";
 import {
   classifyToolCallJournal,
-  findCompletedJournalEntry,
   toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 
@@ -279,6 +278,12 @@ describe.each([
         result: "sent",
         inputFingerprint,
       })),
+      ...[null, 1, "short", "x".repeat(64)].map((argumentsHash) => ({
+        type: "tool_done",
+        tool: "send-message",
+        result: "sent",
+        argumentsHash,
+      })),
       {
         type: "tool_done",
         tool: "send-message",
@@ -422,7 +427,7 @@ it.each([
   { url: "https://example.invalid/report" },
   { fileId: "fixture-file" },
 ])(
-  "matches original attachment inputs after SQL byte stripping without conflating payloads: %j",
+  "keeps each call's original-input fingerprint through SQL byte stripping without conflating payloads: %j",
   async (reference) => {
     const input = {
       destination: "example",
@@ -480,28 +485,22 @@ it.each([
     const journal = classifyToolCallJournal(
       await getCurrentTurnEventsForThread("thread", "turn"),
     );
-    const consumed = new Set<string>();
+    // The stored inputs lost their bytes; each fingerprint still names the
+    // input its call ran with, and no other.
     expect(
-      findCompletedJournalEntry(journal, "send-report", {
-        ...input,
-        attachments: [{ ...input.attachments[0], data: "Qw==" }],
-      }),
-    ).toBeUndefined();
-    expect(
-      findCompletedJournalEntry(
-        journal,
-        "send-report",
-        { attachments: input.attachments, destination: "example" },
-        consumed,
-      )?.result,
-    ).toBe("first sent");
-    expect(
-      findCompletedJournalEntry(journal, "send-report", input, consumed),
-    ).toBeUndefined();
-    expect(
-      findCompletedJournalEntry(journal, "send-report", other, consumed)
-        ?.result,
-    ).toBe("second sent");
+      new Map(
+        journal.completed.map((entry) => [
+          entry.inputFingerprint,
+          entry.result,
+        ]),
+      ),
+    ).toEqual(
+      new Map([
+        [toolCallInputFingerprint(input), "first sent"],
+        [toolCallInputFingerprint(other), "second sent"],
+      ]),
+    );
+    expect(journal.interrupted).toHaveLength(0);
   },
 );
 
