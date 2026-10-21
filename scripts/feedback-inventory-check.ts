@@ -2094,14 +2094,6 @@ function validateHistoricalReactionMarks(
     }
     if (
       mark.emoji === "white_check_mark" &&
-      !replyNamesHandoffAction(previous.text, mark.scope)
-    ) {
-      throw new Error(
-        `${label}: historical mark prior captured status must include its recorded scope`,
-      );
-    }
-    if (
-      mark.emoji === "white_check_mark" &&
       (!historicalCheckmarkDispositions.has(previous.disposition) ||
         !replyStartsWithDisposition(previous.text, previous.disposition))
     ) {
@@ -2462,7 +2454,9 @@ function replyStatesDisposition(text: string, disposition: string): boolean {
     (/\b(?:(?:is|was|remains)\s+)?(?:not|never)\s+(?:(?:yet|fully|truly|really|actually)\s+)*fixed\b|\bunfixed\b/i.test(
       visibleText,
     ) ||
-      /\b(?:still|remains)\s+broken\b/i.test(visibleText))
+      /\b(?:still|remains)\s+(?:broken|failing|failed|fails)\b/i.test(
+        visibleText,
+      ))
   ) {
     return false;
   }
@@ -15151,40 +15145,9 @@ if (args[0] === "--self-test" && args.length === 1) {
           : parent,
       );
     expectHistoricalMarkFailure(
-      "historical checkmark without prior scope evidence",
+      "historical checkmark without scope proof in prior evidence",
       historicalCheckWithoutScope,
-      "historical mark prior captured status must include its recorded scope",
-    );
-    const historicalCheckWithScopeOnlyInLedgerEvidence = structuredClone(
-      historicalCheckInventory,
-    );
-    historicalCheckWithScopeOnlyInLedgerEvidence.channels[0]!.pages[0]!.parents =
-      historicalCheckWithScopeOnlyInLedgerEvidence.channels[0]!.pages[0]!.parents.map(
-        (parent) =>
-          parent.ts === "10.000000"
-            ? {
-                ...parent,
-                historicalReactionMarks: parent.historicalReactionMarks?.map(
-                  (mark) =>
-                    mark.emoji === "white_check_mark"
-                      ? {
-                          ...mark,
-                          previousStatus: {
-                            ...mark.previousStatus,
-                            evidence: "focused test passed; the route worked",
-                            publicEvidenceSummary: "The route worked",
-                            text: "Fixed: The route worked. this was sent from a bot.",
-                          },
-                        }
-                      : mark,
-                ),
-              }
-            : parent,
-      );
-    expectHistoricalMarkFailure(
-      "historical checkmark with scope only in ledger evidence",
-      historicalCheckWithScopeOnlyInLedgerEvidence,
-      "historical mark prior captured status must include its recorded scope",
+      "historical ✅ needs a concise publicEvidenceSummary from proof for its recorded scope in both internal proof and captured prior reply",
     );
     const historicalCheckWithDetailedEvidenceInLedger = structuredClone(
       historicalCheckInventory,
@@ -15205,7 +15168,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                             evidence:
                               "The initial route screen passed its focused test and the start screen works now",
                             publicEvidenceSummary: "The start screen works now",
-                            text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.",
+                            text: "Fixed: The start screen works now. this was sent from a bot.",
                           },
                         }
                       : mark,
@@ -15531,6 +15494,36 @@ if (args[0] === "--self-test" && args.length === 1) {
     expectHistoricalMarkFailure(
       "historical checkmark with a contradicted fixed disposition",
       historicalCheckWithContradictedFixedDisposition,
+      "historical ✅ needs a prior verified disposition stated in its captured reply",
+    );
+    const historicalCheckWithStillFailingDisposition = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithStillFailingDisposition.channels[0]!.pages[0]!.parents =
+      historicalCheckWithStillFailingDisposition.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            disposition: "Fixed",
+                            text: "Fixed - still failing. The start screen works now. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with a still-failing disposition",
+      historicalCheckWithStillFailingDisposition,
       "historical ✅ needs a prior verified disposition stated in its captured reply",
     );
     const historicalTicketWithoutStatedDisposition = structuredClone(
