@@ -43,6 +43,10 @@ npx @agent-native/core@latest skills add turn-into-app
 
 在浏览器宿主上，skill 需要 Agent-Native Dispatch MCP 连接器（`https://dispatch.agent-native.com/mcp`，OAuth），并调用其 `start-workspace-app-creation` 操作。宿主无法运行或检查应用，因此在 Dispatch 返回的分支构建完成之前，报告会保持待处理或未验证状态。skill 只报告 Dispatch 实际返回的内容，绝不编造分支 URL。对于 ChatGPT 项目，或任何仅暴露 MCP 的宿主，请将 skill 指令放入项目指令或知识文件中。
 
+## 本地前置条件
+
+在本地宿主上，请先安装 Node.js（包含 npm 和 npx）以及 pnpm，再开始操作。浏览器宿主使用 Dispatch，不会运行这些命令。
+
 ## 来源 {#sources}
 
 - **对话。** 最近一次具体且可重复的工作就是产品。

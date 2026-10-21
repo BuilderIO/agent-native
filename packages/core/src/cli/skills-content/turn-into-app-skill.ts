@@ -13,15 +13,15 @@ metadata:
 
 # Turn Into App
 
-Give a proven workflow the face of an app and the brain of an agent. The first
-screen shows the user's world, populated. Controls on those objects hand work
-to the in-app agent, the object shows it is working, and the result lands back
-in the UI. A form under a stepper bar is the failure to prevent.
+Give a proven workflow an Agent-Native app face and agent brain. Start with
+populated domain screens. Object controls send work to the agent; the object
+shows progress and receives the result. Avoid form-under-stepper layouts.
 
 ## Host, source, and when to ask
 
 ### Classify the host
 
+- Local scaffolding needs Node.js (including npm/npx) and pnpm.
 - **Local host**: a terminal, a filesystem, and a target checkout (Claude Code,
   Codex, Cursor, or an Agent-Native agent that can edit files). Build the app in
   that checkout with steps 1-6. Never call \`start-workspace-app-creation\` or
@@ -105,9 +105,8 @@ opens on a mapping or setup screen.
 
 ## Workflow
 
-Copy this checklist and keep it current. Pace: aim for about 45 minutes; note
-the start time (\`date\`), and if 35 minutes have passed when the review starts,
-run one pass and list the open criteria.
+Copy and update this checklist. Aim for 45 minutes; note the start time
+(\`date\`). If review starts after 35 minutes, run one pass and list open criteria.
 
 \`\`\`text
 - [ ] 0 Host classified, source picked
@@ -160,9 +159,9 @@ without waiting.
 
 ### 3. Create the real scaffold
 
-Before the first command, say once what the run executes (install, scaffold,
-checks, a dev server, a headless browser), so permission prompts do not read
-as trouble.
+Before the first command, name the steps (install, scaffold, checks, dev server,
+headless browser) and estimate work time from the source and host. Separate
+external setup waits, so delays are expected.
 
 Choose a short slug and never overwrite an existing app. For a standalone app,
 run from the directory that should contain it (the app is its own git

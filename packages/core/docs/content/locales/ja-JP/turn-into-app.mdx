@@ -43,6 +43,10 @@ npx @agent-native/core@latest skills add turn-into-app
 
 ブラウザホストでは、スキルは Agent-Native Dispatch MCP コネクタ（`https://dispatch.agent-native.com/mcp`、OAuth）を必要とし、その `start-workspace-app-creation` アクションを呼び出します。ホストはアプリを実行も検査もできないため、Dispatch が返したブランチがビルドされるまで、レポートは保留または未検証のままです。スキルは Dispatch が実際に返した内容をそのまま報告し、ブランチ URL を作り出すことはありません。ChatGPT のプロジェクト、または MCP しか公開していないホストでは、スキルの指示をプロジェクトの指示またはナレッジファイルに入れてください。
 
+## ローカルの前提条件
+
+ローカルホストでは、開始前に Node.js（npm と npx を含む）と pnpm をインストールしてください。ブラウザホストは Dispatch を使用し、これらのコマンドは実行しません。
+
 ## ソース {#sources}
 
 - **スレッド。** 直近の具体的で再現可能なジョブがプロダクトになります。

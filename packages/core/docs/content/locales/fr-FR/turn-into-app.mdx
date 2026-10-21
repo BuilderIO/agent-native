@@ -43,6 +43,10 @@ Un hôte est considéré comme local s'il dispose d'un vrai répertoire de trava
 
 Sur un hôte navigateur, la skill exige le connecteur MCP Agent-Native Dispatch (`https://dispatch.agent-native.com/mcp`, OAuth) et appelle son action `start-workspace-app-creation`. L'hôte ne peut ni exécuter ni inspecter l'app, donc le rapport reste en attente ou non vérifié tant que la branche renvoyée par Dispatch n'a pas été construite. La skill rapporte ce que Dispatch a réellement renvoyé et n'invente jamais d'URL de branche. Pour un projet ChatGPT, ou tout hôte qui n'expose que MCP, placez les instructions de la skill dans les instructions du projet ou dans les fichiers de connaissances.
 
+## Prérequis locaux
+
+Sur un hôte local, installez Node.js (qui inclut npm et npx) et pnpm avant de commencer. Les hôtes navigateur utilisent Dispatch et n'exécutent pas ces commandes.
+
 ## Sources {#sources}
 
 - **Fils de discussion.** Le dernier travail concret et répétable est le produit.
