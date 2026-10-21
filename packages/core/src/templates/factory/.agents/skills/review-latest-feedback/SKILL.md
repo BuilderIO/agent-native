@@ -382,8 +382,7 @@ mention or explain absent reactions. Keep hashes, branches, CI, publisher
 details, and proof in the internal recap. Never explain workflow mechanics or
 external tracker tickets in Slack. Do not mention a closed, historical `🎫`
 mark. Never send **Open**/**pending** or a symptom recap. Ask for reporter input
-only when it changes the next step. End Slack replies with
-`this was sent from a bot.`.
+only when it changes the next step.
 
 Every root this actor marks with `👀`, `✅`, or `🎫` also needs a current
 same-actor status reply after the latest human reply. One concise reply can
