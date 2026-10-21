@@ -17,7 +17,7 @@ import type {
 } from "./first-party-metric-catalog.js";
 import {
   buildOnboardingJourneyEventPageRequest,
-  MAX_ONBOARDING_EVENT_READ_PAGES,
+  getOnboardingJourneyEventReadPageCount,
   ONBOARDING_EVENT_PAGE_ROWS,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
 } from "./onboarding-journey.js";
@@ -71,9 +71,9 @@ export async function estimateOnboardingJourneyEventQueryCost(
     throwPreparationFailure(error, signal);
   }
   const pageOffsets = Array.from(
-    { length: MAX_ONBOARDING_EVENT_READ_PAGES },
+    { length: getOnboardingJourneyEventReadPageCount(maxEventRows) },
     (_unused, index) => index * ONBOARDING_EVENT_PAGE_ROWS,
-  ).filter((offset) => offset <= maxEventRows);
+  );
   const pages: OnboardingJourneyCostEstimate["pages"] = [];
 
   for (const [index, offset] of pageOffsets.entries()) {

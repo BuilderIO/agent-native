@@ -118,7 +118,7 @@ export default defineAction({
       .optional()
       .default(40000)
       .describe(
-        "Event rows to read before stopping and reporting coverage.truncated. Each 4,000 rows is one query; raise it only for a wide window. Defaults to 40000.",
+        `Event rows to read, plus one extra row to detect truncation. Each 4,000 rows is one query, up to ${MAX_JOURNEY_EVENT_ROWS} rows; every BigQuery page has a 25 GB bytes-billed cap. Defaults to 40000.`,
       ),
     recency: z
       .enum(["newest", "none"])

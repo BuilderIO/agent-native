@@ -1529,7 +1529,7 @@ describe("getOnboardingJourney", () => {
     expect(single).not.toHaveProperty("notes");
   });
 
-  it("stops large event reads after two bounded pages and nulls follow-up counts", async () => {
+  it("reads all pages through the requested event budget", async () => {
     const pages = [
       Array.from({ length: 4_000 }, (_, index) =>
         eventRow(`budget-a-${index}`, "signup", index),
@@ -1537,6 +1537,7 @@ describe("getOnboardingJourney", () => {
       Array.from({ length: 4_000 }, (_, index) =>
         eventRow(`budget-b-${index}`, "signup", index + 4_000),
       ),
+      [eventRow("budget-c-0", "signup", 8_000)],
     ];
     const now = vi
       .spyOn(Date, "now")
@@ -1554,32 +1555,24 @@ describe("getOnboardingJourney", () => {
       const tree = (await getOnboardingJourney(scope, {
         ...ARGS,
         dateTo: "2026-10-09",
-        maxEventRows: 200_000,
+        maxEventRows: 12_000,
       })) as JourneyTree;
 
-      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(2);
-      expect(tree.coverage.truncated).toBe(true);
-      expect(tree.notes?.join(" ")).toMatch(
-        /stopped after 2 BigQuery pages to bound query cost/,
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[2]![0]).toMatch(
+        /LIMIT 4000 OFFSET 8000$/,
       );
-      expect(tree.followUp).toMatchObject({
-        status: "incomplete",
-        incompleteReason: "journey_event_read_truncated",
-        laterRecordedActivityWithinWindow: {
-          total: null,
-          byTerminalStepKey: null,
-        },
-        noLaterRecordedActivityWithinWindow: {
-          total: null,
-          byTerminalStepKey: null,
-        },
-      });
+      expect(tree.rootN).toBe(8_001);
+      expect(tree.coverage.truncated).toBe(false);
+      expect(tree.notes?.join(" ")).toMatch(
+        /3 OFFSET pages.*late-arriving events/,
+      );
     } finally {
       now.mockRestore();
     }
   });
 
-  it("allows bounded Postgres reads beyond the BigQuery page budget", async () => {
+  it("allows bounded Postgres reads through the requested row budget", async () => {
     const rows = Array.from({ length: 8_001 }, (_, index) =>
       eventRow("postgres-pages", "pageview", index),
     );

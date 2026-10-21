@@ -32,11 +32,13 @@ The pipeline runs without a UI. Codex does all four steps from the terminal:
 `estimate-onboarding-journey-cost` dry-runs the same access-scoped BigQuery
 event-page SQL as `get-onboarding-journey`. Pass matching dates, app,
 email filter, follow-up mode, and event row budget. It returns estimated bytes
-per possible page, their sum in `possiblePagesEstimatedBytes`, the unchanged
-per-query cap, and `within_cap` or `over_cap`. Page two is estimated when the
-row budget permits it; production reads it only when page one fills. The sum
-is a possible-pages estimate, not executed or billed bytes. Data-dependent
-follow-up queries are excluded. An unavailable estimate fails explicitly.
+for every possible 4,000-row page through that budget, including the one-row
+overflow check, their sum in `possiblePagesEstimatedBytes`, the unchanged
+per-query cap, and `within_cap` or `over_cap`. Production reads each page only
+when the previous page fills. The sum is a possible-pages estimate, not
+executed or billed bytes; the 25 GB billed-byte cap applies to each query.
+Data-dependent follow-up queries are excluded. An unavailable estimate fails
+explicitly.
 
 `get-onboarding-journey` returns `JourneyTree`; `format: "summary"` returns the
 same event-derived journey and follow-up counts as an indented `outline` with no
@@ -132,8 +134,9 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   session IDs or member identity keys used internally. The consistency field
   reports `may_have_shifted` when the event read uses multiple `OFFSET` pages;
   a late-arriving event can change page membership inside a historical window
-  too. The action caps event reads at two 4,000-row BigQuery pages to bound
-  total query cost. If either read truncates, page boundaries may have shifted,
+  too. The action reads 4,000-row pages up to `maxEventRows` (at most 200,000),
+  plus one overflow row to detect truncation. Each BigQuery page keeps the
+  25 GB billed-byte cap. If a read truncates, page boundaries may have shifted,
   or the terminal cohort cannot be covered in one query under the
   800,000-character SQL limit or 50,000-token parser limit, `status` is
   `incomplete` and all new cohort counts and follow-up duration are `null`;

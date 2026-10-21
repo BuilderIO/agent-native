@@ -151,6 +151,29 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
     expect(JSON.stringify(estimate)).not.toContain("private");
   });
 
+  it("estimates every page through the row budget and overflow check", async () => {
+    const estimate = await estimateOnboardingJourneyEventQueryCost(
+      scope,
+      filters,
+      200_000,
+      observation,
+      false,
+    );
+
+    expect(estimate.status).toBe("within_cap");
+    expect(estimate.pages).toHaveLength(51);
+    expect(estimate.possiblePagesEstimatedBytes).toBe(51 * 700);
+    expect(estimate.pages[estimate.pages.length - 1]).toEqual({
+      page: 51,
+      offset: 200_000,
+      estimatedBytes: 700,
+    });
+    expect(mocks.dryRunQuerySchema).toHaveBeenCalledTimes(51);
+    expect(mocks.scopedAnalyticsSql.mock.calls[50]?.[0]).toContain(
+      "LIMIT 1 OFFSET 200000",
+    );
+  });
+
   it("does not report a missing byte estimate as a successful zero", async () => {
     mocks.dryRunQuerySchema.mockResolvedValueOnce({ error: null });
 

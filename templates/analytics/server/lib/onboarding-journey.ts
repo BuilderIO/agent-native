@@ -7,7 +7,6 @@ import {
   BigQueryQueryTimeoutError,
   type BigQueryBackendReason,
 } from "./bigquery.js";
-import { getFirstPartyAnalyticsBackend } from "./first-party-analytics-backend.js";
 import {
   queryFirstPartyAnalytics,
   FirstPartyAnalyticsQueryTimeoutError,
@@ -50,7 +49,6 @@ import {
 // Both backends cap a query result at 5,000 rows; stay under it so a full page
 // is never mistaken for a cut one.
 export const ONBOARDING_EVENT_PAGE_ROWS = 4_000;
-export const MAX_ONBOARDING_EVENT_READ_PAGES = 2;
 const MAX_ONBOARDING_JOURNEY_FOLLOWUP_TERMINALS = 2_000;
 const MAX_FOLLOWUP_QUERY_CHARS = 800_000;
 const MAX_FOLLOWUP_QUERY_TOKENS = 50_000;
@@ -58,6 +56,12 @@ const ONBOARDING_QUERY_TIMEOUT_MS = 20_000;
 export const ONBOARDING_EVENTS_MAX_BYTES_BILLED = 25_000_000_000;
 const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED = 10_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function getOnboardingJourneyEventReadPageCount(
+  maxEventRows: number,
+): number {
+  return Math.ceil((maxEventRows + 1) / ONBOARDING_EVENT_PAGE_ROWS);
+}
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
@@ -517,11 +521,7 @@ async function readJourneyEvents(
   freezeReceivedAt: boolean,
   signal?: AbortSignal,
 ): Promise<EventRead> {
-  const { sink } = await getFirstPartyAnalyticsBackend(scope, signal);
-  const maxPages =
-    sink === "bigquery"
-      ? MAX_ONBOARDING_EVENT_READ_PAGES
-      : Math.ceil((maxEventRows + 1) / ONBOARDING_EVENT_PAGE_ROWS);
+  const maxPages = getOnboardingJourneyEventReadPageCount(maxEventRows);
   const raw: Record<string, unknown>[] = [];
   let truncated = false;
   let truncationReason: EventRead["truncationReason"] = null;
@@ -1694,7 +1694,7 @@ export async function getOnboardingJourney(
   const notes: string[] = [];
   const eventReadLimit =
     read.truncationReason === "page_budget"
-      ? `Event read stopped after ${MAX_ONBOARDING_EVENT_READ_PAGES} BigQuery pages to bound query cost`
+      ? `Event read reached its safe page limit before confirming whether maxEventRows=${args.maxEventRows} was exceeded`
       : read.truncationReason === "backend_result"
         ? "BigQuery returned an incomplete event page"
         : `Event read stopped at maxEventRows=${args.maxEventRows}`;

@@ -63,7 +63,7 @@ export default defineAction({
       .optional()
       .default(40000)
       .describe(
-        `Event row budget, matching get-onboarding-journey. Defaults to 40000; at most ${MAX_JOURNEY_EVENT_ROWS}. The second page is estimated when this budget allows it, but the journey reads it only if the first page is full.`,
+        `Event row budget, matching get-onboarding-journey. Defaults to 40000; at most ${MAX_JOURNEY_EVENT_ROWS}. Estimates every possible 4,000-row page through this budget, including the one-row overflow check; the journey reads each page only when the previous page is full.`,
       ),
   }),
   http: { method: "GET" },
