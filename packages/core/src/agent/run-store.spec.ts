@@ -102,6 +102,14 @@ const mockDb: any = {
       };
     }
     if (
+      /SELECT status, terminal_reason FROM agent_runs WHERE id/i.test(rawSql)
+    ) {
+      return {
+        rows: [{ status: "running", terminal_reason: null }],
+        rowsAffected: 0,
+      };
+    }
+    if (
       /SELECT event_data FROM agent_run_events/i.test(rawSql) &&
       args.includes('{"type":"connection_required"%')
     ) {
@@ -613,7 +621,11 @@ describe("run store", () => {
     const reason = execCalls.find((call) =>
       /UPDATE agent_runs SET terminal_reason/i.test(call.sql),
     );
-    expect(reason?.args).toEqual(["run_timeout", "run-checkpoint"]);
+    expect(reason?.args).toEqual([
+      "run_timeout",
+      "run-checkpoint",
+      "run_timeout",
+    ]);
   });
 
   it("hides the reserved checkpoint band from the live event feed", async () => {

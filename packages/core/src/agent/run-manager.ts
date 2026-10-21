@@ -1359,9 +1359,11 @@ export function startRun(
       mirrorInFlightMarker(false);
     }
   };
+  let checkpointRunBoundaryTask: Promise<void> = Promise.resolve();
   let checkpointAbortInFlight = false;
   let checkpointPersistenceFailed = false;
-  const checkpointRunBoundary = async (
+  let runDriverSettled = false;
+  const checkpointRunBoundary = (
     event: AgentChatEvent,
     terminalReason: "no_progress" | "run_timeout",
     diagnostic: { silentForMs?: number; lastEventType?: string },
@@ -1371,42 +1373,46 @@ export function startRun(
       run.status !== "running" ||
       abort.signal.aborted
     )
-      return;
+      return checkpointRunBoundaryTask;
     checkpointAbortInFlight = true;
-    try {
-      await withWorkerFence(() =>
-        persistRunCheckpointEvent(runId, event, terminalReason),
-      );
-      softTimedOut = true;
-      recordRunBoundaryDiagnostic(terminalReason, diagnostic, "terminal");
-      emitRunBoundaryTrackingEvent({
-        runId,
-        threadId,
-        reason: terminalReason,
-        recovered: false,
-        boundaryIndex: recoveredChunkBoundaries + 1,
-        dispatchMode: options?.dispatchMode,
-        model: options?.model,
-        engineName: options?.engineName,
-        userId: options?.userId,
-      });
-      send(event);
-    } catch (error) {
-      checkpointPersistenceFailed = true;
-      console.error(
-        "[run-manager] could not persist run boundary checkpoint",
-        runId,
-        error instanceof Error ? error.message : error,
-      );
-      send({
-        type: "error",
-        error: "The agent could not save its continuation checkpoint.",
-        errorCode: "run_checkpoint_persistence_failed",
-      });
-    } finally {
-      abort.abort(terminalReason);
-      checkpointAbortInFlight = false;
-    }
+    const task = (async () => {
+      try {
+        await withWorkerFence(() =>
+          persistRunCheckpointEvent(runId, event, terminalReason),
+        );
+        softTimedOut = true;
+        recordRunBoundaryDiagnostic(terminalReason, diagnostic, "terminal");
+        emitRunBoundaryTrackingEvent({
+          runId,
+          threadId,
+          reason: terminalReason,
+          recovered: false,
+          boundaryIndex: recoveredChunkBoundaries + 1,
+          dispatchMode: options?.dispatchMode,
+          model: options?.model,
+          engineName: options?.engineName,
+          userId: options?.userId,
+        });
+        send(event);
+      } catch (error) {
+        checkpointPersistenceFailed = true;
+        console.error(
+          "[run-manager] could not persist run boundary checkpoint",
+          runId,
+          error instanceof Error ? error.message : error,
+        );
+        send({
+          type: "error",
+          error: "The agent could not save its continuation checkpoint.",
+          errorCode: "run_checkpoint_persistence_failed",
+        });
+      } finally {
+        abort.abort(terminalReason);
+        checkpointAbortInFlight = false;
+      }
+    })();
+    checkpointRunBoundaryTask = task;
+    return task;
   };
 
   const recordRunBoundaryDiagnostic = (
@@ -1439,7 +1445,8 @@ export function startRun(
     reason: "no_progress" | "run_timeout",
     diagnostic: { silentForMs?: number; lastEventType?: string } = {},
   ) => {
-    if (run.status !== "running" || abort.signal.aborted) return;
+    if (runDriverSettled || run.status !== "running" || abort.signal.aborted)
+      return;
     const activeChunkAbort = chunkAbort;
     const canRecoverChunk =
       activeChunkAbort !== null &&
@@ -1854,7 +1861,9 @@ export function startRun(
   };
 
   const runPromise = startDriver()
-    .then(() => {
+    .then(async () => {
+      runDriverSettled = true;
+      if (checkpointAbortInFlight) await checkpointRunBoundaryTask;
       settleBoundary(false);
       if (abort.signal.aborted) {
         run.status = checkpointPersistenceFailed
@@ -1866,7 +1875,9 @@ export function startRun(
       }
       run.status = "completed";
     })
-    .catch((err) => {
+    .catch(async (err) => {
+      runDriverSettled = true;
+      if (checkpointAbortInFlight) await checkpointRunBoundaryTask;
       settleBoundary(false);
       if (abort.signal.aborted) {
         run.status = checkpointPersistenceFailed

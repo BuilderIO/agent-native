@@ -869,6 +869,48 @@ describe("run manager soft timeout", () => {
     expect(unwound).toBe(true);
   });
 
+  it("waits for an active checkpoint before finalizing a naturally completed driver", async () => {
+    const driver = Promise.withResolvers<void>();
+    const checkpoint = Promise.withResolvers<void>();
+    const events: AgentChatEvent[] = [];
+    vi.mocked(persistRunCheckpointEvent).mockImplementationOnce(
+      () => checkpoint.promise,
+    );
+    const run = startRun(
+      "run-checkpoint-finalization-race",
+      "thread-checkpoint-finalization-race",
+      async () => driver.promise,
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+    let finalized = false;
+    void run.finalized.then(() => {
+      finalized = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(11);
+    expect(persistRunCheckpointEvent).toHaveBeenCalledOnce();
+    driver.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(finalized).toBe(false);
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      "run-checkpoint-finalization-race",
+      "completed",
+    );
+
+    checkpoint.resolve();
+    await run.finalized;
+
+    expect(events).toContainEqual({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
+    expect(run.status).toBe("completed");
+  });
+
   it("fails the run instead of advertising continuation when checkpoint persistence fails", async () => {
     const consoleError = vi
       .spyOn(console, "error")

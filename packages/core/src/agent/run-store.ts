@@ -3994,12 +3994,85 @@ export async function persistRunCheckpointEvent(
   event: AgentChatEvent,
   terminalReason: string,
 ): Promise<void> {
-  await insertRunEvent(
-    runId,
-    CHECKPOINT_TERMINAL_EVENT_SEQ,
-    JSON.stringify(event),
+  await ensureRunTables();
+  const storedEventData = persistedRunEventData(JSON.stringify(event));
+  const reason = terminalReason.slice(0, 200);
+  const writeCheckpoint = async (tx: DbExec) => {
+    const { rows } = await tx.execute({
+      sql: "SELECT status, terminal_reason FROM agent_runs WHERE id = ? FOR UPDATE",
+      args: [runId],
+    });
+    const run = rows[0] as
+      | { status?: string; terminal_reason?: string | null }
+      | undefined;
+    if (!run || run.status !== "running") {
+      throw new AgentRunEventNotPersistedError(
+        runId,
+        CHECKPOINT_TERMINAL_EVENT_SEQ,
+        Boolean(run),
+      );
+    }
+
+    const existing = await tx.execute({
+      sql: "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    });
+    const existingEvent = existing.rows[0] as
+      | { event_data?: string }
+      | undefined;
+    if (existingEvent) {
+      if (existingEvent.event_data !== storedEventData) {
+        throw new AgentRunEventNotPersistedError(
+          runId,
+          CHECKPOINT_TERMINAL_EVENT_SEQ,
+          true,
+        );
+      }
+    } else {
+      const inserted = await tx.execute({
+        sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT (run_id, seq) DO NOTHING`,
+        args: [
+          runId,
+          CHECKPOINT_TERMINAL_EVENT_SEQ,
+          Date.now(),
+          storedEventData,
+        ],
+      });
+      if (inserted.rowsAffected !== 1) {
+        throw new AgentRunEventNotPersistedError(
+          runId,
+          CHECKPOINT_TERMINAL_EVENT_SEQ,
+        );
+      }
+    }
+
+    const updated = await tx.execute({
+      sql: `UPDATE agent_runs SET terminal_reason = ?
+            WHERE id = ? AND status = 'running'
+              AND (terminal_reason IS NULL OR terminal_reason = '' OR terminal_reason = ?)`,
+      args: [reason, runId, reason],
+    });
+    if (updated.rowsAffected !== 1) {
+      throw new AgentRunEventNotPersistedError(
+        runId,
+        CHECKPOINT_TERMINAL_EVENT_SEQ,
+        true,
+      );
+    }
+  };
+
+  await withFencedExecutionWrite(
+    (tx) => {
+      if (currentExecutionFence()) return writeCheckpoint(tx);
+      if (!tx.transaction) {
+        throw new Error("Run checkpoint writes require transaction support");
+      }
+      return tx.transaction(writeCheckpoint);
+    },
+    { runId },
   );
-  await setRunTerminalReason(runId, terminalReason);
 }
 
 export async function getRunEventsSince(

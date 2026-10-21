@@ -11,6 +11,7 @@ import {
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let failNextTerminalEventInsert = false;
+let failNextCheckpointReasonUpdate = false;
 
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
@@ -27,6 +28,14 @@ function wrapTerminalEventFailure(executor: DbExec): DbExec {
       ) {
         failNextTerminalEventInsert = false;
         throw new Error("injected terminal event insert failure");
+      }
+      if (
+        failNextCheckpointReasonUpdate &&
+        typeof input !== "string" &&
+        input.sql.includes("UPDATE agent_runs SET terminal_reason")
+      ) {
+        failNextCheckpointReasonUpdate = false;
+        throw new Error("injected checkpoint reason update failure");
       }
       return executor.execute(input);
     },
@@ -69,7 +78,9 @@ const {
   clearLedgerForThread,
   completeAgentExecutionStep,
   finalizeClaimedBackgroundRunFailure,
+  getRunById,
   getLastTerminalRunEvent,
+  CHECKPOINT_TERMINAL_EVENT_SEQ,
   insertRunEvent,
   insertRunEvents,
   markAgentExecutionStepDispatched,
@@ -77,6 +88,7 @@ const {
   recordLateAgentExecutionStepOutcome,
   ensureRunTables,
   insertRun,
+  persistRunCheckpointEvent,
   markRunAborted,
   markTurnAborted,
   readBackgroundRunClaim,
@@ -98,6 +110,49 @@ afterAll(async () => {
 });
 
 describe("task execution leases", () => {
+  it("writes a continuation checkpoint and terminal reason atomically", async () => {
+    const runId = "run-atomic-checkpoint";
+    await insertRun(runId, "thread-atomic-checkpoint");
+
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    const run = await getRunById(runId);
+    const event = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    );
+    expect(run?.terminalReason).toBe("run_timeout");
+    expect(event.rows).toEqual([
+      { event_data: '{"type":"auto_continue","reason":"run_timeout"}' },
+    ]);
+  });
+
+  it("rolls back the checkpoint event when the terminal reason write fails", async () => {
+    const runId = "run-rollback-checkpoint";
+    await insertRun(runId, "thread-rollback-checkpoint");
+    failNextCheckpointReasonUpdate = true;
+
+    await expect(
+      persistRunCheckpointEvent(
+        runId,
+        { type: "auto_continue", reason: "run_timeout" },
+        "run_timeout",
+      ),
+    ).rejects.toThrow("injected checkpoint reason update failure");
+
+    const run = await getRunById(runId);
+    const event = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    );
+    expect(run?.terminalReason).toBeNull();
+    expect(event.rows).toEqual([]);
+  });
+
   it("allows unleased writes without an execution fence", async () => {
     const write = vi.fn(async () => "written");
 
