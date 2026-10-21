@@ -389,6 +389,7 @@ export default defineAction({
           const [persistedFile] = await tx
             .select({
               content: schema.designFiles.content,
+              filename: schema.designFiles.filename,
               fileType: schema.designFiles.fileType,
               contentOperationSource: schema.designFiles.contentOperationSource,
               contentOperationRevision:
@@ -402,6 +403,10 @@ export default defineAction({
           if (!persistedFile) {
             throw fileNotFound(id);
           }
+
+          outputChanged =
+            (filename !== undefined && filename !== persistedFile.filename) ||
+            (fileType !== undefined && fileType !== persistedFile.fileType);
 
           const persistedContentHash = sourceContentHash(persistedFile.content);
           persistedVersionHash = persistedContentHash;
@@ -532,6 +537,7 @@ export default defineAction({
           if (content !== undefined && !skipContentWrite) {
             updates.content = content;
             outputChanged =
+              outputChanged ||
               sourceContentHash(content) !== sourceContentHash(liveContent);
             persistedVersionHash = sourceContentHash(content);
             if (
@@ -743,7 +749,10 @@ export default defineAction({
         designId: file.designId,
         updated: true,
         skippedStaleMirror: true,
-        _receipt: designOutputWriteReceipt(file.designId, 0),
+        _receipt: designOutputWriteReceipt(
+          file.designId,
+          outputChanged ? 1 : 0,
+        ),
         ...checkpointField,
       };
     }
