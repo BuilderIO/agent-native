@@ -55,6 +55,7 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
     visibility: over.visibility ?? "private",
     reportedClientName: over.reportedClientName ?? null,
     reportedClientVersion: over.reportedClientVersion ?? null,
+    identityAssurance: over.identityAssurance ?? null,
   };
 }
 
@@ -77,6 +78,7 @@ describe("export-audit-events", () => {
         id: "e1",
         createdAt: 100,
         summary: 'has "quotes", a comma, and\na newline',
+        identityAssurance: "org-member",
       }),
     );
 
@@ -90,8 +92,9 @@ describe("export-audit-events", () => {
     expect(result.truncated).toBe(false);
     const lines = result.content.split("\n");
     expect(lines[0]).toBe(
-      "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility,app,reported_client_name,reported_client_version,oauth_client_id,approval",
+      "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility,app,reported_client_name,reported_client_version,oauth_client_id,approval,identity_assurance",
     );
+    expect(result.content).toContain(",org-member");
     expect(result.content).toContain(
       '"has ""quotes"", a comma, and\na newline"',
     );
@@ -123,7 +126,13 @@ describe("export-audit-events", () => {
   });
 
   it("exports NDJSON that parses line-by-line", async () => {
-    await insertAuditEvent(makeEvent({ id: "n1", createdAt: 100 }));
+    await insertAuditEvent(
+      makeEvent({
+        id: "n1",
+        createdAt: 100,
+        identityAssurance: "org-member",
+      }),
+    );
     await insertAuditEvent(makeEvent({ id: "n2", createdAt: 200 }));
 
     const result = await exportAuditEvents.run(
@@ -138,6 +147,9 @@ describe("export-audit-events", () => {
     const parsed = lines.map((line) => JSON.parse(line));
     expect(parsed.map((e) => e.id).sort()).toEqual(["n1", "n2"]);
     expect(parsed[0].id).toBe("n2");
+    expect(parsed.find((e) => e.id === "n1").identityAssurance).toBe(
+      "org-member",
+    );
   });
 
   it("never exports another user's or org's events", async () => {

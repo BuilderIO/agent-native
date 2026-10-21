@@ -1076,6 +1076,7 @@ export default function Index() {
           title,
           designSystemId,
           skipQuestions: pendingOptions?.skipQuestions ?? quickStartRef.current,
+          outputBaselineFiles: [],
           ...options,
         });
         try {

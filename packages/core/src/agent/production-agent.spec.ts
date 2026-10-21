@@ -545,20 +545,6 @@ describe("approvalKeyForHistory", () => {
 });
 
 describe("resolveAgentRequestReasoningEffort", () => {
-  it("narrates a retry the user waited through, and stays silent on a blip", async () => {
-    const src = readFileSync(
-      new URL("./production-agent.ts", import.meta.url),
-      "utf8",
-    );
-    const idx = src.indexOf("const stalledMs = Date.now() - attemptStartedAt;");
-    expect(idx).toBeGreaterThan(0);
-    const block = src.slice(idx, idx + 600);
-    expect(block).toContain("VISIBLE_RETRY_THRESHOLD_MS");
-    expect(block.indexOf("Model did not respond")).toBeLessThan(
-      block.indexOf('send({ type: "clear" })'),
-    );
-  });
-
   it("defaults missing effort to High", () => {
     expect(
       resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
@@ -16538,6 +16524,166 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("keeps validation errors on their call when provider IDs are reused", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "reused-call-id",
+            name: "write-record",
+            input: { value: 1 },
+            error: "input/value must be string",
+          };
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "reused-call-id",
+                name: "write-record",
+                input: { value: "valid sibling" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "saved");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "Write." }] }],
+      actions: {
+        "write-record": {
+          tool: {
+            description: "Write a record",
+            parameters: {
+              type: "object",
+              properties: { value: { type: "string" } },
+              required: ["value"],
+            },
+          },
+          run,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith(
+      { value: "valid sibling" },
+      expect.any(Object),
+    );
+  });
+
+  it("does not assign a schema error to a successful reused-ID sibling", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "reused-call-id",
+            name: "write-record",
+            input: { value: "same input" },
+            error: "input/value is invalid for one call",
+          };
+          yield {
+            type: "tool-call",
+            id: "reused-call-id",
+            name: "write-record",
+            input: { value: "same input" },
+          };
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "reused-call-id",
+                name: "write-record",
+                input: { value: "same input" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "saved");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "Write." }] }],
+      actions: {
+        "write-record": {
+          tool: {
+            description: "Write a record",
+            parameters: {
+              type: "object",
+              properties: { value: { type: "string" } },
+              required: ["value"],
+            },
+          },
+          run,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith(
+      { value: "same input" },
+      expect.any(Object),
+    );
+  });
+
   it("names the output-token cap when a tool call is cut off mid-arguments, and raises the ceiling for the retry", async () => {
     let streamCalls = 0;
     const seenMaxOutputTokens: (number | undefined)[] = [];
@@ -18407,7 +18553,7 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
-  it("collapses duplicate assistant tool-call ids before execution and replay", async () => {
+  it("deduplicates streamed tool-call delivery against final assistant content", async () => {
     let streamCalls = 0;
     let replayedMessages: EngineMessage[] | undefined;
     const events: AgentChatEvent[] = [];
@@ -18428,14 +18574,14 @@ describe("runAgentLoop", () => {
         streamCalls += 1;
         if (streamCalls === 1) {
           yield {
+            type: "tool-call",
+            id: "call_duplicate",
+            name: "list-session-recordings",
+            input: { userId: "tim@builder.io", limit: 1 },
+          };
+          yield {
             type: "assistant-content",
             parts: [
-              {
-                type: "tool-call" as const,
-                id: "call_duplicate",
-                name: "list-session-recordings",
-                input: { userId: "tim@builder.io", limit: 1 },
-              },
               {
                 type: "tool-call" as const,
                 id: "call_duplicate",

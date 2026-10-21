@@ -20,6 +20,7 @@ import {
   isPersonalProviderPolicyKey,
   readOrgMemberRole,
 } from "../server/personal-provider-key-policy.js";
+import { getRequestContext } from "../server/request-context.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 
 const SETTING_PREFIX = "credential:";
@@ -344,7 +345,23 @@ export async function describeCredentialScopeGap(
   ctx: CredentialContext,
 ): Promise<string | null> {
   if (!ctx?.userEmail) return null;
-  const orgLookup = await resolveEffectiveOrgId(ctx);
+  const requestContext = getRequestContext();
+  const isDelegatedOrgMember =
+    requestContext?.a2aIdentityAssurance === "org-member";
+  const delegatedEmail = requestContext?.userEmail?.trim().toLowerCase();
+  const delegatedOrgId = requestContext?.orgId?.trim();
+  if (
+    isDelegatedOrgMember &&
+    (!delegatedEmail ||
+      delegatedEmail !== ctx.userEmail.trim().toLowerCase() ||
+      !delegatedOrgId ||
+      (ctx.orgId && ctx.orgId.trim() !== delegatedOrgId))
+  ) {
+    return null;
+  }
+  const orgLookup = isDelegatedOrgMember
+    ? { orgId: delegatedOrgId!, lookupFailed: false }
+    : await resolveEffectiveOrgId(ctx);
   if (orgLookup.lookupFailed || !orgLookup.orgId) return null;
   const scopedCtx: CredentialContext = { ...ctx, orgId: orgLookup.orgId };
 
@@ -359,7 +376,9 @@ export async function describeCredentialScopeGap(
       );
     }
 
-    const holder = await findMemberOrgHoldingCredential(key, scopedCtx);
+    const holder = isDelegatedOrgMember
+      ? null
+      : await findMemberOrgHoldingCredential(key, scopedCtx);
     if (holder) {
       return (
         `A "${key}" key is saved in the ${holder} organization, but this ` +

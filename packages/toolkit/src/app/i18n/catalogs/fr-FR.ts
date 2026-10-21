@@ -1068,6 +1068,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "A travaillé",
   "tool.workedFor": "A travaillé pendant {{duration}}",
   "widget.chart": "Graphique",
+  "widget.chartActions": "Actions du graphique",
+  "widget.dataSources": "Sources de données",
+  "widget.tableActions": "Actions du tableau",
   "widget.dataChart": "Graphique de données",
   "widget.dataInsights": "Informations sur les données",
   "widget.dataTable": "Tableau de données",
@@ -2149,9 +2152,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "Plus d’informations",
   "settingsOrg.general.workspaceUrl": "URL de l’espace de travail",
   "settingsOrg.general.workspaceUrlDescription":
-    "Redirigez les membres vers cet espace de travail depuis un autre déploiement.",
+    "Connectez le répertoire d’applications de cette organisation entre les déploiements.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Les membres qui arrivent sur un autre déploiement sont redirigés vers cet espace de travail au lieu d’une application vide.",
+    "Les autres déploiements utilisent cette URL pour découvrir les applications de l’espace de travail. Elle ne redirige pas automatiquement les membres.",
   "settingsOrg.general.editWorkspaceUrl":
     "Modifier l’URL de l’espace de travail",
   "settingsOrg.general.removeWorkspaceUrl":
@@ -2170,6 +2173,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Défini. Permet aux applications de cet espace de travail de se vérifier mutuellement.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Non défini. Permet aux applications de cet espace de travail de se vérifier mutuellement.",
+  "settingsOrg.auth.memberDelegation":
+    "Délégation d’identité des membres de l’organisation",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Les applications connectées qui détiennent ce secret partagé de l’organisation peuvent déclarer l’identité de n’importe quel membre actuel lorsqu’elles appellent cette application. Cette application vérifie la liste des membres en temps réel et limite l’accès délégué à l’organisation aux autorisations du rôle de membre.",
   "settingsOrg.auth.secretNotSetValue": "Non défini",
   "settingsOrg.auth.manage": "Gérer",
   "settingsOrg.auth.reveal": "Afficher",
@@ -2241,6 +2248,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "Langue et région",
   "settingsShell.account.languageDescription":
     "S’applique sur tous vos appareils.",
+  "settingsShell.account.appearance": "Apparence",
+  "settingsShell.account.themeFamily": "Famille de thème",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal":
+    "Couleurs d’origine de l’application",
+  "settingsShell.account.themeFamilySaveError":
+    "Impossible de mettre à jour le thème. Réessayez.",
   "settingsShell.account.manage": "Gérer",
   "settingsShell.account.name": "Nom",
   "settingsShell.account.nameDescription":
@@ -3415,6 +3429,18 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "Le rapport n'a pas été joint.",
   "reportProblem.agentMessage":
     "Un problème est survenu dans l'app. Utilisez le rapport de problème joint pour expliquer ce qui s'est passé.",
+  "unsupportedDevice.title": "À ouvrir sur un écran plus grand",
+  "unsupportedDevice.titleDeck":
+    "Ouvrez cette présentation sur un écran plus grand",
+  "unsupportedDevice.titleDesign": "Ouvrez ce design sur un écran plus grand",
+  "unsupportedDevice.body":
+    "{{app}} fonctionne sur iPad, tablette et ordinateur. Envoyez-vous le lien pour reprendre là-bas.",
+  "unsupportedDevice.email": "M'envoyer le lien par e-mail",
+  "unsupportedDevice.share": "Partager le lien",
+  "unsupportedDevice.copy": "Copier le lien",
+  "unsupportedDevice.copyFailed": "Impossible de copier le lien",
+  "unsupportedDevice.copied": "Lien copié",
+  "unsupportedDevice.emailSubject": "Ouvrir {{app}} sur votre ordinateur",
 };
 
 export default messages;

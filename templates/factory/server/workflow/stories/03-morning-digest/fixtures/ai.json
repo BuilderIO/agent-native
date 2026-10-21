@@ -1,0 +1,28 @@
+{
+  "post": {
+    "digest": {
+      "perItem": {
+        "*": {
+          "text": "TL;DR: three changes landed. Search got faster (grace), the export button works again (ada), docs are current."
+        }
+      }
+    },
+    "tuesday": {
+      "perItem": {
+        "*": {
+          "text": "TL;DR: one change landed. Billing copy is tighter (grace)."
+        }
+      }
+    },
+    "quiet": {
+      "perItem": { "*": { "text": "No commits since the last digest." } }
+    },
+    "cutOff": {
+      "perItem": {
+        "*": {
+          "text": "TL;DR: a busy weekend. Showing 100 of 340 commits; most are small fixes by ada."
+        }
+      }
+    }
+  }
+}

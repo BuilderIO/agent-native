@@ -1510,6 +1510,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "작업함",
   "tool.workedFor": "{{duration}} 동안 작업함",
   "widget.chart": "차트",
+  "widget.chartActions": "차트 작업",
+  "widget.dataSources": "데이터 소스",
+  "widget.tableActions": "표 작업",
   "widget.dataChart": "데이터 차트",
   "widget.dataInsights": "데이터 인사이트",
   "widget.dataTable": "데이터 테이블",
@@ -1979,9 +1982,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "추가 정보",
   "settingsOrg.general.workspaceUrl": "워크스페이스 URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "다른 배포에서 이 워크스페이스로 멤버를 보냅니다.",
+    "이 조직의 앱 디렉터리를 배포 간에 연결합니다.",
   "settingsOrg.general.workspaceUrlHelp":
-    "다른 배포에 도착한 멤버는 빈 앱 대신 이 워크스페이스로 이동합니다.",
+    "다른 배포에서 이 URL을 사용해 워크스페이스 앱을 찾습니다. 멤버를 자동으로 리디렉션하지 않습니다.",
   "settingsOrg.general.editWorkspaceUrl": "워크스페이스 URL 편집",
   "settingsOrg.general.removeWorkspaceUrl": "워크스페이스 URL 제거",
   "settingsOrg.general.setWorkspaceUrl": "URL 설정",
@@ -1998,6 +2001,9 @@ const messages: ToolkitAgentChatTranslation = {
     "설정됨. 이 워크스페이스의 앱이 서로를 확인할 수 있습니다.",
   "settingsOrg.auth.sharedSecretNotSet":
     "설정 안 됨. 이 워크스페이스의 앱이 서로를 확인할 수 있습니다.",
+  "settingsOrg.auth.memberDelegation": "조직 구성원 신원 위임",
+  "settingsOrg.auth.memberDelegationHelp":
+    "이 공유 조직 비밀을 보유한 연결된 앱은 이 앱을 호출할 때 현재 구성원 누구의 신원이든 주장할 수 있습니다. 이 앱은 실시간 구성원 명단을 확인하고 위임된 조직 액세스를 구성원 수준 권한으로 제한합니다.",
   "settingsOrg.auth.secretNotSetValue": "설정 안 됨",
   "settingsOrg.auth.manage": "관리",
   "settingsOrg.auth.reveal": "표시",
@@ -2054,6 +2060,12 @@ const messages: ToolkitAgentChatTranslation = {
     "이메일을 확인하고 안내에 따라 이 변경을 확정하세요.",
   "settingsShell.account.languageAndRegion": "언어 및 지역",
   "settingsShell.account.languageDescription": "모든 기기에 적용됩니다.",
+  "settingsShell.account.appearance": "모양",
+  "settingsShell.account.themeFamily": "테마 스타일",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "앱의 원래 색상",
+  "settingsShell.account.themeFamilySaveError":
+    "테마 스타일을 업데이트하지 못했습니다. 다시 시도하세요.",
   "settingsShell.account.manage": "관리",
   "settingsShell.account.name": "이름",
   "settingsShell.account.nameDescription":
@@ -3151,6 +3163,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "보고서가 첨부되지 않았습니다.",
   "reportProblem.agentMessage":
     "앱에 문제가 생겼습니다. 첨부된 문제 보고서를 바탕으로 무슨 일이 있었는지 설명해 주세요.",
+  "unsupportedDevice.title": "더 큰 화면에서 열어 주세요",
+  "unsupportedDevice.titleDeck": "이 덱은 더 큰 화면에서 열어 주세요",
+  "unsupportedDevice.titleDesign": "이 디자인은 더 큰 화면에서 열어 주세요",
+  "unsupportedDevice.body":
+    "{{app}}은(는) iPad, 태블릿, 데스크톱에서 사용할 수 있어요. 링크를 자신에게 보내 그곳에서 이어서 작업하세요.",
+  "unsupportedDevice.email": "링크를 이메일로 보내기",
+  "unsupportedDevice.share": "링크 공유",
+  "unsupportedDevice.copy": "링크 복사",
+  "unsupportedDevice.copyFailed": "링크를 복사하지 못했어요",
+  "unsupportedDevice.copied": "링크를 복사했어요",
+  "unsupportedDevice.emailSubject": "컴퓨터에서 {{app}} 열기",
 };
 
 export default messages;

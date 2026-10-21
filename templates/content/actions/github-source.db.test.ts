@@ -42,6 +42,8 @@ const github = vi.hoisted(() => {
     slowContents: new Set<string>(),
     /** Branch reads wait until the sync's time runs out. */
     hangHead: false,
+    /** What GitHub says about the saved connection. */
+    connected: true as boolean | null,
   };
   let commitCount = 0;
   return {
@@ -59,6 +61,7 @@ const github = vi.hoisted(() => {
       state.hangAfterBlobReads = null;
       state.slowContents.clear();
       state.hangHead = false;
+      state.connected = true;
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
       commitCount += 1;
@@ -153,11 +156,36 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       return new TextEncoder().encode(content);
     },
     readGitHubRenames: async () => github.state.renames,
+    readGitHubConnected: async () => github.state.connected,
   };
 });
 
 // Lets a test fail the steps that run after a sync has written its rows.
-const afterSyncFailure = vi.hoisted(() => ({ signal: false, source: false }));
+// statusReadsLeft lets that many status reads through, then fails the rest.
+const afterSyncFailure = vi.hoisted(() => ({
+  signal: false,
+  source: false,
+  statusReadsLeft: null as number | null,
+}));
+
+vi.mock("./_github-source-freshness.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_github-source-freshness.js")>();
+  return {
+    ...actual,
+    readGitHubStatusShown: async (
+      ...args: Parameters<typeof actual.readGitHubStatusShown>
+    ) => {
+      if (afterSyncFailure.statusReadsLeft !== null) {
+        if (afterSyncFailure.statusReadsLeft <= 0) {
+          throw new Error("status read failed");
+        }
+        afterSyncFailure.statusReadsLeft -= 1;
+      }
+      return actual.readGitHubStatusShown(...args);
+    },
+  };
+});
 
 vi.mock("@agent-native/core/application-state", async (importOriginal) => {
   const actual =
@@ -202,9 +230,15 @@ vi.mock("@agent-native/core/file-upload", () => ({
 
 // The change events background syncs and stale reads send to open pages.
 const changes = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+/** Makes the next change event fail, as a broken event bus would. */
+const changeFails = vi.hoisted(() => ({ next: false }));
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
   recordChange: (event: Record<string, unknown>) => {
+    if (changeFails.next) {
+      changeFails.next = false;
+      throw new Error("Change events are down.");
+    }
     changes.push(event);
   },
 }));
@@ -221,6 +255,8 @@ let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let createDatabase: typeof import("./create-content-database.js").default;
 let linkFolder: typeof import("./link-github-folder.js").default;
+let createGitHubCollection: typeof import("./create-github-collection.js").default;
+let checkConnection: typeof import("./check-github-connection.js").default;
 let syncFolder: typeof import("./sync-github-folder.js").default;
 let getSource: typeof import("./get-content-database-source.js").default;
 let refreshSource: typeof import("./refresh-content-database-source.js").default;
@@ -243,6 +279,7 @@ let documentRevisionToken: typeof import("./_document-edit-mutation.js").documen
 let syncGitHubSource: typeof import("./_github-source.js").syncGitHubSource;
 let getDocument: typeof import("./get-document.js").default;
 let runGitHubSourceSweep: typeof import("./_github-source-freshness.js").runGitHubSourceSweep;
+let refreshBeforeRead: typeof import("./_github-source-freshness.js").refreshGitHubSourceBeforeRead;
 let spaceId: string;
 
 const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
@@ -256,6 +293,9 @@ beforeAll(async () => {
   await (await import("../server/plugins/db.js")).default(undefined as never);
   createDatabase = (await import("./create-content-database.js")).default;
   linkFolder = (await import("./link-github-folder.js")).default;
+  createGitHubCollection = (await import("./create-github-collection.js"))
+    .default;
+  checkConnection = (await import("./check-github-connection.js")).default;
   syncFolder = (await import("./sync-github-folder.js")).default;
   getSource = (await import("./get-content-database-source.js")).default;
   refreshSource = (await import("./refresh-content-database-source.js"))
@@ -280,7 +320,8 @@ beforeAll(async () => {
   ({ mutateDocumentBody, documentRevisionToken } =
     await import("./_document-edit-mutation.js"));
   getDocument = (await import("./get-document.js")).default;
-  ({ runGitHubSourceSweep } = await import("./_github-source-freshness.js"));
+  ({ runGitHubSourceSweep, refreshGitHubSourceBeforeRead: refreshBeforeRead } =
+    await import("./_github-source-freshness.js"));
   await as(() =>
     import("./_content-spaces.js").then((m) =>
       m.provisionContentSpaces(getDb(), owner),
@@ -299,6 +340,7 @@ afterAll(() => {
 beforeEach(() => {
   github.reset();
   changes.length = 0;
+  changeFails.next = false;
 });
 
 let collectionCount = 0;
@@ -475,12 +517,47 @@ describe("GitHub folder source", () => {
     expect(preview.summary).toContain(
       "1 skipped: demo.mdx (MDX isn't supported)",
     );
+    expect(preview.summary).not.toContain("is read from");
     expect(await rows(database.id)).toHaveLength(0);
     const [source] = await getDb()
       .select()
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.databaseId, database.id));
     expect(source).toBeUndefined();
+  });
+
+  it("says a preview of a big folder reads its columns from the first files", async () => {
+    github.commit(
+      Object.fromEntries(
+        Array.from({ length: 27 }, (_, index) => {
+          const name = String(index + 1).padStart(2, "0");
+          const frontmatter = index === 26 ? "owner: Ada" : "status: Draft";
+          return [
+            `docs/page-${name}.md`,
+            `---\n${frontmatter}\n---\n# Page ${name}\n`,
+          ];
+        }),
+      ),
+    );
+    const database = await newCollection();
+    const preview = await as(() =>
+      linkFolder.run({
+        databaseId: database.id,
+        url: FOLDER_URL,
+        dryRun: true,
+      }),
+    );
+    expect(preview.preview).toMatchObject({
+      markdownFiles: 27,
+      sampledFiles: 25,
+    });
+    // The last file's column isn't in the preview, and the summary says why.
+    expect(preview.preview.fields.map((field) => field.key)).toEqual([
+      "status",
+    ]);
+    expect(preview.summary).toContain(
+      "That frontmatter is read from 25 of its 27 files, so the others can add columns or change their types.",
+    );
   });
 
   it("links an empty collection: rows, titles, typed columns, images and links", async () => {
@@ -581,6 +658,72 @@ describe("GitHub folder source", () => {
     ).rejects.toThrow("already has rows");
   });
 
+  it("keeps the link and reports it when the first sync loses the GitHub connection", async () => {
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    // The preview reads with the connection; it fails once the link is saved.
+    github.state.duringBlobRead = async () => {
+      github.state.failure = new GitHubSourceError(
+        "connection",
+        "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+        401,
+      );
+    };
+
+    const linked = await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(linked).toMatchObject({
+      dryRun: false,
+      sync: { state: "error", problem: { code: "connection" } },
+    });
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.problem).toMatchObject({
+      code: "connection",
+    });
+  });
+
+  it("keeps the link and reports it when the first sync fails unexpectedly", async () => {
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    github.state.duringBlobRead = async () => {
+      github.state.failure = new Error("socket hang up");
+    };
+
+    const linked = await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(linked).toMatchObject({
+      dryRun: false,
+      sync: { state: "error", problem: { code: "sync_failed" } },
+      source: { sourceType: "github" },
+    });
+    expect(linked.summary).toContain("the first sync failed");
+    // The link keeps the problem, so its status line shows it after the toast.
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.syncState).toBe("error");
+    expect(status.source?.metadata.github?.problem).toMatchObject({
+      code: "sync_failed",
+    });
+  });
+
+  it("says so when the link goes away during the first sync", async () => {
+    github.commit({ "docs/1.md": "# One\n" });
+    const database = await newCollection();
+    // The preview reads the file first; the sync's read of it disconnects.
+    github.state.duringBlobRead = async () => {
+      github.state.duringBlobRead = async () => {
+        await as(() => disconnectSource.run({ databaseId: database.id }));
+      };
+    };
+
+    await expect(
+      as(() => linkFolder.run({ databaseId: database.id, url: FOLDER_URL })),
+    ).rejects.toThrow("isn't linked to a GitHub folder");
+  });
+
   it("refuses the link when a row arrives while it reads GitHub", async () => {
     github.commit(BASE_FILES);
     const database = await newCollection();
@@ -653,18 +796,43 @@ describe("GitHub folder source", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     afterSyncFailure.signal = true;
     afterSyncFailure.source = true;
+    // The read before the sync works; the one after it fails.
+    afterSyncFailure.statusReadsLeft = 1;
     try {
       const synced = await as(() =>
         syncFolder.run({ databaseId: database.id }),
       );
       expect(synced.sync).toMatchObject({ state: "synced", updated: 1 });
       expect(synced.source).toBeNull();
-      expect(synced.followUpFailed).toEqual(["refresh_signal", "source_read"]);
+      // Readers are told to look again, since the status couldn't be read.
+      expect(synced.statusChanged).toBe(true);
+      expect(synced.followUpFailed).toEqual([
+        "status_read",
+        "refresh_signal",
+        "source_read",
+      ]);
       expect(synced.summary).toContain("they show them once they reload");
-      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalledTimes(3);
+
+      // A refresh that changes no rows reads the status back, and a failed
+      // read tells readers to look again instead of failing the refresh.
+      afterSyncFailure.signal = false;
+      afterSyncFailure.source = false;
+      afterSyncFailure.statusReadsLeft = 1;
+      const refreshed = await as(() =>
+        refreshSource.run({ databaseId: database.id }),
+      );
+      expect(refreshed.summary).toContain("is up to date");
+      expect(
+        refreshSource.changeResource?.({ databaseId: database.id }, refreshed),
+      ).toEqual({
+        resourceType: "document",
+        resourceId: database.documentId,
+      });
     } finally {
       afterSyncFailure.signal = false;
       afterSyncFailure.source = false;
+      afterSyncFailure.statusReadsLeft = null;
       warn.mockRestore();
     }
     const faq = (await liveRows(database.id)).find(
@@ -1473,7 +1641,16 @@ describe("GitHub folder source", () => {
       ),
     ).rejects.toThrow("source settings can't change here");
 
-    await as(() => disconnectSource.run({ databaseId: database.id }));
+    const disconnected = await as(() =>
+      disconnectSource.run({ databaseId: database.id }),
+    );
+    // Everyone reading the collection hears about it, not just the caller.
+    expect(
+      disconnectSource.changeResource?.(
+        { databaseId: database.id },
+        disconnected,
+      ),
+    ).toEqual({ resourceType: "document", resourceId: database.documentId });
     const pages = await liveRows(database.id);
     expect(pages).toHaveLength(3);
     expect(pages.every((page) => page.sourceMode === null)).toBe(true);
@@ -1528,6 +1705,141 @@ async function pushMovedAgo(databaseId: string, ms: number) {
 }
 
 const EDITED_FAQ = "# Frequently asked\n\nAnswers moved to the forum.\n";
+
+describe("A new collection from a GitHub folder", () => {
+  async function collectionsInSpace() {
+    return getDb()
+      .select({ id: schema.contentDatabases.id })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.spaceId, spaceId));
+  }
+
+  async function sourcesOf(databaseId: string) {
+    return getDb()
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+  }
+
+  it("checks the folder and names the collection without making it", async () => {
+    github.commit(BASE_FILES);
+    const before = await collectionsInSpace();
+    const checked = await as(() =>
+      createGitHubCollection.run({ url: FOLDER_URL, spaceId, dryRun: true }),
+    );
+    expect(checked).toMatchObject({
+      dryRun: true,
+      title: "docs",
+      preview: { markdownFiles: 3 },
+    });
+    expect(await collectionsInSpace()).toHaveLength(before.length);
+  });
+
+  it("makes a collection named after the folder, linked and filled", async () => {
+    github.commit(BASE_FILES);
+    const made = await as(() =>
+      createGitHubCollection.run({ url: FOLDER_URL, spaceId }),
+    );
+    if (made.dryRun) throw new Error("Expected a new collection");
+    expect(made).toMatchObject({
+      title: "docs",
+      sync: { state: "synced", created: 3 },
+      source: { sourceType: "github" },
+    });
+    expect(await page(made.database.documentId)).toMatchObject({
+      title: "docs",
+      trashedAt: null,
+    });
+    expect((await liveRows(made.database.id)).map((row) => row.title)).toEqual([
+      "Frequently asked",
+      "Getting started",
+      "Untitled notes",
+    ]);
+  });
+
+  it("gives a retry the collection the first try made, linked once", async () => {
+    github.commit(BASE_FILES);
+    const request = {
+      url: FOLDER_URL,
+      spaceId,
+      idempotencyKey: `github-new-collection-${Date.now()}`,
+    };
+    const first = await as(() => createGitHubCollection.run(request));
+    const retry = await as(() => createGitHubCollection.run(request));
+    if (first.dryRun || retry.dryRun) throw new Error("Expected collections");
+    expect(retry.database.id).toBe(first.database.id);
+    expect(retry.sync).toMatchObject({ state: "unchanged" });
+    expect(await page(first.database.documentId)).toMatchObject({
+      trashedAt: null,
+    });
+    expect(await sourcesOf(first.database.id)).toHaveLength(1);
+    expect(await liveRows(first.database.id)).toHaveLength(3);
+  });
+
+  it("makes nothing when the folder can't be read", async () => {
+    github.commit(BASE_FILES);
+    const before = await collectionsInSpace();
+    await expect(
+      as(() =>
+        createGitHubCollection.run({
+          url: "https://github.com/acme/site/tree/main/missing",
+          spaceId,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "GITHUB_FOLDER_NOT_FOUND" });
+    expect(await collectionsInSpace()).toHaveLength(before.length);
+  });
+
+  it("moves the new collection to Trash when its link goes away while it fills", async () => {
+    github.commit({ "docs/1.md": "# One\n" });
+    const before = new Set(
+      (await collectionsInSpace()).map((collection) => collection.id),
+    );
+    // The preview reads the file first; the first sync's read unlinks it.
+    github.state.duringBlobRead = async () => {
+      github.state.duringBlobRead = async () => {
+        const [made] = (await collectionsInSpace()).filter(
+          (collection) => !before.has(collection.id),
+        );
+        await as(() => disconnectSource.run({ databaseId: made!.id }));
+      };
+    };
+
+    await expect(
+      as(() => createGitHubCollection.run({ url: FOLDER_URL, spaceId })),
+    ).rejects.toThrow("isn't linked to a GitHub folder");
+    const [made] = await getDb()
+      .select({
+        id: schema.contentDatabases.id,
+        documentId: schema.contentDatabases.documentId,
+      })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.spaceId, spaceId))
+      .then((collections) =>
+        collections.filter((collection) => !before.has(collection.id)),
+      );
+    expect(made).toBeDefined();
+    expect((await page(made!.documentId))?.trashedAt).not.toBe(null);
+  });
+
+  it("refuses someone who can't add to the space before asking GitHub", async () => {
+    github.commit(BASE_FILES);
+    const stranger = `github-stranger-${Date.now()}@example.com`;
+    await expect(
+      runWithRequestContext({ userEmail: stranger }, () =>
+        createGitHubCollection.run({ url: FOLDER_URL, spaceId, dryRun: true }),
+      ),
+    ).rejects.toThrow();
+    expect(github.state.blobReads).toBe(0);
+  });
+
+  it("says whether GitHub is connected, and when it couldn't ask", async () => {
+    for (const connected of [true, false, null]) {
+      github.state.connected = connected;
+      expect(await as(() => checkConnection.run({}))).toEqual({ connected });
+    }
+  });
+});
 
 describe("GitHub folder freshness", () => {
   it("checks GitHub before a read once a link is a minute stale", async () => {
@@ -1784,6 +2096,151 @@ describe("GitHub folder freshness", () => {
     ]);
   });
 
+  it("counts on from the last run while a push takes several, and tells readers each step", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    // A push that touches every file but leaves each page as it was, and
+    // adds one that's skipped.
+    github.commit({
+      "docs/0.md": "BINARY",
+      "docs/1.md": "# One\n\n",
+      "docs/2.md": "# Two\n\n",
+      "docs/3.md": "# Three\n\n",
+    });
+    const id = await sourceId(database.id);
+    const progress = async () => {
+      const [source] = await getDb()
+        .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.id, id));
+      return JSON.parse(source!.metadataJson).github?.progress;
+    };
+    github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 2;
+    const first = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
+    );
+    expect(first).toMatchObject({ state: "partial", updated: 0, unchanged: 1 });
+    expect(await progress()).toEqual({ done: 2, total: 4 });
+
+    // A read carries the push on once no run has moved it for two minutes,
+    // and has time for one read. It passes the skipped file by and reads the
+    // next one. No row changes, but the status line moves on, so readers
+    // hear about it.
+    github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 1;
+    changes.length = 0;
+    await checkedAgo(database.id, 2 * 60_000);
+    await pushMovedAgo(database.id, 3 * 60_000);
+    await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(await progress()).toEqual({ done: 3, total: 4 });
+    expect(changes).toEqual([
+      expect.objectContaining({
+        key: "sync-github-folder",
+        resourceType: "document",
+        resourceId: database.documentId,
+      }),
+    ]);
+
+    github.state.hangAfterBlobReads = null;
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 30_000 }));
+    expect(await progress()).toBeNull();
+  });
+
+  it("doesn't read a skipped file again while it's unchanged", async () => {
+    github.commit({ "docs/0.md": "BINARY", "docs/1.md": "# One\n" });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({ "docs/0.md": "BINARY", "docs/1.md": "# One, edited\n" });
+    github.state.blobReads = 0;
+    await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(github.state.blobReads).toBe(1);
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github).toMatchObject({
+      skippedCount: 1,
+    });
+    // The blob it keeps to pass the file by stays on the server.
+    expect(status.source?.metadata.github?.skipped).toEqual([
+      { path: expect.stringMatching(/0\.md$/), reason: "not-text" },
+    ]);
+  });
+
+  it("keeps the files it skipped when a later read in the same sync fails", async () => {
+    github.commit({ "docs/0.md": "BINARY", "docs/1.md": "# One\n" });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({ "docs/0.md": "BINARY 2", "docs/1.md": "# One, edited\n" });
+    // The changed file that isn't text is read and skipped; the next read fails.
+    github.state.duringBlobRead = async () => {
+      github.state.duringBlobRead = async () => {
+        throw new Error("socket hang up");
+      };
+    };
+    const id = await sourceId(database.id);
+    const first = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+    );
+    expect(first).toMatchObject({ state: "error" });
+
+    github.state.blobReads = 0;
+    const retried = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+    );
+    expect(retried).toMatchObject({ state: "synced", updated: 1 });
+    expect(github.state.blobReads).toBe(1);
+  });
+
+  it("counts every skipped file, though it keeps only 50 of their paths", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      ...Object.fromEntries(
+        Array.from({ length: 55 }, (_, index) => [
+          `docs/demo-${index}.mdx`,
+          "<Demo />\n",
+        ]),
+      ),
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.skipped).toHaveLength(50);
+    expect(status.source?.metadata.github?.skippedCount).toBe(55);
+  });
+
+  it("passes every unchanged skipped file by, not just the 50 it lists", async () => {
+    const binaries = Object.fromEntries(
+      Array.from({ length: 60 }, (_, index) => [
+        `docs/binary-${index}.md`,
+        `BINARY ${index}`,
+      ]),
+    );
+    github.commit({ ...binaries, "docs/1.md": "# One\n" });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({ ...binaries, "docs/1.md": "# One, edited\n" });
+    github.state.blobReads = 0;
+    await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(github.state.blobReads).toBe(1);
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.skipped).toHaveLength(50);
+    expect(status.source?.metadata.github?.skippedCount).toBe(60);
+  });
+
   it("answers a read when GitHub is too slow, then waits its turn without a problem", async () => {
     const { database } = await linkBaseFolder();
     github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
@@ -1817,6 +2274,27 @@ describe("GitHub folder freshness", () => {
     const caughtUp = await as(() => getSource.run({ databaseId: database.id }));
     expect(caughtUp.source?.freshness).toBe("fresh");
     expect(await faqContent()).toContain("forum");
+  });
+
+  it("keeps a failed link failed when the next run only runs out of time", async () => {
+    const { database } = await linkBaseFolder();
+    const id = await sourceId(database.id);
+    github.state.failure = new Error("socket hang up");
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 30_000 }));
+    github.state.failure = null;
+    const failed = await as(() => getSource.run({ databaseId: database.id }));
+    expect(failed.source?.syncState).toBe("error");
+    const lastError = failed.source?.lastError;
+    expect(lastError).toBeTruthy();
+
+    github.state.hangHead = true;
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 500 }));
+    github.state.hangHead = false;
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source).toMatchObject({ syncState: "error", lastError });
+    expect(status.source?.metadata.github?.problem).toMatchObject({
+      code: "sync_failed",
+    });
   });
 
   it("waits for a sync already running before it answers a stale read", async () => {
@@ -1879,6 +2357,147 @@ describe("GitHub folder freshness", () => {
     changes.length = 0;
     await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
     expect(changes).toHaveLength(0);
+  });
+
+  it("rereads after a check before a read changes rows, even when telling open pages fails", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(database.id, 2 * 60_000);
+    changeFails.next = true;
+    expect(await as(() => refreshBeforeRead(database.id))).toBe(true);
+    expect(changeFails.next).toBe(false);
+  });
+
+  it("fails a refresh that hits a failure it can't name, and still shows it on the link", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    github.state.failure = new Error("socket hang up");
+    changes.length = 0;
+    await expect(
+      as(() => refreshSource.run({ databaseId: database.id })),
+    ).rejects.toThrow("socket hang up");
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.problem).toMatchObject({
+      code: "sync_failed",
+    });
+    // The failed action sends no event of its own, so other readers' status
+    // lines hear about the problem from this one.
+    expect(changes).toEqual([
+      expect.objectContaining({
+        key: "sync-github-folder",
+        resourceType: "document",
+        resourceId: database.documentId,
+      }),
+    ]);
+  });
+
+  it("tells readers about rows a failing sync wrote, though the link already showed its problem", async () => {
+    const { database } = await linkBaseFolder();
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    const lostConnection = () =>
+      new GitHubSourceError(
+        "connection",
+        "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+        401,
+      );
+    const announced = [
+      expect.objectContaining({
+        key: "sync-github-folder",
+        resourceType: "document",
+        resourceId: database.documentId,
+      }),
+    ];
+    const faqContent = async () =>
+      (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!.content;
+    // A push of two files whose second read fails the way the first sync did.
+    const pushFailingPartway = (failure: () => Error, faq: string) => {
+      github.commit({
+        ...BASE_FILES,
+        "docs/faq.md": faq,
+        "docs/getting-started.md": `${faq}\nStarted.\n`,
+      });
+      github.state.duringBlobRead = async () => {
+        github.state.duringBlobRead = async () => {
+          throw failure();
+        };
+      };
+      changes.length = 0;
+    };
+
+    // A background sync.
+    github.state.failure = lostConnection();
+    await checkedAgo(database.id, 2 * 60_000);
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    github.state.failure = null;
+    pushFailingPartway(lostConnection, EDITED_FAQ);
+    await checkedAgo(database.id, 2 * 60_000);
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    expect(await faqContent()).toContain("forum");
+    expect(changes).toEqual(announced);
+
+    // A refresh, which fails with the error.
+    github.state.failure = new Error("socket hang up");
+    await expect(
+      as(() => refreshSource.run({ databaseId: database.id })),
+    ).rejects.toThrow("socket hang up");
+    github.state.failure = null;
+    pushFailingPartway(
+      () => new Error("socket hang up"),
+      "# Frequently asked\n\nAnswers moved to the wiki.\n",
+    );
+    await expect(
+      as(() => refreshSource.run({ databaseId: database.id })),
+    ).rejects.toThrow("socket hang up");
+    expect(await faqContent()).toContain("wiki");
+    expect(changes).toEqual(announced);
+  });
+
+  it("tells readers when a background sync finds or clears a problem", async () => {
+    const { database } = await linkBaseFolder();
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    const sweepAgain = async () => {
+      changes.length = 0;
+      await checkedAgo(database.id, 2 * 60_000);
+      await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    };
+    const announced = [
+      expect.objectContaining({
+        key: "sync-github-folder",
+        resourceType: "document",
+        resourceId: database.documentId,
+      }),
+    ];
+
+    github.state.failure = new GitHubSourceError(
+      "connection",
+      "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+      401,
+    );
+    await sweepAgain();
+    expect(changes).toEqual(announced);
+
+    // The same problem again leaves the status line as it was.
+    await sweepAgain();
+    expect(changes).toHaveLength(0);
+
+    github.state.failure = null;
+    await sweepAgain();
+    expect(changes).toEqual(announced);
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github).toMatchObject({ problem: null });
+
+    // A failure GitHub doesn't name is a problem on the link all the same.
+    github.state.failure = new Error("socket hang up");
+    await sweepAgain();
+    expect(changes).toEqual(announced);
+    const failed = await as(() => getSource.run({ databaseId: database.id }));
+    expect(failed.source?.metadata.github?.problem).toMatchObject({
+      code: "sync_failed",
+    });
   });
 
   it("keeps sweeping after one link fails", async () => {
@@ -1956,6 +2575,70 @@ describe("GitHub folder freshness", () => {
     expect(
       syncFolder.changeResource?.({ databaseId: database.id }, again),
     ).toBeNull();
+  });
+
+  it("tells every reader when a refresh changes only the status line", async () => {
+    const { database } = await linkBaseFolder();
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    const refresh = () =>
+      as(() => refreshSource.run({ databaseId: database.id }));
+
+    github.state.failure = new GitHubSourceError(
+      "connection",
+      "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+      401,
+    );
+    await expect(refresh()).rejects.toThrow();
+
+    // Clearing the problem changes no rows, but the status line moves on.
+    github.state.failure = null;
+    const recovered = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: database.id }, recovered),
+    ).toEqual({
+      resourceType: "document",
+      resourceId: database.documentId,
+    });
+    const again = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: database.id }, again),
+    ).toBeNull();
+  });
+
+  it("tells every reader when a sync changes only the status line", async () => {
+    const { database } = await linkBaseFolder();
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    const announced = {
+      resourceType: "document",
+      resourceId: database.documentId,
+    };
+    const sync = () => as(() => syncFolder.run({ databaseId: database.id }));
+
+    github.state.failure = new GitHubSourceError(
+      "connection",
+      "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+      401,
+    );
+    const failed = await sync();
+    expect(failed.sync.problem).toMatchObject({ code: "connection" });
+    expect(
+      syncFolder.changeResource?.({ databaseId: database.id }, failed),
+    ).toEqual(announced);
+
+    // The same problem again leaves the status line as it was.
+    const again = await sync();
+    expect(
+      syncFolder.changeResource?.({ databaseId: database.id }, again),
+    ).toBeNull();
+
+    github.state.failure = null;
+    const recovered = await sync();
+    expect(recovered.sync).toMatchObject({ state: "unchanged", problem: null });
+    expect(
+      syncFolder.changeResource?.({ databaseId: database.id }, recovered),
+    ).toEqual(announced);
   });
 
   it("tells every reader when a refresh changes rows, and no one when it doesn't", async () => {

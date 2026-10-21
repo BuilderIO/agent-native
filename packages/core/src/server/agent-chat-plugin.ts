@@ -100,6 +100,7 @@ import {
   filterActionsByAllowedNames,
   normalizeAgentActionSurfaceResolution,
   getActiveRunForThreadAsync,
+  getJevContextCredentials,
   abortRunDurably,
   abortRunAndTurnDurably,
   abortRunAtSafeBoundaryDurably,
@@ -209,6 +210,7 @@ import {
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
+  type FrameworkToolGroup,
 } from "../framework-tools.js";
 import {
   verifyInternalToken,
@@ -274,7 +276,7 @@ import {
   type SharedThreadRouteDependencies,
 } from "./agent-chat/shared-thread.js";
 import { sortResourceSkills } from "./agent-chat/skill-frontmatter.js";
-import { discoverAgents } from "./agent-discovery.js";
+import { discoverAgents, getWorkspaceAppProfile } from "./agent-discovery.js";
 import {
   resolveAgentRunOrgId,
   resolveAgentRunOrgScope,
@@ -460,6 +462,7 @@ import {
   buildSystemManifestSections,
   setContextXraySystemSections,
 } from "../agent/context-xray/manifest.js";
+import { buildWorkspaceAppRequestContext } from "../agent/jev-tool-prefetch.js";
 // ---------------------------------------------------------------------------
 // The bulk of this file's former implementation now lives in focused sibling
 // modules under `./agent-chat/`. This file re-imports them (and re-exports
@@ -522,6 +525,7 @@ import {
 import { finalizeClaimedAgentChatProcessRunFailure } from "./agent-chat/process-run-failure.js";
 import {
   loadResourcesForPrompt,
+  preloadJevContextWithStatus,
   promptResourceManifestSections,
   resourceScopeForOwner,
 } from "./agent-chat/prompt-resources.js";
@@ -1340,6 +1344,16 @@ export function resolveAgentCheckpointPaths(
   return resolved;
 }
 
+export function disabledGroupsForA2APrompt(
+  disabledGroups: ReadonlySet<FrameworkToolGroup>,
+  a2aAgentDelegationEnabled: boolean,
+): ReadonlySet<FrameworkToolGroup> {
+  if (a2aAgentDelegationEnabled || disabledGroups.has("workspaceApps")) {
+    return disabledGroups;
+  }
+  return new Set([...disabledGroups, "workspaceApps"]);
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
@@ -1352,6 +1366,14 @@ export function createAgentChatPlugin(
     const initPromise = (async () => {
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
+
+      const appProfileAppId =
+        options?.appId ??
+        getAppConfig().app.id ??
+        getAppConfig().app.template ??
+        getAppConfig().app.workspaceId ??
+        getAppConfig().app.packageName ??
+        "app";
 
       // Never make route readiness wait on an org-global stale-run sweep.
       // `/runs/active` reaps the requested run on demand, and the periodic
@@ -1398,7 +1420,10 @@ export function createAgentChatPlugin(
       // consumer below reads a single shape. Conflicting old/new values throw
       // here rather than booting with a surface nobody chose.
       const frameworkTools = resolveFrameworkTools(options);
-      const disabledFrameworkGroups = frameworkTools.disabledGroups;
+      const disabledFrameworkGroups = disabledGroupsForA2APrompt(
+        frameworkTools.disabledGroups,
+        a2aAgentDelegationEnabled,
+      );
 
       // Same treatment for the MCP mount: one resolved shape, folding the
       // deprecated `disableMcp` / `mcpServerInfo` / `connectorCatalog` /
@@ -2156,6 +2181,32 @@ export function createAgentChatPlugin(
           ...mcpActions,
         };
       };
+      const getBackgroundWorkspaceAppContext = async (input: {
+        request: string;
+        ownerEmail: string;
+        orgId?: string;
+        appId?: string;
+        workspaceAppsEnabled: boolean;
+      }): Promise<string> => {
+        const appRequest = buildWorkspaceAppRequestContext({
+          request: input.request,
+        });
+        const credentials = await getJevContextCredentials(input.ownerEmail);
+        const preload = await preloadJevContextWithStatus({
+          request: appRequest,
+          appRequest,
+          owner: input.ownerEmail,
+          orgId: input.orgId ?? null,
+          appId: input.appId,
+          selfAppId: input.appId,
+          workspaceAppsEnabled: input.workspaceAppsEnabled,
+          apiKey: credentials.apiKey,
+          personalApiKey: credentials.personalApiKey,
+          builderAuth: credentials.builderAuth,
+          appDiscoveryOnly: true,
+        });
+        return preload.relevantAppsContext ?? "";
+      };
 
       // -----------------------------------------------------------------------
       // Production code-execution mode resolution.
@@ -2447,12 +2498,17 @@ export function createAgentChatPlugin(
         name: options?.appId
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
-        description: `Agent-Native ${options?.appId ?? "app"} agent`,
+        description:
+          getAppConfig().app.description ??
+          `Agent-Native ${options?.appId ?? "app"} agent`,
         skills: buildPublicAgentA2ASkills(externalActions),
         authenticatedSkills: buildAuthenticatedAgentA2ASkills(
           externalFullActions ?? externalActions,
           mcpOptions,
         ),
+        resolvePublicProfile: () => getWorkspaceAppProfile(appProfileAppId),
+        resolveAuthenticatedProfile: ({ userEmail, orgId }) =>
+          getWorkspaceAppProfile(appProfileAppId, { userEmail, orgId }),
         publicSkillsOnly: true,
         streaming: true,
         connect: options?.connectApps,
@@ -2704,7 +2760,10 @@ export function createAgentChatPlugin(
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups, skillReadTool },
+            {
+              disabledFrameworkGroups,
+              skillReadTool,
+            },
           );
           const schemaBlock = lazyContext
             ? ""
@@ -3508,7 +3567,13 @@ export function createAgentChatPlugin(
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups, skillReadTool },
+              {
+                disabledFrameworkGroups: disabledGroupsForA2APrompt(
+                  disabledFrameworkGroups,
+                  false,
+                ),
+                skillReadTool,
+              },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -7270,14 +7335,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             // Only reveal a thread's active run to viewers/editors of the
-            // thread. Present unauthorized users (or unknown threads) as idle
-            // rather than 404 so thread existence isn't leaked and the client
-            // polls benignly.
+            // thread. Present unauthorized users (or unknown threads) as
+            // unreadable rather than 404 so thread existence isn't leaked.
             if (!(await canViewThread(threadId))) {
               return {
                 active: false,
                 threadId,
-                status: "idle",
+                status: "unknown",
                 heartbeatAt: null,
                 lastProgressAt: null,
               };
@@ -7311,6 +7375,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               threadId: run.threadId,
               turnId: run.turnId,
               status: run.status,
+              ...(run.successorOfRunId
+                ? { successorOfRunId: run.successorOfRunId }
+                : {}),
               heartbeatAt: run.heartbeatAt,
               lastProgressAt: run.lastProgressAt,
               // Durable-background diagnostics: how the run was dispatched and
@@ -7339,6 +7406,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // comment (run-manager.ts) and the THREE-SITE INVARIANT comments in
               // agent-chat-plugin.ts / production-agent.ts / agent-chat-adapter.ts.
               awaitingRedispatch: run.awaitingRedispatch === true,
+              // The SQL run snapshot is authoritative even if its best-effort
+              // cleanup failed; keep that partial state distinguishable.
+              reapFailed: run.reapFailed === true,
               // True exactly when this run has an open model stream, tool
               // call, or A2A `agent_call` delegation (`in_flight_since` set — the same
               // marker `reapIfStale` reads to grant its bounded stale-reap
@@ -9504,6 +9574,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
         const schedulerDeps: SchedulerDeps = {
           getActions: getBackgroundActionEntries,
+          getWorkspaceAppContext: getBackgroundWorkspaceAppContext,
           getSystemPrompt: async (owner: string) => {
             const resources = await loadResourcesForPrompt(
               owner,
@@ -10036,6 +10107,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         await import("../triggers/dispatcher.js");
       await initTriggerDispatcher({
         getActions: getBackgroundActionEntries,
+        getWorkspaceAppContext: getBackgroundWorkspaceAppContext,
         getSystemPrompt: async (owner: string) => {
           const resources = await loadResourcesForPrompt(
             owner,

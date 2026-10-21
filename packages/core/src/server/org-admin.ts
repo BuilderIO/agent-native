@@ -1,4 +1,5 @@
 import { fail } from "../action.js";
+import { effectiveOrgMemberRole } from "./personal-provider-key-policy.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 export async function currentRequestUserIsOrgAdmin(
@@ -14,10 +15,8 @@ export async function currentRequestUserIsOrgAdmin(
       orgId,
       email,
     });
-  return (
-    membership.active &&
-    (membership.role === "owner" || membership.role === "admin")
-  );
+  const role = effectiveOrgMemberRole(membership.role, orgId, email);
+  return membership.active && (role === "owner" || role === "admin");
 }
 
 export async function assertCurrentRequestUserIsOrgAdmin(

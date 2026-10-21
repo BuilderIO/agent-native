@@ -1491,6 +1491,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "काम किया",
   "tool.workedFor": "{{duration}} तक काम किया",
   "widget.chart": "चार्ट",
+  "widget.chartActions": "चार्ट कार्रवाइयाँ",
+  "widget.dataSources": "डेटा स्रोत",
+  "widget.tableActions": "टेबल कार्रवाइयाँ",
   "widget.dataChart": "डेटा चार्ट",
   "widget.dataInsights": "डेटा इनसाइट्स",
   "widget.dataTable": "डेटा तालिका",
@@ -1979,9 +1982,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "अधिक जानकारी",
   "settingsOrg.general.workspaceUrl": "वर्कस्पेस URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "किसी दूसरे डिप्लॉयमेंट से सदस्यों को इस वर्कस्पेस पर भेजें।",
+    "इस संगठन की ऐप डायरेक्टरी को अलग-अलग डिप्लॉयमेंट में जोड़ें।",
   "settingsOrg.general.workspaceUrlHelp":
-    "जो सदस्य किसी दूसरे डिप्लॉयमेंट पर पहुंचते हैं, वे खाली ऐप के बजाय इस वर्कस्पेस पर जाते हैं।",
+    "दूसरे डिप्लॉयमेंट इस URL का उपयोग वर्कस्पेस ऐप खोजने के लिए करते हैं। इससे सदस्य अपने-आप रीडायरेक्ट नहीं होते।",
   "settingsOrg.general.editWorkspaceUrl": "वर्कस्पेस URL संपादित करें",
   "settingsOrg.general.removeWorkspaceUrl": "वर्कस्पेस URL हटाएं",
   "settingsOrg.general.setWorkspaceUrl": "URL सेट करें",
@@ -1998,6 +2001,9 @@ const messages: ToolkitAgentChatTranslation = {
     "सेट है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
   "settingsOrg.auth.sharedSecretNotSet":
     "सेट नहीं है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
+  "settingsOrg.auth.memberDelegation": "संगठन सदस्य की पहचान का प्रत्यायोजन",
+  "settingsOrg.auth.memberDelegationHelp":
+    "इस साझा संगठन सीक्रेट वाले कनेक्टेड ऐप्स इस ऐप को कॉल करते समय किसी भी वर्तमान सदस्य की पहचान का दावा कर सकते हैं। यह ऐप लाइव सदस्य सूची की जांच करता है और प्रत्यायोजित संगठन एक्सेस को सदस्य-स्तर की अनुमतियों तक सीमित रखता है।",
   "settingsOrg.auth.secretNotSetValue": "सेट नहीं है",
   "settingsOrg.auth.manage": "प्रबंधित करें",
   "settingsOrg.auth.reveal": "दिखाएं",
@@ -2060,6 +2066,12 @@ const messages: ToolkitAgentChatTranslation = {
     "इस बदलाव की पुष्टि करने के निर्देशों के लिए अपना ईमेल देखें।",
   "settingsShell.account.languageAndRegion": "भाषा और क्षेत्र",
   "settingsShell.account.languageDescription": "आपके सभी डिवाइस पर लागू होता है।",
+  "settingsShell.account.appearance": "रूप-रंग",
+  "settingsShell.account.themeFamily": "थीम शैली",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "ऐप के मूल रंग",
+  "settingsShell.account.themeFamilySaveError":
+    "थीम शैली अपडेट नहीं की जा सकी। फिर कोशिश करें।",
   "settingsShell.account.manage": "प्रबंधित करें",
   "settingsShell.account.name": "नाम",
   "settingsShell.account.nameDescription":
@@ -3137,6 +3149,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "रिपोर्ट संलग्न नहीं हुई।",
   "reportProblem.agentMessage":
     "ऐप में कुछ गड़बड़ हो गई। संलग्न समस्या रिपोर्ट से बताइए कि क्या हुआ।",
+  "unsupportedDevice.title": "इसे बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.titleDeck": "इस डेक को बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.titleDesign": "इस डिज़ाइन को बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.body":
+    "{{app}} iPad, टैबलेट और डेस्कटॉप पर चलता है। लिंक खुद को भेजें और वहाँ से आगे बढ़ें।",
+  "unsupportedDevice.email": "मुझे लिंक ईमेल करें",
+  "unsupportedDevice.share": "लिंक शेयर करें",
+  "unsupportedDevice.copy": "लिंक कॉपी करें",
+  "unsupportedDevice.copyFailed": "लिंक कॉपी नहीं हो सका",
+  "unsupportedDevice.copied": "लिंक कॉपी हो गया",
+  "unsupportedDevice.emailSubject": "अपने कंप्यूटर पर {{app}} खोलें",
 };
 
 export default messages;

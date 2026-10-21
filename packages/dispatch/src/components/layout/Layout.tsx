@@ -298,6 +298,7 @@ interface DispatchWorkspaceAppLauncher {
   workspaceApps: readonly WorkspaceAppSummary[];
   isLoading: boolean;
   error?: unknown;
+  errorQueryName?: "list-workspace-apps" | "list-connected-agents";
   openApp: (app: ChatFirstAppItem) => void;
   retry: () => void;
 }
@@ -1414,6 +1415,12 @@ function DispatchLayout({
   const chatFirstAppsFailed = chatFirstAppsQuery.isError;
   const chatFirstAppsError =
     chatFirstAppsQuery.error ?? chatFirstConnectedAppsQuery.error;
+  const chatFirstAppsErrorQueryName =
+    chatFirstAppsQuery.error != null
+      ? "list-workspace-apps"
+      : chatFirstConnectedAppsQuery.error != null
+        ? "list-connected-agents"
+        : undefined;
   const chatFirstResolvableApps = useMemo(
     () =>
       mergeChatFirstWorkspaceApps(
@@ -1501,6 +1508,7 @@ function DispatchLayout({
       workspaceApps: chatFirstWorkspaceApps,
       isLoading: chatFirstAppsLoading,
       error: chatFirstAppsError,
+      errorQueryName: chatFirstAppsErrorQueryName,
       openApp: openChatFirstApp,
       retry: () => {
         void chatFirstAppsQuery.refetch();
@@ -1509,6 +1517,7 @@ function DispatchLayout({
     }),
     [
       chatFirstAppsError,
+      chatFirstAppsErrorQueryName,
       chatFirstAppsLoading,
       chatFirstAppsQuery.refetch,
       chatFirstConnectedAppsQuery.refetch,

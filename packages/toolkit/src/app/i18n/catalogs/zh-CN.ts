@@ -1419,6 +1419,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "已处理",
   "tool.workedFor": "处理了 {{duration}}",
   "widget.chart": "图表",
+  "widget.chartActions": "图表操作",
+  "widget.dataSources": "数据来源",
+  "widget.tableActions": "表格操作",
   "widget.dataChart": "数据图表",
   "widget.dataInsights": "数据洞察",
   "widget.dataTable": "数据表",
@@ -1869,10 +1872,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.learnMore": "了解更多",
   "settingsOrg.moreInformation": "更多信息",
   "settingsOrg.general.workspaceUrl": "工作区 URL",
-  "settingsOrg.general.workspaceUrlDescription":
-    "将其他部署中的成员引导到此工作区。",
+  "settingsOrg.general.workspaceUrlDescription": "跨部署连接此组织的应用目录。",
   "settingsOrg.general.workspaceUrlHelp":
-    "进入其他部署的成员会前往此工作区，而不是一个空应用。",
+    "其他部署会使用此 URL 查找工作区应用。它不会自动重定向成员。",
   "settingsOrg.general.editWorkspaceUrl": "编辑工作区 URL",
   "settingsOrg.general.removeWorkspaceUrl": "移除工作区 URL",
   "settingsOrg.general.setWorkspaceUrl": "设置 URL",
@@ -1886,6 +1888,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.auth.sharedSecret": "共享密钥",
   "settingsOrg.auth.sharedSecretSet": "已设置。让此工作区中的应用相互验证。",
   "settingsOrg.auth.sharedSecretNotSet": "未设置。让此工作区中的应用相互验证。",
+  "settingsOrg.auth.memberDelegation": "组织成员身份委派",
+  "settingsOrg.auth.memberDelegationHelp":
+    "持有此组织共享密钥的已连接应用在调用此应用时，可以声明为任意一名当前成员。此应用会检查实时成员名单，并将受委派的组织访问权限限制为成员级权限。",
   "settingsOrg.auth.secretNotSetValue": "未设置",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "显示",
@@ -1938,6 +1943,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.emailChangeSent": "请查看您的邮箱，按说明确认此更改。",
   "settingsShell.account.languageAndRegion": "语言和地区",
   "settingsShell.account.languageDescription": "适用于您的所有设备。",
+  "settingsShell.account.appearance": "外观",
+  "settingsShell.account.themeFamily": "主题样式",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "原应用配色",
+  "settingsShell.account.themeFamilySaveError": "无法更新主题样式。请重试。",
   "settingsShell.account.manage": "管理",
   "settingsShell.account.name": "姓名",
   "settingsShell.account.nameDescription":
@@ -2913,6 +2923,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "报告未能附加。",
   "reportProblem.agentMessage":
     "应用出了问题。请根据附带的问题报告解释发生了什么。",
+  "unsupportedDevice.title": "请在更大的屏幕上打开",
+  "unsupportedDevice.titleDeck": "请在更大的屏幕上打开此演示文稿",
+  "unsupportedDevice.titleDesign": "请在更大的屏幕上打开此设计",
+  "unsupportedDevice.body":
+    "{{app}}支持 iPad、平板和桌面设备。把链接发给自己，即可在那里继续。",
+  "unsupportedDevice.email": "把链接发到我的邮箱",
+  "unsupportedDevice.share": "分享链接",
+  "unsupportedDevice.copy": "复制链接",
+  "unsupportedDevice.copyFailed": "无法复制链接",
+  "unsupportedDevice.copied": "链接已复制",
+  "unsupportedDevice.emailSubject": "在电脑上打开{{app}}",
 };
 
 export default messages;

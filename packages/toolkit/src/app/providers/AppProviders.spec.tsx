@@ -9,11 +9,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetAgentEngineReadinessForTests } from "../../../../core/src/client/agent-engine-readiness.js";
 
 const useSessionMock = vi.fn();
+const useThemeFamilyMock = vi.fn();
 vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/use-session")
   >()),
   useSession: () => useSessionMock(),
+}));
+vi.mock("@agent-native/core/client/ui", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/ui")>()),
+  useThemeFamily: () => useThemeFamilyMock(),
 }));
 vi.mock("@agent-native/core/client/action-query-cache", () => ({
   ActionQueryCacheGate: ({ children }: { children: React.ReactNode }) => (
@@ -48,8 +53,33 @@ let originalLocation: Location;
 let originalParent: Window;
 let originalFetch: typeof window.fetch;
 let originalModelContext: PropertyDescriptor | undefined;
+let originalLocalStorage: PropertyDescriptor | undefined;
 let originalDocumentTitle: string;
 let replaceMock: ReturnType<typeof vi.fn>;
+
+function createTestLocalStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear() {
+      values.clear();
+    },
+    getItem(key) {
+      return values.get(String(key)) ?? null;
+    },
+    key(index) {
+      return [...values.keys()][index] ?? null;
+    },
+    removeItem(key) {
+      values.delete(String(key));
+    },
+    setItem(key, value) {
+      values.set(String(key), String(value));
+    },
+  };
+}
 
 beforeEach(() => {
   resetAgentEngineReadinessForTests();
@@ -64,6 +94,14 @@ beforeEach(() => {
     document,
     "modelContext",
   );
+  originalLocalStorage = Object.getOwnPropertyDescriptor(
+    window,
+    "localStorage",
+  );
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: createTestLocalStorage(),
+  });
   Object.defineProperty(window, "fetch", {
     configurable: true,
     value: vi
@@ -102,6 +140,11 @@ afterEach(() => {
     configurable: true,
     value: originalFetch,
   });
+  if (originalLocalStorage) {
+    Object.defineProperty(window, "localStorage", originalLocalStorage);
+  } else {
+    delete (window as Window & { localStorage?: Storage }).localStorage;
+  }
   if (originalModelContext) {
     Object.defineProperty(document, "modelContext", originalModelContext);
   } else {
@@ -115,6 +158,7 @@ function renderProviders(props: {
   isPublicPath?: boolean;
   sessionBypass?: boolean;
   skipFirstRunOnboarding?: boolean;
+  enableThemeFamily?: boolean;
   disableWebMcp?: boolean;
   children?: React.ReactNode;
 }) {
@@ -183,6 +227,33 @@ const SIGNED_IN_SESSION = {
 };
 
 describe("AppProviders session gate", () => {
+  it("mounts theme-family sync by default in an authenticated app shell", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ skipFirstRunOnboarding: true });
+    await act(async () => {
+      await import("./ThemeFamilySync.js");
+    });
+
+    expect(useThemeFamilyMock).toHaveBeenCalledOnce();
+  });
+
+  it("allows an authenticated app shell to disable theme-family sync", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ skipFirstRunOnboarding: true, enableThemeFamily: false });
+
+    expect(useThemeFamilyMock).not.toHaveBeenCalled();
+  });
+
+  it("does not load theme-family settings on public routes", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({ isPublicPath: true });
+
+    expect(useThemeFamilyMock).not.toHaveBeenCalled();
+  });
+
   it("uses Toolkit's theme-aware toaster by default", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 

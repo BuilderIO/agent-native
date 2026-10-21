@@ -58,10 +58,13 @@ Before pushing to or merging an existing PR, resolve the active GitHub login
 with `gh api user --jq .login` and query the live PR including `author`,
 `headRepository`, `headRefName`, `headRefOid`, `baseRefName`, and `state`.
 Compare `author.login` with the active login. A push to another person's PR
-requires the current request to explicitly authorize a push to that exact PR;
-a PR link, branch match, or generic `/ship-now` request is not authorization.
-Merging another person's PR requires separate authorization to merge that exact
-PR. Repeat the live checks immediately before each push and merge, and push only
+requires the user to explicitly authorize a push to that exact PR in the active
+task; a PR link, branch match, or generic `/ship-now` request is not
+authorization. Once given, that authorization persists across resumed turns,
+heartbeats, and context compaction until its scope is complete or revoked.
+Merging another person's PR requires explicit authorization to merge that exact
+PR; that authorization also persists for the active task. Repeat the live
+checks immediately before each push and merge, and push only
 to the verified head repository and branch with a normal fast-forward.
 
 Determine comment authorization from the live PR author before drafting or
@@ -89,10 +92,11 @@ actual behavior changed (for example,
 `fix: deduplicate chat start checkpoints`); the helper refuses an omitted or
 generic subject. It excludes `learnings.md`, `bridge/**`, and `data/**`.
 
-Rebase or merge `origin/main` only if GitHub reports an actual `CONFLICTING`
-PR. Leave the fast path and use `/babysit-pr` to resolve it; for a shared
-branch, prefer a normal merge. Being behind or having pending checks is not a
-reason to update from main.
+Do not sync `origin/main` just to clear a behind count or rerun pending checks.
+If a failing required check is confirmed fixed on `origin/main` during an
+explicitly authorized `/ship`, leave the fast path and use `/babysit-pr` to
+merge that fix after verifying a clean task-owned worktree at the exact live
+PR head. Use a normal merge for shared branches; never rebase.
 
 The fast gate is local `pnpm prep:urgent`, or the narrowest successful recovery check
 for each failed prep lane. Once that gate and review resolution pass, admin

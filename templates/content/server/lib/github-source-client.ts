@@ -1,3 +1,8 @@
+import {
+  ActionContractError,
+  isAgentConnectionRequiredError,
+} from "@agent-native/core/action";
+
 import type { GitHubSourceProblemCode } from "../../shared/github-source.js";
 import { executeGitHubSourceRequest } from "./provider-api.js";
 
@@ -201,7 +206,19 @@ async function githubGet(
     if (target.signal && (target.signal.aborted || endedBySignal(error))) {
       throw new GitHubSourceDeadlineError();
     }
-    throw error;
+    // A missing connection is the caller's to explain. Anything else the
+    // provider client throws, like a dropped connection, means GitHub never
+    // answered.
+    if (
+      isAgentConnectionRequiredError(error) ||
+      error instanceof ActionContractError
+    ) {
+      throw error;
+    }
+    throw Object.assign(
+      new GitHubSourceError("unavailable", "GitHub couldn't be reached."),
+      { cause: error },
+    );
   }
   const result = asRecord(raw);
   const response = asRecord(result.response) as unknown as ProviderResponse;
@@ -299,6 +316,38 @@ async function refineNotFound(
     throw repoError;
   }
   throw new GitHubSourceError(inside, message, 404);
+}
+
+/** How long the connection check waits for GitHub before giving up. */
+const CONNECTION_CHECK_MS = 5_000;
+
+/**
+ * Whether the person has a GitHub connection Content can read through. It
+ * asks for the rate limit, which reads no repository and costs none of it.
+ * Null means GitHub couldn't be asked, so the caller shouldn't say either way.
+ */
+export async function readGitHubConnected(
+  connectionId?: string | null,
+): Promise<boolean | null> {
+  try {
+    const raw = await executeGitHubSourceRequest({
+      provider: "github",
+      method: "GET",
+      path: "/rate_limit",
+      connectionId: connectionId ?? undefined,
+      signal: AbortSignal.timeout(CONNECTION_CHECK_MS),
+    });
+    const status = asRecord(asRecord(raw).response).status;
+    if (typeof status !== "number") return null;
+    return status !== 401;
+  } catch (error) {
+    if (isAgentConnectionRequiredError(error)) return false;
+    console.warn(
+      "[github-source] connection check failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
 }
 
 /** The branch a repository URL without `/tree/` means. */

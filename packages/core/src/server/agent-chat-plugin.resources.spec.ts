@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   resourceGet: vi.fn(),
   resourcePut: vi.fn(async () => undefined),
   discoverAgents: vi.fn(async () => []),
+  getWorkspaceAppProfile: vi.fn(async () => null),
   loadAgentsBundle: vi.fn(async () => ({
     workspaceAgentsMd: "",
     agentsMd: "",
@@ -101,6 +102,12 @@ vi.mock("../resources/store.js", () => ({
 
 vi.mock("./agent-discovery.js", () => ({
   discoverAgents: (...args: any[]) => mocks.discoverAgents(...args),
+  discoverAgentsWithDirectoryStatus: async (...args: any[]) => ({
+    agents: await mocks.discoverAgents(...args),
+    directory: { status: "available" },
+  }),
+  getWorkspaceAppProfile: (...args: any[]) =>
+    mocks.getWorkspaceAppProfile(...args),
 }));
 
 vi.mock("./agents-bundle.js", () => ({
@@ -163,6 +170,7 @@ vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
 
 import {
   createAgentChatPlugin,
+  disabledGroupsForA2APrompt,
   loadResourcesForPrompt,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
@@ -304,6 +312,7 @@ beforeEach(() => {
   runStoreMocks.listRunsForThread.mockReset();
   runStoreMocks.listRunsForThread.mockResolvedValue([]);
   mocks.getSession.mockResolvedValue(null);
+  mocks.getWorkspaceAppProfile.mockReset().mockResolvedValue(null);
   mocks.loadAgentsBundle.mockResolvedValue({
     workspaceAgentsMd: "",
     agentsMd: "",
@@ -481,6 +490,7 @@ describe("agent chat thread read route", () => {
 });
 
 async function mountResourceRoutes(options?: {
+  appId?: string;
   resolveOrgId?: (
     event: unknown,
   ) => string | null | undefined | Promise<string | null | undefined>;
@@ -488,6 +498,7 @@ async function mountResourceRoutes(options?: {
   const h3App = createApp();
   createAgentChatPlugin({
     actions: () => ({}),
+    appId: options?.appId,
     a2aAgentDelegation: false,
     frameworkTools: "minimal",
     leanPrompt: true,
@@ -521,6 +532,92 @@ async function fetchWithRequestContext(
     h3App.fetch(new Request(`http://example.test${path}`, init)),
   );
 }
+
+describe("agent profile lookup timing", () => {
+  it("does not wait for the profile read before registering chat routes", async () => {
+    let releaseProfile!: (profile: { description: string } | null) => void;
+    const pendingProfile = new Promise<{ description: string } | null>(
+      (resolve) => {
+        releaseProfile = resolve;
+      },
+    );
+    mocks.getWorkspaceAppProfile.mockReturnValueOnce(pendingProfile as any);
+
+    const h3App = createApp();
+    const handlerCountBefore = handlerHarness.options.length;
+    createAgentChatPlugin({
+      actions: () => ({}),
+      appId: "qr",
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: { hook: vi.fn() },
+    });
+    const initPromise = routeHarness.initPromises.at(-1);
+    expect(initPromise).toBeDefined();
+
+    const initialization = await Promise.race([
+      initPromise!.then(() => "ready" as const),
+      new Promise<"blocked">((resolve) =>
+        setTimeout(() => resolve("blocked"), 1_000),
+      ),
+    ]);
+    releaseProfile(null);
+
+    expect(initialization).toBe("ready");
+    expect(mocks.getWorkspaceAppProfile).not.toHaveBeenCalled();
+    expect(handlerHarness.options.length).toBeGreaterThan(handlerCountBefore);
+  });
+
+  it("resolves the public card profile on the card request", async () => {
+    const h3App = await mountResourceRoutes({ appId: "qr" });
+    expect(mocks.getWorkspaceAppProfile).not.toHaveBeenCalled();
+    mocks.getWorkspaceAppProfile.mockResolvedValueOnce({
+      description: "QR app profile",
+    });
+
+    const response = await h3App.fetch(
+      new Request("https://qr.example/.well-known/agent-card.json"),
+    );
+    const card = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(card.description).toBe("QR app profile");
+    expect(mocks.getWorkspaceAppProfile).toHaveBeenCalledWith("qr");
+  });
+});
+
+describe("A2A prompt resource groups", () => {
+  it("disables workspace apps when A2A delegation is unavailable", () => {
+    const disabled = new Set(["database"] as const);
+    expect(disabledGroupsForA2APrompt(disabled, false)).toEqual(
+      new Set(["database", "workspaceApps"]),
+    );
+    expect(disabledGroupsForA2APrompt(disabled, true)).toBe(disabled);
+  });
+
+  it("disables workspace apps in ask_app prompts, which omit call-agent", () => {
+    const disabled = disabledGroupsForA2APrompt(new Set(), false);
+    expect(disabled.has("workspaceApps")).toBe(true);
+  });
+
+  it("does not preload an available-apps group without call-agent", async () => {
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      undefined,
+      {
+        disabledFrameworkGroups: disabledGroupsForA2APrompt(new Set(), false),
+      },
+    );
+
+    expect(prompt).not.toContain("<available-apps>");
+  });
+});
 
 describe("agent chat queued-message route", () => {
   it("rejects data URL attachment references before durable queue mutation", async () => {
@@ -2474,6 +2571,12 @@ describe("loadResourcesForPrompt", () => {
       expect(prompt).toContain("describe-workspace-apps");
       expect(prompt).toContain(
         "This list is a directory, not a request to involve another app.",
+      );
+      expect(prompt).toContain(
+        "Prefer the current app's own connected integrations and tools when they can answer the request",
+      );
+      expect(prompt).toContain(
+        "use a direct FullStory connection for session-replay questions when one is available here",
       );
       expect(prompt).toContain(
         "Use `call-agent` only when the user's requested outcome depends on data or a capability only that app can provide",

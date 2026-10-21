@@ -53,6 +53,22 @@ vi.mock("./VisualEditor", async () => {
     VisualEditor: (props: Record<string, unknown>) => {
       const label = React.useRef(String(props.content)).current;
       mocks.editors.set(label, props);
+      // Like the real editor: newer text saved elsewhere is merged into the
+      // text it holds as soon as it arrives.
+      const external = props.externalContent as {
+        key: string;
+        merge: (
+          live: string | null,
+          canHold: (text: string) => boolean,
+        ) => string | null;
+      } | null;
+      React.useLayoutEffect(() => {
+        external?.merge(
+          props.editable ? String(props.content) : null,
+          () => true,
+        );
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [external?.key]);
       React.useEffect(() => {
         mocks.editorMounts += 1;
         return () => {
@@ -1229,6 +1245,105 @@ describe("DocumentBlockFields tabs", () => {
         await expect(
           flushAllBlockFieldSaveControllersForDocument("doc-1"),
         ).resolves.toBeUndefined();
+      });
+    });
+
+    it("reports a save that fails in a field that's still there", async () => {
+      mocks.save.mockRejectedValue(new Error("Offline"));
+      await render();
+      await click(tab("notes"));
+      await type("Notes text", "Typed while offline");
+
+      await act(async () => {
+        await expect(
+          flushAllBlockFieldSaveControllersForDocument("doc-1"),
+        ).rejects.toThrow();
+      });
+      expect(mocks.toastError).toHaveBeenCalledWith("Something went wrong", {
+        description: "Offline",
+      });
+    });
+
+    it.each([
+      ["while the delete is still running", true],
+      ["after the field is gone", false],
+    ])(
+      "doesn't report a save that fails because its field was deleted, %s (OVR-5)",
+      async (_when, failsFirst) => {
+        let failSave = () => {};
+        mocks.save.mockImplementation(
+          () =>
+            new Promise((_resolve, reject) => {
+              failSave = () => reject(new Error("Property not found"));
+            }),
+        );
+        let finishDelete = () => {};
+        mocks.remove.mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              finishDelete = () => resolve({});
+            }),
+        );
+        await render();
+        await click(tab("notes"));
+        await type("Notes text", "Typed just before deleting");
+        await act(async () => {
+          void flushAllBlockFieldSaveControllersForDocument("doc-1").catch(
+            () => {},
+          );
+        });
+        expect(mocks.save).toHaveBeenCalledTimes(1);
+
+        await rightClick(tab("notes"));
+        await choose("[data-block-field-delete]");
+        await confirmDelete();
+        if (failsFirst) await act(async () => failSave());
+        await act(async () => finishDelete());
+        if (!failsFirst) await act(async () => failSave());
+        setFields([content()]);
+        await render();
+
+        expect(mocks.toastError).not.toHaveBeenCalled();
+      },
+    );
+
+    it("saves again, and reports it, when a delete fails after a save failed during it", async () => {
+      let failSave = () => {};
+      mocks.save.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            failSave = () => reject(new Error("Offline"));
+          }),
+      );
+      let failDelete = () => {};
+      mocks.remove.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            failDelete = () => reject(new Error("Offline"));
+          }),
+      );
+      await render();
+      await click(tab("notes"));
+      await type("Notes text", "Typed just before deleting");
+      await act(async () => {
+        void flushAllBlockFieldSaveControllersForDocument("doc-1").catch(
+          () => {},
+        );
+      });
+      await rightClick(tab("notes"));
+      await choose("[data-block-field-delete]");
+      await confirmDelete();
+      await act(async () => failSave());
+      expect(mocks.toastError).not.toHaveBeenCalled();
+
+      mocks.save.mockRejectedValueOnce(new Error("Still offline"));
+      await act(async () => failDelete());
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(mocks.save).toHaveBeenCalledTimes(2);
+      expect(mocks.toastError).toHaveBeenCalledWith("Something went wrong", {
+        description: "Still offline",
       });
     });
 

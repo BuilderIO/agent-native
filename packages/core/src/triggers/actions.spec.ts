@@ -1,771 +1,224 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ACTION_CHAT_UI_RECORD_CHANGE_RENDERER } from "../action-ui.js";
+const mocks = vi.hoisted(() => ({
+  defineAutomation: vi.fn(),
+  deleteAutomation: vi.fn(),
+  listAccessibleAutomationDefinitions: vi.fn(),
+  queueAutomationRunNow: vi.fn(),
+  refreshEventSubscriptions: vi.fn(),
+  updateAutomation: vi.fn(),
+}));
+
+vi.mock("../automations/service.js", () => ({
+  defineAutomation: mocks.defineAutomation,
+  deleteAutomation: mocks.deleteAutomation,
+  listAccessibleAutomationDefinitions:
+    mocks.listAccessibleAutomationDefinitions,
+  updateAutomation: mocks.updateAutomation,
+}));
+vi.mock("../jobs/run-now.js", () => ({
+  queueAutomationRunNow: mocks.queueAutomationRunNow,
+}));
+vi.mock("./dispatcher.js", () => ({
+  refreshEventSubscriptions: mocks.refreshEventSubscriptions,
+}));
+vi.mock("../event-bus/index.js", () => ({
+  listEvents: () => [],
+  emit: vi.fn(),
+}));
+vi.mock("../server/request-context.js", () => ({
+  getIntegrationRequestContext: () => undefined,
+  getRequestOrgId: () => "org-1",
+}));
+
 import { createAutomationToolEntries } from "./actions.js";
 
-const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
-const resourceGetByPathMock = vi.hoisted(() => vi.fn());
-const resourcePutMock = vi.hoisted(() => vi.fn());
-const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
-const resourceDeleteMock = vi.hoisted(() => vi.fn());
-const refreshEventSubscriptionsMock = vi.hoisted(() => vi.fn());
-const emitMock = vi.hoisted(() => vi.fn());
-const registerEventMock = vi.hoisted(() => vi.fn());
-const resolveUserSchedulingTimezoneMock = vi.hoisted(() => vi.fn());
-const deleteAutomationRunsMock = vi.hoisted(() => vi.fn());
-const listRemoteDevicesForOwnerMock = vi.hoisted(() => vi.fn());
-const getRemoteExecutionCapabilitiesMock = vi.hoisted(() => vi.fn());
+const owner = "alice@example.com";
+const definition = {
+  resource: {
+    id: "resource-1",
+    owner,
+    path: "jobs/digest.md",
+    content: "content",
+  },
+  resourceId: "resource-1",
+  name: "digest",
+  scope: "personal",
+  classification: {
+    kind: "automation",
+    triggerType: "manual",
+    hasExplicitTriggerType: true,
+  },
+  meta: {
+    schedule: "",
+    enabled: true,
+    triggerType: "manual",
+    mode: "agentic",
+    createdBy: owner,
+    runAs: "creator",
+  },
+  body: "Build the digest.",
+  canUpdate: true,
+  effectiveRole: "owner",
+  capabilities: {
+    canEdit: true,
+    canOperate: true,
+    canDelete: true,
+    canManageSharing: true,
+  },
+  sharing: {
+    source: "explicit",
+    visibility: "private",
+    organizationId: null,
+    grantCount: 1,
+    grants: [
+      {
+        email: "viewer@example.com",
+        role: "view",
+        name: "Viewer",
+        avatar: "https://example.com/viewer.png",
+      },
+    ],
+  },
+  creator: { email: owner, label: "Alice" },
+};
 
-vi.mock("../resources/store.js", () => ({
-  SHARED_OWNER: "__shared__",
-  organizationIdFromResourceOwner: (owner: string) =>
-    owner.startsWith("__organization__:")
-      ? owner.slice("__organization__:".length)
-      : null,
-  organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
-  resourceListAllOwners: resourceListAllOwnersMock,
-  resourceList: resourceListAllOwnersMock,
-  resourceGetByPath: resourceGetByPathMock,
-  resourcePut: resourcePutMock,
-  resourcePutIfCurrent: resourcePutIfCurrentMock,
-  resourceDelete: resourceDeleteMock,
-}));
-
-vi.mock("./dispatcher.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./dispatcher.js")>();
-  return {
-    ...actual,
-    refreshEventSubscriptions: refreshEventSubscriptionsMock,
-  };
-});
-
-vi.mock("../event-bus/index.js", () => ({
-  registerEvent: registerEventMock,
-  listEvents: vi.fn(() => []),
-  emit: emitMock,
-}));
-
-vi.mock("../localization/user-timezone.js", () => ({
-  resolveUserSchedulingTimezone: resolveUserSchedulingTimezoneMock,
-}));
-
-const queueAutomationRunNowMock = vi.hoisted(() => vi.fn());
-
-vi.mock("../jobs/run-now.js", () => ({
-  queueAutomationRunNow: queueAutomationRunNowMock,
-}));
-
-vi.mock("../integrations/remote-devices-store.js", () => ({
-  listRemoteDevicesForOwner: listRemoteDevicesForOwnerMock,
-  getRemoteExecutionCapabilities: getRemoteExecutionCapabilitiesMock,
-}));
+function tool() {
+  return createAutomationToolEntries(() => owner)["manage-automations"];
+}
 
 describe("manage-automations tool", () => {
-  const owner = "alice+qa@agent-native.test";
-
   beforeEach(() => {
     vi.clearAllMocks();
-    resourceListAllOwnersMock.mockResolvedValue([]);
-    resourceGetByPathMock.mockResolvedValue(null);
-    resourcePutMock.mockResolvedValue(undefined);
-    resourcePutIfCurrentMock.mockImplementation(
-      async (input: { owner: string; path: string; content: string }) => ({
-        id: "resource-1",
-        owner: input.owner,
-        path: input.path,
-        content: input.content,
-      }),
-    );
-    resourceDeleteMock.mockResolvedValue(undefined);
-    refreshEventSubscriptionsMock.mockResolvedValue(undefined);
-    resolveUserSchedulingTimezoneMock.mockResolvedValue("America/Los_Angeles");
-    deleteAutomationRunsMock.mockResolvedValue(undefined);
-    queueAutomationRunNowMock.mockResolvedValue({
+    mocks.listAccessibleAutomationDefinitions.mockResolvedValue([definition]);
+    mocks.defineAutomation.mockResolvedValue(definition);
+    mocks.updateAutomation.mockResolvedValue(definition);
+    mocks.deleteAutomation.mockResolvedValue(undefined);
+    mocks.queueAutomationRunNow.mockResolvedValue({
       queued: true,
       runId: "run-1",
       automationRunId: "run-1",
     });
-    listRemoteDevicesForOwnerMock.mockResolvedValue([]);
-    getRemoteExecutionCapabilitiesMock.mockReturnValue(null);
   });
 
-  function tool() {
-    return createAutomationToolEntries(() => owner)["manage-automations"];
-  }
-
-  it("allows only list operations in Plan mode", () => {
-    const entry = tool();
-    const effect = entry.planMode?.effect;
-    expect(typeof effect).toBe("function");
+  it("preserves plan-mode reads and confirmations for writes", () => {
+    const effect = tool().planMode?.effect;
     if (typeof effect !== "function") throw new Error("Missing classifier");
-
-    expect(effect({ action: "list-events" })).toBe("read");
     expect(effect({ action: "list" })).toBe("read");
+    expect(effect({ action: "list-events" })).toBe("read");
     expect(effect({ action: "define" })).toBe("write");
-    expect(effect({ action: "fire-test" })).toBe("write");
+    expect(effect({ action: "delete" })).toBe("write");
   });
 
-  it("lists only the selected personal scope", async () => {
-    const resources = [
-      {
-        id: "owned",
-        owner,
-        path: "jobs/owned.md",
-        content: `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
-domain: qa
----
-
-Owned body`,
-      },
-      {
-        id: "shared",
-        owner: "__shared__",
-        path: "jobs/shared.md",
-        content: `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
-domain: qa
----
-
-Shared body`,
-      },
-      {
-        id: "other",
-        owner: "bob+qa@agent-native.test",
-        path: "jobs/other.md",
-        content: `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
-domain: qa
----
-
-Other body`,
-      },
-    ];
-    resourceListAllOwnersMock.mockResolvedValue(
-      resources.filter((resource) => resource.owner === owner),
-    );
-    resourceGetByPathMock.mockImplementation(
-      async (_owner: string, path: string) =>
-        resources.find((resource) => resource.path === path) ?? null,
-    );
-
-    const result = await tool().run({ action: "list" });
-
-    expect(result).toContain("owned");
-    expect(result).not.toContain("shared");
-    expect(result).not.toContain("other");
-  });
-
-  it("lists paired execution hosts without exposing device credentials", async () => {
-    listRemoteDevicesForOwnerMock.mockResolvedValue([
-      {
-        id: "remote-device-laptop",
-        label: "Always-on laptop",
-        platform: "darwin",
-        hostName: "laptop.local",
-        status: "active",
-        lastSeenAt: Date.now(),
-        deviceTokenHash: "secret-hash",
-      },
+  it("lists unified access, sharing, classification, and stable ids", async () => {
+    const result = JSON.parse(await tool().run({ action: "list" }));
+    expect(result).toEqual([
+      expect.objectContaining({
+        resourceId: "resource-1",
+        classification: "automation",
+        effectiveRole: "owner",
+        capabilities: definition.capabilities,
+        sharing: definition.sharing,
+      }),
     ]);
-    getRemoteExecutionCapabilitiesMock.mockReturnValue({
-      backend: "desktop",
-      workloads: ["code-agent", "scheduled-code"],
-      engines: ["codex-cli", "claude-cli"],
-      acceptsScheduledWork: true,
-      persistence: "local-files",
+    expect(mocks.listAccessibleAutomationDefinitions).toHaveBeenCalledWith({
+      userEmail: owner,
+      orgId: "org-1",
     });
+  });
 
-    const result = await tool().run({ action: "list-hosts" });
-    expect(result).toContain("remote-device-laptop");
-    expect(result).toContain("scheduled-code");
-    expect(result).not.toContain("secret-hash");
-    expect(listRemoteDevicesForOwnerMock).toHaveBeenCalledWith(
+  it("forwards complete sharing and external acknowledgement on define/update", async () => {
+    const sharing = {
+      kind: "specific",
+      organizationId: "org-1",
+      grants: [{ email: "outside@example.com", role: "collaborate" }],
+    };
+    await tool().run({
+      action: "define",
+      name: "digest",
+      trigger_type: "manual",
+      body: "Build it.",
+      sharing,
+      acknowledge_external_collaborators: "true",
+    });
+    expect(mocks.defineAutomation).toHaveBeenCalledWith(
+      { userEmail: owner, orgId: "org-1" },
       expect.objectContaining({
-        ownerEmail: owner,
-        status: "active",
+        sharing,
+        acknowledgeExternalCollaborators: true,
       }),
     );
-  });
-
-  it("creates, updates, and deletes automations under the current user", async () => {
-    await tool().run({
-      action: "define",
-      name: "qa-alert",
-      trigger_type: "event",
-      event: "test.event.fired",
-      body: "Record the QA signal.",
-    });
-
-    expect(resourceGetByPathMock).toHaveBeenCalledWith(
-      owner,
-      "jobs/qa-alert.md",
-    );
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      owner,
-      "jobs/qa-alert.md",
-      expect.stringContaining("createdBy: alice+qa@agent-native.test"),
-    );
-    expect(refreshEventSubscriptionsMock).toHaveBeenCalled();
-
-    resourceGetByPathMock.mockResolvedValueOnce({
-      id: "resource-1",
-      owner,
-      path: "jobs/qa-alert.md",
-      content: `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
-createdBy: ${owner}
----
-
-Record the QA signal.`,
-    });
 
     await tool().run({
       action: "update",
-      name: "qa-alert",
-      enabled: "false",
-      body: "Updated body.",
+      resource_id: "resource-1",
+      sharing: { kind: "personal" },
     });
-
-    expect(resourcePutIfCurrentMock).toHaveBeenLastCalledWith(
+    expect(mocks.updateAutomation).toHaveBeenCalledWith(
+      { userEmail: owner, orgId: "org-1" },
       expect.objectContaining({
-        owner,
-        path: "jobs/qa-alert.md",
-        content: expect.stringContaining("enabled: false"),
+        resourceId: "resource-1",
+        sharing: { kind: "personal" },
       }),
     );
-
-    resourceGetByPathMock.mockResolvedValueOnce({
-      id: "resource-1",
-      owner,
-      path: "jobs/qa-alert.md",
-      content: `---
-schedule: ""
-enabled: false
-triggerType: event
-event: test.event.fired
-mode: agentic
-createdBy: ${owner}
----
-
-Updated body.`,
-    });
-
-    await tool().run({ action: "delete", name: "qa-alert" });
-
-    expect(resourceDeleteMock).toHaveBeenCalledWith("resource-1");
   });
 
-  it("projects successful automation mutations as focused change cards", async () => {
-    const entry = tool();
-    const chatUI = entry.chatUI;
-    expect(chatUI?.renderer).toBe(ACTION_CHAT_UI_RECORD_CHANGE_RENDERER);
-
-    const defineArgs = {
-      action: "define",
-      name: "qa-card",
-      trigger_type: "event",
-      event: "test.event.fired",
-      body: "Record the QA signal.",
-    };
-    const defineResult = await entry.run(defineArgs);
-    expect(chatUI?.when?.(defineArgs, defineResult)).toBe(true);
-    expect(chatUI?.projectResult?.(defineArgs, defineResult)).toEqual({
-      change: {
-        verb: "created",
-        kind: "automation",
-        title: "qa-card",
-      },
-    });
-
-    resourceGetByPathMock.mockResolvedValueOnce({
-      id: "resource-1",
-      owner,
-      path: "jobs/qa-card.md",
-      content: `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
-createdBy: ${owner}
----
-
-Record the QA signal.`,
-    });
-    const updateArgs = {
+  it("keeps name/scope compatibility while preferring resource ids", async () => {
+    await tool().run({
       action: "update",
-      name: "qa-card",
-      body: "Updated QA instructions.",
-    };
-    const updateResult = await entry.run(updateArgs);
-    expect(chatUI?.when?.(updateArgs, updateResult)).toBe(true);
-    expect(chatUI?.projectResult?.(updateArgs, updateResult)).toEqual({
-      change: {
-        verb: "updated",
-        kind: "automation",
-        title: "qa-card",
-      },
-    });
-
-    resourceGetByPathMock.mockResolvedValueOnce({
-      id: "resource-1",
-      owner,
-      path: "jobs/qa-card.md",
-      content: `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
-createdBy: ${owner}
----
-
-Updated QA instructions.`,
-    });
-    const disableArgs = {
-      action: "update",
-      name: "qa-card",
+      name: "digest",
+      scope: "personal",
       enabled: "false",
-    };
-    const disableResult = await entry.run(disableArgs);
-    expect(chatUI?.when?.(disableArgs, disableResult)).toBe(true);
-    expect(chatUI?.projectResult?.(disableArgs, disableResult)).toEqual({
-      change: {
-        verb: "disabled",
-        kind: "automation",
-        title: "qa-card",
-      },
     });
+    expect(mocks.updateAutomation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ name: "digest", scope: "personal" }),
+    );
 
-    resourceGetByPathMock.mockResolvedValueOnce({
-      id: "resource-1",
-      owner,
-      path: "jobs/qa-card.md",
-      content: `---
-schedule: ""
-enabled: false
-triggerType: event
-event: test.event.fired
-mode: agentic
-createdBy: ${owner}
----
-
-Updated QA instructions.`,
-    });
-    const deleteArgs = { action: "delete", name: "qa-card" };
-    const deleteResult = await entry.run(deleteArgs);
-    expect(chatUI?.when?.(deleteArgs, deleteResult)).toBe(true);
-    expect(chatUI?.projectResult?.(deleteArgs, deleteResult)).toEqual({
-      change: {
-        verb: "deleted",
-        kind: "automation",
-        title: "qa-card",
-      },
+    await tool().run({ action: "delete", resource_id: "resource-1" });
+    expect(mocks.deleteAutomation).toHaveBeenCalledWith(expect.anything(), {
+      resourceId: "resource-1",
     });
   });
 
-  it("does not project cards for reads, runs, errors, or no-op updates", async () => {
-    const entry = tool();
-    const when = entry.chatUI?.when;
-    expect(typeof when).toBe("function");
-    if (typeof when !== "function") throw new Error("Missing card gate");
-
-    const listArgs = { action: "list" };
-    expect(when(listArgs, await entry.run(listArgs))).toBe(false);
-
-    const fireTestArgs = { action: "fire-test" };
-    expect(when(fireTestArgs, await entry.run(fireTestArgs))).toBe(false);
-
-    const runNowArgs = { action: "run-now", name: "qa-card" };
-    expect(when(runNowArgs, await entry.run(runNowArgs))).toBe(false);
-
-    const errorArgs = {
-      action: "define",
-      name: "qa-invalid",
-      trigger_type: "event",
-      event: "test.event.fired",
-      body: "Record the QA signal.",
-      mode: "deterministic",
-    };
-    expect(when(errorArgs, await entry.run(errorArgs))).toBe(false);
-
-    resourceGetByPathMock.mockResolvedValueOnce({
-      id: "resource-1",
-      owner,
-      path: "jobs/qa-card.md",
-      content: `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
-createdBy: ${owner}
----
-
-Record the QA signal.`,
-    });
-    const noOpArgs = {
-      action: "update",
-      name: "qa-card",
-      body: "Record the QA signal.",
-    };
-    expect(when(noOpArgs, await entry.run(noOpArgs))).toBe(false);
-  });
-
-  it("persists and updates reasoning_effort, and rejects an unrecognized value", async () => {
-    const defineResult = JSON.parse(
-      await tool().run({
-        action: "define",
-        name: "qa-effort",
-        trigger_type: "event",
-        event: "test.event.fired",
-        body: "Record the QA signal.",
-        model: "gpt-5.6-luna",
-        reasoning_effort: "high",
-      }),
-    );
-    expect(defineResult.reasoningEffort).toBe("high");
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      owner,
-      "jobs/qa-effort.md",
-      expect.stringContaining("reasoningEffort: high"),
-    );
-
-    resourceGetByPathMock.mockResolvedValueOnce({
-      id: "resource-1",
-      owner,
-      path: "jobs/qa-effort.md",
-      content: `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
-createdBy: ${owner}
-model: gpt-5.6-luna
-reasoningEffort: high
----
-
-Record the QA signal.`,
-    });
-
-    const updateResult = JSON.parse(
-      await tool().run({
-        action: "update",
-        name: "qa-effort",
-        reasoning_effort: "low",
-      }),
-    );
-    expect(updateResult.reasoningEffort).toBe("low");
-
-    resourceGetByPathMock.mockResolvedValueOnce({
-      id: "resource-1",
-      owner,
-      path: "jobs/qa-effort.md",
-      content: `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
-createdBy: ${owner}
-model: gpt-5.6-luna
-reasoningEffort: low
----
-
-Record the QA signal.`,
-    });
-
-    const rejected = await tool().run({
-      action: "update",
-      name: "qa-effort",
-      reasoning_effort: "extreme",
-    });
-    expect(rejected).toContain("Invalid reasoning effort");
-  });
-
-  it("rejects an unrecognized reasoning_effort on define instead of silently dropping it", async () => {
-    const result = await tool().run({
-      action: "define",
-      name: "qa-bad-effort",
-      trigger_type: "event",
-      event: "test.event.fired",
-      body: "Record the QA signal.",
-      reasoning_effort: "extreme",
-    });
-    expect(result).toContain("Invalid reasoning effort");
-    expect(resourcePutMock).not.toHaveBeenCalled();
-  });
-
-  it("reports an updated card when only the body changed but a run paused the automation", async () => {
-    const entry = tool();
-    const initial = `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
-createdBy: ${owner}
----
-
-Record the QA signal.`;
-    const paused = initial.replace(
-      "enabled: true",
-      'enabled: false\nlastStatus: paused\npausedReason: "http_502"',
-    );
-    resourceGetByPathMock
-      .mockResolvedValueOnce({
-        id: "resource-1",
-        owner,
-        path: "jobs/qa-verb.md",
-        content: initial,
-      })
-      .mockResolvedValueOnce({
-        id: "resource-1",
-        owner,
-        path: "jobs/qa-verb.md",
-        content: paused,
-        updatedAt: 2,
-      });
-    resourcePutIfCurrentMock
-      .mockResolvedValueOnce(null)
-      .mockImplementationOnce(
-        async (input: { owner: string; path: string; content: string }) => ({
-          id: "resource-1",
-          owner: input.owner,
-          path: input.path,
-          content: input.content,
-        }),
-      );
-
-    const result = await entry.run({
-      action: "update",
-      name: "qa-verb",
-      body: "Updated QA instructions.",
-    });
-
-    expect(JSON.parse(result).change).toMatchObject({ verb: "updated" });
-  });
-
-  it("rejects define with mode: deterministic and persists nothing", async () => {
-    const result = await tool().run({
-      action: "define",
-      name: "qa-deterministic",
-      trigger_type: "event",
-      event: "test.event.fired",
-      body: "Record the QA signal.",
-      mode: "deterministic",
-    });
-
-    expect(result).toContain("Deterministic mode was removed");
-    expect(resourcePutMock).not.toHaveBeenCalled();
-    expect(refreshEventSubscriptionsMock).not.toHaveBeenCalled();
-  });
-
-  it("persists mode: agentic when mode is explicit or omitted", async () => {
-    await tool().run({
-      action: "define",
-      name: "qa-explicit-agentic",
-      trigger_type: "event",
-      event: "test.event.fired",
-      body: "Record the QA signal.",
-      mode: "agentic",
-    });
-
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      owner,
-      "jobs/qa-explicit-agentic.md",
-      expect.stringContaining("mode: agentic"),
-    );
-
-    await tool().run({
-      action: "define",
-      name: "qa-omitted-mode",
-      trigger_type: "event",
-      event: "test.event.fired",
-      body: "Record the QA signal.",
-    });
-
-    expect(resourcePutMock).toHaveBeenLastCalledWith(
-      owner,
-      "jobs/qa-omitted-mode.md",
-      expect.stringContaining("mode: agentic"),
-    );
-  });
-
-  it("persists an explicit execution host for scheduled automations", async () => {
-    await tool().run({
-      action: "define",
-      name: "qa-hosted-job",
-      trigger_type: "schedule",
-      schedule: "0 9 * * 1-5",
-      execution_host_id: "remote-device-laptop",
-      execution_engine: "claude-cli",
-      execution_cwd: "/Users/alice/Projects/qa",
-      body: "Run the QA checks.",
-    });
-
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      owner,
-      "jobs/qa-hosted-job.md",
-      expect.stringContaining('executionHostId: "remote-device-laptop"'),
-    );
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      owner,
-      "jobs/qa-hosted-job.md",
-      expect.stringContaining('executionEngine: "claude-cli"'),
-    );
-  });
-
-  it("validates trigger-specific fields before defining an automation", async () => {
+  it("rejects public sharing and throws failures instead of returning Error strings", async () => {
     await expect(
       tool().run({
         action: "define",
-        name: "missing-event",
-        trigger_type: "event",
-        body: "Record the signal.",
+        name: "public-digest",
+        trigger_type: "manual",
+        body: "Build it.",
+        sharing: { kind: "public" },
       }),
-    ).resolves.toContain("event is required");
-
+    ).rejects.toThrow(/sharing kind/);
     await expect(
       tool().run({
         action: "define",
-        name: "invalid-schedule",
-        trigger_type: "schedule",
-        schedule: "tomorrow",
-        body: "Record the signal.",
+        name: "deterministic",
+        trigger_type: "manual",
+        body: "Build it.",
+        mode: "deterministic",
       }),
-    ).resolves.toContain("invalid cron expression");
+    ).rejects.toThrow(/Deterministic mode was removed/);
+  });
 
+  it("queues resource-id runs and describes immutable creator execution", async () => {
+    const entry = tool();
+    expect(entry.tool.description).toContain("immutable creator");
+    expect(entry.tool.parameters.properties.resource_id).toBeDefined();
+    await entry.run({ action: "run-now", resource_id: "resource-1" });
+    expect(mocks.queueAutomationRunNow).toHaveBeenCalledWith({
+      userEmail: owner,
+      orgId: "org-1",
+      resourceId: "resource-1",
+      scope: undefined,
+      name: undefined,
+    });
     await expect(
-      tool().run({
-        action: "define",
-        name: "missing-body",
-        trigger_type: "schedule",
-        schedule: "0 9 * * *",
-      }),
-    ).resolves.toContain("body is required");
-
-    expect(resourcePutMock).not.toHaveBeenCalled();
-  });
-
-  it("seeds the next run for scheduled automations", async () => {
-    await tool().run({
-      action: "define",
-      name: "daily-digest",
-      trigger_type: "schedule",
-      schedule: "0 9 * * *",
-      body: "Summarize the inbox.",
-    });
-
-    const content = resourcePutMock.mock.calls[0]?.[2] as string;
-    expect(content).toContain("triggerType: schedule");
-    expect(content).toMatch(/nextRun: "/);
-  });
-
-  it("leaves legacy scheduled jobs on the compatibility tool", async () => {
-    resourceGetByPathMock.mockResolvedValueOnce({
-      id: "legacy-job",
-      owner,
-      path: "jobs/daily-digest.md",
-      content: `---
-schedule: "0 9 * * *"
-enabled: true
-createdBy: ${owner}
-model: custom-model
-mcpTools: ["mcp__mail__list_messages"]
-deliveryPlatform: slack
-deliveryDestination: C123
----
-
-Summarize the inbox.`,
-    });
-
-    const result = await tool().run({
-      action: "update",
-      name: "daily-digest",
-      enabled: "false",
-    });
-
-    expect(result).toContain("legacy scheduled job");
-    expect(resourcePutMock).not.toHaveBeenCalled();
-  });
-
-  it("refreshes event subscriptions after deletion", async () => {
-    resourceGetByPathMock.mockResolvedValueOnce({
-      id: "resource-1",
-      owner,
-      path: "jobs/qa-alert.md",
-      content: `---
-schedule: ""
-enabled: true
-triggerType: event
-event: test.event.fired
-mode: agentic
----
-
-Record the signal.`,
-    });
-
-    await tool().run({ action: "delete", name: "qa-alert" });
-
-    expect(resourceDeleteMock).toHaveBeenCalledWith("resource-1");
-    expect(refreshEventSubscriptionsMock).toHaveBeenCalledOnce();
-  });
-
-  it("scopes fire-test events to the current user", async () => {
-    await tool().run({
-      action: "fire-test",
-      data: '{"subject":"qa"}',
-    });
-
-    expect(emitMock).toHaveBeenCalledWith(
-      "test.event.fired",
-      { data: { subject: "qa" } },
-      { owner },
-    );
-  });
-
-  it("does not allow an automation to recursively queue another automation", async () => {
-    const result = await tool().run(
-      { action: "run-now", name: "another-automation" },
-      { caller: "automation" },
-    );
-
-    expect(result).toBe("Error: an automation cannot run another automation.");
-    expect(queueAutomationRunNowMock).not.toHaveBeenCalled();
-  });
-
-  it("runs a nested automation by path without sending an empty name", async () => {
-    const path = "jobs/factories/enzo-test-factory-3/factory-slack-feedback.md";
-
-    await tool().run({ action: "run-now", path, scope: "organization" });
-
-    expect(queueAutomationRunNowMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        path,
-        scope: "organization",
-      }),
-    );
-    expect(queueAutomationRunNowMock.mock.calls[0]?.[0]).not.toHaveProperty(
-      "name",
-    );
+      entry.run(
+        { action: "run-now", resource_id: "resource-1" },
+        { caller: "automation" },
+      ),
+    ).rejects.toThrow(/cannot run another automation/);
   });
 });

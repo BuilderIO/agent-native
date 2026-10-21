@@ -19,6 +19,7 @@ import { useState } from "react";
 
 import { SettingsGroup, SettingsRow } from "../../settings/SettingsRow.js";
 import {
+  A2AMemberDelegationSection,
   A2ASecretSection,
   DomainSettingsSection,
 } from "../AuthenticationSection.js";
@@ -204,6 +205,9 @@ function OrgAuthenticationContent({ org }: { org: OrgInfo }) {
           title={t("agentChat.settingsOrg.auth.betweenApps")}
         >
           <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />
+          <A2AMemberDelegationSection
+            enabled={Boolean(org.a2aMemberDelegationEnabled)}
+          />
         </SettingsGroup>
       )}
     </div>

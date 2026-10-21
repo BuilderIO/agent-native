@@ -10,12 +10,18 @@ const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
+const resolveAutomationAccessMock = vi.hoisted(() => vi.fn());
 
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
 const getIntegrationRequestContextMock = vi.hoisted(() => vi.fn());
+const getRequestContextMock = vi.hoisted(() => vi.fn());
 
 const dbExecuteMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../automations/access.js", () => ({
+  resolveAutomationAccess: resolveAutomationAccessMock,
+}));
 
 vi.mock("../resources/store.js", () => ({
   resourcePut: resourcePutMock,
@@ -41,6 +47,7 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   getRequestOrgId: getRequestOrgIdMock,
   getIntegrationRequestContext: getIntegrationRequestContextMock,
+  getRequestContext: getRequestContextMock,
   getRequestTimezone: () => "UTC",
 }));
 
@@ -97,9 +104,12 @@ Notify me about the message.`;
 describe("manage-jobs tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resourceGetByPathMock.mockReset();
+    resourceGetByPathMock.mockResolvedValue(null);
     getRequestUserEmailMock.mockReturnValue("alice@example.com");
     getRequestOrgIdMock.mockReturnValue("org-1");
     getIntegrationRequestContextMock.mockReturnValue(undefined);
+    getRequestContextMock.mockReturnValue(undefined);
     resourcePutMock.mockResolvedValue(undefined);
     resourcePutIfAbsentMock.mockResolvedValue({ id: "created" });
     resourcePutIfCurrentMock.mockImplementation(
@@ -111,6 +121,15 @@ describe("manage-jobs tool", () => {
       }),
     );
     resourceDeleteMock.mockResolvedValue(true);
+    resolveAutomationAccessMock.mockResolvedValue({
+      classification: { kind: "job", triggerType: "schedule" },
+      capabilities: {
+        canEdit: true,
+        canOperate: true,
+        canDelete: true,
+        canManageSharing: true,
+      },
+    });
   });
 
   it("allows only list in Plan mode", () => {
@@ -441,13 +460,23 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
+      resolveAutomationAccessMock.mockResolvedValue({
+        classification: { kind: "job", triggerType: "schedule" },
+        capabilities: {
+          canEdit: false,
+          canOperate: false,
+          canDelete: false,
+          canManageSharing: false,
+        },
+      });
       dbExecuteMock.mockResolvedValue({ rows: [] });
 
       const out = JSON.parse(
         await run({ action: "update", name: "j", instructions: "evil" }),
       );
 
-      expect(out.error).toMatch(/Only the job's creator \(or an org admin\)/);
+      expect(out.error).toMatch(/Collaborate access is required/);
+      // The mutation must never reach the store.
       expect(resourcePutMock).not.toHaveBeenCalled();
     });
 
@@ -462,6 +491,15 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
+      resolveAutomationAccessMock.mockResolvedValue({
+        classification: { kind: "job", triggerType: "schedule" },
+        capabilities: {
+          canEdit: true,
+          canOperate: true,
+          canDelete: false,
+          canManageSharing: false,
+        },
+      });
       dbExecuteMock.mockResolvedValue({ rows: [{ role: "owner" }] });
 
       const out = JSON.parse(
@@ -469,6 +507,41 @@ describe("manage-jobs tool", () => {
       );
       expect(out.updated).toBe(true);
       expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("caps a delegated owner to member when authorizing another user's job", async () => {
+      getRequestUserEmailMock.mockReturnValue("mallory@example.com");
+      getRequestContextMock.mockReturnValue({
+        a2aIdentityAssurance: "org-member",
+        userEmail: "mallory@example.com",
+        orgId: "org-1",
+      });
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: sharedJobContent({
+          createdBy: "alice@example.com",
+          orgId: "org-1",
+        }),
+      });
+      resolveAutomationAccessMock.mockResolvedValue({
+        classification: { kind: "job", triggerType: "schedule" },
+        capabilities: {
+          canEdit: false,
+          canOperate: false,
+          canDelete: false,
+          canManageSharing: false,
+        },
+      });
+      dbExecuteMock.mockResolvedValue({ rows: [{ role: "owner" }] });
+
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", enabled: "false" }),
+      );
+
+      expect(out.error).toMatch(/Collaborate access is required/);
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
     });
 
     it("fails closed (denies) when the admin role lookup throws", async () => {
@@ -482,16 +555,25 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
-      dbExecuteMock.mockRejectedValue(new Error("db error"));
+      resolveAutomationAccessMock.mockResolvedValue(null);
 
       const out = JSON.parse(
         await run({ action: "update", name: "j", enabled: "false" }),
       );
-      expect(out.error).toMatch(/Only the job's creator/);
+      expect(out.error).toMatch(/Job not found/);
       expect(resourcePutMock).not.toHaveBeenCalled();
     });
 
     it("allows a personal-scope job update without an admin check", async () => {
+      // Personal jobs use the same centralized role resolver.
+      resourceGetByPathMock
+        .mockResolvedValueOnce(null) // shared lookup misses
+        .mockResolvedValueOnce({
+          id: "r2",
+          owner: "alice@example.com",
+          path: "jobs/j.md",
+          content: sharedJobContent({ createdBy: "alice@example.com" }),
+        });
       resourceGetByPathMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
         id: "r2",
         owner: "alice@example.com",
@@ -503,7 +585,10 @@ describe("manage-jobs tool", () => {
         await run({ action: "update", name: "j", enabled: "false" }),
       );
       expect(out.updated).toBe(true);
-      expect(dbExecuteMock).not.toHaveBeenCalled();
+      expect(resolveAutomationAccessMock).toHaveBeenCalledWith(
+        { userEmail: "alice@example.com" },
+        "r2",
+      );
     });
   });
 
@@ -598,6 +683,28 @@ describe("manage-jobs tool", () => {
       );
       expect(out.error).toMatch(/Execution host IDs/);
       expect(resourcePutMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects an execution host on a job that names a job runner without rewriting it", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }).replace(
+          "enabled: true",
+          "enabled: true\nrunner: workflow",
+        ),
+      });
+      const out = JSON.parse(
+        await run({
+          action: "update",
+          name: "j",
+          executionHostId: "remote-device-laptop",
+        }),
+      );
+      expect(out.error).toMatch(/cannot also target an execution host/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
     });
 
     it("rejects event-triggered resources without rewriting them", async () => {
@@ -1028,6 +1135,25 @@ describe("manage-jobs tool", () => {
           content: sharedJobContent({ createdBy: "mallory@example.com" }),
           updatedAt: 2,
         });
+      resolveAutomationAccessMock
+        .mockResolvedValueOnce({
+          classification: { kind: "job", triggerType: "schedule" },
+          capabilities: {
+            canEdit: true,
+            canOperate: true,
+            canDelete: true,
+            canManageSharing: true,
+          },
+        })
+        .mockResolvedValueOnce({
+          classification: { kind: "job", triggerType: "schedule" },
+          capabilities: {
+            canEdit: false,
+            canOperate: false,
+            canDelete: false,
+            canManageSharing: false,
+          },
+        });
       resourcePutIfCurrentMock.mockResolvedValueOnce(null);
       dbExecuteMock.mockResolvedValue({ rows: [] });
 
@@ -1083,10 +1209,18 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
-      dbExecuteMock.mockResolvedValue({ rows: [] });
+      resolveAutomationAccessMock.mockResolvedValue({
+        classification: { kind: "job", triggerType: "schedule" },
+        capabilities: {
+          canEdit: false,
+          canOperate: false,
+          canDelete: false,
+          canManageSharing: false,
+        },
+      });
 
       const out = JSON.parse(await run({ action: "delete", name: "j" }));
-      expect(out.error).toMatch(/Only the job's creator/);
+      expect(out.error).toMatch(/Only the job owner can delete/);
       expect(resourceDeleteMock).not.toHaveBeenCalled();
     });
 
@@ -1115,11 +1249,14 @@ describe("manage-jobs tool", () => {
 
   describe("list", () => {
     it("does not list jobs owned by another app", async () => {
-      resourceListMock.mockResolvedValueOnce([]);
-      resourceListMock.mockResolvedValueOnce([
-        { owner: SHARED_OWNER, path: "jobs/calendar.md" },
-        { owner: SHARED_OWNER, path: "jobs/factory.md" },
-      ]);
+      resourceListMock.mockImplementation(async (owner: string) =>
+        owner === SHARED_OWNER
+          ? [
+              { owner, path: "jobs/calendar.md" },
+              { owner, path: "jobs/factory.md" },
+            ]
+          : [],
+      );
       resourceGetByPathMock.mockImplementation(
         async (_owner: string, path: string) => ({
           content: sharedJobContent({ createdBy: "alice@example.com" }).replace(

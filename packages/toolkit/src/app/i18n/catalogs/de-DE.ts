@@ -1068,6 +1068,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "Verarbeitet",
   "tool.workedFor": "{{duration}} verarbeitet",
   "widget.chart": "Diagramm",
+  "widget.chartActions": "Diagrammaktionen",
+  "widget.dataSources": "Datenquellen",
+  "widget.tableActions": "Tabellenaktionen",
   "widget.dataChart": "Datendiagramm",
   "widget.dataInsights": "Datenerkenntnisse",
   "widget.dataTable": "Datentabelle",
@@ -2116,9 +2119,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "Weitere Informationen",
   "settingsOrg.general.workspaceUrl": "Workspace-URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "Leite Mitglieder von einer anderen Bereitstellung zu diesem Workspace.",
+    "Verbinde das App-Verzeichnis dieser Organisation über Bereitstellungen hinweg.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Mitglieder, die auf einer anderen Bereitstellung landen, kommen zu diesem Workspace statt zu einer leeren App.",
+    "Andere Bereitstellungen verwenden diese URL, um Workspace-Apps zu entdecken. Mitglieder werden nicht automatisch weitergeleitet.",
   "settingsOrg.general.editWorkspaceUrl": "Workspace-URL bearbeiten",
   "settingsOrg.general.removeWorkspaceUrl": "Workspace-URL entfernen",
   "settingsOrg.general.setWorkspaceUrl": "URL festlegen",
@@ -2135,6 +2138,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Festgelegt. Damit können sich die Apps in diesem Workspace gegenseitig verifizieren.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Nicht festgelegt. Damit können sich die Apps in diesem Workspace gegenseitig verifizieren.",
+  "settingsOrg.auth.memberDelegation":
+    "Identitätsdelegierung für Organisationsmitglieder",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Verbundene Apps mit diesem gemeinsamen Organisations-Secret können beim Aufruf dieser App die Identität eines beliebigen aktuellen Mitglieds annehmen. Diese App prüft die aktuelle Mitgliederliste und beschränkt den delegierten Organisationszugriff auf Berechtigungen der Mitgliedsrolle.",
   "settingsOrg.auth.secretNotSetValue": "Nicht festgelegt",
   "settingsOrg.auth.manage": "Verwalten",
   "settingsOrg.auth.reveal": "Anzeigen",
@@ -2200,6 +2207,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Prüfe deine E-Mails, um die Änderung zu bestätigen.",
   "settingsShell.account.languageAndRegion": "Sprache und Region",
   "settingsShell.account.languageDescription": "Gilt auf allen deinen Geräten.",
+  "settingsShell.account.appearance": "Darstellung",
+  "settingsShell.account.themeFamily": "Farbschema",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "Originalfarben der App",
+  "settingsShell.account.themeFamilySaveError":
+    "Das Farbschema konnte nicht aktualisiert werden. Versuch es noch einmal.",
   "settingsShell.account.manage": "Verwalten",
   "settingsShell.account.name": "Name",
   "settingsShell.account.nameDescription":
@@ -3360,6 +3373,19 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "Der Bericht wurde nicht angehängt.",
   "reportProblem.agentMessage":
     "In der App ist etwas schiefgelaufen. Erkläre anhand des angehängten Problemberichts, was passiert ist.",
+  "unsupportedDevice.title": "Auf einem größeren Bildschirm öffnen",
+  "unsupportedDevice.titleDeck":
+    "Dieses Deck auf einem größeren Bildschirm öffnen",
+  "unsupportedDevice.titleDesign":
+    "Dieses Design auf einem größeren Bildschirm öffnen",
+  "unsupportedDevice.body":
+    "{{app}} funktioniert auf iPad, Tablets und Desktops. Schick dir den Link, um dort weiterzumachen.",
+  "unsupportedDevice.email": "Link per E-Mail senden",
+  "unsupportedDevice.share": "Link teilen",
+  "unsupportedDevice.copy": "Link kopieren",
+  "unsupportedDevice.copyFailed": "Link konnte nicht kopiert werden",
+  "unsupportedDevice.copied": "Link kopiert",
+  "unsupportedDevice.emailSubject": "{{app}} auf deinem Computer öffnen",
 };
 
 export default messages;
