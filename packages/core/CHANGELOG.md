@@ -51,6 +51,16 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.212.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- b697ec4: Use organization-scoped secrets for workspace app registry authentication and show which Dispatch query failed.
+- Updated dependencies
+  - @agent-native/agentkit@0.212.1
+  - @agent-native/recap-cli@0.5.80
+
 ## 0.212.0
 
 ### Minor Changes
@@ -4307,21 +4317,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 60aaea8: Keep app surfaces mounted when a host temporarily disables the chat sidebar.
-
-## 0.168.4
-
-### Patch Changes
-
-- 4e1ce88: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
-- 4e1ce88: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
-
-  The callback returns an identical error page for a wrong client secret and a
-  stale authorization code, so a broken credential is invisible from outside
-  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
-  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
-  a transport failure is never reported as valid — plus whether the deploy
-  carries two credential pairs naming different Google clients.
-
-- 4e1ce88: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

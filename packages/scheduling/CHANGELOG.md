@@ -1,5 +1,13 @@
 # @agent-native/scheduling
 
+## 0.2.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.212.1
+
 ## 0.2.35
 
 ### Patch Changes
@@ -1119,11 +1127,5 @@
 ### Patch Changes
 
 - fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
-
-## 0.1.12
-
-### Patch Changes
-
-- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
