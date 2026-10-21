@@ -1187,8 +1187,9 @@ async function readDryRunStatistics(
 /** A 404 naming a table or dataset the query reads. */
 export const MISSING_QUERY_RESOURCE = /\bNot found: (Table|Dataset)\b/i;
 
-/** A 403 naming a table, view, or dataset the query reads. */
-const DENIED_QUERY_RESOURCE = /\bAccess Denied: (Table|View|Dataset)\b/i;
+/** A 403 that holds for every query: the credential cannot run jobs. */
+const DENIED_QUERY_JOBS =
+  /\bAccess Denied: Project\b|\bbigquery\.jobs\.create\b/i;
 
 const SQL_REJECTION_REASONS: ReadonlySet<BigQueryBackendReason> = new Set([
   "invalid_query",
@@ -1202,9 +1203,9 @@ export type DryRunFailureKind =
 
 /**
  * What a failed dry run says. `rejected_sql`: BigQuery rejected the SQL
- * itself (invalid, or a table it reads is missing or unreadable).
- * `credential_denied`: the credential cannot run queries at all, which
- * holds for every query, not this one. `unavailable`: timeouts, quota, rate
+ * itself (invalid, or something it reads is missing or unreadable).
+ * `credential_denied`: the credential cannot run query jobs in the project,
+ * which holds for every query, not this one. `unavailable`: timeouts, quota, rate
  * limits, outages, and unknown errors say nothing about the query, so
  * callers treat them as retryable.
  */
@@ -1213,9 +1214,9 @@ export function classifyDryRunFailure(
 ): DryRunFailureKind {
   if (result.error === null || result.timedOut === true) return "unavailable";
   if (result.reason === "access_denied") {
-    return DENIED_QUERY_RESOURCE.test(result.error)
-      ? "rejected_sql"
-      : "credential_denied";
+    return DENIED_QUERY_JOBS.test(result.error)
+      ? "credential_denied"
+      : "rejected_sql";
   }
   if (result.reason !== undefined && result.reason !== "other") {
     return SQL_REJECTION_REASONS.has(result.reason)

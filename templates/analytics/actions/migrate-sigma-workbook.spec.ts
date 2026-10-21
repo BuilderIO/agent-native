@@ -502,6 +502,37 @@ describe("migrate-sigma-workbook", () => {
     expect(result).toMatchObject({ importedCount: 1, unsupportedCount: 1 });
   });
 
+  it("refuses to write a dashboard when the capped test run leaves no panel", async () => {
+    workbookWith([panelElement("element_1", "Revenue")]);
+    mocks.proveSql.mockResolvedValue(
+      new Map([
+        ["element_1", { ok: true, sql: "SELECT 1", estimatedBytes: 1 }],
+      ]),
+    );
+    claimed();
+    mocks.verifyPanels.mockImplementation((_config, ids: string[]) => ({
+      verified: false,
+      blocking: false,
+      filterState: "defaults",
+      budgetMs: 12_000,
+      ms: 1,
+      panels: [
+        { panelId: ids[0], status: "unverified", note: "too_expensive" },
+      ],
+    }));
+
+    await expect(
+      migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
+    ).rejects.toMatchObject({
+      errorCode: "sigma_no_runnable_panels",
+      statusCode: 422,
+    });
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    expect(mocks.abandonImport).toHaveBeenCalledWith(
+      expect.objectContaining({ claimToken: "token_1", wroteDashboard: false }),
+    );
+  });
+
   it("cleans up through the claim when a step after the claim fails", async () => {
     workbookWith([panelElement("element_1", "Revenue")]);
     mocks.proveSql.mockResolvedValue(

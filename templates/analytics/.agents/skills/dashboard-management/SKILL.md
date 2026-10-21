@@ -496,8 +496,10 @@ Migrate button on the rest. Migrate builds a private dashboard in the user's
 "Sigma" folder: each panel's compiled Sigma SQL (data-model and join panels
 included) is dry-run on Analytics' BigQuery, panels with a byte estimate under
 50 GiB are imported as tables (their test run is capped at 50 GiB too), and the
-rest become review callouts. A credential that cannot run BigQuery queries at
-all stops the import instead of flagging every panel. Migrate assumes Sigma's
+rest become review callouts. The 50 GiB limit only decides what is imported:
+once saved, imported panels run like any other panel, under the normal
+per-query limit. A credential that cannot run BigQuery queries at all stops the
+import instead of flagging every panel. Migrate assumes Sigma's
 BigQuery connections use Analytics' BigQuery project: the dry run resolves table
 names that omit the project against Analytics' project, so a workbook on another
 project can import cleanly while reading the wrong tables. Only the dialog calls `migrate-sigma-workbook`; the agent cannot. When

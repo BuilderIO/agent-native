@@ -999,6 +999,14 @@ describe("runQuery cancellation", () => {
         reason: "access_denied",
       }),
     ).toBe("credential_denied");
+    expect(
+      classifyDryRunFailure({
+        error:
+          "Access Denied: BigQuery BigQuery: Permission denied while getting Drive credentials.",
+        status: 403,
+        reason: "access_denied",
+      }),
+    ).toBe("rejected_sql");
     expect(kind({ status: 404 })).toBe("unavailable");
     expect(kind({ status: 400, reason: "timeout" })).toBe("unavailable");
     expect(kind({ status: 403, reason: "quota_exceeded" })).toBe("unavailable");

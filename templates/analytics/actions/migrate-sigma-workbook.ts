@@ -563,6 +563,12 @@ export default defineAction({
         overCap.size > 0
           ? compileSigmaDashboard({ inspection, proofs, installedAt })
           : draft;
+      if (compiled.importedCount === 0) {
+        fail("None of this workbook's panels can be imported.", {
+          errorCode: "sigma_no_runnable_panels",
+          statusCode: 422,
+        });
+      }
       const existing = await getDashboard(id, {
         email: context.email,
         orgId: context.orgId,
