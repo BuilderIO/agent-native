@@ -180,8 +180,9 @@ const CONTENT_DB_CORE_FILES = new Set([
 
 const CONTENT_DB_CORE_PATH_PREFIXES = ["packages/core/src/db/"] as const;
 
-// The two-tab convergence lane also covers its own harness and the build it
-// serves; other Content e2e specs and unit tests cannot move it.
+// This lane also runs the nested widget storage-isolation E2E and the Core
+// embed, sharing, and theme helpers it exercises. Other Content e2e specs and
+// unit tests cannot move it.
 const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/agent-native.config.ts",
   "templates/content/agent-native.json",
@@ -194,12 +195,15 @@ const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/e2e/helpers.ts",
   "templates/content/e2e/playwright.config.ts",
   "templates/content/e2e/two-tab-convergence.spec.ts",
+  "templates/content/e2e/chatgpt-widget-body-paint.spec.ts",
 ]);
 
 const CONTENT_CONVERGENCE_CORE_FILES = new Set([
+  "packages/core/src/appearance/theme-family.ts",
   "packages/core/src/application-state/emitter.ts",
   "packages/core/src/collab/client.ts",
   "packages/core/src/client/client-status-requests.ts",
+  "packages/core/src/client/theme.ts",
   "packages/core/src/client/use-db-sync.ts",
   "packages/core/src/client/use-session.ts",
   "packages/core/src/db/client.ts",
@@ -207,13 +211,22 @@ const CONTENT_CONVERGENCE_CORE_FILES = new Set([
   "packages/core/src/db/migration-policy.ts",
   "packages/core/src/db/request-pool-context.ts",
   "packages/core/src/db/store-registry.ts",
+  "packages/core/src/mcp/build-server.ts",
+  "packages/core/src/mcp/index.ts",
   "packages/core/src/server/collab-plugin.ts",
   "packages/core/src/server/core-routes-plugin.ts",
+  "packages/core/src/server/auth.ts",
+  "packages/core/src/server/embed-route.ts",
+  "packages/core/src/server/embed-session.ts",
   "packages/core/src/server/http-route.ts",
+  "packages/core/src/server/index.ts",
   "packages/core/src/server/poll-events.ts",
   "packages/core/src/server/poll.ts",
   "packages/core/src/server/request-context.ts",
   "packages/core/src/sharing/access.ts",
+  "packages/core/src/sharing/index.ts",
+  "packages/core/src/shared/embed-auth.ts",
+  "packages/core/src/shared/mcp-embed-headers.ts",
 ]);
 
 const CONTENT_CONVERGENCE_CORE_PATH_PREFIXES = [
