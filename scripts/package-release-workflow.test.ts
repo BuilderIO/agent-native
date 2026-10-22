@@ -649,8 +649,8 @@ importers:
 
   it("runs the community QR pin guard from the base commit before auto-merge", () => {
     const autoMergeJobs = autoMergeWorkflow.jobs as Workflow;
-    const autoMergeSteps = (autoMergeJobs["auto-merge"] as Workflow)
-      .steps as Workflow[];
+    const autoMergeJob = autoMergeJobs["auto-merge"] as Workflow;
+    const autoMergeSteps = autoMergeJob.steps as Workflow[];
     const checkout = autoMergeSteps.find(
       (step) =>
         step.uses ===
@@ -661,6 +661,23 @@ importers:
     );
     const qrPinGuard = autoMergeSteps.find(
       (step) => step.name === "Verify community QR package pin",
+    );
+
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.pull_request\.head\.ref == 'changeset-release\/main'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.pull_request\.user\.login == 'builder-io-integration\[bot\]'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.sender\.login == 'builder-io-integration\[bot\]'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /!github\.event\.pull_request\.draft/,
     );
 
     assert(checkout);
