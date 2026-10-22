@@ -40,6 +40,7 @@ import {
 import {
   createContext,
   Component,
+  Fragment,
   memo,
   useCallback,
   useContext,
@@ -3895,7 +3896,7 @@ export function AgentMessageView({
               {content}
             </div>
           ) : (
-            <React.Fragment key={item.key}>{content}</React.Fragment>
+            <Fragment key={item.key}>{content}</Fragment>
           );
         })}
         {attachedAnnotations.length ? (
