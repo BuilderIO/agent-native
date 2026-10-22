@@ -27,11 +27,8 @@ import {
   startingContentDatabaseItemLayout,
 } from "../shared/database-item-layout.js";
 import {
-  CONTENT_DATABASE_RELATIVE_DATE_RANGES,
-  CONTENT_DATABASE_RELATIVE_DATES,
-  contentDatabaseDateFilterUnreadableValues,
+  contentDatabaseDateFilterValueError,
   contentDatabaseFilterOperatorsForType,
-  isContentDatabaseDatePropertyType,
 } from "../shared/database-query.js";
 import {
   normalizePropertyVisibility,
@@ -324,18 +321,8 @@ function validateTablePatch(
         400,
       );
     }
-    const unreadableDates = isContentDatabaseDatePropertyType(type)
-      ? contentDatabaseDateFilterUnreadableValues(filter)
-      : [];
-    if (unreadableDates.length > 0) {
-      setupError(
-        "INVALID_VIEW_REFERENCE",
-        filter.operator === "is_within"
-          ? `Filter on "${filter.key}" uses is_within with "${filter.value}"; use one of ${CONTENT_DATABASE_RELATIVE_DATE_RANGES.join(", ")}.`
-          : `Filter on "${filter.key}" has a date that cannot be read: "${unreadableDates[0]}". Use YYYY-MM-DD, an ISO date and time, or one of ${CONTENT_DATABASE_RELATIVE_DATES.join(", ")}.`,
-        400,
-      );
-    }
+    const dateError = contentDatabaseDateFilterValueError(filter, type);
+    if (dateError) setupError("INVALID_VIEW_REFERENCE", dateError, 400);
     if (filter.filterGroupMode && !filter.filterGroupId) {
       setupError(
         "INVALID_VIEW_REFERENCE",

@@ -308,31 +308,35 @@ export function contentDatabaseFilterDateBound(
     : null;
 }
 
-export function isContentDatabaseDatePropertyType(type: DocumentPropertyType) {
-  return DATE_PROPERTY_TYPES.has(type);
-}
-
 /**
- * The values a date filter holds that no comparison can read, such as
- * "2026-02-30" or "soon". Empty values are left out, since a filter still
- * being filled in has them.
+ * Why a filter on a property of `type` can't be saved: it holds a date no
+ * comparison can read, such as "2026-02-30" or "soon". Null when it can, or
+ * when the property isn't a date. Empty values pass, since a filter still being
+ * filled in has them.
  */
-export function contentDatabaseDateFilterUnreadableValues(
+export function contentDatabaseDateFilterValueError(
   filter: ContentDatabaseFilter,
+  type: DocumentPropertyType,
 ) {
+  if (!DATE_PROPERTY_TYPES.has(type)) return null;
   if (filter.operator === "is_within") {
     const token = filter.value.trim();
-    return token && !isContentDatabaseRelativeDateRange(token) ? [token] : [];
+    return token && !isContentDatabaseRelativeDateRange(token)
+      ? `Filter on "${filter.key}" uses is_within with "${token}"; use one of ${CONTENT_DATABASE_RELATIVE_DATE_RANGES.join(", ")}.`
+      : null;
   }
-  if (!contentDatabaseFilterComparesDates(filter)) return [];
+  if (!contentDatabaseFilterComparesDates(filter)) return null;
   const values =
     filter.operator === "between"
       ? contentDatabaseFilterDateRangeValues(filter.value)
       : [filter.value.trim()];
   // Any day will do: only relative values read it, and every day reads them.
-  return values.filter(
+  const unreadable = values.find(
     (value) => value && !contentDatabaseFilterDateBound(value, "2000-01-01"),
   );
+  return unreadable
+    ? `Filter on "${filter.key}" has a date that cannot be read: "${unreadable}". Use YYYY-MM-DD, an ISO date and time, or one of ${CONTENT_DATABASE_RELATIVE_DATES.join(", ")}.`
+    : null;
 }
 
 /**

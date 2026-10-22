@@ -6,6 +6,8 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "../shared/api.js";
+
 const path = join(
   tmpdir(),
   `content-property-view-setup-${process.pid}-${Date.now()}.pglite`,
@@ -16,6 +18,7 @@ let schema: typeof import("../server/db/schema.js");
 let createDatabase: typeof import("./create-content-database.js").default;
 let configureProperty: typeof import("./configure-document-property.js").default;
 let updateView: typeof import("./update-content-database-view.js").default;
+let updatePersonalView: typeof import("./update-content-database-personal-view.js").default;
 let readDatabase: typeof import("./get-content-database.js").default;
 let listSpaces: typeof import("./list-content-spaces.js").default;
 let spaceId: string;
@@ -33,6 +36,9 @@ beforeAll(async () => {
   configureProperty = (await import("./configure-document-property.js"))
     .default;
   updateView = (await import("./update-content-database-view.js")).default;
+  updatePersonalView = (
+    await import("./update-content-database-personal-view.js")
+  ).default;
   readDatabase = (await import("./get-content-database.js")).default;
   listSpaces = (await import("./list-content-spaces.js")).default;
   await asOwner(() =>
@@ -587,6 +593,39 @@ describe("ordinary property and table-view setup", () => {
         ),
       ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
       expect(await revisions()).toEqual(before);
+    }
+
+    // Personal overrides of the same View get the same date checks.
+    const savePersonal = (filter: (typeof filters)[number]) =>
+      asOwner(() =>
+        updatePersonalView.run(
+          {
+            databaseId: created.database.id,
+            overrides: {
+              version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+              views: [
+                {
+                  id: "default",
+                  sorts: [],
+                  filters: [filter],
+                  filterMode: "and",
+                },
+              ],
+            },
+          },
+          { userEmail: owner },
+        ),
+      );
+    await expect(savePersonal(filters[2]!)).resolves.toMatchObject({
+      overrides: { views: [{ filters: [filters[2]] }] },
+    });
+    for (const filter of [
+      { ...filters[2]!, value: "soon" },
+      { ...filters[1]!, value: "2026-02-30" },
+    ]) {
+      await expect(savePersonal(filter)).rejects.toMatchObject({
+        errorCode: "invalid_filter",
+      });
     }
   });
 

@@ -3,10 +3,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import type { DocumentPropertyType } from "../shared/api.js";
 import {
   applyContentPersonalNavigationPatch,
   contentPersonalNavigationPatchSchema,
 } from "../shared/content-personal-navigation-patch.js";
+import { contentDatabaseDateFilterValueError } from "../shared/database-query.js";
 import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
 import {
   assertContentDatabaseViewerAccess,
@@ -207,6 +209,32 @@ export default defineAction({
     }
     if (overrides) {
       const requested = overrides;
+      // Only date values are checked: an override can still name a property
+      // deleted since it was saved, so unknown keys pass as before.
+      const typeById = new Map(
+        (
+          await db
+            .select({
+              id: schema.documentPropertyDefinitions.id,
+              type: schema.documentPropertyDefinitions.type,
+            })
+            .from(schema.documentPropertyDefinitions)
+            .where(
+              eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+            )
+        ).map((definition) => [
+          definition.id,
+          definition.type as DocumentPropertyType,
+        ]),
+      );
+      for (const filter of requested.views.flatMap((view) => view.filters)) {
+        const type = typeById.get(filter.key);
+        const dateError =
+          type && contentDatabaseDateFilterValueError(filter, type);
+        if (dateError) {
+          fail(dateError, { statusCode: 400, errorCode: "invalid_filter" });
+        }
+      }
       const { value } = await mutateSetting(async (tx, current) => {
         const currentOverrides =
           current === null ? null : personalViewOverridesSchema.parse(current);
