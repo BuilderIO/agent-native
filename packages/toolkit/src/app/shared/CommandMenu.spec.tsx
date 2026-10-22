@@ -44,6 +44,7 @@ import {
   openAgentSettings,
   useCommandMenuNestedDialog,
   useCommandMenuShortcut,
+  type AppCommandGroup,
   type CommandMenuDoc,
 } from "./CommandMenu.js";
 
@@ -56,12 +57,13 @@ const DOCS: CommandMenuDoc[] = [
   },
 ];
 
-describe("CommandMenu docs group", () => {
+describe("CommandMenu", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     actionMocks.callAction.mockReset();
+    onOpenChange.mockReset();
     agentEngineStatusMock.state = "missing";
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
@@ -108,6 +110,37 @@ describe("CommandMenu docs group", () => {
       input!.dispatchEvent(new Event("change", { bubbles: true }));
     });
   }
+
+  function renderAppCommands<TAppContext>({
+    groups,
+    context,
+    embeddedChatSlot,
+  }: {
+    groups: AppCommandGroup<TAppContext>[];
+    context?: TAppContext;
+    embeddedChatSlot?: (options: {
+      search: string;
+      appContext: TAppContext | undefined;
+      close: () => void;
+    }) => React.ReactNode;
+  }) {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={onOpenChange}
+          showAgentFallback={false}
+          appCommandGroups={groups}
+          commandContext={context}
+          embeddedChatSlot={embeddedChatSlot}
+        >
+          {null}
+        </CommandMenu>,
+      );
+    });
+  }
+
+  const onOpenChange = vi.fn();
 
   it("opens chat surfaces before requesting settings on the next task", () => {
     let scheduledFrame: FrameRequestCallback | undefined;
@@ -1039,5 +1072,273 @@ describe("CommandMenu docs group", () => {
     expect(document.body.textContent).toContain("closed");
     expect(editorHandled).toHaveBeenCalledWith(false);
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("orders app groups and commands by their explicit positions", () => {
+    renderAppCommands({
+      groups: [
+        {
+          id: "later",
+          order: 20,
+          heading: "Later group",
+          commands: [
+            { id: "last", order: 20, label: "Last command", onSelect() {} },
+            { id: "first", order: 1, label: "First command", onSelect() {} },
+          ],
+        },
+        {
+          id: "earlier",
+          order: 1,
+          heading: "Earlier group",
+          commands: [
+            { id: "only", order: 1, label: "Earlier command", onSelect() {} },
+          ],
+        },
+      ],
+    });
+
+    const rows = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[cmdk-item][data-value^="app-command:"]',
+      ),
+    );
+    expect(rows.map((row) => row.textContent?.trim())).toEqual([
+      "Earlier command",
+      "First command",
+      "Last command",
+    ]);
+  });
+
+  it("shows shortcut hints, searches aliases, and activates the matching command", () => {
+    const onSelect = vi.fn();
+    renderAppCommands({
+      groups: [
+        {
+          id: "actions",
+          order: 1,
+          commands: [
+            {
+              id: "jump-to-today",
+              order: 1,
+              label: "Today",
+              keywords: ["current date", "jump"],
+              shortcutHint: "⌘ J",
+              deferSelect: false,
+              onSelect,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(document.body.textContent).toContain("⌘ J");
+    search("current date");
+    expect(document.body.textContent).toContain("Today");
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("pushes nested command pages and returns by Back or Escape", () => {
+    renderAppCommands({
+      groups: [
+        {
+          id: "main",
+          order: 1,
+          commands: [
+            {
+              id: "open-tools",
+              order: 1,
+              label: "Open tools",
+              keywords: ["tools alias"],
+              page: {
+                id: "tools",
+                title: "Tools",
+                groups: [
+                  {
+                    id: "tool-actions",
+                    order: 1,
+                    heading: "Available tools",
+                    commands: [
+                      {
+                        id: "refresh",
+                        order: 1,
+                        label: "Refresh data",
+                        onSelect() {},
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    search("tools alias");
+    const parentRow = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:main:open-tools"]',
+    );
+    expect(parentRow).toBeTruthy();
+    act(() => parentRow!.click());
+    expect(document.body.textContent).toContain("Refresh data");
+    expect(document.body.textContent).toContain("Back");
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    const backRow = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command-page-back"]',
+    );
+    expect(backRow).toBeTruthy();
+    act(() => backRow!.click());
+
+    expect(input?.value).toBe("tools alias");
+    expect(document.body.textContent).toContain("Open tools");
+    expect(document.body.textContent).not.toContain("Refresh data");
+
+    const returnedParentRow = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:main:open-tools"]',
+    );
+    expect(returnedParentRow).toBeTruthy();
+    act(() => returnedParentRow!.click());
+    expect(document.body.textContent).toContain("Refresh data");
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(input?.value).toBe("tools alias");
+    expect(document.body.textContent).toContain("Open tools");
+    expect(document.body.textContent).not.toContain("Refresh data");
+  });
+
+  it("uses app context to control command visibility and enabled state", () => {
+    const onSelect = vi.fn();
+    renderAppCommands({
+      context: { canEdit: false },
+      groups: [
+        {
+          id: "actions",
+          order: 1,
+          commands: [
+            {
+              id: "hidden-record",
+              order: 0,
+              label: "Hidden record",
+              visibleWhen: ({ appContext }) => appContext?.canEdit === true,
+              onSelect,
+            },
+            {
+              id: "edit-record",
+              order: 1,
+              label: "Edit record",
+              enabledWhen: ({ appContext }) => appContext?.canEdit ?? false,
+              onSelect,
+            },
+          ],
+        },
+      ],
+    });
+
+    const row = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:actions:edit-record"]',
+    );
+    expect(
+      document.querySelector(
+        '[cmdk-item][data-value="app-command:actions:hidden-record"]',
+      ),
+    ).toBeNull();
+    expect(row?.getAttribute("aria-disabled")).toBe("true");
+    act(() => row?.click());
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("renders the selected command inline preview", () => {
+    renderAppCommands({
+      groups: [
+        {
+          id: "results",
+          order: 1,
+          commands: [
+            {
+              id: "record",
+              order: 1,
+              label: "Meeting notes",
+              preview: <p>First preview</p>,
+              onSelect() {},
+            },
+            {
+              id: "meeting-agenda",
+              order: 2,
+              label: "Meeting agenda",
+              preview: <p>Selected preview</p>,
+              onSelect() {},
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(
+      document.querySelector('[data-testid="command-menu-inline-preview"]')
+        ?.textContent,
+    ).toContain("First preview");
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    act(() =>
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+    );
+    expect(
+      document.querySelector('[data-testid="command-menu-inline-preview"]')
+        ?.textContent,
+    ).toContain("Selected preview");
+  });
+
+  it("passes current search and close behavior to the embedded chat slot", () => {
+    renderAppCommands({
+      groups: [],
+      context: { workspace: "alpha" },
+      embeddedChatSlot: ({ search: currentSearch, close, appContext }) => (
+        <div>
+          <span>{currentSearch}</span>
+          <span>{appContext?.workspace}</span>
+          <button type="button" onClick={close}>
+            Close embedded chat
+          </button>
+        </div>
+      ),
+    });
+
+    search("summarize this");
+    expect(document.body.textContent).toContain("summarize this");
+    expect(document.body.textContent).toContain("alpha");
+
+    const closeButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Close embedded chat",
+    );
+    expect(closeButton).toBeTruthy();
+    act(() => closeButton!.click());
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

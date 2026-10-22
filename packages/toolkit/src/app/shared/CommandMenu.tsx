@@ -35,6 +35,7 @@ import {
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconBook2,
+  IconArrowLeft,
   IconExternalLink,
   IconInfoCircle,
   IconMessage,
@@ -215,6 +216,111 @@ export interface CommandMenuDoc {
   keywords?: string[];
 }
 
+export interface AppCommandContext<TAppContext = unknown> {
+  search: string;
+  appContext: TAppContext | undefined;
+  close: () => void;
+}
+
+export interface AppCommandPage<TAppContext = unknown> {
+  id: string;
+  title: string;
+  groups: AppCommandGroup<TAppContext>[];
+}
+
+export interface AppCommandGroup<TAppContext = unknown> {
+  id: string;
+  order: number;
+  heading?: string;
+  keywords?: string[];
+  visibleWhen?: (context: AppCommandContext<TAppContext>) => boolean;
+  commands: AppCommand<TAppContext>[];
+}
+
+interface AppCommandBase<TAppContext> {
+  id: string;
+  order: number;
+  label: string;
+  keywords?: string[];
+  shortcutHint?: string;
+  description?: string;
+  metadata?: ReactNode;
+  icon?: ReactNode;
+  preview?:
+    | ReactNode
+    | ((context: AppCommandContext<TAppContext>) => ReactNode);
+  visibleWhen?: (context: AppCommandContext<TAppContext>) => boolean;
+  enabledWhen?: (context: AppCommandContext<TAppContext>) => boolean;
+  deferSelect?: boolean;
+}
+
+export type AppCommand<TAppContext = unknown> =
+  | (AppCommandBase<TAppContext> & {
+      onSelect: (context: AppCommandContext<TAppContext>) => void;
+      page?: never;
+    })
+  | (AppCommandBase<TAppContext> & {
+      page: AppCommandPage<TAppContext>;
+      onSelect?: never;
+    });
+
+interface OrderedAppCommandGroup<TAppContext> {
+  group: AppCommandGroup<TAppContext>;
+  commands: AppCommand<TAppContext>[];
+}
+
+interface AppCommandEntry<TAppContext> {
+  group: AppCommandGroup<TAppContext>;
+  command: AppCommand<TAppContext>;
+  value: string;
+}
+
+function ordered<T extends { order: number }>(items: T[]): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => a.item.order - b.item.order || a.index - b.index)
+    .map(({ item }) => item);
+}
+
+function appCommandSearchText<TAppContext>(
+  command: AppCommand<TAppContext>,
+): string {
+  return [command.id, command.label, command.description, command.shortcutHint]
+    .concat(command.keywords ?? [])
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function filterAppCommandGroups<TAppContext>(
+  groups: AppCommandGroup<TAppContext>[],
+  search: string,
+  context: AppCommandContext<TAppContext>,
+): OrderedAppCommandGroup<TAppContext>[] {
+  const searchLower = search.trim().toLowerCase();
+  return ordered(groups)
+    .filter((group) => group.visibleWhen?.(context) ?? true)
+    .map((group) => {
+      const groupMatches =
+        searchLower.length > 0 &&
+        [group.heading, ...(group.keywords ?? [])]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(searchLower);
+      const commands = ordered(group.commands).filter((command) => {
+        if (!(command.visibleWhen?.(context) ?? true)) return false;
+        return (
+          !searchLower ||
+          groupMatches ||
+          appCommandSearchText(command).includes(searchLower)
+        );
+      });
+      return { group, commands };
+    })
+    .filter(({ commands }) => commands.length > 0);
+}
+
 interface CommandDocsGroupProps {
   docs: CommandMenuDoc[];
   heading?: string;
@@ -285,7 +391,7 @@ function isApplePlatform(): boolean {
   );
 }
 
-export interface CommandMenuProps {
+export interface CommandMenuProps<TAppContext = unknown> {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
@@ -306,9 +412,15 @@ export interface CommandMenuProps {
   changelogLabel?: string;
   changelogKey?: string;
   showAbout?: boolean;
+  /** App-owned entries are additive; shortcut hints are display-only. */
+  appCommandGroups?: AppCommandGroup<TAppContext>[];
+  /** State read by visibility and enabled predicates for app commands. */
+  commandContext?: TAppContext;
+  /** Optional app chat surface rendered beneath the command results. */
+  embeddedChatSlot?: (context: AppCommandContext<TAppContext>) => ReactNode;
 }
 
-export function CommandMenu({
+export function CommandMenu<TAppContext = unknown>({
   open,
   onOpenChange,
   children,
@@ -326,8 +438,15 @@ export function CommandMenu({
   changelogLabel = "What's new",
   changelogKey,
   showAbout: showAboutProp,
-}: CommandMenuProps) {
+  appCommandGroups,
+  commandContext,
+  embeddedChatSlot,
+}: CommandMenuProps<TAppContext>) {
   const [search, setSearch] = useState("");
+  const [appPageStack, setAppPageStack] = useState<
+    Array<{ page: AppCommandPage<TAppContext>; parentSearch: string }>
+  >([]);
+  const [selectedAppCommandValue, setSelectedAppCommandValue] = useState("");
   const models = useChatModels({
     enabled: open && showAgentFallback,
     storageKey: chatModelSelectionStorageKey(chatStorageKey),
@@ -362,6 +481,12 @@ export function CommandMenu({
   const latestChangelogId = getChangelogLatestId(changelog);
   const { unseen: changelogUnseen, markSeen: markChangelogSeen } =
     useChangelogSeen(changelogKey ?? "app", latestChangelogId);
+  const closeMenu = useCallback(() => onOpenChange(false), [onOpenChange]);
+  const appCommandContext: AppCommandContext<TAppContext> = {
+    search,
+    appContext: commandContext,
+    close: closeMenu,
+  };
 
   const openChangelog = useCallback(() => {
     onOpenChange(false);
@@ -377,11 +502,15 @@ export function CommandMenu({
   useEffect(() => {
     if (!open) {
       setSearch("");
+      setAppPageStack([]);
+      setSelectedAppCommandValue("");
       return;
     }
 
     if (open) {
       setSearch("");
+      setAppPageStack([]);
+      setSelectedAppCommandValue("");
       requestAnimationFrame(() => {
         inputRef.current?.focus();
       });
@@ -531,149 +660,298 @@ export function CommandMenu({
     });
   };
 
-  const filteredChildren = filterChildren(children);
-  const hasResults = React.Children.toArray(filteredChildren).some(
+  const activeAppPage = appPageStack.at(-1)?.page;
+  const currentAppGroups = activeAppPage?.groups ?? appCommandGroups ?? [];
+  const filteredAppGroups = filterAppCommandGroups(
+    currentAppGroups,
+    search,
+    appCommandContext,
+  );
+  const appCommandEntries: AppCommandEntry<TAppContext>[] =
+    filteredAppGroups.flatMap(({ group, commands }) =>
+      commands.map((command) => ({
+        group,
+        command,
+        value: `app-command:${group.id}:${command.id}`,
+      })),
+    );
+  const selectedAppCommand = appCommandEntries.find(
+    (entry) => entry.value === selectedAppCommandValue,
+  );
+  const previewAppCommand =
+    selectedAppCommand ??
+    appCommandEntries.find((entry) => entry.command.preview !== undefined);
+  const appPreview = previewAppCommand?.command.preview;
+  const renderedAppPreview =
+    typeof appPreview === "function"
+      ? appPreview(appCommandContext)
+      : appPreview;
+  const filteredChildren = activeAppPage ? null : filterChildren(children);
+  const hasAppCommandResults = filteredAppGroups.length > 0;
+  const hasChildrenResults = React.Children.toArray(filteredChildren).some(
     (child) =>
       React.isValidElement(child) &&
       (child.type === CommandGroup || child.type === CommandDocsGroup),
   );
-  const dynamicResults = open ? renderResults?.(search) : null;
+  const hasResults = hasChildrenResults || hasAppCommandResults;
+  const dynamicResults =
+    open && !activeAppPage ? renderResults?.(search) : null;
 
-  const renderList = (results: ReactNode = dynamicResults) => (
-    <CommandListPrimitive>
-      {results}
-      {hasResults && filteredChildren}
+  const goBackToAppPage = useCallback(() => {
+    const currentPage = appPageStack.at(-1);
+    if (!currentPage) return;
+    setAppPageStack((stack) => stack.slice(0, -1));
+    setSearch(currentPage.parentSearch);
+    setSelectedAppCommandValue("");
+  }, [appPageStack]);
 
-      {showSettingsRow && (
-        <>
-          {hasResults && <CommandSeparator />}
-          <div className="p-1">
+  const openAppPage = (page: AppCommandPage<TAppContext>) => {
+    setAppPageStack((stack) => [...stack, { page, parentSearch: search }]);
+    setSearch("");
+    setSelectedAppCommandValue("");
+  };
+
+  const selectAppCommand = (command: AppCommand<TAppContext>) => {
+    if ("page" in command && command.page) {
+      openAppPage(command.page);
+      return;
+    }
+    if (!("onSelect" in command) || !command.onSelect) return;
+    if (command.enabledWhen && !command.enabledWhen(appCommandContext)) return;
+    if (command.deferSelect === false) {
+      command.onSelect(appCommandContext);
+      closeMenu();
+      return;
+    }
+    closeMenu();
+    setTimeout(() => command.onSelect?.(appCommandContext), 50);
+  };
+
+  const renderList = (results: ReactNode = dynamicResults) => {
+    const list = (
+      <CommandListPrimitive>
+        {activeAppPage ? (
+          <CommandGroup heading={activeAppPage.title}>
             <CommandItemPrimitive
+              value="app-command-page-back"
               className="cursor-pointer gap-2 py-2"
-              onSelect={handleOpenSettings}
+              onSelect={goBackToAppPage}
             >
-              <IconSettings className="h-4 w-4 text-muted-foreground" />
-              <span>{settingsLabel}</span>
-              <CommandShortcutPrimitive>
-                {getSettingsShortcutHint(isApplePlatform())}
-              </CommandShortcutPrimitive>
+              <IconArrowLeft className="h-4 w-4 text-muted-foreground" />
+              <span>{t("onboarding.back")}</span>
+              <CommandShortcutPrimitive>Esc</CommandShortcutPrimitive>
             </CommandItemPrimitive>
-          </div>
-        </>
-      )}
+          </CommandGroup>
+        ) : null}
 
-      {showChangelogRow && (
-        <>
-          {(hasResults || showSettingsRow) && <CommandSeparator />}
-          <div className="p-1">
-            <CommandItemPrimitive
-              className="cursor-pointer gap-2 py-2"
-              onSelect={openChangelog}
-            >
-              <IconHistory className="h-4 w-4 text-muted-foreground" />
-              <span>{changelogLabel}</span>
-              {changelogUnseen && (
-                <span
-                  className="ms-auto h-2 w-2 rounded-full bg-primary"
-                  aria-label="New updates available"
-                />
-              )}
-            </CommandItemPrimitive>
-          </div>
-        </>
-      )}
-
-      {showAboutRow && (
-        <>
-          {(hasResults || showSettingsRow || showChangelogRow) && (
-            <CommandSeparator />
-          )}
-          <div className="p-1">
-            <CommandItemPrimitive
-              className="cursor-pointer gap-2 py-2"
-              onSelect={openAbout}
-            >
-              <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
-              <span>{aboutLabel}</span>
-            </CommandItemPrimitive>
-          </div>
-        </>
-      )}
-
-      {showSignOutRow && (
-        <>
-          {(hasResults ||
-            showSettingsRow ||
-            showChangelogRow ||
-            showAboutRow) && <CommandSeparator />}
-          <div className="p-1">
-            <CommandItemPrimitive
-              className="cursor-pointer gap-2 py-2"
-              onSelect={handleSignOut}
-            >
-              <IconLogout className="h-4 w-4 text-muted-foreground rtl:-scale-x-100" />
-              <span>{signOutLabel}</span>
-            </CommandItemPrimitive>
-          </div>
-        </>
-      )}
-
-      {showAgentFallback && (
-        <>
-          {(hasResults ||
-            showSettingsRow ||
-            showChangelogRow ||
-            showAboutRow ||
-            showSignOutRow ||
-            Boolean(results)) && <CommandSeparator />}
-          <div className="p-1">
-            {providerStatus === "unavailable" ? (
-              <div
-                className="mb-1 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
-                role="status"
-              >
-                <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
-                {providerStatus === "unavailable" ? (
-                  <button
-                    type="button"
-                    className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
-                    onClick={retryProviderStatus}
-                  >
-                    {t("agentChat.common.retry")}
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-            <CommandItemPrimitive
-              className={cn(
-                "gap-2 py-2",
-                chatReady ? "cursor-pointer" : "cursor-not-allowed opacity-50",
-              )}
-              disabled={!chatReady}
-              onSelect={handleSubmitToAgent}
-            >
-              <IconMessage className="h-4 w-4 text-muted-foreground" />
-              <span>
-                {search.trim() ? (
-                  <>
-                    Ask AI:{" "}
-                    <span className="text-muted-foreground">"{search}"</span>
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">
-                    Ask AI anything...
+        {filteredAppGroups.map(({ group, commands }) => (
+          <CommandGroup key={group.id} heading={group.heading}>
+            {commands.map((command) => {
+              const value = `app-command:${group.id}:${command.id}`;
+              const enabled = command.enabledWhen?.(appCommandContext) ?? true;
+              return (
+                <CommandItemPrimitive
+                  key={command.id}
+                  value={value}
+                  disabled={!enabled}
+                  className="cursor-pointer gap-2 py-2"
+                  onSelect={() => selectAppCommand(command)}
+                >
+                  {command.icon}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{command.label}</span>
+                    {command.description ? (
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {command.description}
+                      </span>
+                    ) : null}
                   </span>
+                  {command.metadata ? (
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {command.metadata}
+                    </span>
+                  ) : null}
+                  {command.shortcutHint ? (
+                    <CommandShortcutPrimitive>
+                      {command.shortcutHint}
+                    </CommandShortcutPrimitive>
+                  ) : null}
+                </CommandItemPrimitive>
+              );
+            })}
+          </CommandGroup>
+        ))}
+
+        {hasChildrenResults && filteredChildren}
+
+        {!activeAppPage && (
+          <>
+            {showSettingsRow && (
+              <>
+                {hasResults && <CommandSeparator />}
+                <div className="p-1">
+                  <CommandItemPrimitive
+                    className="cursor-pointer gap-2 py-2"
+                    onSelect={handleOpenSettings}
+                  >
+                    <IconSettings className="h-4 w-4 text-muted-foreground" />
+                    <span>{settingsLabel}</span>
+                    <CommandShortcutPrimitive>
+                      {getSettingsShortcutHint(isApplePlatform())}
+                    </CommandShortcutPrimitive>
+                  </CommandItemPrimitive>
+                </div>
+              </>
+            )}
+
+            {showChangelogRow && (
+              <>
+                {(hasResults || showSettingsRow) && <CommandSeparator />}
+                <div className="p-1">
+                  <CommandItemPrimitive
+                    className="cursor-pointer gap-2 py-2"
+                    onSelect={openChangelog}
+                  >
+                    <IconHistory className="h-4 w-4 text-muted-foreground" />
+                    <span>{changelogLabel}</span>
+                    {changelogUnseen && (
+                      <span
+                        className="ms-auto h-2 w-2 rounded-full bg-primary"
+                        aria-label="New updates available"
+                      />
+                    )}
+                  </CommandItemPrimitive>
+                </div>
+              </>
+            )}
+
+            {showAboutRow && (
+              <>
+                {(hasResults || showSettingsRow || showChangelogRow) && (
+                  <CommandSeparator />
                 )}
-              </span>
-              {search.trim() && (
-                <span className="ms-auto text-xs text-muted-foreground">↵</span>
-              )}
-            </CommandItemPrimitive>
+                <div className="p-1">
+                  <CommandItemPrimitive
+                    className="cursor-pointer gap-2 py-2"
+                    onSelect={openAbout}
+                  >
+                    <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
+                    <span>{aboutLabel}</span>
+                  </CommandItemPrimitive>
+                </div>
+              </>
+            )}
+
+            {showSignOutRow && (
+              <>
+                {(hasResults ||
+                  showSettingsRow ||
+                  showChangelogRow ||
+                  showAboutRow) && <CommandSeparator />}
+                <div className="p-1">
+                  <CommandItemPrimitive
+                    className="cursor-pointer gap-2 py-2"
+                    onSelect={handleSignOut}
+                  >
+                    <IconLogout className="h-4 w-4 text-muted-foreground rtl:-scale-x-100" />
+                    <span>{signOutLabel}</span>
+                  </CommandItemPrimitive>
+                </div>
+              </>
+            )}
+
+            {showAgentFallback && (
+              <>
+                {(hasResults ||
+                  showSettingsRow ||
+                  showChangelogRow ||
+                  showAboutRow ||
+                  showSignOutRow ||
+                  Boolean(results)) && <CommandSeparator />}
+                <div className="p-1">
+                  {providerStatus === "unavailable" ? (
+                    <div
+                      className="mb-1 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+                      role="status"
+                    >
+                      <span>
+                        {t("agentChat.setup.providerStatusUnavailable")}
+                      </span>
+                      {providerStatus === "unavailable" ? (
+                        <button
+                          type="button"
+                          className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
+                          onClick={retryProviderStatus}
+                        >
+                          {t("agentChat.common.retry")}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <CommandItemPrimitive
+                    className={cn(
+                      "gap-2 py-2",
+                      chatReady
+                        ? "cursor-pointer"
+                        : "cursor-not-allowed opacity-50",
+                    )}
+                    disabled={!chatReady}
+                    onSelect={handleSubmitToAgent}
+                  >
+                    <IconMessage className="h-4 w-4 text-muted-foreground" />
+                    <span>
+                      {search.trim() ? (
+                        <>
+                          Ask AI:{" "}
+                          <span className="text-muted-foreground">
+                            "{search}"
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          Ask AI anything...
+                        </span>
+                      )}
+                    </span>
+                    {search.trim() && (
+                      <span className="ms-auto text-xs text-muted-foreground">
+                        ↵
+                      </span>
+                    )}
+                  </CommandItemPrimitive>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </CommandListPrimitive>
+    );
+
+    if (!activeAppPage && appCommandGroups === undefined && !embeddedChatSlot) {
+      return list;
+    }
+
+    return (
+      <>
+        {list}
+        {renderedAppPreview ? (
+          <div
+            data-testid="command-menu-inline-preview"
+            role="region"
+            aria-label={previewAppCommand?.command.label}
+            className="border-t border-border p-3"
+          >
+            {renderedAppPreview}
           </div>
-        </>
-      )}
-    </CommandListPrimitive>
-  );
+        ) : null}
+        {embeddedChatSlot ? (
+          <div data-testid="command-menu-embedded-chat">
+            {embeddedChatSlot(appCommandContext)}
+          </div>
+        ) : null}
+      </>
+    );
+  };
 
   return (
     <>
@@ -688,6 +966,11 @@ export function CommandMenu({
           ref={containerRef}
           aria-describedby={undefined}
           onEscapeKeyDown={(event) => {
+            if (appPageStack.length > 0) {
+              event.preventDefault();
+              goBackToAppPage();
+              return;
+            }
             const dismissNested = nestedDialogsRef.current.at(-1);
             if (dismissNested) {
               event.preventDefault();
@@ -724,6 +1007,11 @@ export function CommandMenu({
             loop
             shouldFilter={false}
             className="h-auto rounded-lg"
+            onValueChange={
+              appCommandGroups !== undefined || embeddedChatSlot
+                ? setSelectedAppCommandValue
+                : undefined
+            }
           >
             <CommandMenuContext.Provider
               value={{ search, onOpenChange, registerNestedDialog }}
@@ -732,7 +1020,10 @@ export function CommandMenu({
               <CommandInputPrimitive
                 ref={inputRef}
                 value={search}
-                onValueChange={setSearch}
+                onValueChange={(value) => {
+                  setSearch(value);
+                  setSelectedAppCommandValue("");
+                }}
                 placeholder={placeholder}
                 aria-label={inputLabel}
               />
