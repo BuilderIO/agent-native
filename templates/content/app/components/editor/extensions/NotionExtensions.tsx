@@ -321,7 +321,7 @@ export function focusMostRecentEmptyToggleSummary(editor: {
     }
 
     const inputs = Array.from(
-      editorDom.querySelectorAll<HTMLInputElement>(".notion-toggle__summary"),
+      editorDom.querySelectorAll<HTMLInputElement>(".content-toggle__summary"),
     );
     const target =
       [...inputs].reverse().find((input) => input.value === "") ??
@@ -346,7 +346,7 @@ export function focusToggleSummaryAtPosition(
   const nodeDom = editor.view.nodeDOM(pos);
   if (!(nodeDom instanceof HTMLElement)) return;
   const target = nodeDom.querySelector<HTMLInputElement>(
-    ".notion-toggle__summary",
+    ".content-toggle__summary",
   );
   target?.focus();
   target?.select();
@@ -534,8 +534,8 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
 
   return (
     <NodeViewWrapper
-      className={`notion-toggle ${open ? "notion-toggle--open" : ""} ${
-        bodyHasNoBlocks ? "notion-toggle--body-empty" : ""
+      className={`content-toggle ${open ? "content-toggle--open" : ""} ${
+        bodyHasNoBlocks ? "content-toggle--body-empty" : ""
       }`}
       data-color={node.attrs.color || undefined}
       data-heading-level={node.attrs.headingLevel || undefined}
@@ -544,10 +544,10 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
       data-drag-handle=""
     >
       <div
-        className="notion-toggle__summary-row"
+        className="content-toggle__summary-row"
         onClick={() => setOpen(!open)}
       >
-        <span className="notion-toggle__chevron" contentEditable={false}>
+        <span className="content-toggle__chevron" contentEditable={false}>
           {open ? (
             <IconChevronDown size={18} stroke={2} />
           ) : (
@@ -566,20 +566,20 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
             onKeyDown={handleKeyDown}
             onClick={(e) => e.stopPropagation()}
             placeholder={TOGGLE_SUMMARY_PLACEHOLDER}
-            className="notion-toggle__summary"
+            className="content-toggle__summary"
           />
         ) : (
-          <span className="notion-toggle__summary" contentEditable={false}>
+          <span className="content-toggle__summary" contentEditable={false}>
             {summary || TOGGLE_SUMMARY_PLACEHOLDER}
           </span>
         )}
       </div>
       <div
-        className={`notion-toggle__body ${open ? "" : "notion-toggle__body--collapsed"}`}
+        className={`content-toggle__body ${open ? "" : "content-toggle__body--collapsed"}`}
       >
         {isEditable && open && bodyHasNoBlocks ? (
           <div
-            className="notion-toggle__body-placeholder notion-toggle__body-placeholder--empty-node"
+            className="content-toggle__body-placeholder content-toggle__body-placeholder--empty-node"
             contentEditable={false}
             onDragEnter={allowEmptyBodyDrop}
             onDragOver={allowEmptyBodyDrop}
@@ -589,7 +589,7 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
             {EMPTY_TOGGLE_BODY_PLACEHOLDER}
           </div>
         ) : null}
-        <NodeViewContent className="notion-toggle__content" />
+        <NodeViewContent className="content-toggle__content" />
       </div>
     </NodeViewWrapper>
   );
@@ -653,16 +653,16 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
 
     return (
       <NodeViewWrapper
-        className={`notion-page-reference ${
+        className={`content-page-reference ${
           canOpenLocalPage || pageLinkLookupFailed || externalUrl
-            ? "notion-page-reference--clickable"
+            ? "content-page-reference--clickable"
             : ""
         }`}
         data-page-link-state={pageLinkLookupFailed ? "unavailable" : undefined}
       >
         <button
           type="button"
-          className="notion-page-reference__button"
+          className="content-page-reference__button"
           contentEditable={false}
           disabled={!canOpenLocalPage && !pageLinkLookupFailed && !externalUrl}
           title={
@@ -674,17 +674,17 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
             openPage();
           }}
         >
-          <span className="notion-page-reference__icon" aria-hidden="true">
+          <span className="content-page-reference__icon" aria-hidden="true">
             <ContentIcon
               value={pageLink?.icon}
               size={20}
               fallback={<IconFileText size={20} stroke={1.8} />}
             />
           </span>
-          <span className="notion-page-reference__label">{primary}</span>
+          <span className="content-page-reference__label">{primary}</span>
           {!pageLink && externalUrl ? (
             <IconExternalLink
-              className="notion-page-reference__external"
+              className="content-page-reference__external"
               size={16}
               stroke={1.8}
             />
@@ -697,12 +697,12 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const AtomIcon = tagName === "database" ? IconDatabase : IconFileText;
 
   return (
-    <NodeViewWrapper className="notion-atom notion-atom--block">
-      <div className="notion-atom__kind">
+    <NodeViewWrapper className="content-atom content-atom--block">
+      <div className="content-atom__kind">
         <AtomIcon size={14} stroke={1.8} />
         {humanizeTag(tagName)}
       </div>
-      <div className="notion-atom__label">{primary}</div>
+      <div className="content-atom__label">{primary}</div>
     </NodeViewWrapper>
   );
 }
@@ -729,7 +729,7 @@ function InlineAtomView({ node }: NodeViewProps) {
   return (
     <NodeViewWrapper
       as="span"
-      className="notion-inline-atom"
+      className="content-inline-atom"
       contentEditable={false}
     >
       {label || humanizeTag(tagName)}
@@ -785,13 +785,13 @@ export const NotionSpanMark = Mark.create({
       NFM_COLORS.has(HTMLAttributes.color) &&
       !HTMLAttributes.color.endsWith("_bg")
     ) {
-      classes.push(`notion-block-color--${HTMLAttributes.color}`);
+      classes.push(`content-block-color--${HTMLAttributes.color}`);
     }
     if (
       NFM_COLORS.has(HTMLAttributes.bgColor) &&
       HTMLAttributes.bgColor.endsWith("_bg")
     ) {
-      classes.push(`notion-block-bg--${HTMLAttributes.bgColor.slice(0, -3)}`);
+      classes.push(`content-block-bg--${HTMLAttributes.bgColor.slice(0, -3)}`);
     }
     if (HTMLAttributes.underline === "true") {
       style.push("text-decoration: underline");
@@ -1331,7 +1331,7 @@ export const NotionInlineAtom = Node.create({
         "data-notion-inline-atom": "true",
         "data-tag-name": HTMLAttributes.tagName,
         "data-attrs-json": HTMLAttributes.attrsJson,
-        class: "notion-inline-atom",
+        class: "content-inline-atom",
       }),
       HTMLAttributes.label || humanizeTag(HTMLAttributes.tagName || "mention"),
     ];

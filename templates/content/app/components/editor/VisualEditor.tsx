@@ -69,6 +69,7 @@ import {
   TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
+import { CellSelection, cellAround } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   useEditor,
@@ -101,7 +102,7 @@ import {
   markStartupMilestone,
 } from "@/lib/startup-timing";
 
-import { BubbleToolbar } from "./BubbleToolbar";
+import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
 import {
   buildDocText,
   resolveAnchor,
@@ -741,6 +742,25 @@ const NotionMarkdownShortcuts = Extension.create({
 });
 
 const CustomTable = BaseTable.extend({
+  addKeyboardShortcuts() {
+    return {
+      ...this.parent?.(),
+      // Escape leaves the editor (`contentEditorEscape`), and Tab can't leave a
+      // table, so from a cell's text the first Escape only selects the cell.
+      Escape: ({ editor }) => {
+        const { selection } = editor.state;
+        if (selection instanceof CellSelection) return false;
+        const $cell = cellAround(selection.$from);
+        if (!$cell) return false;
+        editor.view.dispatch(
+          editor.state.tr.setSelection(
+            CellSelection.create(editor.state.doc, $cell.pos),
+          ),
+        );
+        return true;
+      },
+    };
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -838,11 +858,19 @@ const NotionTableHeader = TableHeader.extend({
   addAttributes() {
     return { ...this.parent?.(), ...tableAlignmentAttribute };
   },
+  // Header cells render as <td>, so copying or pasting a table reads them back
+  // from their class. The higher priority puts this rule before tableCell's.
+  parseHTML() {
+    return [
+      { tag: "td.content-table-header-cell", priority: 60 },
+      ...(this.parent?.() ?? []),
+    ];
+  },
   renderHTML({ HTMLAttributes }) {
     return [
       "td",
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
-        class: "notion-table-header-cell",
+        class: "content-table-header-cell",
       }),
       0,
     ];
@@ -910,7 +938,39 @@ function normalizeTableHeaderCells(
     return rowChanged ? row.copy(Fragment.fromArray(normalizedCells)) : row;
   });
 
-  return changed ? table.copy(Fragment.fromArray(normalizedRows)) : table;
+  // Saved tables keep their headers only in these attributes, so update them
+  // whenever they no longer produce the header cells, e.g. after a header
+  // toggle or after deleting the header row.
+  const isHeaderAt = (
+    headerRow: boolean,
+    headerColumn: boolean,
+    rowIndex: number,
+    columnIndex: number,
+  ) => (headerRow && rowIndex === 0) || (headerColumn && columnIndex === 0);
+  const savedHeaderRow = table.attrs.headerRow === true;
+  const savedHeaderColumn = table.attrs.headerColumn === true;
+  const attrsMatchCells = rows.every((row, rowIndex) =>
+    getNodeChildren(row).every(
+      (_cell, columnIndex) =>
+        isHeaderAt(savedHeaderRow, savedHeaderColumn, rowIndex, columnIndex) ===
+        isHeaderAt(hasHeaderRow, hasHeaderColumn, rowIndex, columnIndex),
+    ),
+  );
+
+  if (!changed && attrsMatchCells) return table;
+
+  const content = changed ? Fragment.fromArray(normalizedRows) : table.content;
+  return attrsMatchCells
+    ? table.copy(content)
+    : table.type.create(
+        {
+          ...table.attrs,
+          headerRow: hasHeaderRow,
+          headerColumn: hasHeaderColumn,
+        },
+        content,
+        table.marks,
+      );
 }
 
 const normalizeTableHeadersPluginKey = new PluginKey("normalizeTableHeaders");
@@ -932,11 +992,20 @@ function buildNormalizeTableHeadersTransaction(state: CoreEditor["state"]) {
       tableHeaderType,
     );
     if (normalizedTable !== node) {
-      transaction = transaction.replaceWith(
-        pos,
-        pos + node.nodeSize,
-        normalizedTable,
-      );
+      // When only the header attributes change, keep the cells, and the
+      // selection inside them, in place.
+      transaction =
+        normalizedTable.content === node.content
+          ? transaction.setNodeMarkup(
+              transaction.mapping.map(pos),
+              undefined,
+              normalizedTable.attrs,
+            )
+          : transaction.replaceWith(
+              transaction.mapping.map(pos),
+              transaction.mapping.map(pos + node.nodeSize),
+              normalizedTable,
+            );
       changed = true;
     }
 
@@ -1554,6 +1623,20 @@ function writeContentSelectionState(value: unknown) {
   }
 }
 
+/**
+ * Text saved elsewhere to merge into the live document, once per `key`.
+ * `merge` gets the text the user has in the editor (null when it isn't
+ * editable) and `canHold`, which says whether the editor can show a text. It
+ * returns the text to show, or null to leave the editor as is.
+ */
+export interface VisualEditorExternalContent {
+  key: string;
+  merge: (
+    live: string | null,
+    canHold: (text: string) => boolean,
+  ) => string | null;
+}
+
 interface VisualEditorProps {
   visitKey?: string;
   editorMountMode?: EditorMountMode;
@@ -1561,6 +1644,7 @@ interface VisualEditorProps {
   contentSpaceId?: string;
   content: string;
   contentResetKey?: string | null;
+  externalContent?: VisualEditorExternalContent | null;
   contentUpdatedAt?: string | null;
   contentRevision?: string | null;
   acknowledgedLocalSnapshot?: {
@@ -2667,7 +2751,7 @@ export function createVisualEditorExtensions({
       paragraph: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
       horizontalRule: {},
-      dropcursor: { color: false, width: 3, class: "notion-dropcursor" },
+      dropcursor: { color: false, width: 3, class: "content-dropcursor" },
     },
     collab:
       ydoc || localAwareness ? { ydoc, awareness: localAwareness, user } : null,
@@ -2681,10 +2765,10 @@ export function createVisualEditorExtensions({
       }),
       Link.configure({
         openOnClick: false,
-        HTMLAttributes: { class: "notion-link" },
+        HTMLAttributes: { class: "content-link" },
       }),
       TaskList.configure({
-        HTMLAttributes: { class: "notion-task-list" },
+        HTMLAttributes: { class: "content-task-list" },
       }),
       TaskItem.configure({
         nested: true,
@@ -2694,20 +2778,20 @@ export function createVisualEditorExtensions({
         ? [BodyElementTiming.configure({ documentId })]
         : []),
       ImageNode.configure({
-        HTMLAttributes: { class: "notion-image" },
+        HTMLAttributes: { class: "content-image" },
         documentId,
         onImageComment,
         onImageFilePickerRequest,
         canMutateMedia,
       }),
       VideoNode.configure({
-        HTMLAttributes: { class: "notion-video" },
+        HTMLAttributes: { class: "content-video" },
         documentId,
         onVideoComment: onImageComment,
         canMutateMedia,
       }),
       AudioNode.configure({
-        HTMLAttributes: { class: "notion-audio" },
+        HTMLAttributes: { class: "content-audio" },
         documentId,
         onAudioComment: onImageComment,
         canMutateMedia,
@@ -3057,6 +3141,7 @@ export function VisualEditor({
   contentSpaceId,
   content,
   contentResetKey = null,
+  externalContent = null,
   contentUpdatedAt,
   contentRevision,
   acknowledgedLocalSnapshot,
@@ -3317,7 +3402,7 @@ export function VisualEditor({
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
     return Boolean(
-      activeElement?.matches(".notion-toggle__summary") &&
+      activeElement?.matches(".content-toggle__summary") &&
       editor.view.dom.contains(activeElement),
     );
   }, []);
@@ -3371,7 +3456,9 @@ export function VisualEditor({
       }),
       Extension.create({
         name: "contentEditorEscape",
-        priority: 0,
+        // Last, so editor Escape handlers such as the table's run first. Not 0:
+        // TipTap reads a priority of 0 as unset, which puts this first instead.
+        priority: 1,
         addProseMirrorPlugins() {
           return [
             new Plugin({
@@ -3417,6 +3504,12 @@ export function VisualEditor({
 
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
   const draftEmissionGenerationRef = useRef(0);
+  const pendingDraftEmissionsRef = useRef<Array<() => void>>([]);
+  const drainPendingDraftEmissions = useCallback(() => {
+    const pending = pendingDraftEmissionsRef.current;
+    pendingDraftEmissionsRef.current = [];
+    for (const emit of pending) emit();
+  }, []);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
   const markUserEditIntent = useCallback(() => {
@@ -3459,10 +3552,11 @@ export function VisualEditor({
         if (options?.immediate) return "failed" as const;
         if (!guards.registerEmitted(normalized)) return "unchanged" as const;
         const generation = draftEmissionGenerationRef.current;
-        setTimeout(() => {
+        pendingDraftEmissionsRef.current.push(() => {
           if (generation === draftEmissionGenerationRef.current)
             onChangeRef.current(normalized);
-        }, 0);
+        });
+        setTimeout(drainPendingDraftEmissions, 0);
         return "scheduled" as const;
       } catch (err: any) {
         toast.error(
@@ -3472,7 +3566,24 @@ export function VisualEditor({
         return "failed" as const;
       }
     },
-    [content, localFileMode, scheduleLiveBodyParity, t],
+    [
+      content,
+      drainPendingDraftEmissions,
+      localFileMode,
+      scheduleLiveBodyParity,
+      t,
+    ],
+  );
+  // A remote snapshot is the whole live document, so it already holds local
+  // typing whose deferred report has not run. Reporting that typing first keeps
+  // it a local edit; otherwise the snapshot absorbs it and an older save's
+  // acknowledgment can clear the only journaled copy.
+  const reportRemoteSnapshot = useCallback(
+    (markdown: string) => {
+      drainPendingDraftEmissions();
+      onRemoteSnapshotChange?.(markdown);
+    },
+    [drainPendingDraftEmissions, onRemoteSnapshotChange],
   );
   onMediaSourceCommittedRef.current = async (editorToPersist, transaction) => {
     if (suggestingRef.current) return;
@@ -3519,7 +3630,7 @@ export function VisualEditor({
     content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
       attributes: {
-        class: "notion-editor",
+        class: "content-editor",
       },
       handleDrop(view, event) {
         const droppedFiles = Array.from(event.dataTransfer?.files ?? []);
@@ -3779,6 +3890,58 @@ export function VisualEditor({
       .setContent(nfmToDoc(content), { emitUpdate: false })
       .run();
   }, [content, contentResetKey, editor, ydoc]);
+  const externalContentRef = useRef(externalContent);
+  externalContentRef.current = externalContent;
+  const externalContentKey = externalContent?.key ?? null;
+  useLayoutEffect(() => {
+    if (!editor || externalContentKey === null) return;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const merge = () => {
+      const request = externalContentRef.current;
+      if (editor.isDestroyed || request?.key !== externalContentKey) return;
+      // A slash command or an upload in progress isn't reported yet, and
+      // changing the text mid-composition (an IME) breaks the word being
+      // composed.
+      const live = editable ? serializeEditorDraftForPersistence(editor) : null;
+      if (
+        editable &&
+        (live === null ||
+          isActiveSlashCommandDraft(editor) ||
+          editor.view.composing)
+      ) {
+        retry = setTimeout(merge, 300);
+        return;
+      }
+      // Text the editor can't hold would throw here or empty the editor, so
+      // the merge checks its result before committing it.
+      const parsedTexts = new Map<string, ProseMirrorNode | null>();
+      const parse = (text: string) => {
+        if (!parsedTexts.has(text)) {
+          parsedTexts.set(text, parseNfmForCollabReconcile(editor, text));
+        }
+        return parsedTexts.get(text) ?? null;
+      };
+      const next = request.merge(live, (text) => parse(text) !== null);
+      if (next === null || next === live) return;
+      const parsed = parse(next);
+      if (!parsed) return;
+      // The merge holds everything typed so far, so typing that is still
+      // being reported would only undo it.
+      draftEmissionGenerationRef.current += 1;
+      if (applyDocSurgically(editor, parsed) === "failed") {
+        editor
+          .chain()
+          .command(({ tr }) => {
+            tr.setMeta("addToHistory", false);
+            return true;
+          })
+          .setContent(parsed.toJSON(), { emitUpdate: false })
+          .run();
+      }
+    };
+    merge();
+    return () => clearTimeout(retry);
+  }, [editable, editor, externalContentKey]);
   useEffect(() => {
     if (!editor) return;
     const capture = ({ transaction }: { transaction: Transaction }) => {
@@ -4209,7 +4372,9 @@ export function VisualEditor({
       : collabContentRevision,
     requestCollabSync,
     onBaseAwareReconcile,
-    onRemoteSnapshotChange,
+    onRemoteSnapshotChange: onRemoteSnapshotChange
+      ? reportRemoteSnapshot
+      : undefined,
     isEditorClean,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
@@ -4775,6 +4940,8 @@ export function VisualEditor({
       />
       {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
+      ) : onComment ? (
+        <ReadOnlyCommentBubble editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (
         <SlashCommandMenu

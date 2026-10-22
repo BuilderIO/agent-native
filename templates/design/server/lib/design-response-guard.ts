@@ -11,6 +11,9 @@ import {
 } from "./reprompt-action-guard.js";
 
 const DESIGN_MUTATION_ACTIONS = new Set([
+  // Full-app designs: the change lands in the Builder branch's code.
+  "send-builder-message",
+  "apply-builder-edits",
   "apply-a11y-fix",
   "apply-component-prop-edit",
   "apply-motion-edit",
@@ -199,6 +202,16 @@ function hasSuccessfulMutation(
     if (!parsed) return false;
 
     if (name === "create-design") return false;
+
+    // A full-app change is persisted in the app's source by Builder; only a
+    // run Builder reported as finished is the proof (a timed-out one may
+    // still be running).
+    if (name === "send-builder-message") {
+      return parsed.completed === true && !parsed.error;
+    }
+    if (name === "apply-builder-edits") {
+      return typeof parsed.sentCount === "number" && parsed.sentCount > 0;
+    }
 
     if (name === "generate-design") {
       return (

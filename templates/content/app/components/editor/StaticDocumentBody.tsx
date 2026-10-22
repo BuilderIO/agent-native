@@ -759,7 +759,7 @@ export function StaticDocumentBody({
     <div>
       <div
         ref={bodyRef}
-        className="tiptap notion-editor"
+        className="tiptap content-editor"
         data-static-document-body=""
         translate="no"
       />

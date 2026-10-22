@@ -1,12 +1,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 
-import { chromium, type FullConfig } from "@playwright/test";
+import { chromium, request, type FullConfig } from "@playwright/test";
 
 import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
+import { AUTH_FILES, RUN_EMAIL as EMAIL } from "./auth-files";
+import { AgentClient, signInAccount, type SignInResult } from "./helpers";
+import { expectRunServer } from "./server-identity";
 
-const EMAIL =
-  process.env.CONTENT_E2E_EMAIL ||
-  `e2e+autoz-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@content.test`;
 if (!isAutozQaEmail(EMAIL)) {
   throw new Error("CONTENT_E2E_EMAIL must contain +autoz.");
 }
@@ -15,86 +15,54 @@ const PASS =
 
 async function globalSetup(_config: FullConfig) {
   const baseURL = process.env.CONTENT_BASE_URL || "http://127.0.0.1:8090";
-  mkdirSync(".auth", { recursive: true });
-  const browser = await chromium.launch();
-  const ctx = await browser.newContext();
-  const page = await ctx.newPage();
-  let result: Record<string, unknown> = {};
+  // Before anything signs in, so another server on the port never gets this
+  // run's accounts.
+  const api = await request.newContext();
   try {
-    await page.goto(`${baseURL}/sign-in`, {
-      waitUntil: "domcontentloaded",
+    await expectRunServer(api, baseURL);
+  } finally {
+    await api.dispose();
+  }
+  mkdirSync(AUTH_FILES.dir, { recursive: true });
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ baseURL });
+  const page = await ctx.newPage();
+  let result: SignInResult | { error: string };
+  try {
+    result = await signInAccount(page.request, baseURL, {
+      email: EMAIL,
+      password: PASS,
+      name: "E2E Tester",
     });
-    result = await page.evaluate(
-      async ({ email, pass }) => {
-        const post = (path: string, body: unknown) =>
-          fetch(path, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          }).then(async (r) => ({
-            ok: r.ok,
-            status: r.status,
-            data: (await r.json().catch(() => ({}))) as Record<string, unknown>,
-          }));
-        let login = await post("/_agent-native/auth/login", {
-          email,
-          password: pass,
-        });
-        let regStatus: number | undefined;
-        let regErr: unknown;
-        if (!login.ok) {
-          const reg = await post("/_agent-native/auth/register", {
-            email,
-            password: pass,
-            name: "E2E Tester",
-            callbackURL: "/",
-          });
-          regStatus = reg.status;
-          regErr = reg.data?.error || reg.data?.message;
-          login = await post("/_agent-native/auth/login", {
-            email,
-            password: pass,
-          });
-        }
-        const sess = await fetch("/_agent-native/auth/session", {
-          headers: { Accept: "application/json" },
-        })
-          .then((r) => r.json())
-          .catch(() => ({}));
-        // A new account opens on the first-run survey, which covers the page.
-        const firstRun = login.ok
-          ? await post("/_agent-native/onboarding/first-run/complete", {})
-          : undefined;
-        return {
-          loginOk: login.ok,
-          loginStatus: login.status,
-          loginErr: login.data?.error || login.data?.message,
-          regStatus,
-          regErr,
-          firstRunCompleteStatus: firstRun?.status,
-          sessionEmail: (sess as Record<string, unknown>)?.email,
-        };
-      },
-      { email: EMAIL, pass: PASS },
-    );
   } catch (error) {
     result = { error: (error as Error).message };
   }
+  const sessionEmail = "sessionEmail" in result ? result.sessionEmail : null;
   // eslint-disable-next-line no-console
   console.log("[content global-setup] auth:", JSON.stringify(result));
-  await ctx.storageState({ path: ".auth/state.json" });
-  writeFileSync(
-    ".auth/email.txt",
-    (typeof result.sessionEmail === "string"
-      ? result.sessionEmail
-      : EMAIL
-    ).trim(),
-  );
-  await browser.close();
-  if (!result.sessionEmail || result.firstRunCompleteStatus !== 200) {
-    throw new Error(
-      `[content global-setup] sign-in or first-run setup failed, so authed specs would not reach a usable page: ${JSON.stringify(result)}`,
-    );
+  await ctx.storageState({ path: AUTH_FILES.state });
+  writeFileSync(AUTH_FILES.email, (sessionEmail ?? EMAIL).trim());
+  try {
+    if (
+      !sessionEmail ||
+      !("firstRunStatus" in result) ||
+      result.firstRunStatus !== 200
+    ) {
+      throw new Error(
+        `[content global-setup] sign-in or first-run setup failed, so authed specs would not reach a usable page: ${JSON.stringify(result)}`,
+      );
+    }
+    await AgentClient.connectShared(page);
+    // A dev server compiles each route on its first request, which can outlast
+    // the specs' 25 s navigation timeout. CI serves a build it already started.
+    if (!process.env.CI)
+      for (const route of ["/", "/page/warm-up"])
+        await page.goto(route, {
+          waitUntil: "domcontentloaded",
+          timeout: 180_000,
+        });
+  } finally {
+    await browser.close();
   }
 }
 

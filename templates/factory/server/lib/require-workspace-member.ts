@@ -1,12 +1,10 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { orgMembers, resolveOrgIdForEmail } from "@agent-native/core/org";
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { and, eq, sql } from "drizzle-orm";
-
-import { getDb } from "../db/index.js";
 
 export type WorkspaceMemberIdentity = {
   userEmail: string;
@@ -38,18 +36,8 @@ export async function requireWorkspaceMember(
   const orgId = requestOrgId || (await resolveOrgIdForEmail(userEmail));
   if (!orgId) throw new Error("Active workspace organization required");
 
-  const rows = await getDb()
-    .select({ role: orgMembers.role })
-    .from(orgMembers)
-    .where(
-      and(
-        eq(orgMembers.orgId, orgId),
-        eq(sql`lower(${orgMembers.email})`, userEmail),
-      ),
-    )
-    .limit(1);
+  const role = await readOrgMemberRole(orgId, userEmail);
+  if (!role) throw new Error("Workspace membership required");
 
-  if (!rows[0]) throw new Error("Workspace membership required");
-
-  return { userEmail, orgId, role: rows[0].role };
+  return { userEmail, orgId, role };
 }

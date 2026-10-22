@@ -57,11 +57,13 @@ import {
   componentNodeIdMatches,
   propNameToDataAttribute,
 } from "../shared/component-model.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   planLocalJsxVisualEdit,
   readLiteralJsxPropsAtAnchor,
   type LocalJsxSourceAnchor,
 } from "../shared/local-jsx-visual-edit.js";
+import { pruneDeletedNativeEffects } from "../shared/native-effect-pruning.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import {
@@ -328,6 +330,10 @@ function componentArchiveReceipt(args: {
     ctaRequired: false,
     fileId: args.fileId,
     changes: args.result.changes,
+    _receipt: designOutputWriteReceipt(
+      args.designId,
+      args.result.changes.length,
+    ),
     sourceBases: args.result.sourceBases,
     selection: args.result.selection,
     archive: args.result.archive,
@@ -758,12 +764,22 @@ async function persistLinkedComponentEdit(args: {
       nodeId: args.nodeId,
       persisted: false,
       transformStatus: transformed.status,
+      _receipt: designOutputWriteReceipt(args.designId, 0),
       error:
         transformed.message ??
         `Linked component edit failed: ${transformed.status}.`,
     };
   }
 
+  if (args.edit.kind === "structure") {
+    transformed = {
+      ...transformed,
+      changes: transformed.changes.map((change) => ({
+        ...change,
+        after: pruneDeletedNativeEffects(change.before, change.after),
+      })),
+    };
+  }
   const updated = new Map(
     transformed.changes.map((change) => [change.fileId, change.after]),
   );
@@ -827,6 +843,7 @@ async function persistLinkedComponentEdit(args: {
       fileId: args.fileId,
       changes,
       sourceBases,
+      _receipt: designOutputWriteReceipt(args.designId, changes.length),
       ...(selection ? { selection } : {}),
     };
   } finally {
@@ -1106,6 +1123,7 @@ export default defineAction({
           },
           content: planned.content,
           result: planned.result,
+          _receipt: designOutputWriteReceipt(designId, write?.written ? 1 : 0),
         };
       }
       return {
@@ -1424,6 +1442,7 @@ export default defineAction({
         content: patchedContent,
         bytesBefore: html.length,
         bytesAfter: patchedContent.length,
+        _receipt: designOutputWriteReceipt(designId, shouldPersist ? 1 : 0),
         note: "Edit applied and persisted via the deterministic HTML-patch path.",
       };
     }
@@ -1441,6 +1460,7 @@ export default defineAction({
       content: patchedContent,
       bytesBefore: html.length,
       bytesAfter: patchedContent.length,
+      _receipt: designOutputWriteReceipt(designId, 0),
       note: shouldPersist
         ? "Edit applied and persisted via the deterministic HTML-patch path."
         : "No change applied — the edit produced the same result as the current content.",

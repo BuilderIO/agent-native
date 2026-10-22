@@ -1,5 +1,138 @@
 # @agent-native/toolkit
 
+## 0.214.0
+
+### Minor Changes
+
+- 05d1481: Add app-scoped theme family preferences and shared chat presentation controls.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.214.0
+
+## 0.213.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.1
+
+## 0.213.0
+
+### Minor Changes
+
+- b58658d: Allow organization owners to opt in to current-member A2A delegation with capped member permissions and durable audit provenance. Improve app discovery and Dispatch routing for connected analytics and customer credit questions.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.0
+
+## 0.212.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.212.1
+
+## 0.212.0
+
+### Patch Changes
+
+- 71749d3: Ask for confirmation before a resource becomes visible to the whole organization. `ShareButton` and `ShareDialog` now hold a private-to-Organization change until it is confirmed; Cancel leaves the saved access and cache untouched, and a failed save stays open to retry. Core adds `useShareVisibilityTransition` (request, confirm, cancel) and the toolkit adds `ShareVisibilityConfirmDialog` and `ShareGeneralAccessRow` for apps that compose their own sharing surface. `useShareButtonController.handleVisibilityChange` stays as a deprecated alias for `visibilityTransition.request`, so it also waits for confirmation; its promise resolves once the change is saved, rejects when a direct save fails, and for a held change stays pending through confirmation failures (retry is possible) until it saves or is cancelled or invalidated (`ShareVisibilityNotSavedError`). Visibility requests from a closed surface are ignored, and a pending visibility change never carries over to another resource. Saved share and visibility changes to chats also refresh the chat history lists.
+- 9d61445: An agent's connection request card now stays in the chat. Saved chat history keeps `connection.requested` and `connection.updated`, so the card survives a thread reload or page refresh, and a chat that is waiting on an open connection request no longer shows the "server says this chat is no longer running" notice while the server's run has ended by design.
+- 96e2cf6: Discover and rank authorized workspace apps across the organization directory, and add Lab-gated installs from reviewed, pinned community app templates.
+- Release all public npm packages with a patch version bump.
+- ae5a212: Keep the model picker's OpenAI sections distinct when Builder.io credits and an OpenAI key are both connected.
+- 71749d3: Keep visibility controls busy and locked across sharing-surface remounts until physical saves settle. Load organization details only for confirmation, preserve search-specific empty states in sectioned chat history, and document malformed history-pagination requests returning HTTP 400.
+- 71749d3: Add independent sections to `ChatHistoryRail` (per-section preview, Show all, paged load-more, loading skeleton, error and empty states), owner and access-basis row details, a per-row `hideActions` flag, and a pure `OwnershipFilter` with `filterByOwnership`. `VisibilityBadge` now takes translated `labels` instead of hardcoded English (omitted labels keep the legacy English text); use the localized `VisibilityBadge` and `OwnershipFilter` from `@agent-native/toolkit/app/sharing`.
+- 9fcbe67: `TooltipTrigger` no longer opens its tooltip when a closing menu, popover or dialog returns focus to the trigger after a click. Keyboard focus still opens it.
+- 66ae94a: Add `UnsupportedDeviceGate` and an `unsupportedDevice` option on `AppProviders`. On touch screens smaller than an iPad it replaces the signed-in app, before the sign-in screen, with a short notice that offers the OS share sheet and an "Email me the link" action, so someone who opens the app on a phone can continue on a larger device.
+- Updated dependencies [d24c71c]
+- Updated dependencies
+  - @agent-native/agentkit@0.212.0
+
+## 0.211.0
+
+### Patch Changes
+
+- 4fdf78c: Preserve file attachments when nested drop handlers stop event propagation.
+- ab1a9e8: Keep the hosted harness picker exclusive to Agent-Native Desktop.
+- 67514ae: Mark block menu actions and drag moves from the editor drag handle as user edits, so collaborative saves keep them.
+- b451cb2: Improve Gong setup with a click-to-connect flow that appears only when workspace permissions allow it.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.211.0
+
+## 0.210.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.210.2
+
+## 0.210.1
+
+### Patch Changes
+
+- de17c2f: Fix path-mounted Chat commands and embed telemetry, bound raw SQL operations and protect private chat transcripts, show long-running tools earlier, and compress workspace Vercel immutable asset header routes to one pattern per app.
+- 3a73a99: Check managed HubSpot OAuth readiness before connecting and guide workspace owners through setup.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.210.1
+
+## 0.210.0
+
+### Patch Changes
+
+- 6c7c90e: Enable Brain to query Gong with shared organization credentials, keep excluded connection requests settled, and add a bounded CRM-context account-call recipe.
+- 7028ea5: A new chat no longer requests dev checkpoints before its first run has saved the thread, so local Code chats stop logging a 404 for every first message.
+- 7ade653: Links in an extension that open a new tab (`target="_blank"`, Cmd/Ctrl/Shift-click, or middle-click) are now opened by the host page, http/https only and with noopener, instead of as popups of the sandboxed iframe, so pages like HubSpot records load instead of rendering blank. The extension iframe's sandbox and `window.open` are unchanged.
+- 4c34d33: Keep share links placed at the bottom after the people and access sections when the share panel has People and Agents tabs.
+- Release all public npm packages with a patch version bump.
+- 108b9d9: Keep MCP audit rows and attribute them correctly. A NUL or other control character in an MCP client's self-reported name or version, or a NUL in any other audit value, is now stored as U+FFFD instead of failing the insert and losing the row, and a failed audit write is logged and reported through `captureError` while the audited action still completes. Writes made through `/_agent-native/actions/<action>` with a verified MCP OAuth or connect token now record as `mcp` by the agent, with the credential's OAuth client id, even when the request also sends the frontend header. An approved A2A tool call that runs after its pause now records the paused task's run, thread, turn and network ids. The audit-log event details show the self-reported client, the OAuth client and the approval, with `mcp-client-accepted` labeled as unverified.
+
+  Breaking: the signatures of `recordActionAudit` and `recordOrgAdminAuditEvent` changed. Both now require an `attribution`, made only by `auditAttribution(ctx)` inside an action or `routeAuditAttribution(event)` in a Nitro route, and a call without one throws `AuditAttributionError` instead of losing its row. To migrate, move `caller`, `threadId`, `turnId` and `runId` out of `ctx` (which keeps only `actionName`, `userEmail` and `orgId`) and pass `attribution: auditAttribution(ctx)` with the action's run context, or `attribution: routeAuditAttribution(event)` from a route. Admin changes recorded by hand, such as Restrict personal API keys and the service provider choice, now keep the MCP client, OAuth client and approval instead of storing nulls.
+
+  An A2A call approved on its review page now records `approval: "a2a-review"`, shown as "Approved on the agent action review page", instead of the agent-chat label. Its replay runs outside the paused task's journal again, so an earlier identical call in that task cannot stand in for it. A call's approval (agent chat, an accepted MCP elicitation or the A2A review) and the replay's task ids are held by that call's execution frame, not its run context, so they reach the approved action's own audit rows, including a row it records itself, and not another action it calls, a recursive call, or a later call with a kept context. Two limits remain: a raw (non-`defineAction`) entry called directly from an action's body shares that action's frame, and a wrapper around an entry's `run` must keep its `ACTION_EXECUTION_KEY` (spread the entry) for the action to keep its approval. Without async-local storage no approval is recorded. A service principal's refusal of another call, whether a child action or an agent run started inside an approved action, a dispatcher's approval pause of another call, and its refusal of a call with invalid arguments carry none of the enclosing action's approval; only an action's refusal of itself keeps it, along with that call's reported client, OAuth client, network ids and thread, turn and run ids. An action's approval ends when the promise its `run` returned settles, not when a stream or iterator it returned is consumed, so a timer, an unawaited write, or work done later while consuming that stream records none of it. The dev action bridge runs each call in its own frame, like the HTTP action route. The action entry exposes no frame-evidence helpers, and request input or `ActionRunContext` fields never become evidence. Trusted server dispatcher APIs (`executeAgentToolCall`, `runAgentLoop`) can still supply approval and attribution. The approval pause's denied row, and the agent loop's row for a call it refuses for invalid arguments, now carry the run id.
+
+- ca67d21: Advertise MCP tool input schemas that pass the Anthropic, OpenAI and Gemini schema rules Core pins. A root `anyOf`, `oneOf` or `allOf` is flattened into one object, and the schema description lists the argument sets it combined. Hand-written JSON schemas get the same keyword stripping as Zod schemas. A typeless `const` or `enum` gets an explicit type taken from its values, so Codex no longer narrows `{ "const": 1 }` to a string. A string `const` is advertised as a one-value `enum`, which Gemini honors, and `maxItems` moves into the description, because Gemini refuses a forced call to a large bounded array. Gemini's `enum` holds strings only, so an `enum` that lists a number, boolean or `null` keeps its type and lists its values in the description instead; one value becomes a `const`. Over MCP every rewrite only widens what the schema accepts, boolean subschemas included. The in-app copy does too, except that it admits no array directly inside an array, because the in-app Gemini adapter drops `$ref`, so nothing there can recurse. Actions still validate calls against their own schema.
+
+  A schema reference that does not resolve, including one that names an inherited property such as `#/$defs/__proto__`, now fails with a named error instead of disappearing when its branch is flattened. References spelled as encoded pointers or `$anchor` names are rewritten to plain pointers first, and one into a `oneOf` branch or a `not`, which stripping rewrites or removes, is moved into root `$defs` so it still resolves; an `$id` below the root, a non-local `$ref` and `$dynamicRef` are refused. A `const` that its own `enum` does not list, a `const` or `enum` with no value of the position's `type`, such as `{ "type": "string", "enum": [1, 2] }`, or an empty `enum`, `anyOf` or `oneOf`, is refused the same way, since that position accepts no value, and so is a root schema no object satisfies, such as an `allOf` with a string branch, which flattening used to advertise as an object schema. A root `$ref` whose target is an object schema counts as one. These checks read JSON Schema 2020-12, the dialect MCP assumes, so `defineAction` now asks schema libraries for 2020-12, which Zod emits with `$defs` and `prefixItems` tuples. A schema is checked when its `$schema` is absent or the official 2020-12 URI. One that names another dialect, such as draft-07, or an unknown URI, gets none of these checks beyond an object root. It is offered stripped and without `$schema`: the stripping still types a typeless `const` or `enum` and describes a non-string `enum` as above, but its root is not flattened, a string `const` stays a `const`, and `maxItems` stays. A property or definition named `__proto__` or `constructor` keeps its own entry through every rewrite. In the in-app agent and over MCP, an app action with such a schema is left out of the tool list and logged as an error, so the other tools keep working. So is an action whose input schema is not an object, which over MCP used to fail the whole tool list, including a `false` schema, which the in-app agent used to take as no schema. Each converter reads an input schema once, into a plain copy that it checks and converts, and never edits the schema or a schema library's output in place. A getter, a value JSON cannot hold such as `NaN` or a BigInt, a cycle, an object that is not plain, or one whose reads throw leaves the action out with the position and reason, instead of being checked as one value and advertised as another. Only an action whose schema library emits no JSON Schema is still offered as taking any object; when finding or running the library's emitter, a check or the conversion throws, `defineAction` keeps the reason with the tool it builds, and the action is left out, also when it is copied with that tool. Another action defined with the same schema is judged by its own tool. Other surfaces that describe actions, such as A2A agent cards, the action manifest and WebMCP, tool-search summaries and the framework prompts, still list such an action with its stripped schema or any-object parameters. Over MCP the instructions do not name it either, and `tools/call` answers it as an unknown tool. A remote MCP tool gets the same checks, and one that fails them is held back when its server's tools are listed: the server stays connected with its other tools, and its integration status names the unusable tool and why. Reconnecting the server from Integrations lists its tools again over the same connection, so calls already running on it are not interrupted. Those lists run one at a time per server, so an older answer cannot replace a newer one. When that list fails at the transport, because the server refuses it over HTTP, as it does once an OAuth grant is revoked, or cannot be reached at all, the server is left as a failed connect leaves it: its tools are no longer offered, a call to one fails because the server is not connected, and Reconnect reports it disconnected. Choosing Reconnect again connects it from the start, which starts OAuth for a server whose OAuth grant was revoked. A list the server answers with a JSON-RPC error, or one that times out, keeps the connection and the tools listed before, and Reconnect answers with the error.
+
+- 79545c9: Give resource icons their own color palette, readable at 4.5:1 contrast in light and dark themes.
+- ff3a8dd: Support disabling an open DatePicker and controlling focus when its calendar closes.
+- 0cfbd4d: Include the MIT license text in the published package.
+- ed34578: Open clicked external links from sandboxed extension frames in a separate browser tab, with the frame handshake nonce kept out of the extension URL.
+- 7337569: Resolve personal scope for local ChatGPT plan access and explain the requirement in settings.
+- 7028ea5: Switch and Checkbox color their checked state from `aria-checked`, so wrapping one in a `TooltipTrigger asChild` no longer leaves its track transparent.
+- 41e43db: Use the plain web search label in onboarding setup.
+- Updated dependencies [41f86eb]
+- Updated dependencies
+- Updated dependencies [0cfbd4d]
+- Updated dependencies [69b873f]
+  - @agent-native/agentkit@0.210.0
+
+## 0.209.2
+
+### Patch Changes
+
+- ce4eca0: Fix chat recovery retry actions, storage setup controls, and Builder account connection flow.
+- Release all public npm packages with a patch version bump.
+- 95aa388: Restyle dropdown, context, and menubar menus to the shared menu design: 28px rows, 10px menu radius, full-width separators, and a 20px check column.
+- 36fc751: First-run onboarding step events carry `optional`, true when the screen offers a skip, so Analytics funnels can tell a skip from drop-off. First-run extensions declare it with `optional: true`.
+- f99e655: Add Report a problem to the bottom of the app sidebar, the agent panel menu, and the command menu. It previews what the recorder captured, stores the full report as a private blob only after the user confirms, and sends the agent a summary of at most 8 KB that includes the report's ref; apps without agent chat copy the summary instead. If storage fails, the dialog says the report was not attached. The new read-only `read-problem-report` action lets the agent, or an MCP client, read slices of the report by event type and time. Only the reporting user, in the same organization, can open it.
+- f99e655: Add `readVisualScrubInputs()`, which returns what each mounted scrub input is showing, so an app can include its inspector values in a recorder report.
+- 95aa388: Keep the share popover's email field and send button at the standard 36px height on every screen size.
+- Updated dependencies
+  - @agent-native/agentkit@0.209.2
+
 ## 0.209.1
 
 ### Patch Changes
@@ -1142,79 +1275,5 @@
   Dictation also survives browsers that ship `SpeechRecognition` without a speech backend. Brave exposes `webkitSpeechRecognition` but removed the Google service behind it, so `auto` mode selected a recognizer that can only ever fail with `network`. In `auto` mode a recognizer that produced no text — because it failed, or because it ended before the microphone opened — now falls back to the MediaRecorder upload path. Permission and device errors are excluded, since retrying those through another provider fails identically. A mid-session drop that already captured speech keeps the transcript rather than failing over.
 
   The amplitude meter's own `getUserMedia` also moved to after recognition claims the microphone, since taking the device first can make Chrome abort the session.
-
-## 0.13.3
-
-### Patch Changes
-
-- d3f8794: Allow hosts to configure the shared composer document attachment limit and label.
-
-## 0.13.2
-
-### Patch Changes
-
-- 277be3f: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
-- 277be3f: Keep the public app-config export available to browser-safe toolkit consumers.
-
-## 0.13.1
-
-### Patch Changes
-
-- c71d383: Include the shared creative-context and toolkit updates in the next package release.
-
-## 0.13.0
-
-### Minor Changes
-
-- 106af0e: Add dense horizontal variants to the design-tweak controls. `VisualColorPicker`
-  gains a `swatch` variant that drops the value text and caret, an optional
-  `glyph` rendered over the current color, and an app tooltip naming the property
-  it paints. `VisualScrubInput` gains a `steppers` option that replaces the
-  drag-scrub label with minus/plus buttons.
-
-## 0.12.2
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
-
-## 0.12.1
-
-### Patch Changes
-
-- 89e5910: Memoize the composer runtime adapters context value so consumer effects stop
-  re-running on every provider render. The voice input preference was re-read from
-  app state, and the sidebar-state listener re-subscribed, once per render.
-
-## 0.12.0
-
-### Minor Changes
-
-- c0e7d64: Add reusable canvas drawing, text annotation, and pinned agent-comment controls.
-- c0e7d64: Add a reusable canvas interaction controller for text activation, shortcuts, moving, resizing, duplication, and gesture lifecycle.
-
-## 0.11.2
-
-### Patch Changes
-
-- cc35067: Fix `VisualInspectorPanel` clipping its own scroll area instead of scrolling. The panel body was capped by a viewport-derived `max-height`, so when a host laid the panel out shorter than the viewport — for example a style dock sharing vertical space with an expanded notes panel — overflowing content was hidden by the panel's `overflow-hidden` with no way to reach it. The body now flexes within the panel's actual height and keeps the cap as an upper bound.
-
-## 0.11.1
-
-### Patch Changes
-
-- 901769d: Keep the chat history panel layout balanced.
-- 901769d: Remove the translate control slot from the shared sidebar footer actions.
-
-## 0.11.0
-
-### Minor Changes
-
-- 24a5a20: Make extension creation and discovery opt-in, including authenticated REST
-  creation, label SQL-backed extensions as sandboxed custom blocks, and let
-  editors promote them into app code through a server-verified Builder handoff.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

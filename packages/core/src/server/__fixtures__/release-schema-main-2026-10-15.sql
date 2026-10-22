@@ -3253,6 +3253,14 @@ INSERT INTO "_agent_harness_session_migrations" ("version") VALUES (3);
 
 INSERT INTO "_agent_harness_session_migrations" ("version") VALUES (4);
 
+INSERT INTO "_agent_harness_session_migrations_named" ("name", "version", "applied_at") VALUES ('agent-harness-sessions-base-table', 1, '2026-10-15T14:36:07.823Z');
+
+INSERT INTO "_agent_harness_session_migrations_named" ("name", "version", "applied_at") VALUES ('agent-harness-sessions-state-columns', 2, '2026-10-15T14:36:07.825Z');
+
+INSERT INTO "_agent_harness_session_migrations_named" ("name", "version", "applied_at") VALUES ('agent-harness-sessions-widen-millisecond-timestamps', 3, '2026-10-15T14:36:07.827Z');
+
+INSERT INTO "_agent_harness_session_migrations_named" ("name", "version", "applied_at") VALUES ('agent-harness-sessions-generation', 4, '2026-10-15T14:36:07.827Z');
+
 INSERT INTO "_agent_run_migrations" ("version") VALUES (1);
 
 INSERT INTO "_agent_run_migrations" ("version") VALUES (2);
@@ -3265,6 +3273,18 @@ INSERT INTO "_agent_run_migrations" ("version") VALUES (5);
 
 INSERT INTO "_agent_run_migrations" ("version") VALUES (6);
 
+INSERT INTO "_agent_run_migrations_named" ("name", "version", "applied_at") VALUES ('agent-run-base-tables', 1, '2026-10-15T14:36:07.814Z');
+
+INSERT INTO "_agent_run_migrations_named" ("name", "version", "applied_at") VALUES ('agent-run-liveness-and-diagnostics-columns', 2, '2026-10-15T14:36:07.817Z');
+
+INSERT INTO "_agent_run_migrations_named" ("name", "version", "applied_at") VALUES ('agent-run-continuation-order', 3, '2026-10-15T14:36:07.817Z');
+
+INSERT INTO "_agent_run_migrations_named" ("name", "version", "applied_at") VALUES ('agent-tool-ledger-result-type', 4, '2026-10-15T14:36:07.818Z');
+
+INSERT INTO "_agent_run_migrations_named" ("name", "version", "applied_at") VALUES ('agent-tool-ledger-chat-ui-result', 5, '2026-10-15T14:36:07.818Z');
+
+INSERT INTO "_agent_run_migrations_named" ("name", "version", "applied_at") VALUES ('agent-run-auto-continue-of', 6, '2026-10-15T14:36:07.818Z');
+
 INSERT INTO "_agent_tool_approval_migrations" ("version") VALUES (1);
 
 INSERT INTO "_agent_tool_approval_migrations" ("version") VALUES (2);
@@ -3272,6 +3292,14 @@ INSERT INTO "_agent_tool_approval_migrations" ("version") VALUES (2);
 INSERT INTO "_agent_tool_approval_migrations" ("version") VALUES (3);
 
 INSERT INTO "_agent_tool_approval_migrations" ("version") VALUES (4);
+
+INSERT INTO "_agent_tool_approval_migrations_named" ("name", "version", "applied_at") VALUES ('agent-tool-approvals-table-and-index', 1, '2026-10-15T14:36:07.783Z');
+
+INSERT INTO "_agent_tool_approval_migrations_named" ("name", "version", "applied_at") VALUES ('agent-tool-approvals-logical-binding-index', 2, '2026-10-15T14:36:07.783Z');
+
+INSERT INTO "_agent_tool_approval_migrations_named" ("name", "version", "applied_at") VALUES ('agent-tool-approvals-recovery-index', 3, '2026-10-15T14:36:07.784Z');
+
+INSERT INTO "_agent_tool_approval_migrations_named" ("name", "version", "applied_at") VALUES ('agent-tool-approval-policies-table-and-index', 4, '2026-10-15T14:36:07.784Z');
 
 INSERT INTO "_automation_run_migrations" ("version") VALUES (1);
 
@@ -3289,9 +3317,29 @@ INSERT INTO "_automation_run_migrations" ("version") VALUES (7);
 
 INSERT INTO "_automation_run_migrations" ("version") VALUES (8);
 
+INSERT INTO "_automation_run_migrations_named" ("name", "version", "applied_at") VALUES ('automation-runs-table', 1, '2026-10-15T14:36:07.911Z');
+
+INSERT INTO "_automation_run_migrations_named" ("name", "version", "applied_at") VALUES ('automation-runs-claimed-at', 2, '2026-10-15T14:36:07.912Z');
+
+INSERT INTO "_automation_run_migrations_named" ("name", "version", "applied_at") VALUES ('automation-runs-dispatch-pending', 3, '2026-10-15T14:36:07.912Z');
+
+INSERT INTO "_automation_run_migrations_named" ("name", "version", "applied_at") VALUES ('automation-runs-app-id', 4, '2026-10-15T14:36:07.913Z');
+
+INSERT INTO "_automation_run_migrations_named" ("name", "version", "applied_at") VALUES ('automation-runs-error-code', 5, '2026-10-15T14:36:07.913Z');
+
+INSERT INTO "_automation_run_migrations_named" ("name", "version", "applied_at") VALUES ('automation-runs-notification-email', 6, '2026-10-15T14:36:07.914Z');
+
+INSERT INTO "_automation_run_migrations_named" ("name", "version", "applied_at") VALUES ('automation-runs-failure-alerted', 7, '2026-10-15T14:36:07.914Z');
+
+INSERT INTO "_automation_run_migrations_named" ("name", "version", "applied_at") VALUES ('automation-runs-failure-alert-delivery', 8, '2026-10-15T14:36:07.914Z');
+
 INSERT INTO "_automation_scheduler_health_migrations" ("version") VALUES (1);
 
 INSERT INTO "_automation_scheduler_health_migrations" ("version") VALUES (2);
+
+INSERT INTO "_automation_scheduler_health_migrations_named" ("name", "version", "applied_at") VALUES ('automation-scheduler-health-table', 1, '2026-10-15T14:36:07.936Z');
+
+INSERT INTO "_automation_scheduler_health_migrations_named" ("name", "version", "applied_at") VALUES ('automation-scheduler-health-lease', 2, '2026-10-15T14:36:07.936Z');
 
 INSERT INTO "_automation_trigger_event_migrations" ("version") VALUES (1);
 
@@ -3302,6 +3350,16 @@ INSERT INTO "_automation_trigger_event_migrations" ("version") VALUES (3);
 INSERT INTO "_automation_trigger_event_migrations" ("version") VALUES (4);
 
 INSERT INTO "_automation_trigger_event_migrations" ("version") VALUES (5);
+
+INSERT INTO "_automation_trigger_event_migrations_named" ("name", "version", "applied_at") VALUES ('automation-trigger-event-queue', 1, '2026-10-15T14:36:07.924Z');
+
+INSERT INTO "_automation_trigger_event_migrations_named" ("name", "version", "applied_at") VALUES ('automation-trigger-event-failure-attempts', 2, '2026-10-15T14:36:07.926Z');
+
+INSERT INTO "_automation_trigger_event_migrations_named" ("name", "version", "applied_at") VALUES ('automation-trigger-event-stale-mail-index', 3, '2026-10-15T14:36:07.927Z');
+
+INSERT INTO "_automation_trigger_event_migrations_named" ("name", "version", "applied_at") VALUES ('automation-trigger-event-queue-sweep-state', 4, '2026-10-15T14:36:07.929Z');
+
+INSERT INTO "_automation_trigger_event_migrations_named" ("name", "version", "applied_at") VALUES ('automation-trigger-event-active-head-index', 5, '2026-10-15T14:36:07.929Z');
 
 INSERT INTO "_better_auth_migrations" ("version") VALUES (1);
 
@@ -3323,6 +3381,28 @@ INSERT INTO "_better_auth_migrations" ("version") VALUES (9);
 
 INSERT INTO "_better_auth_migrations" ("version") VALUES (10);
 
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('better-auth-core-tables', 1, '2026-10-15T14:36:07.730Z');
+
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('better-auth-repair-user-columns', 2, '2026-10-15T14:36:07.734Z');
+
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('legacy-auth-sessions-table', 3, '2026-10-15T14:36:07.734Z');
+
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('better-auth-jwks-key-rotation-recovery', 4, '2026-10-15T14:36:07.736Z');
+
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('better-auth-add-onboarding-role', 5, '2026-10-15T14:36:07.737Z');
+
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('better-auth-user-lower-email-index', 5, '2026-10-15T14:36:07.738Z');
+
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('better-auth-enterprise-sso-scim-tables', 6, '2026-10-15T14:36:07.770Z');
+
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('better-auth-identity-rekey-ledger', 7, '2026-10-15T14:36:07.773Z');
+
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('better-auth-jwks-alg-crv-columns', 8, '2026-10-15T14:36:07.773Z');
+
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('better-auth-two-factor-tables', 9, '2026-10-15T14:36:07.777Z');
+
+INSERT INTO "_better_auth_migrations_named" ("name", "version", "applied_at") VALUES ('better-auth-user-first-touch-attribution', 10, '2026-10-15T14:36:07.777Z');
+
 INSERT INTO "_chat_thread_schema_migrations" ("version") VALUES (1);
 
 INSERT INTO "_chat_thread_schema_migrations" ("version") VALUES (2);
@@ -3330,6 +3410,14 @@ INSERT INTO "_chat_thread_schema_migrations" ("version") VALUES (2);
 INSERT INTO "_chat_thread_schema_migrations" ("version") VALUES (3);
 
 INSERT INTO "_chat_thread_schema_migrations" ("version") VALUES (4);
+
+INSERT INTO "_chat_thread_schema_migrations_named" ("name", "version", "applied_at") VALUES ('chat-threads-base-tables', 1, '2026-10-15T14:36:07.796Z');
+
+INSERT INTO "_chat_thread_schema_migrations_named" ("name", "version", "applied_at") VALUES ('chat-threads-scope-and-sharing-columns', 2, '2026-10-15T14:36:07.799Z');
+
+INSERT INTO "_chat_thread_schema_migrations_named" ("name", "version", "applied_at") VALUES ('chat-threads-source-backfill', 3, '2026-10-15T14:36:07.800Z');
+
+INSERT INTO "_chat_thread_schema_migrations_named" ("name", "version", "applied_at") VALUES ('chat-thread-shares-notified-at', 4, '2026-10-15T14:36:07.801Z');
 
 INSERT INTO "_context_xray_migrations" ("version") VALUES (1201);
 
@@ -3340,6 +3428,10 @@ INSERT INTO "_context_xray_migrations" ("version") VALUES (1203);
 INSERT INTO "_identity_sso_migrations" ("version") VALUES (1);
 
 INSERT INTO "_identity_sso_migrations" ("version") VALUES (2);
+
+INSERT INTO "_identity_sso_migrations_named" ("name", "version", "applied_at") VALUES ('identity-sso-flow-state-and-jti', 1, '2026-10-15T14:36:07.881Z');
+
+INSERT INTO "_identity_sso_migrations_named" ("name", "version", "applied_at") VALUES ('identity-sso-timestamps-bigint', 2, '2026-10-15T14:36:07.882Z');
 
 INSERT INTO "_oauth_token_migrations" ("version") VALUES (1);
 
@@ -3353,11 +3445,29 @@ INSERT INTO "_oauth_token_migrations" ("version") VALUES (5);
 
 INSERT INTO "_oauth_token_migrations" ("version") VALUES (6);
 
+INSERT INTO "_oauth_token_migrations_named" ("name", "version", "applied_at") VALUES ('oauth-tokens-table', 1, '2026-10-15T14:36:07.788Z');
+
+INSERT INTO "_oauth_token_migrations_named" ("name", "version", "applied_at") VALUES ('oauth-tokens-owner-column', 2, '2026-10-15T14:36:07.789Z');
+
+INSERT INTO "_oauth_token_migrations_named" ("name", "version", "applied_at") VALUES ('oauth-tokens-display-name-column', 3, '2026-10-15T14:36:07.790Z');
+
+INSERT INTO "_oauth_token_migrations_named" ("name", "version", "applied_at") VALUES ('oauth-tokens-owner-backfill', 4, '2026-10-15T14:36:07.790Z');
+
+INSERT INTO "_oauth_token_migrations_named" ("name", "version", "applied_at") VALUES ('oauth-tokens-revision-column', 5, '2026-10-15T14:36:07.790Z');
+
+INSERT INTO "_oauth_token_migrations_named" ("name", "version", "applied_at") VALUES ('oauth-tokens-revision-backfill', 6, '2026-10-15T14:36:07.791Z');
+
 INSERT INTO "_observability_migrations" ("version") VALUES (1);
 
 INSERT INTO "_observability_migrations" ("version") VALUES (2);
 
 INSERT INTO "_observability_migrations" ("version") VALUES (3);
+
+INSERT INTO "_observability_migrations_named" ("name", "version", "applied_at") VALUES ('observability-org-scope-legacy-traces', 1, '2026-10-15T14:36:07.807Z');
+
+INSERT INTO "_observability_migrations_named" ("name", "version", "applied_at") VALUES ('observability-org-scope-legacy-feedback', 2, '2026-10-15T14:36:07.809Z');
+
+INSERT INTO "_observability_migrations_named" ("name", "version", "applied_at") VALUES ('observability-org-scope-legacy-threads', 3, '2026-10-15T14:36:07.810Z');
 
 INSERT INTO "_observational_memory_migrations" ("version") VALUES (1);
 
@@ -3433,13 +3543,63 @@ INSERT INTO "_org_migrations" ("version") VALUES (1033);
 
 INSERT INTO "_org_migrations" ("version") VALUES (1034);
 
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('org-members-dedupe-lower-email', 1009, '2026-10-15T14:36:07.845Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('org-members-unique-lower-email-idx', 1010, '2026-10-15T14:36:07.846Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('app-member-roles-unique-org-app-lower-email-idx', 1012, '2026-10-15T14:36:07.849Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('workspace-app-access-indexes', 1017, '2026-10-15T14:36:07.854Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('workspace-apps-restore-ownerless-legacy-visibility', 1018, '2026-10-15T14:36:07.855Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('organization-identity-federation', 1019, '2026-10-15T14:36:07.856Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('organization-federation-removal-pending', 1020, '2026-10-15T14:36:07.856Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('organization-federation-roster-initialized', 1021, '2026-10-15T14:36:07.857Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('org-tables-timestamps-bigint', 1022, '2026-10-15T14:36:07.859Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('workspace-app-shares-notified-at', 1023, '2026-10-15T14:36:07.859Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('suggestion-creations-receipt-version', 1024, '2026-10-15T14:36:07.860Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('app-member-roles-drop-single-role-unique-index', 1025, '2026-10-15T14:36:07.860Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('app-member-roles-unique-org-app-email-role-idx', 1026, '2026-10-15T14:36:07.861Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('app-permission-overrides-and-invitation-roles', 1027, '2026-10-15T14:36:07.862Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('app-permission-overrides-table', 1028, '2026-10-15T14:36:07.864Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('org-scim-membership-ownership', 1029, '2026-10-15T14:36:07.866Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('org-scim-membership-member-id', 1030, '2026-10-15T14:36:07.866Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('workspace-app-org-enabled', 1031, '2026-10-15T14:36:07.867Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('agent-audit-log-base-table', 1032, '2026-10-15T14:36:07.867Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('organization-visual-identity', 1033, '2026-10-15T14:36:07.868Z');
+
+INSERT INTO "_org_migrations_named" ("name", "version", "applied_at") VALUES ('private-icon-assets', 1034, '2026-10-15T14:36:07.870Z');
+
 INSERT INTO "_remote_device_migrations" ("version") VALUES (1);
+
+INSERT INTO "_remote_device_migrations_named" ("name", "version", "applied_at") VALUES ('remote-device-table-and-indexes', 1, '2026-10-15T14:36:07.875Z');
 
 INSERT INTO "_usage_alert_migrations" ("version") VALUES (1);
 
 INSERT INTO "_usage_alert_migrations" ("version") VALUES (2);
 
 INSERT INTO "_usage_alert_migrations" ("version") VALUES (3);
+
+INSERT INTO "_usage_alert_migrations_named" ("name", "version", "applied_at") VALUES ('usage-alert-rules-and-events-tables', 1, '2026-10-15T14:36:07.832Z');
+
+INSERT INTO "_usage_alert_migrations_named" ("name", "version", "applied_at") VALUES ('usage-alert-default-column', 2, '2026-10-15T14:36:07.833Z');
+
+INSERT INTO "_usage_alert_migrations_named" ("name", "version", "applied_at") VALUES ('usage-alert-notification-column', 3, '2026-10-15T14:36:07.833Z');
 
 INSERT INTO "_workspace_connections_migrations" ("version") VALUES (1);
 

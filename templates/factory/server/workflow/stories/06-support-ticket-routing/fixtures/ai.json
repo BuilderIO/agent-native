@@ -1,0 +1,143 @@
+{
+  "classify": {
+    "all": {
+      "perItem": {
+        "t-bug": {
+          "category": "bug",
+          "severity": "medium",
+          "confidence": "high",
+          "summary": "The export button produces a blank page."
+        },
+        "t-bill-ok": {
+          "category": "billing",
+          "severity": "low",
+          "confidence": "high",
+          "summary": "A question about the last invoice."
+        },
+        "t-bill-unsure": {
+          "category": "billing",
+          "severity": "low",
+          "confidence": "high",
+          "summary": "A question about a September refund."
+        },
+        "t-urgent": {
+          "category": "urgent",
+          "severity": "high",
+          "confidence": "high",
+          "summary": "The whole team is locked out."
+        },
+        "t-other": {
+          "category": "other",
+          "severity": "low",
+          "confidence": "high",
+          "summary": "How to export to CSV."
+        }
+      }
+    },
+    "oneBug": {
+      "perItem": {
+        "t-bug": {
+          "category": "bug",
+          "severity": "medium",
+          "confidence": "high",
+          "summary": "The export button produces a blank page."
+        }
+      }
+    },
+    "claimed": {
+      "perItem": {
+        "t-bill-claimed": {
+          "category": "billing",
+          "severity": "low",
+          "confidence": "high",
+          "summary": "A question about a duplicate charge."
+        }
+      }
+    },
+    "oneOtherUnreadable": {
+      "perItem": {
+        "t-other": {
+          "fail": "result_invalid",
+          "reason": "The answer was prose, not the declared fields."
+        }
+      }
+    },
+    "bugAndUnreadable": {
+      "perItem": {
+        "t-bug": {
+          "category": "bug",
+          "severity": "medium",
+          "confidence": "high",
+          "summary": "The export button produces a blank page."
+        },
+        "t-other": {
+          "fail": "result_invalid",
+          "reason": "The answer was prose, not the declared fields."
+        }
+      }
+    },
+    "sample": {
+      "perItem": {
+        "t-sample": {
+          "category": "billing",
+          "severity": "low",
+          "confidence": "medium",
+          "summary": "A sample ticket about an invoice."
+        }
+      }
+    }
+  },
+  "jira": {
+    "bug": {
+      "perItem": {
+        "*": {
+          "title": "Export fails with a blank page",
+          "description": "A customer reports that export shows a blank page. Ticket: https://pylon.example.test/issues/t-bug"
+        }
+      }
+    }
+  },
+  "answer": {
+    "mixed": {
+      "perItem": {
+        "t-bill-ok": {
+          "answer": "Your latest invoice is paid and your plan is Pro.",
+          "supported": true,
+          "confidence": "high"
+        },
+        "t-bill-unsure": {
+          "answer": "You may be owed a $12.00 refund for September.",
+          "supported": false,
+          "confidence": "low"
+        }
+      }
+    },
+    "inventedFact": {
+      "perItem": {
+        "t-bill-claimed": {
+          "answer": "We refunded the duplicate charge.",
+          "supported": true,
+          "confidence": "high"
+        }
+      }
+    },
+    "inventedFigures": {
+      "perItem": {
+        "t-bill-claimed": {
+          "answer": "We refunded the duplicate charge of $40.00 on October 3, 2026.",
+          "supported": true,
+          "confidence": "high"
+        }
+      }
+    }
+  },
+  "suggest": {
+    "reply": {
+      "perItem": {
+        "*": {
+          "bodyHtml": "<p>You can export to CSV from the table menu, then choose Export.</p>"
+        }
+      }
+    }
+  }
+}

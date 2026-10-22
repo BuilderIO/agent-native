@@ -21,7 +21,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -79,6 +79,7 @@ type Dashboard = {
   visibility?: DashboardVisibility;
   ownerEmail?: string | null;
   folderId?: string | null;
+  builtin?: boolean;
 };
 type Folder = {
   id: string;
@@ -99,10 +100,14 @@ export default function DashboardOverview() {
   const sigmaMigrationFlag = useFeatureFlagState(
     "analytics.sigma-dashboard-migration",
   );
+  const [searchParams, setSearchParams] = useSearchParams();
   const { auth } = useAuth();
   const dashboardScope = dashboardCacheScope(auth);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [sigmaMigrationOpen, setSigmaMigrationOpen] = useState(false);
+  const [preferredSigmaConnectionId, setPreferredSigmaConnectionId] = useState<
+    string | null
+  >(null);
   const [folderName, setFolderName] = useState("");
   const [folderScope, setFolderScope] = useState<Scope>("personal");
   const [search, setSearch] = useState("");
@@ -114,6 +119,16 @@ export default function DashboardOverview() {
     "dashboards",
     "action",
   ]);
+
+  useEffect(() => {
+    if (searchParams.get("openSigma") !== "1") return;
+    setSigmaMigrationOpen(true);
+    setPreferredSigmaConnectionId(searchParams.get("sigmaConnectionId"));
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete("openSigma");
+    nextSearchParams.delete("sigmaConnectionId");
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     setFolderOverrides({});
@@ -151,6 +166,7 @@ export default function DashboardOverview() {
           visibility: dashboard.visibility,
           ...(ownerEmail ? { ownerEmail } : {}),
           folderId: dashboard.folderId ?? null,
+          builtin: "builtin" in dashboard && dashboard.builtin === true,
         });
       }
       return validDashboards;
@@ -411,8 +427,11 @@ export default function DashboardOverview() {
       {sigmaMigrationFlag.status === "ready" && sigmaMigrationFlag.enabled ? (
         <SigmaMigrationDialog
           open={sigmaMigrationOpen}
-          onOpenChange={setSigmaMigrationOpen}
-          onImported={() => void dashboardsQuery.refetch()}
+          preferredConnectionId={preferredSigmaConnectionId}
+          onOpenChange={(open) => {
+            setSigmaMigrationOpen(open);
+            if (!open) setPreferredSigmaConnectionId(null);
+          }}
         />
       ) : null}
 
@@ -666,7 +685,8 @@ function DashboardRow({
     }
     return dashboard.visibility === "org" && folder.scope === "shared";
   });
-  const canOrganize = mine || dashboard.visibility === "org";
+  const canOrganize =
+    !dashboard.builtin && (mine || dashboard.visibility === "org");
 
   return (
     <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/30">

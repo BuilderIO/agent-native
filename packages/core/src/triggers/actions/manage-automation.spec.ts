@@ -31,12 +31,14 @@ beforeEach(() => {
 describe("manage-automation reasoningEffort", () => {
   it("forwards reasoningEffort on create", async () => {
     defineAutomationMock.mockResolvedValue({
+      resourceId: "automation-1",
       name: "notify",
       meta: {
         triggerType: "event",
         event: "mail.received",
         reasoningEffort: "high",
       },
+      body: "Notify me.",
     });
 
     const result = await run({
@@ -44,6 +46,7 @@ describe("manage-automation reasoningEffort", () => {
       name: "notify",
       scope: "personal",
       triggerType: "event",
+      body: "Notify me.",
       event: "mail.received",
       reasoningEffort: "high",
     });
@@ -69,7 +72,13 @@ describe("manage-automation reasoningEffort", () => {
 
   it("accepts an effort-only update instead of rejecting it as a no-op", async () => {
     updateAutomationMock.mockResolvedValue({
+      resource: { id: "automation-1" },
+      name: "notify",
+      scope: "personal",
       meta: { enabled: true, reasoningEffort: "low" },
+      body: "Notify me.",
+      changed: true,
+      previouslyEnabled: true,
     });
 
     const result = await run({
@@ -89,7 +98,7 @@ describe("manage-automation reasoningEffort", () => {
   it("still rejects an update with no recognized field at all", async () => {
     await expect(
       run({ operation: "update", name: "notify", scope: "personal" }),
-    ).rejects.toThrow(/reasoningEffort is required for update/);
+    ).rejects.toThrow(/At least one update field is required/);
     expect(updateAutomationMock).not.toHaveBeenCalled();
   });
 });

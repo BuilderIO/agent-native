@@ -324,10 +324,9 @@ describe("update-dashboard saves that change nothing", () => {
   it("still reports a UI save as changed when it reverts a peer's write that landed after it loaded the config", async () => {
     const loaded = structuredClone(row!.config);
     let peer = "";
-    mocks.dryRunQuery.mockImplementationOnce(async () => {
+    mocks.assertDashboardEditable.mockImplementationOnce(async () => {
       save(dashboard(panel("a", EDITED_SQL), panel("b")));
       peer = row!.updatedAt;
-      return null;
     });
 
     const result: any = await updateDashboard.run(

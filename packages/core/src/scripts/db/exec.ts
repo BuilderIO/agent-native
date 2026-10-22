@@ -3,7 +3,10 @@ import path from "node:path";
 import type { AgentPostgresStatement } from "../../agent-sql/postgres.js";
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
-import { createPostgresScriptClient } from "./postgres-client.js";
+import {
+  createPostgresScriptClient,
+  withPostgresStatementDeadline,
+} from "./postgres-client.js";
 import {
   finalRawDbSql,
   rawDbInsertTarget,
@@ -197,8 +200,10 @@ Options:
   try {
     const results: DbExecResult[] = [];
     await client.begin(async (tx) => {
-      const scoping = await buildScopingPostgres(tx);
-      for (const statement of scoping.setup) await tx.unsafe(statement);
+      const timedTx = withPostgresStatementDeadline(tx);
+      const scoping = await buildScopingPostgres(timedTx);
+      for (const statement of scoping.setup) await timedTx.unsafe(statement);
+      let operationFailed = false;
       try {
         for (let index = 0; index < statements.length; index++) {
           const statement = statements[index];
@@ -211,13 +216,13 @@ Options:
             "write",
             label,
           );
-          await verifyRawDbStatement(tx, executed.statement, {
+          await verifyRawDbStatement(timedTx, executed.statement, {
             columnsByTable: scoping.columnsByTable,
             label,
           });
           const sql = executed.sql;
           try {
-            const result = await tx.unsafe(sql, statement.args, {
+            const result = await timedTx.unsafe(sql, statement.args, {
               singleStatement: true,
             });
             results.push({
@@ -237,9 +242,16 @@ Options:
             );
           }
         }
+      } catch (error) {
+        operationFailed = true;
+        throw error;
       } finally {
         for (const statement of scoping.teardown) {
-          await tx.unsafe(statement).catch(() => {});
+          try {
+            await timedTx.unsafe(statement);
+          } catch (error) {
+            if (!operationFailed) throw error;
+          }
         }
       }
     });

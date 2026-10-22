@@ -36,8 +36,10 @@ import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type {
   ContentNavigationPathEntry,
   Document,
+  DocumentProperty,
   DocumentSyncStatus,
 } from "@shared/api";
+import { commentPropertyTarget } from "@shared/comment-property-target";
 import { LIVE_BODY_SHADOW_FLAG } from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
@@ -118,6 +120,10 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
+  documentPropertiesResponseMatchesScope,
+  useDocumentProperties,
+} from "@/hooks/use-document-properties";
+import {
   mergeDocumentIntoDocumentCache,
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
@@ -178,9 +184,18 @@ import { cn } from "@/lib/utils";
 import { ContentIcon } from "../icons/ContentIcon";
 import { createAuthoredContentBase } from "./authored-content-base";
 import {
+  BlockFieldCommentsProvider,
+  useBlockFieldComments,
+} from "./block-field-comments";
+import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
+import {
+  blockFieldVisit,
+  visibleBlockFieldEditor,
+  type BlockFieldVisit,
+} from "./blockFieldTabs";
 import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
@@ -250,7 +265,6 @@ import {
 } from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
-  clearPageDraftJournal,
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
   syncPageDraftJournalBeforePersistingRecoveryDraft,
@@ -266,6 +280,12 @@ import {
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
 import { trackPendingDocumentPersistence } from "./pending-document-persistence";
+import {
+  bodyCommentThreads,
+  openThreadsByProperty,
+  PropertyCommentsContext,
+  type PropertyCommentsValue,
+} from "./property-comments";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import {
   createSuggestionAutosave,
@@ -385,6 +405,9 @@ export function restoreCapturedEditorSelection(
   return controller.restoreSelection(snapshot);
 }
 
+const NO_SUGGESTIONS: ResourceSuggestion[] = [];
+const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
+
 export function documentEditorCommentThreads(
   threads: CommentThread[] | null | undefined,
 ) {
@@ -432,12 +455,25 @@ export interface PageEditorSession {
   focusTitle: () => void;
 }
 
+/**
+ * Opens the Page with its Comments showing: one thread when `threadId` is
+ * set, a new comment on the Property `propertyId` names, otherwise the list.
+ * A new `key` asks again.
+ */
+export interface PageCommentIntent {
+  key: number;
+  documentId: string;
+  threadId?: string | null;
+  propertyId?: string;
+}
+
 export interface PageEditorSurfaceProps extends DocumentEditorProps {
   host: "page" | "preview";
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
   focusTitle?: boolean;
   onTitleFocused?: () => void;
+  commentIntent?: PageCommentIntent | null;
 }
 
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
@@ -1321,6 +1357,7 @@ export function PageEditorSurface({
   onDelete,
   focusTitle = false,
   onTitleFocused,
+  commentIntent,
 }: PageEditorSurfaceProps) {
   const t = useT();
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
@@ -1563,6 +1600,7 @@ export function PageEditorSurface({
         onDelete={onDelete}
         focusTitle={focusTitle}
         onTitleFocused={onTitleFocused}
+        commentIntent={commentIntent}
       />
     </DocumentCommentDraftProvider>
   );
@@ -1933,6 +1971,7 @@ interface DocumentEditorBodyProps {
   onDelete?: () => Promise<void>;
   focusTitle: boolean;
   onTitleFocused?: () => void;
+  commentIntent?: PageCommentIntent | null;
   foreground?: boolean;
   documentFresh?: boolean;
   creationStarted?: boolean;
@@ -1979,6 +2018,7 @@ type DocumentSaveOptions = {
   saveAttemptId?: string;
   equivalentSaveAttemptIds?: string[];
   editorSnapshotTitle?: string;
+  editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
 };
 
@@ -2474,6 +2514,7 @@ function PageEditorSessionBody({
   onDelete,
   focusTitle,
   onTitleFocused,
+  commentIntent,
   foreground = false,
   documentFresh = false,
   creationStarted = false,
@@ -2600,6 +2641,8 @@ function PageEditorSessionBody({
   );
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
+  // Pages that follow a GitHub file are written by sync; edit the file instead.
+  const isGitHubSourceDocument = document.source?.mode === "github";
   const canComment =
     !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
@@ -2789,6 +2832,13 @@ function PageEditorSessionBody({
     },
     [],
   );
+  // A tab switch rewrites `?field=` in place; it isn't a new visit.
+  const blockFieldVisitRef = useRef<BlockFieldVisit | null>(null);
+  blockFieldVisitRef.current = blockFieldVisit(
+    blockFieldVisitRef.current,
+    location,
+  );
+  const visit = blockFieldVisitRef.current;
   const databaseFieldScope = document.databaseMembership
     ? pageEditorSessionKey({
         documentId,
@@ -3329,24 +3379,11 @@ function PageEditorSessionBody({
     [isLinkedLocalSourceDocument, isLocalFileDocument, journalScope, t],
   );
   const clearConfirmedDraftJournal = useCallback(
-    (
-      saved: Document & {
-        bodyIntentOutcome?: { status: "applied" | "displaced-preserved" };
-      },
-      editGeneration: number,
-    ) => {
+    (editGeneration: number) => {
       const scope = journalScope();
       if (!scope) return;
       try {
-        if (saved.bodyIntentOutcome) {
-          clearPageDraftJournalGeneration(scope, editGeneration);
-        } else {
-          clearPageDraftJournal(scope, {
-            editGeneration,
-            title: saved.title,
-            content: saved.content,
-          });
-        }
+        clearPageDraftJournalGeneration(scope, editGeneration);
       } catch {
         if (!recoveryWriteErrorShownRef.current) {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
@@ -3368,6 +3405,7 @@ function PageEditorSessionBody({
 
   const collabEnabled = shouldUseLiveDocumentCollaboration({
     isLocalFileDocument,
+    isGitHubSourceDocument,
     mcpDirectoryWidgetReadOnly,
   });
   const holdCollaborationForCreationSave = isDocumentCreationConfirmed(
@@ -3398,6 +3436,7 @@ function PageEditorSessionBody({
     activityResource: { resourceType: "document", resourceId: documentId },
     requestSource: TAB_ID,
     user: currentUser,
+    onEvent: handleFlushRequestEvent,
   });
   collabAwarenessRef.current = awareness;
   collabClientIdRef.current = ydoc?.clientID ?? null;
@@ -3413,6 +3452,7 @@ function PageEditorSessionBody({
     !collabSynced;
   const editorCanEdit =
     canEdit &&
+    !isGitHubSourceDocument &&
     !bodyHydrationPending &&
     !localSourceMissing &&
     (!isLocalFileDocument || localSourceAccess === "available") &&
@@ -3785,6 +3825,7 @@ function PageEditorSessionBody({
                   }
                 : {}),
               editorSnapshotTitle: options.editorSnapshotTitle,
+              editorSnapshotTitleBase: options.editorSnapshotTitleBase,
               editorSnapshotContent: options.editorSnapshotContent,
               ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
               ...(baseRevision !== undefined ? { baseRevision } : {}),
@@ -4041,6 +4082,8 @@ function PageEditorSessionBody({
       options = {
         ...options,
         editorSnapshotTitle: title,
+        editorSnapshotTitleBase:
+          options.titleBase ?? lastSavedTitleRef.current.title,
         editorSnapshotContent: content,
       };
       if (options.requireActiveEditorSession && !editorSessionActiveRef.current)
@@ -4343,17 +4386,13 @@ function PageEditorSessionBody({
             : null,
         });
       }
-      if (
-        contentEditVersionRef.current === contentEditVersion &&
-        contentObservationEpochRef.current === contentObservationEpoch
-      ) {
+      // Text another writer added while this save was in flight is theirs to
+      // save, so it holds back neither the confirmation nor the journal clear.
+      // An entry kept for it outlives this tab's edits, and the next tab to
+      // open the page replays it as a save of its own.
+      if (contentEditVersionRef.current === contentEditVersion) {
         confirmedContentEditVersionRef.current = contentEditVersion;
-        if (
-          saved.title === localTitleRef.current &&
-          saved.content === localContentRef.current
-        ) {
-          clearConfirmedDraftJournal(saved, editorEditGeneration);
-        }
+        clearConfirmedDraftJournal(editorEditGeneration);
       }
 
       if (autoSync) {
@@ -5237,6 +5276,7 @@ function PageEditorSessionBody({
                 }
               : {}),
             editorSnapshotTitle: pending.title,
+            editorSnapshotTitleBase: pending.titleBase,
             editorSnapshotContent: pending.content,
             ...updates,
             ...(loadedContentWasEmpty !== undefined
@@ -7156,9 +7196,9 @@ function PageEditorSessionBody({
       const saved = await resolveReconcile(base);
       if (saved)
         requestAnimationFrame(() => {
-          documentLayoutRef.current
-            ?.querySelector<HTMLElement>(".ProseMirror")
-            ?.focus({ preventScroll: true });
+          visibleBlockFieldEditor(documentLayoutRef.current)?.focus({
+            preventScroll: true,
+          });
         });
       return saved;
     },
@@ -7244,9 +7284,9 @@ function PageEditorSessionBody({
 
   const focusEditorAfterRecoveryReview = useCallback(() => {
     requestAnimationFrame(() => {
-      documentLayoutRef.current
-        ?.querySelector<HTMLElement>(".ProseMirror")
-        ?.focus({ preventScroll: true });
+      visibleBlockFieldEditor(documentLayoutRef.current)?.focus({
+        preventScroll: true,
+      });
     });
   }, []);
 
@@ -7298,7 +7338,10 @@ function PageEditorSessionBody({
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
     useState(true);
   const pendingCommentTargetId = pendingComment?.id ?? null;
-  const pendingCommentQuotedText = pendingComment?.quotedText ?? null;
+  // A comment on a Property has no text to keep selected.
+  const pendingCommentQuotedText = pendingComment?.property
+    ? null
+    : (pendingComment?.quotedText ?? null);
   useLayoutEffect(() => {
     if (!pendingCommentTargetId || pendingCommentQuotedText === null) {
       setPendingCommentTargetValid(true);
@@ -7360,10 +7403,11 @@ function PageEditorSessionBody({
   };
   // While AI's result is on screen, a thread it just resolved highlights the
   // text it wrote, so the card sits beside the change it describes.
+  const bodyThreads = useMemo(() => bodyCommentThreads(threads), [threads]);
   const editorCommentThreads = useMemo(() => {
     const fresh = commentAi.freshResolutions;
-    if (!threads || fresh.size === 0) return threads ?? [];
-    return threads.map((thread) => {
+    if (!bodyThreads || fresh.size === 0) return bodyThreads ?? [];
+    return bodyThreads.map((thread) => {
       const change = fresh.get(thread.threadId)?.result?.changes?.[0];
       if (!thread.resolved || !change?.after || change.truncated) return thread;
       return {
@@ -7375,7 +7419,24 @@ function PageEditorSessionBody({
         startOffset: null,
       };
     });
-  }, [commentAi.freshResolutions, threads]);
+  }, [bodyThreads, commentAi.freshResolutions]);
+  const pagePropertiesDatabaseId =
+    databaseId ?? document.databaseMembership?.databaseId ?? null;
+  // The same read the Page's Properties make, so it costs no request. A
+  // read-only widget shows no comments and may not make this read.
+  const pagePropertiesQuery = useDocumentProperties(
+    document.databaseMembership && !isLocalFileDocument ? documentId : null,
+    pagePropertiesDatabaseId,
+    { enabled: !mcpDirectoryWidgetReadOnly },
+  );
+  const pageProperties = documentPropertiesResponseMatchesScope(
+    documentId,
+    pagePropertiesDatabaseId,
+    pagePropertiesQuery.data,
+  )
+    ? pagePropertiesQuery.data.properties
+    : undefined;
+  const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -7478,13 +7539,60 @@ function PageEditorSessionBody({
     commentsFetching,
     commentsError,
   ]);
+  const activateCommentThread = useCallback(
+    (threadId: string, preserveBrowseContext = false) => {
+      setSelectedSuggestionId(null);
+      setPendingComment(null);
+      setHoveredThreadId(null);
+      setSelectedThreadId(threadId);
+      setCommentsBrowseOpen(preserveBrowseContext);
+      setUtilityPanel("comments");
+    },
+    [],
+  );
+
+  // Text in another Blocks field's tab is commented in that tab.
+  const handleFieldComment = useCallback(
+    (
+      fieldId: string,
+      quotedText: string,
+      offsetTop: number,
+      anchor?: CommentTextAnchor,
+      range?: { from: number; to: number },
+    ) => {
+      setPendingComment({ quotedText, offsetTop, anchor, range, fieldId });
+      setCommentsBrowseOpen(false);
+      setUtilityPanel("comments");
+      setSelectedThreadId(null);
+      setHoveredThreadId(null);
+    },
+    [setPendingComment],
+  );
+  const blockFieldComments = useBlockFieldComments({
+    expectsBlockFields: !!document.databaseMembership && !isLocalFileDocument,
+    threads,
+    suggestions: sidebarSuggestions,
+    draftSuggestions,
+    anchoredSuggestionIds,
+    selectedThreadId,
+    selectedSuggestionId,
+    focusSuggestionId,
+    hoveredThreadId,
+    pendingComment,
+    showCommentIndicators,
+    onComment: canComment ? handleFieldComment : undefined,
+    onActivateThread: !isLocalFileDocument ? activateCommentThread : undefined,
+    scrollContainerRef,
+  });
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
     !showCommentsHistoryDrawer &&
     utilityPanel === "comments" &&
     !hasInlineCommentSpace &&
-    (!!pendingComment || !!selectedThreadId);
+    !blockFieldComments.tabSwitchPending &&
+    ((!!pendingComment && blockFieldComments.pendingVisible) ||
+      !!selectedThreadId);
   // A panel without a docked rail opens over the page. Only a phone gets
   // the modal Sheet: wider, the Sheet would cover a docked agent panel.
   const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet({
@@ -7595,18 +7703,6 @@ function PageEditorSessionBody({
     editorEscapeTargetRef.current?.focus({ preventScroll: true });
   }, [dismissCommentFocus]);
 
-  const activateCommentThread = useCallback(
-    (threadId: string, preserveBrowseContext = false) => {
-      setSelectedSuggestionId(null);
-      setPendingComment(null);
-      setHoveredThreadId(null);
-      setSelectedThreadId(threadId);
-      setCommentsBrowseOpen(preserveBrowseContext);
-      setUtilityPanel("comments");
-    },
-    [],
-  );
-
   const activateSuggestion = useCallback((suggestionId: string) => {
     setPendingComment(null);
     setHoveredThreadId(null);
@@ -7622,7 +7718,7 @@ function PageEditorSessionBody({
         `[data-suggestion-id="${escaped}"]`,
       );
       const pageTarget = Array.from(targets).find((target) =>
-        target.closest(".notion-editor"),
+        target.closest(".content-editor"),
       );
       if (pageTarget) {
         const rect = pageTarget.getBoundingClientRect();
@@ -7759,6 +7855,45 @@ function PageEditorSessionBody({
     ],
   );
   const handledCommentDeepLinkRef = useRef<string | null>(null);
+  const handledPropertyCommentLinkRef = useRef<string | null>(null);
+
+  const startPropertyComment = useCallback(
+    (property: DocumentProperty) => {
+      setPendingComment({
+        quotedText: "",
+        // Beside the Property in a peek; on a full page the Properties sit
+        // in Info, which Comments replaces, so the card opens in view.
+        offsetTop:
+          host === "preview" ? 0 : (scrollContainerRef.current?.scrollTop ?? 0),
+        property: commentPropertyTarget(property),
+        databaseId: pagePropertiesDatabaseId,
+      });
+      setSelectedSuggestionId(null);
+      setCommentsBrowseOpen(false);
+      setUtilityPanel("comments");
+      setSelectedThreadId(null);
+      setHoveredThreadId(null);
+    },
+    [host, pagePropertiesDatabaseId, setPendingComment],
+  );
+  const propertyComments = useMemo<PropertyCommentsValue>(
+    () => ({
+      canComment,
+      openThreadsByProperty: openThreadsByProperty(threads),
+      pendingPropertyId: pendingComment?.property?.propertyId ?? null,
+      activeThreadId,
+      startComment: startPropertyComment,
+      openThread: activateCommentThread,
+    }),
+    [
+      activateCommentThread,
+      activeThreadId,
+      canComment,
+      pendingComment?.property?.propertyId,
+      startPropertyComment,
+      threads,
+    ],
+  );
 
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
@@ -7794,7 +7929,7 @@ function PageEditorSessionBody({
 
   useEffect(() => {
     const suggestionId = new URLSearchParams(location.search).get("suggestion");
-    const key = `${documentId}:${location.key}:${location.search}`;
+    const key = `${documentId}:${visit.key}:${visit.search}`;
     if (!suggestionId) {
       appliedSuggestionLinkRef.current = null;
       return;
@@ -7828,8 +7963,8 @@ function PageEditorSessionBody({
     setFocusSuggestionId(suggestion.id);
   }, [
     documentId,
-    location.key,
     location.search,
+    visit,
     suggestionsQuery.data,
     savedSuggestions,
     clearCommentFocus,
@@ -7856,6 +7991,83 @@ function PageEditorSessionBody({
     handledCommentDeepLinkRef.current = deepLinkKey;
     activateCommentThread(threadId, true);
   }, [activateCommentThread, documentId, location.search, threads]);
+
+  // A Collection that opens rows as full pages links here to start a comment
+  // on one Property, as the row's peek does on a touch screen.
+  useEffect(() => {
+    const propertyId = new URLSearchParams(location.search).get(
+      "commentProperty",
+    );
+    if (!propertyId) {
+      handledPropertyCommentLinkRef.current = null;
+      return;
+    }
+    const linkKey = `${documentId}:${propertyId}`;
+    // Wait for the Properties; a failed read opens the list instead.
+    if (
+      handledPropertyCommentLinkRef.current === linkKey ||
+      (!pageProperties && !pagePropertiesFailed)
+    ) {
+      return;
+    }
+    handledPropertyCommentLinkRef.current = linkKey;
+    const property = pageProperties?.find(
+      (candidate) => candidate.definition.id === propertyId,
+    );
+    if (property && canComment) startPropertyComment(property);
+    else handleUtilityPanelChange("comments");
+  }, [
+    canComment,
+    documentId,
+    handleUtilityPanelChange,
+    location.search,
+    pageProperties,
+    pagePropertiesFailed,
+    startPropertyComment,
+  ]);
+
+  const handledCommentIntentRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      commentIntent?.documentId !== documentId ||
+      handledCommentIntentRef.current === commentIntent.key
+    )
+      return;
+    const { threadId, propertyId } = commentIntent;
+    if (threadId) {
+      // Wait for the thread; a thread that is gone opens the list instead.
+      if (!threads) return;
+      handledCommentIntentRef.current = commentIntent.key;
+      if (threads.some((thread) => thread.threadId === threadId)) {
+        activateCommentThread(threadId);
+        return;
+      }
+    } else if (propertyId) {
+      // Wait for the Properties; one that is gone, or a failed read, opens
+      // the list instead.
+      if (!pageProperties && !pagePropertiesFailed) return;
+      handledCommentIntentRef.current = commentIntent.key;
+      const property = pageProperties?.find(
+        (candidate) => candidate.definition.id === propertyId,
+      );
+      if (property && canComment) {
+        startPropertyComment(property);
+        return;
+      }
+    }
+    handledCommentIntentRef.current = commentIntent.key;
+    handleUtilityPanelChange("comments");
+  }, [
+    activateCommentThread,
+    canComment,
+    commentIntent,
+    documentId,
+    handleUtilityPanelChange,
+    pageProperties,
+    pagePropertiesFailed,
+    startPropertyComment,
+    threads,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -8230,9 +8442,18 @@ function PageEditorSessionBody({
       compact={!hasInlineCommentSpace}
       replyDrafts={replyDrafts}
       documentId={documentId}
-      threads={documentEditorCommentThreads(threads)}
+      threads={
+        presentation === "history"
+          ? documentEditorCommentThreads(threads)
+          : blockFieldComments.railThreads
+      }
+      documentProperties={pageProperties}
       isLoading={commentsLoading}
-      pendingComment={pendingComment}
+      pendingComment={
+        presentation === "history" || blockFieldComments.pendingVisible
+          ? pendingComment
+          : null
+      }
       pendingTargetValid={pendingCommentTargetValid}
       onPendingChange={changePendingComment}
       onPendingDone={(id, threadId) => {
@@ -8264,8 +8485,16 @@ function PageEditorSessionBody({
       canResolve={canEdit}
       alignToAnchors={alignToAnchors}
       forceVisible
-      suggestions={sidebarSuggestions}
-      draftSuggestions={draftSuggestions}
+      suggestions={
+        presentation === "history" || blockFieldComments.railShowsSuggestions
+          ? sidebarSuggestions
+          : NO_SUGGESTIONS
+      }
+      draftSuggestions={
+        presentation === "history" || blockFieldComments.railShowsSuggestions
+          ? draftSuggestions
+          : NO_DRAFT_SUGGESTIONS
+      }
       onMaterializeDraft={async (draft) => {
         const persisted = await flushSuggestionDraft({ keepMode: true });
         if (!persisted) return null;
@@ -8675,18 +8904,20 @@ function PageEditorSessionBody({
           </button>
         </div>
         {panel === "info" ? (
-          <DocumentInfoPanel
-            document={document}
-            documentContent={exportContent}
-            additionalBlockContents={additionalBlockContents}
-            databaseId={databaseId}
-            databaseDocumentId={databaseDocumentId}
-            canEdit={editorCanEdit}
-            popoverContainer={popoverContainer}
-            onSaveDescription={(description) =>
-              persistDocumentUpdates({ description })
-            }
-          />
+          <PropertyCommentsContext.Provider value={propertyComments}>
+            <DocumentInfoPanel
+              document={document}
+              documentContent={exportContent}
+              additionalBlockContents={additionalBlockContents}
+              databaseId={databaseId}
+              databaseDocumentId={databaseDocumentId}
+              canEdit={editorCanEdit}
+              popoverContainer={popoverContainer}
+              onSaveDescription={(description) =>
+                persistDocumentUpdates({ description })
+              }
+            />
+          </PropertyCommentsContext.Provider>
         ) : (
           renderCommentsSidebar(undefined, false, "history")
         )}
@@ -8964,6 +9195,29 @@ function PageEditorSessionBody({
             </div>
           ) : null}
 
+          {isGitHubSourceDocument ? (
+            <div
+              className="border-b bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground"
+              role="status"
+              data-github-source-read-only
+            >
+              {t("editor.githubSourceReadOnly")}
+              {document.source?.url ? (
+                <>
+                  {" "}
+                  <a
+                    href={document.source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 hover:text-foreground"
+                  >
+                    {t("editor.githubSourceOpenFile")}
+                  </a>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
           <div
             ref={scrollContainerRef}
             className="flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"
@@ -9082,10 +9336,9 @@ function PageEditorSessionBody({
                       if (!editorCanEdit || isSuggesting) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        const pm = documentLayoutRef.current?.querySelector(
-                          ".ProseMirror",
-                        ) as HTMLElement | null;
-                        pm?.focus();
+                        visibleBlockFieldEditor(
+                          documentLayoutRef.current,
+                        )?.focus();
                       }
                     }}
                     aria-label={t("editor.documentTitle")}
@@ -9105,21 +9358,23 @@ function PageEditorSessionBody({
                 document.databaseMembership &&
                 !isLocalFileDocument ? (
                   <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-6">
-                    <DocumentProperties
-                      documentId={documentId}
-                      databaseId={
-                        databaseId ??
-                        document.databaseMembership.databaseId ??
-                        null
-                      }
-                      databaseDocumentId={
-                        databaseDocumentId ??
-                        document.databaseMembership.databaseDocumentId ??
-                        null
-                      }
-                      canEdit={editorCanEdit}
-                      popoversPortalled={false}
-                    />
+                    <PropertyCommentsContext.Provider value={propertyComments}>
+                      <DocumentProperties
+                        documentId={documentId}
+                        databaseId={
+                          databaseId ??
+                          document.databaseMembership.databaseId ??
+                          null
+                        }
+                        databaseDocumentId={
+                          databaseDocumentId ??
+                          document.databaseMembership.databaseDocumentId ??
+                          null
+                        }
+                        canEdit={editorCanEdit}
+                        popoversPortalled={false}
+                      />
+                    </PropertyCommentsContext.Provider>
                   </div>
                 ) : null}
                 {document.database ? (
@@ -9150,10 +9405,9 @@ function PageEditorSessionBody({
                           }
                           pendingPaddingScrollRestoreRef.current = null;
                         };
-                        const pm = e.currentTarget.querySelector(
-                          ".ProseMirror",
-                        ) as HTMLElement | null;
-                        pm?.focus({ preventScroll: true });
+                        visibleBlockFieldEditor(e.currentTarget)?.focus({
+                          preventScroll: true,
+                        });
                         restoreScroll();
                         if (scrollContainer && scrollTop !== undefined) {
                           pendingPaddingScrollRestoreRef.current =
@@ -9309,7 +9563,7 @@ function PageEditorSessionBody({
                               action="VisualEditor"
                             >
                               <VisualEditor
-                                visitKey={location.key}
+                                visitKey={visit.key}
                                 editorMountMode={
                                   isSuggesting
                                     ? "suggesting"
@@ -9378,7 +9632,16 @@ function PageEditorSessionBody({
                                 widgetLoadDiagnosticsActive={
                                   mcpDirectoryWidgetReadOnly
                                 }
-                                content={visualEditorContent}
+                                content={
+                                  isLocalFileDocument
+                                    ? localContent
+                                    : (pendingSuggestionDecisionContent ??
+                                      (isSuggesting
+                                        ? suggestionDraft
+                                        : showLocalCreationDraft
+                                          ? localContent
+                                          : document.content))
+                                }
                                 contentUpdatedAt={
                                   isLocalFileDocument || showLocalCreationDraft
                                     ? (localContentUpdatedAt ??
@@ -9460,7 +9723,9 @@ function PageEditorSessionBody({
                                 commentThreads={editorCommentThreads}
                                 activeThreadId={selectedThreadId}
                                 hoveredThreadId={hoveredThreadId}
-                                pendingHighlight={pendingComment?.range ?? null}
+                                pendingHighlight={
+                                  blockFieldComments.bodyPendingHighlight
+                                }
                                 onActivateThread={
                                   !isLocalFileDocument
                                     ? activateCommentThread
@@ -9507,31 +9772,39 @@ function PageEditorSessionBody({
                       );
                       if (document.databaseMembership && !isLocalFileDocument) {
                         return (
-                          <DocumentBlockFields
-                            documentId={documentId}
-                            databaseId={
-                              databaseId ??
-                              document.databaseMembership.databaseId
-                            }
-                            databaseDocumentId={
-                              databaseDocumentId ??
-                              document.databaseMembership.databaseDocumentId
-                            }
-                            canEdit={
-                              editorCanEdit && !mcpDirectoryWidgetReadOnly
-                            }
-                            usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
-                            suggesting={isSuggesting || isStartingSuggestion}
-                            enteringSuggestion={isStartingSuggestion}
-                            onPrimaryFieldAvailabilityChange={
-                              handlePrimaryFieldAvailabilityChange
-                            }
-                            primaryEditor={primaryEditor}
-                            pageProperties={document.properties}
-                            onAdditionalContentChange={
-                              handleAdditionalBlockContentChange
-                            }
-                          />
+                          <BlockFieldCommentsProvider
+                            value={blockFieldComments.provider}
+                          >
+                            <DocumentBlockFields
+                              documentId={documentId}
+                              databaseId={
+                                databaseId ??
+                                document.databaseMembership.databaseId
+                              }
+                              databaseDocumentId={
+                                databaseDocumentId ??
+                                document.databaseMembership.databaseDocumentId
+                              }
+                              canEdit={
+                                editorCanEdit && !mcpDirectoryWidgetReadOnly
+                              }
+                              usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
+                              suggesting={isSuggesting || isStartingSuggestion}
+                              enteringSuggestion={isStartingSuggestion}
+                              onPrimaryFieldAvailabilityChange={
+                                handlePrimaryFieldAvailabilityChange
+                              }
+                              primaryEditor={primaryEditor}
+                              primaryContent={exportContent}
+                              onFieldTabChange={
+                                blockFieldComments.onFieldTabChange
+                              }
+                              pageProperties={document.properties}
+                              onAdditionalContentChange={
+                                handleAdditionalBlockContentChange
+                              }
+                            />
+                          </BlockFieldCommentsProvider>
                         );
                       }
 
@@ -9556,22 +9829,24 @@ function PageEditorSessionBody({
 
               {showDesktopRightRail ? (
                 showInlineComments ? (
-                  <aside
-                    ref={commentLaneRef}
-                    className="absolute right-0 top-0 w-80"
-                    aria-label={t("comments.title")}
-                    data-comments-flow-lane
-                  >
-                    <div
-                      style={{
-                        transform: `translateX(${commentLaneOffset}px)`,
-                      }}
+                  blockFieldComments.tabSwitchPending ? null : (
+                    <aside
+                      ref={commentLaneRef}
+                      className="absolute right-0 top-0 w-80"
+                      aria-label={t("comments.title")}
+                      data-comments-flow-lane
                     >
-                      <div className="relative min-h-full translate-x-4">
-                        {renderCommentsSidebar()}
+                      <div
+                        style={{
+                          transform: `translateX(${commentLaneOffset}px)`,
+                        }}
+                      >
+                        <div className="relative min-h-full translate-x-4">
+                          {renderCommentsSidebar()}
+                        </div>
                       </div>
-                    </div>
-                  </aside>
+                    </aside>
+                  )
                 ) : (
                   <aside className="w-80 shrink-0 border-s border-border">
                     {utilityPanelContent}
@@ -9599,7 +9874,9 @@ function PageEditorSessionBody({
                 >
                   <div className="pointer-events-auto">
                     {renderCommentsSidebar(
-                      pendingComment ? "__pending-only__" : selectedThreadId,
+                      pendingComment && blockFieldComments.pendingVisible
+                        ? "__pending-only__"
+                        : selectedThreadId,
                       false,
                       "inline",
                       "popover",

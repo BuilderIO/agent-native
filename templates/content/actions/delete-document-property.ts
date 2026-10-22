@@ -25,10 +25,11 @@ import {
   resolvePropertyDatabaseForDocument,
   serializeDatabaseViewConfig,
 } from "./_property-utils.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 export default defineAction({
   description:
-    "Delete a Notion-style property definition and its stored document values.",
+    "Delete a Notion-style property definition and its stored document values. Deleting a `blocks` property removes that tab and its text from every row.",
   schema: z.object({
     documentId: z.string().describe("Document ID used to scope access"),
     databaseId: z
@@ -197,6 +198,10 @@ export default defineAction({
             .map((item) => item.documentId);
           if (documentsWithoutSurvivingPrimary.length > 0) {
             const now = new Date().toISOString();
+            await lockDocumentRows(
+              tx as unknown as ReturnType<typeof getDb>,
+              documentsWithoutSurvivingPrimary,
+            );
             await tx
               .update(schema.documents)
               .set({

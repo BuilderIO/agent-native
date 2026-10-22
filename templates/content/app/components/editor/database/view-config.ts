@@ -3,6 +3,7 @@ import type {
   ContentDatabaseViewConfig,
   ContentDatabaseViewType,
 } from "@shared/api";
+import { contentDatabaseItemLayoutField } from "@shared/database-item-layout";
 
 import {
   type DatabaseColumnCalculation,
@@ -60,6 +61,7 @@ export function createDatabaseView(
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeClientDatabaseFormQuestions(values.formQuestions),
+    ...contentDatabaseItemLayoutField(values.itemLayout),
   };
 }
 
@@ -219,6 +221,7 @@ export function duplicateDatabaseView(
       rowDensity: view.rowDensity,
       openPagesIn: view.openPagesIn,
       formQuestions: view.formQuestions,
+      itemLayout: view.itemLayout,
     },
     view.type,
   );
@@ -360,6 +363,7 @@ function normalizeClientDatabaseView(
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
       openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
       formQuestions: normalizeClientDatabaseFormQuestions(value.formQuestions),
+      itemLayout: value.itemLayout,
     },
     type,
   );

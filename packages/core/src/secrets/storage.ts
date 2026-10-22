@@ -9,15 +9,27 @@
  * the shared key. Successful fallback reads race-safely refresh the shared
  * ciphertext.
  *
+ * A development process connected to a remote database shares its rows with
+ * the deployments reading that database, but not necessarily their key
+ * material. It never refreshes shared ciphertext and refuses to write a secret
+ * unless the scope's stored secrets already use its preferred key, so it
+ * cannot strand values those deployments read.
+ *
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */
 
 import { randomUUID } from "node:crypto";
 
-import { getDbExec } from "../db/client.js";
+import {
+  getDbExec,
+  getRuntimeDatabaseUrl,
+  isLocalDatabase,
+} from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { isDeployedServerRuntime } from "../db/server-runtime.js";
 import { defineStore } from "../db/store-registry.js";
 import { invalidateAgentEngineStatusCache } from "../server/agent-engine-status-cache.js";
+import { isLoopbackHost } from "../server/origin-allowlist.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   encryptSecretValue as encryptLegacyValue,
@@ -86,6 +98,49 @@ export interface WriteSecretArgs extends SecretRef {
   urlAllowlist?: string;
 }
 
+export class AppSecretKeyMismatchError extends Error {
+  constructor(ref: SecretRef) {
+    super(
+      `Refusing to write secret "${ref.key}" (${ref.scope} scope): this development process is connected to a shared database, and the secrets stored there use encryption key material it does not prefer. Set WORKSPACE_SECRETS_ENCRYPTION_KEY to match the deployments that use this database, or point DATABASE_URL at a local database.`,
+    );
+    this.name = "AppSecretKeyMismatchError";
+  }
+}
+
+function isLocalDatabaseHost(): boolean {
+  if (isLocalDatabase()) return true;
+  const url = getRuntimeDatabaseUrl();
+  return URL.canParse(url) && isLoopbackHost(new URL(url).host);
+}
+
+function isDevelopmentProcessOnSharedDatabase(): boolean {
+  return !isDeployedServerRuntime() && !isLocalDatabaseHost();
+}
+
+function usesThisProcessKey(row: Record<string, unknown>): boolean {
+  const shared = row.shared_encrypted_value as string | null;
+  try {
+    if (shared) return !decryptValue(shared).needsReencrypt;
+    decryptLegacyValue(row.encrypted_value as string);
+    return true;
+  } catch {
+    return false; // coercion-ok: a failed decrypt is the mismatch this check reports
+  }
+}
+
+async function assertWriteKeepsSecretsReadable(ref: SecretRef): Promise<void> {
+  if (!isDevelopmentProcessOnSharedDatabase()) return;
+  // Check the whole scope: a new key has no row of its own, and a scope can
+  // mix rows from processes with different key material.
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ?`,
+    args: [ref.scope, ref.scopeId],
+  });
+  if (!rows.every((row) => usesThisProcessKey(row))) {
+    throw new AppSecretKeyMismatchError(ref);
+  }
+}
+
 /**
  * Write (insert or update) a secret. The value is encrypted before being
  * stored — the caller's plaintext is never persisted. Returns the new
@@ -99,6 +154,7 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
       "writeAppSecret: key, value, scope, and scopeId are all required",
     );
   }
+  await assertWriteKeepsSecretsReadable(args);
   const client = getDbExec();
   const now = Date.now();
   const encrypted = encryptLegacyValue(value);
@@ -225,7 +281,8 @@ async function populateSharedAppSecret(
   if (
     id === undefined ||
     id === null ||
-    !hasSharedSecretEncryptionKeyMaterial()
+    !hasSharedSecretEncryptionKeyMaterial() ||
+    isDevelopmentProcessOnSharedDatabase()
   ) {
     return;
   }
@@ -291,6 +348,19 @@ function secretCacheKey(ref: SecretRef): string {
 
 function invalidateRequestSecret(ref: SecretRef): void {
   requestSecretsCache()?.delete(secretCacheKey(ref));
+}
+
+const _warnedUndecryptableSecrets = new Set<string>();
+
+// Reads still report an undecryptable row as missing so credential resolution
+// can fall through to other scopes; the warning keeps the cause visible.
+function warnUndecryptableSecret(ref: SecretRef): void {
+  const id = secretCacheKey(ref);
+  if (_warnedUndecryptableSecrets.has(id)) return;
+  _warnedUndecryptableSecrets.add(id);
+  console.warn(
+    `[agent-native/secrets] Stored secret "${ref.key}" (${ref.scope} scope) cannot be decrypted with this process's encryption key material and is treated as missing. It was likely written by a process with different key material.`,
+  );
 }
 
 type AppSecretsReadQuery = { sql: string; args: unknown[] };
@@ -372,6 +442,7 @@ async function readAppSecretUncached(
   } catch {
     // Decryption failure — key rotated, tampered row, etc. Don't throw up the
     // stack in a way that could leak the ciphertext; just report missing.
+    warnUndecryptableSecret(ref);
     return null;
   }
 }
@@ -441,6 +512,11 @@ export async function readAppSecrets(args: {
       );
     } catch {
       // Match readAppSecret: corrupted or stale ciphertext behaves as missing.
+      warnUndecryptableSecret({
+        key,
+        scope: args.scope,
+        scopeId: args.scopeId,
+      });
     }
   }
   return results;

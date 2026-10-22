@@ -172,6 +172,27 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있어요",
+  "onboarding.creditsTitle": "매달 무료 Agent Credits 60개로 사용해 보세요",
+  "onboarding.creditsTitleClips":
+    "무료 비디오 저장소와 매달 Agent Credits 60개로 사용해 보세요",
+  "onboarding.creditsActivate": "무료 크레딧 활성화",
+  "onboarding.creditsFinePrint":
+    "이렇게 하면 무료 Builder.io 계정이 생성됩니다. 계속하면 당사의",
+  "onboarding.creditsMoreInfo": "자세한 정보",
+  "onboarding.creditsSubtitle":
+    "Builder.io에서 이 앱을 위해 한 번의 클릭으로 LLM, Jev, 스토리지 등의 무료 크레딧을 받으세요.",
+  "onboarding.creditsLearnMore": "자세히 알아보기",
+  "onboarding.creditsSkip": "건너뛰기",
+  "onboarding.creditsSkipConfirmTitle": "정말 건너뛰시겠습니까?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native 앱은 대부분의 기능을 사용하려면 연결된 LLM이 필요합니다. LLM이 없으면 대부분의 기능이 작동하지 않습니다.",
+  "onboarding.creditsSkipGoBack": "돌아가기",
+  "onboarding.creditsSkipAnyway": "그래도 건너뛰기",
+  "onboarding.creditsUseCustomKeys": "사용자 지정 키 사용",
+  "onboarding.creditsAboutLabel": "무료 크레딧 정보",
+  "onboarding.creditsActivating": "무료 크레딧 활성화 중",
+  "onboarding.creditsActivatingTooltip":
+    "Builder는 LLM, Jev, 스토리지 등을 위한 무료 크레딧을 제공하므로, 직접 키를 준비하지 않고도 이 앱의 AI 기능을 사용할 수 있습니다.",
   "onboarding.builderConnect": "Builder.io 연결",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
@@ -207,6 +228,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "임베딩",
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
+  "onboarding.capability.webSearch.label": "웹 검색",
+  "onboarding.capability.webSearch.keySummary": "웹 검색",
+  "onboarding.capability.webSearch.why":
+    "웹의 최신 공개 자료를 검색합니다. Builder 관리 검색은 포함된 Builder AI 크레딧을 사용하므로 별도의 검색 API 키가 필요하지 않습니다.",
   "onboarding.capability.systemOne.why":
     "Jev는 에이전트의 첫 모델 요청 전에 관련 도구와 스킬을 선택하도록 돕는 선택형 의사결정 모델입니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
@@ -723,6 +748,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "검색 중...",
   "history.untitledChat": "채팅",
   "history.yesterday": "어제",
+  "history.mine": "내 채팅",
+  "history.sharedWithYou": "나와 공유된 채팅",
+  "history.showAll": "모두 보기",
+  "history.showLess": "간단히 보기",
+  "history.loadMore": "더 불러오기",
+  "history.loadingMore": "불러오는 중...",
+  "history.retry": "다시 시도",
+  "history.loadFailed": "채팅을 불러올 수 없습니다",
+  "history.loadMoreFailed": "채팅을 더 불러올 수 없습니다",
+  "history.emptyMine": "아직 채팅이 없습니다",
+  "history.emptyShared": "공유된 채팅이 없습니다",
+  "history.ownedBy": "소유자: {{name}}",
+  "history.accessDirect": "나와 공유된 채팅",
+  "history.accessOrganization": "조직과 공유됨",
   "integrations.availableSection": "사용 가능한 연동",
   "integrations.connectedSection": "연결됨",
   "integrations.goToApiKeys": "API 키로 이동",
@@ -968,7 +1007,26 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, 연락처, 회사, 거래, 티켓, 고객 분석",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "워크스페이스에서 관리하는 HubSpot MCP Auth App이 구성되어 있으면 모든 멤버가 OAuth와 PKCE로 개인 HubSpot 계정을 연결할 수 있습니다. 그렇지 않으면 연결하기 전에 HubSpot Developer Platform에서 앱을 만드세요. 기존 HubSpot OAuth 커넥터는 앱 작업에서 계속 사용할 수 있습니다.",
+    "워크스페이스 소유자가 HubSpot MCP Auth App을 설정한 뒤 각 사용자가 자신의 HubSpot 계정을 연결합니다.",
+  "mcpIntegrations.hubspot.setupTitle": "HubSpot MCP 설정",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "워크스페이스 소유자가 HubSpot MCP를 한 번 설정합니다. 이후 각 구성원이 자신의 계정을 연결합니다.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus":
+    "워크스페이스 설정이 필요합니다",
+  "mcpIntegrations.hubspot.setupChecking": "워크스페이스 설정 확인 중…",
+  "mcpIntegrations.hubspot.setupUnavailable": "설정 상태를 확인할 수 없습니다",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "워크스페이스 OAuth 설정을 확인하지 못했습니다. 다시 시도하세요.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "HubSpot MCP Auth App을 만든 다음 Agent-Native settings → API keys에서 클라이언트 ID와 시크릿을 추가하세요.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "워크스페이스 소유자에게 HubSpot MCP Auth App을 만들고 Agent-Native settings → API keys에 클라이언트 ID와 시크릿을 추가해 달라고 요청하세요. 설정 후 본인의 HubSpot 계정을 연결할 수 있습니다.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "HubSpot MCP를 연결하려면 먼저 워크스페이스에 참여하세요.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "워크스페이스 자격 증명 추가",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "다시 확인",
+  "mcpIntegrations.hubspot.retrySetupStatus": "다시 시도",
   "mcpIntegrations.catalog.pylon.description":
     "Pylon 지원 데이터를 검색하고 업데이트합니다.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1392,6 +1450,17 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "뷰어",
   "share.viewerDescription": "보기 가능",
   "share.userGroup": "사용자 그룹",
+  "share.ownedByAnyone": "소유자 전체",
+  "share.ownedByMe": "내가 소유",
+  "share.sharedWithMe": "나와 공유됨",
+  "share.confirmOrganizationTitle": "조직과 공유할까요?",
+  "share.confirmOrganizationTitleNamed": "{{organization}}와(과) 공유할까요?",
+  "share.confirmOrganizationDescription":
+    "새 구성원을 포함한 조직의 모든 사용자가 이 항목을 열고 메시지, 파일 등 모든 내용을 볼 수 있게 됩니다. 나중에 변경할 수 있습니다.",
+  "share.confirmOrganizationDescriptionNamed":
+    "새 구성원을 포함한 {{organization}}의 모든 사용자가 이 항목을 열고 메시지, 파일 등 모든 내용을 볼 수 있게 됩니다. 나중에 변경할 수 있습니다.",
+  "share.confirmOrganizationAction": "조직과 공유",
+  "share.confirmOrganizationSharing": "공유하는 중...",
   "status.resuming": "재개 중",
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",
@@ -1441,6 +1510,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "작업함",
   "tool.workedFor": "{{duration}} 동안 작업함",
   "widget.chart": "차트",
+  "widget.chartActions": "차트 작업",
+  "widget.dataSources": "데이터 소스",
+  "widget.tableActions": "표 작업",
   "widget.dataChart": "데이터 차트",
   "widget.dataInsights": "데이터 인사이트",
   "widget.dataTable": "데이터 테이블",
@@ -1818,6 +1890,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "{{protocol}}를 통한 에이전트",
   "settings.audit.allApps": "모든 앱",
   "settings.audit.app": "앱",
+  "settings.audit.approval": "승인",
+  "settings.audit.approvalAgentChat": "에이전트 채팅에서 승인됨",
+  "settings.audit.approvalA2AReview": "에이전트 작업 검토 페이지에서 승인됨",
+  "settings.audit.approvalMcpClient": "MCP 클라이언트가 수락함(확인되지 않음)",
   "settings.audit.changedBy": "변경한 사람",
   "settings.audit.close": "닫기",
   "settings.audit.empty": "이 기간에는 변경 사항이 없습니다.",
@@ -1831,9 +1907,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "지난 90일",
   "settings.audit.loadFailed": "감사 로그를 불러올 수 없습니다.",
   "settings.audit.loading": "감사 로그 불러오는 중",
+  "settings.audit.oauthClient": "OAuth 클라이언트",
   "settings.audit.onBehalfOf": "요청한 사람",
   "settings.audit.range": "기간",
   "settings.audit.refused": "거부됨",
+  "settings.audit.reportedClient": "자체 보고된 클라이언트",
   "settings.audit.result": "결과",
   "settings.audit.showMore": "{{count}}개 더 보기",
   "settings.audit.succeeded": "성공",
@@ -1904,9 +1982,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "추가 정보",
   "settingsOrg.general.workspaceUrl": "워크스페이스 URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "다른 배포에서 이 워크스페이스로 멤버를 보냅니다.",
+    "이 조직의 앱 디렉터리를 배포 간에 연결합니다.",
   "settingsOrg.general.workspaceUrlHelp":
-    "다른 배포에 도착한 멤버는 빈 앱 대신 이 워크스페이스로 이동합니다.",
+    "다른 배포에서 이 URL을 사용해 워크스페이스 앱을 찾습니다. 멤버를 자동으로 리디렉션하지 않습니다.",
   "settingsOrg.general.editWorkspaceUrl": "워크스페이스 URL 편집",
   "settingsOrg.general.removeWorkspaceUrl": "워크스페이스 URL 제거",
   "settingsOrg.general.setWorkspaceUrl": "URL 설정",
@@ -1923,6 +2001,9 @@ const messages: ToolkitAgentChatTranslation = {
     "설정됨. 이 워크스페이스의 앱이 서로를 확인할 수 있습니다.",
   "settingsOrg.auth.sharedSecretNotSet":
     "설정 안 됨. 이 워크스페이스의 앱이 서로를 확인할 수 있습니다.",
+  "settingsOrg.auth.memberDelegation": "조직 구성원 신원 위임",
+  "settingsOrg.auth.memberDelegationHelp":
+    "이 공유 조직 비밀을 보유한 연결된 앱은 이 앱을 호출할 때 현재 구성원 누구의 신원이든 주장할 수 있습니다. 이 앱은 실시간 구성원 명단을 확인하고 위임된 조직 액세스를 구성원 수준 권한으로 제한합니다.",
   "settingsOrg.auth.secretNotSetValue": "설정 안 됨",
   "settingsOrg.auth.manage": "관리",
   "settingsOrg.auth.reveal": "표시",
@@ -1979,6 +2060,12 @@ const messages: ToolkitAgentChatTranslation = {
     "이메일을 확인하고 안내에 따라 이 변경을 확정하세요.",
   "settingsShell.account.languageAndRegion": "언어 및 지역",
   "settingsShell.account.languageDescription": "모든 기기에 적용됩니다.",
+  "settingsShell.account.appearance": "모양",
+  "settingsShell.account.themeFamily": "테마 스타일",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "앱의 원래 색상",
+  "settingsShell.account.themeFamilySaveError":
+    "테마 스타일을 업데이트하지 못했습니다. 다시 시도하세요.",
   "settingsShell.account.manage": "관리",
   "settingsShell.account.name": "이름",
   "settingsShell.account.nameDescription":
@@ -2598,6 +2685,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "앱 기본 모델",
   "settingsShell.search.backgroundAgents": "백그라운드 에이전트",
   "settingsShell.search.browserAutomation": "브라우저 자동화",
+  "settingsShell.search.webSearch": "웹 검색",
   "settingsShell.search.connectedAgents": "연결된 에이전트",
   "settingsShell.search.database": "데이터베이스",
   "settingsShell.search.defaultModel": "기본 모델",
@@ -2732,6 +2820,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "프로덕션에서 코드를 변경합니다.",
   "settingsInfra.whyBrowser":
     "에이전트가 프로덕션에서 브라우저를 사용할 수 있게 합니다.",
+  "settingsInfra.whyWebSearch": "최신 공개 정보와 공식 문서를 찾습니다.",
   "settingsInfra.provider": "제공업체",
   "settingsInfra.keyOrg": "조직의 {{provider}} 키를 사용합니다.",
   "settingsInfra.manageKey": "키 관리",
@@ -2893,6 +2982,10 @@ const messages: ToolkitAgentChatTranslation = {
     "여기서는 연결을 해제했습니다. ChatGPT에서는 액세스가 계속 유지될 수 있습니다.",
   "settingsModel.chatgptLocalOnly":
     "오픈 소스 앱은 loopback callback을 사용해 로컬에서 실행하면 신청 없이 이용할 수 있으며, 파트너 신청은 필요하지 않습니다. *.agent-native.com에서 호스팅되는 앱에는 운영자 승인과 호스팅 callback이 필요합니다.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "ChatGPT 플랜 액세스에는 개인 계정을 사용하세요. 로컬 개발에서는 로그인하기 전에 access.autoCreateDefaultOrg를 false로 설정하세요.",
+  "settingsModel.chatgptScopeUnresolved":
+    "앱에서 계정 범위를 확인할 수 없습니다. 로컬 설정을 완료한 다음 설정을 새로고침하세요.",
   "settingsModel.chatgptNoDirectUse":
     "이 ChatGPT 계정을 사용하려면 다시 연결하고 모델 직접 액세스를 허용하세요.",
   "settingsModel.chatgptReconnect": "다시 연결",
@@ -3070,6 +3163,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "보고서가 첨부되지 않았습니다.",
   "reportProblem.agentMessage":
     "앱에 문제가 생겼습니다. 첨부된 문제 보고서를 바탕으로 무슨 일이 있었는지 설명해 주세요.",
+  "unsupportedDevice.title": "더 큰 화면에서 열어 주세요",
+  "unsupportedDevice.titleDeck": "이 덱은 더 큰 화면에서 열어 주세요",
+  "unsupportedDevice.titleDesign": "이 디자인은 더 큰 화면에서 열어 주세요",
+  "unsupportedDevice.body":
+    "{{app}}은(는) iPad, 태블릿, 데스크톱에서 사용할 수 있어요. 링크를 자신에게 보내 그곳에서 이어서 작업하세요.",
+  "unsupportedDevice.email": "링크를 이메일로 보내기",
+  "unsupportedDevice.share": "링크 공유",
+  "unsupportedDevice.copy": "링크 복사",
+  "unsupportedDevice.copyFailed": "링크를 복사하지 못했어요",
+  "unsupportedDevice.copied": "링크를 복사했어요",
+  "unsupportedDevice.emailSubject": "컴퓨터에서 {{app}} 열기",
 };
 
 export default messages;

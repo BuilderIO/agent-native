@@ -202,9 +202,12 @@ describe("normalizeSelectedModels", () => {
     ]);
   });
 
-  it("does not apply Builder aliases to BYOK model selections", () => {
+  it("upgrades a known-outdated id in BYOK model selections", () => {
     expect(normalizeSelectedModels("anthropic", ["claude-sonnet-5"])).toEqual([
-      "claude-sonnet-5",
+      "claude-sonnet-5-5",
+    ]);
+    expect(normalizeSelectedModels("openai", ["gpt-5.6-luna"])).toEqual([
+      "gpt-6-luna",
     ]);
   });
 

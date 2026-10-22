@@ -8,6 +8,8 @@ import {
   getElementAnimationValue,
   getPersistedElementPath,
   resolveRevealSteps,
+  revealStepClicks,
+  revealStepsOf,
   resolveSlideAnimationElement,
   type RevealUnresolvedReason,
 } from "@/lib/slide-animation-elements";
@@ -20,11 +22,26 @@ export interface UnresolvedReveal {
   reason: RevealUnresolvedReason;
 }
 
+/** A resolved reveal. `click` is the 1-based press that plays it. */
+export interface BuildStep extends SlideAnimation {
+  click: number;
+}
+
 export interface BuildSteps {
   /** Resolved reveals, flattened, in playback order. */
-  steps: SlideAnimation[];
+  steps: BuildStep[];
   /** Reveals that did not resolve. Their objects stay visible and are never hidden. */
   unresolved: UnresolvedReveal[];
+}
+
+/**
+ * How many presses build the slide. Steps that play together share a click, so
+ * this is not the step count.
+ */
+export function buildClickCount(
+  steps: ReadonlyArray<{ click: number }> | null | undefined,
+): number {
+  return steps?.[steps.length - 1]?.click ?? 0;
 }
 
 /** Whether the slide has builds to hold back. Plain data, so it is safe on the server. */
@@ -40,7 +57,7 @@ function storedSlideRoot(content: string): Element | null {
     .querySelector(".fmd-slide");
 }
 
-function legacyParagraphSteps(content: string): SlideAnimation[] {
+function legacyParagraphSteps(content: string): BuildStep[] {
   const root = storedSlideRoot(content);
   if (!root) return [];
 
@@ -61,6 +78,7 @@ function legacyParagraphSteps(content: string): SlideAnimation[] {
               id: `auto-paragraph-${index}`,
               elementIndex: index,
               elementPath,
+              click: index + 1,
               type: "slide-up" as AnimationType,
             },
           ]
@@ -73,6 +91,7 @@ function legacyParagraphSteps(content: string): SlideAnimation[] {
   return Array.from(container.children).map((_, i) => ({
     id: `auto-${i}`,
     elementIndex: i,
+    click: i + 1,
     type: "slide-up" as AnimationType,
   }));
 }
@@ -83,7 +102,8 @@ export function getBuildSteps(slide: Slide): BuildSteps {
       storedSlideRoot(slide.content),
       slide.animations,
     );
-    const steps: SlideAnimation[] = [];
+    const clicks = revealStepClicks(revealStepsOf(outcomes));
+    const steps: BuildStep[] = [];
     const unresolved: UnresolvedReveal[] = [];
     for (const outcome of outcomes) {
       if (!outcome.ok) {
@@ -102,6 +122,7 @@ export function getBuildSteps(slide: Slide): BuildSteps {
               : step.animation.id,
           elementIndex: step.path[step.path.length - 1] ?? 0,
           elementPath: step.path,
+          click: clicks[steps.length]!,
           type: step.animation.type,
         });
       }
@@ -122,7 +143,7 @@ export function getBuildSteps(slide: Slide): BuildSteps {
  */
 export function annotateBuildSteps(
   slide: Slide,
-  steps: readonly SlideAnimation[] | null | undefined,
+  steps: readonly BuildStep[] | null | undefined,
   buildStep: number,
 ): Slide {
   if (!steps || steps.length === 0) return slide;
@@ -136,7 +157,7 @@ export function annotateBuildSteps(
     element.setAttribute("data-pstep", String(index));
     element.setAttribute(
       "data-pstep-state",
-      index < buildStep ? "shown" : "hidden",
+      step.click <= buildStep ? "shown" : "hidden",
     );
   });
   return { ...slide, content: doc.head.innerHTML + doc.body.innerHTML };
@@ -172,24 +193,28 @@ export function revealAnimationValue(
 
 /**
  * Moves mounted step elements to `buildStep`. Only steps entering now (index in
- * [previousStep, buildStep)) get their reveal. Other steps keep their state, so
+ * (previousStep, buildStep]) get their reveal. Other steps keep their state, so
  * a press never replays a reveal that already ran. `previousStep` is null for a
  * freshly mounted DOM, and then nothing animates. `reducedMotion` defaults to the
  * user's preference, so a caller that omits it still gets no motion under it.
  */
 export function setBuildState(
   elements: ReadonlyArray<Element | null>,
-  steps: ReadonlyArray<SlideAnimation>,
+  steps: ReadonlyArray<BuildStep>,
   buildStep: number,
   previousStep: number | null,
   reducedMotion = prefersReducedMotion(),
 ): void {
   elements.forEach((element, index) => {
     if (!element) return;
-    const entering =
-      previousStep !== null && index >= previousStep && index < buildStep;
-    const state =
-      index >= buildStep ? "hidden" : entering ? "entering" : "shown";
+    const click = steps[index]?.click ?? Number.POSITIVE_INFINITY;
+    const reached = click <= buildStep;
+    const seen = previousStep !== null && click <= previousStep;
+    const state = !reached
+      ? "hidden"
+      : previousStep !== null && !seen
+        ? "entering"
+        : "shown";
     if (element.getAttribute("data-pstep-state") === state) return;
     element.setAttribute("data-pstep-state", state);
     // Setting the reveal starts it once. Clearing it on leave means a later

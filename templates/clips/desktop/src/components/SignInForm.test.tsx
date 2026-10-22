@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../shared/labs", () => ({
   CLIPS_MEETINGS: "clips-meetings",
-  CLIPS_WISPRFLOW: "clips-wisprflow",
+  CLIPS_VOICE_DICTATION: "clips-voice-dictation",
   isLabEnabled: () => false,
 }));
 

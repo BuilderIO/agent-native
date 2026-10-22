@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
 const { approvalAuth, approvalStore } = vi.hoisted(() => ({
   approvalAuth: () => ({
     getAuthSecret: () => "fake-test-only-mcp-approval-secret",
+    findBetterAuthUserIdForEmail: async () => undefined,
   }),
   approvalStore: () => ({
     createMcpApprovalGrant: vi.fn(),

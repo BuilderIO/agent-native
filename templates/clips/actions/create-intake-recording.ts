@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -13,10 +17,10 @@ import {
 import { getResumableSession } from "../server/lib/resumable-session.js";
 import { BUG_REPORT_SEVERITIES } from "../shared/bug-report.js";
 import { buildClipIntakeUrl } from "../shared/clip-intake.js";
+import abandonRecordingStart from "./abandon-recording-start.js";
 import createRecording from "./create-recording.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import saveBugReportContext from "./save-bug-report-context.js";
-import trashRecording from "./trash-recording.js";
 
 const bugReportSchema = z.object({
   projectId: z.string().max(120).nullish(),
@@ -99,6 +103,13 @@ export default defineAction({
           ...intakeUploadUrls(args.intakeId, args.intakeToken, existing.id),
         };
       }
+      if (existingSession?.status === "creating") {
+        fail("A recording is already being prepared for this intake.", {
+          errorCode: "intake_creation_in_progress",
+          statusCode: 409,
+          details: { retryable: true },
+        });
+      }
       fail("This intake URL has expired or has already been used.", {
         errorCode: "intake_unavailable",
         statusCode: 409,
@@ -106,6 +117,23 @@ export default defineAction({
     }
 
     const { intakeId, intakeToken, bugReport, ...recordingArgs } = args;
+    const abandonRecordingRow = async (recordingId: string) =>
+      await runWithRequestContext(
+        {
+          userEmail: claimed.ownerEmail,
+          orgId: claimed.organizationId,
+        },
+        () =>
+          abandonRecordingStart.run(
+            { id: recordingId },
+            {
+              caller: "http",
+              userEmail: claimed.ownerEmail,
+              orgId: claimed.organizationId,
+            },
+          ),
+      );
+
     let created: Awaited<ReturnType<typeof createRecording.run>>;
     try {
       created = await runWithRequestContext(
@@ -128,7 +156,73 @@ export default defineAction({
           ),
       );
     } catch (error) {
-      await releaseClipIntakeCreation(intakeId);
+      if (isActionContractError(error)) {
+        const details = { ...error.details };
+        const recordingId = details.recordingId;
+        const cleanupWasConfirmed = details.cleanupConfirmed;
+        delete details.recordingId;
+        delete details.cleanupConfirmed;
+        let cleanupConfirmed =
+          typeof recordingId === "string"
+            ? cleanupWasConfirmed === true
+            : cleanupWasConfirmed === true ||
+              (cleanupWasConfirmed !== false &&
+                error.details?.retryable !== true);
+        if (
+          error.details?.retryable === true &&
+          typeof recordingId !== "string" &&
+          cleanupWasConfirmed !== true
+        ) {
+          // The intake row can't be safely retried if its failed recording
+          // could not be identified for cleanup.
+          details.retryable = false;
+        }
+        if (typeof recordingId === "string") {
+          if (cleanupConfirmed) {
+            try {
+              const cleanup = await abandonRecordingRow(recordingId);
+              cleanupConfirmed = cleanup.skipped !== true;
+              if (!cleanupConfirmed) details.retryable = false;
+            } catch (cleanupError) {
+              console.warn(
+                "[clip-intake] failed recording cleanup after create failure:",
+                cleanupError,
+              );
+              details.retryable = false;
+              cleanupConfirmed = false;
+            }
+          } else {
+            details.retryable = false;
+          }
+        }
+        if (cleanupConfirmed) {
+          try {
+            await releaseClipIntakeCreation(intakeId);
+          } catch (releaseError) {
+            console.warn(
+              "[clip-intake] cleaned recording but could not reopen intake:",
+              releaseError,
+            );
+            fail(error.message, {
+              errorCode: "intake_creation_release_failed",
+              statusCode: 503,
+              details: {
+                ...details,
+                cleanupConfirmed: true,
+                retryable: false,
+                intakeClaimReleased: false,
+              },
+            });
+          }
+        }
+        fail(error.message, {
+          errorCode: error.errorCode,
+          statusCode: error.statusCode,
+          ...(Object.keys(details).length > 0 ? { details } : {}),
+        });
+      }
+      // A plain error cannot tell us whether the create action left a row or
+      // provider session behind. Keep the one-use claim rather than risk a duplicate.
       throw error;
     }
 
@@ -136,23 +230,7 @@ export default defineAction({
       await abandonClipIntake(intakeId).catch((cleanupError: unknown) => {
         console.warn("[clip-intake] session cleanup failed:", cleanupError);
       });
-      await Promise.resolve(
-        runWithRequestContext(
-          {
-            userEmail: claimed.ownerEmail,
-            orgId: claimed.organizationId,
-          },
-          () =>
-            trashRecording.run(
-              { id: created.id, skipIfReady: true },
-              {
-                caller: "http",
-                userEmail: claimed.ownerEmail,
-                orgId: claimed.organizationId,
-              },
-            ),
-        ),
-      ).catch((cleanupError: unknown) => {
+      await abandonRecordingRow(created.id).catch((cleanupError: unknown) => {
         console.warn("[clip-intake] recording cleanup failed:", cleanupError);
       });
     };

@@ -12,7 +12,10 @@ describe("list-agent-engines", () => {
   let defaultAuthority: { allowed: boolean };
 
   beforeEach(() => {
+    vi.doUnmock("../../server/credential-provider.js");
     vi.resetModules();
+    vi.doUnmock("../../settings/store.js");
+    vi.doUnmock("../../server/credential-provider.js");
     vi.unstubAllEnvs();
     delete process.env.AGENT_ENGINE;
     delete process.env.AGENT_MODEL;
@@ -32,6 +35,29 @@ describe("list-agent-engines", () => {
       ),
       getOrgSetting: vi.fn(
         async (_orgId: string, key: string) => orgSettings.get(key) ?? null,
+      ),
+    }));
+    vi.doMock("../../settings/user-settings.js", async (importOriginal) => ({
+      ...(await importOriginal<
+        typeof import("../../settings/user-settings.js")
+      >()),
+      getUserSetting: vi.fn(
+        async (_email: string, key: string) => userSettings.get(key) ?? null,
+      ),
+    }));
+    vi.doMock("../../settings/org-settings.js", async (importOriginal) => ({
+      ...(await importOriginal<
+        typeof import("../../settings/org-settings.js")
+      >()),
+      getOrgSetting: vi.fn(
+        async (_orgId: string, key: string) => orgSettings.get(key) ?? null,
+      ),
+    }));
+    vi.doMock("../../settings/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../settings/store.js")>()),
+      getSetting: vi.fn().mockResolvedValue(null),
+      getSettings: vi.fn(
+        async (keys: string[]) => new Map(keys.map((key) => [key, null])),
       ),
     }));
     vi.doMock("../../oauth-tokens/store.js", async (importOriginal) => ({
@@ -186,6 +212,26 @@ describe("list-agent-engines", () => {
           ? { value: "sk-ant-fake-placeholder" }
           : null,
     );
+    // Selection inputs are independent of credential-policy and role reads,
+    // which use their own storage fixtures in the resolver suites.
+    vi.doMock("../../server/credential-provider.js", async (importOriginal) => {
+      const original =
+        await importOriginal<
+          typeof import("../../server/credential-provider.js")
+        >();
+      return {
+        ...original,
+        resolveSecretDetailed: vi.fn(async (key: string) =>
+          key === "ANTHROPIC_API_KEY"
+            ? {
+                value: "sk-ant-fake-placeholder",
+                source: "user" as const,
+                lookupFailed: false,
+              }
+            : { value: null, lookupFailed: false },
+        ),
+      };
+    });
     userSettings.set("agent-provider-models:anthropic", {
       models: ["claude-opus-5-5"],
     });
@@ -223,6 +269,41 @@ describe("list-agent-engines", () => {
     expect(result.current).toEqual({
       engine: "anthropic",
       model: "claude-opus-5-5",
+    });
+  });
+
+  it("keeps an unreadable provider selection distinct from a readable unset selection", async () => {
+    vi.doMock(
+      "../../server/credential-provider.js",
+      async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import("../../server/credential-provider.js")
+        >()),
+        resolveSecretDetailed: vi.fn(async (key: string) => ({
+          value: null,
+          lookupFailed: key === "GOOGLE_GENERATIVE_AI_API_KEY",
+        })),
+      }),
+    );
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+    const result = JSON.parse(
+      await runWithRequestContext(
+        { userEmail: "member@example.com", orgId: "org-models" },
+        () => run(),
+      ),
+    );
+    const byName = (name: string) =>
+      result.engines.find((engine: { name: string }) => engine.name === name);
+
+    expect(byName("ai-sdk:google")?.modelSelection).toEqual({
+      state: "unreadable",
+      error: "Could not read the credential store.",
+    });
+    expect(byName("ai-sdk:openai")?.modelSelection).toEqual({
+      state: "default",
+      scope: "org",
     });
   });
 

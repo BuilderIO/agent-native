@@ -1,0 +1,158 @@
+---
+title: "Chat: Features"
+description: "Every feature that ships with Chat, including conversations, connecting a model, the example action, agent settings, teams, and the admin pages, with setup steps for each."
+---
+
+# Features
+
+Every feature that ships with Chat: how it works, and how to set it up. See
+[Chat](/docs/template-chat) for the overview and
+[Talk to the Agent](/docs/template-chat-agent) for prompts to try.
+
+## Conversations
+
+After you sign in, Chat opens on the **Get started** page, which has a message box and a few links. Send a message there and the conversation opens full page. **New Chat** starts a fresh conversation under the heading "How can I help?" The box stays centered until you send your first message, then moves to the bottom as the conversation grows.
+
+The sidebar lists your conversations in two groups. **Pinned** chats stay at
+the top, and **Recents** shows everything else, newest first. A chat that's
+still working shows a spinner next to its title, so you can start another
+conversation without losing track of the first.
+
+- **Start a new chat** with **New Chat** at the top of the sidebar.
+- **Reopen** any chat by selecting it in the list.
+- **Rename, pin, or archive** a chat from the options menu on its row.
+  Archiving removes it from the list.
+- **Collapse the sidebar** when you want more room for the conversation.
+
+<Steps>
+
+### Rename a chat
+
+Open the options menu on the chat's row and choose **Rename Chat**. Type the
+new title and press Enter. Titles can be up to 160 characters.
+
+### Pin a chat you come back to
+
+Choose **Pin Chat** from the same menu. The chat moves to **Pinned** until
+you choose **Unpin Chat**.
+
+### Archive a chat you're done with
+
+Choose **Archive Chat**. If the archive fails, a message appears and the chat
+stays where it is.
+
+</Steps>
+
+## Connect a model
+
+The agent needs a model to answer. Until one is connected, the message box
+reads "Connect AI to start chatting..." Choose **Use Builder.io** for free
+credits, or **Add your own keys** to use a provider key of your own. Then the
+agent can answer right away.
+
+To change the model later, open **Settings** and choose **Model**. That page
+sets the default model and the providers the app can use.
+
+<Callout tone="info">
+
+Chat doesn't pick a model for you. Which models you can choose from depends
+on the provider you connect.
+
+</Callout>
+
+## Voice input
+
+The message box includes a microphone button. Select it to dictate a message
+instead of typing, then send it like any other. Language and dictation
+options live under **Settings → Preferences**.
+
+## The example action
+
+Chat includes one example action called **hello**. An action is a single
+thing the app can do, like greeting someone, creating a note, or looking up a
+record. Each action has a name, a description of what it does, and the details
+it needs to run. The agent reads those descriptions to decide which action to
+use for your request.
+
+Ask the agent to greet someone, such as "Call the hello action for Alex", and
+it runs hello with that name and shows the result. It exists so you can see
+the full loop once, from your message to the agent running an action and
+showing what came back, before you write your own.
+
+Actions are the shared surface of an agent-native app. The agent uses them,
+and so can the app's own screens, so a new action works in both places with
+no extra setup. Developers add their own actions as the app grows. See
+[Actions](/docs/actions-overview) for how they work and
+[Defining Actions](/docs/actions-defining) to write one.
+
+## Shape the agent in Settings
+
+Open **Settings** and look under the **Agent** group. These pages control how
+the agent behaves in every chat.
+
+| Page                | What it controls                                              |
+| ------------------- | ------------------------------------------------------------- |
+| **Model**           | The default model and provider keys.                          |
+| **Instructions**    | Standing guidance the agent follows in every chat.            |
+| **Personalization** | Your own custom instructions and memory preferences.          |
+| **Memory**          | Things the agent has learned and remembers across chats.      |
+| **Skills**          | Reusable how-to guides the agent can load for a kind of task. |
+| **Files**           | Reference files the agent can read.                           |
+| **Sub-agents**      | Helper agents the main agent can hand work to.                |
+
+The **Connections** group holds **Integrations** and **API keys**, and the
+**Account** group holds **Profile**, **Preferences**, and **Security**.
+
+<Steps>
+
+### Open Settings
+
+Select the search button at the bottom of the sidebar and choose
+**Settings**.
+
+### Pick a page
+
+Choose a page from the list on the left. Changes apply to your next message.
+
+</Steps>
+
+## Sign-in and teams
+
+Chat requires sign-in. Login, signup, and sessions are set up from the first
+run, and sign-in methods, members, and roles are managed under the
+**Organization** group in Settings.
+
+The organization switcher at the bottom of the sidebar shows which
+organization you're working in and lets you switch. Keep a single
+organization per workspace and add people to it as members. Credentials you
+connect are saved per organization, so a second organization doesn't see the
+keys connected under the first.
+
+## Database and Observability
+
+Two admin pages ship with Chat. They aren't linked from the sidebar, so open
+them by address.
+
+- **Database** at `/database` shows the app's tables and lets you browse the
+  rows the agent and the app have saved.
+- **Observability** at `/observability` shows what the agent has been doing,
+  with tabs for an overview, conversations, evals, experiments, and feedback.
+
+Both are for the person running the app. They're mounted whether or not you
+ever open them.
+
+## Mini-apps
+
+Chat can run **Extensions**, small sandboxed tools like a calculator or a
+checklist. They're switched off in Chat. There's no Extensions page in
+Settings, and the agent can't build them. A developer turns them on in two
+places. See [Extensions](/docs/extensions) for what they are and how to enable
+them.
+
+## What's next
+
+- [**Talk to the Agent**](/docs/template-chat-agent) — what the agent can see, and prompts to try
+- [**Chat in a Multi-App Workspace**](/docs/template-chat-integrations) — connecting Chat to Dispatch and other apps
+- [**Developer Guide**](/docs/template-chat-developers) — quick start, actions, the chat route, and adding your first feature
+- [**Chat**](/docs/template-chat) — the overview
+- [**Extensions**](/docs/extensions) — how mini-apps are built and shared

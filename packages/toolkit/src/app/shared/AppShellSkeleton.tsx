@@ -50,7 +50,6 @@ function Sidebar({ width = 248 }: { width?: number }) {
         flexShrink: 0,
         flexDirection: "column",
         gap: 16,
-        borderRight: BORDER,
         backgroundColor:
           "hsl(var(--sidebar-background, var(--background, 0 0% 100%)))",
         padding: 16,
@@ -80,7 +79,6 @@ function Header({ titleWidth = 128 }: { titleWidth?: number }) {
         flexShrink: 0,
         alignItems: "center",
         gap: 12,
-        borderBottom: BORDER,
         padding: "0 16px",
       }}
     >
@@ -214,7 +212,6 @@ function MailLayout() {
           flexShrink: 0,
           alignItems: "center",
           gap: 4,
-          borderBottom: BORDER,
           padding: "0 8px",
           overflowX: "auto",
           overflowY: "hidden",

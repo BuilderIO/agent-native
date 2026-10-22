@@ -6,7 +6,6 @@ import {
   type H3Event,
 } from "h3";
 
-import { runMigrations } from "../db/migrations.js";
 import { registerFeatureFlags } from "../feature-flags/registry.js";
 import {
   awaitBootstrap,
@@ -48,6 +47,7 @@ import {
   setDomainHandler,
   setWorkspaceUrlHandler,
   setRequiredAuthProviderHandler,
+  setA2AMemberDelegationHandler,
   revealA2ASecretHandler,
   setA2ASecretHandler,
   syncA2ASecretHandler,
@@ -55,11 +55,11 @@ import {
   setWorkspaceAppDefaultVisibilityHandler,
   setOrgVisualIdentityHandler,
 } from "./handlers.js";
-import { ORG_MIGRATIONS } from "./migrations.js";
 import {
   readWorkspacePrivateIconHandler,
   uploadWorkspacePrivateIconHandler,
 } from "./private-icon-handlers.js";
+import { orgStore } from "./schema-store.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -115,6 +115,7 @@ async function workspaceIconUploadResponse(event: H3Event) {
  *   PUT    /_agent-native/org/domain                      — set/clear allowed email domain (owner/admin)
  *   PUT    /_agent-native/org/workspace-url               — set/clear the org's workspace origin (owner/admin)
  *   PUT    /_agent-native/org/auth-provider               — require/clear Google sign-in (owner/admin)
+ *   PUT    /_agent-native/org/a2a-member-delegation       — allow org-member A2A assertions (owner only)
  *   PUT    /_agent-native/org/visual-identity              — set/clear workspace icon (owner/admin)
  *   GET    /_agent-native/org/a2a-secret                  — reveal A2A secret on demand (owner/admin)
  *   PUT    /_agent-native/org/a2a-secret                  — regenerate or set A2A secret (owner/admin)
@@ -122,13 +123,11 @@ async function workspaceIconUploadResponse(event: H3Event) {
  *   POST   /_agent-native/org/a2a-secret/receive          — accept a peer's secret push (JWT-auth, no session)
  */
 export function createOrgPlugin(): NitroPluginDef {
-  const migrate = runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" });
-
   return async (nitroApp: any) => {
     registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
     markDefaultPluginProvided(nitroApp, "org");
     await awaitBootstrap(nitroApp);
-    await migrate(nitroApp);
+    await orgStore.ready();
 
     const app = getH3App(nitroApp);
 
@@ -290,6 +289,17 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return retryPendingFederatedRemovalHandler(event);
+      }),
+    );
+
+    app.use(
+      `${ORG_PREFIX}/a2a-member-delegation`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setA2AMemberDelegationHandler(event);
       }),
     );
 

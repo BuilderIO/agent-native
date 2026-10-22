@@ -37,6 +37,8 @@ export {
   type SpreadsheetDocumentType,
 } from "./spreadsheet.js";
 export {
+  DEFAULT_PPTX_IMAGE_BYTE_LIMITS,
+  PptxImageByteLimitError,
   parsePptxPresentation,
   type ParsedPptxImage,
   type ParsedPptxElement,
@@ -45,6 +47,7 @@ export {
   type ParsedPptxPresentation,
   type ParsedPptxSlide,
   type ParsedPptxTextRun,
+  type PptxImageByteLimits,
 } from "./pptx.js";
 export {
   extractDocxSections,

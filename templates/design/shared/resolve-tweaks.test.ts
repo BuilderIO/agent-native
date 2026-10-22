@@ -107,6 +107,9 @@ describe("resolveTweaksToCssVars", () => {
   });
 
   it("drops unsafe CSS values before they can break out of a declaration", () => {
+    expect(isSafeCssTokenValue("#123")).toBe(true);
+    expect(isSafeCssTokenValue("#GGGGGG")).toBe(false);
+    expect(isSafeCssTokenValue(" #GGGGGG ")).toBe(false);
     expect(isSafeCssTokenValue("red; color: black")).toBe(false);
     expect(isSafeCssTokenValue("red} body { color: black")).toBe(false);
     expect(isSafeCssTokenValue("red/* comment */")).toBe(false);
@@ -143,6 +146,7 @@ describe("resolveTweaksToCssVars", () => {
     expect(
       resolveTweaksToCssVars(tweaks, {
         "theme-accent": "red; color: black",
+        "--color-invalid": "#GGGGGG",
         "--shadow-glow": "0 0 24px red; color: black",
         "--safe-shadow": "0 0 24px rgba(14, 165, 233, 0.4)",
       }),

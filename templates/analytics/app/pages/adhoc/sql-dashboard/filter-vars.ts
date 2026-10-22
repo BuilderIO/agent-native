@@ -1,4 +1,9 @@
-import type { DashboardFilter, FilterPreset, FilterType } from "./types";
+import type {
+  DashboardFilter,
+  FilterPreset,
+  FilterPresetEdit,
+  FilterType,
+} from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
@@ -36,11 +41,24 @@ function daysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Filter values come straight from the URL. An "Nd" value past this bound is
+// not a range (a huge count makes an invalid Date that throws in
+// toISOString), so callers treat it like any other unrecognized value.
+const MAX_DAY_COUNT = 36_500;
+
+export function parseDayCount(value: string): number | null {
+  const match = /^(\d+)d$/.exec(value);
+  if (!match) return null;
+  const days = Number(match[1]);
+  return days <= MAX_DAY_COUNT ? days : null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export const MAX_FILTER_OPTIONS = 100;
+export const MAX_FILTER_OPTIONS = 500;
+export const MAX_FILTER_PRESET_VALUES = 100;
 // Each preset is a button in the dropdown, so a filter offers a short list.
 export const MAX_FILTER_PRESETS = 20;
 
@@ -66,7 +84,8 @@ export function isDashboardFilter(value: unknown): value is DashboardFilter {
             typeof option.label === "string",
         ))) &&
     (value.presets === undefined ||
-      (Array.isArray(value.presets) && value.presets.every(isFilterPreset)))
+      (Array.isArray(value.presets) && value.presets.every(isFilterPreset))) &&
+    (value.customRange === undefined || typeof value.customRange === "boolean")
   );
 }
 
@@ -97,9 +116,9 @@ export function filterPresetIssues(
     if (
       isRecord(preset) &&
       Array.isArray(preset.values) &&
-      preset.values.length > MAX_FILTER_OPTIONS
+      preset.values.length > MAX_FILTER_PRESET_VALUES
     ) {
-      return `has more than ${MAX_FILTER_OPTIONS} values`;
+      return `has more than ${MAX_FILTER_PRESET_VALUES} values`;
     }
     if (
       !isFilterPreset(preset) ||
@@ -133,8 +152,34 @@ export function usableFilterPresets(
   );
 }
 
+// Edits the stored list, which the page reads unvalidated, so entries the filter
+// bar skips stay as they were. Rename and delete match every entry with the
+// label: a list a save accepts never repeats one.
+export function editFilterPresets(
+  presets: unknown,
+  edit: FilterPresetEdit,
+): FilterPreset[] {
+  const stored = (Array.isArray(presets) ? presets : []) as FilterPreset[];
+  const named = (preset: unknown, label: string) =>
+    isRecord(preset) && preset.label === label;
+  switch (edit.kind) {
+    case "add":
+      return [...stored, edit.preset];
+    case "rename":
+      return stored.map((preset) =>
+        named(preset, edit.label)
+          ? { ...preset, label: edit.newLabel }
+          : preset,
+      );
+    case "delete":
+      return stored.filter((preset) => !named(preset, edit.label));
+  }
+}
+
 export function isDateRangePresetFilter(filter: DashboardFilter): boolean {
-  if (filter.type !== "select" || !filter.options?.length) return false;
+  if (filter.type !== "select") return false;
+  if (filter.customRange === true) return true;
+  if (!filter.options?.length) return false;
   const isRange = (value: string) => /^\d+d$/.test(value);
   return (
     filter.options.some((option) => isRange(option.value)) &&
@@ -180,8 +225,8 @@ export function resolveDefault(
 ): string {
   if (!raw) return "";
   if (DATE_FILTER_TYPES.has(type)) {
-    const match = /^(\d+)d$/.exec(raw);
-    if (match) return daysAgo(parseInt(match[1], 10));
+    const days = parseDayCount(raw);
+    if (days !== null) return daysAgo(days);
     if (raw === "today") return daysAgo(0);
   }
   return raw;
@@ -215,17 +260,29 @@ function resolveDateParam(
 }
 
 function dateRangeStart(range: string): string {
-  const days = /^(\d+)d$/.exec(range);
-  return days ? daysAgo(Number(days[1])) : daysAgo(30);
+  if (range === "all") return ALL_TIME_START;
+  return daysAgo(parseDayCount(range) ?? 30);
 }
 
+/**
+ * The variables a dashboard's SQL gets, as the page resolves them from its URL
+ * (`f_<filter id>` search params), each filter's default where the URL has
+ * none; undefined when the config's filters or variables can't be read.
+ */
 export function resolveDefaultFilterVars(
   config: unknown,
+  searchParams: Record<string, string> = {},
 ): Record<string, string> | undefined {
   const filters = reviewDashboardFilters(config);
   const variables = reviewDashboardVariables(config);
   if (!filters || !variables) return undefined;
-  return { ...variables, ...resolveFilterVars(filters, () => "") };
+  return {
+    ...variables,
+    ...resolveFilterVars(
+      filters,
+      (key) => searchParams[FILTER_PARAM_PREFIX + key] ?? "",
+    ),
+  };
 }
 
 export function resolveFilterVars(
@@ -249,22 +306,40 @@ export function resolveFilterVars(
           ? resolveDateValue(getParam(filter.id), ALL_TIME_START)
           : getParam(filter.id);
     } else if (isDateRangePresetFilter(filter)) {
+      const requested = getParam(filter.id);
+      // A customRange select only takes a value it offers ("custom" always
+      // is), so a URL can't pick a period or range the dashboard doesn't have.
+      const offered =
+        filter.customRange !== true ||
+        requested === "custom" ||
+        !!filter.options?.some((option) => option.value === requested);
       const value =
-        getParam(filter.id) || resolveDefault(filter.default, filter.type);
+        (offered && requested) || resolveDefault(filter.default, filter.type);
       const startKey = filter.id + "Start";
       const endKey = filter.id + "End";
       const defaultRange = value === "custom" ? filter.default || "30d" : value;
-      const fallbackStart =
-        value === "custom" ? "" : dateRangeStart(defaultRange);
-      const fallbackEnd = value === "custom" ? "" : daysAgo(0);
+      // On a customRange select only "30d"-style and "all" options imply
+      // bounds; an option such as "this" (quarter) leaves the range empty for
+      // the SQL to resolve.
+      const impliesBounds =
+        value !== "custom" &&
+        (filter.customRange !== true ||
+          parseDayCount(value) !== null ||
+          value === "all");
+      const fallbackStart = impliesBounds ? dateRangeStart(defaultRange) : "";
+      const fallbackEnd = impliesBounds ? daysAgo(0) : "";
+      // A customRange select only takes bounds from the URL while "custom" is
+      // picked, so a stale range in a shared link can't hide behind a period
+      // label.
+      const urlBounds = filter.customRange !== true || value === "custom";
       out[filter.id] = value;
       out[startKey] = resolveDateParam(
-        getParam(startKey),
+        urlBounds ? getParam(startKey) : "",
         fallbackStart,
         fallbackStart,
       );
       out[endKey] = resolveDateParam(
-        getParam(endKey),
+        urlBounds ? getParam(endKey) : "",
         fallbackEnd,
         fallbackEnd,
       );

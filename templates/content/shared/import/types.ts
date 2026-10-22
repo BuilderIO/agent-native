@@ -28,6 +28,8 @@ export const IMPORT_NOTE_SEVERITY = {
   "link-title-dropped": "lost",
   "code-block-info-dropped": "lost",
   "hidden-html-dropped": "lost",
+  "blocks-field-not-imported": "lost",
+  "export-manifest-unreadable": "lost",
   "unsupported-markdown": "lost",
   "text-not-landed": "lost",
   "structure-changed-on-save": "lost",
