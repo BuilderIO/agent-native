@@ -742,6 +742,31 @@ async function action<T = any>(
   method: "DELETE" | "GET" | "POST" = "POST",
   timeoutMs = 30_000,
 ): Promise<T> {
+  if (name === "delete-deck") {
+    return page.evaluate(
+      async ({
+        body,
+        source,
+        timeoutMs,
+      }: {
+        body: Record<string, unknown>;
+        source: string;
+        timeoutMs: number;
+      }) => {
+        const { callAction } = await import(source);
+        return callAction("delete-deck", body, {
+          method: "DELETE",
+          uiOnly: true,
+          timeoutMs,
+        });
+      },
+      {
+        body,
+        source: `/@fs/${WORKTREE_ROOT.replace(/\\/g, "/")}/packages/core/src/client/use-action.ts`,
+        timeoutMs,
+      },
+    );
+  }
   const evaluation = page.evaluate(
     async ({ name, body, method, timeoutMs }: any) => {
       const url =

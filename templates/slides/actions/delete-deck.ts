@@ -14,6 +14,7 @@ export default defineAction({
   }),
   http: { method: "DELETE" },
   needsApproval: true,
+  allowPersistentApproval: false,
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
