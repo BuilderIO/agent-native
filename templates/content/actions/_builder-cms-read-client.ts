@@ -682,10 +682,10 @@ async function readBuilderCmsGeneralModels(args: {
     signal: args.signal,
   });
   if (response.status === 401) {
-    return readBuilderCmsModelsViaPublishMcp({
-      expectedSpace: publicKey,
-      fetchImpl: args.fetchImpl,
-    });
+    fail(
+      "Builder rejected this Builder.io connection. Reconnect Builder.io in Settings.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
+    );
   }
   if (!response.ok) {
     fail(`Builder model discovery failed with HTTP ${response.status}.`, {
@@ -697,176 +697,9 @@ async function readBuilderCmsGeneralModels(args: {
   return builderMcpModelsFromToolResponse((await response.json()) as unknown);
 }
 
-function builderMcpSpacePublicKeyFromIdentity(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const result = value as Record<string, unknown>;
-  const space = [
-    result.space,
-    result.currentSpace,
-    result.current_space,
-    result.selectedSpace,
-    result.selected_space,
-  ].find(
-    (candidate) =>
-      candidate && typeof candidate === "object" && !Array.isArray(candidate),
-  );
-  if (!space || typeof space !== "object" || Array.isArray(space)) {
-    return null;
-  }
-  const record = space as Record<string, unknown>;
-  const keys = [
-    "publicKey",
-    "publicApiKey",
-    "public_api_key",
-    "apiKey",
-    "api_key",
-  ];
-  const candidates = keys
-    .map((key) => record[key])
-    .filter(
-      (candidate): candidate is string =>
-        typeof candidate === "string" && candidate.trim().length > 0,
-    )
-    .map((candidate) => candidate.trim());
-  const uniqueCandidates = [...new Set(candidates)];
-  if (uniqueCandidates.length > 0) {
-    return uniqueCandidates.length === 1 ? uniqueCandidates[0] : null;
-  }
-  // `who_am_i` names the Space only by id, which is also its public API key.
-  return typeof record.id === "string" && record.id.trim()
-    ? record.id.trim()
-    : null;
-}
-
-// Builder's hosted Publish MCP names its identity tool `who_am_i`.
-const BUILDER_MCP_IDENTITY_TOOLS = ["get_authenticated_user", "who_am_i"];
-
-async function readBuilderCmsModelsViaPublishMcp(args: {
-  expectedSpace: string;
-  fetchImpl: FetchLike;
-}) {
-  const authorization = await resolveBuilderRequestAuthorization({
-    oauthResource: "publish",
-    legacyCredentialKeys: [],
-  });
-  if (
-    !authorization ||
-    authorization.source !== "oauth" ||
-    authorization.oauthResource !== "publish"
-  ) {
-    fail(
-      "Builder CMS model discovery requires a read-only Publish MCP connection.",
-      {
-        errorCode: "builder_connection_required",
-        statusCode: 412,
-      },
-    );
-  }
-
-  const endpoint = BUILDER_PUBLISH_MCP_RESOURCE;
-  const connection = await initializeBuilderMcp({
-    endpoint,
-    privateKey: authorization.token,
-    fetchImpl: args.fetchImpl,
-  });
-  const tools = await postBuilderMcp({
-    endpoint,
-    privateKey: authorization.token,
-    fetchImpl: args.fetchImpl,
-    connection,
-    payload: {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/list",
-      params: {},
-    },
-  });
-  const toolList = tools.json.result;
-  const toolRecords =
-    toolList &&
-    typeof toolList === "object" &&
-    Array.isArray((toolList as Record<string, unknown>).tools)
-      ? ((toolList as Record<string, unknown>).tools as unknown[])
-      : [];
-  const toolNames = new Set(
-    toolRecords
-      .map((tool) =>
-        tool && typeof tool === "object" && !Array.isArray(tool)
-          ? (tool as Record<string, unknown>).name
-          : null,
-      )
-      .filter((name): name is string => typeof name === "string"),
-  );
-  const identityTool = BUILDER_MCP_IDENTITY_TOOLS.find((name) =>
-    toolNames.has(name),
-  );
-  if (!identityTool) {
-    fail("Builder MCP does not expose its authenticated Space identity.", {
-      errorCode: "builder_response_invalid",
-      statusCode: 424,
-    });
-  }
-
-  const identityResult = await postBuilderMcp({
-    endpoint,
-    privateKey: authorization.token,
-    fetchImpl: args.fetchImpl,
-    connection,
-    payload: {
-      jsonrpc: "2.0",
-      id: 3,
-      method: "tools/call",
-      params: {
-        name: identityTool,
-        arguments: {},
-      },
-    },
-  });
-  const identity = parseBuilderMcpToolJson(identityResult.json.result);
-  const selectedSpace = builderMcpSpacePublicKeyFromIdentity(identity);
-  if (!selectedSpace) {
-    fail("Builder MCP did not identify its connected Space public key.", {
-      errorCode: "builder_response_invalid",
-      statusCode: 424,
-    });
-  }
-  if (selectedSpace !== args.expectedSpace) {
-    fail(
-      "The Builder Publish MCP connection does not match this Content source's Space.",
-      { errorCode: "builder_source_space_mismatch", statusCode: 409 },
-    );
-  }
-
-  const modelsResult = await postBuilderMcp({
-    endpoint,
-    privateKey: authorization.token,
-    fetchImpl: args.fetchImpl,
-    connection,
-    payload: {
-      jsonrpc: "2.0",
-      id: 4,
-      method: "tools/call",
-      params: {
-        name: "list_builder_models",
-        arguments: {},
-      },
-    },
-  });
-  const modelsJson = parseBuilderMcpToolJson(modelsResult.json.result);
-  if (!modelsJson) {
-    fail("Builder MCP model discovery returned malformed tool content.", {
-      errorCode: "builder_response_invalid",
-      statusCode: 424,
-    });
-  }
-  return builderMcpModelsFromToolResponse(modelsJson);
-}
-
 // Body hydration reads entries one at a time and each read needs the model id.
-// Rediscovering it per entry costs a request per row, and seven when discovery
-// falls back to the Publish MCP, so a large source floods Builder.
+// Rediscovering it per entry costs a request per row, so a large source floods
+// Builder.
 const BUILDER_MODEL_ID_TTL_MS = 60_000;
 const builderModelIdCache = new WeakMap<
   FetchLike,
@@ -1209,7 +1042,16 @@ function builderMcpModelsFromToolResponse(
       statusCode: 424,
     });
   }
-  const models = record.models.map((model) => normalizeBuilderCmsModel(model));
+  // /api/v1/models also lists archived models, which Builder's own model list
+  // hides; without this the source picker offers them.
+  const models = record.models
+    .filter(
+      (model) =>
+        !model ||
+        typeof model !== "object" ||
+        (model as Record<string, unknown>).archived !== true,
+    )
+    .map((model) => normalizeBuilderCmsModel(model));
   if (models.some((model) => !model)) {
     fail("Builder model discovery returned a malformed model.", {
       errorCode: "builder_response_invalid",

@@ -302,198 +302,16 @@ describe("Builder CMS read client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the read-only Publish MCP model list only after confirming the bound Space", async () => {
-    const generalAuthorization = {
+  it("asks for a Builder reconnect when cdn rejects the OAuth grant", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
-      source: "oauth" as const,
-      oauthResource: "general" as const,
+      source: "oauth",
+      oauthResource: "general",
       oauthSelectedPublicKey: "selected-space-key",
       oauthConnectionId: "content-connection-1",
-    };
-    const publishAuthorization = {
-      token: "publish-oauth-token",
-      authorization: "Bearer publish-oauth-token",
-      source: "oauth" as const,
-      oauthResource: "publish" as const,
-    };
-    resolveBuilderRequestAuthorizationMock
-      .mockResolvedValueOnce(generalAuthorization)
-      .mockResolvedValueOnce(publishAuthorization);
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(null, { status: 401 }))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            result: { supportedVersions: ["2026-07-28"] },
-          }),
-          { status: 200 },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            result: {
-              tools: [
-                {
-                  name: "get_authenticated_user",
-                  description:
-                    "Returns the authenticated user and connected Space.",
-                },
-              ],
-            },
-          }),
-          { status: 200 },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            result: {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    space: { publicApiKey: "selected-space-key" },
-                  }),
-                },
-              ],
-            },
-          }),
-          { status: 200 },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            result: {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    models: [
-                      {
-                        id: "model-1",
-                        name: "blog_article",
-                        displayName: "Blog article",
-                        fields: [],
-                      },
-                    ],
-                  }),
-                },
-              ],
-            },
-          }),
-          { status: 200 },
-        ),
-      );
-
-    await expect(
-      listBuilderCmsModels({
-        expectedSourceSpace: "selected-space-key",
-        expectedSourceConnectionId: "content-connection-1",
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      }),
-    ).resolves.toMatchObject({
-      state: "live",
-      models: [{ id: "model-1" }],
     });
-    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenNthCalledWith(1, {
-      oauthResource: "general",
-      requiredScope: "builder:content:read",
-      legacyCredentialKeys: [],
-    });
-    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenNthCalledWith(2, {
-      oauthResource: "publish",
-      legacyCredentialKeys: [],
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(5);
-    expect(fetchImpl.mock.calls[0]?.[0]).toBeInstanceOf(URL);
-    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
-      "https://cdn.builder.io/api/v1/models?apiKey=selected-space-key",
-    );
-    expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({
-      headers: { authorization: "Bearer general-oauth-token" },
-    });
-    const mcpCalls = fetchImpl.mock.calls.slice(1) as [string, RequestInit][];
-    expect(
-      mcpCalls.every(
-        ([input]) => input === "https://mcp.builder.io/mcp/publish",
-      ),
-    ).toBe(true);
-    expect(
-      mcpCalls.every(
-        ([, init]) =>
-          (init.headers as Record<string, string>).authorization ===
-          "Bearer publish-oauth-token",
-      ),
-    ).toBe(true);
-    const identityCall = JSON.parse(mcpCalls[2]?.[1].body as string);
-    const modelCall = JSON.parse(mcpCalls[3]?.[1].body as string);
-    expect(identityCall.params.name).toBe("get_authenticated_user");
-    expect(modelCall.params.name).toBe("list_builder_models");
-  });
-
-  it("fails closed when the Publish MCP identity does not match the bound Space", async () => {
-    resolveBuilderRequestAuthorizationMock
-      .mockResolvedValueOnce({
-        token: "general-oauth-token",
-        authorization: "Bearer general-oauth-token",
-        source: "oauth",
-        oauthResource: "general",
-        oauthSelectedPublicKey: "selected-space-key",
-        oauthConnectionId: "content-connection-1",
-      })
-      .mockResolvedValueOnce({
-        token: "publish-oauth-token",
-        authorization: "Bearer publish-oauth-token",
-        source: "oauth",
-        oauthResource: "publish",
-      });
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(null, { status: 401 }))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            result: { supportedVersions: ["2026-07-28"] },
-          }),
-          { status: 200 },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            result: { tools: [{ name: "get_authenticated_user" }] },
-          }),
-          { status: 200 },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            result: {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    space: { publicKey: "different-space-key" },
-                  }),
-                },
-              ],
-            },
-          }),
-          { status: 200 },
-        ),
-      );
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 401 }));
 
     await expect(
       listBuilderCmsModels({
@@ -504,108 +322,54 @@ describe("Builder CMS read client", () => {
     ).resolves.toMatchObject({
       state: "error",
       models: [],
-      message: expect.stringContaining(
-        "does not match this Content source's Space",
-      ),
+      message: expect.stringContaining("Reconnect Builder.io in Settings"),
     });
-    expect(fetchImpl).toHaveBeenCalledTimes(4);
-    expect(
-      fetchImpl.mock.calls
-        .slice(1)
-        .map(([, init]) => JSON.parse((init as RequestInit).body as string))
-        .some((payload) => payload.params?.name === "list_builder_models"),
-    ).toBe(false);
+    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    ["selected-space-key", "live"],
-    ["different-space-key", "error"],
-  ])(
-    "checks the bound Space through Builder's who_am_i identity (space %s)",
-    async (spaceId, state) => {
-      resolveBuilderRequestAuthorizationMock
-        .mockResolvedValueOnce({
-          token: "general-oauth-token",
-          authorization: "Bearer general-oauth-token",
-          source: "oauth",
-          oauthResource: "general",
-          oauthSelectedPublicKey: "selected-space-key",
-          oauthConnectionId: "content-connection-1",
-        })
-        .mockResolvedValueOnce({
-          token: "publish-oauth-token",
-          authorization: "Bearer publish-oauth-token",
-          source: "oauth",
-          oauthResource: "publish",
-        });
-      const toolText = (value: unknown) =>
+  it("leaves archived models out of general API discovery", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(
+      async () =>
         new Response(
           JSON.stringify({
-            jsonrpc: "2.0",
-            result: {
-              content: [{ type: "text", text: JSON.stringify(value) }],
-            },
+            models: [
+              { id: "model-1", name: "blog_article", fields: [] },
+              {
+                id: "model-2",
+                name: "old_article",
+                archived: true,
+                fields: [],
+              },
+              {
+                id: "model-3",
+                name: "landing_page",
+                archived: false,
+                fields: [],
+              },
+            ],
           }),
           { status: 200 },
-        );
-      const fetchImpl = vi
-        .fn()
-        .mockResolvedValueOnce(new Response(null, { status: 401 }))
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              result: { supportedVersions: ["2026-07-28"] },
-            }),
-            { status: 200 },
-          ),
-        )
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              result: {
-                tools: [
-                  { name: "list_builder_models" },
-                  { name: "create_builder_content" },
-                  { name: "who_am_i" },
-                ],
-              },
-            }),
-            { status: 200 },
-          ),
-        )
-        .mockResolvedValueOnce(
-          toolText({
-            tool: "who_am_i",
-            authMethod: "oauth",
-            user: { id: "user-1" },
-            space: { id: spaceId, name: "Builder space" },
-          }),
-        )
-        .mockResolvedValueOnce(
-          toolText({
-            models: [{ id: "model-1", name: "blog_article", fields: [] }],
-          }),
-        );
+        ),
+    );
 
-      await expect(
-        listBuilderCmsModels({
-          expectedSourceSpace: "selected-space-key",
-          expectedSourceConnectionId: "content-connection-1",
-          fetchImpl: fetchImpl as unknown as typeof fetch,
-        }),
-      ).resolves.toMatchObject({ state });
-      const toolCalls = fetchImpl.mock.calls
-        .slice(1)
-        .map(([, init]) => JSON.parse((init as RequestInit).body as string))
-        .filter((payload) => payload.method === "tools/call")
-        .map((payload) => payload.params.name);
-      expect(toolCalls).toEqual(
-        state === "live" ? ["who_am_i", "list_builder_models"] : ["who_am_i"],
-      );
-    },
-  );
+    const result = await listBuilderCmsModels({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.state).toBe("live");
+    expect(result.models.map((model) => model.id).sort()).toEqual([
+      "model-1",
+      "model-3",
+    ]);
+  });
 
   it.each([null, { data: [] }, { models: "not-an-array" }, { models: [{}] }])(
     "rejects malformed general API model responses: %j",

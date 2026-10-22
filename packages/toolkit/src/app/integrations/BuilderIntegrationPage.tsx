@@ -11,14 +11,7 @@ import {
   type BuilderUsageLoss,
 } from "@agent-native/core/client/integrations/builder-usage";
 import { useOrg } from "@agent-native/core/client/org/hooks";
-import {
-  buildMcpOAuthStartUrl,
-  DEFAULT_MCP_INTEGRATIONS,
-  isMcpIntegrationUrl,
-  navigateToMcpOAuthStart,
-} from "@agent-native/core/client/resources/mcp-integration-catalog";
 import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
-import { useMcpServers } from "@agent-native/core/client/resources/use-mcp-servers";
 import {
   actionErrorMessage,
   callAction,
@@ -44,12 +37,6 @@ import {
 } from "@agent-native/toolkit/ui/popover";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconAlertCircle,
   IconBox,
@@ -148,13 +135,6 @@ const LOSS_KEYS: Record<BuilderUsageLoss, string> = {
   "service-stops": `${K}.loss.serviceStops`,
   stops: `${K}.loss.stops`,
 };
-
-// The read-only, organization-only grant Content falls back to when Builder
-// refuses the OAuth token for model discovery. The Integrations catalog hides
-// it, so this page is the only Settings surface that can connect it.
-const BUILDER_PUBLISH = DEFAULT_MCP_INTEGRATIONS.find(
-  (integration) => integration.id === "builder-cms",
-)!;
 
 const builderModelLabel = (model: string) => `${model} · Builder.io`;
 
@@ -303,60 +283,6 @@ function ConnectButton({
         {t(`${K}.connect`)}
       </Button>
     </DeferredBuilderConnectPopover>
-  );
-}
-
-/**
- * Starts the org MCP OAuth flow the composer's Integrations dialog uses. That
- * route refuses anyone but owners and admins, so a member gets the reason
- * instead of a button that fails.
- */
-function ConnectPublishButton({
-  canConnect,
-  setError,
-}: {
-  canConnect: boolean;
-  setError: (message: string | null) => void;
-}) {
-  const t = useT();
-  const label = t(`${K}.connectPublish`);
-  if (!canConnect) {
-    return (
-      <TooltipProvider delayDuration={200}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span tabIndex={0} className="inline-flex">
-              <Button type="button" variant="outline" size="sm" disabled>
-                {label}
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{t(`${K}.connectPublishAdminOnly`)}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      onClick={() => {
-        setError(null);
-        const opened = navigateToMcpOAuthStart(
-          buildMcpOAuthStartUrl({
-            name: BUILDER_PUBLISH.name,
-            url: BUILDER_PUBLISH.url,
-            description: BUILDER_PUBLISH.description,
-            scope: "org",
-            returnUrl: window.location.pathname,
-          }),
-        );
-        if (!opened) setError(t("mcpIntegrations.connectionError"));
-      }}
-    >
-      {label}
-    </Button>
   );
 }
 
@@ -678,16 +604,6 @@ export function BuilderIntegrationPage({
   const personalGrant = grants?.personal;
   const active = statusKnown && (flow.configured || flow.effective !== null);
   const usage = useBuilderUsages({ enabled: active, hasOrg: !solo });
-  const mcpServers = useMcpServers({ defer: true });
-  // An unread or failed server list is unknown, not missing: offering the
-  // connect then could add a second Publish entry.
-  const publishMissing =
-    active &&
-    mcpServers.isSuccess &&
-    Boolean(mcpServers.data.orgId) &&
-    !mcpServers.data.org.some((server) =>
-      isMcpIntegrationUrl(BUILDER_PUBLISH, server.url),
-    );
 
   const onStart = (
     scope: BuilderConnectionScope | undefined,
@@ -892,19 +808,7 @@ export function BuilderIntegrationPage({
               icon={<BuilderLogo />}
               label={t(`${K}.organization`)}
               description={orgDescription}
-              control={
-                publishMissing ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <ConnectPublishButton
-                      canConnect={context.isAdmin}
-                      setError={setRowError}
-                    />
-                    {orgControl}
-                  </div>
-                ) : (
-                  orgControl
-                )
-              }
+              control={orgControl}
             />
             {/* Spec open question 1: owners and admins connect for the
                 organization, so only members can add a personal connection.

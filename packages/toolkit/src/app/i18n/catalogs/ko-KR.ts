@@ -2176,9 +2176,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.backToApp": "{{app}}(으)로 돌아가기",
   "settingsShell.breadcrumbLabel": "탐색 경로",
   "settingsShell.builder.connect": "Builder.io 사용",
-  "settingsShell.builder.connectPublish": "Builder.io Publish 연결",
-  "settingsShell.builder.connectPublishAdminOnly":
-    "소유자나 관리자가 모두를 위해 Builder.io Publish를 연결할 수 있습니다.",
   "settingsShell.builder.connected": "연결됨",
   "settingsShell.builder.connectedTo": "연결됨 · {{space}}",
   "settingsShell.builder.connection": "연결",
