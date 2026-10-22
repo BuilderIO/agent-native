@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 
-import { Editor } from "@tiptap/core";
+import { type AnyExtension, Editor } from "@tiptap/core";
+import Collaboration from "@tiptap/extension-collaboration";
 import StarterKit from "@tiptap/starter-kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import {
   DRAG_HANDLE_UI_EVENT,
@@ -62,6 +64,7 @@ function mountEditor(
   rect: DOMRect = makeRect({ left: 24, top: 0, width: 640, height: 400 }),
   parent: HTMLElement = document.body,
   hoverPoint: { x: number; y: number } = { x: 32, y: rect.top + 12 },
+  extensions: AnyExtension[] = [StarterKit],
 ): {
   editor: Editor;
   wrapper: HTMLElement;
@@ -77,7 +80,7 @@ function mountEditor(
 
   const editor = new Editor({
     element,
-    extensions: [StarterKit, DragHandle.configure(options)],
+    extensions: [...extensions, DragHandle.configure(options)],
     content,
   });
 
@@ -871,6 +874,99 @@ describe("DragHandle app menu", () => {
       expect(childText(editor, 0)).toBe("Second");
     } finally {
       editor.destroy();
+    }
+  });
+
+  // Two collaborators: the page is mounted for the first, and the second
+  // edits it through a Yjs document synced with the first's. The second's
+  // edits reach the first together, when `deliver` is called.
+  function mountCollaborative(content: string) {
+    const local = new Y.Doc();
+    const remote = new Y.Doc();
+    const pending: Uint8Array[] = [];
+    local.on("update", (update: Uint8Array, origin: unknown) => {
+      if (origin !== "sync") Y.applyUpdate(remote, update, "sync");
+    });
+    remote.on("update", (update: Uint8Array, origin: unknown) => {
+      if (origin !== "sync") pending.push(update);
+    });
+    const deliver = () =>
+      Y.applyUpdate(local, Y.mergeUpdates(pending.splice(0)), "sync");
+    const starterKit = StarterKit.configure({ undoRedo: false });
+    const peer = new Editor({
+      extensions: [starterKit, Collaboration.configure({ document: remote })],
+    });
+    peer.commands.setContent(content);
+    deliver();
+
+    const requests: DragHandleMenuRequest[] = [];
+    const mounted = mountEditor(
+      "",
+      {
+        openMenu: (request) => {
+          requests.push(request);
+          return () => {};
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      [starterKit, Collaboration.configure({ document: local })],
+    );
+    return { ...mounted, deliver, peer, requests };
+  }
+
+  it("finds no block once a peer deletes it, though the next block takes its element", () => {
+    const { deliver, editor, handle, peer, requests } = mountCollaborative(
+      "<p>First</p><p>Second</p>",
+    );
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      expect(request.getBlock()?.node.textContent).toBe("First");
+
+      const first = editor.view.nodeDOM(0);
+      peer.view.dispatch(
+        peer.state.tr.delete(0, peer.state.doc.child(0).nodeSize),
+      );
+      peer.commands.insertContentAt(
+        peer.state.doc.child(0).nodeSize - 1,
+        " edited",
+      );
+      deliver();
+
+      expect(childText(editor, 0)).toBe("Second edited");
+      expect(editor.view.nodeDOM(0)).toBe(first);
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      expect(childText(editor, 0)).toBe("Second edited");
+    } finally {
+      editor.destroy();
+      peer.destroy();
+    }
+  });
+
+  it("keeps its block when a peer changes it", () => {
+    const { deliver, editor, handle, peer, requests } = mountCollaborative(
+      "<h1>First</h1><p>Second</p>",
+    );
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+
+      peer.view.dispatch(
+        peer.state.tr.setNodeMarkup(0, undefined, { level: 2 }),
+      );
+      deliver();
+
+      expect(editor.state.doc.child(0).attrs.level).toBe(2);
+      expect(request.getBlock()?.node.attrs.level).toBe(2);
+      expect(request.getBlock()?.pos).toBe(0);
+    } finally {
+      editor.destroy();
+      peer.destroy();
     }
   });
 

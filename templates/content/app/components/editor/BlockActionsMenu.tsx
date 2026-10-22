@@ -157,12 +157,16 @@ export function BlockActionsMenu({
         className={instantCloseMenuClass}
         collisionPadding={8}
         // The actions focus the editor themselves, and a click elsewhere keeps
-        // the focus it gave.
+        // the focus it gave. This runs a tick after the menu goes, so focus
+        // taken in between stays too.
         onCloseAutoFocus={(event) => {
           event.preventDefault();
-          if (!escapedRef.current) return;
+          const escaped = escapedRef.current;
           escapedRef.current = false;
-          returnToBlock();
+          const focusTaken =
+            !!document.activeElement &&
+            document.activeElement !== document.body;
+          if (escaped && !focusTaken) returnToBlock();
         }}
         onEscapeKeyDown={() => {
           escapedRef.current = true;

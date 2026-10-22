@@ -198,6 +198,24 @@ describe("BlockActionsMenu", () => {
     expect(target.state.selection.$from.parent.textContent).toBe("A");
   });
 
+  it("leaves focus taken while Escape closes it", async () => {
+    const target = mount();
+    open(target, 1);
+    const input = document.createElement("input");
+    host!.append(input);
+
+    act(() => {
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+      );
+    });
+    input.focus();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(document.activeElement).toBe(input);
+    expect(target.view.hasFocus()).toBe(false);
+  });
+
   it("leaves out the table switches when asked to", () => {
     open(mount(false), 1);
 

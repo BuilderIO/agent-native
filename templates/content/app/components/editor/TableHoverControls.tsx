@@ -624,14 +624,16 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     });
   };
 
-  // Menu actions on the selected cell's row or column.
+  // Menu actions on the selected cell's row or column. The cell is found when
+  // the action runs, since a collaborator's edit can move it while the menu is
+  // open.
   const editAtCell = (
-    address: SelectedCellAddress | null,
     edit: (tr: Transaction, table: TableAt, cell: TableCellRect) => void,
   ) => {
-    if (!address) return;
-    editTable(address.tableIndex, (tr, table) => {
-      const cell = getCellRect(table, address);
+    const context = getTableMutationContext(getSelectedCellElement());
+    if (!context) return;
+    editTable(context.address.tableIndex, (tr, table) => {
+      const cell = getCellRect(table, context.address);
       if (cell) edit(tr, table, cell);
     });
   };
@@ -796,11 +798,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   };
 
   // The header switches keep their menu open and focused.
-  const toggleHeader = (
-    address: SelectedCellAddress | null,
-    axis: "row" | "column",
-  ) => {
-    editTable(address?.tableIndex, (tr, table) => {
+  const toggleHeader = (axis: "row" | "column") => {
+    const context = getTableMutationContext(getSelectedCellElement());
+    editTable(context?.address.tableIndex, (tr, table) => {
       setTableHeaders(tr, table, {
         [axis]: !getTableHeaders(table.node)[axis],
       });
@@ -1347,7 +1347,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 <MenuSwitchItem
                   checked={headerColumnEnabled}
                   icon={<IconTableColumn className={menuIconClass} />}
-                  onToggle={() => toggleHeader(selectedCellAddress, "column")}
+                  onToggle={() => toggleHeader("column")}
                   switchTestId="header-column-switch"
                 >
                   {t("database.headerColumn")}
@@ -1355,7 +1355,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               ) : null}
               <ColorSubmenu
                 onChange={(color) =>
-                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                  editAtCell((tr, table, cell) =>
                     setColumnColor(tr, table, cell.left, color),
                   )
                 }
@@ -1364,7 +1364,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() =>
-                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                  editAtCell((tr, table, cell) =>
                     insertTableColumn(tr, table, cell.left),
                   )
                 }
@@ -1375,7 +1375,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() =>
-                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                  editAtCell((tr, table, cell) =>
                     insertTableColumn(tr, table, cell.right),
                   )
                 }
@@ -1401,7 +1401,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <DropdownMenuItem
                 className="gap-2 text-destructive focus:text-destructive"
                 onSelect={() =>
-                  editAtCell(selectedCellAddress, (tr, table, cell) => {
+                  editAtCell((tr, table, cell) => {
                     if (TableMap.get(table.node).width <= 1) {
                       deleteTableAt(tr, table);
                     } else {
@@ -1484,7 +1484,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 <MenuSwitchItem
                   checked={headerRowEnabled}
                   icon={<IconTableRow className={menuIconClass} />}
-                  onToggle={() => toggleHeader(selectedCellAddress, "row")}
+                  onToggle={() => toggleHeader("row")}
                   switchTestId="header-row-switch"
                 >
                   {t("database.headerRow")}
@@ -1492,7 +1492,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               ) : null}
               <ColorSubmenu
                 onChange={(color) =>
-                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                  editAtCell((tr, table, cell) =>
                     setRowColor(tr, table, cell.top, color),
                   )
                 }
@@ -1501,7 +1501,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() =>
-                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                  editAtCell((tr, table, cell) =>
                     insertTableRow(tr, table, cell.top),
                   )
                 }
@@ -1512,7 +1512,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() =>
-                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                  editAtCell((tr, table, cell) =>
                     insertTableRow(tr, table, cell.bottom),
                   )
                 }
@@ -1538,7 +1538,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <DropdownMenuItem
                 className="gap-2 text-destructive focus:text-destructive"
                 onSelect={() =>
-                  editAtCell(selectedCellAddress, (tr, table, cell) => {
+                  editAtCell((tr, table, cell) => {
                     if (table.node.childCount <= 1) {
                       deleteTableAt(tr, table);
                     } else {

@@ -8,6 +8,7 @@ import {
   type Transaction,
 } from "@tiptap/pm/state";
 import { type EditorView } from "@tiptap/pm/view";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 
 export const DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR = ".visual-editor-wrapper";
 
@@ -136,7 +137,23 @@ type DragHandleMenuContext = {
   sourceBlock: HTMLElement;
   sourcePos: number;
   sourceNodeSize: number;
+  /** The block's Yjs element, when the editor is collaborative. */
+  yElement?: unknown;
 };
+
+// Yjs elements and the nodes drawn from them. A peer's update rebuilds every
+// block, and ProseMirror can then give a deleted block's element to the block
+// after it, so in a collaborative editor a block is known by its Yjs element.
+function getYMapping(view: EditorView): Map<unknown, unknown> | null {
+  return ySyncPluginKey.getState(view.state)?.binding?.mapping ?? null;
+}
+
+function getYElement(view: EditorView, node: ProseMirrorNode) {
+  for (const [element, mapped] of getYMapping(view) ?? []) {
+    if (mapped === node) return element;
+  }
+  return undefined;
+}
 
 type DragHandleRegistration = {
   view: EditorView;
@@ -619,14 +636,23 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     };
 
     // An open app menu resolves its block on every render, so this reads no
-    // layout. The block is found by its element, not by position: once the
+    // layout. The block is found by its identity, not by position: once the
     // block is gone, its old position holds the next block.
     const resolveMenuContext = (context: DragHandleMenuContext) => {
       const { doc } = context.view.state;
+      const yNode =
+        context.yElement === undefined
+          ? undefined
+          : (getYMapping(context.view)?.get(context.yElement) ?? null);
+      if (yNode === null) return null;
       let sourcePos = 0;
       for (let index = 0; index < doc.childCount; index += 1) {
         const sourceNode = doc.child(index);
-        if (context.view.nodeDOM(sourcePos) === context.sourceBlock) {
+        if (
+          yNode === undefined
+            ? context.view.nodeDOM(sourcePos) === context.sourceBlock
+            : sourceNode === yNode
+        ) {
           return {
             ...context,
             sourcePos,
@@ -793,13 +819,15 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       closeMenu();
       selectBlockAt(resolved.view, resolved.sourcePos);
 
+      const block: DragHandleMenuContext = {
+        view: resolved.view,
+        sourceBlock: resolved.sourceBlock,
+        sourcePos: resolved.sourcePos,
+        sourceNodeSize: resolved.sourceNodeSize,
+        yElement: getYElement(resolved.view, resolved.sourceNode),
+      };
+
       if (openHostMenu) {
-        const block: DragHandleMenuContext = {
-          view: resolved.view,
-          sourceBlock: resolved.sourceBlock,
-          sourcePos: resolved.sourcePos,
-          sourceNodeSize: resolved.sourceNodeSize,
-        };
         const entry = { close: () => {} };
         const close = openHostMenu({
           view: resolved.view,
@@ -856,12 +884,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       );
 
       menu = el;
-      menuContext = {
-        view: resolved.view,
-        sourceBlock: resolved.sourceBlock,
-        sourcePos: resolved.sourcePos,
-        sourceNodeSize: resolved.sourceNodeSize,
-      };
+      menuContext = block;
       document.body.appendChild(el);
       positionMenu(anchorRect);
       handle?.setAttribute("aria-expanded", "true");
