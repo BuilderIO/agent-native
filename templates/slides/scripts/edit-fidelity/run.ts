@@ -54,6 +54,7 @@ import {
   shouldRetainCleanupRecoveryClaimEvidence,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
+import { deleteScratchDeck } from "./client-action.ts";
 import { devServerListeningUrl } from "./dev-server-url.ts";
 import {
   CHROME_SELECTOR,
@@ -744,36 +745,12 @@ async function action<T = any>(
   timeoutMs = 30_000,
 ): Promise<T> {
   if (name === "delete-deck") {
-    return page.evaluate(
-      async ({
-        body,
-        compatibilityVersion,
-        source,
-        timeoutMs,
-      }: {
-        body: Record<string, unknown>;
-        compatibilityVersion: string;
-        source: string;
-        timeoutMs: number;
-      }) => {
-        const { callAction } = await import(source);
-        return callAction("delete-deck", body, {
-          method: "DELETE",
-          uiOnly: true,
-          timeoutMs,
-          // Cleanup can run before Vite's client bootstrap sets define globals.
-          headers: {
-            "X-Agent-Native-Client-Compatibility": compatibilityVersion,
-          },
-        });
-      },
-      {
-        body,
-        compatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
-        source: `/@fs/${WORKTREE_ROOT.replace(/\\/g, "/")}/packages/core/src/client/use-action.ts`,
-        timeoutMs,
-      },
-    );
+    return deleteScratchDeck<T>(page, {
+      body,
+      compatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
+      source: `/@fs/${WORKTREE_ROOT.replace(/\\/g, "/")}/packages/core/src/client/use-action.ts`,
+      timeoutMs,
+    });
   }
   const evaluation = page.evaluate(
     async ({ name, body, method, timeoutMs }: any) => {
