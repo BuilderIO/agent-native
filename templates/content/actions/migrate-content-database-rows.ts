@@ -1,12 +1,15 @@
+import { fail } from "@agent-native/core/action";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { isLocalDatabase } from "@agent-native/core/db";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import { chunks } from "./_batch-utils.js";
 import {
   lockContentDatabaseMutation,
@@ -703,6 +706,19 @@ export async function runMigration(args: MigrationInput) {
             .from(schema.documentVersions)
             .where(eq(schema.documentVersions.id, prior.versionId));
           if (!version) throw new Error("Rollback snapshot is missing.");
+          const priorDocument = current.rows.find(
+            (row: any) => row.document.id === prior.documentId,
+          )?.document;
+          if (!priorDocument) throw new Error("Rollback snapshot is missing.");
+          await syncPrivateCalloutReferences(tx, {
+            documentId: prior.documentId,
+            before: priorDocument.content,
+            after: version.content,
+            userEmail: getRequestUserEmail() ?? "",
+            ownerEmail: priorDocument.ownerEmail,
+            orgId: priorDocument.orgId,
+            source: { kind: "version", versionId: version.id },
+          });
           const restoredRows = await tx
             .update(schema.documents)
             .set({

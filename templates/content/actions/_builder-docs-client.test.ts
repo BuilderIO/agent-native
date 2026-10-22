@@ -71,11 +71,16 @@ let sidecarRows: Array<{
 }> = [];
 
 const fakeDb = {
+  transaction: async <T>(run: (db: unknown) => Promise<T>): Promise<T> =>
+    run(fakeDb),
   select: () => ({
     from: () => ({
       where: () =>
         Object.assign(Promise.resolve(sidecarRows), {
           limit: async () => (documentResource ? [documentResource] : []),
+          for: () => ({
+            limit: async () => (documentResource ? [documentResource] : []),
+          }),
         }),
     }),
   }),

@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { resolveBuilderCredential } from "@agent-native/core/server";
 import {
@@ -9,6 +10,7 @@ import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   builderSourceKindForModel,
@@ -699,46 +701,63 @@ export async function pullBuilderDocIntoContent(args: {
   const sourceFields = builderDocumentSourceFields(bundle, now);
 
   if (!args.dryRun) {
-    if (existing) {
-      await db
-        .update(schema.documents)
-        .set({
-          spaceId: existing.spaceId ?? targetSpaceId,
+    await db.transaction(async (transaction) => {
+      const tx = transaction as unknown as ReturnType<typeof getDb>;
+      const [current] = await tx
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId))
+        .for("update")
+        .limit(1);
+      if (existing) {
+        await tx
+          .update(schema.documents)
+          .set({
+            spaceId: existing.spaceId ?? targetSpaceId,
+            title: bundle.mdx.title,
+            content: bundle.mdx.body,
+            bodyRevision: bodyRevisionForContent(bundle.mdx.body),
+            updatedAt: now,
+            ...sourceFields,
+          })
+          .where(eq(schema.documents.id, documentId));
+      } else {
+        await tx.insert(schema.documents).values({
+          id: documentId,
+          spaceId: targetSpaceId,
+          ownerEmail,
+          orgId,
+          parentId: null,
           title: bundle.mdx.title,
           content: bundle.mdx.body,
-          bodyRevision: bodyRevisionForContent(bundle.mdx.body),
+          icon: null,
+          position: 0,
+          isFavorite: 0,
+          hideFromSearch: 0,
+          visibility: "private",
+          createdAt: now,
           updatedAt: now,
           ...sourceFields,
-        })
-        .where(eq(schema.documents.id, documentId));
-    } else {
-      await db.insert(schema.documents).values({
-        id: documentId,
-        spaceId: targetSpaceId,
+        });
+      }
+      await syncPrivateCalloutReferences(tx, {
+        documentId,
+        before: current?.content ?? "",
+        after: bundle.mdx.body,
+        userEmail: ownerEmail,
+        ownerEmail: current?.ownerEmail ?? ownerEmail,
+        orgId: current ? current.orgId : orgId,
+      });
+      await replaceBuilderDocumentSidecars({
+        db: tx,
+        documentId,
         ownerEmail,
         orgId,
-        parentId: null,
-        title: bundle.mdx.title,
-        content: bundle.mdx.body,
-        icon: null,
-        position: 0,
-        isFavorite: 0,
-        hideFromSearch: 0,
-        visibility: "private",
-        createdAt: now,
-        updatedAt: now,
-        ...sourceFields,
+        sidecars: sidecarsFromFiles(bundle.files),
+        now,
       });
-    }
-    await ensureDocumentFilesMembership(db, documentId, now);
-    await replaceBuilderDocumentSidecars({
-      db,
-      documentId,
-      ownerEmail,
-      orgId,
-      sidecars: sidecarsFromFiles(bundle.files),
-      now,
     });
+    await ensureDocumentFilesMembership(db, documentId, now);
     await writeAppState("refresh-signal", { ts: Date.now() });
   }
 
@@ -843,23 +862,45 @@ async function refreshBuilderDocumentAfterPush(args: {
     args.documentId,
   );
 
-  await db
-    .update(schema.documents)
-    .set({
-      title: bundle.mdx.title,
-      content: bundle.mdx.body,
-      bodyRevision: bodyRevisionForContent(bundle.mdx.body),
-      updatedAt: now,
-      ...builderDocumentSourceFields(bundle, now),
-    })
-    .where(eq(schema.documents.id, args.documentId));
-  await replaceBuilderDocumentSidecars({
-    db,
-    documentId: args.documentId,
-    ownerEmail,
-    orgId,
-    sidecars: sidecarsFromFiles(bundle.files),
-    now,
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    const [current] = await tx
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, args.documentId))
+      .for("update")
+      .limit(1);
+    if (!current)
+      fail(`Document "${args.documentId}" is missing owner metadata.`, {
+        errorCode: "DOCUMENT_NOT_FOUND",
+        statusCode: 404,
+      });
+    await syncPrivateCalloutReferences(tx, {
+      documentId: args.documentId,
+      before: current.content,
+      after: bundle.mdx.body,
+      userEmail: getRequestUserEmail() ?? "",
+      ownerEmail: current.ownerEmail,
+      orgId: current.orgId,
+    });
+    await tx
+      .update(schema.documents)
+      .set({
+        title: bundle.mdx.title,
+        content: bundle.mdx.body,
+        bodyRevision: bodyRevisionForContent(bundle.mdx.body),
+        updatedAt: now,
+        ...builderDocumentSourceFields(bundle, now),
+      })
+      .where(eq(schema.documents.id, args.documentId));
+    await replaceBuilderDocumentSidecars({
+      db: tx,
+      documentId: args.documentId,
+      ownerEmail,
+      orgId,
+      sidecars: sidecarsFromFiles(bundle.files),
+      now,
+    });
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
   return bundle;

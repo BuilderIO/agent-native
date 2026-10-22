@@ -23,6 +23,10 @@ import {
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import {
+  syncPrivateCalloutReferences,
+  verifyPrivateCalloutAssignments,
+} from "../server/lib/private-icon-references.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
@@ -447,6 +451,15 @@ export default defineAction({
       !id.startsWith("local-file:") &&
       !id.startsWith("local-folder:");
     if (isLinkedLocalSource) {
+      await verifyPrivateCalloutAssignments(getDb(), {
+        documentId: id,
+        before: existing.content ?? "",
+        after: content,
+        userEmail: actor,
+        ownerEmail: existing.ownerEmail as string,
+        orgId: (existing.orgId as string | null) ?? null,
+      });
+
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) {
         countOutcome("refusal", "none", "local_source_unavailable");
@@ -539,6 +552,22 @@ export default defineAction({
             "The document changed before Content history could be updated.",
           );
         }
+        const [lockedScope] = await tx
+          .select({
+            ownerEmail: schema.documents.ownerEmail,
+            orgId: schema.documents.orgId,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id))
+          .limit(1);
+        await syncPrivateCalloutReferences(tx, {
+          documentId: id,
+          before: existing.content ?? "",
+          after: content,
+          userEmail: actor,
+          ownerEmail: lockedScope.ownerEmail,
+          orgId: lockedScope.orgId,
+        });
         for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({
             db: tx as unknown as ReturnType<typeof getDb>,

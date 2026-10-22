@@ -2,8 +2,12 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { withMigrationRuntime } from "@agent-native/core/db";
 import { serializeIconValue } from "@agent-native/core/icons";
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  runFrameworkReleaseMigrations,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -70,7 +74,7 @@ async function document(
     parentId?: string;
   } = {},
 ) {
-  const id = `private-icon-doc-${++count}`;
+  const id = `private-icon-doc-${process.pid}-${++count}`;
   await db.insert(schema.documents).values({
     id,
     ownerEmail: OWNER,
@@ -87,7 +91,7 @@ async function document(
 
 async function share(documentId: string) {
   await db.insert(schema.documentShares).values({
-    id: `private-icon-share-${++count}`,
+    id: `private-icon-share-${process.pid}-${++count}`,
     resourceId: documentId,
     principalType: "user",
     principalId: SHARED,
@@ -97,9 +101,9 @@ async function share(documentId: string) {
 }
 
 async function collectionWithIconRows(rowCount: number) {
-  const spaceId = `private-icon-space-${++count}`;
+  const spaceId = `private-icon-space-${process.pid}-${++count}`;
   const filesDocumentId = await document({ spaceId });
-  const filesDatabaseId = `private-icon-files-${++count}`;
+  const filesDatabaseId = `private-icon-files-${process.pid}-${++count}`;
   await db.insert(schema.contentDatabases).values({
     id: filesDatabaseId,
     spaceId,
@@ -117,7 +121,7 @@ async function collectionWithIconRows(rowCount: number) {
     createdBy: OWNER,
   });
   const collectionDocumentId = await document({ spaceId });
-  const databaseId = `private-icon-db-${++count}`;
+  const databaseId = `private-icon-db-${process.pid}-${++count}`;
   await db.insert(schema.contentDatabases).values({
     id: databaseId,
     spaceId,
@@ -126,7 +130,7 @@ async function collectionWithIconRows(rowCount: number) {
     title: "Icons",
   });
   await db.insert(schema.documentShares).values({
-    id: `private-icon-share-${++count}`,
+    id: `private-icon-share-${process.pid}-${++count}`,
     resourceId: collectionDocumentId,
     principalType: "user",
     principalId: SHARED,
@@ -142,7 +146,7 @@ async function collectionWithIconRows(rowCount: number) {
       spaceId,
       parentId: collectionDocumentId,
     });
-    const itemId = `private-icon-item-${++count}`;
+    const itemId = `private-icon-item-${process.pid}-${++count}`;
     await db.insert(schema.contentDatabaseItems).values({
       id: itemId,
       databaseId,
@@ -175,7 +179,23 @@ async function collectionWithIconRows(rowCount: number) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  const targetUrl =
+    process.env.CONTENT_BLOCK_ACTION_POSTGRES_URL ?? `pglite:${TEST_DB_PATH}`;
+  if (targetUrl.startsWith("postgres")) {
+    const target = new URL(targetUrl);
+    if (!target.pathname.includes("test"))
+      throw new Error("Private icon tests require an isolated test database.");
+    console.info("DB target before connect", {
+      env: "CONTENT_BLOCK_ACTION_POSTGRES_URL",
+      host: target.hostname,
+      port: target.port,
+      database: target.pathname,
+      credentials: "[redacted]",
+    });
+  }
+  process.env.DATABASE_URL = targetUrl;
+  if (targetUrl.startsWith("postgres"))
+    await withMigrationRuntime(() => runFrameworkReleaseMigrations(undefined));
   const module = await import("../db/index.js");
   db = module.getDb();
   schema = module.schema;
@@ -483,7 +503,7 @@ describe("private icon references", () => {
   it("restores a saved callout reference without granting arbitrary image assignment", async () => {
     const savedContent = `<callout icon="${icon().replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
     const id = await document({ content: "Current" });
-    const versionId = `private-icon-version-${++count}`;
+    const versionId = `private-icon-version-${process.pid}-${++count}`;
     await db.insert(schema.documentVersions).values({
       id: versionId,
       documentId: id,
@@ -492,13 +512,22 @@ describe("private icon references", () => {
       content: savedContent,
     });
     await db.insert(schema.documentShares).values({
-      id: `private-icon-share-${++count}`,
+      id: `private-icon-share-${process.pid}-${++count}`,
       resourceId: id,
       principalType: "user",
       principalId: SHARED,
       role: "editor",
       createdBy: OWNER,
     });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      refs.registerPrivateCalloutIcon({
+        documentId: id,
+        assetId: ASSET,
+        userEmail: OWNER,
+        ownerEmail: OWNER,
+        orgId: null,
+      }),
+    );
     checkOwner.mockClear();
     await runWithRequestContext({ userEmail: SHARED }, () =>
       refs.syncPrivateCalloutReferences(db, {
@@ -530,7 +559,7 @@ describe("private icon references", () => {
         refs.syncPrivateCalloutReferences(db, {
           documentId: id,
           before: "Current",
-          after: savedContent,
+          after: savedContent.replace(ASSET, FORGED),
           userEmail: SHARED,
           ownerEmail: OWNER,
           orgId: null,
@@ -560,7 +589,7 @@ describe("private icon references", () => {
       .where(eq(schema.privateIconReferences.documentId, copyId));
     expect(
       copiedReferences.map((reference) => reference.elementType).sort(),
-    ).toEqual(["callout", "document"]);
+    ).toEqual(["callout", "callout-authorization-v1", "document"]);
     expect(checkOwner).not.toHaveBeenCalled();
   });
 
@@ -581,7 +610,7 @@ describe("private icon references", () => {
         .where(eq(schema.privateIconReferences.documentId, documentId));
       expect(
         copiedReferences.map((reference) => reference.elementType).sort(),
-      ).toEqual(["callout", "document"]);
+      ).toEqual(["callout", "callout-authorization-v1", "document"]);
     }
     expect(checkOwner).not.toHaveBeenCalled();
   });
@@ -602,22 +631,27 @@ describe("private icon references", () => {
   it("restores a collaborator-visible saved version containing a prior callout image", async () => {
     const savedContent = `<callout icon="${icon().replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
     const id = await document({ content: "Current" });
-    const versionId = `private-icon-version-${++count}`;
-    await db.insert(schema.documentVersions).values({
-      id: versionId,
-      documentId: id,
-      ownerEmail: OWNER,
-      title: "Saved",
-      content: savedContent,
-    });
     await db.insert(schema.documentShares).values({
-      id: `private-icon-share-${++count}`,
+      id: `private-icon-share-${process.pid}-${++count}`,
       resourceId: id,
       principalType: "user",
       principalId: SHARED,
       role: "editor",
       createdBy: OWNER,
     });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id, content: savedContent }, undefined),
+    );
+    await runWithRequestContext({ userEmail: SHARED }, () =>
+      updateDocumentAction.run({ id, content: "Current" }, undefined),
+    );
+    const versions = await db
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, id));
+    const versionId = versions.find(
+      (version) => version.content === savedContent,
+    )!.id;
     const [before] = await db
       .select({ updatedAt: schema.documents.updatedAt })
       .from(schema.documents)
@@ -643,6 +677,223 @@ describe("private icon references", () => {
     expect(checkOwner).not.toHaveBeenCalled();
   });
 
+  describe("body writer authorization", () => {
+    async function rowFixture() {
+      const create = (await import("../../actions/create-content-database.js"))
+        .default;
+      const get = (await import("../../actions/get-content-database.js"))
+        .default;
+      const add = (await import("../../actions/add-database-item.js")).default;
+      const list = (
+        await import("../../actions/list-content-database-blocks.js")
+      ).default;
+      const created = await runWithRequestContext({ userEmail: OWNER }, () =>
+        create.run({ title: "Icon boundary" }),
+      );
+      const databaseId = created.database.id;
+      const current = await runWithRequestContext({ userEmail: OWNER }, () =>
+        get.run({ databaseId }),
+      );
+      if (!("database" in current) || !current.mutationContract)
+        throw new Error("Missing mutation contract.");
+      const contract = current.mutationContract;
+      const property = contract.properties.find(
+        (value) => value.type === "blocks",
+      )!;
+      const row = await runWithRequestContext({ userEmail: OWNER }, () =>
+        add.run({
+          target: contract.target,
+          expectedSchemaRevision: contract.schemaRevision,
+          idempotencyKey: crypto.randomUUID(),
+          title: "Icon row",
+        }),
+      );
+      const documentId = row.receipt.row.documentId;
+      const target = {
+        ...contract.target,
+        itemId: row.receipt.row.itemId,
+        rowDocumentId: documentId,
+        propertyId: property.id,
+      };
+      const listed = await runWithRequestContext({ userEmail: OWNER }, () =>
+        list.run({ target, limit: 100 }),
+      );
+      return {
+        databaseId,
+        documentId,
+        target,
+        listed,
+        databaseDocumentId: created.database.documentId,
+      };
+    }
+
+    async function state(documentId: string, databaseId: string) {
+      return {
+        pages: await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId)),
+        versions: await db
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, documentId)),
+        references: await db
+          .select()
+          .from(schema.privateIconReferences)
+          .where(eq(schema.privateIconReferences.documentId, documentId)),
+        blocks: await db
+          .select()
+          .from(schema.documentBlocks)
+          .innerJoin(
+            schema.documentBlockFields,
+            eq(schema.documentBlocks.fieldId, schema.documentBlockFields.id),
+          )
+          .where(eq(schema.documentBlockFields.documentId, documentId)),
+        receipts: await db
+          .select()
+          .from(schema.contentDatabaseRowMutationReceipts)
+          .where(
+            eq(
+              schema.contentDatabaseRowMutationReceipts.databaseId,
+              databaseId,
+            ),
+          ),
+      };
+    }
+
+    it.each(["block", "property", "legacy-edit", "migration"] as const)(
+      "rejects an unchecked %s body before it can pollute normal history",
+      async (writer) => {
+        const f = await rowFixture();
+        const body = `<callout icon="${icon(FORGED).replace(/"/g, "&quot;")}">\n\tForged\n</callout>`;
+        const before = await state(f.documentId, f.databaseId);
+        const write = async () => {
+          if (writer === "block") {
+            const action = (
+              await import("../../actions/mutate-content-database-block.js")
+            ).default;
+            return action.run({
+              target: f.target,
+              expectedSchemaRevision: f.listed.schemaRevision,
+              expectedRowRevision: f.listed.rowRevision,
+              expectedFieldRevision: f.listed.fieldRevision,
+              idempotencyKey: crypto.randomUUID(),
+              operation: "insert",
+              block: { kind: "notionCallout", nfm: body },
+              position: { placement: "end" },
+            });
+          }
+          if (writer === "property") {
+            const action = (
+              await import("../../actions/set-document-property.js")
+            ).default;
+            return action.run({
+              documentId: f.documentId,
+              databaseId: f.databaseId,
+              propertyId: f.target.propertyId,
+              value: body,
+              expectedBlocksFieldRevision: f.listed.fieldRevision,
+            });
+          }
+          if (writer === "legacy-edit") {
+            const action = (await import("../../actions/edit-document.js"))
+              .default;
+            return action.run(
+              { id: f.documentId, edits: [{ find: "Clean", replace: body }] },
+              { caller: "frontend", userEmail: OWNER },
+            );
+          }
+          const [page] = before.pages;
+          const action = (
+            await import("../../actions/migrate-content-database-rows.js")
+          ).default;
+          return action.run({
+            phase: "apply",
+            plan: {
+              databaseId: f.databaseId,
+              databaseDocumentId: f.databaseDocumentId,
+              idempotencyKey: crypto.randomUUID(),
+              expectedRowCount: 1,
+              legacyPropertyIds: [],
+              propertyDefinitions: [],
+              rows: [
+                {
+                  itemId: f.target.itemId,
+                  documentId: f.documentId,
+                  expectedUpdatedAt: page.updatedAt,
+                  content: body,
+                  propertyValues: [],
+                  protectedPropertyValues: [],
+                },
+              ],
+            },
+          });
+        };
+        if (writer === "legacy-edit") {
+          await db
+            .update(schema.documents)
+            .set({ content: "Clean" })
+            .where(eq(schema.documents.id, f.documentId));
+          before.pages[0].content = "Clean";
+        }
+        await expect(
+          runWithRequestContext({ userEmail: OWNER }, write),
+        ).rejects.toMatchObject({
+          errorCode: "PRIVATE_ICON_UNAVAILABLE",
+          details: { assetIds: [FORGED] },
+        });
+        expect(await state(f.documentId, f.databaseId)).toEqual(before);
+      },
+    );
+
+    it("rejects a form body atomically without creating a row or icon proof", async () => {
+      const f = await rowFixture();
+      await db
+        .update(schema.contentDatabases)
+        .set({
+          viewConfigJson: JSON.stringify({
+            activeViewId: "icon-form",
+            views: [
+              {
+                id: "icon-form",
+                type: "form",
+                name: "Icon form",
+                formQuestions: [
+                  { key: "name", enabled: true, required: true },
+                  { key: f.target.propertyId, enabled: true, required: true },
+                ],
+              },
+            ],
+          }),
+        })
+        .where(eq(schema.contentDatabases.id, f.databaseId));
+      const pages = await db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.parentId, f.databaseDocumentId));
+      const action = (
+        await import("../../actions/submit-content-database-form.js")
+      ).default;
+      const body = `<callout icon="${icon(FORGED).replace(/"/g, "&quot;")}">\n\tForm text\n</callout>`;
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run({
+            databaseId: f.databaseId,
+            viewId: "icon-form",
+            title: "Forged form",
+            propertyValues: { [f.target.propertyId]: body },
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "PRIVATE_ICON_UNAVAILABLE" });
+      expect(
+        await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.parentId, f.databaseDocumentId)),
+      ).toEqual(pages);
+    });
+  });
+
   describe("restoring a body History kept instead of saving", () => {
     function callout(assetId: string, text: string) {
       return `<callout icon="${icon(assetId).replace(/"/g, "&quot;")}">\n\t${text}\n</callout>`;
@@ -651,7 +902,7 @@ describe("private icon references", () => {
     async function editablePage(content = "Current") {
       const id = await document({ content });
       await db.insert(schema.documentShares).values({
-        id: `private-icon-share-${++count}`,
+        id: `private-icon-share-${process.pid}-${++count}`,
         resourceId: id,
         principalType: "user",
         principalId: SHARED,
@@ -666,7 +917,7 @@ describe("private icon references", () => {
       content: string,
       authorEmail: string,
     ) {
-      const versionId = `private-icon-recovery-${++count}`;
+      const versionId = `private-icon-recovery-${process.pid}-${++count}`;
       await db.insert(schema.documentVersions).values({
         id: versionId,
         documentId,
@@ -709,7 +960,9 @@ describe("private icon references", () => {
         .where(eq(schema.privateIconReferences.documentId, documentId));
       return {
         content: page.content,
-        references: references.map((reference) => reference.assetId),
+        references: [
+          ...new Set(references.map((reference) => reference.assetId)),
+        ],
       };
     }
 
@@ -743,7 +996,8 @@ describe("private icon references", () => {
       await expect(
         restore(SHARED, id, (kept as { checkpointId: string }).checkpointId),
       ).rejects.toMatchObject({
-        errorCode: "PRIVATE_ICON_UNAVAILABLE",
+        errorCode: "PRIVATE_ICON_AUTHORIZATION_UNPROVEN",
+        statusCode: 403,
         details: { assetIds: [FORGED] },
       });
       expect(await pageState(id)).toEqual({
@@ -768,30 +1022,227 @@ describe("private icon references", () => {
       });
     });
 
-    it("brings back an icon a version of the page held, though no one restoring it owns it", async () => {
+    it("refuses polluted normal and recovery checkpoints without altering stored text or history", async () => {
       const id = await editablePage();
-      const body = callout(FORGED, "Kept typing");
+      const body = callout(FORGED, "Legacy recovery text");
+      const normalId = `private-icon-version-${process.pid}-${++count}`;
       await db.insert(schema.documentVersions).values({
-        id: `private-icon-version-${++count}`,
+        id: normalId,
         documentId: id,
         ownerEmail: OWNER,
         title: "Icon test",
-        content: callout(FORGED, "On the page"),
-        checkpointKind: "after",
-      });
-      const versionId = await keptBody(id, body, SHARED);
-
-      await restore(SHARED, id, versionId);
-
-      expect(await pageState(id)).toEqual({
         content: body,
-        references: [FORGED],
+        checkpointKind: "before",
+        actorEmail: OWNER,
       });
+      const recoveryId = await keptBody(id, body, SHARED);
+      const snapshot = async () => ({
+        pages: await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id)),
+        versions: await db
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id)),
+        references: await db
+          .select()
+          .from(schema.privateIconReferences)
+          .where(eq(schema.privateIconReferences.documentId, id)),
+        blocks: await db
+          .select()
+          .from(schema.documentBlocks)
+          .innerJoin(
+            schema.documentBlockFields,
+            eq(schema.documentBlocks.fieldId, schema.documentBlockFields.id),
+          )
+          .where(eq(schema.documentBlockFields.documentId, id)),
+      });
+      const before = await snapshot();
+      for (const versionId of [normalId, recoveryId]) {
+        await expect(restore(SHARED, id, versionId)).rejects.toMatchObject({
+          errorCode: "PRIVATE_ICON_AUTHORIZATION_UNPROVEN",
+          statusCode: 403,
+          details: { assetIds: [FORGED] },
+        });
+        expect(await snapshot()).toEqual(before);
+        expect(
+          await refs.resolveReadablePrivateIcon(FORGED, { userEmail: SHARED }),
+        ).toBeNull();
+      }
+    });
+
+    it("recovers escaped icon JSON from durable owner proof after removal", async () => {
+      const id = await editablePage();
+      const encoded = icon().replace(
+        ASSET,
+        ASSET.split("1").join(String.fromCharCode(92) + "u0031"),
+      );
+      const body = `<callout icon="${encoded.split('"').join("&quot;")}">\n\tEscaped owner text\n</callout>`;
+      expect(body.includes(ASSET)).toBe(false);
+      expect([...refs.calloutPrivateIconAssetIds(body)]).toEqual([ASSET]);
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id, content: body }, undefined),
+      );
+      await runWithRequestContext({ userEmail: SHARED }, () =>
+        updateDocumentAction.run({ id, content: "Current" }, undefined),
+      );
+      const evidence = await db
+        .select()
+        .from(schema.privateIconReferences)
+        .where(eq(schema.privateIconReferences.documentId, id));
+      expect(evidence.map((row) => row.elementType)).toEqual([
+        "callout-authorization-v1",
+      ]);
+      const versionId = await keptBody(id, body, SHARED);
+      checkOwner.mockClear();
+      await restore(SHARED, id, versionId);
+      expect(checkOwner).not.toHaveBeenCalled();
+      expect((await pageState(id)).content).toBe(body);
+    });
+
+    it("lets an icon owner reauthorize an unproved checkpoint before an editor restores", async () => {
+      const id = await editablePage();
+      const body = callout(ASSET, "Legacy owner text");
+      const versionId = await keptBody(id, body, SHARED);
+      await expect(restore(SHARED, id, versionId)).rejects.toMatchObject({
+        errorCode: "PRIVATE_ICON_AUTHORIZATION_UNPROVEN",
+      });
+      const register = (
+        await import("../../actions/register-private-callout-icon.js")
+      ).default;
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        register.run({ documentId: id, assetId: ASSET }),
+      );
+      await restore(SHARED, id, versionId);
+      expect((await pageState(id)).content).toBe(body);
+    });
+
+    it("rolls back all grants and history when the last of several icons is unproved", async () => {
+      const id = await editablePage();
+      const versionId = await keptBody(
+        id,
+        callout(ASSET, "Authorized") + "\n\n" + callout(FORGED, "Unproved"),
+        OWNER,
+      );
+      const pages = await db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      const versions = await db
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, id));
+      await expect(restore(SHARED, id, versionId)).rejects.toMatchObject({
+        errorCode: "PRIVATE_ICON_AUTHORIZATION_UNPROVEN",
+        details: { assetIds: [FORGED] },
+      });
+      expect(
+        await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id)),
+      ).toEqual(pages);
+      expect(
+        await db
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id)),
+      ).toEqual(versions);
+      expect(
+        await db
+          .select()
+          .from(schema.privateIconReferences)
+          .where(eq(schema.privateIconReferences.documentId, id)),
+      ).toEqual([]);
+    });
+
+    it("reports an exhausted authorization budget distinctly and preserves the checkpoint", async () => {
+      const id = await editablePage();
+      const ids = Array.from(
+        { length: 65 },
+        (_, i) =>
+          `${(i + 1).toString(16).padStart(8, "0")}-3333-4333-8333-333333333333`,
+      );
+      const body = ids.map((id) => callout(id, "Budget")).join("\n\n");
+      const versionId = await keptBody(id, body, SHARED);
+      checkOwner.mockClear();
+      await expect(restore(SHARED, id, versionId)).rejects.toMatchObject({
+        errorCode: "PRIVATE_ICON_AUTHORIZATION_INCOMPLETE",
+        statusCode: 409,
+        details: { reason: "asset_budget", limit: 64 },
+      });
+      expect(checkOwner).not.toHaveBeenCalled();
+      expect((await pageState(id)).content).toBe("Current");
+      const [kept] = await db
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.id, versionId));
+      expect(kept.content).toBe(body);
+    });
+
+    it("propagates authority outages without converting them into missing authorization", async () => {
+      const id = await editablePage();
+      const versionId = await keptBody(id, callout(ASSET, "Outage"), SHARED);
+      checkOwner.mockRejectedValueOnce(new Error("Icon authority offline"));
+      await expect(restore(SHARED, id, versionId)).rejects.toThrow(
+        "Icon authority offline",
+      );
+      expect(await pageState(id)).toEqual({
+        content: "Current",
+        references: [],
+      });
+    });
+
+    it("keeps proof-only icons unreadable and refuses to carry proof across a scope change", async () => {
+      const id = await editablePage();
+      const viewer = `proof-viewer-${++count}@example.test`;
+      await db
+        .insert(schema.documentShares)
+        .values({
+          id: crypto.randomUUID(),
+          resourceId: id,
+          principalType: "user",
+          principalId: viewer,
+          role: "editor",
+          createdBy: OWNER,
+        });
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        refs.registerPrivateCalloutIcon({
+          documentId: id,
+          assetId: ASSET,
+          userEmail: OWNER,
+          ownerEmail: OWNER,
+          orgId: null,
+        }),
+      );
+      expect(
+        await refs.resolveReadablePrivateIcon(ASSET, { userEmail: viewer }),
+      ).toBeNull();
+      const versionId = await keptBody(id, callout(ASSET, "Scoped"), SHARED);
+      await db
+        .update(schema.documents)
+        .set({ orgId: "moved-icon-test-org" })
+        .where(eq(schema.documents.id, id));
+      await expect(restore(SHARED, id, versionId)).rejects.toMatchObject({
+        errorCode: "PRIVATE_ICON_AUTHORIZATION_UNPROVEN",
+      });
+      expect(
+        await refs.resolveReadablePrivateIcon(ASSET, { userEmail: viewer }),
+      ).toBeNull();
     });
 
     it("brings back text whose icon is already on the page without checking it", async () => {
       const onPage = callout(FORGED, "Current");
       const id = await editablePage(onPage);
+      await db.insert(schema.privateIconReferences).values({
+        elementType: "callout",
+        elementId: `${id}:${FORGED}`,
+        documentId: id,
+        assetId: FORGED,
+        ownerEmail: OWNER,
+        orgId: null,
+      });
       const body = `${onPage}\n\nKept typing`;
       const versionId = await keptBody(id, body, SHARED);
       checkOwner.mockClear();

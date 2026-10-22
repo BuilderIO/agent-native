@@ -1,10 +1,15 @@
 import { ActionContractError } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  syncPrivateCalloutReferences,
+  verifyPrivateCalloutAssignments,
+} from "../server/lib/private-icon-references.js";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   BLOCKS_FIELD_OPERATION_CAPABILITIES,
@@ -488,7 +493,31 @@ async function writeMarkdown(
   markdown: string,
   now: string,
 ) {
+  const [page] = await db
+    .select({
+      ownerEmail: schema.documents.ownerEmail,
+      orgId: schema.documents.orgId,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, target.rowDocumentId))
+    .limit(1);
+  if (!page)
+    contractError(
+      "ROW_NOT_FOUND",
+      "The exact database row was not found.",
+      {},
+      404,
+    );
+  const assignment = {
+    documentId: target.rowDocumentId,
+    before: loaded.markdown,
+    after: markdown,
+    userEmail: getRequestUserEmail() ?? "",
+    ownerEmail: page.ownerEmail,
+    orgId: page.orgId,
+  };
   if (loaded.storageTarget === "document_body") {
+    await syncPrivateCalloutReferences(db, assignment);
     const updated = await db
       .update(schema.documents)
       .set({
@@ -513,6 +542,7 @@ async function writeMarkdown(
     }
     return;
   }
+  await verifyPrivateCalloutAssignments(db, assignment);
   await compareAndSwapAdditionalBlocksField({
     db,
     ownerEmail: loaded.ownerEmail,

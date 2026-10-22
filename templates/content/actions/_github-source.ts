@@ -24,6 +24,7 @@ import {
   readGitHubRenames,
   type GitHubTreeEntry,
 } from "../server/lib/github-source-client.js";
+import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import {
   classifyGitHubSourceFile,
   fitsGitHubFieldType,
@@ -1279,7 +1280,8 @@ async function applyFile(
             const [document] = await tx
               .select()
               .from(schema.documents)
-              .where(eq(schema.documents.id, linked.documentId));
+              .where(eq(schema.documents.id, linked.documentId))
+              .for("update");
             if (document) {
               const bodyChanged =
                 !previous ||
@@ -1287,6 +1289,14 @@ async function applyFile(
                 previous.metaHash !== nextState.metaHash;
               const moved = document.sourcePath !== file.repoPath;
               if (bodyChanged) {
+                await syncPrivateCalloutReferences(tx, {
+                  documentId: document.id,
+                  before: document.content,
+                  after: page.content,
+                  userEmail: run.actor,
+                  ownerEmail: document.ownerEmail,
+                  orgId: document.orgId,
+                });
                 const [written] = await tx
                   .update(schema.documents)
                   .set({
@@ -1412,6 +1422,14 @@ async function applyFile(
             updatedBy: run.actor,
             createdAt: run.now,
             updatedAt: run.now,
+          });
+          await syncPrivateCalloutReferences(tx, {
+            documentId,
+            before: "",
+            after: page.content,
+            userEmail: run.actor,
+            ownerEmail: run.database.ownerEmail,
+            orgId: run.database.orgId,
           });
           await tx.insert(schema.contentDatabaseItems).values({
             id: itemId,

@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import type {
   ContentDatabase,
   ContentDatabaseBodyHydration,
@@ -2402,7 +2403,23 @@ async function processBuilderBodyHydrationJob(
           updatedAt: now,
         })
         .where(and(eq(schema.documents.id, row.documentId), contentCas))
-        .returning({ id: schema.documents.id });
+        .returning({
+          id: schema.documents.id,
+          ownerEmail: schema.documents.ownerEmail,
+          orgId: schema.documents.orgId,
+        });
+      if (updatedDocument)
+        await syncPrivateCalloutReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            documentId: row.documentId,
+            before: currentContent,
+            after: nextContent,
+            userEmail: row.ownerEmail,
+            ownerEmail: updatedDocument.ownerEmail,
+            orgId: updatedDocument.orgId,
+          },
+        );
       wroteBody = Boolean(updatedDocument);
     }
     if (shouldWriteBody && !wroteBody) {
@@ -2677,6 +2694,38 @@ async function persistPristineBuilderBodyHydrationsInBulk(
         if (updatedDocuments.length !== batch.length) {
           throw new PristineBuilderBodyHydrationCasMiss(
             "Builder body hydration document changed.",
+          );
+        }
+
+        const scopes = await tx
+          .select({
+            id: schema.documents.id,
+            ownerEmail: schema.documents.ownerEmail,
+            orgId: schema.documents.orgId,
+          })
+          .from(schema.documents)
+          .where(
+            inArray(
+              schema.documents.id,
+              batch.map((row) => row.job.documentId),
+            ),
+          );
+        for (const row of batch) {
+          const scope = scopes.find((page) => page.id === row.job.documentId);
+          if (!scope)
+            throw new PristineBuilderBodyHydrationCasMiss(
+              "Builder body hydration document changed.",
+            );
+          await syncPrivateCalloutReferences(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId: row.job.documentId,
+              before: row.documentContent,
+              after: row.content,
+              userEmail: row.job.ownerEmail,
+              ownerEmail: scope.ownerEmail,
+              orgId: scope.orgId,
+            },
           );
         }
 

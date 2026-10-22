@@ -1,7 +1,7 @@
 import { ActionContractError } from "@agent-native/core";
 import { parseIconValue } from "@agent-native/core/icons";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, isNull, like, ne, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 
 import { nfmToDoc } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
@@ -140,88 +140,84 @@ export function calloutPrivateIconAssetIds(content: string): Set<string> {
   return found;
 }
 
-// An icon that a recovery checkpoint adds back may return only if the
-// restorer or the author of the kept body owns it, or a version recording a
-// state the page had holds it, since a write then already authorized it.
-async function recoveredCalloutIconMayReturn(
-  db: Database,
-  input: {
-    assetId: string;
-    documentId: string;
-    ownerEmail: string;
-    orgId: string | null;
-    emails: Array<string | null>;
-  },
-): Promise<boolean> {
-  for (const email of new Set(input.emails)) {
-    if (
-      email &&
-      (await ownsPrivateIcon({
-        assetId: input.assetId,
-        ownerEmail: email,
-        orgId: input.orgId,
-      }))
-    )
-      return true;
-  }
-  for (let offset = 0; ; offset += 100) {
-    const versions = await db
-      .select({ content: schema.documentVersions.content })
-      .from(schema.documentVersions)
-      .where(
-        and(
-          eq(schema.documentVersions.documentId, input.documentId),
-          eq(schema.documentVersions.ownerEmail, input.ownerEmail),
-          or(
-            isNull(schema.documentVersions.checkpointKind),
-            ne(schema.documentVersions.checkpointKind, "recovery"),
-          ),
-          like(schema.documentVersions.content, `%${input.assetId}%`),
-        ),
-      )
-      .orderBy(
-        asc(schema.documentVersions.createdAt),
-        asc(schema.documentVersions.id),
-      )
-      .limit(100)
-      .offset(offset);
-    if (
-      versions.some((version) =>
-        calloutPrivateIconAssetIds(version.content).has(input.assetId),
-      )
-    )
-      return true;
-    if (versions.length < 100) return false;
-  }
+// Proof rows survive removal, but are never live references and never serve bytes.
+const CALLOUT_AUTHORIZATION = "callout-authorization-v1";
+const MAX_CALLOUT_ASSETS = 64;
+
+type CalloutAssignment = {
+  documentId: string;
+  before: string;
+  after: string;
+  userEmail: string;
+  ownerEmail: string;
+  orgId: string | null;
+  source?:
+    | { kind: "document"; documentId: string }
+    | { kind: "version"; versionId: string };
+};
+
+function calloutReferenceScope(input: {
+  documentId: string;
+  ownerEmail: string;
+  orgId: string | null;
+}) {
+  return and(
+    eq(schema.privateIconReferences.documentId, input.documentId),
+    eq(schema.privateIconReferences.ownerEmail, input.ownerEmail),
+    input.orgId === null
+      ? isNull(schema.privateIconReferences.orgId)
+      : eq(schema.privateIconReferences.orgId, input.orgId),
+  );
 }
 
-export async function syncPrivateCalloutReferences(
+async function calloutEvidence(
   db: Database,
-  input: {
-    documentId: string;
-    before: string;
-    after: string;
-    userEmail: string;
-    ownerEmail: string;
-    orgId: string | null;
-    source?:
-      | { kind: "document"; documentId: string }
-      | { kind: "version"; versionId: string };
-  },
-): Promise<void> {
-  if (!input.before.includes("<callout") && !input.after.includes("<callout"))
-    return;
+  input: { documentId: string; ownerEmail: string; orgId: string | null },
+  assets: Set<string>,
+) {
+  if (!assets.size) return [];
+  return db
+    .select()
+    .from(schema.privateIconReferences)
+    .where(
+      and(
+        calloutReferenceScope(input),
+        inArray(schema.privateIconReferences.assetId, [...assets]),
+        inArray(
+          schema.privateIconReferences.elementId,
+          [...assets].flatMap((assetId) => [
+            `${input.documentId}:${assetId}`,
+            calloutAuthorizationId(input, assetId),
+          ]),
+        ),
+        inArray(schema.privateIconReferences.elementType, [
+          "callout",
+          CALLOUT_AUTHORIZATION,
+        ]),
+      ),
+    )
+    .limit(MAX_CALLOUT_ASSETS * 2);
+}
+
+export async function verifyPrivateCalloutAssignments(
+  db: Database,
+  input: CalloutAssignment,
+): Promise<{ assets: Set<string>; certified: Set<string> }> {
+  const assets = calloutPrivateIconAssetIds(input.after);
+  if (assets.size > MAX_CALLOUT_ASSETS)
+    throw new ActionContractError("Private icon is unavailable to this user.", {
+      errorCode: "PRIVATE_ICON_AUTHORIZATION_INCOMPLETE",
+      statusCode: 409,
+      details: { reason: "asset_budget", limit: MAX_CALLOUT_ASSETS },
+    });
+  const certified = new Set<string>();
+  if (!assets.size) return { assets, certified };
   const before = calloutPrivateIconAssetIds(input.before);
-  const after = calloutPrivateIconAssetIds(input.after);
-  let authorizedSourceAssets: Set<string> | undefined;
+  const evidence = await calloutEvidence(db, input, assets);
+  let sourceEvidence: typeof evidence = [];
+  let recoveryActor: string | null = null;
   if (input.source) {
-    const [source]: Array<{
-      content: string;
-      ownerEmail: string;
-      orgId: string | null;
-      checkpointKind?: string | null;
-      actorEmail?: string | null;
-    }> =
+    const [source] =
       input.source.kind === "document"
         ? await db
             .select({
@@ -262,81 +258,158 @@ export async function syncPrivateCalloutReferences(
       source.ownerEmail !== input.ownerEmail ||
       source.orgId !== input.orgId ||
       source.content !== input.after
-    ) {
-      throw new Error("Private icon is unavailable to this user.");
-    }
+    )
+      throw new ActionContractError(
+        "Private icon is unavailable to this user.",
+        {
+          errorCode: "PRIVATE_ICON_AUTHORIZATION_UNPROVEN",
+          statusCode: 403,
+          details: { assetIds: [...assets] },
+        },
+      );
     if (input.source.kind === "document") {
       await assertAccess("document", input.source.documentId, "viewer");
+      sourceEvidence = await calloutEvidence(
+        db,
+        {
+          ...input,
+          documentId: input.source.documentId,
+        },
+        assets,
+      );
     } else {
       await assertAccess("document", input.documentId, "editor");
-    }
-    authorizedSourceAssets = calloutPrivateIconAssetIds(source.content);
-    // A recovery checkpoint keeps a body the page never had, so no save
-    // checked the icons it holds.
-    if (source.checkpointKind === "recovery") {
-      const unavailable: string[] = [];
-      for (const assetId of after) {
-        if (before.has(assetId)) continue;
-        if (
-          !(await recoveredCalloutIconMayReturn(db, {
-            assetId,
-            documentId: input.documentId,
-            ownerEmail: input.ownerEmail,
-            orgId: input.orgId,
-            emails: [input.userEmail, source.actorEmail ?? null],
-          }))
-        )
-          unavailable.push(assetId);
-      }
-      if (unavailable.length > 0)
-        throw new ActionContractError(
-          "Private icon is unavailable to this user.",
-          {
-            errorCode: "PRIVATE_ICON_UNAVAILABLE",
-            statusCode: 403,
-            details: { assetIds: unavailable },
-          },
-        );
+      // Only recovery actors authored the kept body; a before-snapshot actor
+      // may merely have removed somebody else's unchecked icon.
+      if (
+        "checkpointKind" in source &&
+        source.checkpointKind === "recovery" &&
+        "actorEmail" in source &&
+        typeof source.actorEmail === "string"
+      )
+        recoveryActor = source.actorEmail;
     }
   }
-  for (const assetId of after) {
-    if (before.has(assetId)) continue;
-    if (authorizedSourceAssets) {
-      if (!authorizedSourceAssets.has(assetId))
-        throw new Error("Private icon is unavailable to this user.");
-      if (input.source?.kind === "document") {
-        const [reference] = await db
-          .select({ assetId: schema.privateIconReferences.assetId })
-          .from(schema.privateIconReferences)
-          .where(
-            and(
-              eq(schema.privateIconReferences.elementType, "callout"),
-              eq(
-                schema.privateIconReferences.elementId,
-                `${input.source.documentId}:${assetId}`,
-              ),
-              eq(
-                schema.privateIconReferences.documentId,
-                input.source.documentId,
-              ),
-              eq(schema.privateIconReferences.assetId, assetId),
-              eq(schema.privateIconReferences.ownerEmail, input.ownerEmail),
-              input.orgId === null
-                ? isNull(schema.privateIconReferences.orgId)
-                : eq(schema.privateIconReferences.orgId, input.orgId),
-            ),
-          )
-          .limit(1);
-        if (!reference)
-          throw new Error("Private icon is unavailable to this user.");
-      }
-    } else {
-      await assertPrivateIconOwner({
-        assetId,
-        ownerEmail: input.userEmail,
-        orgId: input.orgId,
-      });
+  const sourceDocumentId =
+    input.source?.kind === "document" ? input.source.documentId : null;
+  const unavailable: string[] = [];
+  for (const assetId of assets) {
+    if (
+      sourceDocumentId &&
+      !sourceEvidence.some(
+        (row) =>
+          row.assetId === assetId &&
+          row.elementType === "callout" &&
+          row.elementId === `${sourceDocumentId}:${assetId}`,
+      )
+    ) {
+      unavailable.push(assetId);
+      continue;
     }
+    if (
+      evidence.some(
+        (row) =>
+          row.assetId === assetId && row.elementType === CALLOUT_AUTHORIZATION,
+      )
+    ) {
+      certified.add(assetId);
+      continue;
+    }
+    if (
+      before.has(assetId) &&
+      evidence.some(
+        (row) =>
+          row.assetId === assetId &&
+          row.elementType === "callout" &&
+          row.elementId === `${input.documentId}:${assetId}`,
+      )
+    )
+      continue;
+    if (
+      input.source?.kind === "document" &&
+      sourceEvidence.some(
+        (row) =>
+          row.assetId === assetId && row.elementType === CALLOUT_AUTHORIZATION,
+      ) &&
+      sourceEvidence.some(
+        (row) =>
+          row.assetId === assetId &&
+          row.elementType === "callout" &&
+          row.elementId === `${sourceDocumentId}:${assetId}`,
+      )
+    ) {
+      certified.add(assetId);
+      continue;
+    }
+    let authorized = false;
+    for (const email of new Set([input.userEmail, recoveryActor])) {
+      if (
+        email &&
+        (await ownsPrivateIcon({
+          assetId,
+          ownerEmail: email,
+          orgId: input.orgId,
+        }))
+      ) {
+        authorized = true;
+        break;
+      }
+    }
+    if (authorized) certified.add(assetId);
+    else unavailable.push(assetId);
+  }
+  if (unavailable.length)
+    throw new ActionContractError("Private icon is unavailable to this user.", {
+      errorCode: input.source
+        ? "PRIVATE_ICON_AUTHORIZATION_UNPROVEN"
+        : "PRIVATE_ICON_UNAVAILABLE",
+      statusCode: 403,
+      details: { assetIds: unavailable },
+    });
+  return { assets, certified };
+}
+
+function calloutAuthorizationId(
+  input: { documentId: string; ownerEmail: string; orgId: string | null },
+  assetId: string,
+) {
+  return JSON.stringify([
+    input.documentId,
+    assetId,
+    input.ownerEmail,
+    input.orgId,
+  ]);
+}
+
+async function recordCalloutAuthorization(
+  db: Database,
+  input: { documentId: string; ownerEmail: string; orgId: string | null },
+  assetId: string,
+) {
+  await db
+    .insert(schema.privateIconReferences)
+    .values({
+      ...input,
+      assetId,
+      elementType: CALLOUT_AUTHORIZATION,
+      elementId: calloutAuthorizationId(input, assetId),
+    })
+    .onConflictDoNothing();
+}
+
+export async function syncPrivateCalloutReferences(
+  db: Database,
+  input: CalloutAssignment,
+): Promise<void> {
+  if (!input.before.includes("<callout") && !input.after.includes("<callout"))
+    return;
+  const { assets, certified } = await verifyPrivateCalloutAssignments(
+    db,
+    input,
+  );
+  for (const assetId of certified)
+    await recordCalloutAuthorization(db, input, assetId);
+  for (const assetId of assets) {
     await db
       .insert(schema.privateIconReferences)
       .values({
@@ -347,10 +420,16 @@ export async function syncPrivateCalloutReferences(
         ownerEmail: input.ownerEmail,
         orgId: input.orgId,
       })
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: [
+          schema.privateIconReferences.elementType,
+          schema.privateIconReferences.elementId,
+        ],
+        set: { ownerEmail: input.ownerEmail, orgId: input.orgId },
+      });
   }
-  for (const assetId of before) {
-    if (after.has(assetId)) continue;
+  for (const assetId of calloutPrivateIconAssetIds(input.before)) {
+    if (assets.has(assetId)) continue;
     await db
       .delete(schema.privateIconReferences)
       .where(
@@ -372,23 +451,56 @@ export async function registerPrivateCalloutIcon(input: {
   ownerEmail: string;
   orgId: string | null;
 }): Promise<void> {
-  await assertPrivateIconOwner({
-    assetId: input.assetId,
-    ownerEmail: input.userEmail,
-    orgId: input.orgId,
-  });
   const db = getDb();
-  await db
-    .insert(schema.privateIconReferences)
-    .values({
-      elementType: "callout",
-      elementId: `${input.documentId}:${input.assetId}`,
-      assetId: input.assetId,
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as Database;
+    const [document] = await tx
+      .select()
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, input.documentId),
+          isNull(schema.documents.trashedAt),
+        ),
+      )
+      .for("update")
+      .limit(1);
+    if (!document)
+      throw new ActionContractError(
+        "Private icon is unavailable to this user.",
+        {
+          errorCode: "PRIVATE_ICON_AUTHORIZATION_UNPROVEN",
+          statusCode: 403,
+        },
+      );
+    await assertAccess("document", input.documentId, "editor");
+    const scope = {
       documentId: input.documentId,
-      ownerEmail: input.ownerEmail,
-      orgId: input.orgId,
-    })
-    .onConflictDoNothing();
+      ownerEmail: document.ownerEmail,
+      orgId: document.orgId,
+    };
+    await assertPrivateIconOwner({
+      assetId: input.assetId,
+      ownerEmail: input.userEmail,
+      orgId: scope.orgId,
+    });
+    await recordCalloutAuthorization(tx, scope, input.assetId);
+    await tx
+      .insert(schema.privateIconReferences)
+      .values({
+        ...scope,
+        assetId: input.assetId,
+        elementType: "callout",
+        elementId: `${input.documentId}:${input.assetId}`,
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.privateIconReferences.elementType,
+          schema.privateIconReferences.elementId,
+        ],
+        set: { ownerEmail: scope.ownerEmail, orgId: scope.orgId },
+      });
+  });
 }
 
 export async function syncPrivateViewIconReferences(
@@ -530,7 +642,17 @@ export async function resolveReadablePrivateIcon(
     const references = await db
       .select()
       .from(schema.privateIconReferences)
-      .where(eq(schema.privateIconReferences.assetId, assetId))
+      .where(
+        and(
+          eq(schema.privateIconReferences.assetId, assetId),
+          inArray(schema.privateIconReferences.elementType, [
+            "document",
+            "property",
+            "view",
+            "callout",
+          ]),
+        ),
+      )
       .orderBy(
         asc(schema.privateIconReferences.elementType),
         asc(schema.privateIconReferences.elementId),
