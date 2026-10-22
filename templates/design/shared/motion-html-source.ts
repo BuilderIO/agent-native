@@ -574,11 +574,26 @@ function isExecutableScript(node: HtmlNode): boolean {
   return EXECUTABLE_SCRIPT_TYPES.has(type.split(";", 1)[0]!.trim());
 }
 
+const JAVASCRIPT_URL_ATTRIBUTES = new Set([
+  "href",
+  "src",
+  "xlink:href",
+  "action",
+  "formaction",
+  "data",
+]);
+
 function isJavascriptUrl(value: string): boolean {
   return value
     .replace(/[\u0000-\u0020\u007f]/g, "")
     .toLowerCase()
     .startsWith("javascript:");
+}
+
+function isJavascriptUrlAttribute(name: string, value: string): boolean {
+  return (
+    JAVASCRIPT_URL_ATTRIBUTES.has(name.toLowerCase()) && isJavascriptUrl(value)
+  );
 }
 
 function srcdocContainsExecutableContentOrNestedFrame(value: string): boolean {
@@ -591,7 +606,7 @@ function srcdocContainsExecutableContentOrNestedFrame(value: string): boolean {
         ({ name, value: attributeValue }) =>
           isEventHandlerAttribute(name) ||
           isRuntimeLifecycleMutationAttribute(name) ||
-          isJavascriptUrl(attributeValue),
+          isJavascriptUrlAttribute(name, attributeValue),
       )
     ) {
       return true;
@@ -744,6 +759,16 @@ function assertExecutableScriptsSafe(
       sourceError(
         "unsupported-target",
         `HTML Motion targets cannot be synchronized safely while an inline ${targetMutatingHandler.name} handler may mutate a Motion target.`,
+      );
+    }
+
+    const javascriptUrl = node.attrs?.find(({ name, value }) =>
+      isJavascriptUrlAttribute(name, value),
+    );
+    if (javascriptUrl) {
+      sourceError(
+        "unsupported-target",
+        `HTML Motion targets cannot be synchronized safely while ${javascriptUrl.name} contains a javascript URL.`,
       );
     }
 

@@ -1001,6 +1001,37 @@ describe("HTML Motion source adapter", () => {
 
   it.each([
     [
+      "anchor href",
+      `<a href="javascript:document.body.classList.add('active')">Run</a>`,
+    ],
+    [
+      "iframe src",
+      `<iframe src="javascript:parent.document.body.classList.add('active')"></iframe>`,
+    ],
+  ])("rejects top-level javascript URL in %s", (_label, markup) => {
+    const source = html.replace("</body>", `${markup}\n</body>`);
+    const generated = apply(html).source.replace(
+      "</body>",
+      `${markup}\n</body>`,
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    expect(() => apply(source)).toThrowError(
+      expect.objectContaining({ code: "unsupported-target" }),
+    );
+    expect(readMotionHtmlSource(generated)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
+
+  it.each([
+    [
       "native load handler",
       `<img onload="parent.document.body.classList.add('active')">`,
     ],
