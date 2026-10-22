@@ -91,7 +91,9 @@ export function hydrateContentDatabaseResponse<
     ...(response.duplicatedItems ?? []),
   ];
   if (!contentDatabaseRowsNeedDefinitions(rows)) {
-    return response as HydratedContentDatabaseRowsRead<T>;
+    // Every row is already complete; keep the same object so callers that
+    // compare by identity see no change.
+    return response as unknown as HydratedContentDatabaseRowsRead<T>;
   }
   const hydrated: ContentDatabaseRowsRead = {
     ...response,
