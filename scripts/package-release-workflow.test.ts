@@ -813,7 +813,7 @@ fi
     const runCli = (script: string) =>
       execFileSync(
         process.execPath,
-        ["--import", "tsx", path.resolve(script)],
+        ["--experimental-strip-types", path.resolve(script)],
         { cwd: process.cwd(), encoding: "utf8", env },
       );
 
@@ -959,6 +959,10 @@ fi
     assert(releaseDiff);
     assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
     assert(majorPromotionGuard);
+    assert(
+      autoMergeSteps.indexOf(releaseDiff) <
+        autoMergeSteps.indexOf(majorPromotionGuard),
+    );
     assert.match(
       String((majorPromotionGuard.env as Workflow).BASE_SHA),
       /inputs\.base_sha/,
