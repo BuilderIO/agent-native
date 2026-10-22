@@ -405,6 +405,8 @@ export interface ContentDatabaseFilter {
   value: string;
   filterGroupId?: string;
   parentFilterGroupId?: string;
+  filterGroupMode?: ContentDatabaseFilterMode;
+  parentFilterGroupMode?: ContentDatabaseFilterMode;
 }
 
 export interface ContentDatabaseTableQuery {

@@ -1014,6 +1014,91 @@ describe("query-content-database-items Files navigation", () => {
       .where(eq(schema.contentDatabases.id, DATABASE_ID));
   });
 
+  it("combines each filter group with its own mode", async () => {
+    await addFile({ id: "group-mode-parent", position: 600 });
+    for (const title of [
+      "Alpha draft",
+      "Alpha final",
+      "Beta draft",
+      "Beta final",
+      "Gamma final",
+    ]) {
+      await addFile({
+        id: `group-mode-${title.toLowerCase().replace(" ", "-")}`,
+        parentId: "group-mode-parent",
+        title,
+      });
+    }
+    const name = (
+      operator: string,
+      value: string,
+      group: Record<string, string> = {},
+    ) => ({ key: "name", label: "Name", operator, value, ...group });
+    const advanced = (mode: "and" | "or") => ({
+      filterGroupId: "advanced",
+      filterGroupMode: mode,
+    });
+    const nested = (mode: "and" | "or", parentMode: "and" | "or") => ({
+      filterGroupId: "advanced-nested",
+      parentFilterGroupId: "advanced",
+      filterGroupMode: mode,
+      parentFilterGroupMode: parentMode,
+    });
+    const titlesFor = async (filters: unknown[], filterMode: "and" | "or") => {
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({
+          viewConfigJson: JSON.stringify({
+            activeViewId: "default",
+            views: [
+              {
+                id: "default",
+                name: "Table",
+                type: "table",
+                sorts: [{ key: "name", label: "Name", direction: "asc" }],
+                filters,
+                filterMode,
+                columnWidths: {},
+              },
+            ],
+          }),
+        })
+        .where(eq(schema.contentDatabases.id, DATABASE_ID));
+      const page = await navigate({
+        parentId: "group-mode-parent",
+        viewId: "default",
+      });
+      return page.items.map((item) => item.title);
+    };
+
+    expect(
+      await titlesFor(
+        [
+          name("does_not_equal", "Gamma final"),
+          name("contains", "Alpha", advanced("or")),
+          name("contains", "Beta", nested("and", "or")),
+          name("contains", "draft", nested("and", "or")),
+        ],
+        "and",
+      ),
+    ).toEqual(["Alpha draft", "Alpha final", "Beta draft"]);
+    expect(
+      await titlesFor(
+        [
+          name("equals", "Gamma final"),
+          name("contains", "final", advanced("and")),
+          name("contains", "Alpha", nested("or", "and")),
+          name("contains", "Beta", nested("or", "and")),
+        ],
+        "or",
+      ),
+    ).toEqual(["Alpha final", "Beta final", "Gamma final"]);
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: "{}" })
+      .where(eq(schema.contentDatabases.id, DATABASE_ID));
+  });
+
   it("uses personal filter mode, filters hasChildren, and scopes access before limit", async () => {
     await addFile({
       id: "filtered-parent",
