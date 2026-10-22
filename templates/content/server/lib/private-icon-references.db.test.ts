@@ -752,6 +752,184 @@ describe("private icon references", () => {
       };
     }
 
+    it.each(["property", "block", "form"] as const)(
+      "retains checked additional-field proof for a collaborator after an owner %s write",
+      async (writer) => {
+        const f = await rowFixture();
+        await db.insert(schema.documentShares).values({
+          id: crypto.randomUUID(),
+          resourceId: f.databaseDocumentId,
+          principalType: "user",
+          principalId: SHARED,
+          role: "editor",
+          createdBy: OWNER,
+        });
+        const configure = (
+          await import("../../actions/configure-document-property.js")
+        ).default;
+        const set = (await import("../../actions/set-document-property.js"))
+          .default;
+        const list = (
+          await import("../../actions/list-content-database-blocks.js")
+        ).default;
+        const mutate = (
+          await import("../../actions/mutate-content-database-block.js")
+        ).default;
+        const submit = (
+          await import("../../actions/submit-content-database-form.js")
+        ).default;
+        const configured = await runWithRequestContext(
+          { userEmail: OWNER },
+          () =>
+            configure.run({
+              documentId: f.databaseDocumentId,
+              databaseId: f.databaseId,
+              name: "Additional icon notes",
+              type: "blocks",
+            }),
+        );
+        if (!("properties" in configured))
+          throw new Error("Additional Blocks property was not configured.");
+        const propertyId = configured.properties.find(
+          (p) => p.definition.name === "Additional icon notes",
+        )!.definition.id;
+        const body = (text: string, assetId = ASSET) =>
+          `<callout icon="${icon(assetId).replace(/"/g, "&quot;")}">\n\t${text}\n</callout>`;
+        const target = { ...f.target, propertyId };
+        if (writer === "form") {
+          await db
+            .update(schema.contentDatabases)
+            .set({
+              viewConfigJson: JSON.stringify({
+                activeViewId: "additional-icon-form",
+                views: [
+                  {
+                    id: "additional-icon-form",
+                    type: "form",
+                    name: "Icon form",
+                    formQuestions: [
+                      { key: "name", enabled: true, required: true },
+                      { key: propertyId, enabled: true, required: true },
+                    ],
+                  },
+                ],
+              }),
+            })
+            .where(eq(schema.contentDatabases.id, f.databaseId));
+        }
+        const writeAsOwner = (content: string) =>
+          runWithRequestContext({ userEmail: OWNER }, async () => {
+            if (writer === "form")
+              return submit.run({
+                databaseId: f.databaseId,
+                viewId: "additional-icon-form",
+                title: "Owner icon row",
+                propertyValues: { [propertyId]: content },
+              });
+            const current = await list.run({ target, limit: 100 });
+            if (writer === "property")
+              return set.run({
+                documentId: f.documentId,
+                databaseId: f.databaseId,
+                propertyId,
+                value: content,
+                expectedBlocksFieldRevision: current.fieldRevision,
+              });
+            return mutate.run({
+              target,
+              expectedSchemaRevision: current.schemaRevision,
+              expectedRowRevision: current.rowRevision,
+              expectedFieldRevision: current.fieldRevision,
+              idempotencyKey: crypto.randomUUID(),
+              operation: "insert",
+              block: { kind: "notionCallout", nfm: content },
+              position: { placement: "end" },
+            });
+          });
+        const pages = () =>
+          db
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.parentId, f.databaseDocumentId));
+        const originalPages = await pages();
+        await expect(
+          writeAsOwner(
+            writer === "block"
+              ? body("Forbidden", FORGED)
+              : `${body("Allowed")}\n${body("Forbidden", FORGED)}`,
+          ),
+        ).rejects.toMatchObject({ errorCode: "PRIVATE_ICON_UNAVAILABLE" });
+        expect(await pages()).toEqual(originalPages);
+        expect(
+          await db
+            .select()
+            .from(schema.privateIconReferences)
+            .where(eq(schema.privateIconReferences.documentId, f.documentId)),
+        ).toEqual([]);
+        const written = await writeAsOwner(body("Owner text"));
+        const documentId =
+          writer === "form"
+            ? (written as { createdDocumentId: string }).createdDocumentId
+            : f.documentId;
+        await db.insert(schema.documentShares).values({
+          id: crypto.randomUUID(),
+          resourceId: documentId,
+          principalType: "user",
+          principalId: SHARED,
+          role: "editor",
+          createdBy: OWNER,
+        });
+        const [savedPage] = await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId));
+        checkOwner.mockClear();
+        await runWithRequestContext({ userEmail: SHARED }, async () => {
+          const current = await list.run({
+            target: {
+              ...target,
+              rowDocumentId: documentId,
+              itemId:
+                writer === "form"
+                  ? (written as { createdItemId: string }).createdItemId
+                  : target.itemId,
+            },
+            limit: 100,
+          });
+          await set.run({
+            documentId,
+            databaseId: f.databaseId,
+            propertyId,
+            value: body("Collaborator text"),
+            expectedBlocksFieldRevision: current.fieldRevision,
+          });
+        });
+        expect(checkOwner).not.toHaveBeenCalled();
+        const [field] = await db
+          .select()
+          .from(schema.documentBlockFieldContents)
+          .where(eq(schema.documentBlockFieldContents.documentId, documentId));
+        expect(field.content).toBe(body("Collaborator text"));
+        const [page] = await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId));
+        expect(page.content).toBe(savedPage.content);
+        const proof = await db
+          .select()
+          .from(schema.privateIconReferences)
+          .where(eq(schema.privateIconReferences.documentId, documentId));
+        expect(
+          proof.map((row) => ({
+            elementType: row.elementType,
+            assetId: row.assetId,
+          })),
+        ).toEqual([
+          { elementType: "callout-authorization-v1", assetId: ASSET },
+        ]);
+      },
+    );
+
     async function state(documentId: string, databaseId: string) {
       return {
         pages: await db

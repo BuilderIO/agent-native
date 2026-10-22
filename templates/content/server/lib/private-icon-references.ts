@@ -398,18 +398,26 @@ async function recordCalloutAuthorization(
     .onConflictDoNothing();
 }
 
-export async function syncPrivateCalloutReferences(
+export async function recordPrivateCalloutAuthorizations(
   db: Database,
   input: CalloutAssignment,
-): Promise<void> {
-  if (!input.before.includes("<callout") && !input.after.includes("<callout"))
-    return;
+): Promise<Set<string>> {
   const { assets, certified } = await verifyPrivateCalloutAssignments(
     db,
     input,
   );
   for (const assetId of certified)
     await recordCalloutAuthorization(db, input, assetId);
+  return assets;
+}
+
+export async function syncPrivateCalloutReferences(
+  db: Database,
+  input: CalloutAssignment,
+): Promise<void> {
+  if (!input.before.includes("<callout") && !input.after.includes("<callout"))
+    return;
+  const assets = await recordPrivateCalloutAuthorizations(db, input);
   for (const assetId of assets) {
     await db
       .insert(schema.privateIconReferences)

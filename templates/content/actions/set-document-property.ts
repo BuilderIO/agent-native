@@ -9,8 +9,8 @@ import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
+  recordPrivateCalloutAuthorizations,
   syncPrivateCalloutReferences,
-  verifyPrivateCalloutAssignments,
 } from "../server/lib/private-icon-references.js";
 import {
   blocksStorageTarget,
@@ -281,7 +281,7 @@ export default defineAction({
               ),
             );
           previousContent = currentField?.content ?? "";
-          await verifyPrivateCalloutAssignments(
+          await recordPrivateCalloutAuthorizations(
             tx as unknown as ReturnType<typeof getDb>,
             {
               documentId,

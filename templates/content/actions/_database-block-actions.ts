@@ -7,8 +7,8 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
+  recordPrivateCalloutAuthorizations,
   syncPrivateCalloutReferences,
-  verifyPrivateCalloutAssignments,
 } from "../server/lib/private-icon-references.js";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
@@ -542,7 +542,7 @@ async function writeMarkdown(
     }
     return;
   }
-  await verifyPrivateCalloutAssignments(db, assignment);
+  await recordPrivateCalloutAuthorizations(db, assignment);
   await compareAndSwapAdditionalBlocksField({
     db,
     ownerEmail: loaded.ownerEmail,

@@ -1293,7 +1293,8 @@ async function applyFile(
                   documentId: document.id,
                   before: document.content,
                   after: page.content,
-                  userEmail: run.actor,
+                  // The stored linker did not author the repository's Markdown.
+                  userEmail: null,
                   ownerEmail: document.ownerEmail,
                   orgId: document.orgId,
                 });
@@ -1427,7 +1428,7 @@ async function applyFile(
             documentId,
             before: "",
             after: page.content,
-            userEmail: run.actor,
+            userEmail: null,
             ownerEmail: run.database.ownerEmail,
             orgId: run.database.orgId,
           });

@@ -13,8 +13,8 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import {
+  recordPrivateCalloutAuthorizations,
   syncPrivateCalloutReferences,
-  verifyPrivateCalloutAssignments,
 } from "../server/lib/private-icon-references.js";
 import type {
   ContentDatabaseView,
@@ -721,7 +721,7 @@ export default defineAction({
         },
       );
       for (const [, value] of additionalBlocks) {
-        await verifyPrivateCalloutAssignments(
+        await recordPrivateCalloutAuthorizations(
           tx as unknown as ReturnType<typeof getDb>,
           {
             documentId,

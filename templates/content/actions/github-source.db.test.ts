@@ -2,7 +2,12 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runWithRequestContext } from "@agent-native/core/server";
+import { withMigrationRuntime } from "@agent-native/core/db";
+import { serializeIconValue } from "@agent-native/core/icons";
+import {
+  runFrameworkReleaseMigrations,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { and, eq, isNull } from "drizzle-orm";
 import {
   afterAll,
@@ -250,6 +255,15 @@ const path = join(
 );
 const owner = `github-owner-${Date.now()}@example.com`;
 const FOLDER_URL = "https://github.com/acme/site/tree/main/docs";
+const PRIVATE_ASSET = "44444444-4444-4444-8444-444444444444";
+const iconOwnership = vi.hoisted(() => vi.fn());
+vi.mock("../server/lib/private-icon-authority.js", () => ({
+  ownsPrivateIcon: iconOwnership,
+  assertPrivateIconOwner: async (input: unknown) => {
+    if (!(await iconOwnership(input)))
+      throw new Error("Private icon is unavailable to this user.");
+  },
+}));
 
 let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
@@ -286,7 +300,23 @@ const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
   await runWithRequestContext({ userEmail: owner }, run);
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `pglite:${path}`;
+  const targetUrl =
+    process.env.CONTENT_GITHUB_SOURCE_POSTGRES_URL ?? `pglite:${path}`;
+  if (targetUrl.startsWith("postgres")) {
+    const target = new URL(targetUrl);
+    if (!target.pathname.includes("test"))
+      throw new Error("GitHub source tests require an isolated test database.");
+    console.info("DB target before connect", {
+      env: "CONTENT_GITHUB_SOURCE_POSTGRES_URL",
+      host: target.hostname,
+      port: target.port,
+      database: target.pathname,
+      credentials: "[redacted]",
+    });
+  }
+  process.env.DATABASE_URL = targetUrl;
+  if (targetUrl.startsWith("postgres"))
+    await withMigrationRuntime(() => runFrameworkReleaseMigrations(undefined));
   const db = await import("../server/db/index.js");
   getDb = db.getDb;
   schema = db.schema;
@@ -339,6 +369,11 @@ afterAll(() => {
 
 beforeEach(() => {
   github.reset();
+  iconOwnership.mockReset();
+  iconOwnership.mockImplementation(
+    async (input: { assetId: string; ownerEmail: string }) =>
+      input.assetId === PRIVATE_ASSET && input.ownerEmail === owner,
+  );
   changes.length = 0;
   changeFails.next = false;
 });
@@ -480,6 +515,78 @@ async function linkBaseFolder() {
 }
 
 describe("GitHub folder source", () => {
+  it.each(["existing", "new"] as const)(
+    "refuses linker-owned private icons from an untrusted %s GitHub file",
+    async (target) => {
+      github.commit({ "docs/page.md": "# Existing\nSafe text\n" });
+      const database = await newCollection();
+      await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      const before = await rows(database.id);
+      const documentId = before[0].documentId;
+      const source = await sourceId(database.id);
+      const references = async () =>
+        getDb()
+          .select()
+          .from(schema.privateIconReferences)
+          .where(eq(schema.privateIconReferences.ownerEmail, owner));
+      const history = async () =>
+        getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, documentId));
+      const priorReferences = await references();
+      const priorHistory = await history();
+      const privateIcon = serializeIconValue({
+        version: 1,
+        kind: "image",
+        authority: "private-icon",
+        assetId: PRIVATE_ASSET,
+      })!;
+      const body = `<callout icon="${privateIcon.replace(/"/g, "&quot;")}">\n\tRepository-controlled text\n</callout>`;
+      const { calloutPrivateIconAssetIds, registerPrivateCalloutIcon } =
+        await import("../server/lib/private-icon-references.js");
+      expect([...calloutPrivateIconAssetIds(body)]).toEqual([PRIVATE_ASSET]);
+      github.commit(
+        target === "existing"
+          ? { "docs/page.md": body }
+          : { "docs/page.md": "# Existing\nSafe text\n", "docs/new.md": body },
+      );
+      iconOwnership.mockClear();
+      await expect(
+        as(() => syncGitHubSource({ sourceId: source, budgetMs: 20_000 })),
+      ).rejects.toMatchObject({
+        errorCode: "PRIVATE_ICON_AUTHORIZATION_UNPROVEN",
+        details: { assetIds: [PRIVATE_ASSET] },
+      });
+      expect(iconOwnership).not.toHaveBeenCalled();
+      expect(await rows(database.id)).toEqual(before);
+      expect(await references()).toEqual(priorReferences);
+      expect(await history()).toEqual(priorHistory);
+      if (target === "existing") {
+        await as(() =>
+          registerPrivateCalloutIcon({
+            documentId,
+            assetId: PRIVATE_ASSET,
+            userEmail: owner,
+            ownerEmail: owner,
+            orgId: null,
+          }),
+        );
+        iconOwnership.mockClear();
+        await as(() =>
+          syncGitHubSource({ sourceId: source, budgetMs: 20_000 }),
+        );
+        const after = await rows(database.id);
+        expect([...calloutPrivateIconAssetIds(after[0].content)]).toEqual([
+          PRIVATE_ASSET,
+        ]);
+        expect(iconOwnership).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it("previews a folder without linking anything", async () => {
     github.commit(BASE_FILES);
     const database = await newCollection();
