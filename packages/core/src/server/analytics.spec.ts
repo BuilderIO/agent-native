@@ -292,14 +292,25 @@ describe("consent bootstrap", () => {
     timeZone = "America/Los_Angeles",
     cookie = "",
     cachedRegion,
+    google = true,
+    headScriptSrc,
   }: {
     region?: string;
     timeZone?: string;
     cookie?: string;
     cachedRegion?: string;
+    google?: boolean;
+    headScriptSrc?: string;
   }) {
-    process.env.GTM_CONTAINER_ID = "GTM-PAGE123";
-    process.env.GA_MEASUREMENT_ID = "G-PAGE123";
+    if (google) {
+      process.env.GTM_CONTAINER_ID = "GTM-PAGE123";
+      process.env.GA_MEASUREMENT_ID = "G-PAGE123";
+    } else {
+      delete process.env.GTM_CONTAINER_ID;
+      delete process.env.GA_MEASUREMENT_ID;
+    }
+    resetAppConfigForTests();
+    if (headScriptSrc) defineAppConfig({ analytics: { headScriptSrc } });
     const html = injectAnalyticsIntoHtml(
       "<html><head></head><body></body></html>",
     );
@@ -312,6 +323,7 @@ describe("consent bootstrap", () => {
       set src(value: string) {
         loaded.push(value);
       },
+      setAttribute() {},
     });
     const head = { appendChild: (el: { src?: string }) => el };
     const window: Record<string, unknown> = {
@@ -428,6 +440,37 @@ describe("consent bootstrap", () => {
     expect(page.tags).toHaveLength(2);
     expect(page.fetched).toEqual([]);
   });
+
+  const widget = "https://cdn.example.com/widget.js";
+
+  it("holds the head script in the consent region until analytics consent", async () => {
+    for (const google of [true, false]) {
+      expect(
+        (await loadPage({ region: "consent", google, headScriptSrc: widget }))
+          .loaded,
+      ).not.toContain(widget);
+      expect(
+        (
+          await loadPage({
+            region: "consent",
+            google,
+            headScriptSrc: widget,
+            cookie: "an_consent=1.p1.t0",
+          })
+        ).loaded,
+      ).toContain(widget);
+    }
+  });
+
+  it("loads the head script at once outside the consent region", async () => {
+    const page = await loadPage({
+      region: "none",
+      google: false,
+      headScriptSrc: widget,
+    });
+
+    expect(page.loaded).toEqual([widget]);
+  });
 });
 
 describe("head script", () => {
@@ -453,19 +496,21 @@ describe("head script", () => {
     expect(html).not.toContain("data-agent-native-head-script");
   });
 
-  it("injects the env-configured script with defer before </head>", async () => {
+  it("queues the env-configured script for consent before </head>", async () => {
     delete process.env.GA_MEASUREMENT_ID;
     delete process.env.GTM_CONTAINER_ID;
     process.env.AGENT_NATIVE_HEAD_SCRIPT_SRC =
-      "https://cdn.example.com/widget.js?a=1&b=2";
+      "https://cdn.example.com/widget.js?a=1&b=</script>";
 
     const html = await readStream(
       wrapWithAnalytics(streamFromString("<html><head></head><body /></html>")),
     );
 
     expect(html).toContain(
-      '<script src="https://cdn.example.com/widget.js?a=1&amp;b=2" defer data-agent-native-head-script></script>',
+      'agentNativeHeadScript.src="https://cdn.example.com/widget.js?a=1&b=\\x3c/script>"',
     );
+    expect(html).not.toContain("<script src=");
+    expect(html).toContain("data-agent-native-consent>");
     expect(html.indexOf("data-agent-native-head-script")).toBeLessThan(
       html.indexOf("</head>"),
     );

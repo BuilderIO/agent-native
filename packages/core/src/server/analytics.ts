@@ -81,18 +81,20 @@ export function getAgentNativeAnalyticsConfigScript(): string | null {
   ].join("");
 }
 
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-export function getHeadScriptTag(): string | null {
+// A deployment's widget may set cookies or track, so it waits for
+// performance consent like GA does.
+function getHeadScript(): string | null {
   const src = getAppConfig().analytics.headScriptSrc;
   if (!src) return null;
-  return `<script src="${escapeHtmlAttribute(src)}" defer data-agent-native-head-script></script>`;
+  // "<" inside an inline script could close it early.
+  const jsSrc = JSON.stringify(src).replace(/</g, "\\x3c");
+  return consentGatedScript(
+    "performance",
+    `var agentNativeHeadScript=document.createElement('script');` +
+      `agentNativeHeadScript.src=${jsSrc};` +
+      `agentNativeHeadScript.setAttribute('data-agent-native-head-script','');` +
+      `document.head.appendChild(agentNativeHeadScript);`,
+  );
 }
 
 export function getGaInlineConfigScriptBody(options?: {
@@ -233,7 +235,7 @@ type AnalyticsInjection = {
 
 function getAnalyticsInjection(): AnalyticsInjection | null {
   const agentNativeAnalytics = getAgentNativeAnalyticsConfigScript();
-  const headScript = getHeadScriptTag();
+  const headScript = getHeadScript();
   const containerId = getGtmContainerId();
   if (containerId) {
     return {
@@ -257,7 +259,7 @@ function getAnalyticsInjection(): AnalyticsInjection | null {
     gaScript ? getGoogleConsentDefaultScript(["dataLayer"]) : null,
     gaScript,
     headScript,
-    gaScript ? getConsentBootstrapScript() : null,
+    gaScript || headScript ? getConsentBootstrapScript() : null,
   ]
     .filter(Boolean)
     .join("");
