@@ -29,16 +29,21 @@ describe("BlockActionsMenu", () => {
   let editor: Editor | null = null;
   let root: Root | null = null;
   let host: HTMLElement | null = null;
+  let page: HTMLElement | null = null;
 
   afterEach(() => {
     act(() => root?.unmount());
     host?.remove();
     editor?.destroy();
-    editor = root = host = null;
+    page?.remove();
+    editor = root = host = page = null;
   });
 
   function mount(tableOptions = true) {
+    page = document.createElement("div");
+    document.body.append(page);
     editor = new Editor({
+      element: page,
       extensions: createVisualEditorExtensions(),
       content: {
         type: "doc",
@@ -77,6 +82,7 @@ describe("BlockActionsMenu", () => {
       view: target.view,
       anchorRect: new DOMRect(0, 0, 24, 24),
       getBlock: () => {
+        if (index >= target.state.doc.childCount) return null;
         let pos = 0;
         for (let child = 0; child < index; child += 1) {
           pos += target.state.doc.child(child).nodeSize;
@@ -160,6 +166,36 @@ describe("BlockActionsMenu", () => {
     expect(request.duplicate).toHaveBeenCalledOnce();
     expect(request.onClose).toHaveBeenCalledOnce();
     expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("closes when its block is deleted", () => {
+    const target = mount();
+    const { request } = open(target, 1);
+    const table = target.state.doc.child(1);
+
+    act(() => {
+      target.view.dispatch(target.state.tr.delete(8, 8 + table.nodeSize));
+    });
+
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(request.onClose).toHaveBeenCalledOnce();
+  });
+
+  it("puts the caret in its block on Escape", async () => {
+    const target = mount();
+    open(target, 1);
+
+    act(() => {
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+      );
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(target.view.hasFocus()).toBe(true);
+    expect(target.state.selection.empty).toBe(true);
+    expect(target.state.selection.$from.parent.textContent).toBe("A");
   });
 
   it("leaves out the table switches when asked to", () => {

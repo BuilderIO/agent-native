@@ -86,7 +86,10 @@ test.describe("inline table controls", () => {
 
     // The caret stays in Alpha's row; pointing at Beta moves the row options.
     await cell(page, "Ready").hover();
-    const rowOptions = page.getByRole("button", { name: "Row options" });
+    const rowOptions = page.getByRole("button", {
+      exact: true,
+      name: "Row options",
+    });
     const readyBox = (await cell(page, "Ready").boundingBox())!;
     const optionsBox = (await rowOptions.boundingBox())!;
     const optionsMiddle = optionsBox.y + optionsBox.height / 2;
@@ -428,6 +431,44 @@ test.describe("inline table controls", () => {
     const grip = page.locator(GRIP);
     await expect(grip).toHaveCSS("opacity", "1");
     expect((await grip.boundingBox())!.x).toBeGreaterThanOrEqual(0);
+  });
+
+  test("at phone width the first row's options leave the block grip clear", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openTablePage(page, "Table phone grip clearance");
+    await cell(page, "Item").click();
+
+    const grip = page.locator(GRIP);
+    await expect(grip).toHaveCSS("opacity", "1");
+    const rowOptions = page.getByRole("button", { name: "Row options" });
+    await expect(rowOptions).toHaveCSS("opacity", "1");
+    const topmost = (box: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }) =>
+      page.evaluate(
+        ([x, y]) =>
+          document
+            .elementFromPoint(x, y)
+            ?.closest("button, [role=button]")
+            ?.getAttribute("aria-label") ?? null,
+        [box.x + box.width / 2, box.y + box.height / 2],
+      );
+    expect(await topmost((await grip.boundingBox())!)).toBe(
+      "Open block menu or drag to reorder",
+    );
+    expect(await topmost((await rowOptions.boundingBox())!)).toBe(
+      "Row options",
+    );
+
+    await grip.click();
+    await expect(
+      page.getByRole("menuitemcheckbox", { name: "Header row" }),
+    ).toBeVisible();
   });
 
   test("a table wider than a phone keeps its add-column control on screen", async ({

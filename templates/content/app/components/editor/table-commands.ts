@@ -1,5 +1,5 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { Transaction } from "@tiptap/pm/state";
+import { EditorState, type Transaction } from "@tiptap/pm/state";
 import {
   addColumn,
   addRow,
@@ -173,8 +173,8 @@ export function setColumnColor(
   return setColumnMeta(tr, table.pos, columns);
 }
 
-function tableRect(tr: Transaction, tablePos: number): TableRect {
-  const table = tr.doc.nodeAt(tablePos)!;
+function tableRect(doc: ProseMirrorNode, tablePos: number): TableRect {
+  const table = doc.nodeAt(tablePos)!;
   const map = TableMap.get(table);
   return {
     map,
@@ -222,7 +222,11 @@ export function insertTableColumn(
   table: TableAt,
   columnIndex: number,
 ) {
-  addColumn(tr, tableRect(tr, table.pos), columnIndex);
+  // addColumn maps its positions through every step in the transaction it's
+  // given, so on one that already holds steps it inserts in the wrong place.
+  const own = EditorState.create({ doc: tr.doc }).tr;
+  addColumn(own, tableRect(own.doc, table.pos), columnIndex);
+  for (const step of own.steps) tr.step(step);
   return spliceColumnMeta(tr, table.pos, columnIndex, 0, {});
 }
 
@@ -242,7 +246,7 @@ export function deleteTableColumn(
   table: TableAt,
   columnIndex: number,
 ) {
-  removeColumn(tr, tableRect(tr, table.pos), columnIndex);
+  removeColumn(tr, tableRect(tr.doc, table.pos), columnIndex);
   return spliceColumnMeta(tr, table.pos, columnIndex, 1);
 }
 
@@ -251,7 +255,7 @@ export function insertTableRow(
   table: TableAt,
   rowIndex: number,
 ) {
-  return addRow(tr, tableRect(tr, table.pos), rowIndex);
+  return addRow(tr, tableRect(tr.doc, table.pos), rowIndex);
 }
 
 export function deleteTableRow(
@@ -259,6 +263,6 @@ export function deleteTableRow(
   table: TableAt,
   rowIndex: number,
 ) {
-  removeRow(tr, tableRect(tr, table.pos), rowIndex);
+  removeRow(tr, tableRect(tr.doc, table.pos), rowIndex);
   return tr;
 }

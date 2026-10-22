@@ -8,9 +8,9 @@ import {
   IconTableRow,
   IconTrash,
 } from "@tabler/icons-react";
-import type { Transaction } from "@tiptap/pm/state";
+import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   DropdownMenu,
@@ -61,6 +61,7 @@ export function BlockActionsMenu({
   const t = useT();
   const [request, setRequest] = useState<DragHandleMenuRequest | null>(null);
   const [, setRevision] = useState(0);
+  const escapedRef = useRef(false);
 
   useEffect(() => {
     const host: BlockMenuHost = {
@@ -77,10 +78,18 @@ export function BlockActionsMenu({
     };
   }, [editor]);
 
-  // The switches show the table as it is, including a collaborator's change.
+  // The switches show the table as it is, including a collaborator's change,
+  // and the menu goes when its block does.
   useEffect(() => {
     if (!request) return;
-    const redraw = () => setRevision((revision) => revision + 1);
+    const redraw = () => {
+      if (request.getBlock()) {
+        setRevision((revision) => revision + 1);
+      } else {
+        setRequest(null);
+        request.onClose();
+      }
+    };
     editor.on("transaction", redraw);
     return () => {
       editor.off("transaction", redraw);
@@ -102,6 +111,20 @@ export function BlockActionsMenu({
     const tr = request.view.state.tr;
     edit(tr, latest);
     request.view.dispatch(tr.setMeta(LOCAL_FILE_USER_EDIT_META, true));
+  };
+
+  // The grip selected the whole block, which typing would replace, so Escape
+  // puts the caret at the block's start instead.
+  const returnToBlock = () => {
+    const latest = request.getBlock();
+    if (!latest) return;
+    const { view } = request;
+    view.dispatch(
+      view.state.tr.setSelection(
+        TextSelection.near(view.state.doc.resolve(latest.pos + 1)),
+      ),
+    );
+    view.focus();
   };
 
   const { anchorRect } = request;
@@ -133,8 +156,17 @@ export function BlockActionsMenu({
         aria-label={t("editor.blockMenu.label")}
         className={instantCloseMenuClass}
         collisionPadding={8}
-        // The actions focus the editor themselves; Escape leaves focus alone.
-        onCloseAutoFocus={(event) => event.preventDefault()}
+        // The actions focus the editor themselves, and a click elsewhere keeps
+        // the focus it gave.
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (!escapedRef.current) return;
+          escapedRef.current = false;
+          returnToBlock();
+        }}
+        onEscapeKeyDown={() => {
+          escapedRef.current = true;
+        }}
         side="right"
         sideOffset={6}
       >

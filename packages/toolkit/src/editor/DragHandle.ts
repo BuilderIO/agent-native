@@ -619,25 +619,24 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     };
 
     // An open app menu resolves its block on every render, so this reads no
-    // layout.
+    // layout. The block is found by its element, not by position: once the
+    // block is gone, its old position holds the next block.
     const resolveMenuContext = (context: DragHandleMenuContext) => {
-      let sourcePos = context.sourcePos;
-      let found = false;
-      context.view.state.doc.forEach((_node, offset) => {
-        if (!found && context.view.nodeDOM(offset) === context.sourceBlock) {
-          sourcePos = offset;
-          found = true;
+      const { doc } = context.view.state;
+      let sourcePos = 0;
+      for (let index = 0; index < doc.childCount; index += 1) {
+        const sourceNode = doc.child(index);
+        if (context.view.nodeDOM(sourcePos) === context.sourceBlock) {
+          return {
+            ...context,
+            sourcePos,
+            sourceNode,
+            sourceNodeSize: sourceNode.nodeSize,
+          };
         }
-      });
-      const sourceNode = context.view.state.doc.nodeAt(sourcePos);
-      if (!sourceNode) return null;
-
-      return {
-        ...context,
-        sourcePos,
-        sourceNode,
-        sourceNodeSize: sourceNode.nodeSize,
-      };
+        sourcePos += sourceNode.nodeSize;
+      }
+      return null;
     };
 
     const focusSelectionNear = (

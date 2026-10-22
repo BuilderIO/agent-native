@@ -12,7 +12,11 @@ import {
 } from "@tabler/icons-react";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection, type Transaction } from "@tiptap/pm/state";
-import { findTable, TableMap } from "@tiptap/pm/tables";
+import {
+  findTable,
+  TableMap,
+  type Rect as TableCellRect,
+} from "@tiptap/pm/tables";
 import { Editor } from "@tiptap/react";
 import {
   useEffect,
@@ -114,6 +118,8 @@ const ROW_OPTIONS_HIT_HEIGHT =
   ROW_OPTIONS_MARKER_HEIGHT_PX + TABLE_HANDLE_HIT_PADDING * 2;
 const ROW_OPTIONS_MENU_ALIGN_OFFSET = ROW_OPTIONS_HIT_HEIGHT / 2;
 const ROW_OPTIONS_MENU_HEIGHT = 290;
+// The block grip, in the gutter left of every block.
+const BLOCK_GRIP_WIDTH = 24;
 const EDGE_HANDLE_LENGTH = 56;
 const COLUMN_EDGE_HANDLE_HIT_WIDTH =
   EDGE_HANDLE_THICKNESS + TABLE_HANDLE_HIT_PADDING * 2;
@@ -288,12 +294,12 @@ function createEmptyCell(editor: Editor, cell: ProseMirrorNode) {
   return cell.type.create(cell.attrs, Fragment.from(paragraph), cell.marks);
 }
 
-// The column a cell starts in, counting merged cells' columns.
-function getColumnIndex(table: TableAt, address: SelectedCellAddress) {
+// The rows and columns a cell covers, counting merged cells.
+function getCellRect(table: TableAt, address: SelectedCellAddress) {
   const cellPos = getCellPos(table.node, table.pos, address);
   return cellPos === null
-    ? address.columnIndex
-    : TableMap.get(table.node).colCount(cellPos - table.pos - 1);
+    ? null
+    : TableMap.get(table.node).findCell(cellPos - table.pos - 1);
 }
 
 function getTargetElement(target: EventTarget | null) {
@@ -621,19 +627,13 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   // Menu actions on the selected cell's row or column.
   const editAtCell = (
     address: SelectedCellAddress | null,
-    edit: (
-      tr: Transaction,
-      table: TableAt,
-      cell: { row: number; column: number },
-    ) => void,
+    edit: (tr: Transaction, table: TableAt, cell: TableCellRect) => void,
   ) => {
     if (!address) return;
-    editTable(address.tableIndex, (tr, table) =>
-      edit(tr, table, {
-        row: address.rowIndex,
-        column: getColumnIndex(table, address),
-      }),
-    );
+    editTable(address.tableIndex, (tr, table) => {
+      const cell = getCellRect(table, address);
+      if (cell) edit(tr, table, cell);
+    });
   };
 
   const deleteTableAt = (tr: Transaction, table: TableAt) =>
@@ -659,14 +659,11 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     return { address, table };
   };
 
-  // The header switches keep their menu open, and the menu isn't modal, so
-  // focusing the editor would close it. Closing it focuses the editor instead.
   const replaceTable = (
     tablePos: number,
     oldTable: ProseMirrorNode,
     nextTable: ProseMirrorNode,
     nextAddress: SelectedCellAddress,
-    { keepMenuFocus = false } = {},
   ) => {
     const transaction = editor.state.tr.replaceWith(
       tablePos,
@@ -685,7 +682,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     }
     transaction.setMeta(LOCAL_FILE_USER_EDIT_META, true);
     editor.view.dispatch(transaction.scrollIntoView());
-    if (!keepMenuFocus) editor.view.focus();
+    editor.view.focus();
 
     requestAnimationFrame(() => {
       const nextCell = getCellAtAddress(
@@ -698,7 +695,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         ? getCellAddress(editor, nextCell)
         : nextAddress;
       if (nextCell) {
-        selectCellForCommand(nextCell, !keepMenuFocus);
+        selectCellForCommand(nextCell, true);
       } else {
         syncOverlay();
       }
@@ -728,7 +725,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
   const duplicateColumn = (cell: HTMLElement | null) => {
     const context = getTableMutationContext(cell);
-    if (!context) return;
+    const source = context && getCellRect(context.table, context.address);
+    if (!context || !source) return;
 
     const nextRows = getChildren(context.table.node).map((row) => {
       const cells = getChildren(row);
@@ -743,10 +741,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       context.table.pos,
       context.table.node,
       context.table.node.type.create(
-        attrsWithDuplicatedColumn(
-          context.table.node,
-          getColumnIndex(context.table, context.address),
-        ),
+        attrsWithDuplicatedColumn(context.table.node, source.left),
         Fragment.fromArray(nextRows),
         context.table.node.marks,
       ),
@@ -1158,12 +1153,13 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     selectedTableAt && selectedCellAddress
       ? getRowColor(selectedTableAt.node, selectedCellAddress.rowIndex)
       : null;
-  const selectedColumnColor =
+  const selectedCellRect =
     selectedTableAt && selectedCellAddress
-      ? getColumnColor(
-          selectedTableAt.node,
-          getColumnIndex(selectedTableAt, selectedCellAddress),
-        )
+      ? getCellRect(selectedTableAt, selectedCellAddress)
+      : null;
+  const selectedColumnColor =
+    selectedTableAt && selectedCellRect
+      ? getColumnColor(selectedTableAt.node, selectedCellRect.left)
       : null;
   const viewportWidth =
     typeof window === "undefined"
@@ -1214,6 +1210,12 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const columnMenuAlignOffset = columnMenuWouldOverflowRight
     ? -COLUMN_OPTIONS_MENU_ALIGN_OFFSET
     : COLUMN_OPTIONS_MENU_ALIGN_OFFSET;
+  // A table at the screen's edge leaves its gutter to the block grip, which
+  // would otherwise sit under the first row's options.
+  const rowOptionsLeft = (tableEdge: number) =>
+    tableEdge -
+    wrapperRect.left -
+    (tableEdge < BLOCK_GRIP_WIDTH ? 0 : ROW_OPTIONS_HIT_WIDTH / 2);
   const rowMenuAlign = rowMenuWouldOverflowBottom ? "end" : "start";
   const rowMenuAlignOffset = rowMenuWouldOverflowBottom
     ? -ROW_OPTIONS_MENU_ALIGN_OFFSET
@@ -1353,7 +1355,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <ColorSubmenu
                 onChange={(color) =>
                   editAtCell(selectedCellAddress, (tr, table, cell) =>
-                    setColumnColor(tr, table, cell.column, color),
+                    setColumnColor(tr, table, cell.left, color),
                   )
                 }
                 value={selectedColumnColor}
@@ -1362,7 +1364,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className="gap-2"
                 onSelect={() =>
                   editAtCell(selectedCellAddress, (tr, table, cell) =>
-                    insertTableColumn(tr, table, cell.column),
+                    insertTableColumn(tr, table, cell.left),
                   )
                 }
               >
@@ -1373,7 +1375,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className="gap-2"
                 onSelect={() =>
                   editAtCell(selectedCellAddress, (tr, table, cell) =>
-                    insertTableColumn(tr, table, cell.column + 1),
+                    insertTableColumn(tr, table, cell.right),
                   )
                 }
               >
@@ -1402,7 +1404,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                     if (TableMap.get(table.node).width <= 1) {
                       deleteTableAt(tr, table);
                     } else {
-                      deleteTableColumn(tr, table, cell.column);
+                      deleteTableColumn(tr, table, cell.left);
                     }
                   })
                 }
@@ -1443,10 +1445,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   setRowMenuOpen(true);
                 }}
                 style={{
-                  left:
-                    Math.max(axisTableRect.left, axisScrollport.left) -
-                    wrapperRect.left -
-                    ROW_OPTIONS_HIT_WIDTH / 2,
+                  left: rowOptionsLeft(
+                    Math.max(axisTableRect.left, axisScrollport.left),
+                  ),
                   top: axisRect.top - wrapperRect.top + axisRect.height / 2,
                   height: ROW_OPTIONS_HIT_HEIGHT,
                   transform: "translateY(-50%)",
@@ -1485,7 +1486,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <ColorSubmenu
                 onChange={(color) =>
                   editAtCell(selectedCellAddress, (tr, table, cell) =>
-                    setRowColor(tr, table, cell.row, color),
+                    setRowColor(tr, table, cell.top, color),
                   )
                 }
                 value={selectedRowColor}
@@ -1494,7 +1495,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className="gap-2"
                 onSelect={() =>
                   editAtCell(selectedCellAddress, (tr, table, cell) =>
-                    insertTableRow(tr, table, cell.row),
+                    insertTableRow(tr, table, cell.top),
                   )
                 }
               >
@@ -1505,7 +1506,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className="gap-2"
                 onSelect={() =>
                   editAtCell(selectedCellAddress, (tr, table, cell) =>
-                    insertTableRow(tr, table, cell.row + 1),
+                    insertTableRow(tr, table, cell.bottom),
                   )
                 }
               >
@@ -1534,7 +1535,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                     if (table.node.childCount <= 1) {
                       deleteTableAt(tr, table);
                     } else {
-                      deleteTableRow(tr, table, cell.row);
+                      deleteTableRow(tr, table, cell.top);
                     }
                   })
                 }

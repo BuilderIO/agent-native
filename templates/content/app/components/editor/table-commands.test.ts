@@ -196,6 +196,26 @@ describe("row and column colours", () => {
     expect(columnColors(next)).toEqual(["red", null, "blue_bg"]);
   });
 
+  it("inserts several columns in one edit", () => {
+    const next = edit(
+      table([
+        ["h:A", "h:B"],
+        ["C", "D"],
+      ]),
+      (tr, target) => {
+        setRowColor(tr, target, 1, "red");
+        insertTableColumn(tr, target, 2);
+        insertTableColumn(tr, target, 3);
+      },
+    );
+
+    expect(cells(next)).toEqual([
+      ["h:A", "h:B", "h:", "h:"],
+      ["C", "D", "", ""],
+    ]);
+    expect(getRowColor(next, 1)).toBe("red");
+  });
+
   it("removes a deleted column's colour", () => {
     const next = edit(
       table([["A", "B"]], {
