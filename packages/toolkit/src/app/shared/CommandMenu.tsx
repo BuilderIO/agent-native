@@ -495,6 +495,8 @@ export interface CommandMenuProps<TAppContext = unknown> {
   inputLabel?: string;
   emptyText?: string;
   emptyState?: ReactNode;
+  /** App suggestions shown only when a non-empty query has no selectable results. */
+  noMatchSuggestionsSlot?: (search: string) => ReactNode;
   initialSelection?: "first" | "none";
   container?: HTMLElement;
   onSearchChange?: (search: string) => void;
@@ -536,6 +538,7 @@ export function CommandMenu<TAppContext = unknown>({
   inputLabel = placeholder,
   emptyText: _emptyText = "No commands found.",
   emptyState,
+  noMatchSuggestionsSlot,
   initialSelection,
   container,
   onSearchChange,
@@ -921,6 +924,8 @@ export function CommandMenu<TAppContext = unknown>({
         ? (renderResultsHasItems?.(search) ?? hasCommandItems(renderedResults))
         : hasCommandItems(renderedResults));
     const hasResults = hasCommandResults || hasDynamicItems;
+    const noMatchSuggestions =
+      !hasResults && search.trim() ? noMatchSuggestionsSlot?.(search) : null;
     const list = (
       <CommandListPrimitive>
         {activeAppPage ? (
@@ -991,13 +996,16 @@ export function CommandMenu<TAppContext = unknown>({
 
         {renderResultsPosition === "after" ? renderedResults : null}
 
-        {!hasResults && emptyState != null ? (
+        {!hasResults && (emptyState != null || noMatchSuggestions != null) ? (
           <div
             role="status"
             aria-live="polite"
             className="px-3 py-6 text-center text-sm text-muted-foreground"
           >
             {emptyState}
+            {noMatchSuggestions != null ? (
+              <div className="mt-3">{noMatchSuggestions}</div>
+            ) : null}
           </div>
         ) : null}
 

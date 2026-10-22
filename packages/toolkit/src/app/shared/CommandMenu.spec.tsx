@@ -142,6 +142,7 @@ describe("CommandMenu", () => {
     renderResultsHasItems?: (search: string) => boolean;
     renderResultsPosition?: "before" | "after";
     emptyState?: React.ReactNode;
+    noMatchSuggestionsSlot?: (search: string) => React.ReactNode;
     container?: HTMLElement;
     size?: "default" | "wide";
     showSettingsCommand?: boolean;
@@ -180,6 +181,7 @@ describe("CommandMenu", () => {
           renderResultsHasItems={renderResultsHasItems}
           renderResultsPosition={renderResultsPosition}
           emptyState={emptyState}
+          noMatchSuggestionsSlot={noMatchSuggestionsSlot}
           container={portalContainer}
           size={size}
         >
@@ -2224,6 +2226,22 @@ describe("CommandMenu", () => {
 
     expect(document.querySelector('[role="status"]')?.textContent).toContain(
       "No matching records",
+    );
+  });
+
+  it("shows app search suggestions only when a non-empty query has no results", () => {
+    renderAppCommands({
+      groups: [],
+      emptyState: "No matching records",
+      noMatchSuggestionsSlot: (query) => (
+        <button type="button">Search {query} everywhere</button>
+      ),
+    });
+
+    search("missing");
+
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "Search missing everywhere",
     );
   });
 
