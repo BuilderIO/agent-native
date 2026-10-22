@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { MCP_APPROVAL_MESSAGES } from "../localization/mcp-approval-messages.js";
+import { storedApprovalArguments } from "./approval-store.js";
 import {
   describeApprovalTime,
   mcpApprovalPromptText,
@@ -9,6 +10,7 @@ import {
 } from "./approval-summary.js";
 import {
   formatApprovalTime,
+  isTimeZone,
   readApprovalTime,
   readWallTime,
   zoneOffsetMinutes,
@@ -70,6 +72,19 @@ describe("approval times", () => {
       Date.UTC(2026, 9, 22, 14, 0),
     );
     expect(readWallTime("2026-10-22T14:00:00Z")).toBeUndefined();
+  });
+
+  it("reads no time from an impossible offset or date field, rather than shifting it", () => {
+    expect(isTimeZone("+99:99")).toBe(false);
+    expect(isTimeZone("-07:60")).toBe(false);
+    expect(isTimeZone("+15:00")).toBe(false);
+    expect(isTimeZone("+14:00")).toBe(true);
+    expect(readApprovalTime("2026-10-22T14:00:00+99:99", undefined)).toBe(
+      undefined,
+    );
+    expect(readApprovalTime("2026-13-40T25:99:00Z", undefined)).toBe(undefined);
+    expect(readApprovalTime("2026-02-30T14:00:00Z", undefined)).toBe(undefined);
+    expect(readWallTime("2026-10-22T24:00:00")).toBeUndefined();
   });
 
   it("names the zone it formats in", () => {
@@ -190,10 +205,69 @@ describe("summarizeMcpApproval", () => {
         fields: [],
         details: undefined,
         arguments: state,
+        cut: false,
       });
     }
   });
+
+  it("keeps every recipient, field and value whole", () => {
+    const to = Array.from({ length: 60 }, (_, i) => `guest-${i}@example.com`);
+    const body = "word ".repeat(400);
+    const args: Record<string, unknown> = { to, body };
+    for (let i = 0; i < 20; i++) args[`option${i}`] = `value ${i}`;
+
+    const summary = summarizeMcpApproval({
+      entry: undefined,
+      actionName: "send-email",
+      argumentsJson: storedApprovalArguments(args),
+      labels,
+    });
+
+    expect(summary.recipients).toEqual(to);
+    expect(summary.fields).toHaveLength(22);
+    expect(summary.fields[1]).toEqual({
+      label: "Body",
+      value: body,
+    });
+    expect(summary.cut).toBe(false);
+  });
+
+  it("marks arguments the server cut to store them", () => {
+    const summarize = (args: unknown) =>
+      summarizeMcpApproval({
+        entry: undefined,
+        actionName: "send-email",
+        argumentsJson: storedApprovalArguments(args),
+        labels,
+      });
+    const people = (count: number) =>
+      Array.from({ length: count }, (_, i) => `guest-${i}@example.com`);
+
+    expect(summarize({ to: people(150) })).toMatchObject({ cut: true });
+    expect(summarize({ body: "word ".repeat(1_800) })).toMatchObject({
+      cut: true,
+    });
+    expect(summarize({ apiKey: "sk-live-1234567890" })).toMatchObject({
+      cut: false,
+    });
+
+    // Too large to store at all: only the start of its JSON is kept.
+    const tooLarge = summarize({
+      to: people(5),
+      parts: Array.from({ length: 10 }, () => "word ".repeat(1_400)),
+    });
+    expect(tooLarge).toMatchObject({
+      recipients: [],
+      fields: [],
+      arguments: "stored",
+      cut: true,
+    });
+    expect(tooLarge.details).toContain("guest-0@example.com");
+  });
 });
+
+const REVIEW_URL =
+  "https://calendar.example.com/_agent-native/mcp/approvals/grant-1";
 
 describe("mcpApprovalPromptText", () => {
   const summary = summarizeMcpApproval({
@@ -217,6 +291,7 @@ describe("mcpApprovalPromptText", () => {
         locale: "en-US",
         readerZone: "America/New_York",
         mode: "form",
+        reviewUrl: REVIEW_URL,
       }),
     ).toBe(
       [
@@ -240,6 +315,7 @@ describe("mcpApprovalPromptText", () => {
         locale: "en-US",
         readerZone: undefined,
         mode: "form",
+        reviewUrl: REVIEW_URL,
       }).split("\n")[1],
     ).toBe(
       "This exact request started at 1:55 PM UTC-07:00 and may have finished. Approving runs it again.",
@@ -255,9 +331,79 @@ describe("mcpApprovalPromptText", () => {
         locale: "en-US",
         readerZone: undefined,
         mode: "url",
+        reviewUrl: REVIEW_URL,
       }),
     ).toBe(
       "Create event needs your approval before it runs. Open the review page, check what it will do, then choose Approve or Deny.",
     );
+  });
+
+  describe("a form that can't show everything", () => {
+    const form = (
+      args: unknown,
+      argumentsJson = storedApprovalArguments(args),
+    ) =>
+      mcpApprovalPromptText({
+        summary: summarizeMcpApproval({
+          entry: undefined,
+          actionName: "send-email",
+          argumentsJson,
+          labels,
+        }),
+        priorRun: undefined,
+        messages: en,
+        locale: "en-US",
+        readerZone: undefined,
+        mode: "form",
+        reviewUrl: REVIEW_URL,
+      }).split("\n");
+    const people = (count: number) =>
+      Array.from({ length: count }, (_, i) => `guest-${i}@example.com`);
+    const seeAll = `See all of it on the review page: ${REVIEW_URL}`;
+
+    it("says how many recipients and fields it leaves out, and links the page that shows them", () => {
+      const body = "word ".repeat(100);
+      const args: Record<string, unknown> = { body, to: people(27) };
+      for (let i = 0; i < 13; i++) args[`option${i}`] = "on";
+
+      const lines = form(args);
+
+      expect(lines[1]).toBe(`Reaches: ${people(20).join(", ")} and 7 more`);
+      expect(lines[2]).toBe(`Body: ${body.slice(0, 280)}…`);
+      expect(lines.filter((line) => line.startsWith("Option"))).toHaveLength(
+        10,
+      );
+      expect(lines.slice(-3)).toEqual([
+        "Fields not shown here: 3",
+        "Long values are shortened here.",
+        seeAll,
+      ]);
+    });
+
+    it("shows a call that fits in full, with nothing more to see", () => {
+      const lines = form({ to: people(3), subject: "Hi" });
+      expect(lines).toEqual([
+        "Send email needs your approval before it runs. Check what it will do, then choose Approve or Deny.",
+        `Reaches: ${people(3).join(", ")}`,
+        `To: ${people(3).join(", ")}`,
+        "Subject: Hi",
+      ]);
+    });
+
+    it("says when the server couldn't keep the whole call, which the page can't show either", () => {
+      const cut = form({ subject: "Hi", body: "word ".repeat(1_800) });
+      expect(cut).toContain(en.argumentsCut);
+      expect(cut).toContain(seeAll);
+
+      const tooLarge = form({
+        parts: Array.from({ length: 10 }, () => "word ".repeat(1_400)),
+      });
+      expect(tooLarge.slice(1)).toEqual([en.argumentsCut]);
+    });
+
+    it("says when it has no arguments to show", () => {
+      expect(form({}, null).slice(1)).toEqual([en.argumentsNotStored]);
+      expect(form({}, "{not json").slice(1)).toEqual([en.argumentsUnreadable]);
+    });
   });
 });

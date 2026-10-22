@@ -929,7 +929,6 @@ async function authorizeApproval(
       verifiedState.actionName !== name ||
       verifiedState.argumentsHash !== argumentsHash ||
       !Number.isFinite(verifiedState.expiresAt) ||
-      verifiedState.expiresAt < Date.now() ||
       !approvalCallerKey
     ) {
       return approvalDenied(
@@ -946,7 +945,11 @@ async function authorizeApproval(
       expiresAt: verifiedState.expiresAt,
     };
     const spent = `Approval for ${name} is invalid, expired, or already used.`;
-    if (verifiedState.mode !== "url") {
+    // Approving on the page extends the grant past this prompt, and the
+    // store checks the grant's own expiry, so only the prompt's answers end
+    // with the prompt.
+    const promptOpen = verifiedState.expiresAt >= Date.now();
+    if (verifiedState.mode !== "url" && promptOpen) {
       const decision = call.approval?.decision();
       if (decision === "approve") {
         if (!(await consumeMcpApprovalGrant(grant))) {
@@ -973,6 +976,7 @@ async function authorizeApproval(
         approval: { by: "review-page", nonce: reviewed.nonce },
       };
     }
+    if (!promptOpen) return approvalDenied(spent);
     const opened =
       verifiedState.mode === "url" && call.approval?.accepted() === true;
     if (

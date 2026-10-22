@@ -16,10 +16,22 @@ export interface McpApprovalTime {
 const ISO_DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/i;
 const FIXED_OFFSET = /^([+-])(\d{2}):?(\d{2})$/;
+// Real offsets run from UTC-12:00 to UTC+14:00.
+const MAX_OFFSET_MINUTES = 14 * 60;
+
+/** Minutes ahead of UTC a fixed offset such as `-07:00` names, if it is a real one. */
+function fixedOffsetMinutes(zone: string): number | undefined {
+  const fixed = FIXED_OFFSET.exec(zone);
+  if (!fixed || Number(fixed[3]) >= 60) return undefined;
+  const minutes = Number(fixed[2]) * 60 + Number(fixed[3]);
+  if (minutes > MAX_OFFSET_MINUTES) return undefined;
+  return fixed[1] === "-" ? -minutes : minutes;
+}
 
 export function isTimeZone(zone: unknown): zone is string {
   if (typeof zone !== "string" || !zone.trim()) return false;
-  if (FIXED_OFFSET.test(zone) || zone === "UTC") return true;
+  if (FIXED_OFFSET.test(zone)) return fixedOffsetMinutes(zone) !== undefined;
+  if (zone === "UTC") return true;
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: zone });
     return true;
@@ -31,11 +43,8 @@ export function isTimeZone(zone: unknown): zone is string {
 
 /** Minutes ahead of UTC that `zone` is at `at`. */
 export function zoneOffsetMinutes(at: number, zone: string): number {
-  const fixed = FIXED_OFFSET.exec(zone);
-  if (fixed) {
-    const minutes = Number(fixed[2]) * 60 + Number(fixed[3]);
-    return fixed[1] === "-" ? -minutes : minutes;
-  }
+  const fixed = fixedOffsetMinutes(zone);
+  if (fixed !== undefined) return fixed;
   if (zone === "UTC") return 0;
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: zone,
@@ -66,10 +75,32 @@ function wallTimeInZone(wall: number, zone: string): number {
   return wall - zoneOffsetMinutes(guess, zone) * 60_000;
 }
 
-function normalizedOffset(offset: string): string {
+function normalizedOffset(offset: string): string | undefined {
   if (offset.toUpperCase() === "Z") return "UTC";
+  if (fixedOffsetMinutes(offset) === undefined) return undefined;
   const fixed = FIXED_OFFSET.exec(offset)!;
   return `${fixed[1]}${fixed[2]}:${fixed[3]}`;
+}
+
+/**
+ * The wall time an `ISO_DATE_TIME` match names, as milliseconds read as if
+ * it were UTC, when every field is in range. `Date.UTC` carries an
+ * impossible field into the next one (month 13, 25:00), which would show a
+ * different, plausible time.
+ */
+function wallTimeOf(match: RegExpExecArray): number | undefined {
+  const [year, month, day, hour, minute, second] = [1, 2, 3, 4, 5, 6].map(
+    (group) => Number(match[group] ?? 0),
+  ) as [number, number, number, number, number, number];
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day &&
+    date.getUTCHours() === hour &&
+    date.getUTCMinutes() === minute &&
+    date.getUTCSeconds() === second
+    ? date.getTime()
+    : undefined;
 }
 
 /**
@@ -82,18 +113,11 @@ export function readApprovalTime(
   zone: string | undefined,
 ): McpApprovalTime | undefined {
   const match = ISO_DATE_TIME.exec(value.trim());
-  if (!match) return undefined;
-  const wall = Date.UTC(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    Number(match[4]),
-    Number(match[5]),
-    Number(match[6] ?? 0),
-  );
-  if (!Number.isFinite(wall)) return undefined;
+  const wall = match ? wallTimeOf(match) : undefined;
+  if (!match || wall === undefined) return undefined;
   if (match[7]) {
     const offset = normalizedOffset(match[7]);
+    if (!offset) return undefined;
     return {
       at: wall - zoneOffsetMinutes(wall, offset) * 60_000,
       zone: zone ?? offset,
@@ -110,15 +134,7 @@ export function readApprovalTime(
 export function readWallTime(value: string): number | undefined {
   const match = ISO_DATE_TIME.exec(value.trim());
   if (!match || match[7]) return undefined;
-  const wall = Date.UTC(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    Number(match[4]),
-    Number(match[5]),
-    Number(match[6] ?? 0),
-  );
-  return Number.isFinite(wall) ? wall : undefined;
+  return wallTimeOf(match);
 }
 
 /** A wall time from `readWallTime`, with no zone named. */

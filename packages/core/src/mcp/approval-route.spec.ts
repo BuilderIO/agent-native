@@ -357,6 +357,30 @@ describe("the owner's view", () => {
     );
   });
 
+  it("shows every recipient and field whole, and says plainly when it can't show the whole call", async () => {
+    const people = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        email: `guest-${i}@example.com`,
+      }));
+    const body = "Agenda. ".repeat(60);
+    const whole = await createdGrant({}, { attendees: people(60), body });
+
+    const page = await getHtml(whole.nonce);
+    expect(page.body).toContain("guest-59@example.com");
+    expect(page.body).toContain(body.trim());
+    expect(page.body).not.toContain("too large to keep");
+
+    // Storage keeps 100 items of an array.
+    const cut = await createdGrant({}, { attendees: people(150) });
+    expect((await getJson(cut.nonce)).body.summary).toMatchObject({
+      cut: true,
+      recipients: expect.arrayContaining(["guest-99@example.com"]),
+    });
+    expect((await getHtml(cut.nonce)).body).toContain(
+      "Part of this request was too large to keep, so not all of it can be shown, and the list of who it reaches may be incomplete.",
+    );
+  });
+
   it("names a client identified by URL by that URL's host", async () => {
     const grant = await createdGrant({
       oauthClientId: "https://claude.ai/oauth/client-metadata.json",

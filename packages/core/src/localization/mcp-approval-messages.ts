@@ -7,8 +7,8 @@ import {
 
 /**
  * Copy for the page where a person approves or denies an MCP action call.
- * `{action}`, `{time}`, `{client}` and `{email}` are filled in by the page or
- * prompt; `{time}` in the reader's own time zone.
+ * `{action}`, `{time}`, `{client}`, `{email}`, `{count}` and `{url}` are filled
+ * in by the page or prompt; `{time}` in the reader's own time zone.
  */
 export interface McpApprovalMessages {
   documentTitle: string;
@@ -42,6 +42,11 @@ export interface McpApprovalMessages {
   decisionHelp: string;
   noTimeZone: string;
   calendarTimeZone: string;
+  moreRecipients: string;
+  moreFields: string;
+  valuesShortened: string;
+  argumentsCut: string;
+  reviewWhole: string;
 }
 
 export const MCP_APPROVAL_MESSAGES: Record<
@@ -92,6 +97,12 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Approve runs this exact request once. Deny means it won't run.",
     noTimeZone: "no time zone given",
     calendarTimeZone: "in the calendar's time zone",
+    moreRecipients: "and {count} more",
+    moreFields: "Fields not shown here: {count}",
+    valuesShortened: "Long values are shortened here.",
+    argumentsCut:
+      "Part of this request was too large to keep, so not all of it can be shown, and the list of who it reaches may be incomplete.",
+    reviewWhole: "See all of it on the review page: {url}",
   },
   "zh-CN": {
     documentTitle: "批准 {action}？",
@@ -131,6 +142,12 @@ export const MCP_APPROVAL_MESSAGES: Record<
     decisionHelp: "批准后，这个完全相同的请求会运行一次。拒绝则不会运行。",
     noTimeZone: "未指定时区",
     calendarTimeZone: "使用日历的时区",
+    moreRecipients: "以及另外 {count} 个",
+    moreFields: "此处未显示的字段：{count}",
+    valuesShortened: "较长的值在此处已缩短。",
+    argumentsCut:
+      "此请求有一部分过大，无法保存，因此无法全部显示，涉及人员列表也可能不完整。",
+    reviewWhole: "在审核页面查看完整内容：{url}",
   },
   "zh-TW": {
     documentTitle: "核准 {action}？",
@@ -170,6 +187,12 @@ export const MCP_APPROVAL_MESSAGES: Record<
     decisionHelp: "核准後，這個完全相同的請求會執行一次。拒絕則不會執行。",
     noTimeZone: "未指定時區",
     calendarTimeZone: "使用日曆的時區",
+    moreRecipients: "以及另外 {count} 個",
+    moreFields: "此處未顯示的欄位：{count}",
+    valuesShortened: "較長的值在此處已縮短。",
+    argumentsCut:
+      "此請求有一部分過大，無法儲存，因此無法全部顯示，涉及人員清單也可能不完整。",
+    reviewWhole: "在審核頁面查看完整內容：{url}",
   },
   "es-ES": {
     documentTitle: "¿Aprobar {action}?",
@@ -215,6 +238,13 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Aprobar ejecuta esta solicitud exacta una vez. Denegar hace que no se ejecute.",
     noTimeZone: "sin zona horaria",
     calendarTimeZone: "en la zona horaria del calendario",
+    moreRecipients: "y {count} más",
+    moreFields: "Campos que no se muestran aquí: {count}",
+    valuesShortened: "Los valores largos aparecen abreviados aquí.",
+    argumentsCut:
+      "Parte de esta solicitud era demasiado grande para guardarla, así que no se puede mostrar entera y la lista de personas a las que afecta puede estar incompleta.",
+    reviewWhole:
+      "Consulta la solicitud completa en la página de revisión: {url}",
   },
   "fr-FR": {
     documentTitle: "Approuver {action} ?",
@@ -260,6 +290,13 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Approuver exécute cette demande exacte une seule fois. Refuser empêche son exécution.",
     noTimeZone: "aucun fuseau horaire indiqué",
     calendarTimeZone: "dans le fuseau horaire du calendrier",
+    moreRecipients: "et {count} de plus",
+    moreFields: "Champs non affichés ici : {count}",
+    valuesShortened: "Les valeurs longues sont raccourcies ici.",
+    argumentsCut:
+      "Une partie de cette demande était trop volumineuse pour être conservée ; elle ne peut donc pas être affichée en entier, et la liste des destinataires peut être incomplète.",
+    reviewWhole:
+      "Consultez la demande complète sur la page de vérification : {url}",
   },
   "de-DE": {
     documentTitle: "{action} genehmigen?",
@@ -307,6 +344,12 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Genehmigen führt genau diese Anfrage einmal aus. Ablehnen bedeutet, dass sie nicht ausgeführt wird.",
     noTimeZone: "keine Zeitzone angegeben",
     calendarTimeZone: "in der Zeitzone des Kalenders",
+    moreRecipients: "und {count} weitere",
+    moreFields: "Hier nicht angezeigte Felder: {count}",
+    valuesShortened: "Lange Werte sind hier gekürzt.",
+    argumentsCut:
+      "Ein Teil dieser Anfrage war zu groß zum Speichern. Sie kann daher nicht vollständig angezeigt werden, und die Liste der Betroffenen ist möglicherweise unvollständig.",
+    reviewWhole: "Die vollständige Anfrage findest du auf der Prüfseite: {url}",
   },
   "ja-JP": {
     documentTitle: "{action} を承認しますか？",
@@ -352,6 +395,12 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "承認すると、このリクエストがそのまま 1 回だけ実行されます。拒否すると実行されません。",
     noTimeZone: "タイムゾーンの指定なし",
     calendarTimeZone: "カレンダーのタイムゾーン",
+    moreRecipients: "ほか {count} 件",
+    moreFields: "ここに表示されていない項目：{count}",
+    valuesShortened: "長い値はここでは省略されています。",
+    argumentsCut:
+      "このリクエストの一部は大きすぎて保存できなかったため、すべてを表示することはできません。対象者の一覧も不完全な可能性があります。",
+    reviewWhole: "確認ページですべての内容を確認できます：{url}",
   },
   "ko-KR": {
     documentTitle: "{action}을(를) 승인할까요?",
@@ -396,6 +445,12 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "승인하면 이 요청이 그대로 한 번 실행됩니다. 거부하면 실행되지 않습니다.",
     noTimeZone: "시간대 지정 없음",
     calendarTimeZone: "캘린더 시간대 기준",
+    moreRecipients: "외 {count}개",
+    moreFields: "여기에 표시되지 않은 항목: {count}",
+    valuesShortened: "긴 값은 여기에서 줄여서 표시됩니다.",
+    argumentsCut:
+      "이 요청의 일부가 너무 커서 저장할 수 없었기 때문에 전체를 표시할 수 없으며, 대상 목록도 불완전할 수 있습니다.",
+    reviewWhole: "검토 페이지에서 전체 내용을 확인하세요: {url}",
   },
   "pt-BR": {
     documentTitle: "Aprovar {action}?",
@@ -441,6 +496,12 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Aprovar executa esta solicitação exata uma vez. Negar faz com que ela não seja executada.",
     noTimeZone: "sem fuso horário informado",
     calendarTimeZone: "no fuso horário da agenda",
+    moreRecipients: "e mais {count}",
+    moreFields: "Campos não exibidos aqui: {count}",
+    valuesShortened: "Valores longos aparecem abreviados aqui.",
+    argumentsCut:
+      "Parte desta solicitação era grande demais para ser salva, então ela não pode ser exibida por inteiro, e a lista de quem ela atinge pode estar incompleta.",
+    reviewWhole: "Veja a solicitação completa na página de revisão: {url}",
   },
   "hi-IN": {
     documentTitle: "{action} को मंज़ूरी दें?",
@@ -486,6 +547,12 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "मंज़ूरी देने पर यही अनुरोध एक बार चलेगा। अस्वीकार करने पर यह नहीं चलेगा।",
     noTimeZone: "कोई टाइम ज़ोन नहीं दिया गया",
     calendarTimeZone: "कैलेंडर के टाइम ज़ोन में",
+    moreRecipients: "और {count} अन्य",
+    moreFields: "यहां न दिखाए गए फ़ील्ड: {count}",
+    valuesShortened: "लंबे मान यहां छोटे करके दिखाए गए हैं।",
+    argumentsCut:
+      "इस अनुरोध का एक हिस्सा सहेजने के लिए बहुत बड़ा था, इसलिए इसे पूरा नहीं दिखाया जा सकता, और यह किन तक पहुंचेगा, उसकी सूची अधूरी हो सकती है।",
+    reviewWhole: "पूरा अनुरोध समीक्षा पेज पर देखें: {url}",
   },
   "ar-SA": {
     documentTitle: "الموافقة على {action}؟",
@@ -530,6 +597,12 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "تؤدي الموافقة إلى تشغيل هذا الطلب نفسه مرة واحدة. ويعني الرفض أنه لن يعمل.",
     noTimeZone: "لم تُحدَّد منطقة زمنية",
     calendarTimeZone: "حسب المنطقة الزمنية للتقويم",
+    moreRecipients: "و{count} آخرين",
+    moreFields: "حقول غير معروضة هنا: {count}",
+    valuesShortened: "القيم الطويلة مختصرة هنا.",
+    argumentsCut:
+      "كان جزء من هذا الطلب أكبر من أن يُحفظ، لذا لا يمكن عرضه كاملًا، وقد تكون قائمة من يصل إليهم غير مكتملة.",
+    reviewWhole: "اطّلع على الطلب كاملًا في صفحة المراجعة: {url}",
   },
 };
 

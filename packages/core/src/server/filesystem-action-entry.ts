@@ -59,6 +59,9 @@ export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
     typeof def.retrySafe === "function"
       ? { retrySafe: def.retrySafe }
       : {}),
+    ...(def.zonelessTimes === "calendar"
+      ? { zonelessTimes: def.zonelessTimes }
+      : {}),
     ...(def.chatUI &&
     typeof def.chatUI === "object" &&
     !Array.isArray(def.chatUI)

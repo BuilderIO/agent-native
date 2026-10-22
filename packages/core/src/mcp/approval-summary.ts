@@ -1,4 +1,5 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { redactedArgsWereCut } from "../audit/redact.js";
 import type { McpApprovalMessages } from "../localization/mcp-approval-messages.js";
 import {
   formatApprovalTime,
@@ -33,12 +34,18 @@ export interface McpApprovalField {
  */
 export interface McpApprovalSummary {
   title: string;
-  /** Email addresses the call names under a recipient-like argument. */
+  /** Every email address the call names under a recipient-like argument. */
   recipients: string[];
+  /** Every argument, each value whole. */
   fields: McpApprovalField[];
   /** The stored arguments, indented; undefined unless `stored`. */
   details: string | undefined;
   arguments: "stored" | "not-stored" | "unreadable";
+  /**
+   * The server cut the arguments to store them, so the fields, recipients
+   * and details above are not the whole call.
+   */
+  cut: boolean;
 }
 
 // Keys whose values name people the call reaches: `attendees[].email`,
@@ -46,10 +53,12 @@ export interface McpApprovalSummary {
 const RECIPIENT_KEY =
   /^(?:to|cc|bcc|recipients?|attendees?|participants?|invitees?|guests?|members?|emails?|shared?_?with|users?)$/i;
 const EMAIL = /^[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[^\s@<>(),;:]+$/;
-const MAX_FIELDS = 12;
-const MAX_VALUE = 280;
-const MAX_RECIPIENTS = 50;
+// Stored arguments are no deeper (`audit/redact.ts`).
 const MAX_DEPTH = 6;
+// The in-client prompt is a short text; it says what it leaves out.
+const PROMPT_MAX_RECIPIENTS = 20;
+const PROMPT_MAX_FIELDS = 12;
+const PROMPT_MAX_VALUE = 280;
 
 export function humanizeIdentifier(identifier: string): string {
   const words = identifier
@@ -60,12 +69,8 @@ export function humanizeIdentifier(identifier: string): string {
   return words ? words[0].toUpperCase() + words.slice(1) : identifier;
 }
 
-function clip(value: string): string {
-  return value.length > MAX_VALUE ? `${value.slice(0, MAX_VALUE)}…` : value;
-}
-
 function collectEmails(value: unknown, into: Set<string>, depth: number) {
-  if (into.size >= MAX_RECIPIENTS || depth > MAX_DEPTH) return;
+  if (depth > MAX_DEPTH) return;
   if (typeof value === "string") {
     if (EMAIL.test(value.trim())) into.add(value.trim());
     return;
@@ -119,7 +124,7 @@ function readableValue(
   labels: { yes: string; no: string },
 ): string | undefined {
   if (value === null || value === undefined) return undefined;
-  if (typeof value === "string") return clip(value);
+  if (typeof value === "string") return value;
   if (typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? labels.yes : labels.no;
   if (Array.isArray(value)) {
@@ -133,9 +138,23 @@ function readableValue(
         return readableValue(item, labels);
       })
       .filter((item): item is string => item !== undefined);
-    return items.length > 0 ? clip(items.join(", ")) : undefined;
+    return items.length > 0 ? items.join(", ") : undefined;
   }
-  return clip(JSON.stringify(value));
+  return JSON.stringify(value);
+}
+
+/**
+ * The start of the call's JSON, when the call was too large to store and
+ * only that prefix was kept (`_auditTruncated`); nothing in it can be read
+ * as fields.
+ */
+function storedPreview(args: unknown): string | undefined {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    return undefined;
+  }
+  const envelope = args as { _auditTruncated?: unknown; preview?: unknown };
+  if (envelope._auditTruncated !== true) return undefined;
+  return typeof envelope.preview === "string" ? envelope.preview : "";
 }
 
 export function summarizeMcpApproval(input: {
@@ -153,6 +172,7 @@ export function summarizeMcpApproval(input: {
       fields: [],
       details: undefined,
       arguments: "not-stored",
+      cut: false,
     };
   }
   let args: unknown;
@@ -165,15 +185,27 @@ export function summarizeMcpApproval(input: {
       fields: [],
       details: undefined,
       arguments: "unreadable",
+      cut: false,
     };
   }
+  const preview = storedPreview(args);
+  if (preview !== undefined) {
+    return {
+      title,
+      recipients: [],
+      fields: [],
+      details: preview,
+      arguments: "stored",
+      cut: true,
+    };
+  }
+  const cut = redactedArgsWereCut(args);
   const recipients = new Set<string>();
   findRecipients(args, recipients, 0);
   const properties = entry?.tool.parameters?.properties ?? {};
   const fields: McpApprovalField[] = [];
   if (args && typeof args === "object" && !Array.isArray(args)) {
     for (const [key, value] of Object.entries(args)) {
-      if (fields.length >= MAX_FIELDS) break;
       const readable = readableValue(value, labels);
       if (readable === undefined || readable === "") continue;
       const schemaTitle = (properties[key] as { title?: unknown } | undefined)
@@ -211,6 +243,7 @@ export function summarizeMcpApproval(input: {
     fields,
     details: JSON.stringify(args, null, 2),
     arguments: "stored",
+    cut,
   };
 }
 
@@ -258,6 +291,8 @@ export function describeWallTime(
 /**
  * The text of the in-client approval prompt: the same summary the review page
  * shows, built from the stored arguments, never from the agent's own words.
+ * A form shows what fits in a short text and says what it leaves out, with
+ * the review page's link when the page shows more.
  */
 export function mcpApprovalPromptText(input: {
   summary: McpApprovalSummary;
@@ -266,6 +301,7 @@ export function mcpApprovalPromptText(input: {
   locale: string;
   readerZone: string | undefined;
   mode: "form" | "url";
+  reviewUrl: string;
 }): string {
   const { summary, priorRun, messages, locale, readerZone } = input;
   // Without the reader's zone the fields show the call's own, so the prior
@@ -290,16 +326,48 @@ export function mcpApprovalPromptText(input: {
     );
   }
   if (input.mode === "form") {
-    if (summary.recipients.length > 0) {
-      lines.push(`${messages.reaches}: ${summary.recipients.join(", ")}`);
+    const recipients = summary.recipients.slice(0, PROMPT_MAX_RECIPIENTS);
+    const moreRecipients = summary.recipients.length - recipients.length;
+    if (recipients.length > 0) {
+      lines.push(
+        `${messages.reaches}: ${recipients.join(", ")}${
+          moreRecipients > 0
+            ? ` ${messages.moreRecipients.replace("{count}", String(moreRecipients))}`
+            : ""
+        }`,
+      );
     }
-    for (const field of summary.fields) {
-      const value = field.time
-        ? describeApprovalTime(field.time, { readerZone, locale, messages })
-        : field.wallTime
-          ? describeWallTime(field.wallTime, locale, messages)
-          : field.value;
+    let shortened = false;
+    for (const field of summary.fields.slice(0, PROMPT_MAX_FIELDS)) {
+      let value = field.value;
+      if (field.time) {
+        value = describeApprovalTime(field.time, {
+          readerZone,
+          locale,
+          messages,
+        });
+      } else if (field.wallTime) {
+        value = describeWallTime(field.wallTime, locale, messages);
+      } else if (value.length > PROMPT_MAX_VALUE) {
+        value = `${value.slice(0, PROMPT_MAX_VALUE)}…`;
+        shortened = true;
+      }
       lines.push(`${field.label}: ${value}`);
+    }
+    const moreFields = summary.fields.length - PROMPT_MAX_FIELDS;
+    if (moreFields > 0) {
+      lines.push(messages.moreFields.replace("{count}", String(moreFields)));
+    }
+    if (shortened) lines.push(messages.valuesShortened);
+    if (summary.arguments === "not-stored") {
+      lines.push(messages.argumentsNotStored);
+    } else if (summary.arguments === "unreadable") {
+      lines.push(messages.argumentsUnreadable);
+    } else if (summary.cut) {
+      lines.push(messages.argumentsCut);
+    }
+    if (moreRecipients > 0 || moreFields > 0 || shortened) {
+      lines.push(messages.reviewWhole.replace("{url}", input.reviewUrl));
     }
   }
   return lines.join("\n");

@@ -3248,6 +3248,7 @@ export async function createMCPServerForRequest(
       review,
       ownerEmail: effectiveIdentity?.userEmail,
       mode,
+      requestOrigin: requestMeta?.origin,
     });
     if (mode === "url") {
       const requestState = await approvalCodec!.mint(

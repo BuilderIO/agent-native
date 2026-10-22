@@ -15,6 +15,12 @@ const SENSITIVE_KEY =
   /(?:pass(?:word|phrase)?|secret|token|api[_-]?key|apikey|authorization|bearer|credential|cookie|session[_-]?(?:id|token)|private[_-]?key|client[_-]?secret|signing[_-]?secret|access[_-]?key|refresh[_-]?token|webhook[_-]?(?:url|secret))/i;
 
 const REDACTED = "[redacted]";
+// What a cut leaves behind. `redactedArgsWereCut` reads these back.
+const DEPTH_CUT = "[…]";
+const KEYS_CUT_KEY = "…";
+const KEYS_CUT = "(truncated)";
+const STRING_CUT = /…\(\d+ more chars\)$/;
+const ARRAY_CUT = /^…\(\d+ more\)$/;
 const MAX_STRING = 2000;
 const MAX_DEPTH = 6;
 const MAX_KEYS = 100;
@@ -59,7 +65,7 @@ function redact(value: unknown, depth: number, maxString: number): unknown {
   if (value == null) return value;
   if (typeof value === "string") return redactString(value, maxString);
   if (typeof value === "number" || typeof value === "boolean") return value;
-  if (depth >= MAX_DEPTH) return "[…]";
+  if (depth >= MAX_DEPTH) return DEPTH_CUT;
   if (Array.isArray(value)) {
     const out = value
       .slice(0, MAX_ARRAY)
@@ -73,7 +79,7 @@ function redact(value: unknown, depth: number, maxString: number): unknown {
     let n = 0;
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (n >= MAX_KEYS) {
-        out["…"] = "(truncated)";
+        out[KEYS_CUT_KEY] = KEYS_CUT;
         break;
       }
       n += 1;
@@ -120,6 +126,35 @@ export function redactArgsToJson(
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether `value`, parsed from `redactArgsToJson`, lost part of the
+ * arguments to its limits: a shortened string or array, dropped keys, depth,
+ * or the whole payload replaced by its `_auditTruncated` preview. A redacted
+ * secret is not a cut. Text that only looks like a marker reads as cut,
+ * which errs toward telling a reader something is missing.
+ */
+export function redactedArgsWereCut(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value === DEPTH_CUT || STRING_CUT.test(value);
+  }
+  if (Array.isArray(value)) {
+    const last = value[value.length - 1];
+    return (
+      (typeof last === "string" && ARRAY_CUT.test(last)) ||
+      value.some(redactedArgsWereCut)
+    );
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return (
+      record._auditTruncated === true ||
+      record[KEYS_CUT_KEY] === KEYS_CUT ||
+      Object.values(record).some(redactedArgsWereCut)
+    );
+  }
+  return false;
 }
 
 export function redactArgsToValue(

@@ -30,6 +30,7 @@ import { toAbsoluteOpenUrl } from "../server/deep-link.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
+import { declaredLinkOrigin } from "../server/origin-allowlist.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import {
   decideMcpApproval,
@@ -78,14 +79,17 @@ const TTL_MS = MCP_ACTION_APPROVAL_TTL_SECONDS * 1000;
 const GRANT_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The review page for one grant, absolute when the request's origin is known. */
+/**
+ * The review page for one grant, absolute when an origin is known: the
+ * request's, if the app declares it or declares none.
+ */
 export function mcpApprovalReviewUrl(
   nonce: string,
-  origin: string | undefined,
+  requestOrigin: string | undefined,
 ): string {
   return toAbsoluteOpenUrl(
     publicFrameworkPath(`${MCP_APPROVAL_ROUTE}/${encodeURIComponent(nonce)}`),
-    origin,
+    declaredLinkOrigin(requestOrigin),
   );
 }
 
@@ -315,7 +319,7 @@ ul{margin:0;padding:0;list-style:none}
 li{font-weight:600}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:20px 0}
 dt{color:GrayText}
-dd{margin:0;overflow-wrap:anywhere}
+dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 details{margin:20px 0}
 summary{cursor:pointer;color:GrayText}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid GrayText;border-radius:8px;padding:12px;max-height:40vh;overflow:auto;font-size:13px}
@@ -359,6 +363,10 @@ function renderPage(input: {
         view.priorRun.at,
       )}</p>`
     : "";
+  const cut =
+    live && summary.cut
+      ? `<p class="warn" role="alert">${escapeHtml(messages.argumentsCut)}</p>`
+      : "";
   const recipients =
     summary.recipients.length > 0
       ? `<h2>${escapeHtml(messages.reaches)}</h2><ul>${summary.recipients
@@ -423,7 +431,7 @@ function renderPage(input: {
       saveFailed: messages.saveFailed,
     },
   }).replace(/</g, "\\u003c");
-  return `${head(messages.documentTitle.replace("{action}", summary.title))}<body><main><h1>${escapeHtml(summary.title)}</h1>${prior}${recipients}${fields}${details}${decision}<p id="result" role="status">${stateMessage(view, messages)}</p></main><script type="application/json" id="approval-data">${data}</script><script nonce="${scriptNonce}">${PAGE_SCRIPT}</script></body></html>`;
+  return `${head(messages.documentTitle.replace("{action}", summary.title))}<body><main><h1>${escapeHtml(summary.title)}</h1>${prior}${cut}${recipients}${fields}${details}${decision}<p id="result" role="status">${stateMessage(view, messages)}</p></main><script type="application/json" id="approval-data">${data}</script><script nonce="${scriptNonce}">${PAGE_SCRIPT}</script></body></html>`;
 }
 
 const PAGE_SCRIPT = `(function(){
@@ -624,6 +632,7 @@ export async function mcpApprovalPrompt(input: {
   review: McpApprovalReview;
   ownerEmail: string | undefined;
   mode: "form" | "url";
+  requestOrigin: string | undefined;
 }): Promise<{ message: string; decisionTitle: string; decisionHelp: string }> {
   const preference = await readerPreference(input.ownerEmail);
   const { locale } = resolveLocaleFromRequest({
@@ -645,6 +654,7 @@ export async function mcpApprovalPrompt(input: {
       locale,
       readerZone: readerTimeZone(preference),
       mode: input.mode,
+      reviewUrl: mcpApprovalReviewUrl(input.review.nonce, input.requestOrigin),
     }),
     decisionTitle: messages.decisionTitle.replace("{action}", summary.title),
     decisionHelp: messages.decisionHelp,

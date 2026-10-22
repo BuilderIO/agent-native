@@ -232,6 +232,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.allowPersistentApproval === "boolean") {
     out.allowPersistentApproval = entry.allowPersistentApproval;
   }
+  if (entry.zonelessTimes === "calendar") {
+    out.zonelessTimes = entry.zonelessTimes;
+  }
   return out;
 }
 

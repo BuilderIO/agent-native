@@ -109,6 +109,29 @@ export function getAppDeclaredOrigins(): string[] {
   return [...collectConfiguredOrigins({ includePlatform: false })];
 }
 
+/**
+ * The origin for a link the server hands out, given the request's. That
+ * origin comes from Host or a forwarded header any caller can set, so once
+ * the app declares where it lives, a link goes only to a declared origin, as
+ * sign-in redirects do. A loopback request is a local server.
+ */
+export function declaredLinkOrigin(
+  requestOrigin: string | undefined,
+): string | undefined {
+  const inbound = normalizeOrigin(requestOrigin);
+  if (
+    inbound &&
+    (isLoopbackOrigin(inbound) || getConfiguredOriginAllowlist().has(inbound))
+  ) {
+    return inbound;
+  }
+  return (
+    getAppDeclaredOrigins()[0] ??
+    [...getConfiguredOriginAllowlist()][0] ??
+    inbound
+  );
+}
+
 export function requestForwardedOrigin(
   request: Request | undefined,
 ): string | undefined {

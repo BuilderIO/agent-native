@@ -1399,4 +1399,43 @@ describe("MCP action approval grants", () => {
     expect(grants.size).toBe(1);
     expect(run).not.toHaveBeenCalled();
   });
+
+  it("uses a page approval after the prompt that asked for it expires, and nothing else that prompt says", async () => {
+    const run = vi.fn(async () => ({ sent: true }));
+    const callable = { send: entry({ needsApproval: true, run }) };
+    await runUnredacted(callable, "send", {});
+    const [grant] = [...grants.values()];
+    const expired = { ...grant, expiresAt: Date.now() - 1 };
+
+    for (const decision of ["approve", "deny", undefined] as const) {
+      await expect(
+        runUnredacted(callable, "send", {}, formAnswer(expired, decision)),
+      ).resolves.toEqual({
+        status: "approval-denied",
+        message: "Approval for send is invalid, expired, or already used.",
+      });
+    }
+    expect(store.consumeMcpApprovalGrant).not.toHaveBeenCalled();
+    expect(store.answerMcpApprovalPrompt).not.toHaveBeenCalled();
+
+    // The person approved on the page, which outlives the prompt.
+    store.consumeReviewedMcpApprovalGrant.mockResolvedValueOnce({
+      nonce: grant.nonce,
+      status: "approved",
+    } as approvalStore.McpApprovalRecord);
+    const state = { ...formAnswer(expired).state()!, mode: "url" as const };
+    await expect(
+      runUnredacted(
+        callable,
+        "send",
+        {},
+        { state: () => state, decision: () => undefined, accepted: () => true },
+      ),
+    ).resolves.toMatchObject({ status: "ran", result: { sent: true } });
+    expect(store.consumeReviewedMcpApprovalGrant).toHaveBeenLastCalledWith(
+      expect.objectContaining({ nonce: grant.nonce }),
+      grant.nonce,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 });
