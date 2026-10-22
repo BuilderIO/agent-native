@@ -7,7 +7,6 @@ import { TableMap } from "@tiptap/pm/tables";
 import { describe, expect, it } from "vitest";
 
 import {
-  attrsWithDuplicatedColumn,
   deleteTableColumn,
   deleteTableColumns,
   deleteTableRow,
@@ -25,6 +24,7 @@ import {
   setTableFitWidth,
   setTableHeaders,
   type TableAt,
+  tableWithDuplicatedColumn,
 } from "./table-commands";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
@@ -265,16 +265,16 @@ describe("row and column colours", () => {
     expect(columnColors(next)).toEqual(["blue_bg"]);
   });
 
-  it("gives a duplicated column its source's colour", () => {
-    const source = table([["A", "B"]], {
-      colMeta: [{ color: "red" }, { color: "blue_bg" }],
-    });
+  it("gives a duplicated column its source's cells and colour", () => {
+    const next = tableWithDuplicatedColumn(
+      table([["A", "B"]], {
+        colMeta: [{ color: "red" }, { color: "blue_bg" }],
+      }),
+      0,
+    );
 
-    expect(attrsWithDuplicatedColumn(source, 0).colMeta).toEqual([
-      { color: "red" },
-      { color: "red" },
-      { color: "blue_bg" },
-    ]);
+    expect(cells(next)).toEqual([["A", "A", "B"]]);
+    expect(columnColors(next)).toEqual(["red", "red", "blue_bg"]);
   });
 });
 
@@ -336,6 +336,38 @@ describe("a merged cell's rows and columns", () => {
     );
     expect(cells(deleted)).toEqual([["C"], ["F"]]);
     expect(columnColors(deleted)).toEqual([null]);
+  });
+
+  it("duplicates a column by the grid, growing a cell merged across it", () => {
+    const { node } = withMergedCell("colspan", [["C"], ["D", "E", "F"]]);
+    const coloured = edit(node, (tr, target) =>
+      setColumnColors(
+        tr,
+        target,
+        { left: 1, right: 2, top: 0, bottom: 1 },
+        "red",
+      ),
+    );
+
+    // Column 1 is the merged cell's second column in the first row and E in
+    // the second.
+    const next = tableWithDuplicatedColumn(coloured, 1);
+    expect(cells(next)).toEqual([
+      ["A", "C"],
+      ["D", "E", "E", "F"],
+    ]);
+    expect(next.firstChild!.firstChild!.attrs.colspan).toBe(3);
+    expect(columnColors(next)).toEqual([null, "red", "red", null]);
+    expect(TableMap.get(next).problems).toBeNull();
+  });
+
+  it("copies a cell merged down a column once, over the same rows", () => {
+    const { node } = withMergedCell("rowspan", [["B"], ["C"], ["D", "E"]]);
+
+    const next = tableWithDuplicatedColumn(node, 0);
+    expect(cells(next)).toEqual([["A", "A", "B"], ["C"], ["D", "D", "E"]]);
+    expect(next.firstChild!.child(1).attrs.rowspan).toBe(2);
+    expect(TableMap.get(next).problems).toBeNull();
   });
 
   it("colours and deletes every row the cell covers", () => {

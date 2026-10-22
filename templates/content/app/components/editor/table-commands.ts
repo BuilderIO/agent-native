@@ -1,6 +1,7 @@
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState, type Transaction } from "@tiptap/pm/state";
 import {
+  addColSpan,
   addColumn,
   addRow,
   removeColumn,
@@ -8,6 +9,8 @@ import {
   TableMap,
   type TableRect,
 } from "@tiptap/pm/tables";
+
+type CellAttrs = Parameters<typeof addColSpan>[0];
 
 export interface TableAt {
   node: ProseMirrorNode;
@@ -245,7 +248,7 @@ export function insertTableColumn(
 }
 
 /** The table's attributes once a copy of a column is inserted after it. */
-export function attrsWithDuplicatedColumn(
+function attrsWithDuplicatedColumn(
   table: ProseMirrorNode,
   columnIndex: number,
 ) {
@@ -253,6 +256,39 @@ export function attrsWithDuplicatedColumn(
   const columns =
     source && splicedColumnMeta(table, columnIndex + 1, 0, { ...source });
   return columns ? withColumnMeta(table, columns) : table.attrs;
+}
+
+/**
+ * The table with a copy of a column inserted after it. The column is counted
+ * by the table's grid, as `colMeta` is, so a merged cell can't shift the copy
+ * off its colour. A cell merged across the column grows by one column.
+ */
+export function tableWithDuplicatedColumn(
+  table: ProseMirrorNode,
+  columnIndex: number,
+) {
+  const map = TableMap.get(table);
+  const rows: ProseMirrorNode[] = [];
+  table.forEach((row, rowOffset) => {
+    const cells: ProseMirrorNode[] = [];
+    row.forEach((cell, cellOffset) => {
+      const { left, right } = map.findCell(rowOffset + 1 + cellOffset);
+      if (left > columnIndex || right <= columnIndex) cells.push(cell);
+      else if (right - left === 1) cells.push(cell, cell.copy(cell.content));
+      else {
+        const at = columnIndex - left;
+        const attrs = addColSpan(cell.attrs as CellAttrs, at + 1);
+        if (attrs.colwidth) attrs.colwidth[at + 1] = attrs.colwidth[at];
+        cells.push(cell.type.create(attrs, cell.content, cell.marks));
+      }
+    });
+    rows.push(row.copy(Fragment.fromArray(cells)));
+  });
+  return table.type.create(
+    attrsWithDuplicatedColumn(table, columnIndex),
+    Fragment.fromArray(rows),
+    table.marks,
+  );
 }
 
 export function deleteTableColumn(
