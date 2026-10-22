@@ -319,8 +319,7 @@ test("identical authored node IDs stay scoped to their Screen", async ({
   await expect(widthInput).toHaveValue("233px");
 });
 
-// fixme: product bug: After Cmd+Shift+G the panel and inspector show 2 selected, but the canvas size badge reads 80 × 48 (Companion only) instead of 209 × 48
-test.fixme("structural commands stay in the selected Screen with duplicate authored IDs", async ({
+test("structural commands stay in the selected Screen with duplicate authored IDs", async ({
   app,
 }) => {
   test.setTimeout(120_000);

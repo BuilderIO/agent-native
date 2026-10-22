@@ -189,7 +189,7 @@ export default defineAction({
     const restoreMessage: NodeHtmlPreviewBridgeMessage = {
       type: "node-html-preview",
       proposalId,
-      target: proposal.resolvedTarget,
+      target: proposal.target,
       operation: "restore",
     };
 

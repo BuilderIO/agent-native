@@ -247,6 +247,11 @@ Open-source apps running locally need neither OpenAI partner approval nor a
 preconfigured client ID. At first sign-in, OpenAI issues a client ID, and the
 app saves it for later sign-ins with that ChatGPT account.
 
+ChatGPT plan access requires a personal account. For local development, set
+`access.autoCreateDefaultOrg: false` before the first sign-in so the app does
+not create a default organization for that account. If an account already
+belongs to an organization, use a personal account for ChatGPT plan access.
+
 The OAuth callback must use `http://127.0.0.1` on the user's machine.
 `localhost` is not an accepted substitute. The self-serve flow does not support
 hosted `*.agent-native.com` sites or paid deployments. Supporting ChatGPT plan

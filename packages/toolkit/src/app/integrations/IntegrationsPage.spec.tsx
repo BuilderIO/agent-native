@@ -23,7 +23,15 @@ const dialogMocks = vi.hoisted(() => ({
   McpIntegrationDialog: vi.fn(() => null),
 }));
 
+const oauthMocks = vi.hoisted(() => ({
+  startMcpOAuthReconnect: vi.fn(),
+}));
+
 vi.mock("../resources/McpIntegrationDialog.js", () => dialogMocks);
+vi.mock("./IntegrationsPanel.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./IntegrationsPanel.js")>()),
+  startMcpOAuthReconnect: oauthMocks.startMcpOAuthReconnect,
+}));
 vi.mock("@agent-native/core/client/resources/use-mcp-servers", () => mcpMocks);
 vi.mock("../settings/useBuilderStatus.js", () => builderMocks);
 vi.mock("@agent-native/core/client/integrations/useIntegrationStatus", () => ({
@@ -340,6 +348,102 @@ describe("IntegrationsPage", () => {
       id: "internal-docs",
       scope: "user",
     });
+  });
+
+  it("offers to reconnect a connected server that held back tools", async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    mcpMocks.useReconnectMcpServer.mockReturnValue({ mutateAsync });
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: {
+        user: [],
+        org: [
+          {
+            id: "shared-docs",
+            scope: "org",
+            name: "Shared docs",
+            url: "https://mcp.example.com/mcp",
+            authMode: "oauth",
+            createdAt: 1,
+            status: {
+              state: "connected",
+              toolCount: 2,
+              error: 'Tool "broken" is unavailable.',
+            },
+          },
+        ],
+        orgId: "acme",
+        role: "member",
+      },
+      isError: false,
+      isSuccess: true,
+      isLoading: false,
+    });
+    await render();
+
+    const tile = container.querySelector(
+      '[data-connected-server="Shared docs"]',
+    );
+    expect(tile?.textContent).toContain(
+      'Reason: Tool "broken" is unavailable.',
+    );
+    const trigger = tile!.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions for Shared docs"]',
+    );
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
+    expect(items.map((item) => item.textContent)).toEqual(["Reconnect"]);
+    await act(async () => (items[0] as HTMLElement).click());
+    expect(mutateAsync).toHaveBeenCalledWith({
+      id: "shared-docs",
+      scope: "org",
+    });
+  });
+
+  it("starts OAuth again for an OAuth server whose connection was refused", async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    mcpMocks.useReconnectMcpServer.mockReturnValue({ mutateAsync });
+    oauthMocks.startMcpOAuthReconnect.mockReset();
+    const server = {
+      id: "shared-docs",
+      scope: "org",
+      name: "Shared docs",
+      url: "https://mcp.example.com/mcp",
+      authMode: "oauth",
+      createdAt: 1,
+      status: {
+        state: "error",
+        error:
+          "The MCP server rejected the request. Reconnect or update the required Authorization header.",
+      },
+    };
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [server], orgId: "acme", role: "member" },
+      isError: false,
+      isSuccess: true,
+      isLoading: false,
+    });
+    await render();
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-connected-server="Shared docs"] button[aria-label="More actions for Shared docs"]',
+    );
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
+    expect(items.map((item) => item.textContent)).toEqual(["Reconnect"]);
+    await act(async () => (items[0] as HTMLElement).click());
+
+    expect(oauthMocks.startMcpOAuthReconnect).toHaveBeenCalledWith(server);
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 
   it("filters to matching tiles and says when nothing matches", async () => {

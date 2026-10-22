@@ -7,7 +7,12 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { insertEvalResult } from "../observability/store.js";
 import type { EvalResult as ObservabilityEvalResult } from "../observability/types.js";
 import type { AgentRunner } from "./agent-runner.js";
-import { createAgentRunner } from "./agent-runner.js";
+import {
+  captureAgentRunnerForEval,
+  createAgentRunner,
+  getUnscoreableProductionPathOutputError,
+  isUnscoreableProductionPathOutput,
+} from "./agent-runner.js";
 import { DEFAULT_EVAL_THRESHOLD } from "./define-eval.js";
 import { clamp01 } from "./scorer.js";
 import type {
@@ -52,10 +57,31 @@ async function runScorer(
   }
 }
 
+const SCORER_RUN_OUTPUT_CLONE_ERROR =
+  "Run output could not be isolated for scoring.";
+
+function cloneRunOutput(run: AgentRunOutput): AgentRunOutput | undefined {
+  try {
+    return structuredClone(run);
+  } catch {
+    // coercion-ok: callers mark the run failed when isolation cannot be proven.
+    return undefined;
+  }
+}
+
+interface ScoreEvalOptions {
+  thresholdOverride?: number;
+  onRunOutput?: (output: AgentRunOutput) => void;
+  /** Marks unbranded lower-level runners that use the production chat path. */
+  productionPath?: boolean;
+  /** Explicitly opts lower-level scoring into the non-production path. */
+  nonProductionPath?: true;
+}
+
 export async function scoreEval(
   evalCase: Eval,
   runner: AgentRunner,
-  opts: { thresholdOverride?: number } = {},
+  opts: ScoreEvalOptions = {},
 ): Promise<EvalResultRow> {
   const threshold =
     opts.thresholdOverride ?? evalCase.threshold ?? DEFAULT_EVAL_THRESHOLD;
@@ -74,9 +100,29 @@ export async function scoreEval(
     };
   }
 
+  const capturedRunner = captureAgentRunnerForEval(runner);
+  if (
+    evalCase.run &&
+    (opts.productionPath === true ||
+      capturedRunner.isProductionContext ||
+      opts.nonProductionPath !== true)
+  ) {
+    throw new Error(
+      "Production-path evals cannot define custom run callbacks; lower-level APIs require an explicit non-production path.",
+    );
+  }
+  if (
+    (opts.productionPath || capturedRunner.isProductionContext) &&
+    !capturedRunner.hasOriginalMethods
+  ) {
+    throw new Error(
+      "Production-path eval runners cannot override production runner methods.",
+    );
+  }
+
   let run: AgentRunOutput;
   const runAgent = (input: Eval["input"]) =>
-    runner.runAgent(
+    capturedRunner.runner.runAgent(
       input,
       evalCase.actionAllowlist
         ? { actionAllowlist: evalCase.actionAllowlist }
@@ -91,9 +137,41 @@ export async function scoreEval(
     run = await runAgent(evalCase.input);
   }
 
+  let runOutputCloneFailed = false;
+  if (opts.onRunOutput) {
+    const observerOutput = cloneRunOutput(run);
+    if (observerOutput) {
+      opts.onRunOutput(observerOutput);
+    } else {
+      runOutputCloneFailed = true;
+    }
+  }
+  const runOk = run.ok;
+  const runError = run.error;
+  const runDurationMs = run.durationMs;
+  const runUsage = run.usage ? { ...run.usage } : undefined;
+
+  const unscoreableError = getUnscoreableProductionPathOutputError(run);
+  const unscoreable =
+    unscoreableError !== undefined || isUnscoreableProductionPathOutput(run);
   const scores: ScorerResult[] = [];
-  for (const scorer of evalCase.scorers) {
-    scores.push(await runScorer(scorer, run, runner, threshold));
+  if (!unscoreable) {
+    for (const scorer of evalCase.scorers) {
+      const scorerInput = cloneRunOutput(run);
+      if (!scorerInput) {
+        runOutputCloneFailed = true;
+        scores.push({
+          scorer: scorer.name,
+          score: 0,
+          reason: SCORER_RUN_OUTPUT_CLONE_ERROR,
+          passed: false,
+        });
+        continue;
+      }
+      scores.push(
+        await runScorer(scorer, scorerInput, capturedRunner.runner, threshold),
+      );
+    }
   }
 
   const avgScore =
@@ -101,16 +179,27 @@ export async function scoreEval(
       ? scores.reduce((s, r) => s + r.score, 0) / scores.length
       : 0;
 
+  const passed =
+    !unscoreable &&
+    !runOutputCloneFailed &&
+    runOk &&
+    scores.every((s) => s.passed);
   return {
     eval: evalCase.name,
     threshold,
     scores,
-    passed: run.ok && scores.every((s) => s.passed),
-    status: run.ok && scores.every((s) => s.passed) ? "passed" : "failed",
+    passed,
+    status: passed ? "passed" : "failed",
     avgScore,
-    durationMs: run.durationMs,
-    error: run.ok ? undefined : run.error,
-    ...(run.usage ? { usage: run.usage } : {}),
+    durationMs: runDurationMs,
+    error: unscoreable
+      ? (unscoreableError ?? runError)
+      : runOutputCloneFailed
+        ? SCORER_RUN_OUTPUT_CLONE_ERROR
+        : runOk
+          ? undefined
+          : runError,
+    ...(runUsage ? { usage: runUsage } : {}),
     ...(evalCase.source ? { source: evalCase.source } : {}),
   };
 }
@@ -118,7 +207,7 @@ export async function scoreEval(
 export async function runEvals(
   evals: Eval[],
   runner: AgentRunner,
-  opts: { thresholdOverride?: number; persist?: boolean } = {},
+  opts: ScoreEvalOptions & { persist?: boolean } = {},
 ): Promise<EvalRunReport> {
   const persist = opts.persist ?? true;
   const results: EvalResultRow[] = [];
@@ -143,7 +232,20 @@ export async function runEvals(
 
 async function persistEvalRow(row: EvalResultRow): Promise<void> {
   const runId = `eval:${row.eval}:${Date.now()}`;
-  for (const s of row.scores) {
+  const scores =
+    row.scores.length > 0
+      ? row.scores
+      : row.status === "failed"
+        ? [
+            {
+              scorer: "run",
+              score: 0,
+              reason: "Eval run failed before scoring.",
+              passed: false,
+            },
+          ]
+        : [];
+  for (const s of scores) {
     const result: ObservabilityEvalResult = {
       id: crypto.randomUUID(),
       runId,
@@ -157,6 +259,7 @@ async function persistEvalRow(row: EvalResultRow): Promise<void> {
         source: "cli-eval",
         threshold: row.threshold,
         passed: s.passed,
+        status: row.status,
       },
       createdAt: Date.now(),
     };
@@ -256,6 +359,8 @@ export interface RunEvalSuiteOptions {
   productionContext?: EvalProductionContext;
   identity?: EvalProductionIdentity;
   requireProductionChatPath?: boolean;
+  /** Allows custom run callbacks with an injected lower-level runner. */
+  nonProductionPath?: true;
   persist?: boolean;
   runner?: AgentRunner;
   evals?: Eval[];
@@ -283,7 +388,7 @@ export async function runEvalSuite(
   }
 
   if (
-    opts.requireProductionChatPath &&
+    (opts.requireProductionChatPath || opts.productionContext) &&
     evals.some((evalCase) => evalCase.run)
   ) {
     throw new Error(
@@ -292,16 +397,20 @@ export async function runEvalSuite(
   }
 
   let runner = opts.runner;
+  if (productionContext && runner) {
+    if (opts.requireProductionChatPath) {
+      requireProductionChatPath(productionContext);
+    }
+    throw new Error(
+      "Production-path evals cannot use an injected runner because its chat-path parity cannot be verified.",
+    );
+  }
+
   if (opts.requireProductionChatPath) {
     if (!productionContext) {
       throw new Error("Production-path evals require a production context.");
     }
     requireProductionChatPath(productionContext);
-    if (runner) {
-      throw new Error(
-        "Production-path evals cannot use an injected runner because its chat-path parity cannot be verified.",
-      );
-    }
     if (evals.length === 0) {
       throw new Error("Production-path evals require at least one eval case.");
     }
@@ -309,7 +418,7 @@ export async function runEvalSuite(
       throw new Error("Production-path evals cannot contain skipped cases.");
     }
     runner = await createAgentRunner({
-      productionContext: guardProductionEvalOutput(productionContext),
+      productionContext,
     });
   } else {
     const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
@@ -317,7 +426,7 @@ export async function runEvalSuite(
       if (opts.productionContext) {
         requireProductionChatPath(opts.productionContext);
         runner = await createAgentRunner({
-          productionContext: guardProductionEvalOutput(opts.productionContext),
+          productionContext: opts.productionContext,
         });
       } else {
         runner = await createAgentRunner({
@@ -332,30 +441,12 @@ export async function runEvalSuite(
   const report = await runEvals(evals, runner, {
     thresholdOverride: opts.thresholdOverride,
     persist: opts.persist ?? true,
+    productionPath: Boolean(productionContext),
+    nonProductionPath:
+      opts.nonProductionPath ??
+      (!opts.runner && !productionContext ? true : undefined),
   });
   return { report, files };
-}
-
-function guardProductionEvalOutput(
-  context: EvalProductionContext,
-): EvalProductionContext {
-  const productionChatPath = context.productionChatPath;
-  if (!productionChatPath) return context;
-  return {
-    ...context,
-    productionChatPath: {
-      ...productionChatPath,
-      async run(args) {
-        const result = await productionChatPath.run(args);
-        if (!result?.output) {
-          throw new Error(
-            "Production chat eval adapter returned no run output.",
-          );
-        }
-        return result;
-      },
-    },
-  };
 }
 
 const productionEvalTypeScriptLoaders = new Map<string, Promise<void>>();

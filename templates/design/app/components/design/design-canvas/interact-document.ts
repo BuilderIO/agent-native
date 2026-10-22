@@ -7,7 +7,7 @@ import {
   getEmbeddedFrameBackgroundStyle,
   getEmbeddedFrameDocumentContent,
 } from "./embedded-frame";
-import { withLocalRuntimes } from "./local-runtime";
+import { withLocalRuntimes, withNativeShaderRuntime } from "./local-runtime";
 import { PREVIEW_THEME_BRIDGE_SCRIPT } from "./preview-theme";
 
 const INTERACT_LINKS_BRIDGE_SCRIPT = `<script data-agent-native-interact-links-bridge>${interactLinksBridgeScript}</script>`;
@@ -45,8 +45,10 @@ export function buildInteractPreviewDocument(args: {
     fitBodyToFrame: args.fitBodyToFrame,
   });
   if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
-    return injectSessionReplayIframeBootstrap(
-      injectDocumentMarkup(frameContent, INTERACT_PREVIEW_BRIDGES),
+    return withNativeShaderRuntime(
+      injectSessionReplayIframeBootstrap(
+        injectDocumentMarkup(frameContent, INTERACT_PREVIEW_BRIDGES),
+      ),
     );
   }
   const frameStyle = [
@@ -59,7 +61,9 @@ export function buildInteractPreviewDocument(args: {
       args.contentOffsetY ?? 0,
     ),
   ].join("");
-  return injectSessionReplayIframeBootstrap(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${INTERACT_PREVIEW_BRIDGES}</body></html>`,
+  return withNativeShaderRuntime(
+    injectSessionReplayIframeBootstrap(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${INTERACT_PREVIEW_BRIDGES}</body></html>`,
+    ),
   );
 }

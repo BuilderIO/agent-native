@@ -133,7 +133,10 @@ const config = defineConfig({
     ...(process.env.E2E_LOG_TEST_PROGRESS === "1" ? [["line"] as const] : []),
     [
       path.join(import.meta.dirname, "e2e", "retry-failure-reporter.ts"),
-      { markerPath: path.join(E2E_RESULTS_DIR, "retry-failure.marker") },
+      {
+        markerPath: path.join(E2E_RESULTS_DIR, "retry-failure.marker"),
+        requiredPinIdentities: process.env.E2E_REQUIRED_PIN_IDENTITIES,
+      },
     ],
   ],
   globalSetup: path.join(import.meta.dirname, "e2e", "global-setup.ts"),
@@ -168,7 +171,7 @@ const config = defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: `APP_NAME=design AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS=${USE_SIDEBAR_LOOPBACK ? "0" : "1"} ${USE_SIDEBAR_LOOPBACK ? `AGENT_ENGINE=ai-sdk:openai AGENT_MODEL=agentkit-loopback OPENAI_API_KEY=e2e-loopback-placeholder OPENAI_BASE_URL=http://127.0.0.1:${LOOPBACK_PORT}/v1 E2E_LOOPBACK_PORT=${LOOPBACK_PORT} E2E_ATTACHMENT_STORAGE_ENABLED=1 E2E_ATTACHMENT_STORAGE_URL=${JSON.stringify(ATTACHMENT_STORAGE_URL)} E2E_ATTACHMENT_STORAGE_HTTPS_PORT=${ATTACHMENT_STORAGE_HTTPS_PORT} E2E_ATTACHMENT_STORAGE_CONTROL_PORT=${ATTACHMENT_STORAGE_CONTROL_PORT} E2E_ATTACHMENT_STORAGE_CERT=${JSON.stringify(ATTACHMENT_STORAGE_CERT)} E2E_ATTACHMENT_STORAGE_KEY=${JSON.stringify(ATTACHMENT_STORAGE_KEY)} NODE_EXTRA_CA_CERTS=${JSON.stringify(ATTACHMENT_STORAGE_CERT)} ` : ""}${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm exec agent-native dev --inspect=${INSPECT_PORT}`,
+        command: `corepack pnpm codegen:bridge && APP_NAME=design AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS=${USE_SIDEBAR_LOOPBACK ? "0" : "1"} ${USE_SIDEBAR_LOOPBACK ? `AGENT_ENGINE=ai-sdk:openai AGENT_MODEL=agentkit-loopback OPENAI_API_KEY=e2e-loopback-placeholder OPENAI_BASE_URL=http://127.0.0.1:${LOOPBACK_PORT}/v1 E2E_LOOPBACK_PORT=${LOOPBACK_PORT} E2E_ATTACHMENT_STORAGE_ENABLED=1 E2E_ATTACHMENT_STORAGE_URL=${JSON.stringify(ATTACHMENT_STORAGE_URL)} E2E_ATTACHMENT_STORAGE_HTTPS_PORT=${ATTACHMENT_STORAGE_HTTPS_PORT} E2E_ATTACHMENT_STORAGE_CONTROL_PORT=${ATTACHMENT_STORAGE_CONTROL_PORT} E2E_ATTACHMENT_STORAGE_CERT=${JSON.stringify(ATTACHMENT_STORAGE_CERT)} E2E_ATTACHMENT_STORAGE_KEY=${JSON.stringify(ATTACHMENT_STORAGE_KEY)} NODE_EXTRA_CA_CERTS=${JSON.stringify(ATTACHMENT_STORAGE_CERT)} ` : ""}${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm exec agent-native dev --inspect=${INSPECT_PORT}`,
         url: BASE_URL,
         reuseExistingServer: false,
         timeout: 300_000,

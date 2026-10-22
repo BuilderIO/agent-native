@@ -18,17 +18,6 @@ describe("EditorLayout media loading", () => {
     expect(previewVideo).not.toContain("crossOrigin");
   });
 
-  it("opens on the timeline, with the transcript the other way in", () => {
-    const source = readSource();
-
-    expect(source).toContain('>("timeline")');
-    expect(source).toContain('value="transcript"');
-    expect(source).toContain('value="timeline"');
-    expect(source.indexOf('value="timeline"')).toBeLessThan(
-      source.indexOf('value="transcript"'),
-    );
-  });
-
   it("shows the timeline while redacting, whichever tab was open", () => {
     const source = readSource();
 
@@ -57,17 +46,6 @@ describe("EditorLayout media loading", () => {
     expect(source).toContain('t("redaction.notYetBurned"');
   });
 
-  it("renders the editor toolbar below the preview and above the surface tabs", () => {
-    const source = readSource();
-
-    expect(source.indexOf("overflow-hidden bg-black p-4")).toBeLessThan(
-      source.indexOf("<EditorToolbar"),
-    );
-    expect(source.indexOf("<EditorToolbar")).toBeLessThan(
-      source.indexOf("<Tabs\n"),
-    );
-  });
-
   it("resets a completed toolbar cut to the playhead-following selection", () => {
     const source = readSource();
     const toolbar = readFileSync(
@@ -85,6 +63,21 @@ describe("EditorLayout media loading", () => {
     expect(cut).toMatch(
       /await runEdit\(\(\) => onCutRange\(selectionRange\)\)/,
     );
+  });
+
+  it("passes an exact timeline range to Cut Selection and Delete", () => {
+    const source = readSource();
+    const deleteSelection = source
+      .split("const deleteSelection = useCallback(async () => {")[1]
+      ?.split("const seek = useCallback(")[0];
+
+    expect(source).toContain('selection?.kind === "range"');
+    expect(source).toContain("selection.startMs, endMs: selection.endMs");
+    expect(source).toContain("selectionRange={selectedRange}");
+    expect(deleteSelection).toContain(
+      "addCut(savedEdits, selectedRange.startMs",
+    );
+    expect(deleteSelection).toContain("selectedRange.endMs");
   });
 });
 

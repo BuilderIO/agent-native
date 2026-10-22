@@ -25,7 +25,7 @@ vi.mock("@agent-native/core/resources", () => ({
 
 const sampleConfig = {
   source: "slack" as const,
-  template: "slack-feedback" as const,
+  template: "blank" as const,
   slackWorkspace: "primary" as const,
   slackChannelId: "C123",
   slackChannelName: null,
@@ -50,7 +50,7 @@ displayName: Slack feedback
 promptVersion: 2
 configSavedAt: 2026-09-15T12:00:00.000Z
 source: slack
-template: slack-feedback
+template: blank
 slackWorkspace: primary
 slackChannelId: C123
 authorMode: exclude
@@ -70,7 +70,7 @@ displayName: Slack feedback
 promptVersion: 1
 configSavedAt: 2026-09-01T10:00:00.000Z
 source: slack
-template: slack-feedback
+template: blank
 slackWorkspace: primary
 slackChannelId: C123
 authorMode: exclude

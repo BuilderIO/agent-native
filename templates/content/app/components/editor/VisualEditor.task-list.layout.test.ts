@@ -10,7 +10,7 @@ describe("VisualEditor task list layout", () => {
     );
 
     expect(css).toMatch(
-      /\.notion-editor \.notion-task-list li label\s*\{[^}]*align-items: center;[^}]*align-self: start;[^}]*min-height: 1\.7em;/,
+      /\.content-editor \.content-task-list li label\s*\{[^}]*align-items: center;[^}]*align-self: start;[^}]*min-height: 1\.7em;/,
     );
   });
 
@@ -21,8 +21,10 @@ describe("VisualEditor task list layout", () => {
     );
 
     expect(css).not.toMatch(
-      /\.notion-editor table colgroup[^}]*display:\s*none\s*!important/,
+      /\.content-editor table colgroup[^}]*display:\s*none\s*!important/,
     );
-    expect(css).not.toMatch(/\.notion-editor table col\s*\{[^}]*width:\s*auto/);
+    expect(css).not.toMatch(
+      /\.content-editor table col\s*\{[^}]*width:\s*auto/,
+    );
   });
 });

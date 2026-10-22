@@ -46,10 +46,13 @@ import {
 import { reconcileInlineDatabasesForDocumentWithDb } from "./_content-database-lifecycle.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
+  assertEditableDocument,
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
+import { lockDocumentForSave } from "./_document-save-locks.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 function isLinkedLocalSource(
   documentId: string,
@@ -327,6 +330,7 @@ export default defineAction({
     };
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
+    assertSourceAllowsPageEdit(access.resource);
     const db = getDb();
     if (await isLiveBodyWriterPage(documentId)) {
       const [current] = await db
@@ -339,12 +343,7 @@ export default defineAction({
           ),
         )
         .limit(1);
-      if (!current) {
-        throw new ActionContractError("Document not found.", {
-          errorCode: "DOCUMENT_NOT_FOUND",
-          statusCode: 404,
-        });
-      }
+      assertEditableDocument(current);
       if (current.updatedAt !== args.expectedUpdatedAt) {
         restoreConflict(
           "The document changed after this restore was prepared.",
@@ -381,31 +380,8 @@ export default defineAction({
       )
       .limit(1);
     const [beforeFlush] = await db
-      .select({ updatedAt: schema.documents.updatedAt })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, documentId),
-          eq(schema.documents.ownerEmail, ownerEmail),
-        ),
-      )
-      .limit(1);
-    if (!beforeFlush) {
-      throw new ActionContractError("Document not found.", {
-        errorCode: "DOCUMENT_NOT_FOUND",
-        statusCode: 404,
-      });
-    }
-    if (beforeFlush.updatedAt !== args.expectedUpdatedAt) {
-      restoreConflict("The document changed after this restore was prepared.", {
-        expectedUpdatedAt: args.expectedUpdatedAt,
-        currentUpdatedAt: beforeFlush.updatedAt,
-      });
-    }
-    await flushOpenDocumentEditorToSql({ documentId, ownerEmail });
-    const [afterFlush] = await db
       .select({
-        title: schema.documents.title,
+        trashedAt: schema.documents.trashedAt,
         updatedAt: schema.documents.updatedAt,
       })
       .from(schema.documents)
@@ -416,12 +392,29 @@ export default defineAction({
         ),
       )
       .limit(1);
-    if (!afterFlush) {
-      throw new ActionContractError("Document not found.", {
-        errorCode: "DOCUMENT_NOT_FOUND",
-        statusCode: 404,
+    assertEditableDocument(beforeFlush);
+    if (beforeFlush.updatedAt !== args.expectedUpdatedAt) {
+      restoreConflict("The document changed after this restore was prepared.", {
+        expectedUpdatedAt: args.expectedUpdatedAt,
+        currentUpdatedAt: beforeFlush.updatedAt,
       });
     }
+    await flushOpenDocumentEditorToSql({ documentId, ownerEmail });
+    const [afterFlush] = await db
+      .select({
+        title: schema.documents.title,
+        trashedAt: schema.documents.trashedAt,
+        updatedAt: schema.documents.updatedAt,
+      })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, documentId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+    assertEditableDocument(afterFlush);
     const expectedUpdatedAt = afterFlush.updatedAt;
     const organizationIds =
       versionForScope && versionForScope.title !== afterFlush.title
@@ -430,21 +423,15 @@ export default defineAction({
     let softDeletedDatabaseIds: string[] = [];
     const updated = await db.transaction(async (rawTx) => {
       const tx = rawTx as any;
-      const lockedDatabaseId = await lockDocumentMetadataDatabase({
-        db: tx as unknown as ReturnType<typeof getDb>,
+      const {
+        databaseId: lockedDatabaseId,
+        lockedDatabaseIds,
+        lockedMembershipIds,
+      } = await lockDocumentForSave(tx as unknown as ReturnType<typeof getDb>, {
         documentId,
         ownerEmail,
+        body: true,
       });
-      await tx
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.id, documentId),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        )
-        .for("update");
       const [current] = await tx
         .select()
         .from(schema.documents)
@@ -455,15 +442,11 @@ export default defineAction({
           ),
         )
         .limit(1);
-      if (!current) {
-        throw new ActionContractError("Document not found.", {
-          errorCode: "DOCUMENT_NOT_FOUND",
-          statusCode: 404,
-        });
-      }
+      assertEditableDocument(current);
       if (isLinkedLocalSource(documentId, current)) {
         linkedLocalRestoreUnsupported();
       }
+      assertSourceAllowsPageEdit(current);
       if (current.updatedAt !== expectedUpdatedAt) {
         restoreConflict(
           "The document changed after this restore was prepared.",
@@ -510,6 +493,7 @@ export default defineAction({
       const primaryBlocksFields = await lockPrimaryBlocksFields(
         tx as unknown as ReturnType<typeof getDb>,
         documentId,
+        { heldMembershipIds: lockedMembershipIds },
       );
       const applied = await tx
         .update(schema.documents)
@@ -573,6 +557,7 @@ export default defineAction({
             content: version.content,
             ownerEmail,
             now,
+            lockedDatabaseIds,
           });
       }
       const [restored] = await tx

@@ -17,8 +17,11 @@ import type {
 } from "./first-party-metric-catalog.js";
 import {
   buildOnboardingJourneyEventPageRequest,
-  MAX_ONBOARDING_EVENT_READ_PAGES,
+  getOnboardingJourneyEventReadPageBudget,
+  getOnboardingJourneyEventReadPageCount,
+  ONBOARDING_EVENT_READ_DEADLINE_MS,
   ONBOARDING_EVENT_PAGE_ROWS,
+  ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
 } from "./onboarding-journey.js";
 
@@ -37,9 +40,16 @@ export class OnboardingJourneyCostError extends Error {
 }
 
 export interface OnboardingJourneyCostEstimate {
-  status: "within_cap" | "over_cap";
+  status: "within_cap" | "over_cap" | "incomplete";
   maxBytesBilledPerQuery: number;
-  possiblePagesEstimatedBytes: number;
+  maxTotalBytesBilled: number;
+  requestedPageCount: number;
+  allowedPageCount: number;
+  pageBudgetLimited: boolean;
+  estimatedPagesBytes: number;
+  possiblePagesEstimatedBytes: number | null;
+  unestimatedPageCount: number;
+  incompleteReason?: "deadline" | "page_timeout";
   pages: Array<{
     page: number;
     offset: number;
@@ -54,118 +64,177 @@ export async function estimateOnboardingJourneyEventQueryCost(
   observation: OnboardingJourneyObservationWindow,
   freezeReceivedAt: boolean,
   signal?: AbortSignal,
+  maxTotalBytesBilled = ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
 ): Promise<OnboardingJourneyCostEstimate> {
-  let backend: Awaited<ReturnType<typeof getFirstPartyAnalyticsBackend>>;
-  try {
-    backend = await getFirstPartyAnalyticsBackend(scope, signal);
-  } catch (error) {
-    throwPreparationFailure(error, signal);
-  }
-  if (backend.sink !== "bigquery") {
-    throw new OnboardingJourneyCostError("unsupported_backend");
-  }
-  let table: Awaited<ReturnType<typeof getFirstPartyAnalyticsTable>>;
-  try {
-    table = await getFirstPartyAnalyticsTable(backend.table, signal);
-  } catch (error) {
-    throwPreparationFailure(error, signal);
-  }
+  const requestedPageCount =
+    getOnboardingJourneyEventReadPageCount(maxEventRows);
+  const allowedPageCount = Math.min(
+    requestedPageCount,
+    getOnboardingJourneyEventReadPageBudget(maxTotalBytesBilled),
+  );
   const pageOffsets = Array.from(
-    { length: MAX_ONBOARDING_EVENT_READ_PAGES },
+    { length: allowedPageCount },
     (_unused, index) => index * ONBOARDING_EVENT_PAGE_ROWS,
-  ).filter((offset) => offset <= maxEventRows);
+  );
   const pages: OnboardingJourneyCostEstimate["pages"] = [];
+  let incompleteReason: OnboardingJourneyCostEstimate["incompleteReason"];
+  const deadline = new AbortController();
+  const deadlineTimer = setTimeout(
+    () =>
+      deadline.abort(
+        new DOMException(
+          "Onboarding cost estimate deadline exceeded",
+          "AbortError",
+        ),
+      ),
+    ONBOARDING_EVENT_READ_DEADLINE_MS,
+  );
+  const estimateSignal = signal
+    ? AbortSignal.any([signal, deadline.signal])
+    : deadline.signal;
 
-  for (const [index, offset] of pageOffsets.entries()) {
-    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    let renderedSql: string;
+  try {
+    let backend: Awaited<
+      ReturnType<typeof getFirstPartyAnalyticsBackend>
+    > | null = null;
     try {
-      const request = buildOnboardingJourneyEventPageRequest(
-        filters,
-        maxEventRows,
-        offset,
-        observation,
-        freezeReceivedAt,
-      );
-      const scoped = scopedAnalyticsSql(request.sql, scope, undefined, {
-        scopedEventsSingleScan: true,
-        scopedEventsProjection: "onboarding_journey",
-        scopedEventsSourceProjections: {
-          e: "onboarding_journey",
-          r: "onboarding_journey_response_identity",
-        },
-      });
-      renderedSql = renderFirstPartyAnalyticsBigQueryRequestSql(
-        scoped.sql,
-        scoped.args,
-        table,
-        {
-          eventDateRange: request.eventDateRange,
-          scopedEventsSingleScan: true,
-          scopedEventsProjection: "onboarding_journey",
-          scopedEventsSourceProjections: {
-            e: "onboarding_journey",
-            r: "onboarding_journey_response_identity",
-          },
-        },
-      );
+      backend = await getFirstPartyAnalyticsBackend(scope, estimateSignal);
     } catch (error) {
-      throwPreparationFailure(error, signal);
+      if (signal?.aborted) throw error;
+      if (!deadline.signal.aborted) throwPreparationFailure(error, signal);
     }
-    let dryRun: Awaited<ReturnType<typeof dryRunQuerySchema>>;
-    try {
-      dryRun = await dryRunQuerySchema(renderedSql, {
-        signal,
-        wrapPreparationErrors: true,
-      });
-    } catch (error) {
-      if (
-        signal?.aborted ||
-        (error instanceof Error && error.name === "AbortError")
-      ) {
-        throw error;
+    if (backend && backend.sink !== "bigquery") {
+      throw new OnboardingJourneyCostError("unsupported_backend");
+    }
+    let table: Awaited<ReturnType<typeof getFirstPartyAnalyticsTable>> | null =
+      null;
+    if (backend) {
+      try {
+        table = await getFirstPartyAnalyticsTable(
+          backend.table,
+          estimateSignal,
+        );
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        if (!deadline.signal.aborted) throwPreparationFailure(error, signal);
       }
-      throw new OnboardingJourneyCostError(
-        error instanceof BigQueryDryRunPreparationError
-          ? "preparation_failed"
-          : "dry_run_failed",
-      );
     }
-    if (dryRun.error !== null) {
-      throw new OnboardingJourneyCostError(
-        dryRun.timedOut ? "dry_run_timeout" : "dry_run_failed",
-      );
+    if (table) {
+      for (const [index, offset] of pageOffsets.entries()) {
+        if (signal?.aborted) {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        if (deadline.signal.aborted) {
+          incompleteReason = "deadline";
+          break;
+        }
+        let renderedSql: string;
+        try {
+          const request = buildOnboardingJourneyEventPageRequest(
+            filters,
+            maxEventRows,
+            offset,
+            observation,
+            freezeReceivedAt,
+          );
+          const scoped = scopedAnalyticsSql(request.sql, scope, undefined, {
+            scopedEventsSingleScan: true,
+            scopedEventsProjection: "onboarding_journey",
+            scopedEventsSourceProjections: {
+              e: "onboarding_journey",
+              r: "onboarding_journey_response_identity",
+            },
+          });
+          renderedSql = renderFirstPartyAnalyticsBigQueryRequestSql(
+            scoped.sql,
+            scoped.args,
+            table,
+            {
+              eventDateRange: request.eventDateRange,
+              scopedEventsSingleScan: true,
+              scopedEventsProjection: "onboarding_journey",
+              scopedEventsSourceProjections: {
+                e: "onboarding_journey",
+                r: "onboarding_journey_response_identity",
+              },
+            },
+          );
+        } catch (error) {
+          throwPreparationFailure(error, signal);
+        }
+        let dryRun: Awaited<ReturnType<typeof dryRunQuerySchema>>;
+        try {
+          dryRun = await dryRunQuerySchema(renderedSql, {
+            signal: estimateSignal,
+            wrapPreparationErrors: true,
+          });
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          if (deadline.signal.aborted) {
+            incompleteReason = "deadline";
+            break;
+          }
+          throw new OnboardingJourneyCostError(
+            error instanceof BigQueryDryRunPreparationError
+              ? "preparation_failed"
+              : "dry_run_failed",
+          );
+        }
+        if (dryRun.timedOut) {
+          incompleteReason = "page_timeout";
+          break;
+        }
+        if (dryRun.error !== null) {
+          throw new OnboardingJourneyCostError("dry_run_failed");
+        }
+        const estimatedBytes = dryRun.totalBytesProcessed;
+        if (
+          typeof estimatedBytes !== "number" ||
+          !Number.isSafeInteger(estimatedBytes) ||
+          estimatedBytes < 0
+        ) {
+          throw new OnboardingJourneyCostError("estimate_unavailable");
+        }
+        pages.push({
+          page: index + 1,
+          offset,
+          estimatedBytes,
+        });
+      }
+    } else {
+      incompleteReason = "deadline";
     }
-    const estimatedBytes = dryRun.totalBytesProcessed;
-    if (
-      typeof estimatedBytes !== "number" ||
-      !Number.isSafeInteger(estimatedBytes) ||
-      estimatedBytes < 0
-    ) {
-      throw new OnboardingJourneyCostError("estimate_unavailable");
-    }
-    pages.push({
-      page: index + 1,
-      offset,
-      estimatedBytes,
-    });
+  } finally {
+    clearTimeout(deadlineTimer);
   }
 
-  const possiblePagesEstimatedBytes = pages.reduce(
+  const estimatedPagesBytes = pages.reduce(
     (total, page) => total + page.estimatedBytes,
     0,
   );
-  if (!Number.isSafeInteger(possiblePagesEstimatedBytes)) {
+  if (!Number.isSafeInteger(estimatedPagesBytes)) {
     throw new OnboardingJourneyCostError("estimate_unavailable");
   }
+  const unestimatedPageCount = allowedPageCount - pages.length;
+  const overCap = pages.some(
+    (page) => page.estimatedBytes > ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+  );
   return {
-    status: pages.some(
-      (page) => page.estimatedBytes > ONBOARDING_EVENTS_MAX_BYTES_BILLED,
-    )
+    status: overCap
       ? "over_cap"
-      : "within_cap",
+      : unestimatedPageCount > 0
+        ? "incomplete"
+        : "within_cap",
     maxBytesBilledPerQuery: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
-    possiblePagesEstimatedBytes,
+    maxTotalBytesBilled,
+    requestedPageCount: getOnboardingJourneyEventReadPageCount(maxEventRows),
+    allowedPageCount,
+    pageBudgetLimited: allowedPageCount < requestedPageCount,
+    estimatedPagesBytes,
+    possiblePagesEstimatedBytes:
+      unestimatedPageCount === 0 ? estimatedPagesBytes : null,
+    unestimatedPageCount,
+    ...(incompleteReason ? { incompleteReason } : {}),
     pages,
   };
 }

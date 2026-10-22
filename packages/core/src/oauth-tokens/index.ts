@@ -15,6 +15,7 @@ export {
 export {
   readOAuthCredentialState,
   resolveOAuthCredentialAccess,
+  resolveOAuthTokenBundleAccess,
   markOAuthReconnectRequired,
   revokeOAuthCredential,
   saveOAuthCredential,

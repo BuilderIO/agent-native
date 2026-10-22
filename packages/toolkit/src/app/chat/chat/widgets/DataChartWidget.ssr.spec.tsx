@@ -18,11 +18,36 @@ describe("DataChartWidget SSR", () => {
           series: [{ key: "count", label: "Count" }],
           data: [{ day: "2026-06-17", count: 3 }],
         }}
+        display={{
+          primaryAction: {
+            label: "Open report",
+            href: "https://reports.example.com/one",
+          },
+        }}
       />,
     );
 
     expect(html).toContain("Submissions");
     expect(html).toContain("Chart");
     expect(html).not.toContain("Loading chart");
+    expect(html).toContain('href="https://reports.example.com/one"');
+
+    const mailtoHtml = renderToString(
+      <DataChartWidget
+        chart={{
+          type: "bar",
+          xKey: "day",
+          series: [{ key: "count", label: "Count" }],
+          data: [],
+        }}
+        display={{
+          primaryAction: {
+            label: "Email report",
+            href: "mailto:reports@example.com",
+          },
+        }}
+      />,
+    );
+    expect(mailtoHtml).toContain('href="mailto:reports@example.com"');
   });
 });

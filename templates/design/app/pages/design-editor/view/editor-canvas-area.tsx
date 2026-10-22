@@ -1,12 +1,16 @@
 import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 
-import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
+import {
+  CanvasContextMenu,
+  type CanvasMotionMenu,
+} from "@/components/design/CanvasContextMenu";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
 import { DrawOverlay as SharedDrawOverlay } from "@/components/visual-editor/DrawOverlay";
 import { readSystemClipboard } from "@/lib/design-clipboard";
 import { hasExplicitOverviewZoomCommand as hasExplicitOverviewZoomCommandFromSearchParams } from "@/lib/design-editor-route";
+import { cn } from "@/lib/utils";
 
 import { bridgeSourceIdForCodeLayerNode } from "../code-layer-state";
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
@@ -66,6 +70,7 @@ export function renderEditorCanvasArea({
   leftChromeOverlayInset,
   rightSidebarVisible,
   chromeInsetLeft,
+  motionMenu,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -94,6 +99,7 @@ export function renderEditorCanvasArea({
   leftChromeOverlayInset: string | undefined;
   rightSidebarVisible: boolean;
   chromeInsetLeft: number;
+  motionMenu: CanvasMotionMenu | undefined;
 }) {
   const {
     activeFileId,
@@ -151,6 +157,11 @@ export function renderEditorCanvasArea({
     fullAppBuildingEnabled,
     fusionApp,
   } = editorLiveEditsAndPresence;
+  // Only a building or failed app shows a canvas notice; a ready app's
+  // controls are in the top-right app menu.
+  const showFusionAppBar = Boolean(
+    fullAppBuildingEnabled && id && fusionApp && fusionApp.status !== "ready",
+  );
   const {
     selectedElementAlreadyComponent,
     selectedElementInsideComponent,
@@ -360,6 +371,20 @@ export function renderEditorCanvasArea({
         toggleCommentsHide: t("canvasMenu.toggleCommentsHide"),
         arrange: t("layersPanel.arrange"),
         transform: t("layersPanel.transform"),
+        addMotion: t("designEditor.motion.addMotion"),
+        motionMore: t("designEditor.motion.more"),
+        motionReadyMade: t("designEditor.motion.addMenu.readyMade"),
+        motionProperty: {
+          translate: t("designEditor.motion.animationStyles.position"),
+          scale: t("designEditor.motion.animationStyles.scale"),
+          rotate: t("designEditor.motion.animationStyles.rotation"),
+          opacity: t("designEditor.motion.animationStyles.opacity"),
+          "border-radius": t("editPanel.labels.cornerRadius"),
+          "background-color": t("editPanel.sections.fill"),
+          "border-color": t("designEditor.motion.addMenu.strokeColor"),
+          "border-width": t("designEditor.motion.addMenu.strokeWeight"),
+          "box-shadow": t("editPanel.labels.dropShadow"),
+        },
         booleanOperations: t("layersPanel.booleanOperations"),
         subtract: t("layersPanel.subtract"),
         pasteHere: t("layersPanel.pasteHere"),
@@ -485,6 +510,7 @@ export function renderEditorCanvasArea({
       canSuggestAutoLayout={canSuggestAutoLayout}
       isUiHidden={uiHidden}
       isCommentsHidden={commentsHidden}
+      motionMenu={motionMenu}
       getCanvasPoint={getContextCanvasPoint}
       onPasteHere={(details) =>
         void handleContextMenuPaste(details.point ?? undefined)
@@ -580,6 +606,8 @@ export function renderEditorCanvasArea({
           <div
             ref={canvasContainerRef}
             data-design-canvas-container
+            data-an-native-preview-inset-left={chromeInsetLeft}
+            data-an-native-preview-inset-right={chromeInsetRight}
             className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
             style={
               {
@@ -622,26 +650,24 @@ export function renderEditorCanvasArea({
                   }
                 />
               )}
-            {/* Full-app building status/controls. Renders only for
-                      designs backed by a fusion app (see readFusionApp) and
-                      only while the flag is on — the fusion actions the
-                      banner calls are gated on the same flag, so rendering it
-                      with the flag off would show controls that all error. */}
+            {/* Full-app build status. Renders only for designs backed by a
+                fusion app (see readFusionApp) and only while the flag is on:
+                the sync action it polls is gated on the same flag. */}
             {fullAppBuildingEnabled && id && fusionApp && (
               <FusionAppBanner
                 designId={id}
                 status={fusionApp.status}
                 statusMessage={fusionApp.statusMessage}
-                previewUrl={fusionApp.previewUrl}
-                editorUrl={fusionApp.editorUrl}
-                deployedUrl={fusionApp.deployedUrl}
               />
             )}
             {pendingVisualEditPublicationFailed ? (
               <div
                 data-design-visual-edit-publication-warning
                 role="status"
-                className="pointer-events-none absolute inset-x-0 top-16 z-[70] flex justify-center px-4"
+                className={cn(
+                  "pointer-events-none absolute inset-x-0 z-[70] flex justify-center px-4",
+                  showFusionAppBar ? "top-28" : "top-16",
+                )}
               >
                 <div className="pointer-events-auto rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                   {t("designEditor.toasts.codingHandoffError")}
@@ -655,6 +681,7 @@ export function renderEditorCanvasArea({
               editorModes,
               editorExportAndHandoff,
               canApplyPendingVisualEditsWithAgent,
+              belowAppBar: showFusionAppBar,
             })}
             {viewMode === "overview" ||
             (responsiveInteractActive &&

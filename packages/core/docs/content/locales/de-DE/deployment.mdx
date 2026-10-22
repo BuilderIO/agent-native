@@ -24,6 +24,18 @@ Kommunikation von App zu App über denselben Origin.
 
 </Cards>
 
+## Agenten, die ihre Funktionen überleben {#durable-agents}
+
+Agent-Läufe hängen nicht davon ab, dass die Funktion, die sie gestartet hat,
+weiterläuft. Jeder Lauf wird in Ihrer Datenbank geführt: Ein Durchgang, der das
+Zeitlimit einer Serverless-Funktion erreicht, wird in einem neuen Aufruf
+fortgesetzt, ein Browser, der sich neu verbindet, holt die Antwort dort ab, wo
+sie stand, und eine Funktion, die mitten im Durchgang ausfällt, wird
+wiederhergestellt, statt den Chat hängen zu lassen. Deshalb läuft derselbe Agent
+kostengünstig auf Serverless-Hosts, wechselt ohne Codeänderungen den Anbieter
+und teilt sich die Bereitstellung mit dem Rest Ihrer App. Siehe
+[Agenten, die auf jedem Host überleben](/docs/durable-background-runs#survive-any-host).
+
 ## Vor dem Deployment: eine persistente Datenbank wählen {#persistent-database}
 
 Jede bereitgestellte App braucht eine persistente PostgreSQL-Datenbank. Die

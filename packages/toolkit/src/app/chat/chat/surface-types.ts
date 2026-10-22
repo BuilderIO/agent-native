@@ -26,6 +26,9 @@ import type {
 import type { ExportedMessageRepository } from "@assistant-ui/react";
 import type * as React from "react";
 
+import type { AgentKitWorkedForSummaryRenderProps } from "../../agentkit/react/context.js";
+import type { AgentMessageContentOrderResolver } from "../../agentkit/react/message-content-order.js";
+import type { AgentChatTranscriptLayout } from "../../agentkit/react/transcript-layout.js";
 import type { AssistantChatHistoryConfig } from "./history-types.js";
 import type { BuilderSetupCardLayout } from "./run-recovery.js";
 
@@ -217,6 +220,8 @@ export interface AssistantChatProps {
   suggestions?: AgentSuggestionInput[];
   /** Initial empty-thread suggestion behavior; never disables or replaces runtime follow-ups. */
   dynamicSuggestions?: AgentDynamicSuggestionsOption;
+  /** Exclude providers whose connection flow is handled by the host app. */
+  mcpSuggestionExcludedIntegrationIds?: readonly string[];
   /** Where suggestions appear. Context chips use a next-action bar at the thread base. */
   suggestionPlacement?:
     | "empty-state"
@@ -234,6 +239,8 @@ export interface AssistantChatProps {
   /** Optional content rendered in the empty state, below the suggestion
    *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
   emptyStateFooter?: React.ReactNode;
+  /** Optional transcript geometry. Omitted values keep the shared defaults. */
+  transcriptLayout?: AgentChatTranscriptLayout;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */
@@ -265,6 +272,12 @@ export interface AssistantChatProps {
   ) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /** Optional shared context banner rendered above the composer input. */
+  composerContextBannerSlot?: React.ReactNode;
+  /** Optional renderer for the shared work-summary disclosure row. */
+  workedForSummarySlot?: React.ComponentType<AgentKitWorkedForSummaryRenderProps>;
+  /** Optional ordering policy for assistant message text and attached widgets. */
+  resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   /** App-owned context controller, mounted separately for each chat thread. */
   composerContextProvider?: React.ComponentType<AssistantChatComposerContextProviderProps>;
   /** Optional home content rendered above the composer on an empty chat. */

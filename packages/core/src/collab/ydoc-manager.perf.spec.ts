@@ -22,11 +22,15 @@ function fromB64(s: string): Uint8Array {
 
 const loadRecordCalls: string[] = [];
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  const exec = {
     execute: async (query: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : (query.args ?? []);
+      const ledger = storeLedgerResult(sql);
+      if (ledger) return ledger;
 
       if (/^\s*CREATE TABLE/i.test(sql) || /^\s*ALTER TABLE/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -78,8 +82,9 @@ vi.mock("../db/client.js", () => ({
       }
       throw new Error(`Unexpected SQL: ${sql}`);
     },
-  }),
-}));
+  };
+  return { getDbExec: () => exec };
+});
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),

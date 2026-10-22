@@ -114,8 +114,7 @@ test("dragging one member of a multi-selection moves both by the same delta, sav
   expect(await app.selectedLayers()).toHaveLength(1);
 });
 
-// fixme: product bug: K-scale of a multi-selection writes junk into the saved source: text and label gain 'outline-width: 1.50px; border-width: 1.50px x4' (the
-test.fixme("the scale tool scales a whole multi-selection and keeps it selected", async ({
+test("the scale tool scales a whole multi-selection and keeps it selected", async ({
   app,
   page,
 }) => {

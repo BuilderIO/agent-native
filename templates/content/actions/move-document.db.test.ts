@@ -90,7 +90,22 @@ describe("move-document position race", () => {
       runWithRequestContext({ userEmail: OWNER }, () =>
         moveDocumentAction.run({ id, parentId } as any),
       ),
-    ).rejects.toThrow("same Content space");
+    ).rejects.toMatchObject({
+      message: "Parent document must be in the same Content space",
+      errorCode: "PARENT_SPACE_MISMATCH",
+    });
+  });
+
+  it("refuses a page as its own parent with a typed error", async () => {
+    const id = await createDocument({});
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        moveDocumentAction.run({ id, parentId: id } as any),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT",
+      statusCode: 400,
+    });
   });
 
   it("reports a nonexistent moved document as not-found naming the id argument", async () => {

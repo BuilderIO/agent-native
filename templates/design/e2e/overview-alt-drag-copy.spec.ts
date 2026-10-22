@@ -167,7 +167,7 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
   expect(withoutIds(await app.savedNodes(id, "index-copy.html"))).toEqual(
     withoutIds(sourceNodes),
   );
-  await expect.poll(() => app.selectedLayers()).toEqual(["Index copy"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Home copy"]);
   const copyId = await fileId(app, id, "index-copy.html");
   const sourceShell = (await app.page
     .locator(`[data-frame-id="${fileIds[0]}"]`)
@@ -183,6 +183,46 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
     Math.abs(copyShell.y - sourceShell.y - 40),
     "copy drawn 160 canvas px down",
   ).toBeLessThanOrEqual(1);
+});
+
+test("Alt release and re-press requires fresh movement before showing duplicate feedback", async ({
+  app,
+}) => {
+  const source = { x: 0, y: 0, width: 1280, height: 900, z: 0 };
+  const { id } = await seedScreens(app, [source]);
+  await app.open(id);
+  await app.page.locator("[data-frame-label]").first().click();
+  await zoomTo25(app);
+  const rect = await settledSelection(app, 1280);
+  const start = {
+    x: Math.round(rect.x + rect.width / 2),
+    y: Math.round(rect.y + rect.height / 2),
+  };
+  const preview = app.page.locator("[data-duplicate-preview-ghost]");
+  const canvas = app.page.locator("[data-multi-screen-canvas-surface]");
+
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.keyboard.down("Alt");
+  await app.page.mouse.down();
+  await app.page.mouse.move(start.x + 24, start.y, { steps: 6 });
+  await expect(preview).toHaveClass(/border-primary\/80/);
+  await expect(canvas).toHaveCSS("cursor", "copy");
+
+  await app.page.keyboard.up("Alt");
+  await expect(preview).toHaveClass(/border-dashed/);
+  await expect(canvas).not.toHaveCSS("cursor", "copy");
+
+  await app.page.keyboard.down("Alt");
+  await expect(preview).toHaveClass(/border-dashed/);
+  await expect(canvas).not.toHaveCSS("cursor", "copy");
+  await app.page.mouse.move(start.x + 25, start.y);
+  await expect(preview).toHaveClass(/border-dashed/);
+  await expect(canvas).not.toHaveCSS("cursor", "copy");
+
+  await app.page.mouse.up();
+  await app.page.keyboard.up("Alt");
+  await app.settled();
+  expect(await savedFrames(app, id)).toEqual({ "index.html": source });
 });
 
 test("alt-dragging a frame over an occupied screen keeps the copy above it", async ({
@@ -248,5 +288,5 @@ test("alt-dragging a multi-frame selection copies every frame and keeps their sp
   expect(await framesOnceCount(app, id, 4)).toEqual(withCopies);
   await expect
     .poll(() => app.selectedLayers())
-    .toEqual(["Screen 2 copy", "Index copy"]);
+    .toEqual(["Screen 2 copy", "Home copy"]);
 });

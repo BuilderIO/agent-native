@@ -67,6 +67,12 @@ describe("buildPastedSvgLayer", () => {
       .parseFromString(layer.html, "text/html")
       .querySelector<HTMLElement>('[data-an-primitive="frame"]')!;
     expect(frame.dataset.agentNativeLayerName).toBe("Frame");
+    expect(frame.getAttribute("data-an-svg-vector-group")).toBe("");
+    expect(
+      Array.from(frame.querySelectorAll("path"), (path) =>
+        path.getAttribute("d"),
+      ),
+    ).toEqual(["M12 12m-9 0a9 9 0 1 0 18 0", "M9 12l2 2l4 -4"]);
     expect(frame.style.width).toBe("24px");
 
     const vectors = Array.from(frame.querySelectorAll(":scope > svg"));

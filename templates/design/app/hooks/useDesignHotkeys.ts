@@ -269,6 +269,12 @@ function isDesignHistoryHotkey(event: KeyboardEvent) {
   );
 }
 
+export function isOptedInDesignHistoryHotkey(event: KeyboardEvent) {
+  return (
+    isDesignHistoryHotkey(event) && isDesignHistoryHotkeyTarget(event.target)
+  );
+}
+
 export function hasDocumentTextSelection() {
   if (typeof window === "undefined" || !window.getSelection) return false;
   const selection = window.getSelection();
@@ -410,10 +416,7 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
         current.ignoreEditableTargets !== false &&
         isDesignHotkeyEditableTarget(event.target) &&
         !isShowKeyboardShortcutsHotkey(event) &&
-        !(
-          isDesignHistoryHotkey(event) &&
-          isDesignHistoryHotkeyTarget(event.target)
-        )
+        !isOptedInDesignHistoryHotkey(event)
       ) {
         resetOpacitySequence();
         return;

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction, fail, type ActionRunContext } from "../../action.js";
+import { auditAttribution } from "../../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../../audit/org-admin.js";
 import { canManageOrg } from "../../org/permissions.js";
 import {
@@ -211,11 +212,8 @@ async function recordChoiceAudit(
     userEmail: input.email,
     orgId: input.orgId,
     status: input.status,
-    caller: ctx?.caller,
+    attribution: auditAttribution(ctx),
     args: { service: input.service, provider: input.provider },
-    threadId: ctx?.threadId,
-    turnId: ctx?.turnId,
-    runId: ctx?.runId,
   });
 }
 
@@ -247,6 +245,11 @@ export default defineAction({
   toolCallable: false,
   // Only real changes (and refused ones) are recorded, below.
   audit: { enabled: false },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx): Promise<ServiceProvidersStatus> => {
     const email = ctx?.userEmail?.trim().toLowerCase();
     const orgId = ctx?.orgId?.trim();

@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -542,6 +543,33 @@ describe("suggest-document-edit", () => {
       async () => {
         const { id } = await createPage("Shared across orgs body.");
         const db = getDb();
+        const { organizations, orgMembers } =
+          await import("@agent-native/core/org");
+        await getDbExec().execute(`CREATE TABLE organizations (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+          allowed_domain TEXT, a2a_secret TEXT, workspace_url TEXT, required_auth_provider TEXT,
+          identity_authority TEXT, identity_id TEXT, icon_json TEXT, icon_revision BIGINT NOT NULL DEFAULT 0,
+          federation_roster_initialized_at BIGINT
+        )`);
+        await getDbExec().execute(`CREATE TABLE org_members (
+          id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+          federation_removal_pending_at BIGINT, UNIQUE(org_id, email)
+        )`);
+        const now = Date.now();
+        await db.insert(organizations).values([
+          {
+            id: "org-owner",
+            name: "Document owner's organization",
+            createdBy: ctx.userEmail,
+            createdAt: now,
+          },
+          {
+            id: "org-shared",
+            name: "Shared organization",
+            createdBy: "member@other-org",
+            createdAt: now,
+          },
+        ]);
         await db
           .update(schema.documents)
           .set({ orgId: "org-owner" })
@@ -564,6 +592,19 @@ describe("suggest-document-edit", () => {
               replace: "Edited body.",
               idempotencyKey: `cross-org-${id}`,
             };
+            await expect(
+              suggestDocumentEdit.run(input, {
+                caller: "cli" as const,
+                userEmail: "member@other-org",
+              }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            await db.insert(orgMembers).values({
+              id: `cross-org-member-${id}`,
+              orgId: "org-shared",
+              email: "member@other-org",
+              role: "member",
+              joinedAt: now,
+            });
             const first = (await suggestDocumentEdit.run(input, {
               caller: "cli" as const,
               userEmail: "member@other-org",

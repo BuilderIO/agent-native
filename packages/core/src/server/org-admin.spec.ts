@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
+  getRequestContext: vi.fn(),
   validateMembership: vi.fn(),
 }));
 
 vi.mock("./request-context.js", () => ({
   getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
+  getRequestContext: mocks.getRequestContext,
 }));
 vi.mock("../org/federation.js", () => ({
   validateFederatedOrganizationMembershipForCurrentRequest:
@@ -25,6 +27,7 @@ describe("currentRequestUserIsOrgAdmin", () => {
     vi.clearAllMocks();
     mocks.getRequestOrgId.mockReturnValue("org-1");
     mocks.getRequestUserEmail.mockReturnValue("User@Example.com");
+    mocks.getRequestContext.mockReturnValue(undefined);
     mocks.validateMembership.mockResolvedValue({ active: true, role: "admin" });
   });
 
@@ -37,6 +40,20 @@ describe("currentRequestUserIsOrgAdmin", () => {
       email: "user@example.com",
     });
   });
+
+  it.each(["owner", "admin"])(
+    "does not elevate a delegated org member whose stored role is %s",
+    async (role) => {
+      mocks.validateMembership.mockResolvedValue({ active: true, role });
+      mocks.getRequestContext.mockReturnValue({
+        a2aIdentityAssurance: "org-member",
+        userEmail: "user@example.com",
+        orgId: "org-1",
+      });
+
+      await expect(currentRequestUserIsOrgAdmin()).resolves.toBe(false);
+    },
+  );
 
   it.each(["member", "", null])("rejects the %s role", async (role) => {
     mocks.validateMembership.mockResolvedValue({
