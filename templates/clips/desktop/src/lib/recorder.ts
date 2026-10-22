@@ -53,7 +53,7 @@ import {
   buildCreateRecordingRequestBody,
   RECORDING_SERVER_UNAVAILABLE,
   RECORDING_SESSION_EXPIRED,
-  isStorageSetupFailureMessage,
+  isStorageSetupDenial,
   notifyStorageSetupRequired,
   type NativeRecordingRequestOptions,
 } from "./recording-request";
@@ -1935,7 +1935,7 @@ async function createServerRecording(
         const body = await res.text();
         console.error("[clips-recorder] bad response:", url, res.status, body);
         // Checked before the status mapping: the hosted-storage denial is a 403.
-        if (isStorageSetupFailureMessage(body)) {
+        if (isStorageSetupDenial(body)) {
           notifyStorageSetupRequired();
           throw new Error(body.slice(0, 200));
         }

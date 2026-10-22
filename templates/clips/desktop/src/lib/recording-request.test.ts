@@ -4,6 +4,7 @@ import {
   buildCreateRecordingRequestBody,
   buildVideoStorageSetupUrl,
   buildCreateRecordingRequestHeaders,
+  isStorageSetupDenial,
   isStorageSetupFailureMessage,
   notifyStorageSetupRequired,
   onStorageSetupRequired,
@@ -100,6 +101,28 @@ describe("buildVideoStorageSetupUrl", () => {
   it("opts the browser out of the beta-lane redirect", () => {
     expect(buildVideoStorageSetupUrl("https://clips.agent-native.com/")).toBe(
       "https://clips.agent-native.com/record?connectStorage=1&force=true",
+    );
+  });
+});
+
+describe("isStorageSetupDenial", () => {
+  const message =
+    "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage to upload clips.";
+  const body = (errorCode: string) =>
+    JSON.stringify({ error: message, errorCode });
+
+  it("routes disabled and exhausted denials to storage setup", () => {
+    expect(isStorageSetupDenial(body("disabled"))).toBe(true);
+    expect(isStorageSetupDenial(body("exhausted"))).toBe(true);
+  });
+
+  it("leaves sign_in_required to the session-expired path", () => {
+    expect(isStorageSetupDenial(body("sign_in_required"))).toBe(false);
+  });
+
+  it("ignores unrelated errors", () => {
+    expect(isStorageSetupDenial('{"error":"Database unavailable"}')).toBe(
+      false,
     );
   });
 });

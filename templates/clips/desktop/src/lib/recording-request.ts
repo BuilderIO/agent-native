@@ -34,6 +34,30 @@ export function isStorageSetupFailureMessage(
 }
 
 /**
+ * The server answers every storage denial with the storage-setup message,
+ * including `sign_in_required`, which is a session problem the storage banner
+ * cannot fix. Only the error code tells the two apart.
+ */
+export function isStorageSetupDenial(body: string): boolean {
+  if (!isStorageSetupFailureMessage(body)) return false;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const errorCode =
+      parsed && typeof parsed === "object"
+        ? (parsed as { errorCode?: unknown }).errorCode
+        : undefined;
+    return errorCode !== "sign_in_required";
+  } catch (err) {
+    console.debug(
+      "[clips-recorder] create-recording denial body is not JSON; classifying by message",
+      err,
+    );
+    // coercion-ok: a non-JSON body keeps the message match as the classifier.
+    return true;
+  }
+}
+
+/**
  * `force=true` keeps a Builder employee's browser on the host the desktop app
  * is signed in to. Without it the page's beta-lane redirect moves them to
  * beta, and the storage grant gets connected there instead.
