@@ -661,7 +661,13 @@ describe("useChatThreadList", () => {
     expect(latest.threads).toEqual([]);
   });
 
-  it.each<[string, Partial<UseChatThreadListOptions>]>([
+  it.each<
+    [
+      string,
+      Partial<UseChatThreadListOptions>,
+      Partial<UseChatThreadListOptions>?,
+    ]
+  >([
     ["ownership", { ownership: "all" }],
     ["query", { query: "another search" }],
     ["scope type", { scope: { type: "document", id: "d1" } }],
@@ -669,16 +675,18 @@ describe("useChatThreadList", () => {
     ["API", { apiUrl: "/another/chat" }],
     ["page size", { pageSize: 3 }],
     ["external threads", { includeExternal: true }],
+    ["archived threads", { includeArchived: false }, { includeArchived: true }],
     ["enabled", { enabled: false }],
   ])(
     "returns only the new %s identity on its first render",
-    async (_name, change) => {
+    async (_name, change, startingOptions = {}) => {
       const options: UseChatThreadListOptions = {
         ownership: "mine",
         query: "roadmap",
         scope: { type: "deck", id: "d1" },
         pageSize: 2,
         apiUrl: "/api/chat",
+        ...startingOptions,
       };
       let releaseAppend!: (response: Response) => void;
       fetchMock
