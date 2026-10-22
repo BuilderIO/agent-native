@@ -1102,6 +1102,41 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("validates a widget target on an ordinary MCP action outside the directory catalog", () => {
+    const entry = defineAction({
+      description: "Read one record.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          title: "Record",
+          html: "<!doctype html><html><body>Record</body></html>",
+        },
+      },
+      run: async () => ({ id: "record-1" }),
+    });
+    expect(() =>
+      mcpBuildServer.validateMcpDirectoryProfile({
+        ...config,
+        actions: { "directory-record": entry, "ordinary-record": entry },
+        directoryProfile: {
+          connectorCatalog: ["directory-record"],
+          widgetTargets: {
+            "ordinary-record": () => ({
+              targetPath: "/record/record-1",
+              resourceIds: { documentId: "record-1" },
+            }),
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
   it("keeps a legacy directory catalog discoverable without widgets when widgetTargets is absent", async () => {
     const legacyWidget = defineAction({
       description: "Read one legacy directory record.",

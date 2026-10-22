@@ -617,7 +617,7 @@ export function validateMcpDirectoryProfile(
       `[agent-native] MCP directory widget action "${deniedWidgetAction}" is listed in externalAgents.denyActions.`,
     );
   }
-  const widgetActionNames = names.filter((name) =>
+  const widgetActionNames = Object.keys(actions).filter((name) =>
     Boolean(actions[name]?.mcpApp?.resource),
   );
   const widgetReadOnlyActions = new Set(profile?.widgetReadOnlyActions ?? []);
@@ -648,7 +648,7 @@ export function validateMcpDirectoryProfile(
     );
     if (unknownTarget) {
       throw new McpDirectoryProfileValidationError(
-        `[agent-native] MCP directory widget target "${unknownTarget}" must name a listed action with an mcpApp resource. Listed widget actions without a target resolver serve as plain tools.`,
+        `[agent-native] MCP directory widget target "${unknownTarget}" must name an MCP action with an mcpApp resource. Listed widget actions without a target resolver serve as plain tools.`,
       );
     }
   }

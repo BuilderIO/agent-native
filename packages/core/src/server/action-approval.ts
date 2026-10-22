@@ -56,7 +56,16 @@ export async function directHttpActionApprovalRefusal(
   }
   const prepared = await actionCallIntent(entry, params);
   if (!prepared.valid) return null;
-  return (await preparedCallNeedsApproval(entry, prepared, ctx))
-    ? actionApprovalRequiredError(ctx.actionName, ctx.caller, false)
+  return (await preparedCallNeedsApproval(entry, prepared, {
+    ...ctx,
+    caller: ctx.caller === "frontend" ? "http" : ctx.caller,
+  }))
+    ? actionApprovalRequiredError(
+        ctx.actionName,
+        ctx.caller === "frontend" && ctx.requestHeaders?.has("authorization")
+          ? "http"
+          : ctx.caller,
+        false,
+      )
     : null;
 }

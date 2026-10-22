@@ -17,7 +17,7 @@ import { hasPresentedEmbedSessionCredential } from "./embed-session.js";
 import { getH3App } from "./framework-request-handler.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { isHttpsRequest } from "./https-request.js";
-import { isSameOriginRequest } from "./request-origin.js";
+import { hasSameOriginBrowserEvidence } from "./request-origin.js";
 import {
   signShortLivedToken,
   verifyShortLivedToken,
@@ -74,7 +74,7 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
     return { error: "Authentication required" };
   }
 
-  if (!isSameOriginRequest(event)) {
+  if (!hasSameOriginBrowserEvidence(event)) {
     setResponseStatus(event, 403);
     return { error: "Same-origin request required" };
   }

@@ -25,7 +25,6 @@
     "create-vault-secret",
     "create-workspace-resource",
     "create-workspace-resource-grant",
-    "create_embed_session",
     "create_workspace_app",
     "creative-context-a2a",
     "delete-data-program",
