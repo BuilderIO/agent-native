@@ -18,8 +18,6 @@ const VALUE_AXIS_TICK_LABEL_INSET = 8;
 const VALUE_AXIS_TITLE_TICK_GAP = 8;
 const MAX_LABEL_LENGTH = 16;
 const MIN_PLOT_WIDTH = 32;
-const MAX_VERTICAL_VALUE_TICK_LABEL_WIDTH =
-  WIDTH - MARGIN.right - MIN_PLOT_WIDTH - 16;
 const LABEL_FONT_FAMILIES = {
   sans: "var(--font-sans, ui-sans-serif, system-ui, sans-serif)",
   serif: "ui-serif, Georgia, Cambria, serif",
@@ -213,6 +211,14 @@ function ChartBody({
         Boolean(chart.showValueLabels),
       )
     : 0;
+  const verticalValueTickMargin = isHorizontalBar
+    ? 0
+    : chart.yAxisTitle
+      ? Y_AXIS_TITLE_X +
+        axisTitleFontSize / 2 +
+        VALUE_AXIS_TITLE_TICK_GAP +
+        VALUE_AXIS_TICK_LABEL_INSET
+      : VALUE_AXIS_TICK_LABEL_INSET * 2;
   const valueTickLabels = gridTickValues.map((value) => {
     const label =
       tickInterval === undefined
@@ -220,7 +226,7 @@ function ChartBody({
         : formatAxisTick(value, tickInterval);
     const maximumWidth = isHorizontalBar
       ? horizontalTextWidthLimit
-      : MAX_VERTICAL_VALUE_TICK_LABEL_WIDTH;
+      : WIDTH - MARGIN.right - MIN_PLOT_WIDTH - verticalValueTickMargin;
     return estimateTextWidth(label, labelFontSize) > maximumWidth
       ? formatCompactTick(value, labelFontSize, maximumWidth)
       : label;
@@ -234,14 +240,6 @@ function ChartBody({
     ? Math.ceil(valueTickLabelWidth / 2) + 2
     : 0;
   const customValueTickWidth = isHorizontalBar ? 0 : customValueTickLabelWidth;
-  const verticalValueTickMargin = isHorizontalBar
-    ? 0
-    : chart.yAxisTitle
-      ? Y_AXIS_TITLE_X +
-        axisTitleFontSize / 2 +
-        VALUE_AXIS_TITLE_TICK_GAP +
-        VALUE_AXIS_TICK_LABEL_INSET
-      : VALUE_AXIS_TICK_LABEL_INSET * 2;
   const horizontalPositiveValueWidth =
     isHorizontalBar && chart.showValueLabels
       ? Math.max(

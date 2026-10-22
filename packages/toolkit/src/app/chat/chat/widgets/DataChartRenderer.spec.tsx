@@ -517,6 +517,34 @@ describe("DataChartRenderer theme colors", () => {
     }
   });
 
+  it("keeps a usable plot width with large ticks and a large axis title", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          yAxisTitle: "Revenue",
+          labelFontSize: 24,
+          axisTitleFontSize: 24,
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Low", value: -1e26 },
+            { day: "High", value: 0 },
+          ],
+          valueAxisTickInterval: 1e25,
+        }}
+      />,
+    );
+    const plotBounds = markup.match(
+      /<line x1="([^\"]+)" x2="([^\"]+)" y1="[^\"]+" y2="[^\"]+"/,
+    );
+
+    expect(plotBounds).not.toBeNull();
+    expect(
+      Number(plotBounds?.[2]) - Number(plotBounds?.[1]),
+    ).toBeGreaterThanOrEqual(32);
+  });
+
   it("thins dense value labels without dropping grid lines or crowding endpoints", () => {
     const horizontalMarkup = renderToStaticMarkup(
       <DataChartRenderer
