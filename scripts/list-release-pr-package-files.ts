@@ -1,6 +1,9 @@
 import { pathToFileURL } from "node:url";
 
-import { fetchPullRequestFilePages } from "./github-pull-request-files.ts";
+import {
+  fetchPullRequestFilePages,
+  type RunGhApi,
+} from "./github-pull-request-files.ts";
 
 export type ReleasePullRequestPackageFile = {
   filename: string;
@@ -41,6 +44,16 @@ export function parseReleasePullRequestPackageFiles(
   return files;
 }
 
+function listReleasePullRequestPackageFiles(
+  repo: string,
+  pullRequestNumber: string,
+  gh?: RunGhApi,
+): ReleasePullRequestPackageFile[] {
+  return parseReleasePullRequestPackageFiles(
+    fetchPullRequestFilePages(repo, pullRequestNumber, gh),
+  );
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -51,8 +64,7 @@ if (
     throw new Error("REPO and PR_NUMBER are required");
   }
 
-  const pages = fetchPullRequestFilePages(repo, pullRequestNumber);
   process.stdout.write(
-    JSON.stringify(parseReleasePullRequestPackageFiles(pages)),
+    JSON.stringify(listReleasePullRequestPackageFiles(repo, pullRequestNumber)),
   );
 }

@@ -1,6 +1,9 @@
 import { execFileSync } from "node:child_process";
 
-import { fetchPullRequestFilePages } from "./github-pull-request-files.ts";
+import {
+  fetchPullRequestFilePages,
+  type RunGhApi,
+} from "./github-pull-request-files.ts";
 
 const pullRequestFilesLimit = 3_000;
 
@@ -88,18 +91,17 @@ export function extractPullRequestFileNames(pages: unknown): string[] {
   return files;
 }
 
-function main(): void {
-  const repo = process.env.REPO;
-  const prNumber = process.env.PR_NUMBER;
-  if (!repo || !prNumber) {
-    throw new Error("Missing release PR file verification context.");
-  }
+const runGhApi: RunGhApi = (args) =>
+  execFileSync("gh", args, {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  }).trim();
 
-  const gh = (args: string[]) =>
-    execFileSync("gh", args, {
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    }).trim();
+function verifyReleasePullRequestFiles(
+  repo: string,
+  prNumber: string,
+  gh: RunGhApi = runGhApi,
+): string[] {
   const pages = fetchPullRequestFilePages(repo, prNumber, gh);
   const files = extractPullRequestFileNames(pages);
   const pullRequest = JSON.parse(
@@ -109,6 +111,17 @@ function main(): void {
     files,
     pullRequest.changed_files,
   );
+  return completeFiles;
+}
+
+function main(): void {
+  const repo = process.env.REPO;
+  const prNumber = process.env.PR_NUMBER;
+  if (!repo || !prNumber) {
+    throw new Error("Missing release PR file verification context.");
+  }
+
+  const completeFiles = verifyReleasePullRequestFiles(repo, prNumber);
   console.log(
     `Verified ${completeFiles.length} complete release PR file paths against the allowlist.`,
   );

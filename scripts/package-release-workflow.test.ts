@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,10 +23,6 @@ import {
   preparePackagesForTagging,
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
-import {
-  fetchPullRequestFilePages,
-  pullRequestFilesApiArgs,
-} from "./github-pull-request-files.ts";
 import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
   gitBlobSha,
@@ -764,38 +768,87 @@ importers:
     );
   });
 
-  it("uses one tested paginated file request for both release verifiers", () => {
-    const calls: string[][] = [];
-    const pages = fetchPullRequestFilePages(
-      "BuilderIO/agent-native",
-      "8062",
-      (args) => {
-        calls.push(args);
-        return JSON.stringify([
-          [
-            { filename: "packages/core/package.json", status: "modified" },
-            { filename: "packages/core/README.md", status: "modified" },
-          ],
-          [{ filename: "package.json", status: "added" }],
-        ]);
-      },
+  it("runs both release verifier CLIs through the shared file request", () => {
+    const files = [
+      { filename: "packages/core/package.json", status: "modified" },
+      { filename: ".changeset/core-fix.md", status: "added" },
+      { filename: "packages/core/CHANGELOG.md", status: "modified" },
+    ];
+    const pages = JSON.stringify([[files[0], files[1]], [files[2]]]);
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-pr-files-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    mkdirSync(binDirectory);
+    const ghPath = path.join(binDirectory, "gh");
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+printf '%s\\n' '---' "$@" >> "$GH_CALLS_FILE"
+if [ "$#" -eq 4 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] && [ "$3" = "--slurp" ] && [ "$4" = "$GH_EXPECTED_FILE_ENDPOINT" ]; then
+  printf '%s' "$GH_FILE_PAGES"
+elif [ "$#" -eq 2 ] && [ "$1" = "api" ] && [ "$2" = "$GH_EXPECTED_PR_ENDPOINT" ]; then
+  printf '%s' "$GH_PULL_REQUEST"
+else
+  printf '%s\\n' 'unexpected gh arguments' >&2
+  exit 1
+fi
+`,
     );
-    assert.deepEqual(calls, [
-      pullRequestFilesApiArgs("BuilderIO/agent-native", "8062"),
-    ]);
-    assert.deepEqual(
-      pullRequestFilesApiArgs("BuilderIO/agent-native", "8062"),
-      [
+    chmodSync(ghPath, 0o755);
+
+    const endpoint = "repos/BuilderIO/agent-native/pulls/8062/files";
+    const pullRequestEndpoint = "repos/BuilderIO/agent-native/pulls/8062";
+    const env = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+      REPO: "BuilderIO/agent-native",
+      PR_NUMBER: "8062",
+      GH_CALLS_FILE: callsPath,
+      GH_EXPECTED_FILE_ENDPOINT: endpoint,
+      GH_EXPECTED_PR_ENDPOINT: pullRequestEndpoint,
+      GH_FILE_PAGES: pages,
+      GH_PULL_REQUEST: JSON.stringify({ changed_files: files.length }),
+    };
+
+    const runCli = (script: string) =>
+      execFileSync(
+        process.execPath,
+        ["--import", "tsx", path.resolve(script)],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    try {
+      const packageOutput = runCli("scripts/list-release-pr-package-files.ts");
+      assert.deepEqual(JSON.parse(packageOutput), [
+        { filename: "packages/core/package.json", status: "modified" },
+      ]);
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "---",
         "api",
         "--paginate",
         "--slurp",
-        "repos/BuilderIO/agent-native/pulls/8062/files",
-      ],
-    );
-    assert.deepEqual(parseReleasePullRequestPackageFiles(pages), [
-      { filename: "packages/core/package.json", status: "modified" },
-      { filename: "package.json", status: "added" },
-    ]);
+        endpoint,
+      ]);
+
+      writeFileSync(callsPath, "");
+      assert.match(
+        runCli("scripts/verify-release-package-files.ts"),
+        /Verified 3 complete release PR file paths against the allowlist\./,
+      );
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "---",
+        "api",
+        "--paginate",
+        "--slurp",
+        endpoint,
+        "---",
+        "api",
+        pullRequestEndpoint,
+      ]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+
     assert.throws(
       () => parseReleasePullRequestPackageFiles([[{}]]),
       /invalid release PR file list/,
