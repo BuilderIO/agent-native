@@ -1423,6 +1423,59 @@ describe("CommandMenu", () => {
     expect(document.body.textContent).not.toContain("Refresh data");
   });
 
+  it("shows an empty state when a nested page has no matching commands", () => {
+    renderAppCommands({
+      groups: [
+        {
+          id: "main",
+          order: 1,
+          commands: [
+            {
+              id: "open-tools",
+              order: 1,
+              label: "Open tools",
+              page: {
+                id: "tools",
+                title: "Tools",
+                groups: [
+                  {
+                    id: "tool-actions",
+                    order: 1,
+                    commands: [
+                      {
+                        id: "refresh",
+                        order: 1,
+                        label: "Refresh data",
+                        onSelect() {},
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      emptyState: "No matching commands",
+    });
+
+    const parentRow = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:main:open-tools"]',
+    );
+    expect(parentRow).toBeTruthy();
+    act(() => parentRow!.click());
+    expect(document.body.textContent).toContain("Refresh data");
+
+    search("no-such-command");
+
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "No matching commands",
+    );
+    expect(
+      document.querySelector('[data-testid="command-menu-page-back"]'),
+    ).toBeTruthy();
+  });
+
   it("selects the first matching page command instead of Back", () => {
     const onSelect = vi.fn();
     renderAppCommands({
@@ -2378,6 +2431,39 @@ describe("CommandMenu", () => {
     });
 
     expect(row?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("allows direct pointer activation when initialSelection is none", () => {
+    const onSelect = vi.fn();
+    renderAppCommands({
+      groups: [
+        {
+          id: "actions",
+          order: 1,
+          commands: [
+            {
+              id: "first",
+              order: 1,
+              label: "First",
+              deferSelect: false,
+              onSelect,
+            },
+          ],
+        },
+      ],
+      initialSelection: "none",
+    });
+
+    const row = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:actions:first"]',
+    );
+    expect(row).toBeTruthy();
+    act(() => {
+      row!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      row!.click();
+    });
+
+    expect(onSelect).toHaveBeenCalledOnce();
   });
 
   it("portals the menu into an app-provided container", () => {

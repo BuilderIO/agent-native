@@ -988,7 +988,7 @@ export function CommandMenu<TAppContext = unknown>({
 
         {renderResultsPosition === "after" ? renderedResults : null}
 
-        {!hasResults && !activeAppPage && emptyState != null ? (
+        {!hasResults && emptyState != null ? (
           <div
             role="status"
             aria-live="polite"
@@ -1189,6 +1189,14 @@ export function CommandMenu<TAppContext = unknown>({
           ref={containerRef}
           container={container}
           aria-describedby={undefined}
+          onPointerDownCapture={(event) => {
+            if (
+              initialSelection === "none" &&
+              (event.target as HTMLElement).closest?.("[cmdk-item]")
+            ) {
+              enableSelection();
+            }
+          }}
           onPointerMoveCapture={(event) => {
             if (
               initialSelection === "none" &&
