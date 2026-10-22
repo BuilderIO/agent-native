@@ -25,6 +25,10 @@ import {
 import { packagesCoveredBy } from "./check-changeset.mjs";
 import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
+  isMajorVersionPromotion,
+  packageManifestVersionChange,
+} from "./release-package-version-policy.ts";
+import {
   gitBlobSha,
   syncCommunityQrBlobPins,
   syncCommunityQrCoreLock,
@@ -71,6 +75,51 @@ const autoMergeWorkflow = parse(
 ) as Workflow;
 
 describe("npm package release workflow", () => {
+  it("allows a modified private app manifest without a package version", () => {
+    assert.equal(
+      packageManifestVersionChange(
+        "templates/community/qr/package.json",
+        "modified",
+        { version: null },
+        { version: null },
+      ),
+      null,
+    );
+  });
+
+  it("still rejects missing manifests and version fields that appear or disappear", () => {
+    for (const [before, after] of [
+      [{ version: null }, { version: "1.0.0" }],
+      [{ version: "1.0.0" }, { version: null }],
+    ]) {
+      assert.throws(
+        () =>
+          packageManifestVersionChange(
+            "templates/community/qr/package.json",
+            "modified",
+            before,
+            after,
+          ),
+        /Could not verify package manifest versions/,
+      );
+    }
+    assert.throws(
+      () =>
+        packageManifestVersionChange(
+          "packages/core/package.json",
+          "modified",
+          { version: "0.216.0" },
+          null,
+        ),
+      /Could not verify package manifest versions/,
+    );
+  });
+
+  it("keeps the major-promotion check for versioned package manifests", () => {
+    assert.equal(isMajorVersionPromotion("0.216.0", "1.0.0"), true);
+    assert.equal(isMajorVersionPromotion("0.216.0", "0.217.0"), false);
+  });
+
   it("offers an explicit stable bump with patch as the default", () => {
     assert.deepEqual(inputs.releaseType, {
       description: "Stable release bump for all public npm packages",
@@ -959,6 +1008,10 @@ fi
     assert(releaseDiff);
     assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
     assert(majorPromotionGuard);
+    assert.equal(
+      majorPromotionGuard.run,
+      "node --experimental-strip-types scripts/verify-release-package-version-changes.ts",
+    );
     assert(
       autoMergeSteps.indexOf(releaseDiff) <
         autoMergeSteps.indexOf(majorPromotionGuard),
@@ -975,21 +1028,6 @@ fi
       String((majorPromotionGuard.env as Workflow).PR_NUMBER),
       /inputs\.pull_request_number/,
     );
-    const majorPromotionRun = String(majorPromotionGuard.run);
-    assert.match(
-      majorPromotionRun,
-      /scripts\/list-release-pr-package-files\.ts/,
-    );
-    assert.match(
-      majorPromotionRun,
-      /readFileSync\(process\.env\.RELEASE_PACKAGE_FILES_PATH, "utf8"\)/,
-    );
-    assert.doesNotMatch(majorPromotionRun, /--paginate|--slurp/);
-    assert.doesNotMatch(majorPromotionRun, /\.split\("\\n"\)/);
-    assert.match(majorPromotionRun, /HTTP 404/);
-    assert.match(majorPromotionRun, /status === "added"/);
-    assert.match(majorPromotionRun, /status === "removed"/);
-    assert.doesNotMatch(majorPromotionRun, /catch\s*\{\s*return null/);
     assert(qrPinGuard);
     assert.equal(
       qrPinGuard.run,
