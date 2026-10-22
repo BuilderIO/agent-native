@@ -833,7 +833,12 @@ function handlerMayMutateMotionTarget(
   if (targetNodeIds.length > 0 && mayInjectRuntimeStylesheet(value)) {
     return true;
   }
-  if (mayMutateThroughDomTraversal(value)) return true;
+  if (
+    mayMutateThroughDomTraversal(value) ||
+    mayMutateThroughAlternateDomRoot(value)
+  ) {
+    return true;
+  }
 
   const targetIds = new Set(targetNodeIds);
   const directTargetMutation =
@@ -870,6 +875,9 @@ function handlerMayMutateMotionTarget(
   );
 }
 
+const MUTATION_MEMBER_ACCESS = String.raw`(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute(?:NS)?\s*\(|removeAttribute\s*\(|toggleAttribute\s*\(|animate\s*\()|\[\s*["'](?:style|classList|className|setAttribute(?:NS)?|removeAttribute|toggleAttribute|animate)["']\s*\]`;
+const MUTATION_MEMBER_ACCESS_PATTERN = new RegExp(MUTATION_MEMBER_ACCESS, "i");
+
 function handlerElementSelectorMayMutateMotionTarget(
   value: string,
   handlerNode: HtmlNode,
@@ -877,16 +885,13 @@ function handlerElementSelectorMayMutateMotionTarget(
   targetIds: ReadonlySet<string>,
   generatedIds: Map<number | undefined, string>,
 ): boolean {
-  const selectorNames = String.raw`querySelector(?:All)?`;
+  const selectorNames = String.raw`querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName)`;
   const scope = String.raw`(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))`;
   const selectorCall = new RegExp(
     String.raw`\b${scope}\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
     "gi",
   );
-  const hasMutation =
-    /(?:\.style(?:\s*(?:\.|\[)|\s*=)|\.classList\b|\.className\b|\.setAttribute\s*\(|\.removeAttribute\s*\(|\.animate\s*\(|\[\s*["'](?:style|classList|className|setAttribute|removeAttribute|animate)["']\s*\])/i.test(
-      value,
-    );
+  const hasMutation = MUTATION_MEMBER_ACCESS_PATTERN.test(value);
   if (!hasMutation) return false;
 
   const aliases = assignedAliases(
@@ -909,8 +914,6 @@ function handlerElementSelectorMayMutateMotionTarget(
   if (!selectorCall.test(value)) return false;
   return containsMotionTarget(handlerNode, nodes, targetIds, generatedIds);
 }
-
-const MUTATION_MEMBER_ACCESS = String.raw`(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute\s*\(|removeAttribute\s*\(|animate\s*\()|\[\s*["'](?:style|classList|className|setAttribute|removeAttribute|animate)["']\s*\]`;
 
 const DIRECT_ELEMENT_MUTATION = new RegExp(
   String.raw`(?:\bthis\b|\b(?:event|e)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\])|\$el|\$event\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))\s*(?:${MUTATION_MEMBER_ACCESS})`,
@@ -949,11 +952,26 @@ function mayMutateThroughDomTraversal(value: string): boolean {
     /(?:\.\s*(?:parentElement|parentNode|children|childNodes|firstElementChild|lastElementChild|firstChild|lastChild|nextElementSibling|previousElementSibling|nextSibling|previousSibling|closest|matches)\b|\[\s*["'](?:parentElement|parentNode|children|childNodes|firstElementChild|lastElementChild|firstChild|lastChild|nextElementSibling|previousElementSibling|nextSibling|previousSibling|closest|matches)["']\s*\])/i.test(
       value,
     );
-  const mutatesElement =
-    /(?:\.\s*(?:style|classList|className)\b|\[\s*["'](?:style|classList|className)["']\s*\]|\.\s*(?:setAttribute|removeAttribute|animate)\s*\(|\[\s*["'](?:setAttribute|removeAttribute|animate)["']\s*\]\s*\()/i.test(
+  return traversesDom && MUTATION_MEMBER_ACCESS_PATTERN.test(value);
+}
+
+function mayMutateThroughAlternateDomRoot(value: string): boolean {
+  if (!/\b(?:ownerDocument|getRootNode)\b/i.test(value)) return false;
+  if (MUTATION_MEMBER_ACCESS_PATTERN.test(value)) return true;
+
+  const destructuresMutableDomState =
+    /\{\s*[^}]*\b(?:style|classList|className)\b[^}]*\}\s*=/i.test(value);
+  if (!destructuresMutableDomState) return false;
+
+  return (
+    /\bObject\s*\.\s*assign\s*\(/i.test(value) ||
+    /\.\s*(?:add|remove|toggle|replace|setProperty|removeProperty)\s*\(/i.test(
       value,
-    );
-  return traversesDom && mutatesElement;
+    ) ||
+    /\b[A-Za-z_$][\w$]*(?:\s*(?:\.|\[)[^;=]+?\]?)+\s*(?:=(?!=)|\+=|-=|\+\+|--)/i.test(
+      value,
+    )
+  );
 }
 
 function assignedAliases(
@@ -1065,11 +1083,8 @@ function handlerSelectsAndMutatesMotionTarget(
     /\b(?:querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName))\b/i.test(
       value,
     );
-  const mutatesElement =
-    /(?:\.style(?:\s*(?:\.|\[)|\s*=)|\.classList\b|\.className\b|\.setAttribute\s*\(|\.removeAttribute\s*\(|\.animate\s*\(|\[\s*["'](?:style|classList|className|setAttribute|removeAttribute|animate)["']\s*\])/i.test(
-      value,
-    );
-  if (!usesDocumentSelector || !mutatesElement) return false;
+  if (!usesDocumentSelector || !MUTATION_MEMBER_ACCESS_PATTERN.test(value))
+    return false;
 
   const selectorCalls =
     /\b(?:document|window|globalThis|self)\s*(?:\.\s*document|\[\s*["']document["']\s*\])?\s*(?:\.\s*(querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName))|\[\s*["'](querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName))["']\s*\])\s*\(/gi;
