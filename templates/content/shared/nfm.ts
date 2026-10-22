@@ -3455,12 +3455,12 @@ function parseTable(
       continue;
     }
     openRow(rowMatch[1]);
-    // An agent may write a whole row on its line; the writer never does.
-    const rest = rowMatch[2].trim();
-    let rowClosed = ROW_END.test(rest);
-    if (rest) addCells(rest);
-    while (!rowClosed && i < close) {
-      let cd = lineAt(i++);
+    // An agent may start a row's cells, or write the whole row, on its line;
+    // the writer never does.
+    let cd = rowMatch[2].trim();
+    let rowClosed = false;
+    for (let first = true; !rowClosed && (first || i < close); first = false) {
+      if (!first) cd = lineAt(i++);
       if (cd === "</tr>") break;
       if (!cd) continue;
       // HTML reads a cell's line breaks as spaces.

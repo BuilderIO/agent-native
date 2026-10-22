@@ -674,6 +674,13 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     note: "A cell wrapped over lines may close its row on its last line.",
   },
   {
+    id: "html-table-wrapped-cell-beside-row-tag",
+    origin: "agent",
+    markdown: "<table>\n<tr><td>first\nsecond</td></tr>\n</table>",
+    canonical: "<table>\n<tr>\n<td>first second</td>\n</tr>\n</table>",
+    note: "A cell may open on its row's line and wrap past it.",
+  },
+  {
     id: "html-table-rows-one-line",
     origin: "agent",
     markdown:
