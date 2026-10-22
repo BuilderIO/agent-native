@@ -68,6 +68,7 @@ export interface DataChartWidget {
   series: DataChartSeriesDefinition[];
   data: Array<Record<string, unknown>>;
   sampled?: boolean;
+  truncated?: boolean;
   actions?: DataWidgetChartAction[];
 }
 
@@ -172,6 +173,10 @@ function isString(value: unknown): value is string {
 const MAX_DATA_CHART_AXIS_TICKS = 100;
 export const DATA_WIDGET_MAX_CHART_POINTS = 200;
 
+function chartRowsForRender<T>(rows: T[]): T[] {
+  return rows.slice(0, DATA_WIDGET_MAX_CHART_POINTS);
+}
+
 function numericWidgetValue(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string" || !value.trim()) return null;
@@ -191,9 +196,7 @@ function hasBoundedValueAxisTicks(chart: Record<string, unknown>): boolean {
   }
 
   const series = Array.isArray(chart.series) ? chart.series : [];
-  const rows = Array.isArray(chart.data)
-    ? chart.data.slice(0, DATA_WIDGET_MAX_CHART_POINTS)
-    : [];
+  const rows = Array.isArray(chart.data) ? chartRowsForRender(chart.data) : [];
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
 
@@ -313,6 +316,8 @@ export function isDataChartWidget(value: unknown): value is DataChartWidget {
         Number.isFinite(value.horizontalCategoryGapRatio) &&
         value.horizontalCategoryGapRatio >= 0 &&
         value.horizontalCategoryGapRatio <= 0.9)) &&
+    (value.sampled === undefined || typeof value.sampled === "boolean") &&
+    (value.truncated === undefined || typeof value.truncated === "boolean") &&
     hasBoundedValueAxisTicks(value) &&
     isString(value.xKey) &&
     Array.isArray(value.series) &&
@@ -551,8 +556,9 @@ export function clampDataWidgetRows(
     chartSeries && chartSeries.data.length > DATA_WIDGET_MAX_CHART_POINTS
       ? {
           ...chartSeries,
-          data: chartSeries.data.slice(0, DATA_WIDGET_MAX_CHART_POINTS),
+          data: chartRowsForRender(chartSeries.data),
           sampled: true,
+          truncated: true,
         }
       : chartSeries;
 
@@ -622,6 +628,7 @@ export const dataChartWidgetSchema = z
     series: z.array(dataChartSeriesDefinitionSchema).min(1),
     data: z.array(z.record(z.string(), z.unknown())),
     sampled: z.boolean().optional(),
+    truncated: z.boolean().optional(),
     actions: z.array(dataWidgetActionSchema).optional(),
   })
   .passthrough();

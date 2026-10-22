@@ -29,7 +29,8 @@ export function DataChartWidget({
   const contentHeight = chart.contentHeight;
   const contentPadding = chart.contentPadding ?? 0;
   const hasOmittedRows =
-    chart.sampled || chart.data.length > DATA_WIDGET_MAX_CHART_POINTS;
+    chart.truncated === true ||
+    chart.data.length > DATA_WIDGET_MAX_CHART_POINTS;
 
   useEffect(() => {
     setMounted(true);

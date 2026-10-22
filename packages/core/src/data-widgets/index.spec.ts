@@ -14,6 +14,7 @@ import {
   dataChartWidgetSchema,
   dataChartWidgetResultSchema,
   dataInsightsWidgetResultSchema,
+  dataWidgetResultSchema,
   normalizeDataWidgetResult,
 } from "./index.js";
 
@@ -113,6 +114,9 @@ describe("data widget helpers", () => {
     const extendedSchema = dataChartWidgetSchema.extend({
       xKey: z.string().min(3),
     });
+    const tickOverrideSchema = dataChartWidgetSchema.extend({
+      valueAxisTickInterval: z.literal(0.001),
+    });
 
     expect(dataChartWidgetSchema.partial().safeParse({}).success).toBe(true);
     expect(
@@ -131,6 +135,12 @@ describe("data widget helpers", () => {
     expect(extendedSchema.safeParse({ ...base, xKey: "x" }).success).toBe(
       false,
     );
+    expect(
+      tickOverrideSchema.safeParse({
+        ...base,
+        valueAxisTickInterval: 0.001,
+      }).success,
+    ).toBe(true);
   });
 
   it("validates chart padding and label typography", () => {
@@ -237,6 +247,12 @@ describe("data widget helpers", () => {
       }).success,
     ).toBe(false);
     expect(
+      dataChartWidgetSchema.safeParse({
+        ...base,
+        valueAxisTickInterval: 0.001,
+      }).success,
+    ).toBe(true);
+    expect(
       dataChartWidgetResultSchema.safeParse({
         widget: DATA_CHART_WIDGET,
         chartSeries: { ...base, valueAxisTickInterval: 0.001 },
@@ -250,7 +266,7 @@ describe("data widget helpers", () => {
     ).toBe(false);
   });
 
-  it("validates value-axis ticks against chart rows that remain after clamping", () => {
+  it("validates value-axis ticks against the rendered first 200 rows", () => {
     const data = Array.from(
       { length: DATA_WIDGET_MAX_CHART_POINTS },
       (_, index) => ({
@@ -259,18 +275,62 @@ describe("data widget helpers", () => {
       }),
     );
 
-    expect(
-      dataChartWidgetResultSchema.safeParse({
-        widget: DATA_CHART_WIDGET,
-        chartSeries: {
-          type: "line",
-          xKey: "day",
-          series: [{ key: "value", label: "Value" }],
-          data: [...data, { day: "Outlier", value: 10 }],
-          valueAxisTickInterval: 5,
-        },
-      }).success,
-    ).toBe(false);
+    const input = {
+      widget: DATA_CHART_WIDGET,
+      chartSeries: {
+        type: "line" as const,
+        xKey: "day",
+        series: [{ key: "value", label: "Value" }],
+        data: [...data, { day: "Outlier", value: 10 }],
+        valueAxisTickInterval: 5,
+      },
+    };
+
+    expect(dataChartWidgetResultSchema.safeParse(input).success).toBe(false);
+    expect(normalizeDataWidgetResult(input)).toBeNull();
+  });
+
+  it("clamps 201-row action input after validating the rendered range", () => {
+    const renderedRows = Array.from(
+      { length: DATA_WIDGET_MAX_CHART_POINTS },
+      (_, index) => ({ day: `Day ${index}`, value: index % 2 === 0 ? 1 : 2 }),
+    );
+    const input = {
+      widget: DATA_CHART_WIDGET,
+      chartSeries: {
+        type: "line" as const,
+        xKey: "day",
+        series: [{ key: "value", label: "Value" }],
+        data: [...renderedRows, { day: "Outlier", value: 1000 }],
+        valueAxisTickInterval: 0.5,
+      },
+    };
+
+    const normalized = normalizeDataWidgetResult(input);
+    const normalizedChart =
+      normalized?.widget === DATA_CHART_WIDGET
+        ? normalized.chartSeries
+        : undefined;
+    expect(normalizedChart?.data).toHaveLength(
+      DATA_WIDGET_MAX_CHART_POINTS + 1,
+    );
+    expect(dataChartWidgetResultSchema.safeParse(normalized).success).toBe(
+      true,
+    );
+
+    const actionResult = clampDataWidgetRows(
+      dataWidgetResultSchema.parse(input),
+    );
+    const actionChart =
+      actionResult.widget === DATA_CHART_WIDGET
+        ? actionResult.chartSeries
+        : undefined;
+    expect(actionChart?.data).toHaveLength(DATA_WIDGET_MAX_CHART_POINTS);
+    expect(actionChart).toMatchObject({ sampled: true, truncated: true });
+    expect(actionChart?.data.at(-1)).toEqual(renderedRows.at(-1));
+    expect(dataChartWidgetResultSchema.safeParse(actionResult).success).toBe(
+      true,
+    );
   });
 
   it("rejects over-bound value axes when creating chart results", () => {

@@ -23,7 +23,7 @@ const chart: DataChartWidgetData = {
 };
 
 describe("DataChartRenderer theme colors", () => {
-  it("renders only the points used by bounded chart validation", () => {
+  it("uses the validated row range when rendering a capped chart", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
         chart={{
@@ -40,6 +40,8 @@ describe("DataChartRenderer theme colors", () => {
     );
 
     expect(Array.from(markup.matchAll(/<rect /g))).toHaveLength(200);
+    expect(markup).toContain(">Day 199</text>");
+    expect(markup).not.toContain(">Day 200</text>");
   });
 
   it("resolves its series colors through app chart tokens with legacy fallbacks", () => {
@@ -408,7 +410,7 @@ describe("DataChartRenderer theme colors", () => {
     }
   });
 
-  it("formats very small custom intervals without collapsing labels to zero", () => {
+  it("formats the minimum supported interval without collapsing ticks", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
         chart={{
@@ -417,14 +419,23 @@ describe("DataChartRenderer theme colors", () => {
           series: [{ key: "value", label: "Value" }],
           data: [
             { day: "Monday", value: 0 },
-            { day: "Tuesday", value: 3e-10 },
+            { day: "Tuesday", value: 3e-12 },
           ],
-          valueAxisTickInterval: 1e-10,
+          valueAxisTickInterval: 1e-12,
         }}
       />,
     );
+    const tickLabels = Array.from(
+      markup.matchAll(/<text[^>]*text-anchor="end">([^<]+)<\/text>/g),
+      (match) => match[1],
+    );
 
-    expect(markup).toContain(">0.0000000001</text>");
+    expect(tickLabels).toEqual([
+      "0.000000000000",
+      "0.000000000001",
+      "0.000000000002",
+      "0.000000000003",
+    ]);
   });
 
   it("preserves precision for allowed intervals with fractional coefficients", () => {
@@ -442,9 +453,135 @@ describe("DataChartRenderer theme colors", () => {
         }}
       />,
     );
+    const tickLabels = Array.from(
+      markup.matchAll(/<text[^>]*text-anchor="end">([^<]+)<\/text>/g),
+      (match) => match[1],
+    );
 
-    expect(markup).toContain(">0.0000000000012</text>");
-    expect(markup).toContain(">0.0000000000024</text>");
+    expect(tickLabels).toEqual([
+      "0.0000000000000",
+      "0.0000000000012",
+      "0.0000000000024",
+      "0.0000000000036",
+    ]);
+  });
+
+  it("compacts wide vertical ticks while preserving a usable plot width", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Low", value: 0 },
+            { day: "High", value: 1e300 },
+          ],
+          valueAxisTickInterval: 1e299,
+        }}
+      />,
+    );
+    const tickLabels = Array.from(
+      markup.matchAll(
+        /<text x="([\d.]+)" y="([\d.]+)"[^>]*text-anchor="end">([^<]+)<\/text>/g,
+      ),
+      (match) => ({
+        x: Number(match[1]),
+        y: Number(match[2]),
+        label: match[3] ?? "",
+      }),
+    );
+    const plotBounds = markup.match(
+      /<line x1="([^"]+)" x2="([^"]+)" y1="[^"]+" y2="[^"]+"/,
+    );
+
+    expect(tickLabels).toHaveLength(11);
+    expect(tickLabels[1]?.label).toBe("1e+299");
+    expect(plotBounds).not.toBeNull();
+    expect(
+      Number(plotBounds?.[2]) - Number(plotBounds?.[1]),
+    ).toBeGreaterThanOrEqual(32);
+    for (const tick of tickLabels) {
+      const estimatedWidth = tick.label.length * 11 * 0.65;
+      expect(tick.x - estimatedWidth).toBeGreaterThanOrEqual(0);
+      expect(tick.x).toBeLessThanOrEqual(640);
+      expect(tick.y).toBeGreaterThanOrEqual(0);
+      expect(tick.y).toBeLessThanOrEqual(360);
+    }
+  });
+
+  it("thins dense value labels without dropping grid lines or crowding endpoints", () => {
+    const horizontalMarkup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First", value: 0 },
+            { day: "Last", value: 3 },
+          ],
+          valueAxisTickInterval: 0.04,
+        }}
+      />,
+    );
+    const horizontalLabels = Array.from(
+      horizontalMarkup.matchAll(
+        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+      ),
+      (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
+    );
+    const horizontalBoxes = horizontalLabels
+      .map(({ x, label }) => ({
+        left: x - (label.length * 11 * 0.65) / 2,
+        right: x + (label.length * 11 * 0.65) / 2,
+        label,
+      }))
+      .sort((first, second) => first.left - second.left);
+
+    expect(horizontalLabels.length).toBeLessThan(76);
+    expect(horizontalLabels.map(({ label }) => label)).toContain("0.00");
+    expect(horizontalLabels.map(({ label }) => label)).toContain("3.00");
+    expect(horizontalMarkup.match(/<line /g)).toHaveLength(77);
+    expect(
+      horizontalBoxes.every(
+        (box, index) =>
+          index === 0 || horizontalBoxes[index - 1]!.right + 8 <= box.left,
+      ),
+    ).toBe(true);
+
+    const verticalMarkup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First", value: 0 },
+            { day: "Last", value: 3 },
+          ],
+          valueAxisTickInterval: 0.04,
+        }}
+      />,
+    );
+    const verticalLabels = Array.from(
+      verticalMarkup.matchAll(
+        /<text x="[\d.]+" y="([\d.]+)"[^>]*text-anchor="end">([^<]+)<\/text>/g,
+      ),
+      (match) => ({ y: Number(match[1]), label: match[2] ?? "" }),
+    ).sort((first, second) => first.y - second.y);
+
+    expect(verticalLabels.length).toBeLessThan(76);
+    expect(verticalLabels.map(({ label }) => label)).toContain("0.00");
+    expect(verticalLabels.map(({ label }) => label)).toContain("3.00");
+    expect(verticalMarkup.match(/<line /g)).toHaveLength(77);
+    expect(
+      verticalLabels.every(
+        (label, index) =>
+          index === 0 || label.y - verticalLabels[index - 1]!.y >= 15,
+      ),
+    ).toBe(true);
   });
 
   it("reserves room for custom decimal value-axis labels", () => {
@@ -468,7 +605,7 @@ describe("DataChartRenderer theme colors", () => {
     expect(tickLabels.every(({ x }) => x >= 50)).toBe(true);
   });
 
-  it("keeps tightly packed horizontal bars within their category slots", () => {
+  it("keeps grouped horizontal bars within slots at the maximum category gap", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
         chart={{

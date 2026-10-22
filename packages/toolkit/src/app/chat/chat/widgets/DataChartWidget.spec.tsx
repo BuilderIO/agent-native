@@ -73,6 +73,7 @@ async function renderWidget(
   ],
   sampled = false,
   chartDataCount = 1,
+  truncated = false,
 ) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -96,6 +97,7 @@ async function renderWidget(
               count: index,
             })),
             sampled,
+            truncated,
             actions: chartActions,
           }}
           display={{
@@ -198,7 +200,26 @@ describe("DataChartWidget display contract", () => {
     );
 
     const sampledContainer = await renderWidget(undefined, undefined, true);
-    expect(sampledContainer.querySelector('[role="status"]')?.textContent).toBe(
+    expect(sampledContainer.querySelector('[role="status"]')).toBeNull();
+
+    const sampledAndCappedContainer = await renderWidget(
+      undefined,
+      undefined,
+      true,
+      201,
+    );
+    expect(
+      sampledAndCappedContainer.querySelector('[role="status"]')?.textContent,
+    ).toBe("This chart shows only some of the available rows.");
+
+    const clampedContainer = await renderWidget(
+      undefined,
+      undefined,
+      true,
+      200,
+      true,
+    );
+    expect(clampedContainer.querySelector('[role="status"]')?.textContent).toBe(
       "This chart shows only some of the available rows.",
     );
 

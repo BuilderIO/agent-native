@@ -14,7 +14,9 @@ const WIDTH = 640;
 const HEIGHT = 360;
 const MARGIN = { top: 14, right: 18, bottom: 34, left: 46 };
 const MAX_LABEL_LENGTH = 16;
-const MIN_HORIZONTAL_PLOT_WIDTH = 32;
+const MIN_PLOT_WIDTH = 32;
+const MAX_VERTICAL_VALUE_TICK_LABEL_WIDTH =
+  WIDTH - MARGIN.right - MIN_PLOT_WIDTH - 16;
 const LABEL_FONT_FAMILIES = {
   sans: "var(--font-sans, ui-sans-serif, system-ui, sans-serif)",
   serif: "ui-serif, Georgia, Cambria, serif",
@@ -99,7 +101,7 @@ function maximumHorizontalLabelWidth(
     const valueLabelInset = includeValueLabels ? candidate + 13 : 0;
     const leftMargin = Math.max(categoryMargin, axisInset) + valueLabelInset;
     const rightMargin = Math.max(MARGIN.right, axisInset, valueLabelInset);
-    if (WIDTH - leftMargin - rightMargin >= MIN_HORIZONTAL_PLOT_WIDTH) {
+    if (WIDTH - leftMargin - rightMargin >= MIN_PLOT_WIDTH) {
       lower = candidate;
     } else {
       upper = candidate - 1;
@@ -212,17 +214,18 @@ function ChartBody({
       tickInterval === undefined
         ? formatTick(value)
         : formatAxisTick(value, tickInterval);
-    return isHorizontalBar &&
-      estimateTextWidth(label, labelFontSize) > horizontalTextWidthLimit
-      ? formatCompactTick(value, labelFontSize, horizontalTextWidthLimit)
+    const maximumWidth = isHorizontalBar
+      ? horizontalTextWidthLimit
+      : MAX_VERTICAL_VALUE_TICK_LABEL_WIDTH;
+    return estimateTextWidth(label, labelFontSize) > maximumWidth
+      ? formatCompactTick(value, labelFontSize, maximumWidth)
       : label;
   });
   const valueTickLabelWidth = Math.max(
     0,
     ...valueTickLabels.map((label) => estimateTextWidth(label, labelFontSize)),
   );
-  const customValueTickLabelWidth =
-    tickInterval === undefined ? 0 : valueTickLabelWidth;
+  const customValueTickLabelWidth = isHorizontalBar ? 0 : valueTickLabelWidth;
   const horizontalValueTickLabelInset = isHorizontalBar
     ? Math.ceil(valueTickLabelWidth / 2) + 2
     : 0;
@@ -342,36 +345,39 @@ function ChartBody({
       axisLabelIndexes.add(finalAxisLabelIndex);
     }
   }
-  if (isHorizontalBar) {
-    while (true) {
-      const selectedAxisLabelIndexes = [...axisLabelIndexes].sort(
-        (first, second) => first - second,
-      );
-      const crowdedPair = selectedAxisLabelIndexes.findIndex(
-        (currentIndex, position) => {
-          if (position === 0) return false;
-          const precedingIndex = selectedAxisLabelIndexes[position - 1]!;
-          const centerSpacing =
-            xForValue(gridTickValues[currentIndex]!) -
-            xForValue(gridTickValues[precedingIndex]!);
-          const requiredSpacing =
-            (estimateTextWidth(valueTickLabels[currentIndex]!, labelFontSize) +
+  const axisLabelPosition = (index: number) =>
+    isHorizontalBar
+      ? xForValue(gridTickValues[index]!)
+      : yForValue(gridTickValues[index]!);
+  while (true) {
+    const selectedAxisLabelIndexes = [...axisLabelIndexes].sort(
+      (first, second) => first - second,
+    );
+    const crowdedPair = selectedAxisLabelIndexes.findIndex(
+      (currentIndex, position) => {
+        if (position === 0) return false;
+        const precedingIndex = selectedAxisLabelIndexes[position - 1]!;
+        const centerSpacing = Math.abs(
+          axisLabelPosition(currentIndex) - axisLabelPosition(precedingIndex),
+        );
+        const requiredSpacing = isHorizontalBar
+          ? (estimateTextWidth(valueTickLabels[currentIndex]!, labelFontSize) +
               estimateTextWidth(
                 valueTickLabels[precedingIndex]!,
                 labelFontSize,
               )) /
               2 +
-            8;
-          return centerSpacing < requiredSpacing;
-        },
-      );
-      if (crowdedPair < 0) break;
-      const precedingIndex = selectedAxisLabelIndexes[crowdedPair - 1]!;
-      const currentIndex = selectedAxisLabelIndexes[crowdedPair]!;
-      axisLabelIndexes.delete(
-        currentIndex === finalAxisLabelIndex ? precedingIndex : currentIndex,
-      );
-    }
+            8
+          : labelFontSize + 4;
+        return centerSpacing < requiredSpacing;
+      },
+    );
+    if (crowdedPair < 0) break;
+    const precedingIndex = selectedAxisLabelIndexes[crowdedPair - 1]!;
+    const currentIndex = selectedAxisLabelIndexes[crowdedPair]!;
+    axisLabelIndexes.delete(
+      currentIndex === finalAxisLabelIndex ? precedingIndex : currentIndex,
+    );
   }
   const gridTicks = gridTickValues.map((value, index) => ({
     value,
@@ -431,9 +437,7 @@ function ChartBody({
                 fontSize={labelFontSize}
                 textAnchor="end"
               >
-                {tickInterval === undefined
-                  ? formatTick(tick.value)
-                  : formatAxisTick(tick.value, tickInterval)}
+                {valueTickLabels[tick.index]}
               </text>
             ) : null}
           </g>
