@@ -144,10 +144,10 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 | `get-motion-timeline`    | 读取一个元素的动效时间轴           |
 | `apply-motion-edit`      | 在动效时间轴上添加或编辑一个关键帧 |
 | `remove-motion-timeline` | 移除一个动效时间轴                 |
-| `apply-shader`           | 应用一个着色器效果                 |
-| `apply-shader-fill`      | 应用一个着色器作为填充             |
-| `preview-shader-fill`    | 在应用之前预览一个着色器填充       |
-| `get-shader`             | 读取一个着色器的当前参数           |
+| `get-shader`             | 查看原生定义和已保存的效果清单     |
+| `edit-native-shader`     | 应用、编辑、批准或移除原生效果     |
+
+原生 WebGPU 效果使用 WGSL。自定义创作通过 `edit-native-shader` 的 `define-definition` 保存定义，用 `get-shader` 读取已保存的 `executionHash`，用该 `expectedExecutionHash` 执行 `approve-definition`，再以确切的定义 ID 和版本执行 `apply`。每次编辑都需要 `designId`、`fileId` 和当前的 `expectedVersionHash`。每次写入后重新读取文件哈希。CPU 架构验证不会编译 GPU 代码，因此需检查 Design 预览。以前保存的 GLSL 效果仍可渲染和移除。
 
 ### 质量 {#quality}
 

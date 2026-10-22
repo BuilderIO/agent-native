@@ -15,9 +15,11 @@ import {
   callAction,
   callAgent,
   clearA2ACardCache,
+  signA2AOrgMemberDelegationToken,
   signA2AOrganizationToken,
   signA2AToken,
 } from "./client.js";
+import { A2A_ORG_MEMBER_DELEGATION_TYPE } from "./organization-identity.js";
 
 vi.mock("../extensions/url-safety.js", async (importOriginal) => {
   const original =
@@ -1668,6 +1670,34 @@ describe("A2AClient", () => {
     expect(payload).not.toHaveProperty("userEmail");
   });
 
+  it("signs short-lived org-member delegations with a normalized identity", async () => {
+    const token = await signA2AOrgMemberDelegationToken(
+      " Alice+QA@Example.Test ",
+      " Builder.IO ",
+      "org-a2a-secret",
+      "https://peer.example.test",
+    );
+    const { payload, protectedHeader } = await jose.jwtVerify(
+      token,
+      new TextEncoder().encode("org-a2a-secret"),
+    );
+
+    expect(protectedHeader.alg).toBe("HS256");
+    expect(payload).toMatchObject({
+      typ: A2A_ORG_MEMBER_DELEGATION_TYPE,
+      sub: "alice+qa@example.test",
+      org_domain: "builder.io",
+      aud: "https://peer.example.test",
+    });
+    expect(payload.iat).toEqual(expect.any(Number));
+    expect(payload.exp).toEqual(expect.any(Number));
+    expect(payload.jti).toEqual(expect.any(String));
+    expect(payload.exp! - payload.iat!).toBeGreaterThan(0);
+    expect(payload.exp! - payload.iat!).toBeLessThanOrEqual(5 * 60);
+    expect(payload).not.toHaveProperty("email");
+    expect(payload).not.toHaveProperty("org_id");
+  });
+
   it("signs an organization-id-only token with the shared A2A secret", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
 
@@ -1742,6 +1772,58 @@ describe("A2AClient", () => {
     ).rejects.toThrow();
   });
 
+  it("does not upgrade an inbound org-member delegation on outbound A2A calls", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    let bearerToken = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
+        bearerToken = String(
+          new Headers(init.headers).get("authorization") ?? "",
+        ).replace(/^Bearer\s+/i, "");
+        const body = JSON.parse(String(init.body));
+        return completedResponse(body, "signed with org-member delegation");
+      }),
+    );
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-1",
+        a2aIdentityAssurance: "org-member",
+      },
+      async () => {
+        await expect(
+          callAgent("https://agent.test", "hello", {
+            async: false,
+            userEmail: "alice+qa@agent-native.test",
+            orgId: "org-1",
+            orgDomain: "builder.io",
+            orgSecret: "org-a2a-secret",
+          }),
+        ).resolves.toBe("signed with org-member delegation");
+      },
+    );
+
+    await expect(
+      jose.jwtVerify(bearerToken, new TextEncoder().encode("org-a2a-secret")),
+    ).resolves.toMatchObject({
+      payload: {
+        typ: A2A_ORG_MEMBER_DELEGATION_TYPE,
+        sub: "alice+qa@agent-native.test",
+        org_domain: "builder.io",
+      },
+    });
+    await expect(
+      jose.jwtVerify(
+        bearerToken,
+        new TextEncoder().encode("global-a2a-secret"),
+      ),
+    ).rejects.toThrow();
+  });
+
   it("retries delegated calls with the org secret if the shared token is rejected", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
     const bearerTokens: string[] = [];
@@ -1757,7 +1839,7 @@ describe("A2AClient", () => {
           ),
         );
         const body = JSON.parse(String(init.body));
-        if (bearerTokens.length === 1) {
+        if (bearerTokens.length < 3) {
           return new Response(
             JSON.stringify({
               jsonrpc: "2.0",
@@ -1780,7 +1862,7 @@ describe("A2AClient", () => {
       }),
     ).resolves.toBe("signed with fallback org secret");
 
-    expect(bearerTokens).toHaveLength(2);
+    expect(bearerTokens).toHaveLength(3);
     await expect(
       jose.jwtVerify(
         bearerTokens[0],
@@ -1794,14 +1876,25 @@ describe("A2AClient", () => {
         bearerTokens[1],
         new TextEncoder().encode("org-a2a-secret"),
       ),
-    ).resolves.toMatchObject({ payload: { org_domain: "builder.io" } });
+    ).resolves.toMatchObject({
+      payload: {
+        typ: A2A_ORG_MEMBER_DELEGATION_TYPE,
+        sub: "alice+qa@agent-native.test",
+        org_domain: "builder.io",
+      },
+    });
     await expect(
       jose.jwtVerify(
         bearerTokens[1],
         new TextEncoder().encode("global-a2a-secret"),
       ),
     ).rejects.toThrow();
-    expect(jose.decodeJwt(bearerTokens[1])).not.toHaveProperty("sub");
+    expect(jose.decodeJwt(bearerTokens[2])).toMatchObject({
+      org_domain: "builder.io",
+      aud: "https://agent.test",
+    });
+    expect(jose.decodeJwt(bearerTokens[2])).not.toHaveProperty("sub");
+    expect(jose.decodeJwt(bearerTokens[2])).not.toHaveProperty("typ");
   });
 
   it("tries explicit bearer token fallbacks in order", async () => {
@@ -1893,6 +1986,7 @@ describe("A2AClient", () => {
       "message/send",
       "tasks/get",
       "tasks/get",
+      "tasks/get",
     ]);
     await expect(
       jose.jwtVerify(
@@ -1915,15 +2009,27 @@ describe("A2AClient", () => {
         calls[2]!.token,
         new TextEncoder().encode("org-a2a-secret"),
       ),
-    ).resolves.toMatchObject({ payload: { org_domain: "builder.io" } });
+    ).resolves.toMatchObject({
+      payload: {
+        typ: A2A_ORG_MEMBER_DELEGATION_TYPE,
+        sub: "alice+qa@agent-native.test",
+        org_domain: "builder.io",
+      },
+    });
     await expect(
       jose.jwtVerify(
         calls[2]!.token,
         new TextEncoder().encode("global-a2a-secret"),
       ),
     ).rejects.toThrow();
-    expect(jose.decodeJwt(calls[2]!.token)).not.toHaveProperty("sub");
-    expect(jose.decodeJwt(calls[2]!.token)).not.toHaveProperty("org_id");
+    await expect(
+      jose.jwtVerify(
+        calls[3]!.token,
+        new TextEncoder().encode("org-a2a-secret"),
+      ),
+    ).resolves.toMatchObject({ payload: { org_domain: "builder.io" } });
+    expect(jose.decodeJwt(calls[3]!.token)).not.toHaveProperty("sub");
+    expect(jose.decodeJwt(calls[3]!.token)).not.toHaveProperty("org_id");
   });
 
   it("does not sign an unscoped peer token when an org ID has no domain", async () => {

@@ -7,6 +7,7 @@ export interface VerifiedA2AClaims {
   orgId: string;
   orgDomain: string;
   jti: string;
+  identityAssurance?: "user" | "org-member";
   issuer?: string;
   scope: string[];
 }
@@ -54,6 +55,8 @@ export async function verifyA2ATokenWithClaims(
           orgId,
           orgDomain,
           jti,
+          identityAssurance:
+            identity.identityAssurance === "org-member" ? "org-member" : "user",
           ...(issuer ? { issuer } : {}),
           scope: scopes,
         }
