@@ -2750,15 +2750,10 @@ async function reconcileTerminalRunInRecoveryTransaction(
   };
 }
 
-/**
- * `endedRuns` collects what the reap ended instead of reporting it, so a sweep
- * can report all of its runs in one send.
- */
 async function reapSingleStaleRun(
   runId: string,
   source: string,
   maxStaleMs?: number,
-  endedRuns?: SqlEndedRun[],
 ): Promise<{ reaped: boolean; projectionFailed: boolean }> {
   const completedAt = Date.now();
   const staleClause =
@@ -2912,10 +2907,9 @@ async function reapSingleStaleRun(
             row: "reapedRow" in reapResult ? reapResult.reapedRow : undefined,
           }
         : null;
-  if (ended) {
-    if (endedRuns) endedRuns.push(ended);
-    else trackRunsEndedInSql([ended]);
-  }
+  // Handed off as soon as it commits: a sweep cut short must not lose the
+  // runs it already ended, which no later sweep can see.
+  if (ended) trackRunsEndedInSql([ended]);
 
   let forensics = "";
   let priorStageInfo = "";
@@ -5091,17 +5085,11 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
     }
   }
   let reapedCount = 0;
-  const endedRuns: SqlEndedRun[] = [];
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string") continue;
     try {
-      const result = await reapSingleStaleRun(
-        id,
-        "reap-all-stale",
-        undefined,
-        endedRuns,
-      );
+      const result = await reapSingleStaleRun(id, "reap-all-stale");
       if (result.reaped) reapedCount += 1;
       if (result.projectionFailed) failedCount += 1;
     } catch (error) {
@@ -5109,7 +5097,6 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
       console.error(`[run-store] stale reap failed for run ${id}:`, error);
     }
   }
-  trackRunsEndedInSql(endedRuns);
   return { reaped: reapedCount, failed: failedCount, truncated };
 }
 
@@ -5516,7 +5503,7 @@ function trackRunEndedInSql(
   trackRunsEndedInSql([{ runId, ending, row: returnedRow }]);
 }
 
-/** One background send for a whole sweep: one flush. */
+/** One background send for the runs one write ended. */
 function trackRunsEndedInSql(endedRuns: SqlEndedRun[]): void {
   const runs = endedRuns.filter(
     (run) =>

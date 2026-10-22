@@ -14918,6 +14918,9 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "Cache-Control", "no-cache");
         setResponseHeader(event, "Connection", "keep-alive");
         setResponseHeader(event, "X-Run-Id", slot.completedRunId);
+        // The client leaves a replay's turn out unless named here, and this
+        // replay was found by its turn, so the stored turn is known.
+        setRunTurnIdHeader(event, effectiveTurnId);
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }

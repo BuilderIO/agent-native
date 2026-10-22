@@ -214,6 +214,9 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
+const completedTurnReplay = vi.hoisted(() => ({
+  stream: null as ReadableStream<Uint8Array> | null,
+}));
 const startRunOptionsSeen = vi.hoisted(
   () => [] as Array<{ userId?: string } | undefined>,
 );
@@ -293,6 +296,12 @@ vi.mock("./run-manager.js", async () => {
     },
     tryClaimRunSlot: mockTryClaimRunSlot,
     getSlotHoldingRunId: mockGetSlotHoldingRunId,
+    replayCompletedTurn: (
+      ...args: Parameters<typeof actual.replayCompletedTurn>
+    ) =>
+      completedTurnReplay.stream
+        ? Promise.resolve(completedTurnReplay.stream)
+        : actual.replayCompletedTurn(...args),
   };
 });
 
@@ -7273,6 +7282,47 @@ describe("createProductionAgentHandler", () => {
       await resume({ agentNativeResumeAfterSetup: undefined });
       expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
     });
+  });
+
+  it("names the replayed turn on a completed-turn replay", async () => {
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Again",
+          threadId: "thread-replay",
+          turnId: "turn-finished",
+        }),
+      }),
+    );
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: null,
+      completedRunId: "run-finished",
+    } as never);
+    completedTurnReplay.stream = new ReadableStream({
+      start: (controller) => controller.close(),
+    });
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+
+      expect(response).toBe(completedTurnReplay.stream);
+      expect(event.res.headers.get("X-Dispatch-Mode")).toBe("replay");
+      expect(event.res.headers.get("X-Run-Id")).toBe("run-finished");
+      expect(event.res.headers.get("X-Turn-Id")).toBe("turn-finished");
+    } finally {
+      completedTurnReplay.stream = null;
+    }
   });
 
   it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {

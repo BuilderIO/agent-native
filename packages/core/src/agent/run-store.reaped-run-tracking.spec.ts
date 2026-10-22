@@ -262,8 +262,8 @@ describe("reaped runs emit agent_run_terminal", () => {
     }
     await settledEvents();
 
-    // One send for the whole sweep, not one per reaped run.
-    expect(handedWork).toHaveLength(1);
+    // One hand-off per reaped run, not one after the sweep.
+    expect(handedWork).toHaveLength(2);
 
     const remaining = await pglite.query(
       `SELECT id FROM agent_runs WHERE id IN (?, ?)`,
