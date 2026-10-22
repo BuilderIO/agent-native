@@ -8501,6 +8501,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const scope = parseScopeFromQuery(query);
             const unscopedOnly = String(query.unscoped ?? "") === "1";
             const includeExternal = String(query.includeExternal ?? "") === "1";
+            const includeArchived = String(query.includeArchived ?? "") === "1";
             const ownership =
               query.ownership === undefined ? "all" : query.ownership;
             if (!isChatThreadOwnership(ownership)) {
@@ -8515,6 +8516,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   scope: scope ?? undefined,
                   orgId,
                   includeExternal,
+                  includeArchived,
                   sourceAppId: options?.appId ?? null,
                   ownership,
                   offset,
@@ -8526,6 +8528,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   unscopedOnly,
                   orgId,
                   includeExternal,
+                  includeArchived,
                   sourceAppId: options?.appId ?? null,
                   ownership,
                 });
