@@ -677,29 +677,33 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   };
 });
 
-vi.mock("./chat/run-recovery.js", async (importOriginal) => ({
-  isMissingLlmProviderRunError: (
-    await importOriginal<typeof import("./chat/run-recovery.js")>()
-  ).isMissingLlmProviderRunError,
-  RunErrorRecoveryCard: (props: unknown) => {
-    chatMocks.failureProps = props;
-    chatMocks.failurePropsHistory.push(props);
-    return React.createElement("div", {
-      "data-testid": "run-error-recovery-card",
-    });
-  },
-  BuilderSetupCard: (props: unknown) => {
-    chatMocks.setupCardProps = props;
-    chatMocks.setupCardPropsHistory.push(props);
-    return React.createElement("div", { "data-testid": "builder-setup-card" });
-  },
-  LoopLimitContinueCard: (props: unknown) => {
-    chatMocks.loopLimitProps = props;
-    return null;
-  },
-  PlanModeCallout: () => null,
-  getRequestModeMetadata: () => undefined,
-}));
+vi.mock("./chat/run-recovery.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./chat/run-recovery.js")>();
+  return {
+    ...actual,
+    RunErrorRecoveryCard: (props: unknown) => {
+      chatMocks.failureProps = props;
+      chatMocks.failurePropsHistory.push(props);
+      return React.createElement("div", {
+        "data-testid": "run-error-recovery-card",
+      });
+    },
+    BuilderSetupCard: (props: unknown) => {
+      chatMocks.setupCardProps = props;
+      chatMocks.setupCardPropsHistory.push(props);
+      return React.createElement("div", {
+        "data-testid": "builder-setup-card",
+      });
+    },
+    LoopLimitContinueCard: (props: unknown) => {
+      chatMocks.loopLimitProps = props;
+      return null;
+    },
+    PlanModeCallout: () => null,
+    getRequestModeMetadata: () => undefined,
+  };
+});
 
 vi.mock("./FileStorageSetupPopover.js", async () => {
   const React = await import("react");
@@ -773,18 +777,16 @@ vi.mock("@agent-native/core/client/use-session", () => ({
   useSession: () => ({ session: chatMocks.session, status: "authenticated" }),
 }));
 
-vi.mock("./chat/tool-call-display.js", async () => {
+vi.mock("./chat/tool-call-display.js", async (importOriginal) => {
   const React = await import("react");
+  const actual =
+    await importOriginal<typeof import("./chat/tool-call-display.js")>();
   return {
-    ChatRunningContext: React.createContext(false),
-    SuppressInlineOpenAppContext: React.createContext(false),
+    ChatRunningContext: actual.ChatRunningContext,
+    SuppressInlineOpenAppContext: actual.SuppressInlineOpenAppContext,
     ToolCallDisplay: (props: any) =>
       chatMocks.renderToolCallErrors && props.isError
-        ? React.createElement(
-            "div",
-            { role: "alert", "data-shared-tool-error": "true" },
-            props.result,
-          )
+        ? React.createElement(actual.ToolCallDisplay, props)
         : null,
     AgentApprovalCard: (props: any) => {
       chatMocks.approvalCardProps = props;
@@ -1341,12 +1343,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.rootProps.slots.widget).toBe(AgentKitActionWidget);
   });
 
-  it("keeps failed tools visible through the shared error display without an app renderer", async () => {
+  it("shows failed tools through the shared fallback without an app renderer", async () => {
     const at = "2026-09-28T00:00:00.000Z";
     const failedTool: AgentToolCall = {
       id: "query-1",
       name: "query-analytics",
-      input: { query: "sample query" },
+      input: {},
       output: "Query execution failed.",
       error: { code: "query_failed", message: "Query execution failed." },
       status: "failed",
@@ -1402,12 +1404,19 @@ describe("AgentKitAssistantChat host behavior", () => {
     await useRealComposer();
     await mount(baseProps({ isNewThread: false }));
 
-    expect(
-      container.querySelector('[data-shared-tool-error="true"]')?.textContent,
-    ).toContain("Query execution failed.");
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      "Query execution failed.",
+    const toolRow = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
     );
+    expect(toolRow?.textContent).toContain("query analytics");
+    expect(toolRow?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Query execution failed.");
+
+    await act(async () => {
+      toolRow?.click();
+    });
+
+    expect(toolRow?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Query execution failed.");
   });
 
   it("checks readiness on the configured chat API server", async () => {
