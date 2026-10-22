@@ -698,6 +698,14 @@ const messages = {
     errorOutOfOrder: "Línea {{line}}: esta hora es anterior a la anterior.",
     errorPastEnd: "Línea {{line}}: esta hora es posterior al final del vídeo.",
   },
+  transcriptHistory: {
+    title: "Transcripciones anteriores",
+    automatic: "Automática",
+    restore: "Restaurar",
+    restored: "Transcripción restaurada",
+    restoreFailed: "No se pudo restaurar la transcripción",
+    undo: "Deshacer",
+  },
   thumbnailPicker: {
     failedCapture: "No se pudo capturar el fotograma",
     failedGif: "No se pudo generar GIF; pruebe con un rango más corto",
@@ -1410,6 +1418,15 @@ const messages = {
     playClip: "Reproducir clip",
     unsupportedFormat:
       "Este navegador no puede reproducir este video. Prueba a abrir el enlace en Chrome, Edge o Firefox.",
+    youtubeLoading: "Cargando el reproductor de YouTube",
+    youtubeUnavailable: "Este vídeo de YouTube es privado o se ha eliminado.",
+    youtubeEmbedBlocked:
+      "El propietario de este vídeo no permite reproducirlo fuera de YouTube.",
+    youtubeInvalid: "Este enlace de YouTube no lleva a un vídeo reproducible.",
+    youtubePlaybackFailed: "YouTube no ha podido reproducir este vídeo aquí.",
+    youtubeApiUnavailable:
+      "El reproductor de YouTube no se ha cargado. Revisa tu conexión o tu bloqueador de contenido y vuelve a cargar la página.",
+    watchOnYouTube: "Ver en YouTube",
   },
   searchBar: {
     placeholder: "Buscar grabaciones…",
@@ -1846,7 +1863,7 @@ const messages = {
     unmuteMicrophone: "Activar micrófono",
     uploadVideo: "Upload video",
     takeScreenshot: "Hacer captura de pantalla",
-    importLoom: "Import Loom",
+    importLoom: "Importar vídeo",
     importing: "Importing...",
     import: "Import",
     recordNew: "Nueva grabación",
@@ -1987,6 +2004,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}}",
     couldNotStartRecording: "Could not start recording",
+    intakeStorageUnavailable:
+      "El propietario debe conectar un almacenamiento de vídeo antes de que puedas grabar desde este enlace. Pídele que lo conecte y vuelve a intentarlo.",
+    streamingStorageUnavailable:
+      "El almacenamiento actual no admite las cargas reanudables de Clips. Configura un proveedor compatible o pide al propietario o administrador del espacio de trabajo que lo haga. Luego, inicia una grabación nueva.",
     couldNotStartRecorder: "Could not start recorder",
     openSettings: "Open settings",
     openedRecorderInNewTab: "Opened recorder in a new tab",
@@ -1997,6 +2018,8 @@ const messages = {
       "Se necesita almacenamiento para completar la importación de Loom",
     loomImported: "Loom imported",
     couldNotImportLoom: "No se pudo importar ese Loom.",
+    youtubeImported: "Vídeo de YouTube añadido",
+    couldNotImportVideo: "No se pudo importar ese vídeo.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Enlace copiado",
@@ -2016,6 +2039,8 @@ const messages = {
     sessionExpired: "Session expired",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording.",
+    accountMismatch:
+      "La cuenta con la que iniciaste sesión cambió después de comenzar a preparar la grabación. Vuelve a la cuenta original e inténtalo de nuevo.",
     logIn: "Log in",
     betterInDesktop: "Better in the desktop app",
     desktopAppDescription:
@@ -2029,8 +2054,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab",
     retryUpload: "Reintentar subida",
     tryAgain: "Intentar de nuevo",
-    storageConnectedReopeningRecorder:
-      "Almacenamiento conectado. Volviendo a abrir la grabadora...",
+    storageConnectedRecorderReady:
+      "Almacenamiento conectado. Inicia una nueva grabación cuando quieras.",
     connectStorageToFinish:
       "En la siguiente pantalla, usa el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o configura almacenamiento compatible con S3. Clips terminará de guardarlo.",
     connectStorageToRetryLoom:
@@ -2099,12 +2124,12 @@ const messages = {
       "Esta grabación aún se está procesando, así que Clips conservó tu copia aquí. Espera o súbela de nuevo.",
   },
   importRoute: {
-    pageTitle: "Importar Loom — Clips",
-    title: "Importar Loom",
+    pageTitle: "Importar vídeo — Clips",
+    title: "Importar vídeo",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importar",
     helperText:
-      "Funciona muy bien con Loom. También puedes pegar un enlace a cualquier otra grabación de pantalla o archivo de vídeo.",
+      "Funciona muy bien con Loom y YouTube. También puedes pegar un enlace a cualquier otra grabación de pantalla o archivo de vídeo.",
     stageFetching: "Trayendo tu vídeo…",
     stageUploading: "Subiendo el material original…",
     stageTranscript:

@@ -157,6 +157,12 @@ export function createFetchToolEntry(
 ): Record<string, ActionEntry> {
   return {
     "web-request": {
+      // Non-GET requests and saveToFile write, and MCP cannot tell calls apart.
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      },
       tool: {
         description: `Make an outbound HTTP request to a URL you already know: APIs, webhooks, or web pages. If web-search is available, use it to discover URLs, find current information, or locate documentation first. In constrained callers without web-search, use a URL from context instead of guessing; do not use this to build Google or other search-engine queries. HTML/XHTML responses up to 20 MB are extracted before maxChars limits the response body; optional metadata and links can add characters. Raw and other inline responses remain capped at 1 MB. saveToFile can stage responses up to 20 MB. For HTML, it saves extracted Markdown or text unless responseMode is raw; with search, it returns bounded matches instead of a preview. Sends realistic Chrome-on-macOS headers by default; explicit headers override them. Supports \${keys.NAME} placeholders in url, headers, and body, resolved server-side so raw secrets never enter context. Never use this for internal /_agent-native/ endpoints or localhost action URLs; call registered actions directly.`,
         parameters: {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const canQueueAutomationRunNowMock = vi.hoisted(() => vi.fn());
+const resolveAutomationAccessMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const startAutomationRunMock = vi.hoisted(() => vi.fn());
 const listUnclaimedAutomationRunsMock = vi.hoisted(() => vi.fn());
@@ -8,6 +9,10 @@ const fireInternalDispatchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../automations/service.js", () => ({
   canQueueAutomationRunNow: canQueueAutomationRunNowMock,
+}));
+
+vi.mock("../automations/access.js", () => ({
+  resolveAutomationAccess: resolveAutomationAccessMock,
 }));
 
 vi.mock("../resources/store.js", async (importOriginal) => ({
@@ -60,6 +65,59 @@ beforeEach(() => {
 });
 
 describe("queueAutomationRunNow", () => {
+  it("resolves a stable resource id and binds the run to its creator", async () => {
+    const resource = {
+      ...resourceAt("jobs/report.md"),
+      content:
+        '---\nschedule: ""\nenabled: true\ntriggerType: manual\ncreatedBy: creator@example.com\norgId: "org-1"\nrunAs: creator\n---\nRun the report.\n',
+    };
+    resolveAutomationAccessMock.mockResolvedValue({
+      resource,
+      name: "report",
+      owningOrganizationId: "org-1",
+    });
+
+    await queueAutomationRunNow({
+      userEmail: "collaborator@example.com",
+      orgId: "org-1",
+      appId: "factory",
+      resourceId: "resource-1",
+    });
+
+    expect(resolveAutomationAccessMock).toHaveBeenCalledWith(
+      { userEmail: "collaborator@example.com" },
+      "resource-1",
+    );
+    expect(canQueueAutomationRunNowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userEmail: "collaborator@example.com" }),
+      resource,
+      "organization",
+    );
+    expect(startAutomationRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "__organization__:org-1",
+        automation: "report",
+        path: "jobs/report.md",
+        scope: "organization",
+        orgId: "org-1",
+        appId: "factory",
+        notificationEmail: "collaborator@example.com",
+      }),
+    );
+  });
+
+  it("does not disclose a missing stable resource id", async () => {
+    resolveAutomationAccessMock.mockResolvedValue(null);
+
+    await expect(
+      queueAutomationRunNow({
+        userEmail: "collaborator@example.com",
+        resourceId: "missing-resource",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(startAutomationRunMock).not.toHaveBeenCalled();
+  });
+
   it("keeps a personal job's manual history personal with an active organization", async () => {
     resourceGetByPathMock.mockResolvedValue({
       ...resourceAt("jobs/digest.md"),

@@ -1261,6 +1261,21 @@ describe("workspace deploy", () => {
   it("collects Vercel static assets, functions, and routing config for a workspace", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
+    const starterPackagePath = path.join(
+      tmpDir,
+      "apps",
+      "starter",
+      "package.json",
+    );
+    const starterPackage = JSON.parse(
+      fs.readFileSync(starterPackagePath, "utf-8"),
+    );
+    starterPackage.description = "  A focused starter app  ";
+    starterPackage["agent-native"] = {
+      whenToUse: ["  Draft a starter brief  "],
+      aliases: ["  Starter  ", "starter", "Brief Writer"],
+    };
+    fs.writeFileSync(starterPackagePath, JSON.stringify(starterPackage));
 
     await runWorkspaceDeploy({
       workspaceRoot: tmpDir,
@@ -1364,6 +1379,15 @@ describe("workspace deploy", () => {
       "dispatch",
       "starter",
     ]);
+    expect(
+      manifest.apps.find((app: { id: string }) => app.id === "starter"),
+    ).toMatchObject({
+      description: "A focused starter app",
+      "agent-native": {
+        whenToUse: ["Draft a starter brief"],
+        aliases: ["Starter", "Brief Writer"],
+      },
+    });
 
     const starterModule = await import(
       `${pathToFileURL(path.join(starterFunc, "index.mjs")).href}?t=${Date.now()}-vercel-starter`
@@ -1387,24 +1411,53 @@ describe("workspace deploy", () => {
     );
     expect(config.version).toBe(3);
     expect(config.routes).toContainEqual({ handle: "filesystem" });
-    expect(config.routes).toContainEqual({
-      src: "/dispatch/assets/app-aB12_cdE\\.js",
-      headers: {
-        "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+    const immutableAssetRoutes = config.routes.filter(
+      (route: { headers?: Record<string, string> }) =>
+        route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
+    );
+    expect(immutableAssetRoutes).toEqual([
+      {
+        src: "^(?:/dispatch/assets/app-aB12_cdE\\.js|/dispatch/assets/chunks/chunk-12345678\\.js)$",
+        headers: {
+          "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        },
+        continue: true,
       },
-      continue: true,
-    });
-    expect(config.routes).toContainEqual({
-      src: "/starter/assets/app-aB12_cdE\\.js",
-      headers: {
-        "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+      {
+        src: "^(?:/starter/assets/app-aB12_cdE\\.js|/starter/assets/chunks/chunk-12345678\\.js)$",
+        headers: {
+          "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        },
+        continue: true,
       },
-      continue: true,
-    });
+    ]);
+    expect(immutableAssetRoutes).toHaveLength(2);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/dispatch/assets/chunks/chunk-12345678.js"),
+      ),
+    ).toEqual([true, false]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/starter/assets/app-aB12_cdE.js"),
+      ),
+    ).toEqual([false, true]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/dispatch/assets/app.js"),
+      ),
+    ).toEqual([false, false]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test(
+          "/dispatch/assets/nested/missing-aB12_cdE.js",
+        ),
+      ),
+    ).toEqual([false, false]);
     expect(config.routes).not.toContainEqual(
       expect.objectContaining({ src: "/dispatch/assets/app\\.js" }),
     );
@@ -1475,6 +1528,60 @@ describe("workspace deploy", () => {
       src: "/starter/(.*)",
       dest: "/starter-server",
     });
+  });
+
+  it("drops malformed package profile fields without aborting deploy", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+    const starterPackagePath = path.join(
+      tmpDir,
+      "apps",
+      "starter",
+      "package.json",
+    );
+    const starterPackage = JSON.parse(
+      fs.readFileSync(starterPackagePath, "utf-8"),
+    );
+    starterPackage.description = "A valid description";
+    starterPackage["agent-native"] = {
+      whenToUse: ["x".repeat(141)],
+      aliases: ["Starter"],
+    };
+    fs.writeFileSync(starterPackagePath, JSON.stringify(starterPackage));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).resolves.toBeUndefined();
+
+    const manifest = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          tmpDir,
+          ".vercel",
+          "output",
+          "functions",
+          "dispatch-server.func",
+          ".agent-native",
+          "workspace-apps.json",
+        ),
+        "utf-8",
+      ),
+    );
+    expect(
+      manifest.apps.find((app: { id: string }) => app.id === "starter"),
+    ).toMatchObject({
+      description: "A valid description",
+      "agent-native": { aliases: ["Starter"] },
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "[workspace] Ignoring invalid agent profile metadata in starter: whenToUse",
+    );
+    warn.mockRestore();
   });
 
   it("keeps Vite assets when the app id is assets", async () => {
@@ -2618,6 +2725,11 @@ function writeVercelAppBuildOutput(
   fs.writeFileSync(path.join(staticDir, "assets", "app.js"), "export {};");
   fs.writeFileSync(
     path.join(staticDir, "assets", "app-aB12_cdE.js"),
+    "export {};",
+  );
+  fs.mkdirSync(path.join(staticDir, "assets", "chunks"), { recursive: true });
+  fs.writeFileSync(
+    path.join(staticDir, "assets", "chunks", "chunk-12345678.js"),
     "export {};",
   );
   fs.writeFileSync(path.join(staticDir, "favicon.ico"), "");

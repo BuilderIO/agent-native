@@ -138,6 +138,29 @@ describe("scoping", () => {
       expect(ctx.orgIdTables.has("plain_table")).toBe(false);
     });
 
+    it.each([
+      ["agent_runs", "id", "dispatch_payload"],
+      ["agent_run_events", "run_id", "event_data"],
+    ])(
+      "creates an empty scope for ownerless %s",
+      async (table, id, payload) => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("AGENT_USER_EMAIL", "alice+qa@test.com");
+        const { buildScopingPostgres } = await import("./scoping.js");
+        const mockClient = {
+          unsafe: vi.fn().mockResolvedValue([
+            { table_name: table, column_name: id },
+            { table_name: table, column_name: payload },
+          ]),
+        };
+
+        const ctx = await buildScopingPostgres(mockClient);
+        const view = ctx.setup.find((sql) => sql.includes(`"${table}"`));
+        expect(view).toContain(`FROM public."${table}"`);
+        expect(view).toContain("WHERE 1 = 0");
+      },
+    );
+
     it("scopes resources by the nonstandard owner column", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "reader+qa@test.com");

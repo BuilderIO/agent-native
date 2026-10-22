@@ -398,7 +398,6 @@ test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
   expect(sourceAfterRedo?.stroke).toMatch(/218\s+218\s+218|218,\s*218,\s*218/i);
 });
 
-// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
   app,
   page,
@@ -511,7 +510,6 @@ test("vector stroke gradient is visible, persisted, undoable, and reloadable", a
   });
 });
 
-// oracle: none — only the paint type controls changed (Gradient button, Type select); no Figma behavior is claimed.
 test("vector fill gradient renders in the inspector, source, SVG and PNG exports", async ({
   app,
   page,
@@ -792,7 +790,6 @@ test("vector fill gradient renders in the inspector, source, SVG and PNG exports
   });
 });
 
-// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("converting a vector fill gradient to solid clears source metadata and round-trips through undo", async ({
   app,
   page,

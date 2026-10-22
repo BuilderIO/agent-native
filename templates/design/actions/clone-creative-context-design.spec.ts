@@ -159,6 +159,11 @@ describe("clone-creative-context-design", () => {
     expect(result).toMatchObject({
       reusedWithoutRegeneration: true,
       contextPackId: "pack-1",
+      _receipt: {
+        changed: true,
+        verified: true,
+        subject: "design-1",
+      },
     });
   });
 

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
@@ -7,6 +7,7 @@ type Handoff = {
   owner: string;
   ownerSlackId?: string;
   action: string;
+  publicActionSummary?: string;
   status?: "unassigned" | "accepted" | "completed";
   requestReply?: {
     ts: string;
@@ -33,13 +34,49 @@ type Handoff = {
   ticketUrl?: string;
 };
 
+type ReporterRequestReply = {
+  ts: string;
+  threadParentTs: string;
+  actorId: string;
+  text: string;
+};
+
+// Reporter input is a requested action, not a team handoff or accepted owner.
+type ReporterRequest = {
+  scope: string;
+  action: string;
+  publicActionSummary?: string;
+  requestReply: ReporterRequestReply;
+};
+
+type ClosedReporterRequest =
+  | (ReporterRequest & {
+      resolution: "answered";
+      closureReply: ReporterRequestReply;
+    })
+  | (ReporterRequest & { resolution: "abandoned_no_answer" });
+
 type StatusReply = {
   ts: string;
   threadParentTs: string;
   actorId: string;
   disposition: string;
   evidence: string;
+  publicEvidenceSummary?: string;
+  unfinishedScopeSummary?: string;
   text: string;
+  pendingActionSummary?: string;
+};
+
+type OwnershipSkip = {
+  rootTs: string;
+  reason: "foreign_workflow_mark" | "mag_opt_out";
+};
+
+type ClusteredUnder = {
+  channelId: string;
+  rootTs: string;
+  permalink: string;
 };
 
 type OtherOwnerEvidence = {
@@ -59,6 +96,7 @@ type HistoricalReactionMark = {
   reason: string;
   previousStatus: StatusReply;
   handoff?: Handoff;
+  closedReporterRequest?: ClosedReporterRequest;
   withdrawalReply?: {
     ts: string;
     threadParentTs: string;
@@ -85,15 +123,30 @@ type RootResolution =
       sourceMessageTs: string;
       rootTs: string;
       sourcePermalink: string;
+    }
+  | {
+      evidence: "slack_reply_parent.thread_ts";
+      sourceThreadTs: string;
+      sourceMessageTs: string;
+      rootTs: string;
+      sourcePermalink: string;
     };
 
 type Parent = {
   ts: string;
   threadParentTs: string;
+  // Verbatim message body captured from the channel result or root thread.
+  sourceText?: string;
   rootResolution?: RootResolution;
   // Required on root messages so administrative posts are not counted as reports.
-  rootClassification?: "report" | "administrative";
+  rootClassification?: "report" | "administrative" | "unclassified";
   rootClassificationReason?: string;
+  // A human triage judgment, checked for attribution and source-text linkage.
+  rootClassificationJudgment?: {
+    actorId: string;
+    decision: "report" | "administrative" | "unclassified";
+    rationale: string;
+  };
   // Attachments on this source message, preserved from Slack's read-back.
   files?: SlackFileAttachment[];
   reactionChecked: boolean;
@@ -119,6 +172,10 @@ type Parent = {
     text: string;
   };
   statusReply?: StatusReply;
+  // A direct reaction read proves this root is held without opening its thread.
+  ownershipSkip?: OwnershipSkip;
+  // Exact canonical report root that owns this duplicate's shared feedback.
+  clusteredUnder?: ClusteredUnder;
   // Permanently retained marks whose formerly verified/accepted meaning changed.
   historicalReactionMarks?: HistoricalReactionMark[];
   // A different actor's active root 👀 plus their current status, for Owned elsewhere.
@@ -135,12 +192,14 @@ type Parent = {
   unfinishedScopes?: Array<{ scope: string; evidence: string }>;
   handoff?: Handoff;
   handoffs?: Handoff[];
+  reporterRequests?: ReporterRequest[];
 };
 
 type ThreadSnapshot = {
   rootTs: string;
   readAt: string;
   replyCount: number;
+  rootText?: string;
   rootFiles?: SlackFileAttachment[];
   replies: Array<{
     ts: string;
@@ -148,16 +207,106 @@ type ThreadSnapshot = {
     kind: "human" | "sweep" | "bot";
     text: string;
     files?: SlackFileAttachment[];
-    // Slack reaction read-back for workflow marks only; unrelated emoji are omitted.
+    // The exact reaction read-back, kept so normalized workflow owners can be checked.
+    workflowReactionReadback: Array<{
+      name: string;
+      count: number;
+      users: string[];
+    }>;
     workflowReactionSummary: string;
     workflowReactionOwners: Record<string, string[]>;
-    workflowReactionReadAt?: string;
+    workflowReactionReadAt: string;
   }>;
+};
+
+type WorkflowEmoji = "eyes" | "white_check_mark" | "ticket";
+type OwnedMarkSearchCandidates = Record<WorkflowEmoji, Map<string, string>>;
+
+type OwnedMarkSearchPage = {
+  cursor: string | null;
+  before?: string | null;
+  nextCursor: string | null;
+  exhausted: boolean;
+  readAt: string;
+  messageCount: number;
+  rows: Array<SourceReceiptRow & { text: string }>;
+};
+
+type OwnedMarkSearch = {
+  emoji: WorkflowEmoji;
+  query: ChannelScanQuery;
+  pages: OwnedMarkSearchPage[];
+  pageLimitRecoveries?: PageLimitRecovery[];
+};
+
+type RawThreadMessage = {
+  ts: string;
+  actorId: string;
+  isBot: boolean;
+  text: string;
+  threadParentTs: string;
+  files: SlackFileAttachment[];
+  replyCount?: number;
+  workflowReactionNames?: string[];
+};
+
+type RawThreadPageEvidence = {
+  cursor: string | null;
+  nextCursor: string | null;
+  exhausted: boolean;
+  readAt: string;
+  replyCount?: number;
+  messages: RawThreadMessage[];
+};
+
+type RawThreadPages = Record<string, Record<string, RawThreadPageEvidence[]>>;
+
+function validateNoHeldThreadEvidence(
+  channelName: string,
+  heldRootTimestamps: Set<string>,
+  threadSnapshots: ThreadSnapshot[],
+  rawThreadRoots: string[],
+): void {
+  for (const snapshot of threadSnapshots) {
+    const rootTs = slackTimestamp(
+      snapshot.rootTs,
+      `${channelName}.threadSnapshot.rootTs`,
+    ).toString();
+    if (heldRootTimestamps.has(rootTs)) {
+      throw new Error(
+        `${channelName}: held root ${slackTimestampFromMicros(BigInt(rootTs))} must not include threadSnapshot evidence`,
+      );
+    }
+  }
+  for (const rawRootTs of rawThreadRoots) {
+    const rootTs = slackTimestamp(
+      rawRootTs,
+      `${channelName}.rawThreadRoot`,
+    ).toString();
+    if (heldRootTimestamps.has(rootTs)) {
+      throw new Error(
+        `${channelName}: held root ${slackTimestampFromMicros(BigInt(rootTs))} must not include raw thread evidence`,
+      );
+    }
+  }
+}
+
+type RawOwnedMarkSearchPages = Record<
+  string,
+  Record<WorkflowEmoji, RawSourcePageEvidence[]>
+>;
+
+type RawFeedbackEvidence = {
+  sourcePages: RawSourcePages;
+  ownedMarkPages: RawOwnedMarkSearchPages;
+  threadPages: RawThreadPages;
 };
 
 type Page = {
   readAt?: string;
   cursor: string | null;
+  // Slack's inclusive before bound on a restarted slice after a page cap.
+  before?: string | null;
   nextCursor: string | null;
   exhausted: boolean;
   messageCount: number;
@@ -165,10 +314,20 @@ type Page = {
   parents: Parent[];
 };
 
+type PageLimitRecovery = {
+  cursor: string;
+  boundaryTs: string;
+  errorCode: "page_limit_exceeded";
+  readAt: string;
+  args: Record<string, unknown>;
+  raw: string;
+};
+
 type SourceReceiptPage = Omit<
   Pick<
     Page,
     | "cursor"
+    | "before"
     | "nextCursor"
     | "exhausted"
     | "readAt"
@@ -191,7 +350,13 @@ type SourceReceipt = {
 };
 
 type RawSourcePageEvidence = SourceReceiptPage & {
-  rows: SourceReceiptRow[];
+  rows: Array<
+    SourceReceiptRow & {
+      text: string;
+      rawText: string;
+      filesMetadata?: SlackFileAttachment[];
+    }
+  >;
 };
 
 type RawSourcePages = Record<string, RawSourcePageEvidence[]>;
@@ -199,6 +364,8 @@ type RawSourcePages = Record<string, RawSourcePageEvidence[]>;
 type ChannelScanQuery = {
   tool: "slack_search_public";
   after: string;
+  // Fixed inclusive upper bound captured once when the sweep starts.
+  before: string;
   filters: string;
   keywords: [];
   natural_language_query: "";
@@ -213,23 +380,63 @@ type ChannelScanQuery = {
 
 type Channel = {
   channelId: string;
+  // Canonical Slack channel slug used by echoed search queries and receipt files.
+  channelName: string;
   scanQuery: ChannelScanQuery;
   oldestQuery: string | null;
   pages: Page[];
+  // Tool response proving why a capped cursor page needed a restarted slice.
+  pageLimitRecoveries?: PageLimitRecovery[];
   // Actual Slack root timestamps fetched for replies whose roots are off-page.
   threadRoots?: string[];
   // The root message's own reaction and disposition audit, not just the reply.
   threadRootAudits?: Parent[];
   // Full read_thread read-backs for every root with this actor's marks.
   threadSnapshots?: ThreadSnapshot[];
+  // Exhaustive in-window root-candidate searches, one per workflow mark.
+  ownedMarkSearches?: OwnedMarkSearch[];
 };
 
 type Inventory = {
+  scope: {
+    channelIds: string[];
+    userRequest?: string;
+    narrowingJudgment?: {
+      instruction: string;
+      channelIds: string[];
+      humanVerified: boolean;
+      rationale: string;
+    };
+  };
+  // Default five-day inclusive boundary for channels without a permalink anchor.
   cutoffTs: string;
   permalinkTs?: string;
+  permalinkChannelId?: string;
   sweepActorId: string;
   channels: Channel[];
 };
+
+const defaultFeedbackChannelIds = [
+  "C0ATH3CCZT4",
+  "C0C4U4XRT6X",
+  "C0AJ5QV0J03",
+] as const;
+
+const defaultFeedbackChannels = [
+  { channelId: "C0ATH3CCZT4", channelName: "product-agent-native-feedback" },
+  { channelId: "C0C4U4XRT6X", channelName: "qa-agent-native" },
+  { channelId: "C0AJ5QV0J03", channelName: "dev-agent-native-feedback" },
+] as const;
+
+function effectiveChannelCutoffTs(
+  inventory: Pick<Inventory, "cutoffTs" | "permalinkTs">,
+): string {
+  return inventory.permalinkTs ?? inventory.cutoffTs;
+}
+
+function slackTimestampFromMicros(value: bigint): string {
+  return `${value / 1_000_000n}.${(value % 1_000_000n).toString().padStart(6, "0")}`;
+}
 
 const canonicalDispositions = new Set([
   "Fixed",
@@ -251,6 +458,15 @@ const canonicalDispositions = new Set([
   "Blocked on reporter",
   "Blocked on human owner",
   "Owned elsewhere",
+]);
+
+const historicalCheckmarkDispositions = new Set([
+  "Fixed",
+  "Partially fixed",
+  "Shipped",
+  "Live verified",
+  "Resolved elsewhere",
+  "Verified locally",
 ]);
 
 const openDispositions = new Set([
@@ -307,6 +523,7 @@ function validateSourceFilesInSnapshot(
   snapshot: ThreadSnapshot | undefined,
 ): void {
   if (!snapshot) {
+    if (parent.ownershipSkip) return;
     if (parent.files?.length) {
       throw new Error(
         `${parentName}: attached source files need a full thread read-back`,
@@ -318,6 +535,10 @@ function validateSourceFilesInSnapshot(
     parent.ts === parent.threadParentTs
       ? snapshot.rootFiles
       : snapshot.replies.find((reply) => reply.ts === parent.ts)?.files;
+  const snapshotText =
+    parent.ts === parent.threadParentTs
+      ? snapshot.rootText
+      : snapshot.replies.find((reply) => reply.ts === parent.ts)?.text;
   if (
     JSON.stringify(snapshotFiles ?? []) !== JSON.stringify(parent.files ?? [])
   ) {
@@ -325,6 +546,43 @@ function validateSourceFilesInSnapshot(
       `${parentName}: threadSnapshot attachment IDs, names, and MIME types must match the source message`,
     );
   }
+  if (
+    parent.sourceText !== undefined &&
+    snapshotText !== undefined &&
+    !matchesSlackMessageText(parent.sourceText, snapshotText)
+  ) {
+    throw new Error(
+      `${parentName}: threadSnapshot text must match the captured source message`,
+    );
+  }
+}
+
+function matchesSlackMessageText(
+  sourceText: string,
+  threadText: string,
+): boolean {
+  const normalize = (text: string) =>
+    text
+      // Search omits the connector origin footer that thread reads append.
+      .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
+      // Search can add one or more bot disclosures and a page separator that
+      // the complete thread read does not include.
+      .replace(/\n+---\s*$/, "")
+      .replace(/(?:\s+\*?this was sent from a bot\.?\*?)+\s*$/i, "")
+      .replace(/```[ \t]*\n?[ \t]*/g, "```")
+      .replace(/`([^`\n]+)`/g, "$1")
+      .replace(/\*([^*\n]+)\*/g, "$1")
+      .replace(/_([^_\n]+)_/g, "$1")
+      .replace(/&gt;/g, ">")
+      .replace(/&lt;/g, "<")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;|&apos;/g, "'")
+      .replace(/&amp;/g, "&")
+      .replace(/\n+/g, "\n")
+      .trim();
+  return (
+    sourceText === threadText || normalize(sourceText) === normalize(threadText)
+  );
 }
 
 type WorkflowReactionState = {
@@ -355,6 +613,7 @@ function validateLegacyReplyReactionReadback(
   sweepActorId: string,
   requireFreshReads: boolean,
 ): void {
+  if (parent.ownershipSkip) return;
   const sourceReactions = workflowReactionState(
     parent.reactionOwners,
     sweepActorId,
@@ -383,7 +642,7 @@ function validateLegacyReplyReactionReadback(
       `${parentName}.threadSnapshot reply ${parent.ts}.workflowReactionReadAt`,
       "read the exact reply reactions again before recap",
     );
-    if (reactionReadAt < Date.parse(snapshot!.readAt)) {
+    if (reactionReadAt <= Date.parse(snapshot!.readAt)) {
       throw new Error(
         `${parentName}: reply reaction read-back must follow its full-thread read`,
       );
@@ -408,6 +667,136 @@ function validateLegacyReplyReactionReadback(
   }
 }
 
+function validateOwnershipSkipRecord(
+  parentName: string,
+  parent: Parent,
+  expectedRootTs: string,
+): boolean {
+  const skip = parent.ownershipSkip;
+  if (!skip) return false;
+  if (
+    skip.rootTs !== expectedRootTs ||
+    (skip.reason !== "foreign_workflow_mark" &&
+      skip.reason !== "mag_opt_out") ||
+    parent.disposition !== "Skipped" ||
+    (parent.fixedScopes?.length ?? 0) > 0 ||
+    (parent.unfinishedScopes?.length ?? 0) > 0 ||
+    parent.handoff !== undefined ||
+    (parent.handoffs?.length ?? 0) > 0 ||
+    (parent.reporterRequests?.length ?? 0) > 0 ||
+    parent.statusReply !== undefined ||
+    parent.latestOwnedReply !== undefined ||
+    parent.latestRelevantHumanReply !== undefined ||
+    parent.otherOwnerEvidence !== undefined ||
+    parent.historicalReactionMarks !== undefined ||
+    parent.reactionDecision !== undefined
+  ) {
+    throw new Error(
+      `${parentName}: a held thread must record only its exact root and safe-skip reason, with no inferred thread status or work evidence`,
+    );
+  }
+  return true;
+}
+
+function validateOwnershipSkipRootEvidence(
+  parentName: string,
+  parent: Parent,
+  sweepActorId: string,
+): void {
+  const skip = parent.ownershipSkip;
+  if (
+    !skip ||
+    skip.rootTs !== parent.ts ||
+    parent.ts !== parent.threadParentTs
+  ) {
+    throw new Error(
+      `${parentName}: ownership skip evidence must describe the exact root message`,
+    );
+  }
+  const hasForeignWorkflowMark = (
+    ["eyes", "white_check_mark", "ticket"] as const
+  ).some((emoji) =>
+    (parent.reactionOwners[emoji] ?? []).some(
+      (actorId) => actorId !== sweepActorId,
+    ),
+  );
+  if (
+    (skip.reason === "foreign_workflow_mark" && !hasForeignWorkflowMark) ||
+    (skip.reason === "mag_opt_out" &&
+      !(parent.reactionOwners.mag ?? []).includes(sweepActorId))
+  ) {
+    throw new Error(
+      `${parentName}: safe-skip reason must match a directly read foreign workflow mark or this actor's :mag: opt-out`,
+    );
+  }
+  if (
+    parent.rootClassification !== "report" &&
+    parent.rootClassification !== "unclassified"
+  ) {
+    throw new Error(
+      `${parentName}: held feedback roots must be report or explicitly unclassified`,
+    );
+  }
+  if (
+    parent.rootClassification === "unclassified" &&
+    parent.sourceText !== undefined
+  ) {
+    throw new Error(
+      `${parentName}: an in-page root with captured source text must still be classified`,
+    );
+  }
+}
+
+function validateHeldMessageSkipRecords(
+  channelName: string,
+  parents: Iterable<Parent>,
+  rootAudits: Parent[] = [],
+): void {
+  const ownershipSkipRoots = new Map<string, Parent>();
+  const parentRows = [...parents];
+  for (const root of parentRows) {
+    if (root.ts === root.threadParentTs && root.ownershipSkip) {
+      ownershipSkipRoots.set(
+        slackTimestamp(
+          root.ts,
+          `${channelName} held root timestamp`,
+        ).toString(),
+        root,
+      );
+    }
+  }
+  for (const rootAudit of rootAudits) {
+    if (rootAudit.ownershipSkip) {
+      ownershipSkipRoots.set(
+        slackTimestamp(
+          rootAudit.ts,
+          `${channelName} held root audit timestamp`,
+        ).toString(),
+        rootAudit,
+      );
+    }
+  }
+  for (const parent of parentRows) {
+    const rootTs = slackTimestamp(
+      parent.threadParentTs,
+      `${channelName} source ${parent.ts}.threadParentTs`,
+    ).toString();
+    const heldRoot = ownershipSkipRoots.get(rootTs);
+    if (!heldRoot && !parent.ownershipSkip) continue;
+    if (
+      !heldRoot ||
+      !parent.ownershipSkip ||
+      heldRoot.ownershipSkip?.rootTs !==
+        slackTimestampFromMicros(BigInt(rootTs)) ||
+      heldRoot.ownershipSkip.reason !== parent.ownershipSkip.reason
+    ) {
+      throw new Error(
+        `${channelName} source ${parent.ts}: every message under a held root must carry its exact root and directly verified skip reason`,
+      );
+    }
+  }
+}
+
 function validateRootResolution(
   parentName: string,
   parent: Parent,
@@ -422,6 +811,7 @@ function validateRootResolution(
       "slack_message.thread_ts",
       "slack_permalink.thread_ts",
       "slack_reply_permalink.thread_ts",
+      "slack_reply_parent.thread_ts",
     ].includes(resolution.evidence) ||
     !Object.prototype.hasOwnProperty.call(resolution, "sourceThreadTs")
   ) {
@@ -442,7 +832,8 @@ function validateRootResolution(
 
   if (
     resolution.evidence === "slack_permalink.thread_ts" ||
-    resolution.evidence === "slack_reply_permalink.thread_ts"
+    resolution.evidence === "slack_reply_permalink.thread_ts" ||
+    resolution.evidence === "slack_reply_parent.thread_ts"
   ) {
     if (typeof resolution.sourcePermalink !== "string") {
       throw new Error(
@@ -479,7 +870,8 @@ function validateRootResolution(
       `${parentName}.rootResolution.sourcePermalink timestamp`,
     );
     const expectedMessageTimestamp =
-      resolution.evidence === "slack_reply_permalink.thread_ts"
+      resolution.evidence === "slack_reply_permalink.thread_ts" ||
+      resolution.evidence === "slack_reply_parent.thread_ts"
         ? slackTimestamp(
             resolution.sourceMessageTs,
             `${parentName}.rootResolution.sourceMessageTs`,
@@ -529,7 +921,8 @@ function validateRootResolution(
         );
       }
       if (
-        resolution.evidence === "slack_reply_permalink.thread_ts" &&
+        (resolution.evidence === "slack_reply_permalink.thread_ts" ||
+          resolution.evidence === "slack_reply_parent.thread_ts") &&
         sourceThreadTimestamp >= expectedMessageTimestamp
       ) {
         throw new Error(
@@ -562,6 +955,58 @@ function validateRootResolution(
   ) {
     throw new Error(
       `${parentName}: source message thread_ts must match the verified parent root`,
+    );
+  }
+}
+
+function validateThreadReplyReactionEvidence(
+  replyName: string,
+  reply: ThreadSnapshot["replies"][number],
+): void {
+  const readback = reply.workflowReactionReadback;
+  if (!Array.isArray(readback)) {
+    throw new Error(
+      `${replyName}: preserve the exact Slack reaction read-back for every reply`,
+    );
+  }
+
+  const seenNames = new Set<string>();
+  const observedWorkflowOwners: Record<string, string[]> = {};
+  for (const [reactionIndex, reaction] of readback.entries()) {
+    if (
+      !reaction ||
+      typeof reaction.name !== "string" ||
+      !reaction.name.trim() ||
+      seenNames.has(reaction.name) ||
+      !Number.isInteger(reaction.count) ||
+      reaction.count < 1 ||
+      !Array.isArray(reaction.users) ||
+      reaction.users.length !== reaction.count ||
+      reaction.users.some((user) => !isSlackUserId(user)) ||
+      new Set(reaction.users).size !== reaction.users.length
+    ) {
+      throw new Error(
+        `${replyName}: raw reaction read-back entry ${reactionIndex + 1} must preserve one exact emoji, count, and unique Slack user IDs`,
+      );
+    }
+    seenNames.add(reaction.name);
+    if (
+      reaction.name === "eyes" ||
+      reaction.name === "white_check_mark" ||
+      reaction.name === "ticket"
+    ) {
+      observedWorkflowOwners[reaction.name] = [...reaction.users].sort();
+    }
+  }
+
+  const normalizedWorkflowOwners = Object.fromEntries(
+    Object.entries(reply.workflowReactionOwners)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([emoji, owners]) => [emoji, [...owners].sort()]),
+  );
+  if (!isDeepStrictEqual(normalizedWorkflowOwners, observedWorkflowOwners)) {
+    throw new Error(
+      `${replyName}: normalized workflow reaction owners must match the exact Slack reaction read-back`,
     );
   }
 }
@@ -650,37 +1095,42 @@ function validateThreadSnapshotStructure(
       reply.workflowReactionSummary,
       reply.workflowReactionOwners,
     );
-    const hasWorkflowReaction = ["eyes", "white_check_mark", "ticket"].some(
-      (emoji) => (reply.workflowReactionOwners[emoji]?.length ?? 0) > 0,
-    );
-    if (hasWorkflowReaction) {
-      const reactionReadAt = reply.workflowReactionReadAt;
-      const reactionReadTime =
-        typeof reactionReadAt === "string" ? Date.parse(reactionReadAt) : NaN;
-      if (
-        !Number.isFinite(reactionReadTime) ||
-        new Date(reactionReadTime).toISOString() !== reactionReadAt
-      ) {
-        throw new Error(
-          `${replyName}.workflowReactionReadAt must be an ISO timestamp`,
-        );
-      }
-      if (reactionReadTime < readAt) {
-        throw new Error(
-          `${replyName}: reaction read-back must follow the full-thread read`,
-        );
-      }
-      if (requireFreshReads) {
-        validateReadAt(
-          reply.workflowReactionReadAt,
-          `${replyName}.workflowReactionReadAt`,
-          "read the exact reply reactions again before recap",
-        );
-      }
+    validateThreadReplyReactionEvidence(replyName, reply);
+    const reactionReadAt = reply.workflowReactionReadAt;
+    const reactionReadTime =
+      typeof reactionReadAt === "string" ? Date.parse(reactionReadAt) : NaN;
+    if (
+      !Number.isFinite(reactionReadTime) ||
+      new Date(reactionReadTime).toISOString() !== reactionReadAt
+    ) {
+      throw new Error(
+        `${replyName}.workflowReactionReadAt must be an ISO timestamp`,
+      );
+    }
+    const hasWorkflowReaction = Object.values(
+      reply.workflowReactionOwners,
+    ).some((owners) => owners.length > 0);
+    if (
+      reactionReadTime < readAt ||
+      (hasWorkflowReaction && reactionReadTime === readAt)
+    ) {
+      throw new Error(
+        `${replyName}: a workflow-mark read-back must follow the full-thread read`,
+      );
+    }
+    if (requireFreshReads) {
+      validateReadAt(
+        reply.workflowReactionReadAt,
+        `${replyName}.workflowReactionReadAt`,
+        "read the exact workflow reactions on this reply again before recap",
+      );
     }
     previousReplyTs = replyTs;
   }
-  if (snapshot.replies.length > 0 && BigInt(readAt) < previousReplyTs / 1000n) {
+  if (
+    snapshot.replies.length > 0 &&
+    BigInt(readAt) * 1000n <= previousReplyTs
+  ) {
     throw new Error(
       `${parentName}: threadSnapshot.readAt must be after the newest reply it records`,
     );
@@ -722,6 +1172,88 @@ function validateThreadSnapshot(
     throw new Error(
       `${parentName}: threadSnapshot is missing the exact status reply read-back`,
     );
+  }
+
+  const reporterRequests = parent.reporterRequests ?? [];
+  if (!Array.isArray(reporterRequests)) {
+    throw new Error(parentName + ": reporterRequests must be an array");
+  }
+  const reporterRequestKeys = new Set<string>();
+  const rootTimestamp = slackTimestamp(rootTs, parentName + ".rootTs");
+  const statusTimestamp = slackTimestamp(
+    statusReply.ts,
+    parentName + ".statusReply.ts",
+  );
+  for (const [index, reporterRequest] of reporterRequests.entries()) {
+    const label = parentName + ".reporterRequests[" + (index + 1) + "]";
+    const request = reporterRequest?.requestReply;
+    if (
+      !reporterRequest ||
+      typeof reporterRequest.scope !== "string" ||
+      !reporterRequest.scope.trim() ||
+      typeof reporterRequest.action !== "string" ||
+      !reporterRequest.action.trim() ||
+      (reporterRequest.publicActionSummary !== undefined &&
+        (typeof reporterRequest.publicActionSummary !== "string" ||
+          !reporterRequest.publicActionSummary.trim())) ||
+      !request ||
+      !isSlackUserId(request.actorId) ||
+      typeof request.ts !== "string" ||
+      typeof request.threadParentTs !== "string" ||
+      typeof request.text !== "string" ||
+      !request.text.trim()
+    ) {
+      throw new Error(
+        label +
+          ": record the reporter request scope, exact action, and source reply",
+      );
+    }
+    if (
+      reporterRequest.publicActionSummary !== undefined &&
+      !publicActionSummaryMatchesAction(
+        reporterRequest.action,
+        reporterRequest.publicActionSummary,
+      )
+    ) {
+      throw new Error(
+        label + ": publicActionSummary must be a concise prefix of its action",
+      );
+    }
+    const key =
+      normalizeScope(reporterRequest.scope) +
+      " / " +
+      normalizeScope(reporterRequest.action);
+    if (reporterRequestKeys.has(key)) {
+      throw new Error(label + ": reporter requests must be distinct");
+    }
+    reporterRequestKeys.add(key);
+    const requestTimestamp = slackTimestamp(
+      request.ts,
+      label + ".requestReply.ts",
+    );
+    const capturedRequest = repliesByTimestamp.get(request.ts);
+    if (
+      request.actorId !== sweepActorId ||
+      request.threadParentTs !== rootTs ||
+      requestTimestamp <= rootTimestamp ||
+      requestTimestamp > statusTimestamp ||
+      capturedRequest?.actorId !== request.actorId ||
+      capturedRequest?.text !== request.text
+    ) {
+      throw new Error(
+        label +
+          ": requestReply must be this actor's exact in-thread request before or in the current status",
+      );
+    }
+    if (
+      !replyNamesRecordedAction(
+        request.text,
+        reporterRequest.action,
+        reporterRequest.publicActionSummary,
+      )
+    ) {
+      throw new Error(label + ": request must name the exact requested action");
+    }
   }
 
   const latestHumanReply = humanReplies.at(-1);
@@ -781,7 +1313,7 @@ function validateThreadSnapshot(
 function isNamedHumanOwner(owner: string): boolean {
   const personName = owner.split(/[/(]/, 1)[0]!.trim();
   if (
-    /\b(?:unassigned|not assigned|owner|lead|team|admin|author|engineer(?:ing)?|product|release|workspace|app|production|security|data|code|actions|role|analyst|designer|developer|manager|director|reviewer|maintainer|approver|support|ops|on[ -]?call|platform)\b/i.test(
+    /\b(?:unassigned|not assigned|owner|lead|team|admin|author|engineer(?:ing)?|product|release|workspace|app|production|security|data|code|actions|role|analyst|designer|developer|manager|director|reviewer|maintainer|approver|support|ops|on[ -]?call|platform|qa|ci|sre|pm|em|cs|hr|it)\b/i.test(
       personName,
     )
   ) {
@@ -793,6 +1325,14 @@ function isNamedHumanOwner(owner: string): boolean {
     nameParts.length <= 4 &&
     nameParts.every((part) => /^(?:\p{Lu}[\p{L}'’.-]*|[A-Z]\.)$/u.test(part))
   );
+}
+
+function leadingNamedHumanOwner(action: string): string | undefined {
+  const match =
+    /^((?:\p{Lu}\p{Ll}[\p{L}'’.-]*)(?:\s+\p{Lu}\p{Ll}[\p{L}'’.-]*){0,3})\s+(?:will|can|could|should|must|may|might|needs?|has\s+to|is\s+going\s+to|is\s+scheduled\s+to)\b/u.exec(
+      action.trim(),
+    );
+  return match && isNamedHumanOwner(match[1]!) ? match[1] : undefined;
 }
 
 function validateReactionOwners(
@@ -883,28 +1423,264 @@ function normalizeReplyPhrase(phrase: string): string {
   );
 }
 
-function replyNamesHandoffs(text: string, handoffs: Handoff[]): boolean {
-  const reply = ` ${normalizeReplyPhrase(text)} `;
-  return handoffs.every((handoff) => {
-    const namesRecordedAction = [
-      handoff.scope,
-      handoff.owner,
-      handoff.action,
-    ].every((phrase) => {
-      const normalizedPhrase = normalizeReplyPhrase(phrase);
-      return normalizedPhrase !== "" && reply.includes(` ${normalizedPhrase} `);
-    });
-    return (
-      namesRecordedAction &&
-      (handoff.status !== "unassigned" || reply.includes(" unassigned "))
-    );
-  });
-}
-
 function replyNamesHandoffAction(text: string, action: string): boolean {
   const reply = ` ${normalizeReplyPhrase(text)} `;
   const normalizedAction = normalizeReplyPhrase(action);
   return normalizedAction !== "" && reply.includes(` ${normalizedAction} `);
+}
+
+function replyContainsPhrase(text: string, phrase: unknown): boolean {
+  if (typeof phrase !== "string" || !phrase.trim()) return false;
+  const normalizedPhrase = normalizeReplyPhrase(phrase);
+  return (
+    normalizedPhrase !== "" &&
+    ` ${normalizeReplyPhrase(text)} `.includes(` ${normalizedPhrase} `)
+  );
+}
+
+function unfinishedScopeSummaryMatchesRecordedWork(
+  summary: string,
+  unfinishedScopes: Array<{ scope: string; evidence: string }>,
+): boolean {
+  const genericWords = new Set([
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "been",
+    "being",
+    "but",
+    "by",
+    "do",
+    "does",
+    "did",
+    "for",
+    "from",
+    "had",
+    "has",
+    "have",
+    "in",
+    "into",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "the",
+    "this",
+    "that",
+    "these",
+    "those",
+    "to",
+    "was",
+    "were",
+    "with",
+    "check",
+    "checking",
+    "still",
+    "remain",
+    "remains",
+    "remaining",
+    "ongoing",
+    "not",
+    "yet",
+    "unresolved",
+    "open",
+    "broken",
+    "unverified",
+    "need",
+    "needs",
+    "other",
+    "something",
+    "anything",
+    "work",
+    "scope",
+    "task",
+    "issue",
+    "problem",
+    "behavior",
+    "feature",
+    "fixed",
+    "done",
+    "pending",
+    "resolved",
+    "resolution",
+  ]);
+  const summaryWords = normalizeReplyPhrase(summary)
+    .split(" ")
+    .filter((word) => !genericWords.has(word));
+  const summaryWordSet = new Set(summaryWords);
+  const recordedWords = new Set(
+    unfinishedScopes.flatMap(({ scope, evidence }) =>
+      normalizeReplyPhrase(`${scope} ${evidence}`).split(" "),
+    ),
+  );
+  const scopeWords = unfinishedScopes.map(({ scope, evidence }) =>
+    normalizeReplyPhrase(`${scope} ${evidence}`)
+      .split(" ")
+      .filter((word) => !genericWords.has(word)),
+  );
+  const identifiesEveryScope = scopeWords.every((words, index) => {
+    const wordsInOtherScopes = new Set(
+      scopeWords.flatMap((otherWords, otherIndex) =>
+        otherIndex === index ? [] : otherWords,
+      ),
+    );
+    const identifyingWords = words.filter(
+      (word) => !wordsInOtherScopes.has(word),
+    );
+    const requiredWords = identifyingWords.length ? identifyingWords : words;
+    return (
+      requiredWords.length > 0 &&
+      requiredWords.some((word) => summaryWordSet.has(word))
+    );
+  });
+  return (
+    summaryWords.length > 0 &&
+    summaryWords.every((word) => recordedWords.has(word)) &&
+    identifiesEveryScope
+  );
+}
+
+function hasPublicEvidenceSummary(
+  reply: StatusReply,
+  scopedProofs: Array<{ scope: string; verification: string }>,
+): boolean {
+  if (scopedProofs.length === 0) return true;
+  return (
+    hasConcisePublicEvidenceSummary(reply) &&
+    scopedProofs.every(({ scope, verification }) =>
+      verification
+        .split(/[.;!?\n]+/)
+        .some(
+          (clause) =>
+            replyContainsPhrase(clause, scope) &&
+            replyContainsPhrase(clause, reply.publicEvidenceSummary),
+        ),
+    )
+  );
+}
+
+function hasConcisePublicEvidenceSummary(reply: StatusReply): boolean {
+  const summary = reply.publicEvidenceSummary;
+  const summaryWords =
+    typeof summary === "string"
+      ? normalizeReplyPhrase(summary).split(" ").filter(Boolean)
+      : [];
+  const meaningfulSummaryWordCount = new Set(
+    summaryWords.filter((word) => !publicSummaryFillerWords.has(word)),
+  ).size;
+  return (
+    meaningfulSummaryWordCount >= 2 &&
+    summaryWords.length <= 12 &&
+    replyContainsPhrase(reply.evidence, summary) &&
+    replyContainsPhrase(reply.text, summary)
+  );
+}
+
+const publicSummaryFillerWords = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "be",
+  "been",
+  "but",
+  "by",
+  "can",
+  "could",
+  "do",
+  "for",
+  "from",
+  "have",
+  "if",
+  "in",
+  "is",
+  "it",
+  "may",
+  "might",
+  "of",
+  "on",
+  "or",
+  "please",
+  "should",
+  "the",
+  "that",
+  "this",
+  "to",
+  "was",
+  "were",
+  "will",
+  "with",
+  "would",
+]);
+
+function publicActionSummaryMatchesAction(
+  action: string,
+  publicActionSummary: unknown,
+  owner?: string,
+  isPublicSummary = true,
+): boolean {
+  if (typeof publicActionSummary !== "string" || !publicActionSummary.trim()) {
+    return false;
+  }
+  const normalizedAction = normalizeReplyPhrase(action);
+  const normalizedSummary = normalizeReplyPhrase(publicActionSummary);
+  const summaryWordCount = normalizedSummary.split(" ").filter(Boolean).length;
+  const summaryWords = normalizedSummary
+    .split(" ")
+    .filter(
+      (word) => !["this", "that", "it", "something", "anything"].includes(word),
+    );
+  const meaningfulSummaryWords = summaryWords.filter(
+    (word) => !publicSummaryFillerWords.has(word),
+  );
+  const ownerWords = new Set(
+    normalizeReplyPhrase(owner ?? leadingNamedHumanOwner(action) ?? "")
+      .split(" ")
+      .filter(Boolean),
+  );
+  const actionSummaryWords = meaningfulSummaryWords.filter(
+    (word) => !ownerWords.has(word),
+  );
+  return (
+    (!isPublicSummary || summaryWordCount <= 12) &&
+    (!isPublicSummary || new Set(actionSummaryWords).size >= 2) &&
+    actionSummaryWords.length > 0 &&
+    (normalizedAction === normalizedSummary ||
+      normalizedAction.startsWith(`${normalizedSummary} `))
+  );
+}
+
+function publicActionSummaryForReply(
+  action: string,
+  publicActionSummary: unknown,
+): string {
+  if (publicActionSummary === undefined) return action;
+  return typeof publicActionSummary === "string" ? publicActionSummary : "";
+}
+
+function replyNamesRecordedAction(
+  text: string,
+  action: string,
+  publicActionSummary?: unknown,
+  owner?: string,
+): boolean {
+  return (
+    replyNamesHandoffAction(
+      text,
+      publicActionSummaryForReply(action, publicActionSummary),
+    ) &&
+    publicActionSummaryMatchesAction(
+      action,
+      publicActionSummaryForReply(action, publicActionSummary),
+      owner,
+      publicActionSummary !== undefined,
+    )
+  );
 }
 
 function replyNamesHandoffOwner(text: string, handoff: Handoff): boolean {
@@ -964,6 +1740,16 @@ function replyExplicitlyAcceptsHandoff(text: string): boolean {
   }
   return /\b(?:(?:i|we)(?:'ll|\s+will|\s+can)\s+(?:take|handle|do|own|accept|review|investigate|fix|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on)\b|(?:i|we)(?:'m|\s+am)\s+(?:taking|handling|doing|owning|accepting|reviewing|investigating|fixing|choosing|configuring|setting|scheduling|completing|testing|expanding|superseding|working on)\b|happy to (?:take|handle|do|test|fix|review|investigate)\b|will do\b|i(?:'m| am) on it\b)/i.test(
     normalized,
+  );
+}
+
+function replyExplicitlyAcceptsRecordedHandoff(
+  text: string,
+  handoff: Handoff,
+): boolean {
+  return (
+    replyExplicitlyAcceptsHandoff(text) &&
+    replyNamesHandoffAction(text, handoff.action)
   );
 }
 
@@ -1031,7 +1817,12 @@ function validateHandoffAcceptance(
         requestTs >= statusReplyTs ||
         typeof request.text !== "string" ||
         !request.text.trim() ||
-        !replyNamesHandoffAction(request.text, handoff.action)
+        !replyNamesRecordedAction(
+          request.text,
+          handoff.action,
+          handoff.publicActionSummary,
+          handoff.owner,
+        )
       ) {
         throw new Error(
           `${parentName}: an unassigned handoff request must be this actor's read-back in the source thread and name the recorded action`,
@@ -1042,8 +1833,7 @@ function validateHandoffAcceptance(
   }
   const explicitlyAcceptsAction =
     !!acceptance &&
-    replyExplicitlyAcceptsHandoff(acceptance.text) &&
-    replyNamesHandoffAction(acceptance.text, handoff.action);
+    replyExplicitlyAcceptsRecordedHandoff(acceptance.text, handoff);
   if (
     !isSlackUserId(handoff.ownerSlackId) ||
     handoff.ownerSlackId === sweepActorId ||
@@ -1260,6 +2050,14 @@ function validateHistoricalReactionMarks(
       );
     }
     const previous = mark.previousStatus;
+    if (
+      typeof previous.disposition !== "string" ||
+      !previous.disposition.trim()
+    ) {
+      throw new Error(
+        `${label}.previousStatus.disposition must be a non-empty string`,
+      );
+    }
     const previousTs = slackTimestamp(
       previous.ts,
       `${label}.previousStatus.ts`,
@@ -1275,8 +2073,7 @@ function validateHistoricalReactionMarks(
       typeof previous.text !== "string" ||
       !previous.text.trim() ||
       typeof previous.evidence !== "string" ||
-      !previous.evidence.trim() ||
-      !previous.text.includes(previous.evidence.trim())
+      !previous.evidence.trim()
     ) {
       throw new Error(
         `${label}: prior status must be this actor's earlier same-thread read-back`,
@@ -1295,28 +2092,31 @@ function validateHistoricalReactionMarks(
         `${label}: prior status must match the captured full-thread read`,
       );
     }
-    const emojiPattern =
-      mark.emoji === "white_check_mark"
-        ? /(?:✅|:white_check_mark:)/i
-        : /(?:🎫|:ticket:)/i;
     if (
-      !emojiPattern.test(previous.text) ||
-      !normalizeScope(previous.text).includes(normalizeScope(mark.scope))
+      mark.emoji === "white_check_mark" &&
+      (!historicalCheckmarkDispositions.has(previous.disposition) ||
+        !replyStartsWithDisposition(previous.text, previous.disposition))
     ) {
       throw new Error(
-        `${label}: prior status must name the marked scope and reaction`,
+        `${label}: historical ✅ needs a prior verified disposition stated in its captured reply`,
       );
     }
     if (
-      !/\b(?:historical|previously|superseded)\b/i.test(currentStatus.text) ||
-      !emojiPattern.test(currentStatus.text) ||
-      !normalizeScope(currentStatus.text).includes(
-        normalizeScope(mark.scope),
-      ) ||
-      !currentStatus.text.includes(mark.reason.trim())
+      mark.emoji === "white_check_mark" &&
+      !hasPublicEvidenceSummary(previous, [
+        { scope: mark.scope, verification: previous.evidence },
+      ])
     ) {
       throw new Error(
-        `${label}: current status must explain why the retained reaction is historical`,
+        `${label}: historical ✅ needs a concise publicEvidenceSummary from proof for its recorded scope in both internal proof and captured prior reply`,
+      );
+    }
+    if (
+      mark.emoji === "ticket" &&
+      !replyStartsWithDisposition(previous.text, previous.disposition)
+    ) {
+      throw new Error(
+        `${label}: historical 🎫 needs a prior disposition stated in its captured reply`,
       );
     }
     const reactionDecision =
@@ -1337,9 +2137,9 @@ function validateHistoricalReactionMarks(
     }
 
     if (mark.emoji === "white_check_mark") {
-      if (mark.handoff || mark.withdrawalReply) {
+      if (mark.handoff || mark.closedReporterRequest || mark.withdrawalReply) {
         throw new Error(
-          `${label}: a historical ✅ cannot contain handoff evidence`,
+          `${label}: a historical ✅ cannot contain handoff or reporter-request evidence`,
         );
       }
       result.checkmark = true;
@@ -1347,6 +2147,150 @@ function validateHistoricalReactionMarks(
     }
 
     result.ticket = true;
+    const closedReporterRequest = mark.closedReporterRequest;
+    if (closedReporterRequest) {
+      if (mark.handoff || mark.withdrawalReply) {
+        throw new Error(
+          `${label}: historical 🎫 cannot mix reporter-request and handoff evidence`,
+        );
+      }
+      const request = closedReporterRequest.requestReply;
+      if (
+        closedReporterRequest.publicActionSummary !== undefined &&
+        (typeof closedReporterRequest.publicActionSummary !== "string" ||
+          !closedReporterRequest.publicActionSummary.trim() ||
+          typeof closedReporterRequest.action !== "string" ||
+          !publicActionSummaryMatchesAction(
+            closedReporterRequest.action,
+            closedReporterRequest.publicActionSummary,
+          ))
+      ) {
+        throw new Error(
+          `${label}: historical reporter publicActionSummary must be a concise prefix of its action`,
+        );
+      }
+      if (
+        typeof closedReporterRequest.scope !== "string" ||
+        !closedReporterRequest.scope.trim() ||
+        closedReporterRequest.scope !== mark.scope ||
+        typeof closedReporterRequest.action !== "string" ||
+        !closedReporterRequest.action.trim() ||
+        !request ||
+        request.actorId !== sweepActorId ||
+        slackTimestamp(
+          request.threadParentTs,
+          `${label}.closedReporterRequest.requestReply.threadParentTs`,
+        ) !== rootTs
+      ) {
+        throw new Error(
+          `${label}: historical 🎫 needs a matching reporter request scope, action, and in-thread request`,
+        );
+      }
+      const requestTs = slackTimestamp(
+        request.ts,
+        `${label}.closedReporterRequest.requestReply.ts`,
+      );
+      const requestReadback = threadSnapshot.replies.find(
+        (reply) => reply.ts === request.ts,
+      );
+      if (
+        requestTs <= rootTs ||
+        requestTs > previousTs ||
+        requestReadback?.actorId !== sweepActorId ||
+        requestReadback.kind !== "sweep" ||
+        requestReadback.text !== request.text ||
+        !replyNamesRecordedAction(
+          request.text,
+          closedReporterRequest.action,
+          closedReporterRequest.publicActionSummary,
+        )
+      ) {
+        throw new Error(
+          `${label}: historical reporter request must tie its exact action to the captured request`,
+        );
+      }
+      if (
+        !replyNamesRecordedAction(
+          previous.text,
+          closedReporterRequest.action,
+          closedReporterRequest.publicActionSummary,
+        )
+      ) {
+        throw new Error(
+          `${label}: historical reporter action must match its prior captured status`,
+        );
+      }
+
+      if (closedReporterRequest.resolution === "answered") {
+        const closureReply = closedReporterRequest.closureReply;
+        if (!closureReply) {
+          throw new Error(
+            `${label}: answered reporter request needs its exact latest human closure reply`,
+          );
+        }
+        const closureTs = slackTimestamp(
+          closureReply.ts,
+          `${label}.closedReporterRequest.closureReply.ts`,
+        );
+        const closureReadback = threadSnapshot.replies.find(
+          (reply) => reply.ts === closureReply.ts,
+        );
+        const latestHumanReplyBeforeStatus = threadSnapshot.replies
+          .filter(
+            (reply) =>
+              reply.kind === "human" &&
+              slackTimestamp(reply.ts, `${label}.threadSnapshot.reply.ts`) <
+                currentTs,
+          )
+          .at(-1);
+        if (
+          !isSlackUserId(closureReply.actorId) ||
+          closureReply.actorId === sweepActorId ||
+          slackTimestamp(
+            closureReply.threadParentTs,
+            `${label}.closedReporterRequest.closureReply.threadParentTs`,
+          ) !== rootTs ||
+          closureTs <= previousTs ||
+          closureTs >= currentTs ||
+          typeof closureReply.text !== "string" ||
+          !closureReply.text.trim() ||
+          closureReadback?.actorId !== closureReply.actorId ||
+          closureReadback.kind !== "human" ||
+          closureReadback.text !== closureReply.text ||
+          latestHumanReplyBeforeStatus?.ts !== closureReply.ts
+        ) {
+          throw new Error(
+            `${label}: answered reporter request needs its exact latest human closure reply after the prior status`,
+          );
+        }
+      } else if (closedReporterRequest.resolution === "abandoned_no_answer") {
+        const fourDaysInMicros = 4n * 24n * 60n * 60n * 1_000_000n;
+        const answeredAfterRequest = threadSnapshot.replies.some(
+          (reply) =>
+            reply.kind === "human" &&
+            slackTimestamp(reply.ts, `${label}.threadSnapshot.reply.ts`) >
+              requestTs &&
+            slackTimestamp(reply.ts, `${label}.threadSnapshot.reply.ts`) <
+              currentTs,
+        );
+        // Closing one reporter request does not close other report scopes.
+        if (
+          "closureReply" in closedReporterRequest ||
+          currentTs - requestTs < fourDaysInMicros ||
+          answeredAfterRequest
+        ) {
+          throw new Error(
+            `${label}: unanswered reporter request can close only after four days with no later human reply`,
+          );
+        }
+      } else {
+        throw new Error(
+          `${label}: reporter request resolution must be answered or abandoned_no_answer`,
+        );
+      }
+      continue;
+    }
+
     const handoff = mark.handoff;
     const withdrawal = mark.withdrawalReply;
     if (
@@ -1360,6 +2304,37 @@ function validateHistoricalReactionMarks(
     ) {
       throw new Error(
         `${label}: a historical 🎫 needs the original accepted handoff and its withdrawal`,
+      );
+    }
+    if (
+      handoff.publicActionSummary !== undefined &&
+      (typeof handoff.publicActionSummary !== "string" ||
+        !handoff.publicActionSummary.trim() ||
+        !publicActionSummaryMatchesAction(
+          handoff.action,
+          handoff.publicActionSummary,
+          handoff.owner,
+        ))
+    ) {
+      throw new Error(
+        `${label}: historical handoff publicActionSummary must be a concise prefix of its action`,
+      );
+    }
+    if (
+      !replyNamesRecordedAction(
+        previous.text,
+        handoff.action,
+        handoff.publicActionSummary,
+        handoff.owner,
+      )
+    ) {
+      throw new Error(
+        `${label}: historical handoff action must match its prior captured status`,
+      );
+    }
+    if (!replyNamesHandoffOwner(previous.text, handoff)) {
+      throw new Error(
+        `${label}: historical handoff owner must match its prior captured status`,
       );
     }
     const acceptance = handoff.acceptanceReply;
@@ -1380,9 +2355,10 @@ function validateHistoricalReactionMarks(
       acceptance.ts,
       `${label}.acceptanceReply.ts`,
     );
-    const explicitAcceptance =
-      replyExplicitlyAcceptsHandoff(acceptance.text) &&
-      replyNamesHandoffAction(acceptance.text, handoff.action);
+    const explicitAcceptance = replyExplicitlyAcceptsRecordedHandoff(
+      acceptance.text,
+      handoff,
+    );
     const request = handoff.requestReply;
     if (
       !explicitAcceptance &&
@@ -1421,11 +2397,6 @@ function validateHistoricalReactionMarks(
         `${label}: historical handoff acceptance must match the captured human reply`,
       );
     }
-    if (!replyNamesHandoffs(previous.text, [handoff])) {
-      throw new Error(
-        `${label}: prior ticket status must name the accepted owner's action`,
-      );
-    }
     const withdrawalTs = slackTimestamp(
       withdrawal.ts,
       `${label}.withdrawalReply.ts`,
@@ -1446,7 +2417,12 @@ function validateHistoricalReactionMarks(
       withdrawalReadback.actorId !== withdrawal.actorId ||
       withdrawalReadback.kind !== "human" ||
       withdrawalReadback.text !== withdrawal.text ||
-      !replyNamesHandoffAction(withdrawal.text, handoff.action) ||
+      !replyNamesRecordedAction(
+        withdrawal.text,
+        handoff.action,
+        handoff.publicActionSummary,
+        handoff.owner,
+      ) ||
       previousTs >= withdrawalTs
     ) {
       throw new Error(
@@ -1478,13 +2454,15 @@ function replyStatesDisposition(text: string, disposition: string): boolean {
     (/\b(?:(?:is|was|remains)\s+)?(?:not|never)\s+(?:(?:yet|fully|truly|really|actually)\s+)*fixed\b|\bunfixed\b/i.test(
       visibleText,
     ) ||
-      /\b(?:still|remains)\s+broken\b/i.test(visibleText))
+      /\b(?:still|remains)\s+(?:broken|failing|failed|fails)\b/i.test(
+        visibleText,
+      ))
   ) {
     return false;
   }
   const escapedDisposition = disposition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const label = new RegExp(
-    `(?:^|[\\n.!?;:]\\s*)${escapedDisposition}(?=$|[\\s:—–.!?;,()-])`,
+    `(?:^|[\\n.!?;:]\\s*|\\s[-–—]\\s+)${escapedDisposition}(?=$|[\\s:—–.!?;,()-])`,
     "i",
   );
   if (label.test(visibleText)) return true;
@@ -1495,101 +2473,145 @@ function replyStatesDisposition(text: string, disposition: string): boolean {
   );
 }
 
+function replyStartsWithDisposition(
+  text: string,
+  disposition: string,
+): boolean {
+  const visibleText = text.replace(/[*_`]/g, "").trim();
+  const dispositionText = visibleText.replace(
+    /^(?:thanks|ty) for the feedback -\s+/i,
+    "",
+  );
+  const escapedDisposition = disposition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const label = new RegExp(`^${escapedDisposition}(?=$|[\\s:—–.!?;,()-])`, "i");
+  return (
+    label.test(dispositionText) &&
+    replyStatesDisposition(visibleText, disposition)
+  );
+}
+
 function validateStatusReactionLanguage(
   parentName: string,
   text: string,
-  hasCheckmark: boolean,
-  hasTicket: boolean,
-  fixedScopes: NonNullable<Parent["fixedScopes"]>,
-  unfinishedScopes: NonNullable<Parent["unfinishedScopes"]>,
-  historicalReactionMarks: NonNullable<Parent["historicalReactionMarks"]> = [],
+  handoffs: Handoff[],
+  reporterRequests: ReporterRequest[],
+  pendingActionSummary: string | undefined,
+  unfinishedScopes: Array<{ scope: string; evidence: string }> = [],
+  unfinishedScopeSummary?: string,
 ): void {
   if (!text.includes("this was sent from a bot.")) {
     throw new Error(
       `${parentName}: latest status reply must include the exact bot disclosure`,
     );
   }
-
-  const checkmarkMentioned = /(?:✅|:white_check_mark:)/i.test(text);
-  if (hasCheckmark && !checkmarkMentioned) {
-    throw new Error(
-      `${parentName}: status reply must name the verified scope covered by this actor's ✅`,
-    );
-  }
-  const normalizedReply = normalizeScope(text);
   if (
-    hasCheckmark &&
-    fixedScopes.some(
-      (scope) => !normalizedReply.includes(normalizeScope(scope.scope)),
-    )
+    unfinishedScopeSummary !== undefined &&
+    typeof unfinishedScopeSummary !== "string"
   ) {
-    throw new Error(
-      `${parentName}: status reply must name every fixed scope covered by this actor's ✅`,
-    );
+    throw new Error(`${parentName}: unfinishedScopeSummary must be a string`);
   }
-  for (const mark of historicalReactionMarks) {
-    if (
-      mark.emoji === "white_check_mark" &&
-      !fixedScopes.some(
-        (scope) => normalizeScope(scope.scope) === normalizeScope(mark.scope),
+  if (unfinishedScopes.length === 0) {
+    if (unfinishedScopeSummary !== undefined) {
+      throw new Error(
+        `${parentName}: unfinishedScopeSummary is only valid when unfinished scopes remain`,
+      );
+    }
+  } else {
+    const summary = unfinishedScopeSummary ?? "";
+    const summaryWordCount = normalizeReplyPhrase(summary)
+      .split(" ")
+      .filter(Boolean).length;
+    const unfinishedStateTerm = String.raw`(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|require(?:d|s)?|awaiting|waiting)`;
+    const openStateSummary = summary
+      .replace(
+        new RegExp(
+          String.raw`\b(?:no longer|not|no|never|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|does not|do not|did not|can't|cannot|won't|wouldn't|shouldn't|will not|would not|should not|without)\s+(?:currently\s+|still\s+|yet\s+)?(?:remain(?:s|ing)?\s+)?${unfinishedStateTerm}\b(?:\s*(?:,|or)\s*(?:(?:not|never)\s+)?(?:currently\s+|still\s+|yet\s+)?(?:remain(?:s|ing)?\s+)?${unfinishedStateTerm}\b)*`,
+          "gi",
+        ),
+        " ",
       )
+      .replace(
+        /\b(?:needs?|requires?)\s+no\s+(?:(?:further|more|additional)\s+)?(?:work|verification|review|follow[- ]?up|action|changes?|updates?|testing|checks?)\b/gi,
+        " ",
+      )
+      .replace(
+        /\b(?:no|not any)\s+(?:(?:further|more|additional)\s+)?(?:work|verification|review|follow[- ]?up|action|changes?|updates?|testing|checks?)\s+(?:(?:should|must|may|might|could|would|will|can)\s+)?(?:(?:is|are|was|were|be)\s+)?(?:required|needed|necessary)\b/gi,
+        " ",
+      );
+    if (
+      summaryWordCount < 3 ||
+      summaryWordCount > 12 ||
+      !new RegExp(String.raw`\b(?:not yet|${unfinishedStateTerm})\b`, "i").test(
+        openStateSummary,
+      ) ||
+      !replyContainsPhrase(text, summary) ||
+      !unfinishedScopeSummaryMatchesRecordedWork(summary, unfinishedScopes)
     ) {
-      if (
-        !/\b(?:historical|previously|superseded)\b/i.test(text) ||
-        !normalizedReply.includes(normalizeScope(mark.scope)) ||
-        !text.includes(mark.reason)
-      ) {
-        throw new Error(
-          `${parentName}: status reply must identify each retained historical ✅ scope and why it no longer represents current proof`,
-        );
-      }
-    }
-    if (mark.emoji === "ticket") {
-      if (
-        !/\b(?:historical|previously|superseded)\b/i.test(text) ||
-        !normalizedReply.includes(normalizeScope(mark.scope)) ||
-        !text.includes(mark.reason)
-      ) {
-        throw new Error(
-          `${parentName}: status reply must identify each retained historical 🎫 action and why it was withdrawn`,
-        );
-      }
+      throw new Error(
+        `${parentName}: unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence`,
+      );
     }
   }
   if (
-    unfinishedScopes.some(
-      (scope) => !normalizedReply.includes(normalizeScope(scope.scope)),
-    )
+    pendingActionSummary !== undefined &&
+    typeof pendingActionSummary !== "string"
   ) {
-    throw new Error(
-      `${parentName}: status reply must name every unfinished scope that remains open`,
-    );
+    throw new Error(`${parentName}: pendingActionSummary must be a string`);
   }
-  if (
-    !hasCheckmark &&
-    !/No\s+(?:✅|:white_check_mark:)(?:\s+from\s+(?:me|this actor))?\s*(?:(?:—|–|-|:)\s*\S.{4,}|(?:applies?\s+)?because\s+\S.{4,})/i.test(
-      text,
-    )
-  ) {
-    throw new Error(
-      `${parentName}: status reply must say why this actor has no ✅`,
-    );
+  const activeHandoffs = handoffs.filter(
+    (handoff) => handoff.status !== "completed",
+  );
+  if (activeHandoffs.length === 0 && reporterRequests.length === 0) {
+    if (pendingActionSummary !== undefined) {
+      throw new Error(
+        `${parentName}: pendingActionSummary is only valid while a tracked action remains open`,
+      );
+    }
+    return;
   }
 
-  const ticketMentioned = /(?:🎫|:ticket:)/i.test(text);
-  if (hasTicket && !ticketMentioned) {
-    throw new Error(
-      `${parentName}: status reply must name this actor's 🎫 human/team action`,
-    );
-  }
+  const summary = pendingActionSummary ?? "";
+  const normalizedSummary = normalizeReplyPhrase(summary);
+  const normalizedText = ` ${normalizeReplyPhrase(text)} `;
   if (
-    !hasTicket &&
-    !/No\s+(?:🎫|:ticket:)(?:\s+from\s+(?:me|this actor))?\s*(?:(?:—|–|-|:)\s*\S.{4,}|(?:applies?\s+)?because\s+\S.{4,})/i.test(
-      text,
+    !normalizedSummary ||
+    !normalizedText.includes(` ${normalizedSummary} `) ||
+    activeHandoffs.some(
+      (handoff) =>
+        !replyNamesHandoffAction(
+          summary,
+          publicActionSummaryForReply(
+            handoff.action,
+            handoff.publicActionSummary,
+          ),
+        ) ||
+        (handoff.publicActionSummary !== undefined &&
+          !publicActionSummaryMatchesAction(
+            handoff.action,
+            handoff.publicActionSummary,
+            handoff.owner,
+          )) ||
+        (handoff.owner.toLowerCase() !== "unassigned" &&
+          !replyNamesHandoffOwner(summary, handoff)),
+    ) ||
+    reporterRequests.some(
+      (request) =>
+        !replyNamesHandoffAction(
+          summary,
+          publicActionSummaryForReply(
+            request.action,
+            request.publicActionSummary,
+          ),
+        ) ||
+        (request.publicActionSummary !== undefined &&
+          !publicActionSummaryMatchesAction(
+            request.action,
+            request.publicActionSummary,
+          )),
     )
   ) {
     throw new Error(
-      `${parentName}: status reply must say why this actor has no 🎫`,
+      `${parentName}: active 🎫 summary must include every pending action and known owner`,
     );
   }
 }
@@ -1733,6 +2755,7 @@ function validateDispositionScopes(
   fixedScopeNames: Set<string>,
   unfinishedScopeNames: Set<string>,
   handoffs: Handoff[],
+  reporterRequests: ReporterRequest[],
   hasHistoricalCheckmark = false,
 ): void {
   const hasFixedScope = fixedScopeNames.size > 0;
@@ -1740,16 +2763,19 @@ function validateDispositionScopes(
   const activeHandoffs = handoffs.filter(
     (handoff) => handoff.status !== "completed",
   );
-  const hasOpenFollowUp = hasUnfinishedScope || activeHandoffs.length > 0;
+  const hasOpenFollowUp =
+    hasUnfinishedScope ||
+    activeHandoffs.length > 0 ||
+    reporterRequests.length > 0;
 
   if (parent.disposition === "Skipped" && (hasFixedScope || hasOpenFollowUp)) {
     throw new Error(
-      `${parentName}: Skipped cannot retain any fixed scope, unfinished scope, or handoff`,
+      `${parentName}: Skipped cannot retain any fixed scope, unfinished scope, handoff, or reporter request`,
     );
   }
   if (parent.disposition === "Fixed" && hasOpenFollowUp) {
     throw new Error(
-      `${parentName}: Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed`,
+      `${parentName}: Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed`,
     );
   }
   if (
@@ -1758,13 +2784,14 @@ function validateDispositionScopes(
     !["Partially fixed", "Verified locally"].includes(parent.disposition)
   ) {
     throw new Error(
-      `${parentName}: fixed and unfinished scopes need Verified locally before merge or Partially fixed after merge`,
+      `${parentName}: fixed and unfinished scopes or reporter requests need Verified locally before merge or Partially fixed after merge`,
     );
   }
   const abandonedReporterWaitWithInternalWork =
     parent.disposition === "Abandoned - no answer in 4 days" &&
     hasUnfinishedScope &&
-    activeHandoffs.length === 0;
+    activeHandoffs.length === 0 &&
+    reporterRequests.length === 0;
   const closedDispositions = new Set([
     "Fixed",
     "Shipped",
@@ -1781,7 +2808,7 @@ function validateDispositionScopes(
     !abandonedReporterWaitWithInternalWork
   ) {
     throw new Error(
-      `${parentName}: unfinished work or a human handoff needs an open disposition`,
+      `${parentName}: unfinished work, a human handoff, or a reporter request needs an open disposition`,
     );
   }
   if (!hasOwnedReaction) {
@@ -1790,13 +2817,13 @@ function validateDispositionScopes(
       (hasFixedScope || hasOpenFollowUp)
     ) {
       throw new Error(
-        `${parentName}: Owned elsewhere cannot record this actor's fixed scopes, unfinished scopes, or handoffs`,
+        `${parentName}: Owned elsewhere cannot record this actor's fixed scopes, unfinished scopes, handoffs, or reporter requests`,
       );
     }
     if (requireSweepOwnership) {
       if (hasOpenFollowUp && !hasEye) {
         throw new Error(
-          `${parentName}: unfinished work or a human handoff must keep this actor's 👀`,
+          `${parentName}: unfinished work, a handoff, or a reporter request must keep this actor's 👀`,
         );
       }
       if (openDispositions.has(parent.disposition) && !hasEye) {
@@ -1808,7 +2835,7 @@ function validateDispositionScopes(
   } else {
     if (hasOpenFollowUp && !hasEye) {
       throw new Error(
-        `${parentName}: unfinished work or a human handoff must keep this actor's 👀`,
+        `${parentName}: unfinished work, a handoff, or a reporter request must keep this actor's 👀`,
       );
     }
     if (openDispositions.has(parent.disposition) && !hasEye) {
@@ -1853,7 +2880,7 @@ function validateDispositionScopes(
     (!hasFixedScope || !hasOpenFollowUp)
   ) {
     throw new Error(
-      `${parentName}: Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff`,
+      `${parentName}: Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request`,
     );
   }
 }
@@ -1935,11 +2962,15 @@ function validateOtherOwnerEvidence(
     !status.evidence.trim() ||
     typeof status.text !== "string" ||
     !status.text.trim() ||
-    !replyStatesDisposition(status.text, status.disposition) ||
-    !status.text.includes(status.evidence.trim())
+    !replyStatesDisposition(status.text, status.disposition)
   ) {
     throw new Error(
       `${parentName}: Owned elsewhere needs that owner's current open status and evidence`,
+    );
+  }
+  if (!hasConcisePublicEvidenceSummary(status)) {
+    throw new Error(
+      `${parentName}: Owned elsewhere needs a concise publicEvidenceSummary present in both internal evidence and reply`,
     );
   }
 
@@ -2019,6 +3050,197 @@ function validateOtherOwnerEvidence(
   }
 }
 
+function validateInScopeReportOwnership(
+  parentName: string,
+  parent: Parent,
+  ownsEye: boolean,
+  hasOwnedWorkflowMark: boolean,
+  hasOwnershipSkip: boolean,
+  isCursorOverlap: boolean,
+): void {
+  if (hasOwnershipSkip || isCursorOverlap) return;
+  if (parent.disposition === "Owned elsewhere" && !hasOwnedWorkflowMark) return;
+  if (parent.disposition === "Clustered" && !hasOwnedWorkflowMark) {
+    if (!parent.clusteredUnder) {
+      throw new Error(
+        `${parentName}: an unowned Clustered report needs an exact linked canonical report root`,
+      );
+    }
+    if (parent.statusReply || parent.latestOwnedReply) {
+      throw new Error(
+        `${parentName}: an unowned Clustered report cannot carry this actor's status reply`,
+      );
+    }
+    return;
+  }
+  if (!ownsEye) {
+    throw new Error(
+      `${parentName}: every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence`,
+    );
+  }
+  if (parent.clusteredUnder && parent.disposition !== "Clustered") {
+    throw new Error(
+      `${parentName}: clusteredUnder is only valid with the Clustered disposition`,
+    );
+  }
+}
+
+function validateClusteredRootLinks(inventory: Inventory): void {
+  const rootsByChannelAndTs = new Map<string, Parent>();
+  const rootKey = (channelId: string, rootTs: string) =>
+    `${channelId}\u0000${rootTs}`;
+  const allRoots: Array<{ channelId: string; parent: Parent }> = [];
+
+  for (const channel of inventory.channels) {
+    const roots = [
+      ...channel.pages.flatMap((page) =>
+        page.parents.filter((parent) => parent.ts === parent.threadParentTs),
+      ),
+      ...(channel.threadRootAudits ?? []),
+    ];
+    for (const parent of roots) {
+      rootsByChannelAndTs.set(
+        rootKey(
+          channel.channelId,
+          slackTimestamp(parent.ts, "cluster root.ts").toString(),
+        ),
+        parent,
+      );
+      allRoots.push({ channelId: channel.channelId, parent });
+    }
+  }
+
+  for (const { channelId, parent } of allRoots) {
+    const parentName = `${channelId} root ${parent.ts}`;
+    if (parent.disposition !== "Clustered") {
+      if (parent.clusteredUnder) {
+        throw new Error(
+          `${parentName}: clusteredUnder is only valid with the Clustered disposition`,
+        );
+      }
+      continue;
+    }
+
+    const link = parent.clusteredUnder;
+    const linkFields = link && Object.keys(link).sort();
+    if (
+      !link ||
+      !linkFields ||
+      linkFields.join(",") !== "channelId,permalink,rootTs" ||
+      typeof link.channelId !== "string" ||
+      !link.channelId.trim() ||
+      typeof link.permalink !== "string" ||
+      !link.permalink.trim()
+    ) {
+      throw new Error(
+        `${parentName}: Clustered needs an exact canonical root channelId, rootTs, and permalink`,
+      );
+    }
+
+    const linkedRootTimestamp = slackTimestamp(
+      link.rootTs,
+      `${parentName}.clusteredUnder.rootTs`,
+    );
+    const canonicalLinkedRootTs = slackTimestampFromMicros(linkedRootTimestamp);
+    if (link.rootTs !== canonicalLinkedRootTs || link.rootTs === parent.ts) {
+      throw new Error(
+        `${parentName}: clusteredUnder must name a different canonical root with its exact Slack timestamp`,
+      );
+    }
+
+    let permalink: URL;
+    try {
+      permalink = new URL(link.permalink);
+    } catch {
+      throw new Error(
+        `${parentName}: clusteredUnder.permalink must be a canonical Slack root permalink`,
+      );
+    }
+    const permalinkPath = /^\/archives\/([^/]+)\/p(\d{7,})$/.exec(
+      permalink.pathname,
+    );
+    const threadTsValues = permalink.searchParams.getAll("thread_ts");
+    const hasOnlyRootThreadTs =
+      [...permalink.searchParams.keys()].every((key) => key === "thread_ts") &&
+      threadTsValues.length <= 1 &&
+      (threadTsValues.length === 0 ||
+        slackTimestamp(
+          threadTsValues[0],
+          `${parentName}.clusteredUnder.permalink.thread_ts`,
+        ) === linkedRootTimestamp);
+    if (
+      permalink.protocol !== "https:" ||
+      !permalink.hostname.endsWith(".slack.com") ||
+      permalink.username ||
+      permalink.password ||
+      permalink.hash ||
+      !permalinkPath ||
+      permalinkPath[1] !== link.channelId ||
+      !hasOnlyRootThreadTs
+    ) {
+      throw new Error(
+        `${parentName}: clusteredUnder.permalink must resolve to the exact linked Slack channel and root`,
+      );
+    }
+    const permalinkRootTs = slackTimestamp(
+      `${permalinkPath[2]!.slice(0, -6)}.${permalinkPath[2]!.slice(-6)}`,
+      `${parentName}.clusteredUnder.permalink timestamp`,
+    );
+    if (permalinkRootTs !== linkedRootTimestamp) {
+      throw new Error(
+        `${parentName}: clusteredUnder.permalink timestamp must match its exact rootTs`,
+      );
+    }
+
+    const canonicalRoot = rootsByChannelAndTs.get(
+      rootKey(link.channelId, linkedRootTimestamp.toString()),
+    );
+    if (!canonicalRoot || canonicalRoot.rootClassification !== "report") {
+      throw new Error(
+        `${parentName}: clusteredUnder must resolve to a report root represented in the inventory`,
+      );
+    }
+    if (canonicalRoot.ownershipSkip) {
+      validateOwnershipSkipRecord(
+        `${link.channelId} held root ${canonicalRoot.ts}`,
+        canonicalRoot,
+        canonicalRoot.ts,
+      );
+      validateOwnershipSkipRootEvidence(
+        `${link.channelId} held root ${canonicalRoot.ts}`,
+        canonicalRoot,
+        inventory.sweepActorId,
+      );
+      if (canonicalRoot.ownershipSkip.reason !== "foreign_workflow_mark") {
+        throw new Error(
+          `${parentName}: a Clustered canonical root must have an active owner, not only a local opt-out`,
+        );
+      }
+      continue;
+    }
+
+    if (canonicalRoot.disposition === "Owned elsewhere") {
+      if (!canonicalRoot.otherOwnerEvidence) {
+        throw new Error(
+          `${parentName}: clusteredUnder canonical root needs verifiable current owner evidence`,
+        );
+      }
+      continue;
+    }
+
+    if (
+      !workflowReactionState(
+        canonicalRoot.reactionOwners,
+        inventory.sweepActorId,
+      ).eyes
+    ) {
+      throw new Error(
+        `${parentName}: clusteredUnder canonical root needs this actor's current 👀 and status or another verified owner`,
+      );
+    }
+  }
+}
+
 function validateHandoffDefinitions(
   parentName: string,
   parent: Parent,
@@ -2032,6 +3254,7 @@ function validateHandoffDefinitions(
   }
   const handoffs = parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
   const handoffScopes = new Set<string>();
+  const handoffActions = new Set<string>();
   for (const [handoffIndex, handoff] of handoffs.entries()) {
     if (
       !handoff ||
@@ -2040,7 +3263,10 @@ function validateHandoffDefinitions(
       typeof handoff.owner !== "string" ||
       !handoff.owner.trim() ||
       typeof handoff.action !== "string" ||
-      !handoff.action.trim()
+      !handoff.action.trim() ||
+      (handoff.publicActionSummary !== undefined &&
+        (typeof handoff.publicActionSummary !== "string" ||
+          !handoff.publicActionSummary.trim()))
     ) {
       throw new Error(
         `${parentName}: handoff ${handoffIndex + 1} needs a distinct scope, responsible person/team, and action`,
@@ -2054,6 +3280,18 @@ function validateHandoffDefinitions(
     ) {
       throw new Error(
         `${parentName}: handoff status must be unassigned, accepted, or completed`,
+      );
+    }
+    if (
+      handoff.publicActionSummary !== undefined &&
+      !publicActionSummaryMatchesAction(
+        handoff.action,
+        handoff.publicActionSummary,
+        handoff.owner,
+      )
+    ) {
+      throw new Error(
+        `${parentName}: publicActionSummary must be a concise prefix of the recorded action`,
       );
     }
     if (
@@ -2082,6 +3320,30 @@ function validateHandoffDefinitions(
       );
     }
     handoffScopes.add(normalizedScope);
+    handoffActions.add(
+      `${normalizedScope}\u0000${normalizeScope(handoff.action)}`,
+    );
+  }
+  const reporterRequests = parent.reporterRequests ?? [];
+  if (!Array.isArray(reporterRequests)) {
+    throw new Error(`${parentName}: reporterRequests must be an array`);
+  }
+  for (const reporterRequest of reporterRequests) {
+    if (
+      !reporterRequest ||
+      typeof reporterRequest.scope !== "string" ||
+      typeof reporterRequest.action !== "string"
+    ) {
+      continue;
+    }
+    const actionKey =
+      `${normalizeScope(reporterRequest.scope)}\u0000` +
+      normalizeScope(reporterRequest.action);
+    if (handoffActions.has(actionKey)) {
+      throw new Error(
+        `${parentName}: the same scope and action cannot appear in reporterRequests and handoffs`,
+      );
+    }
   }
   return handoffs;
 }
@@ -2091,11 +3353,18 @@ function validateHandoffTicketParity(
   handoffs: Handoff[],
   hasTicket: boolean,
   hasHistoricalTicket = false,
+  reporterRequests: ReporterRequest[] = [],
 ): void {
-  if (handoffs.length > 0 && !hasTicket) {
-    throw new Error(`${parentName}: every handoff needs this actor's 🎫`);
+  if (!Array.isArray(reporterRequests)) {
+    throw new Error(parentName + ": reporterRequests must be an array");
   }
-  if (handoffs.length === 0 && hasTicket && !hasHistoricalTicket) {
+  const trackedHumanActions = handoffs.length + reporterRequests.length;
+  if (trackedHumanActions > 0 && !hasTicket) {
+    throw new Error(
+      `${parentName}: every handoff or active reporter request needs this actor's 🎫`,
+    );
+  }
+  if (trackedHumanActions === 0 && hasTicket && !hasHistoricalTicket) {
     throw new Error(
       `${parentName}: this actor's 🎫 needs a distinct active or explicitly historical human action`,
     );
@@ -2111,9 +3380,15 @@ function validateSupplementalRootAudit(
   threadSnapshot: ThreadSnapshot | undefined,
   requireFreshReads: boolean,
   finalPageReadAt: number | null,
+  requireSourceText = false,
 ): void {
   const parentName = `${channelName} supplemental root ${rootTs}`;
   validateSlackFiles(`${parentName}.files`, parent.files);
+  if (parent.ownershipSkip && parent.files !== undefined) {
+    throw new Error(
+      `${parentName}: without a source file listing, held-root attachment state must remain unknown`,
+    );
+  }
   const timestamp = slackTimestamp(parent.ts, `${parentName}.ts`);
   const threadParentTimestamp = slackTimestamp(
     parent.threadParentTs,
@@ -2132,7 +3407,8 @@ function validateSupplementalRootAudit(
   }
   if (
     parent.rootClassification !== "report" &&
-    parent.rootClassification !== "administrative"
+    parent.rootClassification !== "administrative" &&
+    !(parent.rootClassification === "unclassified" && parent.ownershipSkip)
   ) {
     throw new Error(
       `${parentName}: classify the root as report or administrative`,
@@ -2144,18 +3420,28 @@ function validateSupplementalRootAudit(
   ) {
     throw new Error(`${parentName}: administrative roots need a reason`);
   }
+  if (!parent.ownershipSkip || parent.rootClassification !== "unclassified") {
+    validateRootClassificationJudgment(
+      parentName,
+      parent,
+      sweepActorId,
+      parent.ownershipSkip ? parent.sourceText : threadSnapshot?.rootText,
+      requireSourceText,
+    );
+  }
   if (parent.reactionChecked !== true) {
     throw new Error(`${parentName}: check reactions before triage`);
   }
+  const requireFreshReactionRead = requireFreshReads;
   const reactionReadAt = validateRootReactionReadAt(
     parentName,
     parent,
-    requireFreshReads,
+    requireFreshReactionRead,
   );
   if (
-    requireFreshReads &&
+    requireFreshReactionRead &&
     finalPageReadAt !== null &&
-    reactionReadAt! < finalPageReadAt
+    reactionReadAt! <= finalPageReadAt
   ) {
     throw new Error(
       `${parentName}: root reaction read-back must follow the final channel page`,
@@ -2183,6 +3469,17 @@ function validateSupplementalRootAudit(
     parent.reactionSummary,
     parent.reactionOwners,
   );
+
+  if (
+    validateOwnershipSkipRecord(
+      parentName,
+      parent,
+      slackTimestampFromMicros(timestamp),
+    )
+  ) {
+    validateOwnershipSkipRootEvidence(parentName, parent, sweepActorId);
+    return;
+  }
 
   const rootReactionState = workflowReactionState(
     parent.reactionOwners,
@@ -2246,6 +3543,7 @@ function validateSupplementalRootAudit(
       fixedScopeNames,
       unfinishedScopeNames,
       handoffs,
+      parent.reporterRequests ?? [],
       hasHistoricalCheckmark,
     );
     validateHandoffTicketParity(
@@ -2253,6 +3551,7 @@ function validateSupplementalRootAudit(
       handoffs,
       rootReactionState.ticket,
       hasHistoricalTicket,
+      parent.reporterRequests ?? [],
     );
     return;
   }
@@ -2261,6 +3560,7 @@ function validateSupplementalRootAudit(
     handoffs,
     rootReactionState.ticket,
     hasHistoricalTicket,
+    parent.reporterRequests ?? [],
   );
   validateDispositionScopes(
     parentName,
@@ -2272,6 +3572,7 @@ function validateSupplementalRootAudit(
     fixedScopeNames,
     unfinishedScopeNames,
     handoffs,
+    parent.reporterRequests ?? [],
     hasHistoricalCheckmark,
   );
 
@@ -2313,8 +3614,7 @@ function validateSupplementalRootAudit(
     typeof reply.evidence !== "string" ||
     !reply.evidence.trim() ||
     reply.disposition !== parent.disposition ||
-    !replyStatesDisposition(reply.text, parent.disposition) ||
-    !reply.text.includes(reply.evidence.trim())
+    !replyStatesDisposition(reply.text, parent.disposition)
   ) {
     throw new Error(
       `${parentName}: an owned root eye or mark needs its latest same-actor status reply`,
@@ -2337,11 +3637,11 @@ function validateSupplementalRootAudit(
   validateStatusReactionLanguage(
     parentName,
     reply.text,
-    rootReactionState.white_check_mark,
-    rootReactionState.ticket,
-    parent.fixedScopes ?? [],
-    parent.unfinishedScopes ?? [],
-    historicalMarks,
+    handoffs,
+    parent.reporterRequests ?? [],
+    reply.pendingActionSummary,
+    unfinishedScopes,
+    reply.unfinishedScopeSummary,
   );
   const replyTs = slackTimestamp(reply.ts, `${parentName}.statusReply.ts`);
   if (
@@ -2385,6 +3685,19 @@ function validateSupplementalRootAudit(
   ) {
     throw new Error(
       `${parentName}: status evidence must include every verified root scope`,
+    );
+  }
+  if (
+    !hasPublicEvidenceSummary(
+      reply,
+      fixedScopes.map((fixedScope) => ({
+        scope: fixedScope.scope,
+        verification: fixedScope.verification,
+      })),
+    )
+  ) {
+    throw new Error(
+      `${parentName}: fixed-scope status needs a concise publicEvidenceSummary from a recorded scope verification in both internal proof and reply`,
     );
   }
   if (
@@ -2437,11 +3750,10 @@ function validateSupplementalRootAudit(
         !handoff.scope.trim() ||
         !handoff.owner.trim() ||
         !handoff.action.trim(),
-    ) ||
-    (handoffs.length > 0 && !replyNamesHandoffs(reply.text, handoffs))
+    )
   ) {
     throw new Error(
-      `${parentName}: status reply must name each handoff's scope, owner, and action`,
+      `${parentName}: each handoff needs a scope, owner, and action`,
     );
   }
 }
@@ -2453,7 +3765,264 @@ type ValidationOptions = {
   requireFreshReads?: boolean;
   sourceReceipt?: SourceReceipt;
   rawSourcePages?: RawSourcePages;
+  requireOwnershipDiscovery?: boolean;
+  requireSourceText?: boolean;
+  rawOwnedMarkPages?: RawOwnedMarkSearchPages;
+  rawThreadPages?: RawThreadPages;
+  scopeConfirmation?: unknown;
 };
+
+type OrchestratorScopeConfirmation = {
+  source: "orchestrator";
+  decision: "explicitly-requested";
+  userRequest: string;
+  channelIds: string[];
+};
+
+function validateOrchestratorScopeConfirmation(
+  confirmation: unknown,
+  userRequest: string,
+  requestedChannelIds: Set<string>,
+): void {
+  if (confirmation === undefined) {
+    throw new Error(
+      "narrowed scope is pending a human check; provide a separate orchestrator confirmation file",
+    );
+  }
+  if (
+    !confirmation ||
+    typeof confirmation !== "object" ||
+    Array.isArray(confirmation)
+  ) {
+    throw new Error(
+      "external scope confirmation must be an orchestrator confirmation object",
+    );
+  }
+  const record = confirmation as Partial<OrchestratorScopeConfirmation>;
+  if (
+    record.source !== "orchestrator" ||
+    record.decision !== "explicitly-requested" ||
+    typeof record.userRequest !== "string" ||
+    !Array.isArray(record.channelIds)
+  ) {
+    throw new Error(
+      "external scope confirmation must record source=orchestrator and decision=explicitly-requested",
+    );
+  }
+  const confirmedChannelIds = record.channelIds;
+  if (
+    confirmedChannelIds.some(
+      (channelId) => typeof channelId !== "string" || !channelId.trim(),
+    ) ||
+    new Set(confirmedChannelIds).size !== confirmedChannelIds.length ||
+    confirmedChannelIds.length !== requestedChannelIds.size ||
+    [...requestedChannelIds].some(
+      (channelId) => !confirmedChannelIds.includes(channelId),
+    ) ||
+    record.userRequest !== userRequest
+  ) {
+    throw new Error(
+      "external scope confirmation must match the inventory's exact userRequest and channelIds",
+    );
+  }
+}
+
+function withoutQuotedScopeContext(userRequest: string): string {
+  return userRequest
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`\n]*`/g, " ")
+    .replace(/^\s*>[^\n]*$/gm, " ")
+    .replace(/"[^"\n]*(?:"|$)|“[^”\n]*(?:”|$)|‘[^’\n]*(?:’|$)/g, " ");
+}
+
+function hasOneAdjacentTransposition(left: string, right: string): boolean {
+  const a = left.toLowerCase();
+  const b = right.toLowerCase();
+  if (a.length !== b.length) return false;
+  const differences: number[] = [];
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) differences.push(index);
+  }
+  return (
+    differences.length === 2 &&
+    differences[1] === differences[0]! + 1 &&
+    a[differences[0]!] === b[differences[1]!] &&
+    a[differences[1]!] === b[differences[0]!]
+  );
+}
+
+function directSameInReferences(userRequest: string): string[] {
+  return [
+    ...withoutUrlTokens(withoutQuotedScopeContext(userRequest)).matchAll(
+      /(?:^|[^\w])same\s+in\s+#?([a-z0-9][a-z0-9_-]*)(?![\w-])/gi,
+    ),
+  ].map((match) => match[1]!);
+}
+
+function withoutUrlTokens(value: string): string {
+  return value.replace(/https?:\/\/[^\s<>()]+/gi, " ");
+}
+
+function explicitlyNamedChannelIds(
+  userRequest: string,
+  channels: readonly Pick<Channel, "channelId" | "channelName">[],
+): Set<string> {
+  const scopeText = withoutUrlTokens(withoutQuotedScopeContext(userRequest));
+  const canonicalChannels = [...defaultFeedbackChannels, ...channels].filter(
+    (channel, index, all) =>
+      all.findIndex(
+        (candidate) => candidate.channelId === channel.channelId,
+      ) === index,
+  );
+  const byId = new Map(
+    canonicalChannels.map((channel) => [channel.channelId, channel]),
+  );
+  const sameInReferences = directSameInReferences(userRequest);
+  const requested = new Set<string>();
+  const resolve = (reference: string, allowTransposition = false): void => {
+    const byExactName = canonicalChannels.filter(
+      (channel) =>
+        channel.channelName.toLowerCase() === reference.toLowerCase(),
+    );
+    const exact = byId.get(reference) ? [byId.get(reference)!] : byExactName;
+    if (exact.length === 1) {
+      requested.add(exact[0]!.channelId);
+      return;
+    }
+    if (exact.length > 1) {
+      requested.add(`ambiguous:${reference.toLowerCase()}`);
+      return;
+    }
+    if (allowTransposition) {
+      const transposed = canonicalChannels.filter((channel) =>
+        hasOneAdjacentTransposition(reference, channel.channelName),
+      );
+      if (transposed.length === 1) {
+        requested.add(transposed[0]!.channelId);
+        return;
+      }
+      if (transposed.length > 1) {
+        requested.add(`ambiguous:${reference.toLowerCase()}`);
+        return;
+      }
+    }
+    requested.add(`unknown:${reference.toLowerCase()}`);
+  };
+  const mentions = /(?:^|[^\w])#([a-z0-9][a-z0-9_-]*)(?![\w-])/gi;
+  for (const match of scopeText.matchAll(mentions)) {
+    const reference = match[1]!;
+    resolve(
+      reference,
+      sameInReferences.some(
+        (directReference) =>
+          directReference.toLowerCase() === reference.toLowerCase(),
+      ),
+    );
+  }
+  const ids =
+    /(?:^|[^A-Za-z0-9])((?:C|G)(?:[A-Z0-9]{8,}|_[A-Z0-9_]+))(?=$|[^A-Za-z0-9])/g;
+  for (const match of scopeText.matchAll(ids)) {
+    resolve(match[1]!);
+  }
+  for (const reference of sameInReferences) {
+    resolve(reference, true);
+  }
+  return requested;
+}
+
+function slackReportAnchors(
+  userRequest: string,
+): Array<{ channelId: string; rootTs: string }> {
+  const scopeText = withoutQuotedScopeContext(userRequest);
+  const anchors: Array<{ channelId: string; rootTs: string }> = [];
+  for (const match of scopeText.matchAll(/https?:\/\/[^\s<>()]+/gi)) {
+    const token = match[0]!.replace(/[.,;!?]+$/, "");
+    let url: URL;
+    try {
+      url = new URL(token);
+    } catch {
+      continue;
+    }
+    const host = url.hostname.toLowerCase();
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      !(host === "slack.com" || host.endsWith(".slack.com"))
+    ) {
+      continue;
+    }
+    const path = /^\/archives\/((?:C|G)[A-Z0-9]{8,})\/p(\d+)\/?$/.exec(
+      url.pathname,
+    );
+    if (!path || path[2]!.length <= 6) continue;
+    const rootTs = `${path[2]!.slice(0, -6)}.${path[2]!.slice(-6)}`;
+    try {
+      slackTimestamp(rootTs, "Slack permalink timestamp");
+    } catch {
+      continue;
+    }
+    anchors.push({ channelId: path[1]!, rootTs });
+  }
+  return anchors.filter(
+    (anchor, index) =>
+      anchors.findIndex(
+        (candidate) =>
+          candidate.channelId === anchor.channelId &&
+          candidate.rootTs === anchor.rootTs,
+      ) === index,
+  );
+}
+
+function requestNamesExactlyRequestedChannels(
+  userRequest: string,
+  channels: readonly Pick<Channel, "channelId" | "channelName">[],
+  requestedChannelIds: Set<string>,
+  expectedPermalink?: { channelId: string; rootTs: string },
+): boolean {
+  const normalizedRequest =
+    withoutQuotedScopeContext(userRequest).toLowerCase();
+  const explicitlyLimitsScope =
+    /\b(?:only|just|solely|exclusively|limit(?:ed)?|restrict(?:ed)?|narrow(?:ed)?)\b/.test(
+      normalizedRequest,
+    );
+  const explicitlyNamedIds = explicitlyNamedChannelIds(userRequest, channels);
+  const matchesRequested = (ids: Set<string>) =>
+    ids.size === requestedChannelIds.size &&
+    [...requestedChannelIds].every((channelId) => ids.has(channelId));
+
+  const anchors = slackReportAnchors(userRequest);
+  if (
+    expectedPermalink &&
+    /https?:\/\//i.test(withoutQuotedScopeContext(userRequest)) &&
+    (anchors.length !== 1 ||
+      anchors[0]!.channelId !== expectedPermalink.channelId ||
+      slackTimestamp(anchors[0]!.rootTs, "request permalink timestamp") !==
+        slackTimestamp(expectedPermalink.rootTs, "inventory permalinkTs"))
+  ) {
+    return false;
+  }
+  if (explicitlyLimitsScope && matchesRequested(explicitlyNamedIds)) {
+    return true;
+  }
+
+  if (
+    anchors.length !== 1 ||
+    directSameInReferences(userRequest).length !== 1
+  ) {
+    return false;
+  }
+
+  const anchorChannelId = anchors[0]!.channelId;
+  const scopeIds = new Set([anchorChannelId, ...explicitlyNamedIds]);
+  // The direct same-in clause can use one unique adjacent transposition. Its
+  // resolved id is already included in explicitlyNamedIds.
+  return (
+    scopeIds.size === requestedChannelIds.size &&
+    requestedChannelIds.has(anchorChannelId) &&
+    matchesRequested(scopeIds)
+  );
+}
 
 function validateReadAt(
   value: unknown,
@@ -2481,9 +4050,27 @@ function validateReadAt(
   return readAt;
 }
 
+function validateBoundedReadAt(value: unknown, label: string): number {
+  if (typeof value !== "string") {
+    throw new Error(
+      `${label} must record the local ISO time of the completed read`,
+    );
+  }
+  const readAt = Date.parse(value);
+  if (!Number.isFinite(readAt) || new Date(readAt).toISOString() !== value) {
+    throw new Error(`${label} must be an ISO timestamp`);
+  }
+  if (Date.now() - readAt < -MAX_FUTURE_SKEW_MS) {
+    throw new Error(
+      `${label} is more than one minute in the future; check the local clock and repeat the bounded read`,
+    );
+  }
+  return readAt;
+}
+
 function validateRootReactionReadAt(
   parentName: string,
-  parent: Parent,
+  parent: Pick<Parent, "reactionReadAt" | "reactionWriteAt">,
   requireFreshReads: boolean,
 ): number | undefined {
   const reactionReadAt = parent.reactionReadAt;
@@ -2527,7 +4114,7 @@ function validateRootReactionReadAt(
     }
     if (
       reactionReadTime === undefined ||
-      reactionReadTime < reactionWriteTime
+      reactionReadTime <= reactionWriteTime
     ) {
       throw new Error(
         `${parentName}: root reaction read-back must follow the latest reaction write`,
@@ -2545,18 +4132,1248 @@ function validateRootReactionReadAt(
   return reactionReadTime;
 }
 
-const sourceReceiptChannelNames = new Map([
-  ["C0C4U4XRT6X", "qa"],
-  ["C0ATH3CCZT4", "product"],
-  ["C0AJ5QV0J03", "dev"],
-]);
+type RootReactionEvidence = Pick<
+  Parent,
+  | "ts"
+  | "reactionChecked"
+  | "reactionReadAt"
+  | "reactionWriteAt"
+  | "reactionSummary"
+  | "reactionOwners"
+>;
 
-function sourceReceiptChannelName(channelId: string, index: number): string {
-  return (
-    sourceReceiptChannelNames.get(channelId) ??
-    ["qa", "product", "dev"][index] ??
-    channelId
+function validateExactRootReactionReadback(
+  parentName: string,
+  readback: RootReactionEvidence,
+  requireFreshReads: boolean,
+  latestSearchReadAt: number,
+): void {
+  if (readback.reactionChecked !== true) {
+    throw new Error(`${parentName}: check root reactions before disposition`);
+  }
+  if (
+    typeof readback.reactionSummary !== "string" ||
+    !readback.reactionSummary.trim() ||
+    !readback.reactionOwners ||
+    typeof readback.reactionOwners !== "object" ||
+    Array.isArray(readback.reactionOwners)
+  ) {
+    throw new Error(`${parentName}: record the exact observed reaction state`);
+  }
+  validateReactionOwners(
+    parentName,
+    readback.reactionSummary,
+    readback.reactionOwners,
   );
+  const reactionReadAt = validateRootReactionReadAt(
+    parentName,
+    readback,
+    requireFreshReads,
+  );
+  if (reactionReadAt === undefined) {
+    throw new Error(
+      `${parentName}: record when the exact root reaction read-back completed`,
+    );
+  }
+  if (reactionReadAt <= latestSearchReadAt) {
+    throw new Error(
+      `${parentName}: reread root reactions after the exhaustive owned-mark searches`,
+    );
+  }
+}
+
+function sourceReceiptChannelName(
+  channel: Pick<Channel, "channelName">,
+): string {
+  return channel.channelName;
+}
+
+const emptySlackSearchResults =
+  "# Search Results for: in:qa after:2026-10-17 before:2026-10-17\n\nNo results found.\n";
+const emptySlackSearchResultsPattern =
+  /^# Search Results for: [^\n]*\n\nNo results found\.\n?$/;
+const exhaustedSlackSearchPagination =
+  "End of results - No more pages available.";
+
+type SlackSearchScope = {
+  channelId: string;
+  channelName: string;
+  scanQuery: Pick<ChannelScanQuery, "tool" | "filters"> & {
+    after?: string;
+    before: string;
+  };
+  before?: string | null;
+  allowEmptyEcho?: boolean;
+  workflowEmoji?: WorkflowEmoji;
+};
+
+function validateEchoedSlackSearchQuery(
+  query: string,
+  scope: SlackSearchScope,
+  sourceName: string,
+): void {
+  const channelFilter = `in:<#${scope.channelId}>`;
+  const expectedFilters = scope.workflowEmoji
+    ? `${channelFilter} hasmy::${scope.workflowEmoji}:`
+    : channelFilter;
+  if (
+    scope.scanQuery.tool !== "slack_search_public" ||
+    scope.scanQuery.filters !== expectedFilters
+  ) {
+    throw new Error(`${sourceName}: inventory search scope is invalid`);
+  }
+
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const channelFilters = tokens.filter((token) => token.startsWith("in:"));
+  const afterFilters = tokens.filter((token) => token.startsWith("after:"));
+  const beforeFilters = tokens.filter((token) => token.startsWith("before:"));
+  const hasMyFilters = tokens.filter((token) => token.startsWith("hasmy::"));
+  const expectedBefore = scope.before ?? scope.scanQuery.before;
+  const expectsBefore = expectedBefore !== undefined && expectedBefore !== null;
+  const expectsAfter = typeof scope.scanQuery.after === "string";
+  if (
+    tokens.length !==
+      1 +
+        (expectsAfter ? 1 : 0) +
+        (scope.workflowEmoji ? 1 : 0) +
+        (expectsBefore ? 1 : 0) ||
+    channelFilters.length !== 1 ||
+    afterFilters.length !== (expectsAfter ? 1 : 0) ||
+    hasMyFilters.length !== (scope.workflowEmoji ? 1 : 0) ||
+    beforeFilters.length !== (expectsBefore ? 1 : 0)
+  ) {
+    throw new Error(
+      `${sourceName}: echoed Slack query must contain only this channel and its recorded lower and upper bounds`,
+    );
+  }
+
+  const echoedChannel = channelFilters[0]!.slice("in:".length);
+  const slackChannelReference = /^<#([^>|]+)(?:\|([^>]+))?>$/.exec(
+    echoedChannel,
+  );
+  const normalizedEchoedChannel = (value: string) =>
+    value.replace(/^#/, "").toLowerCase();
+  const matchesChannel = slackChannelReference
+    ? slackChannelReference[1] === scope.channelId &&
+      (slackChannelReference[2] === undefined ||
+        normalizedEchoedChannel(slackChannelReference[2]) ===
+          normalizedEchoedChannel(scope.channelName))
+    : [scope.channelName, scope.channelId].some(
+        (value) =>
+          normalizedEchoedChannel(value) ===
+          normalizedEchoedChannel(echoedChannel),
+      );
+  if (!matchesChannel) {
+    throw new Error(
+      `${sourceName}: echoed Slack query does not match the inventoried channel`,
+    );
+  }
+
+  if (
+    scope.workflowEmoji &&
+    hasMyFilters[0] !== `hasmy::${scope.workflowEmoji}:`
+  ) {
+    throw new Error(
+      `${sourceName}: echoed Slack query does not match the owned-mark search`,
+    );
+  }
+
+  if (expectsAfter) {
+    const afterMatch = /^after:(\d{4}-\d{2}-\d{2})$/.exec(afterFilters[0]!);
+    if (!afterMatch) {
+      throw new Error(
+        `${sourceName}: echoed Slack query has no valid inventory cutoff date`,
+      );
+    }
+    const echoedAfterDate = new Date(`${afterMatch[1]}T00:00:00.000Z`);
+    if (
+      Number.isNaN(echoedAfterDate.getTime()) ||
+      echoedAfterDate.toISOString().slice(0, 10) !== afterMatch[1]
+    ) {
+      throw new Error(
+        `${sourceName}: echoed Slack query has no valid inventory cutoff date`,
+      );
+    }
+    const cutoffMicros = slackTimestamp(
+      scope.scanQuery.after,
+      `${sourceName}.scanQuery.after`,
+    );
+    const cutoffDate = new Date(Number(cutoffMicros / 1_000_000n) * 1_000)
+      .toISOString()
+      .slice(0, 10);
+    if (afterMatch[1] !== cutoffDate) {
+      throw new Error(
+        `${sourceName}: echoed Slack query after date must match the UTC date of scanQuery.after`,
+      );
+    }
+  }
+  if (beforeFilters.length === 1) {
+    const beforeMatch = /^before:(\d{4}-\d{2}-\d{2})$/.exec(beforeFilters[0]!);
+    if (!beforeMatch) {
+      throw new Error(
+        `${sourceName}: echoed Slack query has no valid before date`,
+      );
+    }
+    const beforeMicros = slackTimestamp(expectedBefore, `${sourceName}.before`);
+    const beforeDate = new Date(Number(beforeMicros / 1_000_000n) * 1_000)
+      .toISOString()
+      .slice(0, 10);
+    if (beforeMatch[1] !== beforeDate) {
+      throw new Error(
+        `${sourceName}: echoed Slack query does not match the recorded upper bound`,
+      );
+    }
+  }
+}
+
+function parseRawSlackSearchPage(
+  results: string,
+  paginationInfo: unknown,
+  sourceName: string,
+  scope: SlackSearchScope,
+): {
+  messages: Array<{
+    timestamp: string;
+    permalink: string;
+    text: string;
+    rawText: string;
+    filesMetadata?: SlackFileAttachment[];
+  }>;
+  nextCursor: string | null;
+  exhausted: boolean;
+} {
+  const normalizedResults = results.replace(/\r\n/g, "\n");
+  const queryMatch = /^# Search Results for: ([^\n]*)\n\n/.exec(
+    normalizedResults,
+  );
+  if (!queryMatch) {
+    throw new Error(
+      `${sourceName}: raw Slack results have no recognized search-result header`,
+    );
+  }
+  if (queryMatch[1] === "") {
+    if (!scope.allowEmptyEcho) {
+      throw new Error(
+        `${sourceName}: raw Slack results do not echo the search query`,
+      );
+    }
+  } else {
+    validateEchoedSlackSearchQuery(queryMatch[1]!, scope, sourceName);
+  }
+  if (typeof paginationInfo !== "string") {
+    throw new Error(`${sourceName}: raw Slack response has no pagination info`);
+  }
+
+  const normalizedPagination = paginationInfo
+    .replace(/(?:\\n|\s)+$/g, "")
+    .trimEnd();
+  const cursorMatches = [...normalizedPagination.matchAll(/cursor `([^`]+)`/g)];
+  if (cursorMatches.length > 1) {
+    throw new Error(`${sourceName}: raw Slack response has multiple cursors`);
+  }
+  const nextCursor = cursorMatches[0]?.[1] ?? null;
+  const hasExhaustionMarker = normalizedPagination.includes(
+    exhaustedSlackSearchPagination,
+  );
+  const exhausted = normalizedPagination === exhaustedSlackSearchPagination;
+  if (nextCursor !== null && hasExhaustionMarker) {
+    throw new Error(
+      `${sourceName}: raw Slack response has both a next cursor and exhausted pagination`,
+    );
+  }
+  if (nextCursor === null && !exhausted) {
+    throw new Error(
+      `${sourceName}: raw Slack response must record a next cursor or explicit exhaustion`,
+    );
+  }
+
+  if (emptySlackSearchResultsPattern.test(normalizedResults)) {
+    if (!exhausted) {
+      throw new Error(
+        `${sourceName}: empty Slack results require explicit exhausted pagination`,
+      );
+    }
+    return { messages: [], nextCursor: null, exhausted: true };
+  }
+
+  const countMatch =
+    /^# Search Results for: [^\n]*\n\n## Messages \((\d+) results?\)\n/.exec(
+      normalizedResults,
+    );
+  if (!countMatch) {
+    throw new Error(
+      `${sourceName}: raw Slack results have no recognized search-result header`,
+    );
+  }
+  const count = Number(countMatch[1]);
+  if (!Number.isSafeInteger(count) || count < 1) {
+    throw new Error(
+      `${sourceName}: raw Slack result headers do not match the declared result count`,
+    );
+  }
+
+  const messages: Array<{
+    timestamp: string;
+    permalink: string;
+    text: string;
+    rawText: string;
+    filesMetadata?: SlackFileAttachment[];
+  }> = [];
+  let position = (countMatch.index ?? 0) + countMatch[0].length;
+  for (let resultIndex = 1; resultIndex <= count; resultIndex += 1) {
+    const headerPattern = new RegExp(
+      `^### Result ${resultIndex} of ${count}$`,
+      "gm",
+    );
+    headerPattern.lastIndex = position;
+    const header = headerPattern.exec(normalizedResults);
+    if (!header) {
+      throw new Error(
+        `${sourceName}: raw Slack result headers do not match the declared result count`,
+      );
+    }
+
+    const bodyStart = header.index + header[0].length;
+    let resultEnd = normalizedResults.length;
+    if (resultIndex < count) {
+      const nextHeaderPattern = new RegExp(
+        `(?:\\n---\\n\\n|\\n)### Result ${resultIndex + 1} of ${count}\\n`,
+        "g",
+      );
+      nextHeaderPattern.lastIndex = bodyStart;
+      const nextHeaders: RegExpExecArray[] = [];
+      let nextHeader: RegExpExecArray | null;
+      while ((nextHeader = nextHeaderPattern.exec(normalizedResults))) {
+        nextHeaders.push(nextHeader);
+      }
+      if (nextHeaders.length !== 1) {
+        throw new Error(
+          `${sourceName}: raw Slack result has an ambiguous or missing timestamp and permalink boundary`,
+        );
+      }
+      resultEnd = nextHeaders[0]!.index;
+    }
+
+    const resultText = normalizedResults.slice(bodyStart, resultEnd);
+    const contentStart = resultText.search(
+      /\n(?:Text:|Files:|Reactions:)(?:\s|$)/,
+    );
+    const headerText =
+      contentStart === -1 ? resultText : resultText.slice(0, contentStart);
+    const timestampMatches = [
+      ...headerText.matchAll(/\nMessage_ts: ([0-9.]+)(?:\n|$)/g),
+    ];
+    const permalinkMatches = [
+      ...headerText.matchAll(/\nPermalink: \[link\]\(([^)\n]+)\)/g),
+    ];
+    if (
+      timestampMatches.length !== 1 ||
+      permalinkMatches.length !== 1 ||
+      (permalinkMatches[0]!.index ?? -1) < (timestampMatches[0]!.index ?? -1)
+    ) {
+      throw new Error(
+        `${sourceName}: raw Slack result must contain one timestamp/permalink pair before its body`,
+      );
+    }
+
+    position = resultEnd;
+    const messageBody = /\nText:[ \t]*\n?([\s\S]*)/.exec(resultText);
+    const rawText = (messageBody?.[1] ?? "")
+      .replace(/\n+---\s*$/, "")
+      .replace(/\n+$/, "");
+    const bodyLines = rawText.split("\n");
+    let footerStart = bodyLines.length;
+    while (
+      footerStart > 0 &&
+      /^(?:Files:|Reactions:)(?:[ \t]|$)/.test(bodyLines[footerStart - 1]!)
+    ) {
+      footerStart -= 1;
+    }
+    const footerLines = bodyLines.slice(footerStart);
+    const filesLines = footerLines.filter((line) => /^Files:/.test(line));
+    let text = rawText;
+    let filesMetadata: SlackFileAttachment[] | undefined;
+    if (footerLines.length > 0 && filesLines.length <= 1) {
+      let parsedFiles: SlackFileAttachment[] | undefined;
+      let validFileMetadata = true;
+      if (filesLines.length === 1) {
+        const filesText = filesLines[0]!.slice("Files:".length).trim();
+        parsedFiles = [];
+        if (filesText) {
+          const filePattern =
+            /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
+          const matches = [...filesText.matchAll(filePattern)];
+          const residue = filesText
+            .replace(filePattern, "")
+            .replace(/[\s,]+/g, "");
+          if (matches.length === 0 || residue) {
+            validFileMetadata = false;
+          } else {
+            parsedFiles = matches.map((file) => ({
+              id: file[2]!,
+              name: file[1]!,
+              mimeType: file[3]!,
+            }));
+            validateSlackFiles(`${sourceName}.files`, parsedFiles);
+          }
+        }
+      }
+      if (validFileMetadata) {
+        text = bodyLines.slice(0, footerStart).join("\n");
+        filesMetadata = parsedFiles;
+      }
+    }
+    messages.push({
+      timestamp: timestampMatches[0]![1]!,
+      permalink: permalinkMatches[0]![1]!,
+      text,
+      rawText,
+      ...(filesMetadata !== undefined ? { filesMetadata } : {}),
+    });
+  }
+  const extraHeaderPattern = /^### Result \d+ of \d+$/gm;
+  extraHeaderPattern.lastIndex = position;
+  if (extraHeaderPattern.exec(normalizedResults)) {
+    throw new Error(
+      `${sourceName}: raw Slack result headers do not match the declared result count`,
+    );
+  }
+  return { messages, nextCursor, exhausted };
+}
+
+function parseStructuredJsonTextBlock(
+  text: string,
+  context: string,
+): unknown | undefined {
+  const candidate = text.trimStart();
+  if (!candidate.startsWith("{") && !candidate.startsWith("[")) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(candidate) as unknown;
+  } catch (cause) {
+    throw new Error(`${context}: malformed JSON text block`, { cause });
+  }
+}
+
+function unwrapCapturedSlackResponse(
+  value: unknown,
+  path: string,
+): {
+  results: string;
+  paginationInfo: unknown;
+} {
+  const pending: unknown[] = [value];
+  const visited = new Set<object>();
+  while (pending.length > 0) {
+    const candidate = pending.shift();
+    if (!candidate || typeof candidate !== "object") continue;
+    if (visited.has(candidate)) continue;
+    visited.add(candidate);
+    const record = candidate as Record<string, unknown>;
+    if (typeof record.results === "string") {
+      return {
+        results: record.results,
+        paginationInfo: record.pagination_info,
+      };
+    }
+    for (const key of ["structuredContent", "result", "data"]) {
+      if (record[key] && typeof record[key] === "object") {
+        pending.push(record[key]);
+      }
+    }
+    if (Array.isArray(record.content)) {
+      for (const [index, block] of record.content.entries()) {
+        if (!block || typeof block !== "object") continue;
+        const text = (block as Record<string, unknown>).text;
+        if (typeof text !== "string") continue;
+        const parsed = parseStructuredJsonTextBlock(
+          text,
+          `${path}: content[${index}]`,
+        );
+        if (parsed !== undefined) pending.push(parsed);
+      }
+    }
+  }
+  throw new Error(`${path}: raw Slack response has no detailed results`);
+}
+
+function validateCapturedSlackRequestArgs(
+  args: unknown,
+  savedCursor: unknown,
+  path: string,
+  channelId: string,
+  scanQuery: SlackSearchScope["scanQuery"],
+): string {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new Error(
+      `${path}: captured page must include the exact request args`,
+    );
+  }
+  const requestArgs = args as Record<string, unknown>;
+  const required: Record<string, unknown> = {
+    ...(scanQuery.after !== undefined ? { after: scanQuery.after } : {}),
+    filters: scanQuery.filters,
+    keywords: [],
+    natural_language_query: "",
+    include_bots: true,
+    include_context: false,
+    content_types: "messages",
+    limit: 20,
+    sort: "timestamp",
+    sort_dir: "desc",
+    response_format: "detailed",
+  };
+  for (const [key, expected] of Object.entries(required)) {
+    if (!isDeepStrictEqual(requestArgs[key], expected)) {
+      throw new Error(
+        `${path}: request args.${key} does not match the exhaustive channel query`,
+      );
+    }
+  }
+  if (
+    typeof requestArgs.filters !== "string" ||
+    requestArgs.filters !== scanQuery.filters
+  ) {
+    throw new Error(
+      `${path}: request args filters do not match the exact search`,
+    );
+  }
+  const before = requestArgs.before;
+  if (typeof before !== "string") {
+    throw new Error(`${path}: request args.before must be a Slack timestamp`);
+  }
+  const beforeTimestamp = slackTimestamp(before, `${path}.args.before`);
+  if (
+    beforeTimestamp >
+    slackTimestamp(scanQuery.before, `${path}.scanQuery.before`)
+  ) {
+    throw new Error(
+      `${path}: request args.before exceeds the fixed scan window`,
+    );
+  }
+  const allowedKeys = new Set([...Object.keys(required), "cursor", "before"]);
+  const unexpectedKeys = Object.keys(requestArgs).filter(
+    (key) => !allowedKeys.has(key),
+  );
+  if (unexpectedKeys.length) {
+    throw new Error(
+      `${path}: unexpected request args: ${unexpectedKeys.join(", ")}`,
+    );
+  }
+  if (savedCursor === null) {
+    if (requestArgs.cursor !== undefined && requestArgs.cursor !== null) {
+      throw new Error(
+        `${path}: request args.cursor does not match the first-page cursor`,
+      );
+    }
+  } else if (requestArgs.cursor !== savedCursor) {
+    throw new Error(
+      `${path}: request args.cursor does not match the captured cursor`,
+    );
+  }
+  return before;
+}
+
+function parseCapturedSlackSearchPage(
+  saved: Record<string, unknown>,
+  path: string,
+  channelId: string,
+  channelName: string,
+  scanQuery: SlackSearchScope["scanQuery"],
+  requireRequestArgs = false,
+  workflowEmoji?: WorkflowEmoji,
+): RawSourcePageEvidence {
+  if (saved.isError === true || typeof saved.raw !== "string") {
+    throw new Error(
+      `${path}: captured Slack page read failed or has no raw response`,
+    );
+  }
+  if (typeof saved.readAt !== "string") {
+    throw new Error(`${path}: captured Slack page must record readAt`);
+  }
+  if (!Object.prototype.hasOwnProperty.call(saved, "cursor")) {
+    throw new Error(
+      `${path}: request cursor must be recorded explicitly, including null on the first page`,
+    );
+  }
+  let parsedResponse: unknown;
+  try {
+    parsedResponse = JSON.parse(saved.raw) as unknown;
+  } catch (error) {
+    throw new Error(
+      `${path}: raw Slack response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const cursor = saved.cursor;
+  if (cursor !== null && (typeof cursor !== "string" || !cursor)) {
+    throw new Error(
+      `${path}: request cursor must be a non-empty string or null`,
+    );
+  }
+  const requestBefore = requireRequestArgs
+    ? workflowEmoji
+      ? validateCapturedOwnedMarkRequestArgs(
+          saved.args,
+          cursor,
+          path,
+          channelId,
+          workflowEmoji,
+          scanQuery.after,
+          scanQuery.before,
+        )
+      : validateCapturedSlackRequestArgs(
+          saved.args,
+          cursor,
+          path,
+          channelId,
+          scanQuery,
+        )
+    : typeof saved.args === "object" && saved.args !== null
+      ? validateCapturedSlackRequestArgs(
+          saved.args,
+          cursor,
+          path,
+          channelId,
+          scanQuery,
+        )
+      : undefined;
+  const response = unwrapCapturedSlackResponse(parsedResponse, path);
+  const hasRecordedRequestArgs =
+    typeof saved.args === "object" && saved.args !== null;
+  const parsed = parseRawSlackSearchPage(
+    response.results,
+    response.paginationInfo,
+    path,
+    {
+      channelId,
+      channelName,
+      scanQuery,
+      before: requestBefore ?? scanQuery.before,
+      allowEmptyEcho: hasRecordedRequestArgs,
+      ...(workflowEmoji ? { workflowEmoji } : {}),
+    },
+  );
+  const rows = parsed.messages.map((message, rowIndex) => {
+    const messageName = `${path} result ${rowIndex + 1}`;
+    const { timestamp: ts, permalink } = message;
+    const timestamp = slackTimestamp(ts, `${messageName}.ts`);
+    let url: URL;
+    try {
+      url = new URL(permalink);
+    } catch {
+      throw new Error(`${messageName}: source permalink is invalid`);
+    }
+    const pathMatch = /^\/archives\/([^/]+)\/p(\d+)$/.exec(url.pathname);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      !(url.hostname === "slack.com" || url.hostname.endsWith(".slack.com")) ||
+      !pathMatch ||
+      pathMatch[1] !== channelId
+    ) {
+      throw new Error(
+        `${messageName}: permalink does not identify the inventoried channel`,
+      );
+    }
+    const permalinkTimestamp = `${pathMatch[2]!.slice(0, -6)}.${pathMatch[2]!.slice(-6)}`;
+    if (
+      slackTimestamp(permalinkTimestamp, `${messageName}.permalink`) !==
+      timestamp
+    ) {
+      throw new Error(
+        `${messageName}: permalink timestamp does not match the source message`,
+      );
+    }
+    const threadTimestamps = url.searchParams.getAll("thread_ts");
+    if (threadTimestamps.length > 1) {
+      throw new Error(
+        `${messageName}: permalink has multiple thread_ts values`,
+      );
+    }
+    const threadTs = threadTimestamps[0] ?? null;
+    if (threadTs !== null) {
+      const parentTimestamp = slackTimestamp(
+        threadTs,
+        `${messageName}.thread_ts`,
+      );
+      if (parentTimestamp > timestamp) {
+        throw new Error(
+          `${messageName}: thread_ts is newer than the source message`,
+        );
+      }
+    }
+    return {
+      ts,
+      root: threadTs ?? ts,
+      text: message.text,
+      rawText: message.rawText,
+      ...(workflowEmoji === undefined && message.filesMetadata !== undefined
+        ? { filesMetadata: message.filesMetadata }
+        : {}),
+    };
+  });
+  return {
+    cursor,
+    ...(requestBefore !== undefined ? { before: requestBefore } : {}),
+    nextCursor: parsed.nextCursor,
+    exhausted: parsed.exhausted,
+    readAt: saved.readAt,
+    messageCount: rows.length,
+    sourceTimestamps: rows.map((row) => row.ts),
+    rows,
+  };
+}
+
+function validateCapturedOwnedMarkRequestArgs(
+  args: unknown,
+  cursor: unknown,
+  path: string,
+  channelId: string,
+  emoji: WorkflowEmoji,
+  fixedAfter: string,
+  fixedBefore: string,
+): string {
+  const expectedFilters = `in:<#${channelId}> hasmy::${emoji}:`;
+  const expectedQuery = {
+    filters: expectedFilters,
+    keywords: [],
+    natural_language_query: "",
+    include_bots: true,
+    include_context: false,
+    content_types: "messages",
+    limit: 20,
+    sort: "timestamp",
+    sort_dir: "desc",
+    response_format: "detailed",
+  };
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new Error(`${path}: owned-mark page must include exact request args`);
+  }
+  const requestArgs = args as Record<string, unknown>;
+  for (const [key, value] of Object.entries(expectedQuery)) {
+    if (!isDeepStrictEqual(requestArgs[key], value)) {
+      throw new Error(
+        `${path}: request args.${key} does not match the exhaustive ${emoji} ownership query`,
+      );
+    }
+  }
+  const allowed = new Set([
+    ...Object.keys(expectedQuery),
+    "cursor",
+    "after",
+    "before",
+  ]);
+  const unexpected = Object.keys(requestArgs).filter(
+    (key) => !allowed.has(key),
+  );
+  if (unexpected.length) {
+    throw new Error(
+      `${path}: owned-mark query has unexpected arguments: ${unexpected.join(", ")}`,
+    );
+  }
+  if (cursor === null) {
+    if (requestArgs.cursor !== undefined && requestArgs.cursor !== null) {
+      throw new Error(`${path}: first owned-mark request must omit its cursor`);
+    }
+  } else if (requestArgs.cursor !== cursor) {
+    throw new Error(`${path}: request cursor does not match the captured page`);
+  }
+  const after = requestArgs.after;
+  if (typeof after !== "string") {
+    throw new Error(`${path}: request args.after must be a Slack timestamp`);
+  }
+  slackTimestamp(after, `${path}.args.after`);
+  slackTimestamp(fixedAfter, `${path}.fixedAfter`);
+  if (after !== fixedAfter) {
+    throw new Error(
+      `${path}: request args.after must match the fixed source-window lower bound`,
+    );
+  }
+  const before = requestArgs.before;
+  if (typeof before !== "string") {
+    throw new Error(`${path}: request args.before must be a Slack timestamp`);
+  }
+  const beforeTimestamp = slackTimestamp(before, `${path}.args.before`);
+  if (beforeTimestamp > slackTimestamp(fixedBefore, `${path}.fixedBefore`)) {
+    throw new Error(
+      `${path}: request args.before exceeds the fixed scan window`,
+    );
+  }
+  return before;
+}
+
+function validateRawPageLimitFailure(raw: string, path: string): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch (error) {
+    throw new Error(
+      `${path}: raw page-limit response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  let hasError = false;
+  let hasPageLimitCode = false;
+  const pending: unknown[] = [parsed];
+  const visited = new Set<object>();
+  while (pending.length > 0) {
+    const candidate = pending.shift();
+    if (typeof candidate === "string") {
+      if (candidate.includes("page_limit_exceeded")) hasPageLimitCode = true;
+      continue;
+    }
+    if (!candidate || typeof candidate !== "object") continue;
+    if (visited.has(candidate)) continue;
+    visited.add(candidate);
+    if (Array.isArray(candidate)) {
+      pending.push(...candidate);
+      continue;
+    }
+    const record = candidate as Record<string, unknown>;
+    if (record.isError === true || record.error !== undefined) hasError = true;
+    for (const key of ["code", "error_code", "errorCode"]) {
+      if (record[key] === "page_limit_exceeded") hasPageLimitCode = true;
+    }
+    for (const [key, value] of Object.entries(record)) {
+      if (key === "error" && value !== null && value !== false) hasError = true;
+      pending.push(value);
+    }
+  }
+
+  if (!hasError || !hasPageLimitCode) {
+    throw new Error(
+      `${path}: preserve the exact failed Slack response and prove its page_limit_exceeded error`,
+    );
+  }
+}
+
+function collectStructuredRecords(value: unknown): Record<string, unknown>[] {
+  const pending: unknown[] = [value];
+  const visited = new Set<object>();
+  const records: Record<string, unknown>[] = [];
+  while (pending.length > 0) {
+    const candidate = pending.shift();
+    if (!candidate || typeof candidate !== "object") continue;
+    if (visited.has(candidate)) continue;
+    visited.add(candidate);
+    const record = candidate as Record<string, unknown>;
+    records.push(record);
+    for (const key of ["structuredContent", "result", "data"]) {
+      if (record[key] && typeof record[key] === "object") {
+        pending.push(record[key]);
+      }
+    }
+    if (Array.isArray(record.content)) {
+      for (const [index, block] of record.content.entries()) {
+        if (!block || typeof block !== "object") continue;
+        const text = (block as Record<string, unknown>).text;
+        if (typeof text !== "string") continue;
+        const parsed = parseStructuredJsonTextBlock(
+          text,
+          `captured Slack thread: content[${index}]`,
+        );
+        if (parsed !== undefined) pending.push(parsed);
+      }
+    }
+  }
+  return records;
+}
+
+function exactSlackFiles(value: unknown, label: string): SlackFileAttachment[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`${label}: Slack files must be an array`);
+  }
+  return value.map((candidate, index) => {
+    if (!candidate || typeof candidate !== "object") {
+      throw new Error(`${label}[${index + 1}] is not a file object`);
+    }
+    const file = candidate as Record<string, unknown>;
+    const mimeType = file.mimetype ?? file.mimeType;
+    const normalized = {
+      id: file.id,
+      name: file.name,
+      mimeType,
+    };
+    validateSlackFiles(`${label}[${index + 1}]`, [
+      normalized as SlackFileAttachment,
+    ]);
+    return normalized as SlackFileAttachment;
+  });
+}
+
+function parseFormattedSlackThreadMessage(
+  section: string,
+  rootTs: string,
+  label: string,
+): RawThreadMessage {
+  const match =
+    /^From: ([^\r\n]*)\r?\nTime: [^\r\n]*\r?\nMessage TS: (\d+\.\d{1,6})\r?\n([\s\S]*)$/.exec(
+      section,
+    );
+  const actorIdMatch = match?.[1]?.match(/\(([A-Z0-9_]+)\)(?:\s+\[BOT\])?\s*$/);
+  if (!match || !actorIdMatch) {
+    throw new Error(`${label}: malformed formatted Slack thread message`);
+  }
+
+  const actorId = actorIdMatch[1]!;
+  const lines = match[3]!.split(/\r?\n/);
+  const files: SlackFileAttachment[] = [];
+  const workflowReactionNames = new Set<string>();
+  const metadataLines = new Set<string>();
+  while (lines.length > 0) {
+    const tail = lines.at(-1)!;
+    if (tail.startsWith("Files: ")) {
+      const value = tail.slice("Files: ".length);
+      const filePattern = /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
+      const fileMatches = [...value.matchAll(filePattern)];
+      if (
+        fileMatches.length === 0 ||
+        fileMatches.map((file) => file[0]).join("") !== value
+      ) {
+        break;
+      }
+      if (metadataLines.has("Files")) {
+        throw new Error(
+          `${label}: ambiguous repeated Files line in formatted Slack message`,
+        );
+      }
+      metadataLines.add("Files");
+      for (const file of fileMatches) {
+        files.push({ id: file[2]!, name: file[1]!, mimeType: file[3]! });
+      }
+      lines.pop();
+      continue;
+    }
+    if (tail.startsWith("Reactions: ")) {
+      const reactionMatches = [
+        ...tail
+          .slice("Reactions: ".length)
+          .matchAll(/([a-z0-9_+.-]+)\s+\(\d+\)(?:, |$)/gi),
+      ];
+      const reactionValue = tail.slice("Reactions: ".length);
+      if (
+        reactionMatches.length === 0 ||
+        reactionMatches.map((reaction) => reaction[0]).join("") !==
+          reactionValue
+      ) {
+        break;
+      }
+      if (metadataLines.has("Reactions")) {
+        throw new Error(
+          `${label}: ambiguous repeated Reactions line in formatted Slack message`,
+        );
+      }
+      metadataLines.add("Reactions");
+      for (const reaction of reactionMatches) {
+        if (
+          reaction[1] === "eyes" ||
+          reaction[1] === "white_check_mark" ||
+          reaction[1] === "ticket"
+        ) {
+          workflowReactionNames.add(reaction[1]);
+        }
+      }
+      lines.pop();
+      continue;
+    }
+    break;
+  }
+
+  return {
+    ts: match[2]!,
+    actorId,
+    isBot:
+      actorId.startsWith("B") ||
+      /\[BOT\]\s*$/.test(match[1]!) ||
+      /botuser-|@slack-bots\.com/i.test(match[1]!),
+    text: lines.join("\n"),
+    threadParentTs: rootTs,
+    files: exactSlackFiles(files, `${label}.files`),
+    workflowReactionNames: [...workflowReactionNames].sort(),
+  };
+}
+
+function parseFormattedSlackThreadResponse(
+  page: Record<string, unknown>,
+  path: string,
+  rootTs: string,
+): Omit<RawThreadPageEvidence, "cursor" | "readAt"> {
+  const text = page.messages;
+  const pagination = page.pagination_info;
+  if (typeof text !== "string" || typeof pagination !== "string") {
+    throw new Error(`${path}: formatted Slack thread response is incomplete`);
+  }
+
+  const parentPrefix = "=== THREAD PARENT MESSAGE ===\n";
+  if (!text.startsWith(parentPrefix)) {
+    throw new Error(`${path}: formatted Slack thread response has no parent`);
+  }
+  const afterParent = text.slice(parentPrefix.length);
+  const repliesMarker = /\n\n=== THREAD REPLIES \((\d+) total\) ===\n\n/;
+  const repliesMatch = repliesMarker.exec(afterParent);
+  let parentSection: string;
+  let replySections: string[];
+  let replyCount: number;
+  if (repliesMatch && repliesMatch.index !== undefined) {
+    parentSection = afterParent.slice(0, repliesMatch.index);
+    const repliesText = afterParent.slice(
+      repliesMatch.index + repliesMatch[0].length,
+    );
+    replyCount = Number(repliesMatch[1]);
+    const markers = [
+      ...repliesText.matchAll(/(?:^|\n\n)--- Reply (\d+) of (\d+) ---\n/g),
+    ];
+    if (markers.length !== replyCount) {
+      throw new Error(
+        `${path}: formatted thread reply markers do not match the reported reply count`,
+      );
+    }
+    replySections = markers.map((marker, index) => {
+      const start = marker.index! + marker[0].length;
+      const end = markers[index + 1]?.index ?? repliesText.length;
+      return repliesText.slice(start, end).replace(/\n+$/, "");
+    });
+  } else {
+    const noReplies =
+      /\n\nNo thread mes{2,3}ages?(?:\s+in this thread)?[.!]?\s*$/i.exec(
+        afterParent,
+      );
+    if (!noReplies) {
+      throw new Error(
+        `${path}: formatted Slack thread response does not explicitly report zero replies`,
+      );
+    }
+    parentSection = afterParent.slice(0, noReplies.index);
+    replySections = [];
+    replyCount = 0;
+  }
+
+  const messages = [
+    parseFormattedSlackThreadMessage(parentSection, rootTs, `${path} parent`),
+    ...replySections.map((section, index) =>
+      parseFormattedSlackThreadMessage(
+        section,
+        rootTs,
+        `${path} reply ${index + 1}`,
+      ),
+    ),
+  ];
+  if (messages[0]!.ts !== rootTs) {
+    throw new Error(`${path}: formatted parent timestamp does not match root`);
+  }
+
+  const cursorMatch = /cursor [`"]([^`"]+)[`"]/.exec(pagination);
+  const nextCursor = cursorMatch?.[1] ?? null;
+  const exhausted =
+    /no more messages in this thread|end of results|no more pages available/i.test(
+      pagination,
+    );
+  if (nextCursor === null && !exhausted) {
+    throw new Error(
+      `${path}: formatted Slack pagination does not explicitly report exhaustion or a continuation cursor`,
+    );
+  }
+  if (nextCursor !== null && exhausted) {
+    throw new Error(`${path}: formatted Slack pagination conflicts`);
+  }
+
+  return {
+    nextCursor,
+    exhausted,
+    replyCount,
+    messages,
+  };
+}
+
+function parseRawThreadResponse(
+  value: unknown,
+  path: string,
+  rootTs: string,
+): Omit<RawThreadPageEvidence, "cursor" | "readAt"> {
+  const records = collectStructuredRecords(value);
+  const formattedPage = records.find(
+    (record) =>
+      typeof record.messages === "string" &&
+      typeof record.pagination_info === "string",
+  );
+  if (formattedPage) {
+    return parseFormattedSlackThreadResponse(formattedPage, path, rootTs);
+  }
+  const page = records.find(
+    (record) => Array.isArray(record.messages) || Array.isArray(record.replies),
+  );
+  if (!page) {
+    throw new Error(`${path}: raw thread response has no structured messages`);
+  }
+  const rawMessages = Array.isArray(page.messages)
+    ? page.messages
+    : page.replies;
+  const parsedMessages: RawThreadMessage[] = rawMessages.map(
+    (candidate, index) => {
+      const label = `${path} message ${index + 1}`;
+      if (!candidate || typeof candidate !== "object") {
+        throw new Error(`${label} is not a Slack message object`);
+      }
+      const message = candidate as Record<string, unknown>;
+      const ts = message.ts;
+      const actorId = message.user ?? message.user_id ?? message.bot_id;
+      const text = message.text;
+      if (
+        typeof ts !== "string" ||
+        typeof actorId !== "string" ||
+        !actorId.trim() ||
+        typeof text !== "string"
+      ) {
+        throw new Error(`${label} must include exact ts, author ID, and text`);
+      }
+      const threadParentTs =
+        typeof message.thread_ts === "string" ? message.thread_ts : rootTs;
+      const replyCount = message.reply_count;
+      if (
+        replyCount !== undefined &&
+        (!Number.isInteger(replyCount) || (replyCount as number) < 0)
+      ) {
+        throw new Error(`${label}.reply_count must be a non-negative integer`);
+      }
+      return {
+        ts,
+        actorId,
+        isBot: typeof message.bot_id === "string",
+        text,
+        threadParentTs,
+        files: exactSlackFiles(message.files, `${label}.files`),
+        ...(typeof replyCount === "number" ? { replyCount } : {}),
+      };
+    },
+  );
+  const root = parsedMessages.find((message) => message.ts === rootTs);
+  const responseReplyCount = page.reply_count;
+  const replyCount = root?.replyCount ?? responseReplyCount;
+  if (
+    replyCount !== undefined &&
+    (!Number.isInteger(replyCount) || (replyCount as number) < 0)
+  ) {
+    throw new Error(
+      `${path}: Slack reply_count must be a non-negative integer`,
+    );
+  }
+  if (root && root.threadParentTs !== rootTs) {
+    throw new Error(
+      `${path}: returned parent does not identify the requested root`,
+    );
+  }
+  for (const message of parsedMessages) {
+    if (message.ts !== rootTs && message.threadParentTs !== rootTs) {
+      throw new Error(
+        `${path}: returned reply does not belong to the requested root`,
+      );
+    }
+  }
+
+  const rawCursor = page.response_metadata;
+  const responseCursor =
+    rawCursor && typeof rawCursor === "object"
+      ? (rawCursor as Record<string, unknown>).next_cursor
+      : page.next_cursor;
+  const nextCursor =
+    typeof responseCursor === "string" && responseCursor.length > 0
+      ? responseCursor
+      : null;
+  const hasMore = page.has_more;
+  if (typeof hasMore !== "boolean") {
+    throw new Error(
+      `${path}: raw thread response must state has_more explicitly`,
+    );
+  }
+  const exhausted = !hasMore && nextCursor === null;
+  if ((hasMore && nextCursor === null) || (!hasMore && nextCursor !== null)) {
+    throw new Error(`${path}: has_more and next_cursor disagree`);
+  }
+  return {
+    nextCursor,
+    exhausted,
+    ...(typeof replyCount === "number" ? { replyCount } : {}),
+    messages: parsedMessages,
+  };
+}
+
+function parseCapturedSlackThreadPage(
+  saved: Record<string, unknown>,
+  path: string,
+  channelId: string,
+  rootTs: string,
+): RawThreadPageEvidence {
+  if (saved.isError === true || typeof saved.raw !== "string") {
+    throw new Error(
+      `${path}: captured Slack thread read failed or has no raw response`,
+    );
+  }
+  if (!Object.prototype.hasOwnProperty.call(saved, "cursor")) {
+    throw new Error(
+      `${path}: thread request cursor must be recorded explicitly`,
+    );
+  }
+  if (typeof saved.readAt !== "string") {
+    throw new Error(`${path}: captured Slack thread page must record readAt`);
+  }
+  const cursor = saved.cursor;
+  if (cursor !== null && (typeof cursor !== "string" || !cursor)) {
+    throw new Error(
+      `${path}: thread cursor must be a non-empty string or null`,
+    );
+  }
+  const args = saved.args;
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new Error(`${path}: thread page must include exact request args`);
+  }
+  const request = args as Record<string, unknown>;
+  const expected: Record<string, unknown> = {
+    channel_id: channelId,
+    message_ts: rootTs,
+    limit: 1000,
+    response_format: "detailed",
+  };
+  for (const [key, value] of Object.entries(expected)) {
+    if (!isDeepStrictEqual(request[key], value)) {
+      throw new Error(
+        `${path}: request args.${key} does not match the full thread read`,
+      );
+    }
+  }
+  const allowedKeys = new Set([...Object.keys(expected), "cursor"]);
+  const unexpectedKeys = Object.keys(request).filter(
+    (key) => !allowedKeys.has(key),
+  );
+  if (unexpectedKeys.length) {
+    throw new Error(
+      `${path}: thread read has unexpected bounds: ${unexpectedKeys.join(", ")}`,
+    );
+  }
+  if (cursor === null) {
+    if (request.cursor !== undefined && request.cursor !== null) {
+      throw new Error(`${path}: first thread read must omit its cursor`);
+    }
+  } else if (request.cursor !== cursor) {
+    throw new Error(
+      `${path}: request cursor does not match the captured thread page`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(saved.raw) as unknown;
+  } catch (error) {
+    throw new Error(
+      `${path}: raw Slack thread response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return {
+    cursor,
+    readAt: saved.readAt,
+    ...parseRawThreadResponse(parsed, path, rootTs),
+  };
 }
 
 function readRawSourcePages(
@@ -2564,19 +5381,22 @@ function readRawSourcePages(
   inventory: Inventory,
 ): RawSourcePages {
   const expectedChannels = new Set(
-    inventory.channels.map((channel, index) =>
-      sourceReceiptChannelName(channel.channelId, index),
-    ),
+    inventory.channels.map((channel) => sourceReceiptChannelName(channel)),
   );
   const entries = readdirSync(directory);
-  const files = entries.filter((file) =>
-    /^rescan-feedback-[a-z0-9_-]+-\d+\.json$/i.test(file),
-  );
+  const sourcePagePattern = /^rescan-feedback-[a-z0-9_-]+-\d+\.json$/i;
+  const ownedMarkPagePattern =
+    /^owned-marks-[a-z0-9_-]+-(?:eyes|white_check_mark|ticket)-\d+\.json$/i;
+  const threadPagePattern = /^thread-[a-z0-9_-]+-\d{10,}\.\d{6}-\d+\.json$/i;
+  const files = entries.filter((file) => sourcePagePattern.test(file));
   if (!files.length) {
     throw new Error(`${directory}: no captured raw Slack search pages found`);
   }
   const unexpectedFiles = entries.filter(
-    (file) => !/^rescan-feedback-[a-z0-9_-]+-\d+\.json$/i.test(file),
+    (file) =>
+      !sourcePagePattern.test(file) &&
+      !ownedMarkPagePattern.test(file) &&
+      !threadPagePattern.test(file),
   );
   if (unexpectedFiles.length) {
     throw new Error(
@@ -2599,11 +5419,8 @@ function readRawSourcePages(
   }
 
   const result: RawSourcePages = {};
-  for (const [channelIndex, channel] of inventory.channels.entries()) {
-    const channelName = sourceReceiptChannelName(
-      channel.channelId,
-      channelIndex,
-    );
+  for (const channel of inventory.channels) {
+    const channelName = sourceReceiptChannelName(channel);
     const channelFiles = filesByChannel.get(channelName) ?? [];
     channelFiles.sort(
       (left, right) =>
@@ -2623,113 +5440,235 @@ function readRawSourcePages(
           `${path}: could not read the captured Slack page: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      if (saved.isError === true || typeof saved.raw !== "string") {
-        throw new Error(
-          `${path}: captured Slack page read failed or has no raw response`,
-        );
-      }
-      if (typeof saved.readAt !== "string") {
-        throw new Error(`${path}: captured Slack page must record readAt`);
-      }
-      let response: { results?: unknown; pagination_info?: unknown };
-      try {
-        response = JSON.parse(saved.raw) as {
-          results?: unknown;
-          pagination_info?: unknown;
-        };
-      } catch (error) {
-        throw new Error(
-          `${path}: raw Slack response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-      if (typeof response.results !== "string") {
-        throw new Error(`${path}: raw Slack response has no detailed results`);
-      }
-      const blocks = response.results
-        .split(/\n### Result \d+ of \d+\n/)
-        .slice(1);
-      const rows = blocks.map((block, rowIndex) => {
-        const messageName = `${path} result ${rowIndex + 1}`;
-        const ts = (block.match(/\nMessage_ts: ([0-9.]+)/) ?? [])[1];
-        const permalink = (block.match(/\nPermalink: \[link\]\(([^\n]+)\)/) ??
-          [])[1];
-        if (!ts || !permalink) {
-          throw new Error(
-            `${messageName}: source timestamp or permalink is missing`,
-          );
-        }
-        const timestamp = slackTimestamp(ts, `${messageName}.ts`);
-        let url: URL;
-        try {
-          url = new URL(permalink);
-        } catch {
-          throw new Error(`${messageName}: source permalink is invalid`);
-        }
-        const pathMatch = /^\/archives\/([^/]+)\/p(\d+)$/.exec(url.pathname);
-        if (
-          url.protocol !== "https:" ||
-          !url.hostname.endsWith(".slack.com") ||
-          !pathMatch ||
-          pathMatch[1] !== channel.channelId
-        ) {
-          throw new Error(
-            `${messageName}: permalink does not identify the inventoried channel`,
-          );
-        }
-        const permalinkTimestamp = `${pathMatch[2]!.slice(0, -6)}.${pathMatch[2]!.slice(-6)}`;
-        if (
-          slackTimestamp(permalinkTimestamp, `${messageName}.permalink`) !==
-          timestamp
-        ) {
-          throw new Error(
-            `${messageName}: permalink timestamp does not match the source message`,
-          );
-        }
-        const threadTimestamps = url.searchParams.getAll("thread_ts");
-        if (threadTimestamps.length > 1) {
-          throw new Error(
-            `${messageName}: permalink has multiple thread_ts values`,
-          );
-        }
-        const threadTs = threadTimestamps[0] ?? null;
-        if (threadTs !== null) {
-          const parentTimestamp = slackTimestamp(
-            threadTs,
-            `${messageName}.thread_ts`,
-          );
-          if (parentTimestamp > timestamp) {
-            throw new Error(
-              `${messageName}: thread_ts is newer than the source message`,
-            );
-          }
-        }
-        return { ts, root: threadTs ?? ts };
-      });
-      const nextCursor =
-        typeof response.pagination_info === "string"
-          ? ((response.pagination_info.match(/cursor `([^`]+)`/) ?? [])[1] ??
-            null)
-          : null;
-      const cursor = saved.cursor === undefined ? null : saved.cursor;
-      if (cursor !== null && typeof cursor !== "string") {
-        throw new Error(`${path}: request cursor must be a string or null`);
-      }
       const sequence = Number(file.match(/-(\d+)\.json$/)?.[1]);
       if (sequence !== pageIndex) {
         throw new Error(
           `${path}: source page files must be numbered contiguously from 00`,
         );
       }
-      return {
-        cursor,
-        nextCursor,
-        exhausted: nextCursor === null,
-        readAt: saved.readAt,
-        messageCount: rows.length,
-        sourceTimestamps: rows.map((row) => row.ts),
-        rows,
-      };
+      return parseCapturedSlackSearchPage(
+        saved,
+        path,
+        channel.channelId,
+        channelName,
+        channel.scanQuery,
+        true,
+      );
     });
+  }
+  return result;
+}
+
+function readRawOwnedMarkSearchPages(
+  directory: string,
+  inventory: Inventory,
+): RawOwnedMarkSearchPages {
+  const files = readdirSync(directory).filter((file) =>
+    /^owned-marks-[a-z0-9_-]+-(?:eyes|white_check_mark|ticket)-\d+\.json$/i.test(
+      file,
+    ),
+  );
+  const fileGroups = new Map<string, string[]>();
+  for (const file of files) {
+    const match =
+      /^owned-marks-([a-z0-9_-]+)-(eyes|white_check_mark|ticket)-(\d+)\.json$/i.exec(
+        file,
+      );
+    const channelName = match?.[1];
+    const emoji = match?.[2] as WorkflowEmoji | undefined;
+    if (
+      !channelName ||
+      !emoji ||
+      !inventory.channels.some((channel) => channel.channelName === channelName)
+    ) {
+      throw new Error(
+        `${directory}/${file}: owned-mark page is outside the inventory`,
+      );
+    }
+    const key = `${channelName}\u0000${emoji}`;
+    const group = fileGroups.get(key) ?? [];
+    group.push(file);
+    fileGroups.set(key, group);
+  }
+
+  const result: RawOwnedMarkSearchPages = {};
+  for (const channel of inventory.channels) {
+    const channelName = channel.channelName;
+    const searches = channel.ownedMarkSearches;
+    if (!Array.isArray(searches)) {
+      throw new Error(
+        `${channelName}: record all three bounded owned-mark searches`,
+      );
+    }
+    const byEmoji = new Map<WorkflowEmoji, OwnedMarkSearch>();
+    for (const search of searches) {
+      if (byEmoji.has(search.emoji)) {
+        throw new Error(
+          `${channelName}: duplicate owned-mark search for ${search.emoji}`,
+        );
+      }
+      byEmoji.set(search.emoji, search);
+    }
+    const expectedEmojis: WorkflowEmoji[] = [
+      "eyes",
+      "white_check_mark",
+      "ticket",
+    ];
+    if (
+      searches.length !== expectedEmojis.length ||
+      expectedEmojis.some((emoji) => !byEmoji.has(emoji))
+    ) {
+      throw new Error(
+        `${channelName}: search eyes, white_check_mark, and ticket separately`,
+      );
+    }
+
+    const parsedChannel: Record<WorkflowEmoji, RawSourcePageEvidence[]> = {
+      eyes: [],
+      white_check_mark: [],
+      ticket: [],
+    };
+    for (const emoji of expectedEmojis) {
+      const search = byEmoji.get(emoji)!;
+      const expectedFilters = `in:<#${channel.channelId}> hasmy::${emoji}:`;
+      if (
+        search.query.tool !== "slack_search_public" ||
+        search.query.filters !== expectedFilters ||
+        search.query.after !== channel.scanQuery.after ||
+        search.query.before !== channel.scanQuery.before
+      ) {
+        throw new Error(
+          `${channelName}: ${emoji} owned-mark search must use the source window's exact lower and upper bounds`,
+        );
+      }
+      const groupKey = `${channelName}\u0000${emoji}`;
+      const group = fileGroups.get(groupKey) ?? [];
+      group.sort(
+        (left, right) =>
+          Number(left.match(/-(\d+)\.json$/)?.[1]) -
+          Number(right.match(/-(\d+)\.json$/)?.[1]),
+      );
+      if (!group.length) {
+        throw new Error(
+          `${channelName}: no raw ${emoji} ownership-search pages were captured`,
+        );
+      }
+      parsedChannel[emoji] = group.map((file, pageIndex) => {
+        const path = join(directory, file);
+        const sequence = Number(file.match(/-(\d+)\.json$/)?.[1]);
+        if (sequence !== pageIndex) {
+          throw new Error(
+            `${path}: owned-mark pages must be numbered contiguously from 00`,
+          );
+        }
+        let saved: Record<string, unknown>;
+        try {
+          saved = JSON.parse(readFileSync(path, "utf8")) as Record<
+            string,
+            unknown
+          >;
+        } catch (error) {
+          throw new Error(
+            `${path}: could not read captured Slack page: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        const parsed = parseCapturedSlackSearchPage(
+          saved,
+          path,
+          channel.channelId,
+          channelName,
+          search.query,
+          true,
+          emoji,
+        );
+        return parsed;
+      });
+    }
+    result[channelName] = parsedChannel;
+  }
+
+  if (fileGroups.size !== inventory.channels.length * 3) {
+    throw new Error(
+      `${directory}: raw owned-mark page groups do not match the inventory searches`,
+    );
+  }
+  return result;
+}
+
+function readRawThreadPages(
+  directory: string,
+  inventory: Inventory,
+): RawThreadPages {
+  const files = readdirSync(directory).filter((file) =>
+    /^thread-[a-z0-9_-]+-\d{10,}\.\d{6}-\d+\.json$/i.test(file),
+  );
+  const expectedChannels = new Map(
+    inventory.channels.map((channel) => [channel.channelName, channel]),
+  );
+  const groups = new Map<string, string[]>();
+  for (const file of files) {
+    const match = /^thread-([a-z0-9_-]+)-(\d{10,}\.\d{6})-(\d+)\.json$/i.exec(
+      file,
+    );
+    const channelName = match?.[1];
+    const rootTs = match?.[2];
+    if (!channelName || !rootTs || !expectedChannels.has(channelName)) {
+      throw new Error(
+        `${directory}/${file}: thread page is outside the inventory`,
+      );
+    }
+    slackTimestamp(rootTs, `${file}.rootTs`);
+    const key = `${channelName}\u0000${rootTs}`;
+    const group = groups.get(key) ?? [];
+    group.push(file);
+    groups.set(key, group);
+  }
+
+  const result: RawThreadPages = {};
+  for (const [channelName, channel] of expectedChannels) {
+    const channelPages: Record<string, RawThreadPageEvidence[]> = {};
+    for (const file of files) {
+      const match = /^thread-([a-z0-9_-]+)-(\d{10,}\.\d{6})-(\d+)\.json$/i.exec(
+        file,
+      );
+      if (match?.[1] !== channelName) continue;
+      const rootTs = match[2]!;
+      const key = `${channelName}\u0000${rootTs}`;
+      const group = groups.get(key)!;
+      if (channelPages[rootTs]) continue;
+      group.sort(
+        (left, right) =>
+          Number(left.match(/-(\d+)\.json$/)?.[1]) -
+          Number(right.match(/-(\d+)\.json$/)?.[1]),
+      );
+      channelPages[rootTs] = group.map((pageFile, pageIndex) => {
+        const path = join(directory, pageFile);
+        const sequence = Number(pageFile.match(/-(\d+)\.json$/)?.[1]);
+        if (sequence !== pageIndex) {
+          throw new Error(
+            `${path}: thread pages must be numbered contiguously from 00`,
+          );
+        }
+        let saved: Record<string, unknown>;
+        try {
+          saved = JSON.parse(readFileSync(path, "utf8")) as Record<
+            string,
+            unknown
+          >;
+        } catch (error) {
+          throw new Error(
+            `${path}: could not read captured thread page: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        return parseCapturedSlackThreadPage(
+          saved,
+          path,
+          channel.channelId,
+          rootTs,
+        );
+      });
+    }
+    result[channelName] = channelPages;
   }
   return result;
 }
@@ -2737,8 +5676,8 @@ function readRawSourcePages(
 function validateSourceReceipt(
   inventory: Inventory,
   receipt: SourceReceipt,
-  requireFreshReads: boolean,
   rawSourcePages: RawSourcePages | undefined,
+  requireSourceText: boolean,
 ): void {
   if (
     !receipt ||
@@ -2755,8 +5694,8 @@ function validateSourceReceipt(
     );
   }
 
-  const expectedChannelNames = inventory.channels.map((channel, index) =>
-    sourceReceiptChannelName(channel.channelId, index),
+  const expectedChannelNames = inventory.channels.map((channel) =>
+    sourceReceiptChannelName(channel),
   );
   const actualChannelNames = Object.keys(receipt.channels);
   if (
@@ -2768,8 +5707,8 @@ function validateSourceReceipt(
     );
   }
 
-  for (const [channelIndex, channel] of inventory.channels.entries()) {
-    const name = sourceReceiptChannelName(channel.channelId, channelIndex);
+  for (const channel of inventory.channels) {
+    const name = sourceReceiptChannelName(channel);
     const receiptChannel = receipt.channels[name];
     if (!receiptChannel || typeof receiptChannel !== "object") {
       throw new Error(`${name}: source receipt channel is missing`);
@@ -2807,16 +5746,11 @@ function validateSourceReceipt(
       ) {
         throw new Error(`${pageName}.readAt must be an ISO timestamp`);
       }
-      if (requireFreshReads) {
-        validateReadAt(
-          receiptPage.readAt,
-          `${pageName}.readAt`,
-          "rerun the complete channel scan before recap",
-        );
-      }
+      validateBoundedReadAt(receiptPage.readAt, `${pageName}.readAt`);
 
       for (const field of [
         "cursor",
+        "before",
         "nextCursor",
         "exhausted",
         "readAt",
@@ -2839,12 +5773,14 @@ function validateSourceReceipt(
       );
     }
     const rawRows: SourceReceiptRow[] = [];
+    const rawTexts: string[] = [];
     for (const [pageIndex, rawPage] of rawPages.entries()) {
       const inventoryPage = channel.pages[pageIndex]!;
       const receiptPage = receiptChannel.pages[pageIndex]!;
       const pageName = `${name} raw Slack source page ${pageIndex + 1}`;
       for (const field of [
         "cursor",
+        "before",
         "nextCursor",
         "exhausted",
         "readAt",
@@ -2860,7 +5796,38 @@ function validateSourceReceipt(
           );
         }
       }
-      rawRows.push(...rawPage.rows);
+      rawRows.push(...rawPage.rows.map(({ ts, root }) => ({ ts, root })));
+      rawTexts.push(
+        ...rawPage.rows.map((row, rowIndex) => {
+          if (typeof row.rawText !== "string") {
+            throw new Error(
+              `${pageName} result ${rowIndex + 1}: preserve the exact raw Slack message body`,
+            );
+          }
+          return inventoryPage.parents[rowIndex]?.ownershipSkip
+            ? row.rawText
+            : row.text;
+        }),
+      );
+      for (const [rowIndex, row] of rawPage.rows.entries()) {
+        const parent = inventoryPage.parents[rowIndex];
+        if (!parent) continue;
+        const parentName = `${pageName} result ${rowIndex + 1}`;
+        if (Object.hasOwn(row, "filesMetadata")) {
+          if (
+            !Object.hasOwn(parent, "files") ||
+            !isDeepStrictEqual(parent.files, row.filesMetadata)
+          ) {
+            throw new Error(
+              `${parentName}: attachment IDs, names, and MIME types must match the raw source listing`,
+            );
+          }
+        } else if (parent.ownershipSkip && Object.hasOwn(parent, "files")) {
+          throw new Error(
+            `${parentName}: without a raw source file listing, held-root attachment state must remain unknown`,
+          );
+        }
+      }
     }
     if (!isDeepStrictEqual(rawRows, receiptChannel.rows)) {
       throw new Error(
@@ -2899,8 +5866,681 @@ function validateSourceReceipt(
           `${name}: source receipt row ${rowIndex + 1} timestamp/root does not match the reviewed inventory`,
         );
       }
+      if (
+        requireSourceText &&
+        (typeof parent.sourceText !== "string" ||
+          parent.sourceText !== rawTexts[rowIndex])
+      ) {
+        throw new Error(
+          `${name}: source row ${rowIndex + 1} text does not match the captured Slack result; preserve the exact source text`,
+        );
+      }
     }
   }
+}
+
+function validateRootClassificationJudgment(
+  parentName: string,
+  parent: Parent,
+  sweepActorId: string,
+  sourceText: string | undefined,
+  required: boolean,
+): void {
+  if (!required) return;
+  const judgment = parent.rootClassificationJudgment;
+  if (
+    typeof sourceText !== "string" ||
+    parent.sourceText !== sourceText ||
+    !judgment ||
+    judgment.actorId !== sweepActorId ||
+    judgment.decision !== parent.rootClassification ||
+    typeof judgment.rationale !== "string" ||
+    !judgment.rationale.trim()
+  ) {
+    throw new Error(
+      `${parentName}: record this actor's human report/admin judgment and rationale against the exact source text`,
+    );
+  }
+}
+
+function validateRootClassificationText(
+  parentName: string,
+  parent: Parent,
+  snapshot: ThreadSnapshot | undefined,
+  required: boolean,
+): void {
+  if (!required) return;
+  if (parent.ownershipSkip) {
+    if (typeof parent.sourceText !== "string") {
+      throw new Error(
+        `${parentName}: a held in-page root still needs its exact channel-scan source text`,
+      );
+    }
+    return;
+  }
+  if (!snapshot || typeof snapshot.rootText !== "string") {
+    throw new Error(
+      `${parentName}: every classified root requires a complete thread read-back for exact source text`,
+    );
+  }
+  if (!matchesSlackMessageText(parent.sourceText, snapshot.rootText)) {
+    throw new Error(
+      `${parentName}: classified source text must match the complete thread root text`,
+    );
+  }
+}
+
+function validateThreadSnapshotAgainstRawPages(
+  channelName: string,
+  snapshot: ThreadSnapshot,
+  sweepActorId: string,
+  rawThreadPages: RawThreadPages | undefined,
+  finalPageReadAt: number | null,
+  requireFreshReads: boolean,
+): void {
+  const pages = rawThreadPages?.[channelName]?.[snapshot.rootTs];
+  const label = `${channelName} thread ${snapshot.rootTs}`;
+  if (!Array.isArray(pages) || pages.length === 0) {
+    throw new Error(
+      `${label}: captured raw slack_read_thread pages are required`,
+    );
+  }
+
+  let expectedCursor: string | null = null;
+  const usedCursors = new Set<string>();
+  const messages = new Map<string, RawThreadMessage>();
+  let root: RawThreadMessage | undefined;
+  let rootReplyCount: number | undefined;
+  let previousReadAt = -Infinity;
+  let previousReplyTimestamp = slackTimestamp(
+    snapshot.rootTs,
+    `${label}.rootTs`,
+  );
+
+  for (const [pageIndex, page] of pages.entries()) {
+    const pageLabel = `${label} page ${pageIndex + 1}`;
+    if (page.cursor !== expectedCursor) {
+      throw new Error(
+        `${pageLabel}: thread cursor does not continue the captured chain`,
+      );
+    }
+    if (page.cursor !== null) {
+      if (usedCursors.has(page.cursor)) {
+        throw new Error(`${pageLabel}: thread cursor was already used`);
+      }
+      usedCursors.add(page.cursor);
+    }
+    const readAt = Date.parse(page.readAt);
+    if (
+      !Number.isFinite(readAt) ||
+      new Date(readAt).toISOString() !== page.readAt
+    ) {
+      throw new Error(`${pageLabel}.readAt must be an ISO timestamp`);
+    }
+    if (readAt < previousReadAt) {
+      throw new Error(`${label}: thread pages must be read in cursor order`);
+    }
+    if (requireFreshReads) {
+      validateReadAt(
+        page.readAt,
+        `${pageLabel}.readAt`,
+        "reread the full thread before recap",
+      );
+      if (finalPageReadAt !== null && readAt <= finalPageReadAt) {
+        throw new Error(
+          `${label}: thread pages must follow the final channel scan`,
+        );
+      }
+    }
+    previousReadAt = readAt;
+
+    for (const message of page.messages) {
+      const timestamp = slackTimestamp(message.ts, `${pageLabel}.message.ts`);
+      if (message.ts === snapshot.rootTs) {
+        if (root && !isDeepStrictEqual(root, message)) {
+          throw new Error(
+            `${label}: repeated root read-back differs between pages`,
+          );
+        }
+        root = message;
+        if (message.replyCount !== undefined)
+          rootReplyCount = message.replyCount;
+        continue;
+      }
+      if (timestamp <= previousReplyTimestamp) {
+        throw new Error(`${label}: raw thread replies are not oldest-first`);
+      }
+      previousReplyTimestamp = timestamp;
+      if (message.threadParentTs !== snapshot.rootTs) {
+        throw new Error(`${label}: raw reply resolves to a different parent`);
+      }
+      if (messages.has(message.ts)) {
+        throw new Error(
+          `${label}: raw thread pages duplicate reply ${message.ts}`,
+        );
+      }
+      messages.set(message.ts, message);
+    }
+
+    if (page.replyCount !== undefined) rootReplyCount = page.replyCount;
+    const isLastPage = pageIndex === pages.length - 1;
+    if (page.exhausted) {
+      if (page.nextCursor !== null || !isLastPage) {
+        throw new Error(
+          `${pageLabel}: an exhausted thread page must be the final page`,
+        );
+      }
+    } else {
+      if (
+        page.nextCursor === null ||
+        isLastPage ||
+        usedCursors.has(page.nextCursor)
+      ) {
+        throw new Error(
+          `${pageLabel}: follow every thread cursor until explicit exhaustion`,
+        );
+      }
+      expectedCursor = page.nextCursor;
+    }
+    if (isLastPage && !page.exhausted) {
+      throw new Error(`${label}: thread pagination did not reach exhaustion`);
+    }
+  }
+
+  if (!root || root.threadParentTs !== snapshot.rootTs) {
+    throw new Error(
+      `${label}: raw thread pages must include the exact parent message`,
+    );
+  }
+  if (rootReplyCount === undefined || rootReplyCount !== messages.size) {
+    throw new Error(
+      `${label}: raw thread reply_count does not match the fully captured replies`,
+    );
+  }
+  if (
+    snapshot.replyCount !== rootReplyCount ||
+    snapshot.replies.length !== rootReplyCount ||
+    snapshot.rootText !== root.text ||
+    JSON.stringify(snapshot.rootFiles ?? []) !== JSON.stringify(root.files)
+  ) {
+    throw new Error(
+      `${label}: snapshot root text, attachments, or reply count differs from the captured thread`,
+    );
+  }
+  const replies = [...messages.values()];
+  if (replies.length !== snapshot.replies.length) {
+    throw new Error(
+      `${label}: snapshot omitted or added a captured thread reply`,
+    );
+  }
+  for (const [replyIndex, rawReply] of replies.entries()) {
+    const recorded = snapshot.replies[replyIndex];
+    const expectedKind = rawReply.isBot
+      ? "bot"
+      : rawReply.actorId === sweepActorId
+        ? "sweep"
+        : "human";
+    if (
+      !recorded ||
+      recorded.ts !== rawReply.ts ||
+      recorded.actorId !== rawReply.actorId ||
+      recorded.kind !== expectedKind ||
+      recorded.text !== rawReply.text ||
+      JSON.stringify(recorded.files ?? []) !== JSON.stringify(rawReply.files)
+    ) {
+      throw new Error(
+        `${label}: snapshot reply ${replyIndex + 1} differs from captured Slack thread data`,
+      );
+    }
+    const recordedWorkflowNames = new Set(
+      Object.keys(recorded.workflowReactionOwners),
+    );
+    for (const reactionName of rawReply.workflowReactionNames ?? []) {
+      if (!recordedWorkflowNames.has(reactionName)) {
+        throw new Error(
+          `${label}: reply ${replyIndex + 1} has a ${reactionName} mark in the thread read and needs its exact direct reaction read-back`,
+        );
+      }
+    }
+  }
+  if (snapshot.readAt !== pages.at(-1)!.readAt) {
+    throw new Error(
+      `${label}: snapshot readAt must match the final captured thread page`,
+    );
+  }
+}
+
+function validateOwnedMarkSearches(
+  channel: Channel,
+  channelName: string,
+  sweepActorId: string,
+  finalPageReadAt: number | null,
+  rawOwnedMarkPages: RawOwnedMarkSearchPages | undefined,
+  requireFreshReads: boolean,
+): OwnedMarkSearchCandidates {
+  const candidates: OwnedMarkSearchCandidates = {
+    eyes: new Map(),
+    white_check_mark: new Map(),
+    ticket: new Map(),
+  };
+  const searches = channel.ownedMarkSearches;
+  if (!Array.isArray(searches) || !rawOwnedMarkPages) {
+    throw new Error(
+      `${channelName}: exhaustive owned-mark search evidence is required`,
+    );
+  }
+  const expectedEmojis: WorkflowEmoji[] = [
+    "eyes",
+    "white_check_mark",
+    "ticket",
+  ];
+  const byEmoji = new Map<WorkflowEmoji, OwnedMarkSearch>();
+  for (const search of searches) {
+    if (!expectedEmojis.includes(search.emoji) || byEmoji.has(search.emoji)) {
+      throw new Error(
+        `${channelName}: owned-mark searches must contain one query per workflow reaction`,
+      );
+    }
+    byEmoji.set(search.emoji, search);
+  }
+  if (
+    searches.length !== expectedEmojis.length ||
+    expectedEmojis.some((emoji) => !byEmoji.has(emoji))
+  ) {
+    throw new Error(
+      `${channelName}: owned-mark searches must cover 👀, ✅, and 🎫`,
+    );
+  }
+  const rawByEmoji = rawOwnedMarkPages[channelName];
+  if (!rawByEmoji) {
+    throw new Error(
+      `${channelName}: captured owned-mark search pages are missing`,
+    );
+  }
+
+  for (const emoji of expectedEmojis) {
+    const search = byEmoji.get(emoji)!;
+    const expectedFilters = `in:<#${channel.channelId}> hasmy::${emoji}:`;
+    const queryKeys = Object.keys(search.query).sort();
+    const expectedQueryKeys = [
+      "after",
+      "before",
+      "content_types",
+      "filters",
+      "include_bots",
+      "include_context",
+      "keywords",
+      "limit",
+      "natural_language_query",
+      "response_format",
+      "sort",
+      "sort_dir",
+      "tool",
+    ].sort();
+    if (
+      search.query.tool !== "slack_search_public" ||
+      search.query.filters !== expectedFilters ||
+      search.query.after !== channel.scanQuery.after ||
+      search.query.before !== channel.scanQuery.before ||
+      queryKeys.length !== expectedQueryKeys.length ||
+      queryKeys.some((key, index) => key !== expectedQueryKeys[index]) ||
+      search.query.keywords.length !== 0 ||
+      search.query.natural_language_query !== "" ||
+      search.query.include_bots !== true ||
+      search.query.include_context !== false ||
+      search.query.content_types !== "messages" ||
+      search.query.limit !== 20 ||
+      search.query.sort !== "timestamp" ||
+      search.query.sort_dir !== "desc" ||
+      search.query.response_format !== "detailed"
+    ) {
+      throw new Error(
+        `${channelName}: ${emoji} owned-mark search must match the channel's fixed source window and have no other filters`,
+      );
+    }
+    if (
+      search.pageLimitRecoveries !== undefined &&
+      !Array.isArray(search.pageLimitRecoveries)
+    ) {
+      throw new Error(
+        `${channelName}: ${emoji} pageLimitRecoveries must be an array`,
+      );
+    }
+    const pageLimitRecoveries = (search.pageLimitRecoveries ?? []).map(
+      (recovery, recoveryIndex) => {
+        const recoveryName = `${channelName} hasmy::${emoji}.pageLimitRecoveries[${recoveryIndex}]`;
+        if (!recovery || typeof recovery !== "object") {
+          throw new Error(`${recoveryName} must record the page-limit result`);
+        }
+        if (typeof recovery.cursor !== "string" || !recovery.cursor) {
+          throw new Error(`${recoveryName}.cursor must be a non-empty cursor`);
+        }
+        const boundaryTimestamp = slackTimestamp(
+          recovery.boundaryTs,
+          `${recoveryName}.boundaryTs`,
+        );
+        if (recovery.errorCode !== "page_limit_exceeded") {
+          throw new Error(
+            `${recoveryName}.errorCode must be page_limit_exceeded`,
+          );
+        }
+        const before = validateCapturedOwnedMarkRequestArgs(
+          recovery.args,
+          recovery.cursor,
+          recoveryName,
+          channel.channelId,
+          emoji,
+          channel.scanQuery.after,
+          channel.scanQuery.before,
+        );
+        if (typeof recovery.raw !== "string" || !recovery.raw) {
+          throw new Error(
+            `${recoveryName}.raw must preserve the exact failed response`,
+          );
+        }
+        validateRawPageLimitFailure(recovery.raw, recoveryName);
+        if (typeof recovery.readAt !== "string") {
+          throw new Error(`${recoveryName}.readAt must be an ISO timestamp`);
+        }
+        const readAt = Date.parse(recovery.readAt);
+        if (
+          !Number.isFinite(readAt) ||
+          new Date(readAt).toISOString() !== recovery.readAt
+        ) {
+          throw new Error(`${recoveryName}.readAt must be an ISO timestamp`);
+        }
+        if (requireFreshReads) {
+          validateBoundedReadAt(recovery.readAt, `${recoveryName}.readAt`);
+          if (finalPageReadAt !== null && readAt <= finalPageReadAt) {
+            throw new Error(
+              `${recoveryName}: ownership searches must follow the final channel page`,
+            );
+          }
+        }
+        return {
+          cursor: recovery.cursor,
+          boundaryTs: recovery.boundaryTs,
+          boundaryTimestamp,
+          before: before ?? null,
+          readAt,
+        };
+      },
+    );
+    const manifestPages = search.pages;
+    const rawPages = rawByEmoji[emoji];
+    if (
+      !Array.isArray(manifestPages) ||
+      manifestPages.length === 0 ||
+      !Array.isArray(rawPages) ||
+      rawPages.length !== manifestPages.length
+    ) {
+      throw new Error(
+        `${channelName}: ${emoji} ownership search must record every raw cursor page`,
+      );
+    }
+
+    let expectedCursor: string | null = null;
+    let activeBefore: string | null = search.query.before ?? null;
+    const fixedAfter = slackTimestamp(
+      search.query.after,
+      `${channelName} hasmy::${emoji}.query.after`,
+    );
+    let previousReadAt = -Infinity;
+    let previousTimestamp: bigint | null = null;
+    const seenCursors = new Set<string>();
+    const seenMessageTimestamps = new Set<string>();
+    const usedPageLimitRecoveries = new Set<number>();
+    for (const [pageIndex, page] of manifestPages.entries()) {
+      const rawPage = rawPages[pageIndex];
+      const label = `${channelName} hasmy::${emoji} page ${pageIndex + 1}`;
+      if (!rawPage) {
+        throw new Error(`${label}: captured owned-mark page is missing`);
+      }
+      const before = page.before ?? null;
+      const beforeTimestamp =
+        before === null ? null : slackTimestamp(before, `${label}.before`);
+      const startsRecoverySlice =
+        pageIndex > 0 && page.cursor === null && before !== activeBefore;
+      if (
+        (pageIndex === 0 &&
+          (page.cursor !== null || before !== search.query.before)) ||
+        (pageIndex > 0 &&
+          !startsRecoverySlice &&
+          (page.cursor !== expectedCursor || before !== activeBefore))
+      ) {
+        throw new Error(`${label}: owned-mark cursor chain is incomplete`);
+      }
+      const firstRowMismatchIndex = page.rows.findIndex(
+        (row, index) => !isDeepStrictEqual(row, rawPage.rows[index]),
+      );
+      const firstRow =
+        firstRowMismatchIndex === -1
+          ? undefined
+          : page.rows[firstRowMismatchIndex];
+      const rawFirstRow =
+        firstRowMismatchIndex === -1
+          ? undefined
+          : rawPage.rows[firstRowMismatchIndex];
+      const rowDifference =
+        firstRow && rawFirstRow
+          ? [
+              firstRow.ts !== rawFirstRow.ts ? "ts" : null,
+              firstRow.root !== rawFirstRow.root ? "root" : null,
+              firstRow.text !== rawFirstRow.text
+                ? `text(length ${firstRow.text.length} vs ${rawFirstRow.text.length})`
+                : null,
+            ]
+              .filter((field): field is string => field !== null)
+              .join(", ")
+          : "length";
+      const rowMismatch =
+        page.rows.length !== rawPage.rows.length
+          ? `rows.length (${page.rows.length} vs ${rawPage.rows.length})`
+          : firstRowMismatchIndex !== -1
+            ? `rows[${firstRowMismatchIndex + 1}] (${rowDifference})`
+            : null;
+      const mismatchFields = [
+        !Number.isInteger(page.messageCount) ||
+        page.messageCount !== page.rows.length ||
+        page.messageCount !== rawPage.messageCount
+          ? "messageCount"
+          : null,
+        page.cursor !== rawPage.cursor ? "cursor" : null,
+        (page.before ?? null) !== (rawPage.before ?? null)
+          ? `before (${page.before ?? "null"} vs ${rawPage.before ?? "null"})`
+          : null,
+        page.nextCursor !== rawPage.nextCursor ? "nextCursor" : null,
+        page.exhausted !== rawPage.exhausted ? "exhausted" : null,
+        page.readAt !== rawPage.readAt ? "readAt" : null,
+        rowMismatch,
+      ].filter((field): field is string => field !== null);
+      if (mismatchFields.length > 0) {
+        throw new Error(
+          `${label}: manifest does not match the captured raw search page (${mismatchFields.join(", ")})`,
+        );
+      }
+      const readAt = Date.parse(page.readAt);
+      if (
+        !Number.isFinite(readAt) ||
+        new Date(readAt).toISOString() !== page.readAt
+      ) {
+        throw new Error(`${label}.readAt must be an ISO timestamp`);
+      }
+      if (readAt < previousReadAt) {
+        throw new Error(
+          `${channelName}: owned-mark pages were not read in cursor order`,
+        );
+      }
+      if (requireFreshReads) {
+        validateBoundedReadAt(page.readAt, `${label}.readAt`);
+        if (finalPageReadAt !== null && readAt <= finalPageReadAt) {
+          throw new Error(
+            `${label}: ownership searches must follow the final channel page`,
+          );
+        }
+      }
+      previousReadAt = readAt;
+
+      if (startsRecoverySlice) {
+        const previousPage = manifestPages[pageIndex - 1]!;
+        const previousOldest = previousPage.rows.at(-1)?.ts;
+        if (
+          previousPage.exhausted ||
+          previousPage.nextCursor === null ||
+          previousOldest === undefined ||
+          beforeTimestamp === null ||
+          beforeTimestamp !==
+            slackTimestamp(
+              previousOldest,
+              `${label} preceding capped page oldest timestamp`,
+            ) -
+              1n
+        ) {
+          throw new Error(
+            `${label}: a restarted slice must follow a capped cursor page and start exactly one microsecond before its oldest source message`,
+          );
+        }
+        const previousOldestTimestamp = slackTimestamp(
+          previousOldest,
+          `${label} preceding capped page oldest timestamp`,
+        );
+        const recoveryIndex = pageLimitRecoveries.findIndex(
+          (recovery, index) =>
+            !usedPageLimitRecoveries.has(index) &&
+            recovery.cursor === previousPage.nextCursor &&
+            recovery.boundaryTimestamp === previousOldestTimestamp,
+        );
+        if (recoveryIndex === -1) {
+          throw new Error(
+            `${label}: restarted slice must match a captured page_limit_exceeded result for the preceding nextCursor and oldest boundary`,
+          );
+        }
+        const recovery = pageLimitRecoveries[recoveryIndex]!;
+        if ((previousPage.before ?? null) !== recovery.before) {
+          throw new Error(
+            `${label}: captured page-limit request args must use the same before bound as the capped page`,
+          );
+        }
+        const previousPageReadAt = Date.parse(previousPage.readAt);
+        if (
+          !Number.isFinite(previousPageReadAt) ||
+          new Date(previousPageReadAt).toISOString() !== previousPage.readAt ||
+          recovery.readAt <= previousPageReadAt ||
+          recovery.readAt >= readAt
+        ) {
+          throw new Error(
+            `${label}: page_limit_exceeded must be read after the capped page and before the restarted slice`,
+          );
+        }
+        usedPageLimitRecoveries.add(recoveryIndex);
+        activeBefore = before;
+        expectedCursor = null;
+      }
+
+      for (const row of page.rows) {
+        const timestamp = slackTimestamp(row.ts, `${label}.row.ts`);
+        const rootTimestamp = slackTimestamp(row.root, `${label}.row.root`);
+        if (beforeTimestamp !== null && timestamp > beforeTimestamp) {
+          throw new Error(
+            `${label}: owned-mark result is newer than its fixed or recovery before bound`,
+          );
+        }
+        if (timestamp < fixedAfter) {
+          throw new Error(
+            `${label}: owned-mark result is older than the fixed source-window lower bound`,
+          );
+        }
+        if (typeof row.text !== "string") {
+          throw new Error(`${label}: preserve each exact source message text`);
+        }
+        if (previousTimestamp !== null && timestamp > previousTimestamp) {
+          throw new Error(
+            `${channelName}: owned-mark search rows must be newest-first`,
+          );
+        }
+        previousTimestamp = timestamp;
+        if (seenMessageTimestamps.has(timestamp.toString())) {
+          throw new Error(
+            `${label}: duplicate message ${row.ts} across owned-mark search pages`,
+          );
+        }
+        seenMessageTimestamps.add(timestamp.toString());
+        candidates[emoji].set(timestamp.toString(), rootTimestamp.toString());
+      }
+
+      const isLastPage = pageIndex === manifestPages.length - 1;
+      if (page.exhausted) {
+        if (page.nextCursor !== null || !isLastPage) {
+          throw new Error(
+            `${label}: an exhausted owned-mark page must be final`,
+          );
+        }
+      } else {
+        if (
+          page.nextCursor === null ||
+          isLastPage ||
+          seenCursors.has(page.nextCursor)
+        ) {
+          throw new Error(
+            `${label}: follow the owned-mark cursor until explicit exhaustion`,
+          );
+        }
+        expectedCursor = page.nextCursor;
+      }
+      if (page.cursor !== null) seenCursors.add(page.cursor);
+      if (isLastPage && !page.exhausted) {
+        throw new Error(
+          `${channelName}: ${emoji} ownership search did not reach exhaustion`,
+        );
+      }
+      activeBefore = before;
+    }
+    if (usedPageLimitRecoveries.size !== pageLimitRecoveries.length) {
+      throw new Error(
+        `${channelName}: every owned-mark page_limit_exceeded result must match exactly one restarted slice`,
+      );
+    }
+  }
+
+  return candidates;
+}
+
+function ownedMarkSearchRootCandidates(
+  candidatesByEmoji: OwnedMarkSearchCandidates,
+): Set<string> {
+  const candidates = new Set<string>();
+  for (const emoji of ["eyes", "white_check_mark", "ticket"] as const) {
+    for (const [messageTs, rootTs] of candidatesByEmoji[emoji]) {
+      // Reply hits stay in thread history; they are never root marks.
+      if (messageTs === rootTs) candidates.add(rootTs);
+    }
+  }
+  return candidates;
+}
+
+function confirmedOwnedRootMarksFromReadback(
+  channelName: string,
+  sweepActorId: string,
+  candidateRootTimestamps: Set<string>,
+  reactionReadbacks: Map<string, RootReactionEvidence>,
+): Map<string, Set<WorkflowEmoji>> {
+  const confirmed = new Map<string, Set<WorkflowEmoji>>();
+  for (const [rootTs, rootReadback] of reactionReadbacks) {
+    const marks = new Set<WorkflowEmoji>();
+    for (const emoji of ["eyes", "white_check_mark", "ticket"] as const) {
+      if ((rootReadback.reactionOwners[emoji] ?? []).includes(sweepActorId)) {
+        marks.add(emoji);
+      }
+    }
+    if (marks.size === 0) continue;
+    if (!candidateRootTimestamps.has(rootTs)) {
+      throw new Error(
+        `${channelName}: exact root reaction read-back shows this actor owns ${[...marks].join(", ")} on root ${rootReadback.ts}, but no root message candidate appeared in the exhaustive hasmy searches`,
+      );
+    }
+    confirmed.set(rootTs, marks);
+  }
+  return confirmed;
 }
 
 function validateInventory(
@@ -2908,27 +6548,57 @@ function validateInventory(
   options: ValidationOptions = {},
 ): string[] {
   if (!inventory || !Array.isArray(inventory.channels)) {
-    throw new Error("Expected { cutoffTs, channels } in the inventory JSON");
+    throw new Error(
+      "Expected { scope, cutoffTs, channels } in the inventory JSON",
+    );
   }
 
-  const cutoff = slackTimestamp(inventory.cutoffTs, "cutoffTs");
+  const scope = inventory.scope as
+    | {
+        channelIds?: unknown;
+        userRequest?: unknown;
+        narrowingJudgment?: unknown;
+      }
+    | undefined;
+  if (
+    !scope ||
+    !Array.isArray(scope.channelIds) ||
+    scope.channelIds.length === 0 ||
+    scope.channelIds.some(
+      (channelId) => typeof channelId !== "string" || !channelId.trim(),
+    ) ||
+    new Set(scope.channelIds).size !== scope.channelIds.length
+  ) {
+    throw new Error(
+      "scope.channelIds must record a non-empty list of unique requested channel IDs",
+    );
+  }
+  const requestedChannelIds = new Set(scope.channelIds as string[]);
+
+  slackTimestamp(inventory.cutoffTs, "cutoffTs");
   if (!isSlackUserId(inventory.sweepActorId)) {
     throw new Error(
       "sweepActorId must be the exact Slack user ID used by the connector",
     );
   }
-  const permalink = inventory.permalinkTs
-    ? slackTimestamp(inventory.permalinkTs, "permalinkTs")
-    : null;
-  if (permalink !== null && permalink !== cutoff) {
-    throw new Error("permalinkTs must equal the inclusive cutoffTs");
+  const permalink =
+    inventory.permalinkTs === undefined
+      ? null
+      : slackTimestamp(inventory.permalinkTs, "permalinkTs");
+  if (permalink !== null && !inventory.permalinkChannelId) {
+    throw new Error("permalinkChannelId is required when permalinkTs is set");
+  }
+  if (permalink === null && inventory.permalinkChannelId !== undefined) {
+    throw new Error("permalinkChannelId requires permalinkTs");
   }
   if (!inventory.channels.length)
     throw new Error("No channels were inventoried");
 
   const channelIds = new Set<string>();
+  const channelNames = new Set<string>();
   const summaries: string[] = [];
   let permalinkFound = false;
+  let fixedWindowEndTs: string | undefined;
 
   for (const [channelIndex, channel] of inventory.channels.entries()) {
     const name = channel.channelId || `channel ${channelIndex + 1}`;
@@ -2936,6 +6606,24 @@ function validateInventory(
       throw new Error(`${name}: channelId is missing or duplicated`);
     }
     channelIds.add(channel.channelId);
+    if (
+      typeof channel.channelName !== "string" ||
+      !/^[a-z0-9][a-z0-9_-]{0,79}$/.test(channel.channelName)
+    ) {
+      throw new Error(
+        `${name}: channelName must be the exact lowercase Slack channel slug`,
+      );
+    }
+    const normalizedChannelName = channel.channelName.toLowerCase();
+    if (channelNames.has(normalizedChannelName)) {
+      throw new Error(`${name}: channelName is duplicated`);
+    }
+    channelNames.add(normalizedChannelName);
+    const channelCutoffTs = effectiveChannelCutoffTs(inventory);
+    const channelCutoff = slackTimestamp(
+      channelCutoffTs,
+      `${name}.effectiveCutoffTs`,
+    );
 
     const scanQuery = channel.scanQuery as
       | Partial<ChannelScanQuery>
@@ -2945,9 +6633,15 @@ function validateInventory(
         `${name}: record the exhaustive slack_search_public scan arguments`,
       );
     }
+    const scanWindowEnd = slackTimestamp(
+      scanQuery.before,
+      `${name}.scanQuery.before`,
+    );
+    fixedWindowEndTs ??= scanQuery.before;
     const queryKeys = Object.keys(scanQuery).sort();
     const expectedQueryKeys = [
       "after",
+      "before",
       "content_types",
       "filters",
       "include_bots",
@@ -2973,9 +6667,17 @@ function validateInventory(
         `${name}: scanQuery.filters must constrain only this channel, with no content or date narrowing`,
       );
     }
-    if (scanQuery.after !== inventory.cutoffTs) {
+    if (scanQuery.after !== channelCutoffTs) {
       throw new Error(
-        `${name}: scanQuery.after must equal the inclusive cutoffTs`,
+        `${name}: scanQuery.after must equal this channel's inclusive effective cutoff`,
+      );
+    }
+    if (
+      scanQuery.before !== fixedWindowEndTs ||
+      scanWindowEnd <= channelCutoff
+    ) {
+      throw new Error(
+        `${name}: scanQuery.before must use the one fixed inclusive upper bound for this sweep and be newer than its lower cutoff`,
       );
     }
     if (
@@ -3010,11 +6712,69 @@ function validateInventory(
       channel.oldestQuery === null
         ? null
         : slackTimestamp(channel.oldestQuery, `${name}.oldestQuery`);
-    if (oldestQuery !== null && oldestQuery > cutoff - 1_000_000n) {
+    if (oldestQuery !== null && oldestQuery > channelCutoff - 1_000_000n) {
       throw new Error(
-        `${name}: oldestQuery must start at least one second before cutoffTs`,
+        `${name}: oldestQuery must start at least one second before this channel's effective cutoff`,
       );
     }
+    if (
+      channel.pageLimitRecoveries !== undefined &&
+      !Array.isArray(channel.pageLimitRecoveries)
+    ) {
+      throw new Error(`${name}: pageLimitRecoveries must be an array`);
+    }
+    const pageLimitRecoveries = (channel.pageLimitRecoveries ?? []).map(
+      (recovery, recoveryIndex) => {
+        const recoveryName = `${name}.pageLimitRecoveries[${recoveryIndex}]`;
+        if (!recovery || typeof recovery !== "object") {
+          throw new Error(`${recoveryName} must record the page-limit result`);
+        }
+        if (typeof recovery.cursor !== "string" || !recovery.cursor) {
+          throw new Error(`${recoveryName}.cursor must be a non-empty cursor`);
+        }
+        const boundaryTimestamp = slackTimestamp(
+          recovery.boundaryTs,
+          `${recoveryName}.boundaryTs`,
+        );
+        if (recovery.errorCode !== "page_limit_exceeded") {
+          throw new Error(
+            `${recoveryName}.errorCode must be page_limit_exceeded`,
+          );
+        }
+        const recoveryBefore = validateCapturedSlackRequestArgs(
+          recovery.args,
+          recovery.cursor,
+          recoveryName,
+          channel.channelId,
+          scanQuery as SlackSearchScope["scanQuery"],
+        );
+        if (typeof recovery.raw !== "string" || !recovery.raw) {
+          throw new Error(
+            `${recoveryName}.raw must preserve the exact failed response`,
+          );
+        }
+        validateRawPageLimitFailure(recovery.raw, recoveryName);
+        if (typeof recovery.readAt !== "string") {
+          throw new Error(`${recoveryName}.readAt must be an ISO timestamp`);
+        }
+        const readAt = Date.parse(recovery.readAt);
+        if (
+          !Number.isFinite(readAt) ||
+          new Date(readAt).toISOString() !== recovery.readAt
+        ) {
+          throw new Error(`${recoveryName}.readAt must be an ISO timestamp`);
+        }
+        validateBoundedReadAt(recovery.readAt, `${recoveryName}.readAt`);
+        return {
+          cursor: recovery.cursor,
+          boundaryTs: recovery.boundaryTs,
+          boundaryTimestamp,
+          before: recoveryBefore ?? null,
+          readAt,
+        };
+      },
+    );
+    const usedPageLimitRecoveries = new Set<number>();
     if (!Array.isArray(channel.pages) || !channel.pages.length) {
       throw new Error(
         `${name}: record every Slack page, including an empty page`,
@@ -3022,13 +6782,19 @@ function validateInventory(
     }
     const pageReadTimes = options.requireFreshReads
       ? channel.pages.map((page, pageIndex) =>
-          validateReadAt(
+          validateBoundedReadAt(
             page.readAt,
             `${name} page ${pageIndex + 1}.readAt`,
-            "rerun the complete channel scan before recap",
           ),
         )
       : [];
+    for (let pageIndex = 1; pageIndex < pageReadTimes.length; pageIndex += 1) {
+      if (pageReadTimes[pageIndex]! < pageReadTimes[pageIndex - 1]!) {
+        throw new Error(
+          `${name}: channel page ${pageIndex + 1} was read before the preceding page; rerun the complete channel scan in cursor order`,
+        );
+      }
+    }
     const finalPageReadAt = pageReadTimes.length
       ? Math.max(...pageReadTimes)
       : null;
@@ -3056,6 +6822,29 @@ function validateInventory(
         `${name}: threadSnapshots must be an array of full thread reads`,
       );
     }
+    const heldThreadRootTimestamps = new Set<string>();
+    for (const page of channel.pages) {
+      for (const parent of page.parents) {
+        if (parent.ts === parent.threadParentTs && parent.ownershipSkip) {
+          heldThreadRootTimestamps.add(
+            slackTimestamp(parent.ts, `${name}.heldRoot.ts`).toString(),
+          );
+        }
+      }
+    }
+    for (const rootAudit of channel.threadRootAudits ?? []) {
+      if (rootAudit.ownershipSkip) {
+        heldThreadRootTimestamps.add(
+          slackTimestamp(rootAudit.ts, `${name}.heldRootAudit.ts`).toString(),
+        );
+      }
+    }
+    validateNoHeldThreadEvidence(
+      name,
+      heldThreadRootTimestamps,
+      channel.threadSnapshots ?? [],
+      Object.keys(options.rawThreadPages?.[channel.channelName] ?? {}),
+    );
     const threadSnapshots = new Map<string, ThreadSnapshot>();
     const snapshotRootTimestamps = new Set<string>();
     for (const [snapshotIndex, snapshot] of (
@@ -3067,9 +6856,9 @@ function validateInventory(
           `${name}.threadSnapshots[${snapshotIndex}].readAt`,
           "read the complete thread again after the final channel scan",
         );
-        if (finalPageReadAt !== null && snapshotReadAt < finalPageReadAt) {
+        if (finalPageReadAt !== null && snapshotReadAt <= finalPageReadAt) {
           throw new Error(
-            `${name} threadSnapshot ${snapshot.rootTs} predates the final channel page; read the thread again after the channel scan`,
+            `${name} threadSnapshot ${snapshot.rootTs} must follow the final channel page; read the thread again after the channel scan`,
           );
         }
       }
@@ -3087,11 +6876,40 @@ function validateInventory(
         inventory.sweepActorId,
         options.requireFreshReads === true,
       );
+      if (options.requireSourceText) {
+        validateThreadSnapshotAgainstRawPages(
+          channel.channelName,
+          snapshot,
+          inventory.sweepActorId,
+          options.rawThreadPages,
+          finalPageReadAt,
+          options.requireFreshReads === true,
+        );
+      }
       snapshotRootTimestamps.add(normalizedRootTs);
       threadSnapshots.set(snapshot.rootTs, snapshot);
     }
+    if (options.requireSourceText) {
+      const rawRoots = Object.keys(
+        options.rawThreadPages?.[channel.channelName] ?? {},
+      );
+      if (
+        rawRoots.length !== snapshotRootTimestamps.size ||
+        rawRoots.some(
+          (rootTs) =>
+            !snapshotRootTimestamps.has(
+              slackTimestamp(rootTs, `${name}.rawThreadRoot`).toString(),
+            ),
+        )
+      ) {
+        throw new Error(
+          `${name}: raw thread pages must match exactly the inventoried thread snapshots`,
+        );
+      }
+    }
 
     let expectedCursor: string | null = null;
+    let activeBefore: string | null = scanQuery.before ?? null;
     let previousTimestamp: bigint | null = null;
     let parentCount = 0;
     let overlapCount = 0;
@@ -3136,8 +6954,91 @@ function validateInventory(
         throw new Error(`${pageName}: cursor must be a non-empty string`);
       }
       const nextCursor = page.nextCursor;
-      if (cursor !== expectedCursor) {
-        throw new Error(`${pageName}: cursor does not follow the prior page`);
+      const before = page.before ?? null;
+      const beforeTimestamp =
+        before === null ? null : slackTimestamp(before, `${pageName}.before`);
+      const startsRecoverySlice =
+        pageIndex > 0 && cursor === null && before !== activeBefore;
+      if (pageIndex === 0 && (cursor !== null || before !== scanQuery.before)) {
+        throw new Error(
+          `${pageName}: the primary source slice must start without a cursor and use the fixed scanQuery.before bound`,
+        );
+      }
+      if (startsRecoverySlice) {
+        const previousPage = channel.pages[pageIndex - 1]!;
+        const previousPageOldest = previousPage.sourceTimestamps.at(-1);
+        if (
+          previousPage.exhausted ||
+          previousPage.nextCursor === null ||
+          previousPageOldest === undefined ||
+          beforeTimestamp === null ||
+          beforeTimestamp !==
+            slackTimestamp(
+              previousPageOldest,
+              `${name} preceding capped page oldest timestamp`,
+            ) -
+              1n
+        ) {
+          throw new Error(
+            `${pageName}: a restarted slice must follow a capped cursor page and start exactly one microsecond before its oldest source message`,
+          );
+        }
+        const recoveryIndex = pageLimitRecoveries.findIndex(
+          (recovery, index) =>
+            !usedPageLimitRecoveries.has(index) &&
+            recovery.cursor === previousPage.nextCursor &&
+            recovery.boundaryTimestamp ===
+              slackTimestamp(
+                previousPageOldest,
+                `${name} preceding capped page oldest timestamp`,
+              ),
+        );
+        if (recoveryIndex === -1) {
+          throw new Error(
+            `${pageName}: restarted slice must match a captured page_limit_exceeded result for the preceding nextCursor and oldest boundary`,
+          );
+        }
+        const recovery = pageLimitRecoveries[recoveryIndex]!;
+        if (
+          typeof previousPage.readAt !== "string" ||
+          typeof page.readAt !== "string"
+        ) {
+          throw new Error(
+            `${pageName}: page-limit recovery needs read times for the capped page and restarted slice`,
+          );
+        }
+        const previousReadAt = Date.parse(previousPage.readAt);
+        const restartedReadAt = Date.parse(page.readAt);
+        if (
+          !Number.isFinite(previousReadAt) ||
+          new Date(previousReadAt).toISOString() !== previousPage.readAt ||
+          !Number.isFinite(restartedReadAt) ||
+          new Date(restartedReadAt).toISOString() !== page.readAt
+        ) {
+          throw new Error(
+            `${pageName}: page-limit recovery needs valid ISO page read times`,
+          );
+        }
+        if (
+          recovery.readAt <= previousReadAt ||
+          recovery.readAt >= restartedReadAt
+        ) {
+          throw new Error(
+            `${pageName}: page_limit_exceeded must be read after the capped page and before the restarted slice`,
+          );
+        }
+        if (recovery.before !== (previousPage.before ?? null)) {
+          throw new Error(
+            `${pageName}: captured page-limit request args must use the same before bound as the capped page`,
+          );
+        }
+        usedPageLimitRecoveries.add(recoveryIndex);
+        expectedCursor = null;
+        activeBefore = before;
+      } else if (cursor !== expectedCursor || before !== activeBefore) {
+        throw new Error(
+          `${pageName}: cursor and before bound do not continue the current source slice`,
+        );
       }
       if (cursor !== null) {
         if (typeof cursor !== "string" || !cursor) {
@@ -3179,6 +7080,11 @@ function validateInventory(
             `${pageName} source timestamp ${sourceIndex + 1}: Slack's exclusive oldest bound excludes it`,
           );
         }
+        if (beforeTimestamp !== null && sourceTimestamp > beforeTimestamp) {
+          throw new Error(
+            `${pageName} source timestamp ${sourceIndex + 1}: Slack returned a message newer than the recovery before bound`,
+          );
+        }
         if (
           previousSourceTimestamp !== null &&
           sourceTimestamp >= previousSourceTimestamp
@@ -3193,9 +7099,6 @@ function validateInventory(
           sourceTimestamp < oldestSourceTimestamp
         ) {
           oldestSourceTimestamp = sourceTimestamp;
-        }
-        if (permalink !== null && sourceTimestamp === permalink) {
-          permalinkFound = true;
         }
       }
 
@@ -3236,6 +7139,19 @@ function validateInventory(
               `${parentName}: administrative roots need a reason`,
             );
           }
+          validateRootClassificationJudgment(
+            parentName,
+            parent,
+            inventory.sweepActorId,
+            parent.sourceText,
+            options.requireSourceText === true,
+          );
+          validateRootClassificationText(
+            parentName,
+            parent,
+            threadSnapshots.get(parent.threadParentTs),
+            options.requireSourceText === true,
+          );
         }
         const key = timestamp.toString();
         if (page.sourceTimestamps[parentIndex] !== parent.ts) {
@@ -3265,7 +7181,13 @@ function validateInventory(
             `${parentName}: parents are not newest-first across pages`,
           );
         }
-        if (parent.reactionChecked !== true) {
+        const isRootMessage = timestamp === threadParentTimestamp;
+        const hasOwnershipSkip = validateOwnershipSkipRecord(
+          parentName,
+          parent,
+          slackTimestampFromMicros(threadParentTimestamp),
+        );
+        if (parent.reactionChecked !== true && !hasOwnershipSkip) {
           throw new Error(`${parentName}: check reactions before triage`);
         }
         if (
@@ -3276,38 +7198,48 @@ function validateInventory(
             `${parentName}: use an exact canonical disposition for every parent`,
           );
         }
-        if (
-          typeof parent.reactionSummary !== "string" ||
-          !parent.reactionSummary.trim()
-        ) {
-          throw new Error(`${parentName}: record the observed reaction state`);
-        }
-        if (
-          !parent.reactionOwners ||
-          typeof parent.reactionOwners !== "object" ||
-          Array.isArray(parent.reactionOwners)
-        ) {
-          throw new Error(
-            `${parentName}: record exact user IDs for every reaction`,
+        if (!hasOwnershipSkip || isRootMessage) {
+          if (
+            typeof parent.reactionSummary !== "string" ||
+            !parent.reactionSummary.trim()
+          ) {
+            throw new Error(
+              `${parentName}: record the observed reaction state`,
+            );
+          }
+          if (
+            !parent.reactionOwners ||
+            typeof parent.reactionOwners !== "object" ||
+            Array.isArray(parent.reactionOwners)
+          ) {
+            throw new Error(
+              `${parentName}: record exact user IDs for every reaction`,
+            );
+          }
+          validateReactionOwners(
+            parentName,
+            parent.reactionSummary,
+            parent.reactionOwners,
           );
         }
-        validateReactionOwners(
-          parentName,
-          parent.reactionSummary,
-          parent.reactionOwners,
-        );
-
-        const isRootMessage = timestamp === threadParentTimestamp;
         if (isRootMessage) {
+          if (hasOwnershipSkip) {
+            validateOwnershipSkipRootEvidence(
+              parentName,
+              parent,
+              inventory.sweepActorId,
+            );
+          }
+          const requireFreshReactionRead = options.requireFreshReads === true;
           const reactionReadAt = validateRootReactionReadAt(
             parentName,
             parent,
-            options.requireFreshReads === true,
+            requireFreshReactionRead,
           );
           if (
-            options.requireFreshReads &&
+            requireFreshReactionRead &&
             finalPageReadAt !== null &&
-            reactionReadAt! < finalPageReadAt
+            reactionReadAt! <= finalPageReadAt
           ) {
             throw new Error(
               parentName +
@@ -3322,10 +7254,11 @@ function validateInventory(
           ((parent.fixedScopes?.length ?? 0) > 0 ||
             (parent.unfinishedScopes?.length ?? 0) > 0 ||
             parent.handoff !== undefined ||
-            (parent.handoffs?.length ?? 0) > 0)
+            (parent.handoffs?.length ?? 0) > 0 ||
+            (parent.reporterRequests?.length ?? 0) > 0)
         ) {
           throw new Error(
-            `${parentName}: scope and handoff evidence must be recorded on the actual root row; reply rows only audit reply-level history`,
+            `${parentName}: scope, handoff, and reporter-request evidence must be recorded on the actual root row; reply rows only audit reply-level history`,
           );
         }
         const rootReactionState = workflowReactionState(
@@ -3353,7 +7286,9 @@ function validateInventory(
           (mark) => mark.emoji === "ticket",
         );
         const reconcilesOwnedStatus =
-          isRootMessage && hasWorkflowReaction(rootWorkflowState);
+          isRootMessage &&
+          hasWorkflowReaction(rootWorkflowState) &&
+          !hasOwnershipSkip;
         let fixedScopes: NonNullable<Parent["fixedScopes"]> = [];
         let fixedScopeNames = new Set<string>();
         let unfinishedScopes: NonNullable<Parent["unfinishedScopes"]> = [];
@@ -3361,7 +7296,17 @@ function validateInventory(
         let handoffs: Handoff[] = [];
         if (isRootMessage) {
           const isInScopeReport =
-            timestamp >= cutoff && parent.rootClassification === "report";
+            timestamp >= channelCutoff &&
+            parent.rootClassification === "report";
+          if (isInScopeReport && !hasOwnershipSkip) {
+            validateThreadSnapshotStructure(
+              parentName,
+              parent.ts,
+              threadSnapshot,
+              inventory.sweepActorId,
+              options.requireFreshReads === true,
+            );
+          }
           if (
             parent.rootClassification === "administrative" &&
             reconcilesOwnedStatus
@@ -3379,6 +7324,16 @@ function validateInventory(
             isInScopeReport,
             reconcilesOwnedStatus,
           );
+          if (isInScopeReport) {
+            validateInScopeReportOwnership(
+              parentName,
+              parent,
+              ownsEye,
+              hasWorkflowReaction(rootWorkflowState),
+              hasOwnershipSkip,
+              isCursorOverlap,
+            );
+          }
           const scopeEvidence = validateScopeEvidence(parentName, parent);
           fixedScopes = scopeEvidence.fixedScopes;
           fixedScopeNames = scopeEvidence.fixedScopeNames;
@@ -3390,7 +7345,7 @@ function validateInventory(
             parent,
             fixedScopeNames,
           );
-          if (!reconcilesOwnedStatus) {
+          if (!reconcilesOwnedStatus && !hasOwnershipSkip) {
             if (historicalMarks.length > 0) {
               throw new Error(
                 `${parentName}: historical reaction evidence needs a retained root mark owned by this actor`,
@@ -3406,6 +7361,7 @@ function validateInventory(
               fixedScopeNames,
               unfinishedScopeNames,
               handoffs,
+              parent.reporterRequests ?? [],
               hasHistoricalCheckmark,
             );
             validateHandoffTicketParity(
@@ -3413,6 +7369,7 @@ function validateInventory(
               handoffs,
               hasTicket,
               hasHistoricalTicket,
+              parent.reporterRequests ?? [],
             );
           }
         }
@@ -3454,17 +7411,20 @@ function validateInventory(
             handoffs,
             hasTicket,
             hasHistoricalTicket,
+            parent.reporterRequests ?? [],
           );
           validateDispositionScopes(
             parentName,
             parent,
             true,
-            timestamp >= cutoff && parent.rootClassification === "report",
+            timestamp >= channelCutoff &&
+              parent.rootClassification === "report",
             ownsEye,
             hasCheckmark,
             fixedScopeNames,
             unfinishedScopeNames,
             handoffs,
+            parent.reporterRequests ?? [],
             hasHistoricalCheckmark,
           );
           const reply = parent.statusReply;
@@ -3568,11 +7528,10 @@ function validateInventory(
             !reply.evidence.trim() ||
             typeof reply.text !== "string" ||
             !reply.text.trim() ||
-            !replyStatesDisposition(reply.text, parent.disposition) ||
-            !reply.text.includes(reply.evidence.trim())
+            !replyStatesDisposition(reply.text, parent.disposition)
           ) {
             throw new Error(
-              `${parentName}: status reply must state the exact disposition and include its recorded evidence`,
+              `${parentName}: status reply must record its disposition and evidence`,
             );
           }
           if (historicalMarks.length > 0) {
@@ -3592,11 +7551,11 @@ function validateInventory(
           validateStatusReactionLanguage(
             parentName,
             reply.text,
-            hasCheckmark,
-            hasTicket,
-            fixedScopes,
+            handoffs,
+            parent.reporterRequests ?? [],
+            reply.pendingActionSummary,
             unfinishedScopes,
-            historicalMarks,
+            reply.unfinishedScopeSummary,
           );
           if (
             fixedScopes.some(
@@ -3608,6 +7567,19 @@ function validateInventory(
           ) {
             throw new Error(
               `${parentName}: status reply evidence must include every fixed scope's recorded verification`,
+            );
+          }
+          if (
+            !hasPublicEvidenceSummary(
+              reply,
+              fixedScopes.map((fixedScope) => ({
+                scope: fixedScope.scope,
+                verification: fixedScope.verification,
+              })),
+            )
+          ) {
+            throw new Error(
+              `${parentName}: fixed-scope status needs a concise publicEvidenceSummary from a recorded scope verification in both internal proof and reply`,
             );
           }
           if (
@@ -3653,14 +7625,6 @@ function validateInventory(
             handoffs,
             hasTicket,
           );
-          if (
-            handoffs.length > 0 &&
-            !replyNamesHandoffs(parent.statusReply!.text, handoffs)
-          ) {
-            throw new Error(
-              `${parentName}: status reply must name each handoff's scope, owner, and action`,
-            );
-          }
         }
 
         if (seen.has(key)) {
@@ -3677,10 +7641,15 @@ function validateInventory(
         previousTimestamp = timestamp;
         parentCount += 1;
         if (isCursorOverlap) cursorOverlapCount += 1;
-        if (timestamp >= cutoff) uniqueInWindow.add(key);
-        if (permalink !== null && timestamp === permalink)
+        if (timestamp >= channelCutoff) uniqueInWindow.add(key);
+        if (
+          permalink !== null &&
+          channel.channelId === inventory.permalinkChannelId &&
+          timestamp === threadParentTimestamp &&
+          timestamp === permalink
+        )
           permalinkFound = true;
-        if (timestamp < cutoff) overlapCount += 1;
+        if (timestamp < channelCutoff) overlapCount += 1;
       }
 
       const isLastPage = pageIndex === channel.pages.length - 1;
@@ -3695,7 +7664,7 @@ function validateInventory(
       if (!isLastPage) {
         if (page.exhausted || nextCursor === null) {
           throw new Error(
-            `${pageName}: non-final page must have a nextCursor and cannot be exhausted`,
+            `${pageName}: a source slice can restart only after a capped cursor page; exhausted pages must end the inventory`,
           );
         }
         expectedCursor = nextCursor;
@@ -3706,6 +7675,12 @@ function validateInventory(
           );
         }
       }
+      activeBefore = before;
+    }
+    if (usedPageLimitRecoveries.size !== pageLimitRecoveries.length) {
+      throw new Error(
+        `${name}: every page_limit_exceeded result must match exactly one restarted source slice`,
+      );
     }
 
     const supplementalRoots = new Set<string>();
@@ -3714,9 +7689,9 @@ function validateInventory(
         root,
         `${name}.threadRoots[${rootIndex}]`,
       );
-      if (rootTime >= cutoff) {
+      if (rootTime >= channelCutoff) {
         throw new Error(
-          `${name}: a supplemental thread root must predate cutoffTs; include roots within the scoped window in the source manifest`,
+          `${name}: a supplemental thread root must predate this channel's effective cutoff; include roots within the scoped window in the source manifest`,
         );
       }
       if (oldestSourceTimestamp !== null && rootTime >= oldestSourceTimestamp) {
@@ -3762,12 +7737,149 @@ function validateInventory(
         threadSnapshots.get(rootAudit.ts),
         options.requireFreshReads === true,
         finalPageReadAt,
+        options.requireSourceText === true,
       );
     }
     if (auditedSupplementalRoots.size !== supplementalRoots.size) {
       throw new Error(
         `${name}: every supplemental root needs its own reaction and disposition audit row`,
       );
+    }
+
+    validateHeldMessageSkipRecords(
+      name,
+      parentsByTimestamp.values(),
+      channel.threadRootAudits ?? [],
+    );
+
+    if (options.requireOwnershipDiscovery) {
+      const ownedMarkCandidates = validateOwnedMarkSearches(
+        channel,
+        channel.channelName,
+        inventory.sweepActorId,
+        finalPageReadAt,
+        options.rawOwnedMarkPages,
+        options.requireFreshReads === true,
+      );
+      const searchedRootTimestamps =
+        ownedMarkSearchRootCandidates(ownedMarkCandidates);
+      const latestOwnershipSearchReadAt = Math.max(
+        ...channel.ownedMarkSearches!.flatMap((search) =>
+          search.pages.map((page) => Date.parse(page.readAt)),
+        ),
+      );
+      const auditedRoots = new Map<string, Parent>();
+      for (const [rootTs, root] of parentsByTimestamp) {
+        if (root.ts === root.threadParentTs) auditedRoots.set(rootTs, root);
+      }
+      for (const rootAudit of channel.threadRootAudits ?? []) {
+        auditedRoots.set(
+          slackTimestamp(rootAudit.ts, `${name}.ownedRoot.ts`).toString(),
+          rootAudit,
+        );
+      }
+      const missingSearchRoots = [...searchedRootTimestamps].filter(
+        (rootTs) => !auditedRoots.has(rootTs),
+      );
+      if (missingSearchRoots.length > 0) {
+        throw new Error(
+          `${name}: bounded hasmy root candidate(s) ${missingSearchRoots.join(", ")} are missing from source pages or supplemental-root audits; include each root and reconcile it before completion`,
+        );
+      }
+      const alreadyOwnedRootTimestamps = [...auditedRoots].flatMap(
+        ([rootTs, rootAudit]) =>
+          Object.values(rootAudit.reactionOwners ?? {}).some((owners) =>
+            owners.includes(inventory.sweepActorId),
+          )
+            ? [rootTs]
+            : [],
+      );
+      const candidateRootTimestamps = new Set([
+        ...searchedRootTimestamps,
+        ...alreadyOwnedRootTimestamps,
+      ]);
+
+      const reactionReadbacks = new Map<string, RootReactionEvidence>(
+        [...auditedRoots].map(([rootTs, rootAudit]) => [rootTs, rootAudit]),
+      );
+
+      for (const rootTs of candidateRootTimestamps) {
+        const rootReadback = reactionReadbacks.get(rootTs);
+        if (!rootReadback) {
+          throw new Error(
+            `${name}: hasmy search root candidate ${rootTs} needs an exact root reaction read-back`,
+          );
+        }
+        validateExactRootReactionReadback(
+          `${name} hasmy root candidate ${rootReadback.ts}`,
+          rootReadback,
+          options.requireFreshReads === true,
+          latestOwnershipSearchReadAt,
+        );
+      }
+
+      const ownedRootMarks = confirmedOwnedRootMarksFromReadback(
+        name,
+        inventory.sweepActorId,
+        candidateRootTimestamps,
+        reactionReadbacks,
+      );
+      for (const [rootTs, marks] of ownedRootMarks) {
+        const rootAudit = auditedRoots.get(rootTs);
+        if (!rootAudit) {
+          throw new Error(
+            `${name}: owned root ${rootTs} has no source or historical disposition audit`,
+          );
+        }
+        if (rootAudit.ownershipSkip) continue;
+        if (rootAudit.rootClassification === "administrative") {
+          throw new Error(
+            `${name}: actor-owned workflow marks on ${rootAudit.ts} conflict with its administrative classification`,
+          );
+        }
+        const snapshot = [...threadSnapshots.values()].find(
+          (candidate) =>
+            slackTimestamp(
+              candidate.rootTs,
+              `${name}.ownedSnapshot.rootTs`,
+            ).toString() === rootTs,
+        );
+        if (!snapshot) {
+          throw new Error(
+            `${name}: every root carrying this actor's workflow mark needs a complete threadSnapshot`,
+          );
+        }
+        const reactionReadAt = validateRootReactionReadAt(
+          `${name} owned root ${rootAudit.ts}`,
+          rootAudit,
+          options.requireFreshReads === true,
+        );
+        if (
+          reactionReadAt !== null &&
+          reactionReadAt <= latestOwnershipSearchReadAt
+        ) {
+          throw new Error(
+            `${name}: reread root ${rootAudit.ts} reactions after the exhaustive owned-mark searches`,
+          );
+        }
+        if (Date.parse(snapshot.readAt) <= latestOwnershipSearchReadAt) {
+          throw new Error(
+            `${name}: reread root ${rootAudit.ts} after the exhaustive owned-mark searches`,
+          );
+        }
+        const rawPages =
+          options.rawThreadPages?.[channel.channelName]?.[snapshot.rootTs];
+        if (
+          !rawPages?.length ||
+          rawPages.some(
+            (page) => Date.parse(page.readAt) <= latestOwnershipSearchReadAt,
+          )
+        ) {
+          throw new Error(
+            `${name}: every raw thread page for owned root ${rootAudit.ts} must follow the exhaustive owned-mark searches`,
+          );
+        }
+      }
     }
 
     const referencedSupplementalRoots = new Set<string>();
@@ -3808,7 +7920,8 @@ function validateInventory(
     const sourceRows = [...parentsByTimestamp.values()];
     const inScopeRows = sourceRows.filter(
       (parent) =>
-        slackTimestamp(parent.ts, `${name} summary ${parent.ts}.ts`) >= cutoff,
+        slackTimestamp(parent.ts, `${name} summary ${parent.ts}.ts`) >=
+        channelCutoff,
     );
     const rootRows = inScopeRows.filter(
       (parent) =>
@@ -3839,7 +7952,7 @@ function validateInventory(
         supplementalRoot.ts,
         `${name} summary supplemental root ${supplementalRoot.ts}.ts`,
       );
-      if (rootTimestamp >= cutoff) {
+      if (rootTimestamp >= channelCutoff) {
         distinctReportRoots.set(supplementalRoot.ts, supplementalRoot);
       }
     }
@@ -3861,6 +7974,9 @@ function validateInventory(
       );
       const distinctHandoffs = new Set<string>();
       const unassignedHandoffs = new Set<string>();
+      const activeReporterRequests = new Set<string>();
+      const historicalReporterRequests = new Set<string>();
+      const distinctHumanActions = new Set<string>();
       for (const parent of ownedTickets) {
         const handoffs =
           parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
@@ -3869,7 +7985,26 @@ function validateInventory(
             .map(normalizeScope)
             .join("\u0000");
           distinctHandoffs.add(key);
+          distinctHumanActions.add(
+            `${normalizeScope(handoff.scope)}\u0000${normalizeScope(handoff.action)}`,
+          );
           if (handoff.status === "unassigned") unassignedHandoffs.add(key);
+        }
+        for (const reporterRequest of parent.reporterRequests ?? []) {
+          const key =
+            `${normalizeScope(reporterRequest.scope)}\u0000` +
+            normalizeScope(reporterRequest.action);
+          activeReporterRequests.add(key);
+          distinctHumanActions.add(key);
+        }
+        for (const mark of parent.historicalReactionMarks ?? []) {
+          const request = mark.closedReporterRequest;
+          if (mark.emoji !== "ticket" || !request) continue;
+          const key =
+            `${normalizeScope(request.scope)}\u0000` +
+            normalizeScope(request.action);
+          historicalReporterRequests.add(key);
+          distinctHumanActions.add(key);
         }
       }
       const eyeOnlyRows = ownedEyes.filter(
@@ -3888,7 +8023,7 @@ function validateInventory(
         (parent) => !openDispositions.has(parent.disposition),
       );
       summaries.push(
-        `${channel.channelId}: in-scope ${label} ${rows.length}; owned 👀 ${ownedEyes.length}, ✅ marks ${ownedCheckmarks.length} for ${verifiedScopeCount} verified scopes, 🎫 marks ${ownedTickets.length} for ${distinctHandoffs.size} distinct human actions (${distinctHandoffs.size - unassignedHandoffs.size} accepted, ${unassignedHandoffs.size} unassigned; including completed history), eye-only ${eyeOnlyRows.length}`,
+        `${channel.channelId}: in-scope ${label} ${rows.length}; owned 👀 ${ownedEyes.length}, ✅ marks ${ownedCheckmarks.length} for ${verifiedScopeCount} verified scopes, 🎫 marks ${ownedTickets.length} for ${distinctHumanActions.size} distinct human actions (${distinctHandoffs.size} team handoffs: ${distinctHandoffs.size - unassignedHandoffs.size} accepted, ${unassignedHandoffs.size} unassigned; active reporter requests: ${activeReporterRequests.size}, historical reporter requests: ${historicalReporterRequests.size}; including completed history), eye-only ${eyeOnlyRows.length}`,
       );
       if (openEyeOnlyRows.length > 0) {
         summaries.push(
@@ -3955,7 +8090,7 @@ function validateInventory(
             slackTimestamp(
               snapshot.rootTs,
               `${name} summary thread ${snapshot.rootTs}.rootTs`,
-            ) >= cutoff,
+            ) >= channelCutoff,
         ),
         "current-window",
       ),
@@ -3967,7 +8102,7 @@ function validateInventory(
             slackTimestamp(
               snapshot.rootTs,
               `${name} summary thread ${snapshot.rootTs}.rootTs`,
-            ) < cutoff,
+            ) < channelCutoff,
         ),
         "pre-cutoff boundary",
       ),
@@ -3987,12 +8122,107 @@ function validateInventory(
     );
   }
 
+  validateClusteredRootLinks(inventory);
+
+  const inventoryChannelIds = [...channelIds].sort();
+  const requestedChannelIdsSorted = [...requestedChannelIds].sort();
+  if (
+    inventoryChannelIds.length !== requestedChannelIdsSorted.length ||
+    inventoryChannelIds.some(
+      (channelId, index) => channelId !== requestedChannelIdsSorted[index],
+    )
+  ) {
+    throw new Error("scope.channelIds must match the inventory channels");
+  }
+  const hasDefaultChannelScope =
+    requestedChannelIds.size === defaultFeedbackChannelIds.length &&
+    defaultFeedbackChannelIds.every((channelId) =>
+      requestedChannelIds.has(channelId),
+    );
+  if (
+    !hasDefaultChannelScope &&
+    (typeof scope.userRequest !== "string" || !scope.userRequest.trim())
+  ) {
+    throw new Error(
+      "scope.userRequest must record the exact user instruction when scope differs from the default channels",
+    );
+  }
+  if (!hasDefaultChannelScope) {
+    const userRequest = (scope.userRequest as string).trim();
+    if (
+      !requestNamesExactlyRequestedChannels(
+        userRequest,
+        inventory.channels,
+        requestedChannelIds,
+        permalink === null
+          ? undefined
+          : {
+              channelId: inventory.permalinkChannelId!,
+              rootTs: slackTimestampFromMicros(permalink),
+            },
+      )
+    ) {
+      throw new Error(
+        "scope.userRequest must explicitly name exactly the listed channels using an explicit limit or one linked report plus a direct same-in target",
+      );
+    }
+    const judgment = scope.narrowingJudgment as
+      | {
+          instruction?: unknown;
+          channelIds?: unknown;
+          humanVerified?: unknown;
+          rationale?: unknown;
+        }
+      | undefined;
+    const attestedChannelIds = Array.isArray(judgment?.channelIds)
+      ? judgment.channelIds
+      : [];
+    if (
+      !judgment ||
+      typeof judgment.instruction !== "string" ||
+      judgment.instruction.trim() !== userRequest ||
+      typeof judgment.rationale !== "string" ||
+      !judgment.rationale.trim() ||
+      judgment.humanVerified !== true ||
+      attestedChannelIds.some(
+        (channelId) => typeof channelId !== "string" || !channelId.trim(),
+      ) ||
+      attestedChannelIds.length !== requestedChannelIds.size ||
+      new Set(attestedChannelIds).size !== attestedChannelIds.length ||
+      [...requestedChannelIds].some(
+        (channelId) => !attestedChannelIds.includes(channelId),
+      )
+    ) {
+      throw new Error(
+        "scope.narrowingJudgment must record the exact instruction, matching channel IDs, rationale, and humanVerified: true",
+      );
+    }
+    validateOrchestratorScopeConfirmation(
+      options.scopeConfirmation,
+      userRequest,
+      requestedChannelIds,
+    );
+    summaries.push(
+      `External orchestrator confirmation matches narrowed request and channel IDs for ${[
+        ...requestedChannelIds,
+      ].join(
+        ", ",
+      )}; the checker cannot independently verify the original prompt.`,
+    );
+  }
+
+  if (permalink !== null && !channelIds.has(inventory.permalinkChannelId!)) {
+    throw new Error(
+      "permalinkChannelId is not one of the inventoried channels",
+    );
+  }
+
   if (options.sourceReceipt) {
     validateSourceReceipt(
       inventory,
       options.sourceReceipt,
-      options.requireFreshReads === true,
       options.rawSourcePages,
+      options.requireSourceText === true,
     );
   }
 
@@ -4007,6 +8237,695 @@ function validateInventory(
 
 const args = process.argv.slice(2).filter((argument) => argument !== "--");
 if (args[0] === "--self-test" && args.length === 1) {
+  if (
+    !replyStatesDisposition(
+      "ty for the feedback - partially fixed. PR #7720 merged.",
+      "Partially fixed",
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test does not recognize a status label after a hyphen",
+    );
+  }
+
+  const formattedSlackThread = {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          messages:
+            "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.500000\nRoot report\n\n=== THREAD REPLIES (1 total) ===\n\n--- Reply 1 of 1 ---\nFrom: agent-native (B_AGENT) [BOT]\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.500000\nVerified status\nReactions: eyes (1)\nFiles: report.png (ID: FTEST1, image/png, 1 KB)",
+          pagination_info: "There are no more messages in this thread.",
+        }),
+      },
+    ],
+  };
+  const parsedFormattedThread = parseRawThreadResponse(
+    formattedSlackThread,
+    "self-test formatted Slack thread",
+    "8.500000",
+  );
+  if (
+    !parsedFormattedThread.exhausted ||
+    parsedFormattedThread.nextCursor !== null ||
+    parsedFormattedThread.replyCount !== 1 ||
+    parsedFormattedThread.messages.length !== 2 ||
+    parsedFormattedThread.messages[1]?.actorId !== "B_AGENT" ||
+    parsedFormattedThread.messages[1]?.files[0]?.id !== "FTEST1" ||
+    parsedFormattedThread.messages[1]?.text !== "Verified status"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to parse a formatted Slack thread response",
+    );
+  }
+  const formattedNoReplies = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.600000\nRoot report\n\nNo thread messages",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test formatted zero-reply Slack thread",
+    "8.600000",
+  );
+  if (
+    !formattedNoReplies.exhausted ||
+    formattedNoReplies.replyCount !== 0 ||
+    formattedNoReplies.messages.length !== 1 ||
+    formattedNoReplies.messages[0]?.text !== "Root report"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to parse a formatted zero-reply thread",
+    );
+  }
+  try {
+    parseRawThreadResponse(
+      {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages:
+                "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.605000\nRoot report",
+              pagination_info: "There are no more messages in this thread.",
+            }),
+          },
+        ],
+      },
+      "self-test truncated parent-only Slack thread",
+      "8.605000",
+    );
+    throw new Error(
+      "Feedback inventory checker self-test failed to reject a truncated parent-only thread",
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Feedback inventory checker self-test failed")
+    ) {
+      throw error;
+    }
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("does not explicitly report zero replies")
+    ) {
+      throw new Error(
+        `Feedback inventory checker self-test expected truncated parent-only rejection; received "${error instanceof Error ? error.message : String(error)}"`,
+      );
+    }
+  }
+  const formattedNoRepliesTypo = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.610000\nRoot report\n\nNo thread messsages",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test formatted zero-reply Slack typo",
+    "8.610000",
+  );
+  if (
+    !formattedNoRepliesTypo.exhausted ||
+    formattedNoRepliesTypo.replyCount !== 0 ||
+    formattedNoRepliesTypo.messages[0]?.text !== "Root report"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to parse the connector's misspelled zero-reply marker",
+    );
+  }
+  const formattedMetadataShapedBody = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.700000\nRoot report\n\n=== THREAD REPLIES (1 total) ===\n\n--- Reply 1 of 1 ---\nFrom: reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.700000\nPlease preserve these literal lines:\nReactions: this text is not a reaction summary\nFiles: this text is not an attachment list",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test metadata-shaped Slack message body",
+    "8.700000",
+  );
+  if (
+    formattedMetadataShapedBody.messages[1]?.text !==
+    "Please preserve these literal lines:\nReactions: this text is not a reaction summary\nFiles: this text is not an attachment list"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test stripped message text that resembled connector metadata",
+    );
+  }
+
+  const selfTestSearchScope: SlackSearchScope = {
+    channelId: "C0C4U4XRT6X",
+    channelName: "qa",
+    scanQuery: {
+      tool: "slack_search_public",
+      after: "1792195200.000000",
+      before: "1792281599.999999",
+      filters: "in:<#C0C4U4XRT6X>",
+    },
+  };
+  const emptyPage = parseRawSlackSearchPage(
+    emptySlackSearchResults,
+    `${exhaustedSlackSearchPagination}\\n`,
+    "self-test empty page",
+    selfTestSearchScope,
+  );
+  if (
+    emptyPage.messages.length !== 0 ||
+    emptyPage.nextCursor !== null ||
+    !emptyPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected an empty final page",
+    );
+  }
+  const echoedQueryEmptyPage = parseRawSlackSearchPage(
+    emptySlackSearchResults,
+    exhaustedSlackSearchPagination,
+    "self-test echoed-query empty page",
+    selfTestSearchScope,
+  );
+  if (
+    echoedQueryEmptyPage.messages.length !== 0 ||
+    echoedQueryEmptyPage.nextCursor !== null ||
+    !echoedQueryEmptyPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected an echoed-query empty page",
+    );
+  }
+  const mismatchedEmptyPageQueries = [
+    {
+      query: "in:product after:2026-10-17 before:2026-10-17",
+      diagnostic: "does not match the inventoried channel",
+    },
+    {
+      query: "in:qa after:2026-10-18 before:2026-10-17",
+      diagnostic: "must match the UTC date of scanQuery.after",
+    },
+    {
+      query: "in:qa after:2026-10-16 before:2026-10-17",
+      diagnostic: "must match the UTC date of scanQuery.after",
+    },
+    {
+      query: "in:qa after:2026-10-17 before:2026-10-17 from:steve",
+      diagnostic:
+        "must contain only this channel and its recorded lower and upper bounds",
+    },
+  ];
+  for (const testCase of mismatchedEmptyPageQueries) {
+    try {
+      parseRawSlackSearchPage(
+        `# Search Results for: ${testCase.query}\n\nNo results found.\n`,
+        exhaustedSlackSearchPagination,
+        "self-test mismatched empty query",
+        selfTestSearchScope,
+      );
+      throw new Error("self-test failed to reject a mismatched empty query");
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("self-test failed to reject")
+      ) {
+        throw error;
+      }
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes(testCase.diagnostic)
+      ) {
+        throw new Error(
+          `self-test expected mismatched empty query rejection containing "${testCase.diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
+        );
+      }
+    }
+  }
+  const nonEmptyResults = [
+    "# Search Results for: in:qa after:2026-10-17 before:2026-10-17",
+    "",
+    "## Messages (2 results)",
+    "### Result 1 of 2",
+    "Channel: #qa-agent-native (ID: C0C4U4XRT6X)",
+    "Message_ts: 1700000000.000001",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000000001)",
+    "Text: first message contains fake connector metadata:",
+    "Message_ts: 1700000000.999999",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000999999)",
+    "",
+    "---",
+    "",
+    "### Result 2 of 2",
+    "Channel: #qa-agent-native (ID: C0C4U4XRT6X)",
+    "Message_ts: 1700000000.123456",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)",
+    "Text: second",
+  ].join("\n");
+  const cursorPage = parseRawSlackSearchPage(
+    nonEmptyResults,
+    "For the next page of results use cursor `next-page`\\n",
+    "self-test cursor page",
+    selfTestSearchScope,
+  );
+  if (
+    cursorPage.messages.length !== 2 ||
+    cursorPage.messages[0]?.timestamp !== "1700000000.000001" ||
+    cursorPage.messages[1]?.timestamp !== "1700000000.123456" ||
+    cursorPage.nextCursor !== "next-page" ||
+    cursorPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected a cursor page",
+    );
+  }
+  const filesMetadataResults = [
+    "# Search Results for: in:qa after:2026-10-17 before:2026-10-17",
+    "",
+    "## Messages (1 result)",
+    "### Result 1 of 1",
+    "Channel: #qa-agent-native (ID: C0C4U4XRT6X)",
+    "Message_ts: 1700000000.000001",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000000001)",
+    "Text: first message",
+    "Files: report.png (ID: FTEST1, image/png, 1 KB)",
+  ].join("\n");
+  const filesMetadataPage = parseRawSlackSearchPage(
+    filesMetadataResults,
+    exhaustedSlackSearchPagination,
+    "self-test source attachment metadata",
+    selfTestSearchScope,
+  );
+  if (
+    filesMetadataPage.messages[0]?.text !== "first message" ||
+    filesMetadataPage.messages[0]?.rawText !==
+      "first message\nFiles: report.png (ID: FTEST1, image/png, 1 KB)" ||
+    !isDeepStrictEqual(filesMetadataPage.messages[0]?.filesMetadata, [
+      { id: "FTEST1", name: "report.png", mimeType: "image/png" },
+    ])
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to preserve raw source attachment metadata",
+    );
+  }
+  const malformedFilesMetadataPage = parseRawSlackSearchPage(
+    filesMetadataResults.replace(
+      "Files: report.png (ID: FTEST1, image/png, 1 KB)",
+      "Files: this is user-authored text",
+    ),
+    exhaustedSlackSearchPagination,
+    "self-test ambiguous source attachment metadata",
+    selfTestSearchScope,
+  );
+  if (
+    malformedFilesMetadataPage.messages[0]?.text !==
+      "first message\nFiles: this is user-authored text" ||
+    malformedFilesMetadataPage.messages[0]?.filesMetadata !== undefined
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test treated ambiguous user text as attachment metadata",
+    );
+  }
+  const forgedResultBoundary = [
+    "# Search Results for: in:qa after:2026-10-17 before:2026-10-17",
+    "",
+    "## Messages (2 results)",
+    "### Result 1 of 2",
+    "user-authored body containing forged metadata and a result header:",
+    "Message_ts: 1700000000.999999",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000999999)",
+    "### Result 2 of 2",
+    "forged continuation inside the message body",
+    "Message_ts: 1700000000.123456",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)",
+    "### Result 2 of 2",
+    "actual second result",
+    "Message_ts: 1700000001.123456",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000001123456)",
+  ].join("\n");
+  try {
+    parseRawSlackSearchPage(
+      forgedResultBoundary,
+      exhaustedSlackSearchPagination,
+      "self-test forged result boundary",
+      selfTestSearchScope,
+    );
+    throw new Error(
+      "self-test failed to reject forged Slack result metadata and header",
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("self-test failed to reject")
+    ) {
+      throw error;
+    }
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes(
+        "ambiguous or missing timestamp and permalink boundary",
+      )
+    ) {
+      throw new Error(
+        `self-test expected forged result boundary rejection; received ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  const productionPageResults = [
+    "# Search Results for: in:qa after:2023-11-14 before:2023-11-14",
+    "",
+    "## Messages (1 result)",
+    "### Result 1 of 1",
+    "Channel: #qa-agent-native (ID: C0C4U4XRT6X)",
+    "Message_ts: 1700000000.123456",
+    "Reply count: 3",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)",
+    "Text: user-authored body containing fake connector metadata:",
+    "Message_ts: 1700000000.999999",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000999999)",
+  ].join("\n");
+  const productionSearchScope: SlackSearchScope = {
+    channelId: "C0C4U4XRT6X",
+    channelName: "qa",
+    scanQuery: {
+      tool: "slack_search_public",
+      after: "1700000000.000000",
+      before: "1700000001.000000",
+      filters: "in:<#C0C4U4XRT6X>",
+    },
+  };
+  const customChannelScope: SlackSearchScope = {
+    channelId: "C_CUSTOM",
+    channelName: "custom-feedback",
+    scanQuery: {
+      tool: "slack_search_public",
+      after: "1700000000.000000",
+      before: "1700000001.000000",
+      filters: "in:<#C_CUSTOM>",
+    },
+  };
+  validateEchoedSlackSearchQuery(
+    "in:custom-feedback after:2023-11-14 before:2023-11-14",
+    customChannelScope,
+    "self-test custom channel slug",
+  );
+  for (const [name, query] of [
+    ["wrong custom channel slug", "in:qa after:2023-11-14 before:2023-11-14"],
+    [
+      "wrong display name for the custom channel ID",
+      "in:<#C_CUSTOM|other-channel> after:2023-11-14 before:2023-11-14",
+    ],
+    [
+      "permalink used as a custom channel filter",
+      "in:https://app.slack.com/archives/C_CUSTOM/p1700000000000000 after:2023-11-14 before:2023-11-14",
+    ],
+  ] as const) {
+    try {
+      validateEchoedSlackSearchQuery(
+        query,
+        customChannelScope,
+        `self-test ${name}`,
+      );
+      throw new Error(`self-test failed to reject ${name}`);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("self-test failed to reject")
+      ) {
+        throw error;
+      }
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes(
+          "echoed Slack query does not match the inventoried channel",
+        )
+      ) {
+        throw new Error(
+          `Feedback inventory checker self-test expected ${name} to fail; received ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+  const productionPage = parseCapturedSlackSearchPage(
+    {
+      cursor: null,
+      readAt: "2026-10-17T19:00:00.000Z",
+      raw: JSON.stringify({
+        results: productionPageResults,
+        pagination_info: "For the next page of results use cursor `next-page`",
+      }),
+    },
+    "self-test production Slack page",
+    "C0C4U4XRT6X",
+    "qa",
+    productionSearchScope.scanQuery,
+  );
+  if (
+    productionPage.rows.length !== 1 ||
+    productionPage.rows[0]?.ts !== "1700000000.123456" ||
+    productionPage.nextCursor !== "next-page" ||
+    productionPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected a production cursor page",
+    );
+  }
+  const productionRequestArgs = {
+    after: productionSearchScope.scanQuery.after,
+    before: productionSearchScope.scanQuery.before,
+    filters: productionSearchScope.scanQuery.filters,
+    keywords: [],
+    natural_language_query: "",
+    include_bots: true,
+    include_context: false,
+    content_types: "messages",
+    limit: 20,
+    sort: "timestamp",
+    sort_dir: "desc",
+    response_format: "detailed",
+  };
+  try {
+    parseCapturedSlackSearchPage(
+      {
+        args: { ...productionRequestArgs, cursor: "previous-page" },
+        readAt: "2026-10-17T19:00:00.000Z",
+        raw: JSON.stringify({
+          results: productionPageResults,
+          pagination_info:
+            "For the next page of results use cursor `next-page`",
+        }),
+      },
+      "self-test captured Slack continuation missing wrapper cursor",
+      "C0C4U4XRT6X",
+      "qa",
+      productionSearchScope.scanQuery,
+      true,
+    );
+    throw new Error(
+      "self-test failed to reject a captured Slack continuation missing its wrapper cursor",
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("self-test failed to reject")
+    ) {
+      throw error;
+    }
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("request cursor must be recorded explicitly")
+    ) {
+      throw new Error(
+        `Feedback inventory checker self-test expected a missing wrapper cursor to fail; received ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  const unEchoedProductionPageResults = productionPageResults.replace(
+    "# Search Results for: in:qa after:2023-11-14 before:2023-11-14",
+    "# Search Results for: ",
+  );
+  try {
+    parseCapturedSlackSearchPage(
+      {
+        cursor: null,
+        readAt: "2026-10-17T19:00:00.000Z",
+        raw: JSON.stringify({
+          results: unEchoedProductionPageResults,
+          pagination_info:
+            "For the next page of results use cursor `next-page`",
+        }),
+      },
+      "self-test un-echoed Slack page without request args",
+      "C0C4U4XRT6X",
+      "qa",
+      productionSearchScope.scanQuery,
+    );
+    throw new Error(
+      "self-test failed to reject an un-echoed Slack page without request args",
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("self-test failed to reject")
+    ) {
+      throw error;
+    }
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("do not echo the search query")
+    ) {
+      throw new Error(
+        `Feedback inventory checker self-test expected an un-echoed Slack page without request args to fail; received ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  const nestedMcpPage = parseCapturedSlackSearchPage(
+    {
+      cursor: null,
+      args: productionRequestArgs,
+      readAt: "2026-10-17T19:00:00.000Z",
+      raw: JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              results: unEchoedProductionPageResults,
+              pagination_info:
+                "For the next page of results use cursor `next-page`",
+            }),
+          },
+        ],
+      }),
+    },
+    "self-test nested MCP Slack page",
+    "C0C4U4XRT6X",
+    "qa",
+    productionSearchScope.scanQuery,
+    true,
+  );
+  if (
+    nestedMcpPage.rows.length !== 1 ||
+    nestedMcpPage.nextCursor !== "next-page"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected a nested MCP response with exact request args",
+    );
+  }
+  try {
+    parseCapturedSlackSearchPage(
+      {
+        cursor: null,
+        readAt: "2026-10-17T19:00:00.000Z",
+        raw: JSON.stringify({ results: productionPageResults }),
+      },
+      "self-test production page missing pagination",
+      "C0C4U4XRT6X",
+      "qa",
+      productionSearchScope.scanQuery,
+    );
+    throw new Error(
+      "self-test failed to reject production Slack page without pagination",
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("self-test failed to reject")
+    ) {
+      throw error;
+    }
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("raw Slack response has no pagination info")
+    ) {
+      throw new Error(
+        `self-test expected production missing-pagination rejection; received ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  const sourcePageEnvelopeFailures = [
+    {
+      name: "unstructured search result text",
+      results: "No results found.\\n",
+      paginationInfo: exhaustedSlackSearchPagination,
+      diagnostic: "no recognized search-result header",
+    },
+    {
+      name: "missing pagination metadata",
+      results: nonEmptyResults,
+      paginationInfo: "",
+      diagnostic: "must record a next cursor or explicit exhaustion",
+    },
+    {
+      name: "cursor and exhaustion metadata together",
+      results: nonEmptyResults,
+      paginationInfo:
+        "End of results - No more pages available. cursor `next-page`",
+      diagnostic: "both a next cursor and exhausted pagination",
+    },
+    {
+      name: "empty results with a next cursor",
+      results: emptySlackSearchResults,
+      paginationInfo: "For the next page of results use cursor `next-page`",
+      diagnostic: "empty Slack results require explicit exhausted pagination",
+    },
+    {
+      name: "mismatched result count",
+      results: nonEmptyResults.replace(
+        "Messages (2 results)",
+        "Messages (3 results)",
+      ),
+      paginationInfo: exhaustedSlackSearchPagination,
+      diagnostic: "result headers do not match the declared result count",
+    },
+    {
+      name: "extra connector result",
+      results: nonEmptyResults.replace(
+        "Messages (2 results)",
+        "Messages (1 result)",
+      ),
+      paginationInfo: exhaustedSlackSearchPagination,
+      diagnostic: "result headers do not match the declared result count",
+    },
+  ];
+  for (const testCase of sourcePageEnvelopeFailures) {
+    try {
+      parseRawSlackSearchPage(
+        testCase.results,
+        testCase.paginationInfo,
+        `self-test ${testCase.name}`,
+        selfTestSearchScope,
+      );
+      throw new Error(`self-test failed to reject ${testCase.name}`);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("self-test failed")
+      ) {
+        throw error;
+      }
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes(testCase.diagnostic)
+      ) {
+        throw new Error(
+          `self-test ${testCase.name} expected diagnostic containing "${testCase.diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
+        );
+      }
+    }
+  }
   for (const [text, action] of [
     ["I'll test this later today", "test this later today"],
     ["I'll supersede #7524", "supersede #7524"],
@@ -4034,6 +8953,65 @@ if (args[0] === "--self-test" && args.length === 1) {
         `Feedback inventory checker self-test failed: a tentative handoff was accepted (${text}).`,
       );
     }
+  }
+  const longRecordedAction =
+    "review the complete scheduled feedback inventory and merge every eligible pull request after the exact head remains unchanged for ten minutes";
+  if (
+    !replyNamesRecordedAction(
+      `I will ${longRecordedAction}.`,
+      longRecordedAction,
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected a long recorded action without an explicit summary.",
+    );
+  }
+  for (const shortAction of ["merge", "fix this"]) {
+    if (!replyNamesRecordedAction(`I will ${shortAction}.`, shortAction)) {
+      throw new Error(
+        `Feedback inventory checker self-test rejected the short recorded action "${shortAction}" without an explicit summary.`,
+      );
+    }
+  }
+  if (
+    publicActionSummaryMatchesAction("this will be checked", "this will be")
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test accepted an ownerless filler-only action summary.",
+    );
+  }
+  if (publicActionSummaryMatchesAction("merge", "merge")) {
+    throw new Error(
+      "Feedback inventory checker self-test accepted a one-word public action summary.",
+    );
+  }
+  if (
+    publicActionSummaryMatchesAction("the route to production", "the route")
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test accepted filler words toward the public action summary minimum.",
+    );
+  }
+  if (
+    publicActionSummaryMatchesAction(
+      "route route the affected report",
+      "route route",
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test counted repeated words toward the public action summary minimum.",
+    );
+  }
+  if (
+    publicActionSummaryMatchesAction(
+      "Morgan Lee chooses the remaining behavior",
+      "Morgan Lee chooses",
+      "Morgan Lee",
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test counted the owner toward the public action summary minimum.",
+    );
   }
   const assignedPrHandoff: Handoff = {
     scope: "Interact scrolling",
@@ -4063,15 +9041,31 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
   }
   const valid: Inventory = {
+    scope: {
+      channelIds: ["C_TEST"],
+      userRequest:
+        "Scan only #test-channel (C_TEST) for this synthetic self-test.",
+      narrowingJudgment: {
+        instruction:
+          "Scan only #test-channel (C_TEST) for this synthetic self-test.",
+        channelIds: ["C_TEST"],
+        humanVerified: true,
+        rationale:
+          "The synthetic request names the sole channel in this fixture.",
+      },
+    },
     cutoffTs: "10.000000",
     permalinkTs: "10.000000",
+    permalinkChannelId: "C_TEST",
     sweepActorId: "USWEEPER",
     channels: [
       {
         channelId: "C_TEST",
+        channelName: "test-channel",
         scanQuery: {
           tool: "slack_search_public",
           after: "10.000000",
+          before: "11.000000",
           filters: "in:<#C_TEST>",
           keywords: [],
           natural_language_query: "",
@@ -4087,6 +9081,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         pages: [
           {
             cursor: null,
+            before: "11.000000",
             nextCursor: null,
             exhausted: true,
             messageCount: 3,
@@ -4102,9 +9097,17 @@ if (args[0] === "--self-test" && args.length === 1) {
                 },
                 rootClassification: "report",
                 reactionChecked: true,
+                reactionReadAt: "2030-01-01T00:00:00.000Z",
                 reactionSummary: "none",
                 reactionOwners: {},
-                disposition: "Skipped",
+                disposition: "Clustered",
+                latestRelevantHumanReply: null,
+                clusteredUnder: {
+                  channelId: "C_TEST",
+                  rootTs: "10.000000",
+                  permalink:
+                    "https://builder-internal.slack.com/archives/C_TEST/p10000000",
+                },
               },
               {
                 ts: "10.000000",
@@ -4117,15 +9120,19 @@ if (args[0] === "--self-test" && args.length === 1) {
                 rootClassification: "report",
                 reactionChecked: true,
                 reactionReadAt: "2030-01-01T00:00:00.000Z",
-                reactionSummary: "white_check_mark (1): USWEEPER",
-                reactionOwners: { white_check_mark: ["USWEEPER"] },
+                reactionSummary:
+                  "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+                reactionOwners: {
+                  eyes: ["USWEEPER"],
+                  white_check_mark: ["USWEEPER"],
+                },
                 disposition: "Fixed",
                 latestRelevantHumanReply: null,
                 latestOwnedReply: {
                   ts: "12.000000",
                   threadParentTs: "10.000000",
                   actorId: "USWEEPER",
-                  text: "Fixed: focused test passed. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+                  text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
                 },
                 reactionDecision: {
                   checkmark: {
@@ -4142,13 +9149,16 @@ if (args[0] === "--self-test" && args.length === 1) {
                   threadParentTs: "10.000000",
                   actorId: "USWEEPER",
                   disposition: "Fixed",
-                  evidence: "focused test passed",
-                  text: "Fixed: focused test passed. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+                  evidence:
+                    "The initial route screen passed its focused test and the start screen works now",
+                  publicEvidenceSummary: "The start screen works now",
+                  text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
                 },
                 fixedScopes: [
                   {
                     scope: "initial route screen",
-                    verification: "focused test passed",
+                    verification:
+                      "The initial route screen passed its focused test and the start screen works now",
                   },
                 ],
               },
@@ -4171,6 +9181,12 @@ if (args[0] === "--self-test" && args.length === 1) {
         ],
         threadSnapshots: [
           {
+            rootTs: "11.000000",
+            readAt: "2030-01-01T00:00:00.000Z",
+            replyCount: 0,
+            replies: [],
+          },
+          {
             rootTs: "10.000000",
             readAt: "2030-01-01T00:00:00.000Z",
             replyCount: 1,
@@ -4179,9 +9195,11 @@ if (args[0] === "--self-test" && args.length === 1) {
                 ts: "12.000000",
                 actorId: "USWEEPER",
                 kind: "sweep",
-                text: "Fixed: focused test passed. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+                text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+                workflowReactionReadback: [],
                 workflowReactionSummary: "none",
                 workflowReactionOwners: {},
+                workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
               },
             ],
           },
@@ -4190,6 +9208,42 @@ if (args[0] === "--self-test" && args.length === 1) {
     ],
   };
   const firstPage = valid.channels[0].pages[0];
+  const anchoredMultiChannel = structuredClone(valid);
+  anchoredMultiChannel.cutoffTs = "20.000000";
+  const multiChannelRequest =
+    "Scan only #test-channel (C_TEST) and #other-channel (C_OTHER) for this synthetic self-test.";
+  const multiChannelConfirmation = {
+    source: "orchestrator",
+    decision: "explicitly-requested",
+    userRequest: multiChannelRequest,
+    channelIds: ["C_TEST", "C_OTHER"],
+  };
+  anchoredMultiChannel.scope = {
+    channelIds: ["C_TEST", "C_OTHER"],
+    userRequest: multiChannelRequest,
+    narrowingJudgment: {
+      instruction: multiChannelRequest,
+      channelIds: ["C_TEST", "C_OTHER"],
+      humanVerified: true,
+      rationale: "The synthetic request names both channels.",
+    },
+  };
+  const nonAnchorChannel = structuredClone(valid.channels[0]!);
+  nonAnchorChannel.channelId = "C_OTHER";
+  nonAnchorChannel.channelName = "other-channel";
+  nonAnchorChannel.scanQuery = {
+    ...nonAnchorChannel.scanQuery,
+    filters: "in:<#C_OTHER>",
+  };
+  anchoredMultiChannel.channels.push(nonAnchorChannel);
+  validateInventory(anchoredMultiChannel, {
+    scopeConfirmation: multiChannelConfirmation,
+  });
+  const fiveDayCutoffOnNonAnchor = structuredClone(anchoredMultiChannel);
+  fiveDayCutoffOnNonAnchor.channels[1]!.scanQuery = {
+    ...fiveDayCutoffOnNonAnchor.channels[1]!.scanQuery,
+    after: "20.000000",
+  };
   const latestOwnedReplyFrom = (
     reply: NonNullable<Parent["statusReply"]>,
   ): NonNullable<Parent["latestOwnedReply"]> => ({
@@ -4322,6 +9376,32 @@ if (args[0] === "--self-test" && args.length === 1) {
       })),
     })),
   });
+  const withPageRoot = (
+    inventory: Inventory,
+    rootTs: string,
+    update: (parent: Parent) => Parent,
+  ): Inventory => ({
+    ...inventory,
+    channels: inventory.channels.map((channel) => ({
+      ...channel,
+      pages: channel.pages.map((page) => ({
+        ...page,
+        parents: page.parents.map((parent) =>
+          parent.ts === rootTs && parent.threadParentTs === rootTs
+            ? update(parent)
+            : parent,
+        ),
+      })),
+    })),
+  });
+  const reactionReadbackFromOwners = (
+    owners: Record<string, string[]>,
+  ): ThreadSnapshot["replies"][number]["workflowReactionReadback"] =>
+    Object.entries(owners).map(([name, users]) => ({
+      name,
+      count: users.length,
+      users: [...users],
+    }));
   const withTestThreadSnapshots = (
     inventory: Inventory,
     syncLatestOwnedReply = false,
@@ -4395,8 +9475,12 @@ if (args[0] === "--self-test" && args.length === 1) {
             kind,
             text,
             ...(files?.length ? { files } : {}),
+            workflowReactionReadback: reactionReadbackFromOwners(
+              workflowReactionOwners,
+            ),
             workflowReactionSummary,
             workflowReactionOwners,
+            workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
           });
         };
         if (parent.latestRelevantHumanReply) {
@@ -4443,6 +9527,15 @@ if (args[0] === "--self-test" && args.length === 1) {
             );
           }
         }
+        for (const reporterRequest of parent.reporterRequests ?? []) {
+          const request = reporterRequest.requestReply;
+          addReply(
+            request.ts,
+            request.actorId,
+            request.actorId === inventory.sweepActorId ? "sweep" : "human",
+            request.text,
+          );
+        }
         for (const mark of parent.historicalReactionMarks ?? []) {
           addReply(
             mark.previousStatus.ts,
@@ -4458,6 +9551,22 @@ if (args[0] === "--self-test" && args.length === 1) {
               request.actorId === inventory.sweepActorId ? "sweep" : "human",
               request.text,
             );
+          }
+          if (mark.closedReporterRequest) {
+            const request = mark.closedReporterRequest.requestReply;
+            addReply(
+              request.ts,
+              request.actorId,
+              request.actorId === inventory.sweepActorId ? "sweep" : "human",
+              request.text,
+            );
+            if (
+              mark.closedReporterRequest.resolution === "answered" &&
+              mark.closedReporterRequest.closureReply
+            ) {
+              const closure = mark.closedReporterRequest.closureReply;
+              addReply(closure.ts, closure.actorId, "human", closure.text);
+            }
           }
           if (mark.handoff?.acceptanceReply) {
             const acceptance = mark.handoff.acceptanceReply;
@@ -4516,12 +9625,30 @@ if (args[0] === "--self-test" && args.length === 1) {
             kind: sourceReply?.kind ?? "sweep",
             text: sourceReply?.text ?? "Legacy reply workflow mark retained.",
             ...(sourceReply?.files?.length ? { files: sourceReply.files } : {}),
+            workflowReactionReadback: reactionReadbackFromOwners(
+              workflowReactionOwners,
+            ),
             workflowReactionSummary,
             workflowReactionOwners,
-            workflowReactionReadAt: parent.reactionReadAt,
+            workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
           });
         }
         repliesByRoot.set(rootTs, replies);
+      }
+      for (const parent of rows) {
+        const channelCutoff = channel.scanQuery?.after;
+        if (
+          parent.ts !== parent.threadParentTs ||
+          parent.rootClassification !== "report" ||
+          typeof channelCutoff !== "string" ||
+          slackTimestamp(parent.ts, "test report root ts") <
+            slackTimestamp(channelCutoff, "test channel cutoff")
+        ) {
+          continue;
+        }
+        if (!repliesByRoot.has(parent.ts)) {
+          repliesByRoot.set(parent.ts, new Map());
+        }
       }
       return {
         ...channel,
@@ -4599,7 +9726,10 @@ if (args[0] === "--self-test" && args.length === 1) {
     };
     return withTestThreadSnapshots(markedReply);
   };
-  const withHandoffReply = (text: string): Inventory => ({
+  const withHandoffReply = (
+    text: string,
+    pendingActionSummary = "Alex Rivera will choose the remaining behavior",
+  ): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
       ...channel,
@@ -4610,8 +9740,11 @@ if (args[0] === "--self-test" && args.length === 1) {
           const statusReply = {
             ...parent.statusReply!,
             disposition: "Partially fixed",
-            evidence: "focused route-picker test passed; merge pending",
+            evidence:
+              "The route-picker works after the focused test passed; merge pending",
+            publicEvidenceSummary: "The route-picker works",
             text,
+            pendingActionSummary,
           };
           return {
             ...parent,
@@ -4654,8 +9787,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             ],
             fixedScopes: [
               {
-                scope: "route-picker behavior",
-                verification: "focused route-picker test passed; merge pending",
+                scope: "route-picker",
+                verification:
+                  "The route-picker works after the focused test passed; merge pending",
               },
             ],
             statusReply,
@@ -4712,7 +9846,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...parent.statusReply!,
             disposition: "In progress",
             evidence: "Alex Rivera will choose the remaining behavior",
-            text: "In progress: Alex Rivera will choose the remaining behavior. Handoff: remaining design choice — Alex Rivera — choose the remaining behavior. No :white_check_mark: — no verified scope is complete yet. :ticket: tracks Alex Rivera's accepted action. this was sent from a bot.",
+            text: "In progress: Alex Rivera will choose the remaining behavior. this was sent from a bot.",
+            pendingActionSummary:
+              "Alex Rivera will choose the remaining behavior",
           };
           const updated: Parent = {
             ...parent,
@@ -4768,7 +9904,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       latestRelevantHumanReply: null,
       handoffs: [
         {
-          scope: "remaining design choice",
+          scope: "remaining behavior",
           owner: "Product team",
           action: "choose the remaining behavior",
           status: "unassigned",
@@ -4781,10 +9917,176 @@ if (args[0] === "--self-test" && args.length === 1) {
         disposition: "In progress",
         evidence:
           "the Product team still needs to choose the remaining behavior",
-        text: "In progress: the Product team still needs to choose the remaining behavior. Handoff: remaining design choice — Product team — choose the remaining behavior; owner unassigned. No :white_check_mark: — no verified scope is complete yet. :ticket: tracks the unfinished Product team action; owner unassigned. this was sent from a bot.",
+        text: "In progress: The Product team still needs to choose the remaining behavior. this was sent from a bot.",
+        pendingActionSummary:
+          "The Product team still needs to choose the remaining behavior",
       },
       ...overrides,
     });
+  const withReporterRequest = (hasTicket: boolean): Inventory => ({
+    ...valid,
+    channels: valid.channels.map((channel) => ({
+      ...channel,
+      pages: channel.pages.map((page) => ({
+        ...page,
+        parents: page.parents.map((parent) => {
+          if (parent.ts !== "10.000000") return parent;
+          const action = "send the link to check the flow";
+          const statusText =
+            "Clarification needed: Please send the link to check the flow. this was sent from a bot.";
+          const statusReply: StatusReply = {
+            ...parent.statusReply!,
+            disposition: "Clarification needed",
+            evidence: "the URL is missing",
+            text: statusText,
+            ...(hasTicket
+              ? {
+                  pendingActionSummary:
+                    "Please send the link to check the flow",
+                }
+              : {}),
+          };
+          return {
+            ...parent,
+            disposition: "Clarification needed",
+            reactionSummary: hasTicket
+              ? "eyes (1): USWEEPER; ticket (1): USWEEPER"
+              : "eyes (1): USWEEPER",
+            reactionOwners: hasTicket
+              ? { eyes: ["USWEEPER"], ticket: ["USWEEPER"] }
+              : { eyes: ["USWEEPER"] },
+            reactionDecision: {
+              checkmark: {
+                state: "none",
+                reason: "No scope is verified while clarification is pending",
+              },
+              ticket: {
+                state: hasTicket ? "present" : "none",
+                reason: hasTicket
+                  ? "The reporter still needs to provide the requested URL"
+                  : "No ticket reaction is recorded",
+              },
+            },
+            fixedScopes: [],
+            handoffs: [],
+            reporterRequests: [
+              {
+                scope: "reproduce the reported flow",
+                action,
+                requestReply: {
+                  ts: statusReply.ts,
+                  threadParentTs: parent.threadParentTs,
+                  actorId: statusReply.actorId,
+                  text: statusReply.text,
+                },
+              },
+            ],
+            statusReply,
+            latestOwnedReply: latestOwnedReplyFrom(statusReply),
+          };
+        }),
+      })),
+    })),
+  });
+  const withClosedReporterRequestHistory = (
+    resolution: "answered" | "abandoned_no_answer" = "answered",
+  ): Inventory => {
+    const active = withReporterRequest(true);
+    return {
+      ...active,
+      channels: active.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) => {
+            if (parent.ts !== "10.000000") return parent;
+            const originalStatus = parent.statusReply!;
+            const reportScope = "reproduce the reported flow";
+            const action =
+              "send the link to check the flow from the browser session";
+            const publicActionSummary = "send the link";
+            const previousStatus: StatusReply = {
+              ...originalStatus,
+              text: originalStatus.text.replace(
+                "Please send the link to check the flow",
+                "Please send the link",
+              ),
+            };
+            const requestReply: ReporterRequestReply = {
+              ts: previousStatus.ts,
+              threadParentTs: parent.threadParentTs,
+              actorId: previousStatus.actorId,
+              text: previousStatus.text,
+            };
+            const answered = resolution === "answered";
+            const closureReply: ReporterRequestReply = {
+              ts: "12.500000",
+              threadParentTs: parent.threadParentTs,
+              actorId: "UOTHER",
+              text: "Here is the requested reproduction URL: https://example.test/run/123.",
+            };
+            const reason = answered
+              ? "the reporter answered the URL request; the ticket is retained as history"
+              : "no human answer arrived four days after the request; the ticket is retained as history";
+            const statusDisposition = "In progress";
+            const statusEvidence = answered
+              ? "the reporter provided the requested URL; investigation continues"
+              : "no human answer arrived four days after the request";
+            const statusReply: StatusReply = {
+              ...originalStatus,
+              pendingActionSummary: undefined,
+              ts: answered ? "13.000000" : "345612.000000",
+              disposition: statusDisposition,
+              evidence: statusEvidence,
+              text: answered
+                ? "In progress: The link helped us check the issue. this was sent from a bot."
+                : "In progress: We'll keep checking with what we have. this was sent from a bot.",
+            };
+            const closedReporterRequest: ClosedReporterRequest = answered
+              ? {
+                  scope: reportScope,
+                  action,
+                  publicActionSummary,
+                  requestReply,
+                  resolution,
+                  closureReply,
+                }
+              : {
+                  scope: reportScope,
+                  action,
+                  publicActionSummary,
+                  requestReply,
+                  resolution,
+                };
+            return {
+              ...parent,
+              disposition: statusDisposition,
+              latestRelevantHumanReply: answered ? closureReply : null,
+              latestOwnedReply: latestOwnedReplyFrom(statusReply),
+              reporterRequests: [],
+              historicalReactionMarks: [
+                {
+                  emoji: "ticket",
+                  scope: reportScope,
+                  reason,
+                  previousStatus,
+                  closedReporterRequest,
+                },
+              ],
+              reactionDecision: {
+                ...parent.reactionDecision!,
+                ticket: {
+                  state: "present",
+                  reason: `Historical ticket: ${reason}`,
+                },
+              },
+              statusReply,
+            };
+          }),
+        })),
+      })),
+    };
+  };
   const withOtherOwnerRoot = (overrides: Partial<Parent> = {}): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
@@ -4798,8 +10100,10 @@ if (args[0] === "--self-test" && args.length === 1) {
             threadParentTs: "10.000000",
             actorId: "UOTHER",
             disposition: "In progress",
-            evidence: "I am actively testing the new behavior",
-            text: "In progress: I am actively testing the new behavior.",
+            evidence:
+              "I am actively testing the new behavior after reviewing the reporter's reproduction",
+            publicEvidenceSummary: "testing the new behavior",
+            text: "In progress: testing the new behavior.",
           };
           return {
             ...parent,
@@ -4850,7 +10154,163 @@ if (args[0] === "--self-test" && args.length === 1) {
       ],
     });
   };
+  const withSummarizedActionTicket = (
+    acceptanceText: string,
+    requestText?: string,
+  ): Inventory =>
+    withUnownedTicket({
+      latestRelevantHumanReply: {
+        ts: "11.500000",
+        actorId: "UOTHER",
+        text: acceptanceText,
+      },
+      handoffs: [
+        {
+          scope: "scheduled canary credentials",
+          owner: "Alex Rivera",
+          ownerSlackId: "UOTHER",
+          action: "set up the preview service in the deployment pipeline",
+          publicActionSummary: "set up the preview service",
+          ...(requestText === undefined
+            ? {}
+            : {
+                requestReply: {
+                  ts: "11.250000",
+                  threadParentTs: "10.000000",
+                  actorId: "USWEEPER",
+                  text: requestText,
+                },
+              }),
+          acceptanceReply: {
+            ts: "11.500000",
+            threadParentTs: "10.000000",
+            actorId: "UOTHER",
+            text: acceptanceText,
+          },
+        },
+      ],
+      statusReply: {
+        ...firstPage.parents[1]!.statusReply!,
+        disposition: "In progress",
+        evidence: "Alex Rivera will set up the preview service",
+        text: "In progress: Alex Rivera will set up the preview service. this was sent from a bot.",
+        pendingActionSummary: "Alex Rivera will set up the preview service",
+      },
+    });
   const invalid = [
+    {
+      name: "inventory must record its requested channel scope",
+      inventory: {
+        ...valid,
+        scope: undefined as unknown as Inventory["scope"],
+      },
+    },
+    {
+      name: "narrow channel scope needs the explicit user request",
+      inventory: {
+        ...valid,
+        scope: { channelIds: ["C_TEST"] },
+      },
+    },
+    {
+      name: "narrow channel scope needs a human verification judgment",
+      inventory: {
+        ...valid,
+        scope: {
+          channelIds: ["C_TEST"],
+          userRequest: "Scan only C_TEST for this synthetic self-test.",
+        },
+      },
+    },
+    {
+      name: "narrow channel request must identify its exact scope",
+      inventory: {
+        ...valid,
+        scope: {
+          ...valid.scope,
+          userRequest: "Please review the reports.",
+          narrowingJudgment: {
+            ...valid.scope.narrowingJudgment!,
+            instruction: "Please review the reports.",
+          },
+        },
+      },
+    },
+    {
+      name: "narrowing judgment must match the requested channel IDs",
+      inventory: {
+        ...valid,
+        scope: {
+          ...valid.scope,
+          narrowingJudgment: {
+            ...valid.scope.narrowingJudgment!,
+            channelIds: ["C_OTHER"],
+          },
+        },
+      },
+    },
+    {
+      name: "narrowing judgment must record human verification",
+      inventory: {
+        ...valid,
+        scope: {
+          ...valid.scope,
+          narrowingJudgment: {
+            ...valid.scope.narrowingJudgment!,
+            humanVerified: false,
+          },
+        },
+      },
+    },
+    {
+      name: "recorded scope must match inventoried channels",
+      inventory: {
+        ...valid,
+        scope: {
+          channelIds: ["C_OTHER"],
+          userRequest: "Scan only another channel.",
+        },
+      },
+    },
+    {
+      name: "channel name must be a safe Slack slug",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          channelName: "../other-channel",
+        })),
+      },
+    },
+    {
+      name: "inventoried channel names must be unique",
+      inventory: {
+        ...valid,
+        scope: {
+          channelIds: ["C_TEST", "C_OTHER"],
+          userRequest:
+            "Scan only C_TEST and C_OTHER for this synthetic self-test.",
+          narrowingJudgment: {
+            instruction:
+              "Scan only C_TEST and C_OTHER for this synthetic self-test.",
+            channelIds: ["C_TEST", "C_OTHER"],
+            humanVerified: true,
+            rationale: "The synthetic request names both fixture channels.",
+          },
+        },
+        channels: [
+          valid.channels[0]!,
+          {
+            ...valid.channels[0]!,
+            channelId: "C_OTHER",
+            scanQuery: {
+              ...valid.channels[0]!.scanQuery,
+              filters: "in:<#C_OTHER>",
+            },
+          },
+        ],
+      },
+    },
     {
       name: "root messages must be classified before report totals",
       inventory: {
@@ -4882,12 +10342,60 @@ if (args[0] === "--self-test" && args.length === 1) {
                     ...parent,
                     rootClassification: "administrative" as const,
                     rootClassificationReason: undefined,
+                    disposition: "Skipped",
+                    clusteredUnder: undefined,
+                    reactionSummary: "none",
+                    reactionOwners: {},
+                    latestOwnedReply: undefined,
+                    statusReply: undefined,
+                    reactionDecision: undefined,
                   }
                 : parent,
             ),
           })),
         })),
       },
+    },
+    {
+      name: "every in-scope report requires a complete thread read",
+      inventory: (() => {
+        const withSnapshots = withTestThreadSnapshots(valid);
+        return {
+          ...withSnapshots,
+          channels: withSnapshots.channels.map((channel) => ({
+            ...channel,
+            threadSnapshots: channel.threadSnapshots?.filter(
+              (snapshot) => snapshot.rootTs !== "11.000000",
+            ),
+          })),
+        };
+      })(),
+    },
+    {
+      name: "none reply reaction read still needs its exact timestamp",
+      inventory: (() => {
+        const inventory = structuredClone(valid);
+        const snapshot = inventory.channels[0]!.threadSnapshots!.find(
+          (candidate) => candidate.rootTs === "10.000000",
+        )!;
+        snapshot.replies[0]!.workflowReactionReadAt =
+          undefined as unknown as string;
+        return inventory;
+      })(),
+    },
+    {
+      name: "reply reaction owners must match exact raw read-back",
+      inventory: (() => {
+        const inventory = structuredClone(valid);
+        const snapshot = inventory.channels[0]!.threadSnapshots!.find(
+          (candidate) => candidate.rootTs === "10.000000",
+        )!;
+        snapshot.replies[0]!.workflowReactionSummary = "eyes (1): USWEEPER";
+        snapshot.replies[0]!.workflowReactionOwners = {
+          eyes: ["USWEEPER"],
+        };
+        return inventory;
+      })(),
     },
     {
       name: "open in-scope report without this actor's eye is rejected",
@@ -4899,7 +10407,171 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...page,
             parents: page.parents.map((parent) =>
               parent.ts === "11.000000"
-                ? { ...parent, disposition: "In progress" }
+                ? {
+                    ...parent,
+                    disposition: "In progress",
+                    clusteredUnder: undefined,
+                    reactionSummary: "none",
+                    reactionOwners: {},
+                    latestOwnedReply: undefined,
+                    statusReply: undefined,
+                    reactionDecision: undefined,
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "closed unmarked in-scope report is rejected",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "11.000000"
+                ? {
+                    ...parent,
+                    disposition: "Skipped",
+                    clusteredUnder: undefined,
+                    reactionSummary: "none",
+                    reactionOwners: {},
+                    latestOwnedReply: undefined,
+                    statusReply: undefined,
+                    reactionDecision: undefined,
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "owned root eye without current status is rejected",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "11.000000"
+                ? {
+                    ...parent,
+                    disposition: "Skipped",
+                    clusteredUnder: undefined,
+                    reactionSummary: "eyes (1): USWEEPER",
+                    reactionOwners: { eyes: ["USWEEPER"] },
+                    latestOwnedReply: undefined,
+                    statusReply: undefined,
+                    reactionDecision: {
+                      checkmark: {
+                        state: "none",
+                        reason: "No scope is verified",
+                      },
+                      ticket: {
+                        state: "none",
+                        reason: "No distinct human action remains",
+                      },
+                    },
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "forged held-thread skip is rejected",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          threadSnapshots: channel.threadSnapshots?.filter(
+            (snapshot) => snapshot.rootTs !== "11.000000",
+          ),
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "11.000000"
+                ? {
+                    ...parent,
+                    disposition: "Skipped",
+                    reactionSummary: "none",
+                    reactionOwners: {},
+                    ownershipSkip: {
+                      rootTs: "11.000000",
+                      reason: "foreign_workflow_mark" as const,
+                    },
+                    clusteredUnder: undefined,
+                    latestRelevantHumanReply: undefined,
+                    latestOwnedReply: undefined,
+                    statusReply: undefined,
+                    reactionDecision: undefined,
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "unowned Clustered report needs a represented canonical root",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "11.000000"
+                ? {
+                    ...parent,
+                    disposition: "Clustered",
+                    reactionSummary: "none",
+                    reactionOwners: {},
+                    latestOwnedReply: undefined,
+                    statusReply: undefined,
+                    reactionDecision: undefined,
+                    clusteredUnder: {
+                      channelId: "C_TEST",
+                      rootTs: "99.000000",
+                      permalink: sourcePermalink("99.000000"),
+                    },
+                  }
+                : parent,
+            ),
+          })),
+        })),
+      },
+    },
+    {
+      name: "Clustered canonical permalink must match the exact root",
+      inventory: {
+        ...valid,
+        channels: valid.channels.map((channel) => ({
+          ...channel,
+          pages: channel.pages.map((page) => ({
+            ...page,
+            parents: page.parents.map((parent) =>
+              parent.ts === "11.000000"
+                ? {
+                    ...parent,
+                    disposition: "Clustered",
+                    reactionSummary: "none",
+                    reactionOwners: {},
+                    latestOwnedReply: undefined,
+                    statusReply: undefined,
+                    reactionDecision: undefined,
+                    clusteredUnder: {
+                      channelId: "C_TEST",
+                      rootTs: "10.000000",
+                      permalink: sourcePermalink("11.000000"),
+                    },
+                  }
                 : parent,
             ),
           })),
@@ -4924,6 +10596,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                     ...parent,
                     threadParentTs: "10.000000",
                     rootResolution: sourceThreadResolution("10.000000"),
+                    clusteredUnder: undefined,
                     fixedScopes: [
                       {
                         scope: "reply-only behavior",
@@ -4985,6 +10658,23 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     },
     {
+      name: "Owned elsewhere requires a concise public evidence summary",
+      inventory: withOtherOwnerRoot({
+        otherOwnerEvidence: {
+          actorId: "UOTHER",
+          statusReply: {
+            ts: "12.000000",
+            threadParentTs: "10.000000",
+            actorId: "UOTHER",
+            disposition: "In progress",
+            evidence:
+              "I am actively testing the new behavior after reviewing the reporter's reproduction",
+            text: "In progress: testing the new behavior.",
+          },
+        },
+      }),
+    },
+    {
       name: "Owned elsewhere needs another actor's root eye",
       inventory: withOtherOwnerRoot({
         reactionSummary: "none",
@@ -4993,12 +10683,20 @@ if (args[0] === "--self-test" && args.length === 1) {
     },
     {
       name: "Owned elsewhere status must exist in the captured thread",
-      inventory: {
-        ...withTestThreadSnapshots(withOtherOwnerRoot()),
-        channels: withTestThreadSnapshots(withOtherOwnerRoot()).channels.map(
-          (channel) => ({ ...channel, threadSnapshots: [] }),
-        ),
-      },
+      inventory: (() => {
+        const withSnapshots = withTestThreadSnapshots(withOtherOwnerRoot());
+        return {
+          ...withSnapshots,
+          channels: withSnapshots.channels.map((channel) => ({
+            ...channel,
+            threadSnapshots: channel.threadSnapshots?.map((snapshot) =>
+              snapshot.rootTs === "10.000000"
+                ? { ...snapshot, replyCount: 0, replies: [] }
+                : snapshot,
+            ),
+          })),
+        };
+      })(),
     },
     {
       name: "Owned elsewhere status cannot precede a later human reply",
@@ -5067,6 +10765,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                     ...parent,
                     rootClassification: "administrative" as const,
                     rootClassificationReason: "release announcement",
+                    clusteredUnder: undefined,
                     reactionSummary: "eyes (1): USWEEPER",
                     reactionOwners: { eyes: ["USWEEPER"] },
                   }
@@ -5102,8 +10801,10 @@ if (args[0] === "--self-test" && args.length === 1) {
                 actorId: "UOTHER",
                 kind: "human" as const,
                 text: "The same issue is still happening after the fix.",
+                workflowReactionReadback: [],
                 workflowReactionSummary: "none",
                 workflowReactionOwners: {},
+                workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
               },
             ],
           })),
@@ -5137,6 +10838,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                 reply.ts === "9.500000"
                   ? {
                       ...reply,
+                      workflowReactionReadback: [],
                       workflowReactionSummary: "none",
                       workflowReactionOwners: {},
                     }
@@ -5275,14 +10977,20 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...page,
             messageCount: 1,
             sourceTimestamps: ["11.000000"],
-            parents: page.parents.slice(0, 1),
+            parents: page.parents.slice(0, 1).map((parent) => ({
+              ...parent,
+              rootClassification: "administrative" as const,
+              rootClassificationReason: "synthetic manifest post",
+              disposition: "Skipped",
+              clusteredUnder: undefined,
+            })),
           })),
         })),
       },
     },
     {
-      name: "permalink is not the inclusive cutoff",
-      inventory: { ...valid, cutoffTs: "10.000001" },
+      name: "permalink channel is required",
+      inventory: { ...valid, permalinkChannelId: undefined },
     },
     {
       name: "channel-wide scan query is required",
@@ -5323,7 +11031,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
-      name: "scan query must cover the exact channel and inclusive cutoff",
+      name: "scan query must cover the exact channel and effective cutoff",
       inventory: {
         ...valid,
         channels: valid.channels.map((channel) => ({
@@ -5337,7 +11045,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
-      name: "scan query must use the exact inclusive cutoff",
+      name: "scan query must use this channel's effective inclusive cutoff",
       inventory: {
         ...valid,
         channels: valid.channels.map((channel) => ({
@@ -5350,14 +11058,18 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
-      name: "scan query cannot contain undocumented filters",
+      name: "non-anchor channel cannot retain the five-day cutoff",
+      inventory: fiveDayCutoffOnNonAnchor,
+    },
+    {
+      name: "scan query must retain its fixed inclusive upper bound",
       inventory: {
         ...valid,
         channels: valid.channels.map((channel) => ({
           ...channel,
           scanQuery: {
             ...channel.scanQuery,
-            before: "11.000000",
+            before: "12.000000",
           } as unknown as ChannelScanQuery,
         })),
       },
@@ -5561,19 +11273,6 @@ if (args[0] === "--self-test" && args.length === 1) {
       inventory: withUnownedCheckmark({ statusReply: undefined }),
     },
     {
-      name: "checkmark without an owned eye still needs its recorded evidence",
-      inventory: withUnownedCheckmark({
-        statusReply: {
-          ts: "12.000000",
-          threadParentTs: "10.000000",
-          actorId: "USWEEPER",
-          disposition: "Fixed",
-          evidence: "focused test passed in the open PR; merge pending",
-          text: "Fixed: a different note",
-        },
-      }),
-    },
-    {
       name: "ticket without an owned eye still needs reaction decisions",
       inventory: withUnownedTicket({
         reactionSummary: "ticket (1): USWEEPER",
@@ -5691,8 +11390,217 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Partially fixed",
           evidence:
-            "focused test passed in the open PR; merge pending; paragraph selection remains broken",
-          text: "Partially fixed: focused test passed in the open PR; merge pending; paragraph selection remains broken. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          unfinishedScopeSummary: "Paragraph selection remains broken",
+          text: "Partially fixed: The start screen works now. Paragraph selection remains broken. :white_check_mark: covers the initial route screen. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "unfinished scope status needs a public remaining-work summary",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence: "paragraph selection remains broken",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          unfinishedScopeSummary: undefined,
+          text: "Partially fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "unfinished scope summary must match recorded work",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence: "paragraph selection remains broken",
+          },
+          {
+            scope: "toolbar keyboard shortcuts",
+            evidence: "toolbar keyboard shortcuts remain unresolved",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken; toolbar keyboard shortcuts remain unresolved",
+          unfinishedScopeSummary: "Paragraph selection remains broken",
+          text: "Partially fixed: The start screen works now. Paragraph selection remains broken. Toolbar keyboard shortcuts remain unresolved. :white_check_mark: covers the initial route screen. Open scopes: paragraph selection behavior and toolbar keyboard shortcuts. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "negated open-state wording is rejected",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence: "paragraph selection remains broken",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          unfinishedScopeSummary: "Paragraph selection is not open",
+          text: "Partially fixed: The start screen works now. Paragraph selection is not open. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "coordinated negated open-state wording is rejected",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "CSV export",
+            evidence: "CSV export review remains pending",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; CSV export review remains pending",
+          unfinishedScopeSummary: "CSV export is not open or pending",
+          text: "Partially fixed: The start screen works now. CSV export is not open or pending. :white_check_mark: covers the initial route screen. Open scope: CSV export — CSV export review remains pending. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "never needs wording is rejected as unfinished work",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "CSV export",
+            evidence: "CSV export needs review",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; CSV export needs review",
+          unfinishedScopeSummary: "CSV export never needs review",
+          text: "Partially fixed: The start screen works now. CSV export never needs review. :white_check_mark: covers the initial route screen. Open scope: CSV export — CSV export needs review. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "unfinished scope summary cannot say work remains fixed",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence: "paragraph selection remains broken",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          unfinishedScopeSummary: "Paragraph selection remains fixed",
+          text: "Partially fixed: The start screen works now. Paragraph selection remains fixed. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "unfinished scope summary cannot say verification is unnecessary",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence:
+              "paragraph selection remains broken; verification is required",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken; verification is required",
+          unfinishedScopeSummary:
+            "Paragraph selection does not need verification",
+          text: "Partially fixed: The start screen works now. Paragraph selection does not need verification. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken; verification is required. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "unfinished scope summary cannot say verification is no longer required",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence:
+              "paragraph selection remains broken; verification is required; no longer requires verification",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken; verification is required; no longer requires verification",
+          unfinishedScopeSummary:
+            "Paragraph selection no longer requires verification",
+          text: "Partially fixed: The start screen works now. Paragraph selection no longer requires verification. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken; verification is required; no longer requires verification. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
         },
       }),
     },
@@ -5752,7 +11660,11 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...page,
             parents: page.parents.map((parent) =>
               parent.ts === "11.000000"
-                ? { ...parent, rootResolution: undefined }
+                ? {
+                    ...parent,
+                    rootResolution: undefined,
+                    clusteredUnder: undefined,
+                  }
                 : parent,
             ),
           })),
@@ -5836,8 +11748,10 @@ if (args[0] === "--self-test" && args.length === 1) {
                   actorId: "UOTHER",
                   kind: "human" as const,
                   text: "Older reply than its root.",
+                  workflowReactionReadback: [],
                   workflowReactionSummary: "none",
                   workflowReactionOwners: {},
+                  workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
                 },
               ],
             })),
@@ -6055,6 +11969,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             disposition: "Blocked on human owner",
             evidence: "the reported root scope still needs verification",
             text: "Blocked on human owner: Alex Rivera will verify the remote route; the reported root scope still needs verification. No :white_check_mark: — no root scope has passed verification. :ticket: tracks Alex Rivera's accepted remote route verification. this was sent from a bot.",
+            pendingActionSummary: "Alex Rivera will verify the remote route",
           },
         }),
       ),
@@ -6074,6 +11989,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                     ...parent,
                     threadParentTs: "10.500000",
                     rootResolution: sourceThreadResolution("10.500000"),
+                    clusteredUnder: undefined,
                   }
                 : parent,
             ),
@@ -6255,29 +12171,6 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
-      name: "status reply must include its recorded evidence",
-      inventory: {
-        ...valid,
-        channels: valid.channels.map((channel) => ({
-          ...channel,
-          pages: channel.pages.map((page) => ({
-            ...page,
-            parents: page.parents.map((parent) =>
-              parent.ts === "10.000000"
-                ? {
-                    ...parent,
-                    statusReply: {
-                      ...parent.statusReply!,
-                      text: "Fixed — a different note",
-                    },
-                  }
-                : parent,
-            ),
-          })),
-        })),
-      },
-    },
-    {
       name: "status reply evidence must match fixed-scope verification",
       inventory: {
         ...valid,
@@ -6303,28 +12196,93 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
-      name: "handoff reply must name the recorded owner",
+      name: "active ticket status needs a pending action summary",
       inventory: withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. :white_check_mark: covers route-picker behavior. Handoff: secondary request — choose the remaining behavior. :ticket: tracks the accepted follow-up. this was sent from a bot.",
+        "Partially fixed: The route picker works. Alex Rivera will choose the remaining behavior. this was sent from a bot.",
+        "",
       ),
     },
     {
-      name: "handoff reply must name the recorded action",
-      inventory: withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. :white_check_mark: covers route-picker behavior. Handoff: secondary request — Alex Rivera will follow up. :ticket: tracks the accepted follow-up. this was sent from a bot.",
-      ),
+      name: "active ticket summary must name the public action",
+      inventory: withUnownedTicket({
+        latestRelevantHumanReply: {
+          ts: "11.500000",
+          actorId: "UOTHER",
+          text: "I will set up the preview service in the deployment pipeline.",
+        },
+        handoffs: [
+          {
+            scope: "remaining design choice",
+            owner: "Alex Rivera",
+            ownerSlackId: "UOTHER",
+            action: "set up the preview service in the deployment pipeline",
+            publicActionSummary: "set up the preview service",
+            acceptanceReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "UOTHER",
+              text: "I will set up the preview service in the deployment pipeline.",
+            },
+          },
+        ],
+        statusReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: "USWEEPER",
+          disposition: "In progress",
+          evidence: "Alex Rivera will set up the preview service",
+          text: "In progress: Alex Rivera will review the launch notes. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera will review the launch notes",
+        },
+      }),
     },
     {
-      name: "handoff reply must name the recorded scope",
-      inventory: withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. :white_check_mark: covers route-picker behavior. Handoff: Alex Rivera will choose the remaining behavior. :ticket: tracks the accepted follow-up. this was sent from a bot.",
-      ),
+      name: "public action summary cannot misrepresent its action",
+      inventory: withUnownedTicket({
+        latestRelevantHumanReply: {
+          ts: "11.500000",
+          actorId: "UOTHER",
+          text: "I will set up the preview service in the deployment pipeline.",
+        },
+        handoffs: [
+          {
+            scope: "remaining design choice",
+            owner: "Alex Rivera",
+            ownerSlackId: "UOTHER",
+            action: "set up the preview service in the deployment pipeline",
+            publicActionSummary: "review the launch notes",
+            acceptanceReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "UOTHER",
+              text: "I will set up the preview service in the deployment pipeline.",
+            },
+          },
+        ],
+        statusReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: "USWEEPER",
+          disposition: "In progress",
+          evidence: "Alex Rivera will review the launch notes",
+          text: "In progress: Alex Rivera will review the launch notes. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera will review the launch notes",
+        },
+      }),
     },
     {
-      name: "handoff reply must match owner word boundaries",
-      inventory: withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. :white_check_mark: covers route-picker behavior. Handoff: secondary request — Product ownership will choose the remaining behavior. :ticket: tracks the accepted follow-up. this was sent from a bot.",
-      ),
+      name: "active ticket summary must name the recorded owner",
+      inventory: withUnownedTicket({
+        statusReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: "USWEEPER",
+          disposition: "In progress",
+          evidence: "Alex Rivera will choose the remaining behavior",
+          text: "In progress: Morgan Lee will choose the remaining behavior. this was sent from a bot.",
+          pendingActionSummary: "Morgan Lee will choose the remaining behavior",
+        },
+      }),
     },
     {
       name: "Verified locally scope without a checkmark",
@@ -6493,6 +12451,138 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "reporter request without a ticket reaction",
+      inventory: withReporterRequest(false),
+    },
+    {
+      name: "active reporter request keeps a closed disposition open",
+      inventory: (() => {
+        const active = withReporterRequest(true);
+        return {
+          ...active,
+          channels: active.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) => {
+                if (parent.ts !== "10.000000") return parent;
+                const statusReply: StatusReply = {
+                  ...parent.statusReply!,
+                  disposition: "Fixed",
+                  evidence: "the requested URL is still missing",
+                  text: `Fixed: the requested URL is still missing. Reporter action: ${parent.reporterRequests![0]!.action}. :ticket: this reporter action remains open. No :white_check_mark: — no scope is verified. this was sent from a bot.`,
+                };
+                return {
+                  ...parent,
+                  disposition: "Fixed",
+                  statusReply,
+                  latestOwnedReply: latestOwnedReplyFrom(statusReply),
+                  reporterRequests: parent.reporterRequests!.map((request) => ({
+                    ...request,
+                    requestReply: {
+                      ...request.requestReply,
+                      text: statusReply.text,
+                    },
+                  })),
+                };
+              }),
+            })),
+          })),
+        };
+      })(),
+    },
+    {
+      name: "reporter request cannot duplicate a team handoff",
+      inventory: (() => {
+        const active = withReporterRequest(true);
+        return {
+          ...active,
+          channels: active.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) => {
+                if (parent.ts !== "10.000000") return parent;
+                const reporterRequest = parent.reporterRequests![0]!;
+                return {
+                  ...parent,
+                  handoffs: [
+                    {
+                      scope: reporterRequest.scope,
+                      owner: "Product team",
+                      action: reporterRequest.action,
+                      status: "unassigned" as const,
+                    },
+                  ],
+                };
+              }),
+            })),
+          })),
+        };
+      })(),
+    },
+    {
+      name: "answered reporter request needs closure evidence",
+      inventory: (() => {
+        const closed = withClosedReporterRequestHistory();
+        return {
+          ...closed,
+          channels: closed.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) => {
+                if (parent.ts !== "10.000000") return parent;
+                const historicalReactionMarks =
+                  parent.historicalReactionMarks!.map((mark) => {
+                    const request = mark.closedReporterRequest;
+                    if (!request || request.resolution !== "answered") {
+                      return mark;
+                    }
+                    const { closureReply: _closureReply, ...withoutClosure } =
+                      request;
+                    return {
+                      ...mark,
+                      closedReporterRequest: withoutClosure,
+                    } as unknown as HistoricalReactionMark;
+                  });
+                return { ...parent, historicalReactionMarks };
+              }),
+            })),
+          })),
+        };
+      })(),
+    },
+    {
+      name: "unanswered reporter request cannot expire before four days",
+      inventory: (() => {
+        const abandoned = withClosedReporterRequestHistory(
+          "abandoned_no_answer",
+        );
+        return {
+          ...abandoned,
+          channels: abandoned.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) => {
+                if (parent.ts !== "10.000000") return parent;
+                const statusReply = {
+                  ...parent.statusReply!,
+                  ts: "345611.999999",
+                };
+                return {
+                  ...parent,
+                  statusReply,
+                  latestOwnedReply: latestOwnedReplyFrom(statusReply),
+                };
+              }),
+            })),
+          })),
+        };
+      })(),
+    },
+    {
       name: "human handoff without a ticket reaction",
       inventory: {
         ...valid,
@@ -6636,6 +12726,13 @@ if (args[0] === "--self-test" && args.length === 1) {
             },
           },
         ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "In progress",
+          evidence: "Steve will choose the remaining behavior",
+          text: "In progress: Steve will choose the remaining behavior. this was sent from a bot.",
+          pendingActionSummary: "Steve will choose the remaining behavior",
+        },
       }),
     },
     {
@@ -6838,6 +12935,19 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     },
     {
+      name: "ticket acceptance must include the full action beyond its public summary",
+      inventory: withSummarizedActionTicket(
+        "I will set up the preview service.",
+      ),
+    },
+    {
+      name: "contextual assent needs a request for the full action",
+      inventory: withSummarizedActionTicket(
+        "Yes.",
+        "<@UOTHER> can you set up the preview service?",
+      ),
+    },
+    {
       name: "completed handoff needs completion evidence",
       inventory: withUnownedTicket({
         handoffs: [
@@ -6858,6 +12968,13 @@ if (args[0] === "--self-test" && args.length === 1) {
             },
           },
         ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "In progress",
+          evidence: "the completed handoff has an incomplete completion record",
+          text: "In progress: The completed handoff has an incomplete completion record. this was sent from a bot.",
+          pendingActionSummary: undefined,
+        },
       }),
     },
     {
@@ -6913,6 +13030,8 @@ if (args[0] === "--self-test" && args.length === 1) {
           disposition: "In progress",
           evidence: "Alex Rivera will choose the remaining behavior",
           text: "In progress: Alex Rivera will choose the remaining behavior. Handoff: Alex Rivera — choose the remaining behavior. No :white_check_mark: — no scope passed verification. :ticket: tracks Alex Rivera's accepted action. this was sent from a bot.",
+          pendingActionSummary:
+            "Alex Rivera will choose the remaining behavior",
         },
       }),
     },
@@ -6944,7 +13063,9 @@ if (args[0] === "--self-test" && args.length === 1) {
           actorId: "USWEEPER",
           disposition: "In progress",
           evidence: "Alex Rivera withdrew the accepted action",
-          text: "In progress: Alex Rivera withdrew the accepted action. Handoff: Alex Rivera — choose the remaining behavior. No :white_check_mark: — no scope has been verified. :ticket: is stale because Alex Rivera withdrew the action. this was sent from a bot.",
+          text: "In progress: Alex Rivera will choose the remaining behavior. this was sent from a bot.",
+          pendingActionSummary:
+            "Alex Rivera will choose the remaining behavior",
         },
       }),
     },
@@ -6977,7 +13098,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             actorId: "USWEEPER",
             disposition: "In progress",
             evidence: "Alex Rivera's accepted action is withdrawn",
-            text: "In progress: Alex Rivera's accepted action is withdrawn. Handoff: Alex Rivera — choose the remaining behavior. No :white_check_mark: — no scope has been verified. :ticket: is stale because Alex Rivera withdrew the action. this was sent from a bot.",
+            text: "In progress: Alex Rivera will choose the remaining behavior. this was sent from a bot.",
+            pendingActionSummary:
+              "Alex Rivera will choose the remaining behavior",
           },
         });
         return {
@@ -6995,32 +13118,40 @@ if (args[0] === "--self-test" && args.length === 1) {
                         actorId: "UOTHER",
                         kind: "human" as const,
                         text: "I will choose the remaining behavior.",
+                        workflowReactionReadback: [],
                         workflowReactionSummary: "none",
                         workflowReactionOwners: {},
+                        workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
                       },
                       {
                         ts: "12.000000",
                         actorId: "UOTHER",
                         kind: "human" as const,
                         text: "I can't take this after all.",
+                        workflowReactionReadback: [],
                         workflowReactionSummary: "none",
                         workflowReactionOwners: {},
+                        workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
                       },
                       {
                         ts: "12.500000",
                         actorId: "UOTHER",
                         kind: "human" as const,
                         text: "Thanks, I saw the report.",
+                        workflowReactionReadback: [],
                         workflowReactionSummary: "none",
                         workflowReactionOwners: {},
+                        workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
                       },
                       {
                         ts: "13.000000",
                         actorId: "USWEEPER",
                         kind: "sweep" as const,
-                        text: "In progress: Alex Rivera's accepted action is withdrawn. Handoff: Alex Rivera — choose the remaining behavior. No :white_check_mark: — no scope has been verified. :ticket: is stale because Alex Rivera withdrew the action. this was sent from a bot.",
+                        text: "In progress: Alex Rivera will choose the remaining behavior. this was sent from a bot.",
+                        workflowReactionReadback: [],
                         workflowReactionSummary: "none",
                         workflowReactionOwners: {},
+                        workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
                       },
                     ],
                   }
@@ -7204,6 +13335,7 @@ if (args[0] === "--self-test" && args.length === 1) {
               },
               {
                 cursor: "next-page",
+                before: "11.000000",
                 nextCursor: null,
                 exhausted: true,
                 messageCount: 2,
@@ -7211,9 +13343,12 @@ if (args[0] === "--self-test" && args.length === 1) {
                 parents: [
                   {
                     ...firstPage.parents[1],
-                    statusReply: {
-                      ...firstPage.parents[1].statusReply!,
-                      evidence: "A different snapshot was observed",
+                    reactionDecision: {
+                      ...firstPage.parents[1].reactionDecision!,
+                      checkmark: {
+                        ...firstPage.parents[1].reactionDecision!.checkmark,
+                        reason: "The start screen passed focused verification",
+                      },
                     },
                   },
                   firstPage.parents[2],
@@ -7243,6 +13378,7 @@ if (args[0] === "--self-test" && args.length === 1) {
               },
               {
                 cursor: "next-page",
+                before: "11.000000",
                 nextCursor: "next-page",
                 exhausted: true,
                 messageCount: 2,
@@ -7256,30 +13392,65 @@ if (args[0] === "--self-test" && args.length === 1) {
     },
   ];
   const expectedDiagnostics: Record<string, string> = {
+    "inventory must record its requested channel scope":
+      "scope.channelIds must record a non-empty list of unique requested channel IDs",
+    "narrow channel scope needs the explicit user request":
+      "scope.userRequest must record the exact user instruction when scope differs from the default channels",
+    "narrow channel scope needs a human verification judgment":
+      "scope.narrowingJudgment must record the exact instruction, matching channel IDs, rationale, and humanVerified: true",
+    "narrow channel request must identify its exact scope":
+      "scope.userRequest must explicitly name exactly the listed channels using an explicit limit or one linked report plus a direct same-in target",
+    "narrowing judgment must match the requested channel IDs":
+      "scope.narrowingJudgment must record the exact instruction, matching channel IDs, rationale, and humanVerified: true",
+    "narrowing judgment must record human verification":
+      "scope.narrowingJudgment must record the exact instruction, matching channel IDs, rationale, and humanVerified: true",
+    "recorded scope must match inventoried channels":
+      "scope.channelIds must match the inventory channels",
+    "channel name must be a safe Slack slug":
+      "channelName must be the exact lowercase Slack channel slug",
+    "inventoried channel names must be unique": "channelName is duplicated",
     "root messages must be classified before report totals":
       "classify each channel post as a report or administrative root",
     "administrative root needs a visible exclusion reason":
       "administrative roots need a reason",
+    "every in-scope report requires a complete thread read":
+      "read the complete Slack thread again and record its threadSnapshot",
+    "none reply reaction read still needs its exact timestamp":
+      "workflowReactionReadAt must be an ISO timestamp",
+    "reply reaction owners must match exact raw read-back":
+      "normalized workflow reaction owners must match the exact Slack reaction read-back",
     "open in-scope report without this actor's eye is rejected":
-      "In progress is open; keep this actor's 👀 until its scopes and follow-ups close",
+      "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
+    "closed unmarked in-scope report is rejected":
+      "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
+    "owned root eye without current status is rejected":
+      "an owned 👀 or own ✅/🎫 needs a same-parent status reply by the same actor",
+    "forged held-thread skip is rejected":
+      "safe-skip reason must match a directly read foreign workflow mark or this actor's :mag: opt-out",
+    "unowned Clustered report needs a represented canonical root":
+      "clusteredUnder must resolve to a report root represented in the inventory",
+    "Clustered canonical permalink must match the exact root":
+      "clusteredUnder.permalink timestamp must match its exact rootTs",
     "sweep actor must be the connector identity":
       "sweepActorId must be the exact Slack user ID used by the connector",
     "reply rows cannot carry scope evidence outside the root checkoff":
-      "scope and handoff evidence must be recorded on the actual root row; reply rows only audit reply-level history",
+      "scope, handoff, and reporter-request evidence must be recorded on the actual root row; reply rows only audit reply-level history",
     "another actor's eye is not auto-claimed or replied to":
-      "read the complete root thread before treating another actor's eye as historical or active ownership",
+      "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
     "current open owner eye cannot be auto-claimed":
       "another actor owns this report; do not add this actor's 👀 or reply—record Owned elsewhere with current owner evidence",
     "Owned elsewhere needs an open latest owner status, not a historical eye":
       "Owned elsewhere needs that owner's current open status and evidence",
+    "Owned elsewhere requires a concise public evidence summary":
+      "Owned elsewhere needs a concise publicEvidenceSummary present in both internal evidence and reply",
     "Owned elsewhere needs another actor's root eye":
       "Owned elsewhere needs another actor's root 👀 and their current same-thread status",
     "Owned elsewhere status must exist in the captured thread":
-      "Owned elsewhere needs a complete captured thread with the owner's status",
+      "Owned elsewhere status must be the owner's latest reply after the latest human reply, confirmed in the captured thread",
     "Owned elsewhere status cannot precede a later human reply":
       "Owned elsewhere status must be the owner's latest reply after the latest human reply, confirmed in the captured thread",
     "other actors' marks do not replace this actor's eye on open report":
-      "read the complete root thread before treating another actor's eye as historical or active ownership",
+      "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
     "administrative manifest roots cannot carry this actor's workflow marks":
       "this actor's workflow marks cannot be placed on an administrative root",
     "owned marks need a fresh full-thread read":
@@ -7307,20 +13478,22 @@ if (args[0] === "--self-test" && args.length === 1) {
     "missing disposition row": "a source message has no disposition row",
     "missing permalink":
       "The requested permalink timestamp is missing from the inventory",
-    "permalink is not the inclusive cutoff":
-      "permalinkTs must equal the inclusive cutoffTs",
+    "permalink channel is required":
+      "permalinkChannelId is required when permalinkTs is set",
     "channel-wide scan query is required":
       "record the exhaustive slack_search_public scan arguments",
     "scan query cannot use lexical keywords":
       "scanQuery must not narrow the channel inventory with keywords or semantic search",
     "scan query must include bot messages":
       "scanQuery must include bots and all messages, request 20 detailed results, and sort newest-first by timestamp",
-    "scan query must cover the exact channel and inclusive cutoff":
+    "scan query must cover the exact channel and effective cutoff":
       "scanQuery.filters must constrain only this channel, with no content or date narrowing",
-    "scan query must use the exact inclusive cutoff":
-      "scanQuery.after must equal the inclusive cutoffTs",
-    "scan query cannot contain undocumented filters":
-      "scanQuery may contain only the documented exhaustive search arguments",
+    "scan query must use this channel's effective inclusive cutoff":
+      "scanQuery.after must equal this channel's inclusive effective cutoff",
+    "non-anchor channel cannot retain the five-day cutoff":
+      "scanQuery.after must equal this channel's inclusive effective cutoff",
+    "scan query must retain its fixed inclusive upper bound":
+      "primary source slice must start without a cursor and use the fixed scanQuery.before bound",
     "oldestQuery is omitted instead of explicitly recorded":
       "oldestQuery must be recorded as a Slack timestamp or explicit null",
     "oldestQuery cannot be an empty string":
@@ -7356,23 +13529,37 @@ if (args[0] === "--self-test" && args.length === 1) {
     "status reply audit points to a different thread":
       "status reply must belong to the source message's root thread",
     "checkmark without an owned eye still needs a status reply":
-      "an owned 👀 or own ✅/🎫 needs a same-parent status reply by the same actor",
-    "checkmark without an owned eye still needs its recorded evidence":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
     "ticket without an owned eye still needs reaction decisions":
-      "record a ✅ and 🎫 decision for every owned eye or own status mark",
+      "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
     "unfinished accepted handoff requires this actor's eye":
-      "unfinished work or a human handoff must keep this actor's 👀",
+      "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
     "Skipped cannot retain fixed scopes or handoffs even when marks remain":
-      "Skipped cannot retain any fixed scope, unfinished scope, or handoff",
+      "Skipped cannot retain any fixed scope, unfinished scope, handoff, or reporter request",
     "Fixed cannot hide an unfinished scope without this actor's marks":
-      "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
+      "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
     "Fixed cannot hide an open handoff without this actor's marks":
-      "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
+      "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
     "Partially fixed without a fixed scope is rejected without this actor's marks":
-      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
+      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "open work must retain this actor's eye":
-      "unfinished work or a human handoff must keep this actor's 👀",
+      "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
+    "unfinished scope status needs a public remaining-work summary":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "unfinished scope summary must match recorded work":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "negated open-state wording is rejected":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "coordinated negated open-state wording is rejected":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "never needs wording is rejected as unfinished work":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "unfinished scope summary cannot say work remains fixed":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "unfinished scope summary cannot say verification is unnecessary":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "unfinished scope summary cannot say verification is no longer required":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "reply root is missing from page rows and threadRoots":
       "threadParentTs does not resolve to an in-page root or verified threadRoots entry",
     "reply misclassified as a self-root":
@@ -7394,57 +13581,65 @@ if (args[0] === "--self-test" && args.length === 1) {
     "administrative supplemental roots cannot carry this actor's workflow marks":
       "this actor's workflow marks cannot be placed on an administrative root",
     "supplemental Fixed cannot hide an unfinished scope without this actor's marks":
-      "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
+      "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "supplemental Partially fixed disposition needs an unfinished scope":
-      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
+      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "supplemental Fixed disposition cannot retain an accepted handoff":
-      "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
+      "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "supplemental human-owner block needs owner acceptance":
       "🎫 needs a named human other than this actor and explicit acceptance of the recorded action, or a direct in-thread request followed by their assent",
     "supplemental root inside the cutoff bypasses the source manifest":
-      "a supplemental thread root must predate cutoffTs; include roots within the scoped window in the source manifest",
+      "a supplemental thread root must predate this channel's effective cutoff; include roots within the scoped window in the source manifest",
     "supplemental root must predate every scanned source message":
       "a supplemental root must predate every scanned source message; include roots inside the scanned range in the source manifest",
     "reply points to an in-page reply instead of its root":
       "threadParentTs resolves to a reply, not the actual root",
     "status reply text omits its disposition":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "status reply must record its disposition and evidence",
     "status reply does not claim the disposition inside a negated phrase":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "status reply must record its disposition and evidence",
     "Fixed label cannot contradict a later unfixed claim":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "status reply must record its disposition and evidence",
     "Fixed label cannot claim a report described as not truly fixed":
-      "status reply must state the exact disposition and include its recorded evidence",
-    "status reply must include its recorded evidence":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "status reply must record its disposition and evidence",
     "status reply evidence must match fixed-scope verification":
       "status reply evidence must include every fixed scope's recorded verification",
-    "handoff reply must name the recorded owner":
-      "status reply must name each handoff's scope, owner, and action",
-    "handoff reply must name the recorded action":
-      "status reply must name each handoff's scope, owner, and action",
-    "handoff reply must name the recorded scope":
-      "status reply must name each handoff's scope, owner, and action",
-    "handoff reply must match owner word boundaries":
-      "status reply must name each handoff's scope, owner, and action",
+    "active ticket status needs a pending action summary":
+      "active 🎫 summary must include every pending action and known owner",
+    "active ticket summary must name the public action":
+      "active 🎫 summary must include every pending action and known owner",
+    "public action summary cannot misrepresent its action":
+      "publicActionSummary must be a concise prefix of the recorded action",
+    "active ticket summary must name the recorded owner":
+      "active 🎫 summary must include every pending action and known owner",
     "Verified locally scope without a checkmark":
       "a current ✅ needs verified scope evidence (or an explicitly documented historical mark), and every verified scope needs ✅",
     "checkmark without verified fixed scope":
       "a current ✅ needs verified scope evidence (or an explicitly documented historical mark), and every verified scope needs ✅",
     "partially fixed without verified fixed-scope evidence":
-      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
+      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "partially fixed needs an unfinished scope as well as a fixed scope":
-      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
+      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "handoff without a fixed scope is not partially fixed":
-      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
+      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "ticket reaction without a human handoff":
       "this actor's 🎫 needs a distinct active or explicitly historical human action",
+    "reporter request without a ticket reaction":
+      "every handoff or active reporter request needs this actor's 🎫",
+    "active reporter request keeps a closed disposition open":
+      "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
+    "reporter request cannot duplicate a team handoff":
+      "the same scope and action cannot appear in reporterRequests and handoffs",
+    "answered reporter request needs closure evidence":
+      "answered reporter request needs its exact latest human closure reply",
+    "unanswered reporter request cannot expire before four days":
+      "unanswered reporter request can close only after four days with no later human reply",
     "human handoff without a ticket reaction":
-      "every handoff needs this actor's 🎫",
+      "every handoff or active reporter request needs this actor's 🎫",
     "unassigned team handoff without a ticket reaction":
-      "every handoff needs this actor's 🎫",
+      "every handoff or active reporter request needs this actor's 🎫",
     "unassigned team handoff ticket from another actor":
-      "every handoff needs this actor's 🎫",
+      "every handoff or active reporter request needs this actor's 🎫",
     "ticket handoff cannot name an unassigned role":
       "unassigned handoffs may name a team/role, while accepted handoffs need the named individual",
     "unassigned team handoff cannot claim a named owner":
@@ -7485,6 +13680,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       "🎫 needs a named human other than this actor and explicit acceptance of the recorded action, or a direct in-thread request followed by their assent",
     "ticket acceptance must name the recorded action":
       "🎫 needs a named human other than this actor and explicit acceptance of the recorded action, or a direct in-thread request followed by their assent",
+    "ticket acceptance must include the full action beyond its public summary":
+      "🎫 needs a named human other than this actor and explicit acceptance of the recorded action, or a direct in-thread request followed by their assent",
+    "contextual assent needs a request for the full action":
+      "direct handoff request must name the assigned human and exact recorded action",
     "completed handoff needs completion evidence":
       "a completed handoff needs evidence and a source URL or owner reply",
     "ticket refusal is not acceptance":
@@ -7498,11 +13697,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     "Blocked on human owner without a handoff or ticket":
       "Blocked on human owner needs a distinct human/team action and this actor's 🎫",
     "Fixed disposition cannot retain an unfinished handoff":
-      "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
+      "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "duplicate handoff scopes are not distinct":
       "handoff scopes must be distinct",
     "cursor overlap row differs from the prior page snapshot":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "cursor-overlap row must exactly match the prior page's last source row",
     "cursor cycle": "nextCursor repeats a cursor already used",
   };
   if (Object.keys(expectedDiagnostics).length !== invalid.length) {
@@ -7510,10 +13709,955 @@ if (args[0] === "--self-test" && args.length === 1) {
       `self-test expected diagnostics cover ${Object.keys(expectedDiagnostics).length} cases; found ${invalid.length}`,
     );
   }
-  const validateTestInventory = (inventory: Inventory): string[] =>
-    validateInventory(withTestThreadSnapshots(inventory));
+  const scopeConfirmationForTestInventory = (
+    inventory: Inventory,
+  ): OrchestratorScopeConfirmation | undefined => {
+    if (
+      typeof inventory.scope?.userRequest !== "string" ||
+      !Array.isArray(inventory.scope.channelIds)
+    ) {
+      return undefined;
+    }
+    return {
+      source: "orchestrator",
+      decision: "explicitly-requested",
+      userRequest: inventory.scope.userRequest,
+      channelIds: [...inventory.scope.channelIds],
+    };
+  };
+  const validateTestInventory = (
+    inventory: Inventory,
+    options: ValidationOptions = {},
+  ): string[] =>
+    validateInventory(withTestThreadSnapshots(inventory), {
+      ...options,
+      scopeConfirmation:
+        options.scopeConfirmation ??
+        scopeConfirmationForTestInventory(inventory),
+    });
+  const withFixedScopeStatusUpdates = (
+    updates: Partial<StatusReply>,
+    verification?: string,
+  ): Inventory => {
+    const inventory = structuredClone(valid);
+    const parent = inventory.channels[0]!.pages[0]!.parents.find(
+      (candidate) => candidate.ts === "10.000000",
+    )!;
+    parent.statusReply = { ...parent.statusReply!, ...updates };
+    parent.latestOwnedReply = {
+      ...parent.latestOwnedReply!,
+      text: parent.statusReply.text,
+    };
+    if (verification) {
+      parent.fixedScopes = parent.fixedScopes?.map((fixedScope, index) =>
+        index === 0 ? { ...fixedScope, verification } : fixedScope,
+      );
+    }
+    return inventory;
+  };
+  const withTwoFixedScopeStatusUpdates = (
+    updates: Partial<StatusReply>,
+    verifications: [string, string],
+  ): Inventory => {
+    const inventory = withFixedScopeStatusUpdates(updates, verifications[0]);
+    const parent = inventory.channels[0]!.pages[0]!.parents.find(
+      (candidate) => candidate.ts === "10.000000",
+    )!;
+    parent.fixedScopes = [
+      { scope: "initial route screen", verification: verifications[0] },
+      { scope: "account creation", verification: verifications[1] },
+    ];
+    return inventory;
+  };
   try {
-    validateTestInventory(valid);
+    const validNarrowScopeSummary = validateTestInventory(valid);
+    if (
+      !validNarrowScopeSummary.some((line) =>
+        line.includes(
+          "External orchestrator confirmation matches narrowed request and channel IDs",
+        ),
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: a separately supplied orchestrator scope confirmation was not recognized.",
+      );
+    }
+    const conciseStatus = withFixedScopeStatusUpdates({
+      evidence:
+        "The initial route screen passed its focused test and the start screen works now",
+      publicEvidenceSummary: "The start screen works now",
+      text: "Fixed: The start screen works now. this was sent from a bot.",
+    });
+    validateTestInventory(conciseStatus);
+    validateStatusReactionLanguage(
+      "self-test unfinished scope",
+      "Partially fixed: The feature is no longer broken but still needs verification. this was sent from a bot.",
+      [],
+      [],
+      undefined,
+      [
+        {
+          scope: "feature verification",
+          evidence:
+            "the feature is no longer broken but still needs verification",
+        },
+      ],
+      "The feature is no longer broken but still needs verification",
+    );
+    validateTestInventory(
+      withSupplementalRootAudit(
+        ownedSupplementalRootAudit({
+          unfinishedScopes: [
+            {
+              scope: "reported behavior",
+              evidence: "the reported behavior still needs direct verification",
+            },
+          ],
+          statusReply: {
+            ts: "8.600000",
+            threadParentTs: "8.500000",
+            actorId: "USWEEPER",
+            disposition: "In progress",
+            evidence: "the reported behavior still needs direct verification",
+            unfinishedScopeSummary:
+              "reported behavior still needs direct verification",
+            text: "In progress: The reported behavior still needs direct verification. this was sent from a bot.",
+          },
+        }),
+      ),
+    );
+    validateTestInventory(
+      withUnownedTicket({
+        latestRelevantHumanReply: {
+          ts: "11.500000",
+          actorId: "UOTHER",
+          text: "I will set up the preview service in the deployment pipeline.",
+        },
+        handoffs: [
+          {
+            scope: "scheduled canary credentials",
+            owner: "Alex Rivera",
+            ownerSlackId: "UOTHER",
+            action: "set up the preview service in the deployment pipeline",
+            publicActionSummary: "set up the preview service",
+            acceptanceReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "UOTHER",
+              text: "I will set up the preview service in the deployment pipeline.",
+            },
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "In progress",
+          evidence: "Alex Rivera will set up the preview service",
+          text: "In progress: Alex Rivera will set up the preview service. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera will set up the preview service",
+        },
+      }),
+    );
+    validateTestInventory(
+      withSummarizedActionTicket(
+        "Yes.",
+        "<@UOTHER> can you set up the preview service in the deployment pipeline?",
+      ),
+    );
+    validateStatusReactionLanguage(
+      "self-test reporter request",
+      "Clarification needed: Please send the link. this was sent from a bot.",
+      [],
+      [
+        {
+          scope: "reproduce the reported flow",
+          action: "send the link to check the flow",
+          publicActionSummary: "send the link",
+          requestReply: {
+            ts: "11.500000",
+            threadParentTs: "10.000000",
+            actorId: "USWEEPER",
+            text: "Please send the link to check the flow.",
+          },
+        },
+      ],
+      "Please send the link",
+    );
+    const expectStatusLanguageFailure = (
+      name: string,
+      callback: () => void,
+      diagnostic: string,
+    ): void => {
+      let failure: unknown;
+      try {
+        callback();
+      } catch (error) {
+        failure = error;
+      }
+      if (
+        !(failure instanceof Error) ||
+        !failure.message.includes(diagnostic)
+      ) {
+        throw new Error(
+          `Feedback inventory checker self-test failed: ${name} expected diagnostic "${diagnostic}"; received "${failure instanceof Error ? failure.message : String(failure)}".`,
+        );
+      }
+    };
+    const unfinishedSummaryDiagnostic =
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence";
+    validateStatusReactionLanguage(
+      "self-test mixed-polarity unfinished scope",
+      "Partially fixed: CSV export is not broken and still needs verification. this was sent from a bot.",
+      [],
+      [],
+      undefined,
+      [
+        {
+          scope: "CSV export",
+          evidence: "CSV export is not broken and still needs verification",
+        },
+      ],
+      "CSV export is not broken and still needs verification",
+    );
+    validateStatusReactionLanguage(
+      "self-test required verification",
+      "In progress: CSV export verification is required. this was sent from a bot.",
+      [],
+      [],
+      undefined,
+      [
+        {
+          scope: "CSV export",
+          evidence: "CSV export verification is required",
+        },
+      ],
+      "CSV export verification is required",
+    );
+    expectStatusLanguageFailure(
+      "negated remain-open wording cannot describe unfinished work",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test negated remain-open scope",
+          "Partially fixed: CSV export does not remain open or pending. this was sent from a bot.",
+          [],
+          [],
+          undefined,
+          [
+            {
+              scope: "CSV export",
+              evidence: "CSV export review remains pending",
+            },
+          ],
+          "CSV export does not remain open or pending",
+        ),
+      unfinishedSummaryDiagnostic,
+    );
+    expectStatusLanguageFailure(
+      "negated required wording cannot describe unfinished verification",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test negated required scope",
+          "Partially fixed: CSV export verification is not required. this was sent from a bot.",
+          [],
+          [],
+          undefined,
+          [
+            {
+              scope: "CSV export",
+              evidence: "CSV export verification is required",
+            },
+          ],
+          "CSV export verification is not required",
+        ),
+      unfinishedSummaryDiagnostic,
+    );
+    expectStatusLanguageFailure(
+      "needs no further work cannot describe unfinished work",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test no-further-work scope",
+          "Partially fixed: CSV export needs no further work. this was sent from a bot.",
+          [],
+          [],
+          undefined,
+          [
+            {
+              scope: "CSV export",
+              evidence:
+                "CSV export needs no further work; export review remains pending",
+            },
+          ],
+          "CSV export needs no further work",
+        ),
+      unfinishedSummaryDiagnostic,
+    );
+    expectStatusLanguageFailure(
+      "no further verification required cannot describe unfinished work",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test no-further-verification scope",
+          "Partially fixed: CSV export verification no further verification is required. this was sent from a bot.",
+          [],
+          [],
+          undefined,
+          [
+            {
+              scope: "CSV export verification",
+              evidence:
+                "CSV export verification no further verification is required; export remains pending",
+            },
+          ],
+          "CSV export verification no further verification is required",
+        ),
+      unfinishedSummaryDiagnostic,
+    );
+    expectStatusLanguageFailure(
+      "no further verification should be required cannot describe unfinished work",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test no-further-verification scope",
+          "Partially fixed: CSV export verification no further verification should be required. this was sent from a bot.",
+          [],
+          [],
+          undefined,
+          [
+            {
+              scope: "CSV export verification",
+              evidence:
+                "CSV export verification no further verification should be required; export remains pending",
+            },
+          ],
+          "CSV export verification no further verification should be required",
+        ),
+      unfinishedSummaryDiagnostic,
+    );
+    expectStatusLanguageFailure(
+      "reporter summary cannot count an inferred owner and filler as actions",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          "Clarification needed: Morgan Lee will. this was sent from a bot.",
+          [],
+          [
+            {
+              scope: "choose the remaining behavior",
+              action: "Morgan Lee will choose the remaining behavior",
+              publicActionSummary: "Morgan Lee will",
+              requestReply: {
+                ts: "11.500000",
+                threadParentTs: "10.000000",
+                actorId: "USWEEPER",
+                text: "Please have Morgan Lee choose the remaining behavior.",
+              },
+            },
+          ],
+          "Morgan Lee will",
+        ),
+      "active 🎫 summary must include every pending action and known owner",
+    );
+    expectStatusLanguageFailure(
+      "reporter summary cannot count a scheduled owner as an action",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          "Clarification needed: Morgan Lee is scheduled. this was sent from a bot.",
+          [],
+          [
+            {
+              scope: "choose the remaining behavior",
+              action:
+                "Morgan Lee is scheduled to choose the remaining behavior",
+              publicActionSummary: "Morgan Lee is scheduled",
+              requestReply: {
+                ts: "11.500000",
+                threadParentTs: "10.000000",
+                actorId: "USWEEPER",
+                text: "Please have Morgan Lee choose the remaining behavior.",
+              },
+            },
+          ],
+          "Morgan Lee is scheduled",
+        ),
+      "active 🎫 summary must include every pending action and known owner",
+    );
+    validateStatusReactionLanguage(
+      "self-test reporter summary with a named actor",
+      "Clarification needed: Morgan Lee will choose the remaining behavior. this was sent from a bot.",
+      [],
+      [
+        {
+          scope: "choose the remaining behavior",
+          action: "Morgan Lee will choose the remaining behavior",
+          publicActionSummary: "Morgan Lee will choose the remaining behavior",
+          requestReply: {
+            ts: "11.500000",
+            threadParentTs: "10.000000",
+            actorId: "USWEEPER",
+            text: "Please have Morgan Lee choose the remaining behavior.",
+          },
+        },
+      ],
+      "Morgan Lee will choose the remaining behavior",
+    );
+    validateStatusReactionLanguage(
+      "self-test reporter summary with a scheduled named actor",
+      "Clarification needed: Morgan Lee is scheduled to choose the remaining behavior. this was sent from a bot.",
+      [],
+      [
+        {
+          scope: "choose the remaining behavior",
+          action: "Morgan Lee is scheduled to choose the remaining behavior",
+          publicActionSummary:
+            "Morgan Lee is scheduled to choose the remaining behavior",
+          requestReply: {
+            ts: "11.500000",
+            threadParentTs: "10.000000",
+            actorId: "USWEEPER",
+            text: "Please have Morgan Lee choose the remaining behavior.",
+          },
+        },
+      ],
+      "Morgan Lee is scheduled to choose the remaining behavior",
+    );
+    expectStatusLanguageFailure(
+      "reporter public summary cannot misrepresent its action",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          "Clarification needed: Please review the launch notes. this was sent from a bot.",
+          [],
+          [
+            {
+              scope: "reproduce the reported flow",
+              action: "send the link to check the flow",
+              publicActionSummary: "review the launch notes",
+              requestReply: {
+                ts: "11.500000",
+                threadParentTs: "10.000000",
+                actorId: "USWEEPER",
+                text: "Please send the link to check the flow.",
+              },
+            },
+          ],
+          "Please review the launch notes",
+        ),
+      "active 🎫 summary must include every pending action and known owner",
+    );
+    for (const [publicActionSummary, action] of [
+      ["fix", "fix the broken route in the setup flow"],
+      ["fix this", "fix this route in the setup flow"],
+    ]) {
+      expectStatusLanguageFailure(
+        `generic reporter summary ${publicActionSummary} is too vague`,
+        () =>
+          validateStatusReactionLanguage(
+            "self-test reporter request",
+            `Clarification needed: Please ${publicActionSummary}. this was sent from a bot.`,
+            [],
+            [
+              {
+                scope: "repair the route",
+                action,
+                publicActionSummary,
+                requestReply: {
+                  ts: "11.500000",
+                  threadParentTs: "10.000000",
+                  actorId: "USWEEPER",
+                  text: `Please ${publicActionSummary}.`,
+                },
+              },
+            ],
+            `Please ${publicActionSummary}`,
+          ),
+        "active 🎫 summary must include every pending action and known owner",
+      );
+    }
+    for (const publicActionSummary of ["Morgan Lee", "Morgan Lee will"]) {
+      expectStatusLanguageFailure(
+        `handoff summary contains only the owner's name and filler words: ${publicActionSummary}`,
+        () =>
+          validateStatusReactionLanguage(
+            "self-test handoff request",
+            `In progress: ${publicActionSummary} choose the remaining behavior. this was sent from a bot.`,
+            [
+              {
+                scope: "remaining design choice",
+                owner: "Morgan Lee",
+                action: "Morgan Lee will choose the remaining behavior",
+                publicActionSummary,
+                status: "accepted",
+              },
+            ],
+            [],
+            publicActionSummary,
+          ),
+        "active 🎫 summary must include every pending action and known owner",
+      );
+    }
+    const overlongAction =
+      "review the workspace connection settings before publishing the updated release notes for the product launch to all active workspaces";
+    expectStatusLanguageFailure(
+      "exact reporter action is too long for a public summary",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          `Clarification needed: Please ${overlongAction}. this was sent from a bot.`,
+          [],
+          [
+            {
+              scope: "publish the release notes",
+              action: overlongAction,
+              publicActionSummary: overlongAction,
+              requestReply: {
+                ts: "11.500000",
+                threadParentTs: "10.000000",
+                actorId: "USWEEPER",
+                text: `Please ${overlongAction}.`,
+              },
+            },
+          ],
+          overlongAction,
+        ),
+      "active 🎫 summary must include every pending action and known owner",
+    );
+    expectStatusLanguageFailure(
+      "malformed pending summary has a field diagnostic",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          "Clarification needed. this was sent from a bot.",
+          [],
+          [],
+          42 as unknown as string,
+        ),
+      "pendingActionSummary must be a string",
+    );
+    expectStatusLanguageFailure(
+      "pending summary is rejected after every tracked action closes",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test closed reporter request",
+          "Fixed: corrected the reported behavior. this was sent from a bot.",
+          [
+            {
+              scope: "verify the publish",
+              owner: "Alex Rivera",
+              action: "check the beta publish",
+              status: "completed",
+            },
+          ],
+          [],
+          "Alex Rivera will check the beta site",
+        ),
+      "pendingActionSummary is only valid while a tracked action remains open",
+    );
+    expectStatusLanguageFailure(
+      "malformed public summary does not throw a TypeError",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test reporter request",
+          "Clarification needed: Please send the link. this was sent from a bot.",
+          [],
+          [
+            {
+              scope: "reproduce the reported flow",
+              action: "send the link to check the flow",
+              publicActionSummary: 42 as unknown as string,
+              requestReply: {
+                ts: "11.500000",
+                threadParentTs: "10.000000",
+                actorId: "USWEEPER",
+                text: "Please send the link to check the flow.",
+              },
+            },
+          ],
+          "Please send the link",
+        ),
+      "active 🎫 summary must include every pending action and known owner",
+    );
+    validateTestInventory(
+      withHandoffReply(
+        "Partially fixed: The first route works. The route-picker works. Alex Rivera will choose the remaining behavior. this was sent from a bot.",
+      ),
+    );
+    const requestedFeedbackChannels = [
+      { channelId: "C0C4U4XRT6X", channelName: "qa-agent-native" },
+      {
+        channelId: "C0ATH3CCZT4",
+        channelName: "product-agent-native-feedback",
+      },
+      {
+        channelId: "C0AJ5QV0J03",
+        channelName: "dev-agent-native-feedback",
+      },
+    ];
+    const anchoredSameInRequest =
+      "Review this report https://builder-internal.slack.com/archives/C0C4U4XRT6X/p1792040677214639 and do the same in product-agent-native-feedabck.";
+    const anchoredScopeIds = new Set(["C0C4U4XRT6X", "C0ATH3CCZT4"]);
+    if (
+      !requestNamesExactlyRequestedChannels(
+        anchoredSameInRequest,
+        requestedFeedbackChannels,
+        anchoredScopeIds,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: an anchored report plus a unique same-in channel alias was rejected.",
+      );
+    }
+    const exactSameInRequest =
+      "Review this report https://builder-internal.slack.com/archives/C0C4U4XRT6X/p1792040677214639 and do the same in #product-agent-native-feedback.";
+    if (
+      !requestNamesExactlyRequestedChannels(
+        exactSameInRequest,
+        requestedFeedbackChannels,
+        anchoredScopeIds,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: an exact same-in channel request was rejected.",
+      );
+    }
+    const repeatedLinkTargetRequest =
+      "Review [this report](https://builder-internal.slack.com/archives/C0C4U4XRT6X/p1792040677214639) and do the same in product-agent-native-feedabck.";
+    if (
+      !requestNamesExactlyRequestedChannels(
+        repeatedLinkTargetRequest,
+        requestedFeedbackChannels,
+        anchoredScopeIds,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: a single Markdown link's label and target were counted as separate roots.",
+      );
+    }
+    const permalinkAnchor = {
+      channelId: "C0C4U4XRT6X",
+      rootTs: "1792040677.214639",
+    };
+    if (
+      !requestNamesExactlyRequestedChannels(
+        anchoredSameInRequest,
+        requestedFeedbackChannels,
+        anchoredScopeIds,
+        permalinkAnchor,
+      ) ||
+      requestNamesExactlyRequestedChannels(
+        anchoredSameInRequest,
+        requestedFeedbackChannels,
+        anchoredScopeIds,
+        { ...permalinkAnchor, rootTs: "1792040677.214640" },
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed to bind the user-provided permalink to the exact inventoried root.",
+      );
+    }
+    const wrongChannelAnchor =
+      "Review https://notslack.com/archives/C0C4U4XRT6X/p1792040677214639 and do the same in #product-agent-native-feedback.";
+    const mismatchedChannelAnchor =
+      "Review https://builder-internal.slack.com/archives/C0ATH3CCZT4/p1792040677214639 and do the same in #product-agent-native-feedback.";
+    const wrongSuffixAnchor =
+      "Review https://slack.com.attacker.test/archives/C0C4U4XRT6X/p1792040677214639 and do the same in #product-agent-native-feedback.";
+    const insecureAnchor =
+      "Review http://builder-internal.slack.com/archives/C0C4U4XRT6X/p1792040677214639 and do the same in #product-agent-native-feedback.";
+    const credentialedAnchor =
+      "Review https://attacker@builder-internal.slack.com/archives/C0C4U4XRT6X/p1792040677214639 and do the same in #product-agent-native-feedback.";
+    for (const request of [
+      wrongChannelAnchor,
+      mismatchedChannelAnchor,
+      wrongSuffixAnchor,
+      insecureAnchor,
+      credentialedAnchor,
+    ]) {
+      if (
+        requestNamesExactlyRequestedChannels(
+          request,
+          requestedFeedbackChannels,
+          anchoredScopeIds,
+          permalinkAnchor,
+        )
+      ) {
+        throw new Error(
+          "Feedback inventory checker self-test accepted an untrusted or mismatched Slack permalink anchor.",
+        );
+      }
+    }
+    const limitedWithContextLink =
+      "Only #product-agent-native-feedback; reference https://builder-internal.slack.com/archives/C0C4U4XRT6X/p1792040677214639 for context.";
+    if (
+      requestNamesExactlyRequestedChannels(
+        limitedWithContextLink,
+        requestedFeedbackChannels,
+        anchoredScopeIds,
+      ) ||
+      !requestNamesExactlyRequestedChannels(
+        limitedWithContextLink,
+        requestedFeedbackChannels,
+        new Set(["C0ATH3CCZT4"]),
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test counted a channel ID embedded in a permalink as a textual scope mention.",
+      );
+    }
+    const quotedSameInRequest =
+      'Review this report https://builder-internal.slack.com/archives/C0C4U4XRT6X/p1792040677214639; someone quoted "same in product-agent-native-feedback".';
+    if (
+      requestNamesExactlyRequestedChannels(
+        quotedSameInRequest,
+        requestedFeedbackChannels,
+        anchoredScopeIds,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: quoted channel context expanded the requested scope.",
+      );
+    }
+    const incidentalMentionRequest = `${anchoredSameInRequest} I also saw #dev-agent-native-feedback.`;
+    if (
+      requestNamesExactlyRequestedChannels(
+        incidentalMentionRequest,
+        requestedFeedbackChannels,
+        anchoredScopeIds,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: an incidental channel mention was ignored.",
+      );
+    }
+    const prefixSameInRequest =
+      "Review this report https://builder-internal.slack.com/archives/C0C4U4XRT6X/p1792040677214639 and do the same in #product-agent-native-feed.";
+    if (
+      requestNamesExactlyRequestedChannels(
+        prefixSameInRequest,
+        requestedFeedbackChannels,
+        anchoredScopeIds,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: a channel-name prefix was accepted as a same-in target.",
+      );
+    }
+    const multipleAnchorsRequest = `${anchoredSameInRequest} Another report is https://builder-internal.slack.com/archives/C0C4U4XRT6X/p1792040677214640.`;
+    if (
+      requestNamesExactlyRequestedChannels(
+        multipleAnchorsRequest,
+        requestedFeedbackChannels,
+        anchoredScopeIds,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: multiple report anchors were accepted by the linked-report scope path.",
+      );
+    }
+    const ambiguousAliasChannels = [
+      requestedFeedbackChannels[0]!,
+      { channelId: "C123456789", channelName: "bac" },
+      { channelId: "C987654321", channelName: "acb" },
+    ];
+    if (
+      requestNamesExactlyRequestedChannels(
+        "Review https://builder-internal.slack.com/archives/C0C4U4XRT6X/p1792040677214639 and the same in abc.",
+        ambiguousAliasChannels,
+        new Set(["C0C4U4XRT6X", "C123456789"]),
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: an ambiguous adjacent-transposition alias was accepted.",
+      );
+    }
+    const clusteredRoot = (
+      inventory: Inventory,
+      targetRootTs: string,
+      targetChannelId = "C_TEST",
+    ): Inventory =>
+      withPageRoot(inventory, "11.000000", (parent) => ({
+        ...parent,
+        disposition: "Clustered",
+        reactionSummary: "none",
+        reactionOwners: {},
+        latestRelevantHumanReply: null,
+        latestOwnedReply: undefined,
+        statusReply: undefined,
+        reactionDecision: undefined,
+        fixedScopes: undefined,
+        clusteredUnder: {
+          channelId: targetChannelId,
+          rootTs: targetRootTs,
+          permalink: sourcePermalink(targetRootTs),
+        },
+      }));
+    validateTestInventory(clusteredRoot(valid, "10.000000"));
+
+    const ownedClusteredStatus: StatusReply = {
+      ts: "13.000000",
+      threadParentTs: "11.000000",
+      actorId: "USWEEPER",
+      disposition: "Clustered",
+      evidence: "the duplicate report still needs direct browser proof",
+      text: "Clustered: the duplicate report still needs direct browser proof. Open scope: duplicate report behavior. No :white_check_mark: — no scope is verified complete. No :ticket: — no separate human action remains. this was sent from a bot.",
+    };
+    const ownedClusteredRoot = withPageRoot(valid, "11.000000", (parent) => ({
+      ...parent,
+      disposition: "Clustered",
+      reactionSummary: "eyes (1): USWEEPER",
+      reactionOwners: { eyes: ["USWEEPER"] },
+      latestRelevantHumanReply: null,
+      latestOwnedReply: latestOwnedReplyFrom(ownedClusteredStatus),
+      statusReply: ownedClusteredStatus,
+      reactionDecision: {
+        checkmark: {
+          state: "none",
+          reason: "No scope is verified complete",
+        },
+        ticket: {
+          state: "none",
+          reason: "No separate human action remains",
+        },
+      },
+      unfinishedScopes: [],
+    }));
+    validateTestInventory(ownedClusteredRoot);
+
+    const heldReport = withPageRoot(valid, "11.000000", (parent) => ({
+      ...parent,
+      disposition: "Skipped",
+      reactionSummary: "eyes (1): UOTHER",
+      reactionOwners: { eyes: ["UOTHER"] },
+      ownershipSkip: {
+        rootTs: "11.000000",
+        reason: "foreign_workflow_mark",
+      },
+      clusteredUnder: undefined,
+      latestRelevantHumanReply: undefined,
+      latestOwnedReply: undefined,
+      statusReply: undefined,
+      reactionDecision: undefined,
+    }));
+    const heldReportWithoutThread: Inventory = {
+      ...heldReport,
+      channels: heldReport.channels.map((channel) => ({
+        ...channel,
+        threadSnapshots: channel.threadSnapshots?.filter(
+          (snapshot) => snapshot.rootTs !== "11.000000",
+        ),
+      })),
+    };
+    validateInventory(heldReportWithoutThread, {
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        heldReportWithoutThread,
+      ),
+    });
+
+    const clusteredUnderHeldRoot = withPageRoot(
+      clusteredRoot(valid, "9.500000"),
+      "9.500000",
+      (parent) => ({
+        ...parent,
+        disposition: "Skipped",
+        reactionChecked: true,
+        reactionReadAt: "2030-01-01T00:00:00.000Z",
+        reactionSummary: "eyes (1): UOTHER",
+        reactionOwners: { eyes: ["UOTHER"] },
+        ownershipSkip: {
+          rootTs: "9.500000",
+          reason: "foreign_workflow_mark",
+        },
+        latestRelevantHumanReply: undefined,
+        latestOwnedReply: undefined,
+        statusReply: undefined,
+        reactionDecision: undefined,
+      }),
+    );
+    validateTestInventory(clusteredUnderHeldRoot);
+    if (
+      clusteredUnderHeldRoot.channels.some((channel) =>
+        channel.threadSnapshots?.some(
+          (snapshot) => snapshot.rootTs === "9.500000",
+        ),
+      )
+    ) {
+      throw new Error(
+        "self-test opened the thread of another actor's exact held canonical report",
+      );
+    }
+    const markOnlyRoot = {
+      ...firstPage.parents[0]!,
+      reactionOwners: { white_check_mark: ["USWEEPER"] },
+    };
+    try {
+      validateInScopeReportOwnership(
+        "C_TEST root mark-only",
+        markOnlyRoot,
+        false,
+        true,
+        false,
+        false,
+      );
+      throw new Error("self-test failed to reject an owned non-eye mark alone");
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.endsWith(
+          "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
+        )
+      ) {
+        throw new Error(
+          "self-test failed to require the current actor's eye with a non-eye mark",
+          { cause: error },
+        );
+      }
+    }
+
+    const noWorkflowReactionSnapshot = structuredClone(
+      valid.channels[0]!.threadSnapshots!.find(
+        (snapshot) => snapshot.rootTs === "10.000000",
+      )!,
+    );
+    noWorkflowReactionSnapshot.readAt = new Date().toISOString();
+    const unmarkedReply = noWorkflowReactionSnapshot.replies[0]!;
+    unmarkedReply.workflowReactionSummary = "none";
+    unmarkedReply.workflowReactionOwners = {};
+    unmarkedReply.workflowReactionReadback = [];
+    unmarkedReply.workflowReactionReadAt = noWorkflowReactionSnapshot.readAt;
+    validateThreadSnapshotStructure(
+      "C_TEST root 10.000000",
+      "10.000000",
+      noWorkflowReactionSnapshot,
+      valid.sweepActorId,
+    );
+
+    const markedReplySnapshot = structuredClone(noWorkflowReactionSnapshot);
+    const markedReply = markedReplySnapshot.replies[0]!;
+    markedReply.workflowReactionSummary = `eyes (1): ${valid.sweepActorId}`;
+    markedReply.workflowReactionOwners = { eyes: [valid.sweepActorId] };
+    markedReply.workflowReactionReadback = [
+      { name: "eyes", count: 1, users: [valid.sweepActorId] },
+    ];
+    markedReply.workflowReactionReadAt = markedReplySnapshot.readAt;
+    try {
+      validateThreadSnapshotStructure(
+        "C_TEST root 10.000000",
+        "10.000000",
+        markedReplySnapshot,
+        valid.sweepActorId,
+      );
+      throw new Error(
+        "self-test accepted a workflow reaction read-back that did not follow the full-thread read",
+      );
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.endsWith(
+          "a workflow-mark read-back must follow the full-thread read",
+        )
+      ) {
+        throw new Error(
+          "self-test failed to require a direct post-thread read for workflow-marked replies",
+          { cause: error },
+        );
+      }
+    }
     const caseInsensitiveVerification = JSON.parse(
       JSON.stringify(valid),
     ) as Inventory;
@@ -7524,9 +14668,21 @@ if (args[0] === "--self-test" && args.length === 1) {
     caseInsensitiveRoot.fixedScopes = [
       {
         scope: "initial route screen",
-        verification: "Focused test passed",
+        verification:
+          "Focused test passed for the initial route screen and The start screen works now",
       },
     ];
+    caseInsensitiveRoot.statusReply = {
+      ...caseInsensitiveRoot.statusReply!,
+      evidence:
+        "focused test passed for the initial route screen and the start screen works now",
+      publicEvidenceSummary: "The start screen works now",
+      text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.",
+    };
+    caseInsensitiveRoot.latestOwnedReply = {
+      ...caseInsensitiveRoot.latestOwnedReply!,
+      text: caseInsensitiveRoot.statusReply.text,
+    };
     validateTestInventory(caseInsensitiveVerification);
     validateTestInventory(
       withSweepOwnedParent({
@@ -7561,7 +14717,8 @@ if (args[0] === "--self-test" && args.length === 1) {
           disposition: "In progress",
           evidence:
             "the reported interaction behavior still needs direct browser proof",
-          text: "In progress: the reported interaction behavior still needs direct browser proof. No :white_check_mark: from me — I do not have direct browser proof; the existing root checkmark belongs to another reviewer. Open scope: reported interaction behavior — replay it in the running app. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+          unfinishedScopeSummary: "reported interaction behavior remains open",
+          text: "In progress: the reported interaction behavior still needs direct browser proof. No :white_check_mark: from me — I do not have direct browser proof; the existing root checkmark belongs to another reviewer. Open scope: reported interaction behavior remains open — replay it in the running app. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
         },
         fixedScopes: [],
         unfinishedScopes: [
@@ -7585,7 +14742,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       disposition: "In progress",
       evidence:
         "a newer run still shows the create action for an existing account",
-      text: `In progress: a newer run still shows the create action for an existing account. :white_check_mark: for the initial route screen is historical. ${historicalCheckReason} No :ticket: — no separate human action was accepted. this was sent from a bot.`,
+      unfinishedScopeSummary: "Initial route still needs checking",
+      text: "In progress: The initial route still needs checking. this was sent from a bot.",
     };
     const historicalCheckInventory = withSweepOwnedParent({
       disposition: "In progress",
@@ -7626,20 +14784,100 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...rootTen.statusReply!,
             ts: "10.500000",
             threadParentTs: "10.000000",
+            evidence:
+              "The initial route screen passed its focused test and the start screen works now",
+            publicEvidenceSummary: "The start screen works now",
+            text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.",
           },
         },
       ],
       statusReply: historicalCheckStatus,
     });
     validateTestInventory(historicalCheckInventory);
+    for (const disposition of [
+      "Shipped",
+      "Live verified",
+      "Resolved elsewhere",
+    ] as const) {
+      const historicalCheckWithVerifiedDisposition = structuredClone(
+        historicalCheckInventory,
+      );
+      historicalCheckWithVerifiedDisposition.channels[0]!.pages[0]!.parents =
+        historicalCheckWithVerifiedDisposition.channels[0]!.pages[0]!.parents.map(
+          (parent) =>
+            parent.ts === "10.000000"
+              ? {
+                  ...parent,
+                  historicalReactionMarks: parent.historicalReactionMarks?.map(
+                    (mark) =>
+                      mark.emoji === "white_check_mark"
+                        ? {
+                            ...mark,
+                            previousStatus: {
+                              ...mark.previousStatus,
+                              disposition,
+                              text: `${disposition}: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.`,
+                            },
+                          }
+                        : mark,
+                  ),
+                }
+              : parent,
+        );
+      validateTestInventory(historicalCheckWithVerifiedDisposition);
+    }
+    for (const prefix of [
+      "Thanks for the feedback -",
+      "Ty for the feedback -",
+    ]) {
+      const historicalCheckWithFeedbackPrefix = structuredClone(
+        historicalCheckInventory,
+      );
+      historicalCheckWithFeedbackPrefix.channels[0]!.pages[0]!.parents =
+        historicalCheckWithFeedbackPrefix.channels[0]!.pages[0]!.parents.map(
+          (parent) =>
+            parent.ts === "10.000000"
+              ? {
+                  ...parent,
+                  historicalReactionMarks: parent.historicalReactionMarks?.map(
+                    (mark) =>
+                      mark.emoji === "white_check_mark"
+                        ? {
+                            ...mark,
+                            previousStatus: {
+                              ...mark.previousStatus,
+                              text: `${prefix} Fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.`,
+                            },
+                          }
+                        : mark,
+                  ),
+                }
+              : parent,
+        );
+      validateTestInventory(historicalCheckWithFeedbackPrefix);
+    }
 
     const ticketHistoryBase = withUnownedTicket();
     const ticketHistoryParent =
       ticketHistoryBase.channels[0]!.pages[0]!.parents.find(
         (parent) => parent.ts === "10.000000",
       )!;
-    const originalHandoff = ticketHistoryParent.handoffs![0]!;
-    const originalTicketStatus = ticketHistoryParent.statusReply!;
+    const originalHandoff: Handoff = {
+      ...ticketHistoryParent.handoffs![0]!,
+      scope: "design choice",
+      action:
+        "choose the remaining behavior for the remaining design choice in the canvas",
+      publicActionSummary: "choose the remaining behavior",
+      acceptanceReply: {
+        ...ticketHistoryParent.handoffs![0]!.acceptanceReply!,
+        text: "I will choose the remaining behavior for the remaining design choice in the canvas.",
+      },
+    };
+    const originalTicketStatus: StatusReply = {
+      ...ticketHistoryParent.statusReply!,
+      evidence: "Alex Rivera will choose the remaining behavior",
+      text: "In progress: Alex Rivera will choose the remaining behavior for this design choice. this was sent from a bot.",
+    };
     const withdrawalReply = {
       ts: "12.500000",
       threadParentTs: "10.000000",
@@ -7656,7 +14894,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       actorId: "USWEEPER",
       disposition: "In progress",
       evidence: historicalTicketEvidence,
-      text: `In progress: ${historicalTicketEvidence} :ticket: for Alex Rivera's accepted remaining design choice is historical. ${historicalTicketReason} No :white_check_mark: — no scope has passed verification. this was sent from a bot.`,
+      unfinishedScopeSummary: "Remaining design choice is still open",
+      text: "In progress: The remaining design choice is still open. this was sent from a bot.",
     };
     const historicalTicketInventory = withUnownedTicket({
       disposition: "In progress",
@@ -7673,7 +14912,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       latestRelevantHumanReply: withdrawalReply,
       unfinishedScopes: [
         {
-          scope: "remaining design choice",
+          scope: "design choice",
           evidence: historicalTicketEvidence,
         },
       ],
@@ -7681,7 +14920,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       historicalReactionMarks: [
         {
           emoji: "ticket",
-          scope: "remaining design choice",
+          scope: "design choice",
           reason: historicalTicketReason,
           previousStatus: originalTicketStatus,
           handoff: originalHandoff,
@@ -7691,11 +14930,44 @@ if (args[0] === "--self-test" && args.length === 1) {
       statusReply: historicalTicketStatus,
     });
     validateTestInventory(historicalTicketInventory);
+    for (const prefix of [
+      "Thanks for the feedback -",
+      "Ty for the feedback -",
+    ]) {
+      const historicalTicketWithFeedbackPrefix = structuredClone(
+        historicalTicketInventory,
+      );
+      historicalTicketWithFeedbackPrefix.channels[0]!.pages[0]!.parents =
+        historicalTicketWithFeedbackPrefix.channels[0]!.pages[0]!.parents.map(
+          (parent) =>
+            parent.ts === "10.000000"
+              ? {
+                  ...parent,
+                  historicalReactionMarks: parent.historicalReactionMarks?.map(
+                    (mark) =>
+                      mark.emoji === "ticket"
+                        ? {
+                            ...mark,
+                            previousStatus: {
+                              ...mark.previousStatus,
+                              text: `${prefix} In progress: Alex Rivera will choose the remaining behavior for this design choice. this was sent from a bot.`,
+                            },
+                          }
+                        : mark,
+                  ),
+                }
+              : parent,
+        );
+      validateTestInventory(historicalTicketWithFeedbackPrefix);
+    }
     const botHistoricalAcceptance = withTestThreadSnapshots(
       historicalTicketInventory,
     );
     const botHistoricalAcceptanceReply =
-      botHistoricalAcceptance.channels[0]!.threadSnapshots?.[0]!.replies.find(
+      botHistoricalAcceptance.channels[0]!.threadSnapshots?.find(
+        (snapshot) =>
+          snapshot.rootTs === originalHandoff.acceptanceReply!.threadParentTs,
+      )?.replies.find(
         (reply) => reply.ts === originalHandoff.acceptanceReply!.ts,
       );
     if (!botHistoricalAcceptanceReply) {
@@ -7705,7 +14977,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     }
     botHistoricalAcceptanceReply.kind = "bot";
     try {
-      validateInventory(botHistoricalAcceptance);
+      validateInventory(botHistoricalAcceptance, {
+        scopeConfirmation: scopeConfirmationForTestInventory(
+          botHistoricalAcceptance,
+        ),
+      });
       throw new Error(
         "self-test failed to reject bot historical handoff acceptance",
       );
@@ -7753,33 +15029,551 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     };
+    const historicalCheckWithUnapprovedFeedbackPrefix = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithUnapprovedFeedbackPrefix.channels[0]!.pages[0]!.parents =
+      historicalCheckWithUnapprovedFeedbackPrefix.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            text: "Thanks for the helpful feedback - Fixed: The initial route screen works now. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
     expectHistoricalMarkFailure(
-      "historical checkmark needs a prior marked proof reply",
-      {
-        ...historicalCheckInventory,
-        channels: historicalCheckInventory.channels.map((channel) => ({
-          ...channel,
-          pages: channel.pages.map((page) => ({
-            ...page,
-            parents: page.parents.map((parent) =>
-              parent.ts === "10.000000"
-                ? {
-                    ...parent,
-                    historicalReactionMarks:
-                      parent.historicalReactionMarks?.map((mark) => ({
+      "historical checkmark with an unapproved feedback prefix",
+      historicalCheckWithUnapprovedFeedbackPrefix,
+      "historical ✅ needs a prior verified disposition stated in its captured reply",
+    );
+    const historicalTicketWithUnapprovedFeedbackPrefix = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithUnapprovedFeedbackPrefix.channels[0]!.pages[0]!.parents =
+      historicalTicketWithUnapprovedFeedbackPrefix.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            text: "Thanks for the helpful feedback - In progress: Alex Rivera will choose the remaining behavior for this design choice. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket with an unapproved feedback prefix",
+      historicalTicketWithUnapprovedFeedbackPrefix,
+      "historical 🎫 needs a prior disposition stated in its captured reply",
+    );
+    const historicalTicketWithIncompleteAcceptance = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithIncompleteAcceptance.channels[0]!.pages[0]!.parents =
+      historicalTicketWithIncompleteAcceptance.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket" && mark.handoff?.acceptanceReply
+                      ? {
+                          ...mark,
+                          handoff: {
+                            ...mark.handoff,
+                            acceptanceReply: {
+                              ...mark.handoff.acceptanceReply,
+                              text: "I will choose the remaining behavior.",
+                            },
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket acceptance must include the full action",
+      historicalTicketWithIncompleteAcceptance,
+      "historical 🎫 still needs exact owner acceptance of the action",
+    );
+    const historicalCheckWithoutScope = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithoutScope.channels[0]!.pages[0]!.parents =
+      historicalCheckWithoutScope.channels[0]!.pages[0]!.parents.map((parent) =>
+        parent.ts === "10.000000"
+          ? {
+              ...parent,
+              historicalReactionMarks: parent.historicalReactionMarks?.map(
+                (mark) =>
+                  mark.emoji === "white_check_mark"
+                    ? {
                         ...mark,
                         previousStatus: {
                           ...mark.previousStatus,
-                          text: "Fixed: focused test passed for the initial route screen. No checkmark was set. this was sent from a bot.",
+                          evidence: "focused test passed; the route worked",
+                          publicEvidenceSummary: "The route worked",
+                          text: "Fixed: The route worked. this was sent from a bot.",
                         },
-                      })),
-                  }
-                : parent,
-            ),
-          })),
-        })),
-      },
-      "prior status must name the marked scope and reaction",
+                      }
+                    : mark,
+              ),
+            }
+          : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark without scope proof in prior evidence",
+      historicalCheckWithoutScope,
+      "historical ✅ needs a concise publicEvidenceSummary from proof for its recorded scope in both internal proof and captured prior reply",
+    );
+    const historicalCheckWithDetailedEvidenceInLedger = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithDetailedEvidenceInLedger.channels[0]!.pages[0]!.parents =
+      historicalCheckWithDetailedEvidenceInLedger.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            evidence:
+                              "The initial route screen passed its focused test and the start screen works now",
+                            publicEvidenceSummary: "The start screen works now",
+                            text: "Fixed: The start screen works now. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    validateTestInventory(historicalCheckWithDetailedEvidenceInLedger);
+    const historicalCheckWithSummaryMissingFromReply = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithSummaryMissingFromReply.channels[0]!.pages[0]!.parents =
+      historicalCheckWithSummaryMissingFromReply.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            text: "Fixed: The initial route screen has changed. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with summary only in internal evidence",
+      historicalCheckWithSummaryMissingFromReply,
+      "historical ✅ needs a concise publicEvidenceSummary from proof for its recorded scope in both internal proof and captured prior reply",
+    );
+    const historicalCheckWithSummaryMissingFromEvidence = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithSummaryMissingFromEvidence.channels[0]!.pages[0]!.parents =
+      historicalCheckWithSummaryMissingFromEvidence.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            evidence: "unrelated test evidence",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with summary only in captured reply",
+      historicalCheckWithSummaryMissingFromEvidence,
+      "historical ✅ needs a concise publicEvidenceSummary from proof for its recorded scope in both internal proof and captured prior reply",
+    );
+    const historicalCheckWithUnrelatedPublicSummary = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithUnrelatedPublicSummary.channels[0]!.pages[0]!.parents =
+      historicalCheckWithUnrelatedPublicSummary.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            evidence:
+                              "The initial route screen passed its focused test. Account creation works now.",
+                            publicEvidenceSummary: "Account creation works now",
+                            text: "Fixed: Account creation works now. The initial route screen works now. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with an unrelated public evidence summary",
+      historicalCheckWithUnrelatedPublicSummary,
+      "historical ✅ needs a concise publicEvidenceSummary from proof for its recorded scope in both internal proof and captured prior reply",
+    );
+    const historicalTicketWithActionOnlyInLedgerEvidence = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithActionOnlyInLedgerEvidence.channels[0]!.pages[0]!.parents =
+      historicalTicketWithActionOnlyInLedgerEvidence.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            text: "In progress: Work on the remaining design choice continues. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket with action only in ledger evidence",
+      historicalTicketWithActionOnlyInLedgerEvidence,
+      "historical handoff action must match its prior captured status",
+    );
+    const historicalTicketWithUnverifiedOwner = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithUnverifiedOwner.channels[0]!.pages[0]!.parents =
+      historicalTicketWithUnverifiedOwner.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            evidence:
+                              "Jordan Lee will choose the remaining behavior for the remaining design choice",
+                            text: "In progress: Jordan Lee will choose the remaining behavior for the remaining design choice. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket with an unverified handoff owner",
+      historicalTicketWithUnverifiedOwner,
+      "historical handoff owner must match its prior captured status",
+    );
+    const historicalTicketWithInvalidPublicSummary = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithInvalidPublicSummary.channels[0]!.pages[0]!.parents =
+      historicalTicketWithInvalidPublicSummary.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket" && mark.handoff
+                      ? {
+                          ...mark,
+                          handoff: {
+                            ...mark.handoff,
+                            publicActionSummary: "review the billing flow",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket with an unrelated public action summary",
+      historicalTicketWithInvalidPublicSummary,
+      "historical handoff publicActionSummary must be a concise prefix of its action",
+    );
+    const historicalReporterWithInvalidPublicSummary =
+      withClosedReporterRequestHistory();
+    historicalReporterWithInvalidPublicSummary.channels[0]!.pages[0]!.parents =
+      historicalReporterWithInvalidPublicSummary.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.closedReporterRequest
+                      ? {
+                          ...mark,
+                          closedReporterRequest: {
+                            ...mark.closedReporterRequest,
+                            publicActionSummary: "open the billing flow",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical reporter request with an unrelated public action summary",
+      historicalReporterWithInvalidPublicSummary,
+      "historical reporter publicActionSummary must be a concise prefix of its action",
+    );
+    const historicalReporterWithMismatchedScope =
+      withClosedReporterRequestHistory();
+    historicalReporterWithMismatchedScope.channels[0]!.pages[0]!.parents =
+      historicalReporterWithMismatchedScope.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.closedReporterRequest
+                      ? { ...mark, scope: "different report" }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical reporter request scope must match its ticket scope",
+      historicalReporterWithMismatchedScope,
+      "historical 🎫 needs a matching reporter request scope, action, and in-thread request",
+    );
+    const historicalCheckWithoutStatedDisposition = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithoutStatedDisposition.channels[0]!.pages[0]!.parents =
+      historicalCheckWithoutStatedDisposition.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            disposition: "Fixed",
+                            text: "In progress: The initial route screen still needs checking. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark without a stated prior disposition",
+      historicalCheckWithoutStatedDisposition,
+      "historical ✅ needs a prior verified disposition stated in its captured reply",
+    );
+    const historicalCheckWithNoncanonicalFixedWording = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithNoncanonicalFixedWording.channels[0]!.pages[0]!.parents =
+      historicalCheckWithNoncanonicalFixedWording.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            disposition: "Fixed",
+                            text: "In progress: The initial route screen is fixed in the open PR; merge pending. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with a noncanonical fixed mention",
+      historicalCheckWithNoncanonicalFixedWording,
+      "historical ✅ needs a prior verified disposition stated in its captured reply",
+    );
+    const historicalCheckWithContradictedFixedDisposition = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithContradictedFixedDisposition.channels[0]!.pages[0]!.parents =
+      historicalCheckWithContradictedFixedDisposition.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            disposition: "Fixed",
+                            text: "Fixed: The initial route screen is not fixed yet. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with a contradicted fixed disposition",
+      historicalCheckWithContradictedFixedDisposition,
+      "historical ✅ needs a prior verified disposition stated in its captured reply",
+    );
+    const historicalCheckWithStillFailingDisposition = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithStillFailingDisposition.channels[0]!.pages[0]!.parents =
+      historicalCheckWithStillFailingDisposition.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            disposition: "Fixed",
+                            text: "Fixed - still failing. The start screen works now. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with a still-failing disposition",
+      historicalCheckWithStillFailingDisposition,
+      "historical ✅ needs a prior verified disposition stated in its captured reply",
+    );
+    const historicalTicketWithoutStatedDisposition = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithoutStatedDisposition.channels[0]!.pages[0]!.parents =
+      historicalTicketWithoutStatedDisposition.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            disposition: "Fixed",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket needs a prior stated disposition",
+      historicalTicketWithoutStatedDisposition,
+      "historical 🎫 needs a prior disposition stated in its captured reply",
+    );
+    const historicalTicketMissingDisposition = structuredClone(
+      historicalTicketInventory,
+    );
+    const missingDispositionTicket =
+      historicalTicketMissingDisposition.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "10.000000",
+      )?.historicalReactionMarks?.find((mark) => mark.emoji === "ticket");
+    if (!missingDispositionTicket?.previousStatus) {
+      throw new Error(
+        "Feedback inventory checker self-test fixture is incomplete",
+      );
+    }
+    Object.assign(missingDispositionTicket.previousStatus, {
+      disposition: undefined,
+    });
+    expectHistoricalMarkFailure(
+      "historical ticket with a missing disposition has a field diagnostic",
+      historicalTicketMissingDisposition,
+      "previousStatus.disposition must be a non-empty string",
     );
     expectHistoricalMarkFailure(
       "historical ticket withdrawal needs the assigned owner's reply",
@@ -7818,43 +15612,39 @@ if (args[0] === "--self-test" && args.length === 1) {
       "historical 🎫 needs the owner's later, read-back refusal of the accepted action",
     );
     validateTestInventory(withOtherOwnerRoot());
-    validateTestInventory({
-      ...valid,
-      channels: valid.channels.map((channel) => ({
+    const foreignMarkedHeldRoot = withPageRoot(
+      valid,
+      "11.000000",
+      (parent) => ({
+        ...parent,
+        reactionSummary: "eyes (1): UOTHER",
+        reactionOwners: { eyes: ["UOTHER"] },
+        disposition: "Skipped",
+        ownershipSkip: {
+          rootTs: "11.000000",
+          reason: "foreign_workflow_mark",
+        },
+        clusteredUnder: undefined,
+        latestRelevantHumanReply: undefined,
+        latestOwnedReply: undefined,
+        statusReply: undefined,
+        reactionDecision: undefined,
+        otherOwnerEvidence: undefined,
+      }),
+    );
+    const foreignMarkedHeldRootWithoutThread: Inventory = {
+      ...foreignMarkedHeldRoot,
+      channels: foreignMarkedHeldRoot.channels.map((channel) => ({
         ...channel,
-        pages: channel.pages.map((page) => ({
-          ...page,
-          parents: page.parents.map((parent) =>
-            parent.ts === "11.000000"
-              ? {
-                  ...parent,
-                  reactionSummary: "eyes (1): UOTHER",
-                  reactionOwners: { eyes: ["UOTHER"] },
-                  disposition: "Skipped",
-                  otherOwnerEvidence: undefined,
-                }
-              : parent,
-          ),
-        })),
-        threadSnapshots: [
-          ...(channel.threadSnapshots ?? []),
-          {
-            rootTs: "11.000000",
-            readAt: "2030-01-01T00:00:00.000Z",
-            replyCount: 1,
-            replies: [
-              {
-                ts: "12.000000",
-                actorId: "UOTHER",
-                kind: "human" as const,
-                text: "Skipped: no actionable follow-up remains.",
-                workflowReactionSummary: "none",
-                workflowReactionOwners: {},
-              },
-            ],
-          },
-        ],
+        threadSnapshots: channel.threadSnapshots?.filter(
+          (snapshot) => snapshot.rootTs !== "11.000000",
+        ),
       })),
+    };
+    validateInventory(foreignMarkedHeldRootWithoutThread, {
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        foreignMarkedHeldRootWithoutThread,
+      ),
     });
     validateTestInventory(
       withSupplementalRootAudit(
@@ -7914,6 +15704,13 @@ if (args[0] === "--self-test" && args.length === 1) {
                   reply.ts === "8.600000"
                     ? {
                         ...reply,
+                        workflowReactionReadback: [
+                          {
+                            name: "white_check_mark",
+                            count: 1,
+                            users: ["USWEEPER"],
+                          },
+                        ],
                         workflowReactionSummary:
                           "white_check_mark (1): USWEEPER",
                         workflowReactionOwners: {
@@ -7928,10 +15725,17 @@ if (args[0] === "--self-test" && args.length === 1) {
         ),
       })),
     };
-    const replyCheckSummary = validateInventory(replyCheckWithCapturedSnapshot);
+    const replyCheckSummary = validateInventory(
+      replyCheckWithCapturedSnapshot,
+      {
+        scopeConfirmation: scopeConfirmationForTestInventory(
+          replyCheckWithCapturedSnapshot,
+        ),
+      },
+    );
     if (
       !replyCheckSummary.some((line) =>
-        line.includes("owned 👀 0, ✅ marks 1 for 1 verified scopes"),
+        line.includes("owned 👀 1, ✅ marks 1 for 1 verified scopes"),
       ) ||
       !replyCheckSummary.some((line) =>
         line.includes(
@@ -7956,6 +15760,9 @@ if (args[0] === "--self-test" && args.length === 1) {
                   reply.ts === "12.000000"
                     ? {
                         ...reply,
+                        workflowReactionReadback: [
+                          { name: "eyes", count: 1, users: ["USWEEPER"] },
+                        ],
                         workflowReactionSummary: "eyes (1): USWEEPER",
                         workflowReactionOwners: { eyes: ["USWEEPER"] },
                         workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
@@ -7969,6 +15776,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     };
     const currentReplyMarkSummary = validateInventory(
       currentReplyMarkWithReadback,
+      {
+        scopeConfirmation: scopeConfirmationForTestInventory(
+          currentReplyMarkWithReadback,
+        ),
+      },
     );
     if (
       !currentReplyMarkSummary.some((line) =>
@@ -7996,7 +15808,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         latestRelevantHumanReply: {
           ts: "12.000000",
           actorId: "UOTHER",
-          text: "In progress: I am actively testing the new behavior.",
+          text: "In progress: testing the new behavior.",
         },
         latestOwnedReply: latestOwnedReplyFrom(ownedElsewhereStatusReply),
         reactionDecision: {
@@ -8100,14 +15912,15 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Verified locally",
           evidence:
-            "focused behavior test passed in the open PR; merge pending",
-          text: "Verified locally: focused behavior test passed in the open PR; merge pending. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+            "The initial route screen passed its focused test in the open PR and the start screen works now; merge pending",
+          publicEvidenceSummary: "The start screen works now",
+          text: "Verified locally: The start screen works now. Focused behavior test passed in the open PR; merge pending. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
         },
         fixedScopes: [
           {
             scope: "initial route screen",
             verification:
-              "focused behavior test passed in the open PR; merge pending",
+              "The initial route screen passed its focused test in the open PR and the start screen works now; merge pending",
           },
         ],
       }),
@@ -8124,14 +15937,16 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Verified locally",
           evidence:
-            "focused behavior test passed in the open PR; merge pending; paragraph selection remains unverified",
-          text: "Verified locally: focused behavior test passed in the open PR; merge pending; paragraph selection remains unverified. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains unverified. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+            "The initial route screen passed its focused test in the open PR and the start screen works now; merge pending; paragraph selection remains unverified",
+          publicEvidenceSummary: "The start screen works now",
+          unfinishedScopeSummary: "Paragraph selection remains unverified",
+          text: "Verified locally: The start screen works now. Focused behavior test passed in the open PR; merge pending; paragraph selection remains unverified. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains unverified. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
         },
         fixedScopes: [
           {
             scope: "initial route screen",
             verification:
-              "focused behavior test passed in the open PR; merge pending",
+              "The initial route screen passed its focused test in the open PR and the start screen works now; merge pending",
           },
         ],
         unfinishedScopes: [
@@ -8145,8 +15960,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     validateTestInventory(
       withSweepOwnedParent({
         disposition: "Resolved elsewhere",
-        reactionSummary: "white_check_mark (1): USWEEPER",
-        reactionOwners: { white_check_mark: ["USWEEPER"] },
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
         reactionDecision: {
           checkmark: {
             state: "present",
@@ -8160,20 +15978,22 @@ if (args[0] === "--self-test" && args.length === 1) {
         statusReply: {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Resolved elsewhere",
-          evidence: "PR #7714 merged the label correction at `829d09b196`",
-          text: "Resolved elsewhere: PR #7714 merged the label correction at `829d09b196`. :white_check_mark: covers the merged Netlify/Vercel label correction. No :ticket: — Enzo’s configuration action is complete and no separate human-owned action remains. this was sent from a bot.",
+          evidence:
+            "The Netlify/Vercel label correction was merged in PR #7714 at 829d09b196, and the provider labels are corrected",
+          publicEvidenceSummary: "The provider labels are corrected",
+          text: "Resolved elsewhere: The provider labels are corrected. :white_check_mark: covers the merged Netlify/Vercel label correction. this was sent from a bot.",
         },
         fixedScopes: [
           {
             scope: "Netlify/Vercel label correction",
             verification:
-              "PR #7714 merged the label correction at `829d09b196`",
+              "The Netlify/Vercel label correction was merged in PR #7714 at 829d09b196, and the provider labels are corrected",
           },
         ],
       }),
     );
     const reverifiedAfterReporterReply =
-      "focused route test re-tested after reporter confirmation and passed";
+      "The initial route screen was re-tested after reporter confirmation and the start screen works now";
     validateTestInventory(
       withSweepOwnedParent({
         latestRelevantHumanReply: {
@@ -8191,7 +16011,8 @@ if (args[0] === "--self-test" && args.length === 1) {
         statusReply: {
           ...firstPage.parents[1]!.statusReply!,
           evidence: reverifiedAfterReporterReply,
-          text: `Fixed: ${reverifiedAfterReporterReply}. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.`,
+          publicEvidenceSummary: "The start screen works now",
+          text: "Fixed: The start screen works now. :white_check_mark: covers the initial route screen. this was sent from a bot.",
         },
       }),
     );
@@ -8213,8 +16034,10 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Partially fixed",
           evidence:
-            "focused test passed in the open PR; merge pending; paragraph selection remains broken",
-          text: "Partially fixed: focused test passed in the open PR; merge pending; paragraph selection remains broken. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
+          publicEvidenceSummary: "The start screen works now",
+          unfinishedScopeSummary: "Paragraph selection remains broken",
+          text: "Partially fixed: The start screen works now. Paragraph selection remains broken. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
         },
       }),
     );
@@ -8244,11 +16067,22 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Abandoned - no answer in 4 days",
           evidence: "the remaining control behavior is still unverified",
+          unfinishedScopeSummary: "Control behavior is still unverified",
           text: "Abandoned - no answer in 4 days: the reporter wait is closed; the remaining control behavior is still unverified. Open scope: recording start and stop affordance. No :white_check_mark: — no fixed scope has passed verification. No :ticket: — no named human accepted a distinct action. this was sent from a bot.",
         },
       }),
     );
-    validateTestInventory(withUnownedCheckmark());
+    validateTestInventory(
+      withUnownedCheckmark({
+        reactionSummary:
+          "eyes (1): USWEEPER; 1+ (1): UOTHER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          "1+": ["UOTHER"],
+          white_check_mark: ["USWEEPER"],
+        },
+      }),
+    );
     // Unassigned team work is ticketed before a person accepts it.
     validateTestInventory(withUnassignedTeamTicket());
     // Accepted handoff-only work remains In progress and can carry 🎫 without a fixed scope.
@@ -8286,7 +16120,8 @@ if (args[0] === "--self-test" && args.length === 1) {
         fixedScopes: [
           {
             scope: "initial route screen",
-            verification: "focused test passed",
+            verification:
+              "The initial route screen passed its focused test and the start screen works now",
           },
         ],
         unfinishedScopes: [],
@@ -8314,8 +16149,9 @@ if (args[0] === "--self-test" && args.length === 1) {
           threadParentTs: "10.000000",
           actorId: "USWEEPER",
           disposition: "Fixed",
-          evidence: `focused test passed; ${completedHandoffEvidence}`,
-          text: `Fixed: focused test passed; ${completedHandoffEvidence}. The initial route screen is verified. Handoff complete: Alex Rivera completed the remaining design choice by choosing the remaining behavior (action: choose the remaining behavior). :white_check_mark: covers the initial route screen; :ticket: stays as history for the completed accepted action. this was sent from a bot.`,
+          evidence: `The initial route screen passed its focused test and the start screen works now; ${completedHandoffEvidence}`,
+          publicEvidenceSummary: "The start screen works now",
+          text: `Fixed: The start screen works now. Handoff complete: Alex Rivera completed the remaining design choice by choosing the remaining behavior (action: choose the remaining behavior). :white_check_mark: covers the initial route screen; :ticket: stays as history for the completed accepted action. this was sent from a bot.`,
         },
       }),
     );
@@ -8338,6 +16174,13 @@ if (args[0] === "--self-test" && args.length === 1) {
           },
         },
       ],
+      statusReply: {
+        ...firstPage.parents[1]!.statusReply!,
+        disposition: "In progress",
+        evidence: "the completed handoff has an incomplete completion record",
+        text: "In progress: The completed handoff has an incomplete completion record. this was sent from a bot.",
+        pendingActionSummary: undefined,
+      },
     });
     try {
       validateTestInventory(completedHandoffWithoutEvidence);
@@ -8434,6 +16277,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           disposition: "In progress",
           evidence: "Alex Rivera will take a look",
           text: "In progress: Alex Rivera will take a look. Handoff: remaining design choice — Alex Rivera — take a look. No :white_check_mark: — no verified scope is complete yet. :ticket: tracks Alex Rivera's accepted action. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera will take a look",
         },
       }),
     );
@@ -8443,78 +16287,37 @@ if (args[0] === "--self-test" && args.length === 1) {
         latestRelevantHumanReply: {
           ts: "11.500000",
           actorId: "UOTHER",
-          text: "I will configure VERCEL_TOKEN.",
+          text: "I will set up the preview service.",
         },
         handoffs: [
           {
             scope: "scheduled canary credentials",
             owner: "Alex Rivera",
             ownerSlackId: "UOTHER",
-            action: "configure VERCEL_TOKEN",
+            action: "set up the preview service",
             acceptanceReply: {
               ts: "11.500000",
               threadParentTs: "10.000000",
               actorId: "UOTHER",
-              text: "I will configure VERCEL_TOKEN.",
+              text: "I will set up the preview service.",
             },
           },
         ],
         statusReply: {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Blocked on human owner",
-          evidence: "Alex Rivera must configure VERCEL_TOKEN.",
-          text: "Blocked on human owner: Alex Rivera must configure VERCEL_TOKEN. Handoff: scheduled canary credentials — Alex Rivera — configure VERCEL_TOKEN. No :white_check_mark: — no fix is verified yet. :ticket: tracks Alex Rivera's accepted VERCEL_TOKEN action. this was sent from a bot.",
+          evidence: "Alex Rivera must set up the preview service.",
+          text: "Blocked on human owner: Alex Rivera will set up the preview service. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera will set up the preview service",
         },
       }),
     );
     validateTestInventory(
       withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Alex Rivera to choose the remaining behavior. :white_check_mark: covers route-picker behavior. :ticket: tracks Alex Rivera's accepted follow-up. this was sent from a bot.",
+        "Partially fixed: The route-picker works. Alex Rivera will choose the remaining behavior. this was sent from a bot.",
       ),
     );
-    validateTestInventory({
-      ...valid,
-      channels: valid.channels.map((channel) => ({
-        ...channel,
-        pages: channel.pages.map((page) => ({
-          ...page,
-          parents: page.parents.map((parent) =>
-            parent.ts === "10.000000"
-              ? {
-                  ...parent,
-                  disposition: "Clarification needed",
-                  reactionSummary: "eyes (1): USWEEPER",
-                  reactionOwners: { eyes: ["USWEEPER"] },
-                  reactionDecision: {
-                    checkmark: {
-                      state: "none",
-                      reason:
-                        "No scope is verified while clarification is pending",
-                    },
-                    ticket: {
-                      state: "none",
-                      reason:
-                        "The unanswered reporter request is not a human handoff",
-                    },
-                  },
-                  fixedScopes: [],
-                  statusReply: {
-                    ...parent.statusReply!,
-                    disposition: "Clarification needed",
-                    evidence:
-                      "waiting for the URL already requested in this thread",
-                    text: "Clarification needed: waiting for the URL already requested in this thread. Evidence: waiting for the URL already requested in this thread. No :white_check_mark: — the required URL is still missing. No :ticket: — a reporter clarification is not a named human handoff. this was sent from a bot.",
-                  },
-                  latestOwnedReply: {
-                    ...parent.latestOwnedReply!,
-                    text: "Clarification needed: waiting for the URL already requested in this thread. Evidence: waiting for the URL already requested in this thread. No :white_check_mark: — the required URL is still missing. No :ticket: — a reporter clarification is not a named human handoff. this was sent from a bot.",
-                  },
-                }
-              : parent,
-          ),
-        })),
-      })),
-    });
+    validateTestInventory(withReporterRequest(true));
     validateTestInventory({
       ...valid,
       channels: valid.channels.map((channel) => ({
@@ -8539,12 +16342,14 @@ if (args[0] === "--self-test" && args.length === 1) {
                         ...parent.statusReply!,
                         disposition: "Partially fixed",
                         evidence:
-                          "the verified scope is complete; a separate handoff remains.",
-                        text: "Partially fixed: the verified scope is complete; a separate handoff remains. Handoffs: secondary request — Alex Rivera to choose the remaining behavior; release timing — Morgan Lee to schedule the rollout. :white_check_mark: covers first scope. :ticket: tracks the accepted handoffs. this was sent from a bot.",
+                          "The initial route screen passed its focused test and the start screen works now; a separate handoff remains.",
+                        text: "Partially fixed: The start screen works now. Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout. this was sent from a bot.",
+                        pendingActionSummary:
+                          "Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout",
                       },
                       latestOwnedReply: {
                         ...parent.latestOwnedReply!,
-                        text: "Partially fixed: the verified scope is complete; a separate handoff remains. Handoffs: secondary request — Alex Rivera to choose the remaining behavior; release timing — Morgan Lee to schedule the rollout. :white_check_mark: covers first scope. :ticket: tracks the accepted handoffs. this was sent from a bot.",
+                        text: "Partially fixed: The start screen works now. Alex Rivera will choose the remaining behavior; Morgan Lee will schedule the rollout. this was sent from a bot.",
                       },
                       reactionSummary:
                         "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",
@@ -8586,9 +16391,9 @@ if (args[0] === "--self-test" && args.length === 1) {
                       },
                       fixedScopes: [
                         {
-                          scope: "first scope",
+                          scope: "initial route screen",
                           verification:
-                            "the verified scope is complete; a separate handoff remains.",
+                            "The initial route screen passed its focused test and the start screen works now",
                         },
                       ],
                       reactionDecision: {
@@ -8645,6 +16450,14 @@ if (args[0] === "--self-test" && args.length === 1) {
               : parent,
           ),
         })),
+        threadSnapshots: channel.threadSnapshots?.map((snapshot) => ({
+          ...snapshot,
+          replies: snapshot.replies.map((reply) =>
+            reply.actorId === "USWEEPER"
+              ? { ...reply, actorId: "WACTOR" }
+              : reply,
+          ),
+        })),
       })),
     };
     validateTestInventory(sweepActorWInventory);
@@ -8690,6 +16503,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             },
             {
               cursor: "next-page",
+              before: "11.000000",
               nextCursor: null,
               exhausted: true,
               messageCount: 2,
@@ -8728,7 +16542,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     if (
       !cutoffOverlapSummary.some((line) =>
         line.includes(
-          "in-scope report roots 2; owned 👀 0, ✅ marks 1 for 1 verified scopes, 🎫 marks 0 for 0 distinct human actions (0 accepted, 0 unassigned; including completed history)",
+          "in-scope report roots 2; owned 👀 1, ✅ marks 1 for 1 verified scopes, 🎫 marks 0 for 0 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 0, historical reporter requests: 0; including completed history)",
         ),
       ) ||
       !cutoffOverlapSummary.some((line) =>
@@ -8747,6 +16561,108 @@ if (args[0] === "--self-test" && args.length === 1) {
         "self-test failed to keep pre-cutoff root marks out of current report counts",
       );
     }
+    const reporterRequestSummary = validateTestInventory(
+      withReporterRequest(true),
+    );
+    if (
+      !reporterRequestSummary.some((line) =>
+        line.includes(
+          "🎫 marks 1 for 1 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 1, historical reporter requests: 0; including completed history)",
+        ),
+      )
+    ) {
+      throw new Error("self-test failed to count active reporter requests");
+    }
+    const closedReporterRequestSummary = validateTestInventory(
+      withClosedReporterRequestHistory(),
+    );
+    if (
+      !closedReporterRequestSummary.some((line) =>
+        line.includes(
+          "🎫 marks 1 for 1 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 0, historical reporter requests: 1; including completed history)",
+        ),
+      )
+    ) {
+      throw new Error("self-test failed to count historical reporter requests");
+    }
+    const abandonedReporterRequestSummary = validateTestInventory(
+      withClosedReporterRequestHistory("abandoned_no_answer"),
+    );
+    if (
+      !abandonedReporterRequestSummary.some((line) =>
+        line.includes("historical reporter requests: 1"),
+      )
+    ) {
+      throw new Error(
+        "self-test failed to preserve expired reporter ticket history",
+      );
+    }
+    const partiallyFixedAbandonedRequest = withClosedReporterRequestHistory(
+      "abandoned_no_answer",
+    );
+    const partiallyFixedAbandonedRequestInventory: Inventory = {
+      ...partiallyFixedAbandonedRequest,
+      channels: partiallyFixedAbandonedRequest.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) => {
+            if (parent.ts !== "10.000000") return parent;
+            const closedMark = parent.historicalReactionMarks![0]!;
+            const fixedVerification =
+              "The initial route screen passed its focused route test and the start screen works now";
+            const openEvidence = "browser redirect behavior remains unverified";
+            const evidence = `${fixedVerification}; ${openEvidence}; no human answer arrived four days after the request`;
+            const statusReply: StatusReply = {
+              ...parent.statusReply!,
+              disposition: "Partially fixed",
+              evidence,
+              publicEvidenceSummary: "The start screen works now",
+              unfinishedScopeSummary:
+                "browser redirect behavior remains unverified",
+              text: "Partially fixed: The start screen works now. Browser redirect behavior remains unverified. this was sent from a bot.",
+            };
+            return {
+              ...parent,
+              disposition: "Partially fixed",
+              reactionSummary:
+                "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",
+              reactionOwners: {
+                eyes: ["USWEEPER"],
+                white_check_mark: ["USWEEPER"],
+                ticket: ["USWEEPER"],
+              },
+              reactionDecision: {
+                checkmark: {
+                  state: "present" as const,
+                  reason:
+                    "The initial route screen passed its focused route test",
+                },
+                ticket: {
+                  state: "present" as const,
+                  reason: `Historical ticket: ${closedMark.reason}`,
+                },
+              },
+              fixedScopes: [
+                {
+                  scope: "initial route screen",
+                  verification: fixedVerification,
+                },
+              ],
+              unfinishedScopes: [
+                {
+                  scope: "redirect destination behavior",
+                  evidence: openEvidence,
+                },
+              ],
+              latestOwnedReply: latestOwnedReplyFrom(statusReply),
+              statusReply,
+            };
+          }),
+        })),
+      })),
+    };
+    validateTestInventory(partiallyFixedAbandonedRequestInventory);
     const administrativeRootSummary = validateTestInventory({
       ...valid,
       channels: valid.channels.map((channel) => ({
@@ -8759,6 +16675,13 @@ if (args[0] === "--self-test" && args.length === 1) {
                   ...parent,
                   rootClassification: "administrative" as const,
                   rootClassificationReason: "Grouped CI ledger, not feedback",
+                  disposition: "Skipped",
+                  clusteredUnder: undefined,
+                  reactionSummary: "none",
+                  reactionOwners: {},
+                  latestOwnedReply: undefined,
+                  statusReply: undefined,
+                  reactionDecision: undefined,
                 }
               : parent,
           ),
@@ -8795,6 +16718,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             },
             {
               cursor: "next-page",
+              before: valid.channels[0]!.scanQuery.before,
               nextCursor: null,
               exhausted: true,
               messageCount: 2,
@@ -8843,6 +16767,8 @@ if (args[0] === "--self-test" && args.length === 1) {
                     ...parent.statusReply!,
                     disposition: "In progress",
                     evidence: "the reported route still needs a live replay",
+                    unfinishedScopeSummary:
+                      "reported route still needs a live replay",
                     text: "In progress — the reported route still needs a live replay. Open scope: reported route. No ✅ — no fixed scope has passed verification. No 🎫 — no named human accepted a separate action. this was sent from a bot.",
                   },
                   fixedScopes: [],
@@ -8913,7 +16839,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     });
     if (
       !closedEyeOnlySummary.some((line) =>
-        line.includes("eye-only closed historical roots: 10.000000 — Skipped"),
+        line.includes("10.000000 — Skipped"),
       ) ||
       closedEyeOnlySummary.some(
         (line) =>
@@ -8925,10 +16851,14 @@ if (args[0] === "--self-test" && args.length === 1) {
       );
     }
     const snapshotContractCases = new Set([
+      "every in-scope report requires a complete thread read",
+      "none reply reaction read still needs its exact timestamp",
+      "reply reaction owners must match exact raw read-back",
       "owned marks need a fresh full-thread read",
       "a newer thread reply invalidates the recorded snapshot",
       "thread snapshot count must match the complete reply read",
       "legacy reply marks must match the captured reaction read-back",
+      "forged held-thread skip is rejected",
       "supplemental root thread replies must follow the root",
       "current open owner eye cannot be auto-claimed",
       "later refusal stays visible after a later benign owner reply",
@@ -8953,7 +16883,9 @@ if (args[0] === "--self-test" && args.length === 1) {
               testCase.inventory as Inventory,
               !staleOwnedReplyAuditCases.has(testCase.name),
             );
-        validateInventory(inventory);
+        validateInventory(inventory, {
+          scopeConfirmation: scopeConfirmationForTestInventory(inventory),
+        });
         throw new Error(`self-test failed to reject ${testCase.name}`);
       } catch (error) {
         if (
@@ -8987,17 +16919,32 @@ if (args[0] === "--self-test" && args.length === 1) {
             readAt: pageReadAt,
             parents: page.parents.map((parent) =>
               parent.ts === parent.threadParentTs
-                ? { ...parent, reactionReadAt: pageReadAt }
+                ? {
+                    ...parent,
+                    reactionReadAt:
+                      pageReadAt === undefined
+                        ? undefined
+                        : new Date(Date.parse(pageReadAt) + 1).toISOString(),
+                  }
                 : parent,
             ),
           })),
           threadRootAudits: channel.threadRootAudits?.map((parent) => ({
             ...parent,
-            reactionReadAt: pageReadAt,
+            reactionReadAt:
+              pageReadAt === undefined
+                ? undefined
+                : new Date(Date.parse(pageReadAt) + 1).toISOString(),
           })),
           threadSnapshots: channel.threadSnapshots?.map((snapshot) => ({
             ...snapshot,
             readAt: snapshotReadAt,
+            replies: snapshot.replies.map((reply) => ({
+              ...reply,
+              workflowReactionReadAt: new Date(
+                Date.parse(snapshotReadAt) + 1,
+              ).toISOString(),
+            })),
           })),
         })),
       };
@@ -9036,12 +16983,15 @@ if (args[0] === "--self-test" && args.length === 1) {
     }
     validateInventory(
       inventoryWithReadTimes(freshPageReadAt, freshSnapshotReadAt),
-      { requireFreshReads: true },
+      {
+        requireFreshReads: true,
+        scopeConfirmation: scopeConfirmationForTestInventory(valid),
+      },
     );
     const sourceReceiptFor = (inventory: Inventory): SourceReceipt => ({
       channels: Object.fromEntries(
-        inventory.channels.map((channel, channelIndex) => [
-          sourceReceiptChannelName(channel.channelId, channelIndex),
+        inventory.channels.map((channel) => [
+          sourceReceiptChannelName(channel),
           {
             channelId: channel.channelId,
             pages: channel.pages.map((page) => {
@@ -9052,6 +17002,7 @@ if (args[0] === "--self-test" && args.length === 1) {
               }
               return {
                 cursor: page.cursor,
+                ...(page.before !== undefined ? { before: page.before } : {}),
                 nextCursor: page.nextCursor,
                 exhausted: page.exhausted,
                 readAt: page.readAt,
@@ -9074,7 +17025,9 @@ if (args[0] === "--self-test" && args.length === 1) {
         Object.entries(receipt.channels).map(([name, channel]) => {
           let offset = 0;
           const pages = channel.pages.map((page) => {
-            const rows = channel.rows.slice(offset, offset + page.messageCount);
+            const rows = channel.rows
+              .slice(offset, offset + page.messageCount)
+              .map((row) => ({ ...row, text: "", rawText: "" }));
             offset += page.messageCount;
             if (rows.length !== page.messageCount) {
               throw new Error(
@@ -9101,7 +17054,342 @@ if (args[0] === "--self-test" && args.length === 1) {
       requireFreshReads: true,
       sourceReceipt: completeSourceReceipt,
       rawSourcePages: completeRawSourcePages,
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        receiptFreshInventory,
+      ),
     });
+
+    const heldPageRoot = withPageRoot(
+      receiptFreshInventory,
+      "11.000000",
+      (parent) => ({
+        ...parent,
+        disposition: "Skipped",
+        reactionReadAt: new Date(now - 10_000).toISOString(),
+        reactionSummary: "eyes (1): UOTHER",
+        reactionOwners: { eyes: ["UOTHER"] },
+        ownershipSkip: {
+          rootTs: "11.000000",
+          reason: "foreign_workflow_mark",
+        },
+        clusteredUnder: undefined,
+        latestRelevantHumanReply: undefined,
+        latestOwnedReply: undefined,
+        statusReply: undefined,
+        reactionDecision: undefined,
+      }),
+    );
+    const heldPageRootWithoutThread: Inventory = {
+      ...heldPageRoot,
+      channels: heldPageRoot.channels.map((channel) => ({
+        ...channel,
+        threadSnapshots: channel.threadSnapshots?.filter(
+          (snapshot) => snapshot.rootTs !== "11.000000",
+        ),
+      })),
+    };
+    validateInventory(heldPageRootWithoutThread, {
+      requireFreshReads: true,
+      sourceReceipt: completeSourceReceipt,
+      rawSourcePages: completeRawSourcePages,
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        heldPageRootWithoutThread,
+      ),
+    });
+
+    const heldSupplementalRoot: Inventory = {
+      ...receiptFreshInventory,
+      channels: receiptFreshInventory.channels.map((channel) => ({
+        ...channel,
+        threadRoots: ["8.500000"],
+        threadRootAudits: [
+          supplementalRootAudit("8.500000", {
+            disposition: "Skipped",
+            reactionReadAt: new Date(now - 10_000).toISOString(),
+            reactionSummary: "eyes (1): UOTHER",
+            reactionOwners: { eyes: ["UOTHER"] },
+            ownershipSkip: {
+              rootTs: "8.500000",
+              reason: "foreign_workflow_mark",
+            },
+            rootClassification: "unclassified",
+          }),
+        ],
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) =>
+            parent.ts === "9.500000"
+              ? {
+                  ...parent,
+                  threadParentTs: "8.500000",
+                  rootResolution: sourceThreadResolution("8.500000"),
+                  disposition: "Skipped",
+                  ownershipSkip: {
+                    rootTs: "8.500000",
+                    reason: "foreign_workflow_mark",
+                  },
+                }
+              : parent,
+          ),
+        })),
+        threadSnapshots: channel.threadSnapshots?.filter(
+          (snapshot) => snapshot.rootTs !== "8.500000",
+        ),
+      })),
+    };
+    validateInventory(heldSupplementalRoot, {
+      requireFreshReads: true,
+      scopeConfirmation:
+        scopeConfirmationForTestInventory(heldSupplementalRoot),
+    });
+
+    const recoveryPageReadAt = new Date(now - 6_000).toISOString();
+    const cappedPageReadAt = new Date(now - 8_000).toISOString();
+    const pageLimitReadAt = new Date(now - 7_000).toISOString();
+    const recoveryReactionReadAt = new Date(now - 2_000).toISOString();
+    const recoverySliceInventory: Inventory = {
+      ...receiptFreshInventory,
+      channels: receiptFreshInventory.channels.map((channel) => {
+        const page = channel.pages[0]!;
+        const boundaryTs = page.sourceTimestamps[1]!;
+        const before = slackTimestampFromMicros(
+          slackTimestamp(boundaryTs, "self-test recovery boundary") - 1n,
+        );
+        return {
+          ...channel,
+          pageLimitRecoveries: [
+            {
+              cursor: "capped-page",
+              boundaryTs,
+              errorCode: "page_limit_exceeded",
+              readAt: pageLimitReadAt,
+              args: {
+                after: channel.scanQuery.after,
+                before: channel.scanQuery.before,
+                filters: channel.scanQuery.filters,
+                keywords: [],
+                natural_language_query: "",
+                include_bots: true,
+                include_context: false,
+                content_types: "messages",
+                limit: 20,
+                sort: "timestamp",
+                sort_dir: "desc",
+                response_format: "detailed",
+                cursor: "capped-page",
+              },
+              raw: JSON.stringify({
+                isError: true,
+                error: { code: "page_limit_exceeded" },
+              }),
+            },
+          ],
+          pages: [
+            {
+              ...page,
+              readAt: cappedPageReadAt,
+              cursor: null,
+              nextCursor: "capped-page",
+              exhausted: false,
+              messageCount: 2,
+              sourceTimestamps: page.sourceTimestamps.slice(0, 2),
+              parents: page.parents
+                .slice(0, 2)
+                .map((parent) =>
+                  parent.ts === parent.threadParentTs
+                    ? { ...parent, reactionReadAt: recoveryReactionReadAt }
+                    : parent,
+                ),
+            },
+            {
+              ...page,
+              readAt: recoveryPageReadAt,
+              cursor: null,
+              before,
+              nextCursor: null,
+              exhausted: true,
+              messageCount: page.messageCount - 2,
+              sourceTimestamps: page.sourceTimestamps.slice(2),
+              parents: page.parents
+                .slice(2)
+                .map((parent) =>
+                  parent.ts === parent.threadParentTs
+                    ? { ...parent, reactionReadAt: recoveryReactionReadAt }
+                    : parent,
+                ),
+            },
+          ],
+          threadRootAudits: channel.threadRootAudits?.map((parent) => ({
+            ...parent,
+            reactionReadAt: recoveryReactionReadAt,
+          })),
+        };
+      }),
+    };
+    const recoverySliceReceipt = sourceReceiptFor(recoverySliceInventory);
+    validateInventory(recoverySliceInventory, {
+      requireFreshReads: true,
+      sourceReceipt: recoverySliceReceipt,
+      rawSourcePages: rawSourcePagesFor(recoverySliceReceipt),
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        recoverySliceInventory,
+      ),
+    });
+
+    const recoveryFailures = [
+      {
+        name: "restarted slice without a captured cap event",
+        inventory: {
+          ...recoverySliceInventory,
+          channels: recoverySliceInventory.channels.map(
+            (channel) =>
+              Object.fromEntries(
+                Object.entries(channel).filter(
+                  ([key]) => key !== "pageLimitRecoveries",
+                ),
+              ) as Channel,
+          ),
+        },
+        diagnostic:
+          "restarted slice must match a captured page_limit_exceeded result",
+      },
+      {
+        name: "cap event cursor differs from the capped page",
+        inventory: {
+          ...recoverySliceInventory,
+          channels: recoverySliceInventory.channels.map((channel) => ({
+            ...channel,
+            pageLimitRecoveries: channel.pageLimitRecoveries!.map((event) => ({
+              ...event,
+              cursor: "wrong-cursor",
+              args: { ...event.args, cursor: "wrong-cursor" },
+            })),
+          })),
+        },
+        diagnostic:
+          "restarted slice must match a captured page_limit_exceeded result",
+      },
+      {
+        name: "cap event boundary differs from the capped page",
+        inventory: {
+          ...recoverySliceInventory,
+          channels: recoverySliceInventory.channels.map((channel) => ({
+            ...channel,
+            pageLimitRecoveries: channel.pageLimitRecoveries!.map((event) => ({
+              ...event,
+              boundaryTs: "10.250000",
+            })),
+          })),
+        },
+        diagnostic:
+          "restarted slice must match a captured page_limit_exceeded result",
+      },
+      {
+        name: "cap response has the wrong error code",
+        inventory: {
+          ...recoverySliceInventory,
+          channels: recoverySliceInventory.channels.map((channel) => ({
+            ...channel,
+            pageLimitRecoveries: channel.pageLimitRecoveries!.map((event) => ({
+              ...event,
+              errorCode: "unknown_error",
+            })) as unknown as PageLimitRecovery[],
+          })),
+        },
+        diagnostic: "errorCode must be page_limit_exceeded",
+      },
+      {
+        name: "cap response omits exact failed request arguments",
+        inventory: {
+          ...recoverySliceInventory,
+          channels: recoverySliceInventory.channels.map((channel) => ({
+            ...channel,
+            pageLimitRecoveries: channel.pageLimitRecoveries!.map((event) => ({
+              ...event,
+              args: { ...event.args, cursor: "different-request" },
+            })),
+          })),
+        },
+        diagnostic: "request args.cursor does not match the captured cursor",
+      },
+      {
+        name: "cap response raw body does not prove the page-limit error",
+        inventory: {
+          ...recoverySliceInventory,
+          channels: recoverySliceInventory.channels.map((channel) => ({
+            ...channel,
+            pageLimitRecoveries: channel.pageLimitRecoveries!.map((event) => ({
+              ...event,
+              raw: JSON.stringify({ isError: true, error: { code: "other" } }),
+            })),
+          })),
+        },
+        diagnostic: "prove its page_limit_exceeded error",
+      },
+      {
+        name: "cap response arrives after the restarted slice",
+        inventory: {
+          ...recoverySliceInventory,
+          channels: recoverySliceInventory.channels.map((channel) => ({
+            ...channel,
+            pageLimitRecoveries: channel.pageLimitRecoveries!.map((event) => ({
+              ...event,
+              readAt: new Date(now - 3_000).toISOString(),
+            })),
+          })),
+        },
+        diagnostic:
+          "page_limit_exceeded must be read after the capped page and before the restarted slice",
+      },
+      {
+        name: "unmatched page-limit result",
+        inventory: {
+          ...recoverySliceInventory,
+          channels: recoverySliceInventory.channels.map((channel) => ({
+            ...channel,
+            pageLimitRecoveries: [
+              ...channel.pageLimitRecoveries!,
+              {
+                ...channel.pageLimitRecoveries![0]!,
+                cursor: "unused-capped-page",
+                args: {
+                  ...channel.pageLimitRecoveries![0]!.args,
+                  cursor: "unused-capped-page",
+                },
+              },
+            ],
+          })),
+        },
+        diagnostic:
+          "every page_limit_exceeded result must match exactly one restarted source slice",
+      },
+    ];
+    for (const testCase of recoveryFailures) {
+      try {
+        validateInventory(testCase.inventory, {
+          requireFreshReads: true,
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            testCase.inventory,
+          ),
+        });
+        throw new Error(`self-test failed to reject ${testCase.name}`);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.startsWith("self-test failed")
+        ) {
+          throw error;
+        }
+        if (
+          !(error instanceof Error) ||
+          !error.message.includes(testCase.diagnostic)
+        ) {
+          throw new Error(
+            `self-test ${testCase.name} expected diagnostic containing "${testCase.diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
+          );
+        }
+      }
+    }
 
     const pagedReceiptInventory: Inventory = {
       ...receiptFreshInventory,
@@ -9121,6 +17409,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             },
             {
               cursor: "next-page",
+              before: page.before,
               nextCursor: null,
               exhausted: true,
               readAt: freshPageReadAt,
@@ -9132,11 +17421,26 @@ if (args[0] === "--self-test" && args.length === 1) {
         };
       }),
     };
+    const outOfOrderPageInventory: Inventory = {
+      ...pagedReceiptInventory,
+      channels: pagedReceiptInventory.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page, pageIndex) => ({
+          ...page,
+          readAt: new Date(
+            now - (pageIndex === 0 ? 1_000 : 2_000),
+          ).toISOString(),
+        })),
+      })),
+    };
     const pagedSourceReceipt = sourceReceiptFor(pagedReceiptInventory);
     validateInventory(pagedReceiptInventory, {
       requireFreshReads: true,
       sourceReceipt: pagedSourceReceipt,
       rawSourcePages: rawSourcePagesFor(pagedSourceReceipt),
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        pagedReceiptInventory,
+      ),
     });
 
     const omitNewestRowInventory: Inventory = {
@@ -9151,22 +17455,29 @@ if (args[0] === "--self-test" && args.length === 1) {
         })),
       })),
     };
+    const testChannelName = sourceReceiptChannelName(
+      receiptFreshInventory.channels[0]!,
+    );
     const omittedTailReceipt: SourceReceipt = {
       channels: {
         ...pagedSourceReceipt.channels,
-        qa: {
-          ...pagedSourceReceipt.channels.qa!,
-          pages: pagedSourceReceipt.channels.qa!.pages.slice(0, 1),
+        [testChannelName]: {
+          ...pagedSourceReceipt.channels[testChannelName]!,
+          pages: pagedSourceReceipt.channels[testChannelName]!.pages.slice(
+            0,
+            1,
+          ),
         },
       },
     };
     const tamperedTailReceipt: SourceReceipt = {
       channels: {
         ...pagedSourceReceipt.channels,
-        qa: {
-          ...pagedSourceReceipt.channels.qa!,
-          pages: pagedSourceReceipt.channels.qa!.pages.map((page, index) =>
-            index === 1 ? { ...page, nextCursor: "unexpected-page" } : page,
+        [testChannelName]: {
+          ...pagedSourceReceipt.channels[testChannelName]!,
+          pages: pagedSourceReceipt.channels[testChannelName]!.pages.map(
+            (page, index) =>
+              index === 1 ? { ...page, nextCursor: "unexpected-page" } : page,
           ),
         },
       },
@@ -9174,26 +17485,39 @@ if (args[0] === "--self-test" && args.length === 1) {
     const mismatchedRootReceipt: SourceReceipt = {
       channels: {
         ...completeSourceReceipt.channels,
-        qa: {
-          ...completeSourceReceipt.channels.qa!,
-          rows: completeSourceReceipt.channels.qa!.rows.map((row, index) =>
-            index === 0 ? { ...row, root: "12.000000" } : row,
+        [testChannelName]: {
+          ...completeSourceReceipt.channels[testChannelName]!,
+          rows: completeSourceReceipt.channels[testChannelName]!.rows.map(
+            (row, index) => (index === 0 ? { ...row, root: "12.000000" } : row),
           ),
         },
       },
     };
     const omittedBothReceipt = sourceReceiptFor(omitNewestRowInventory);
-    const staleSourceReceipt: SourceReceipt = {
-      channels: {
-        ...completeSourceReceipt.channels,
-        qa: {
-          ...completeSourceReceipt.channels.qa!,
-          pages: completeSourceReceipt.channels.qa!.pages.map((page) => ({
-            ...page,
-            readAt: new Date(now - MAX_READ_AGE_MS - 1).toISOString(),
-          })),
-        },
-      },
+    const replyReactionReadEqualToThreadInventory: Inventory = {
+      ...inventoryWithReadTimes(freshPageReadAt, freshSnapshotReadAt),
+      channels: inventoryWithReadTimes(
+        freshPageReadAt,
+        freshSnapshotReadAt,
+      ).channels.map((channel) => ({
+        ...channel,
+        threadSnapshots: channel.threadSnapshots?.map((snapshot) => ({
+          ...snapshot,
+          replies: snapshot.replies.map((reply, replyIndex) =>
+            replyIndex === 0
+              ? {
+                  ...reply,
+                  workflowReactionReadback: [
+                    { name: "eyes", count: 1, users: ["USWEEPER"] },
+                  ],
+                  workflowReactionSummary: "eyes (1): USWEEPER",
+                  workflowReactionOwners: { eyes: ["USWEEPER"] },
+                  workflowReactionReadAt: freshSnapshotReadAt,
+                }
+              : reply,
+          ),
+        })),
+      })),
     };
     const sourceReceiptFailures = [
       {
@@ -9232,14 +17556,6 @@ if (args[0] === "--self-test" && args.length === 1) {
         rawSourcePages: rawSourcePagesFor(mismatchedRootReceipt),
         diagnostic: "timestamp/root does not match the reviewed inventory",
       },
-      {
-        name: "stale source receipt page read",
-        inventory: receiptFreshInventory,
-        receipt: staleSourceReceipt,
-        rawSourcePages: rawSourcePagesFor(staleSourceReceipt),
-        diagnostic:
-          "older than 15 minutes; rerun the complete channel scan before recap",
-      },
     ];
     for (const testCase of sourceReceiptFailures) {
       try {
@@ -9247,6 +17563,9 @@ if (args[0] === "--self-test" && args.length === 1) {
           requireFreshReads: true,
           sourceReceipt: testCase.receipt,
           rawSourcePages: testCase.rawSourcePages,
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            testCase.inventory,
+          ),
         });
         throw new Error(`self-test failed to reject ${testCase.name}`);
       } catch (error) {
@@ -9266,16 +17585,41 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     }
+    const oldBoundedInventory = inventoryWithReadTimes(
+      new Date(now - MAX_READ_AGE_MS - 1).toISOString(),
+      freshSnapshotReadAt,
+    );
+    const oldBoundedWithFreshState: Inventory = {
+      ...oldBoundedInventory,
+      channels: oldBoundedInventory.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) =>
+            parent.ts === parent.threadParentTs
+              ? {
+                  ...parent,
+                  reactionReadAt: new Date(now - 500).toISOString(),
+                }
+              : parent,
+          ),
+        })),
+        threadRootAudits: channel.threadRootAudits?.map((parent) => ({
+          ...parent,
+          reactionReadAt: new Date(now - 500).toISOString(),
+        })),
+      })),
+    };
+    const oldBoundedReceipt = sourceReceiptFor(oldBoundedWithFreshState);
+    validateInventory(oldBoundedWithFreshState, {
+      requireFreshReads: true,
+      sourceReceipt: oldBoundedReceipt,
+      rawSourcePages: rawSourcePagesFor(oldBoundedReceipt),
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        oldBoundedWithFreshState,
+      ),
+    });
     const freshnessFailures = [
-      {
-        name: "stale channel page read",
-        inventory: inventoryWithReadTimes(
-          new Date(now - MAX_READ_AGE_MS - 1).toISOString(),
-          freshSnapshotReadAt,
-        ),
-        diagnostic:
-          "older than 15 minutes; rerun the complete channel scan before recap",
-      },
       {
         name: "future channel page read",
         inventory: inventoryWithReadTimes(
@@ -9283,7 +17627,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           freshSnapshotReadAt,
         ),
         diagnostic:
-          "more than one minute in the future; check the local clock and rescan",
+          "more than one minute in the future; check the local clock and repeat the bounded read",
       },
       {
         name: "missing channel page read time",
@@ -9306,7 +17650,19 @@ if (args[0] === "--self-test" && args.length === 1) {
           new Date(now - 2_000).toISOString(),
         ),
         diagnostic:
-          "predates the final channel page; read the thread again after the channel scan",
+          "must follow the final channel page; read the thread again after the channel scan",
+      },
+      {
+        name: "thread snapshot read equals the final page read",
+        inventory: inventoryWithReadTimes(freshPageReadAt, freshPageReadAt),
+        diagnostic:
+          "must follow the final channel page; read the thread again after the channel scan",
+      },
+      {
+        name: "channel pages read out of cursor order",
+        inventory: outOfOrderPageInventory,
+        diagnostic:
+          "was read before the preceding page; rerun the complete channel scan in cursor order",
       },
       {
         name: "root reaction read-back predates the latest write",
@@ -9314,10 +17670,85 @@ if (args[0] === "--self-test" && args.length === 1) {
         diagnostic:
           "root reaction read-back must follow the latest reaction write",
       },
+      {
+        name: "root reaction read-back equals the final page read",
+        inventory: (() => {
+          const inventory = inventoryWithReadTimes(
+            freshPageReadAt,
+            freshSnapshotReadAt,
+          );
+          return {
+            ...inventory,
+            channels: inventory.channels.map((channel) => ({
+              ...channel,
+              pages: channel.pages.map((page) => ({
+                ...page,
+                parents: page.parents.map((parent) =>
+                  parent.ts === parent.threadParentTs
+                    ? { ...parent, reactionReadAt: freshPageReadAt }
+                    : parent,
+                ),
+              })),
+              threadRootAudits: channel.threadRootAudits?.map((parent) => ({
+                ...parent,
+                reactionReadAt: freshPageReadAt,
+              })),
+            })),
+          };
+        })(),
+        diagnostic:
+          "root reaction read-back must follow the final channel page",
+      },
+      {
+        name: "root reaction read-back equals the latest write",
+        inventory: (() => {
+          const inventory = inventoryWithReadTimes(
+            freshPageReadAt,
+            freshSnapshotReadAt,
+          );
+          let wroteFixture = false;
+          return {
+            ...inventory,
+            channels: inventory.channels.map((channel) => ({
+              ...channel,
+              pages: channel.pages.map((page) => ({
+                ...page,
+                parents: page.parents.map((parent) => {
+                  if (
+                    !wroteFixture &&
+                    parent.ts === parent.threadParentTs &&
+                    parent.reactionReadAt
+                  ) {
+                    wroteFixture = true;
+                    return {
+                      ...parent,
+                      reactionWriteAt: parent.reactionReadAt,
+                    };
+                  }
+                  return parent;
+                }),
+              })),
+            })),
+          };
+        })(),
+        diagnostic:
+          "root reaction read-back must follow the latest reaction write",
+      },
+      {
+        name: "reply reaction read-back equals the full-thread read",
+        inventory: replyReactionReadEqualToThreadInventory,
+        diagnostic:
+          "a workflow-mark read-back must follow the full-thread read",
+      },
     ];
     for (const testCase of freshnessFailures) {
       try {
-        validateInventory(testCase.inventory, { requireFreshReads: true });
+        validateInventory(testCase.inventory, {
+          requireFreshReads: true,
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            testCase.inventory,
+          ),
+        });
         throw new Error(`self-test failed to reject ${testCase.name}`);
       } catch (error) {
         if (
@@ -9336,8 +17767,1695 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     }
+    const ownershipReadAt = new Date(now - 2_000).toISOString();
+    const ownershipEmojis: WorkflowEmoji[] = [
+      "eyes",
+      "white_check_mark",
+      "ticket",
+    ];
+    const ownershipSearches: OwnedMarkSearch[] = ownershipEmojis.map(
+      (emoji) => ({
+        emoji,
+        query: {
+          tool: "slack_search_public",
+          after: valid.channels[0]!.scanQuery.after,
+          before: valid.channels[0]!.scanQuery.before,
+          filters: `in:<#${valid.channels[0]!.channelId}> hasmy::${emoji}:`,
+          keywords: [],
+          natural_language_query: "",
+          include_bots: true,
+          include_context: false,
+          content_types: "messages",
+          limit: 20,
+          sort: "timestamp",
+          sort_dir: "desc",
+          response_format: "detailed",
+        },
+        pages: [
+          {
+            cursor: null,
+            before: valid.channels[0]!.scanQuery.before,
+            nextCursor: null,
+            exhausted: true,
+            readAt: ownershipReadAt,
+            messageCount: 1,
+            rows: [{ ts: "10.000000", root: "10.000000", text: "report" }],
+          },
+        ],
+      }),
+    );
+    const ownershipChannel: Channel = {
+      ...valid.channels[0]!,
+      ownedMarkSearches: ownershipSearches,
+    };
+    const ownershipPages: RawOwnedMarkSearchPages = {
+      [ownershipChannel.channelName]: Object.fromEntries(
+        ownershipEmojis.map((emoji) => [
+          emoji,
+          [
+            {
+              cursor: null,
+              before: ownershipChannel.scanQuery.before,
+              nextCursor: null,
+              exhausted: true,
+              readAt: ownershipReadAt,
+              messageCount: 1,
+              sourceTimestamps: ["10.000000"],
+              rows: [{ ts: "10.000000", root: "10.000000", text: "report" }],
+            },
+          ],
+        ]),
+      ) as RawOwnedMarkSearchPages[string],
+    };
+    const ownedMarkCappedPageReadAt = new Date(now - 2_400).toISOString();
+    const ownedMarkRecoveryReadAt = new Date(now - 2_200).toISOString();
+    const ownedMarkResumedPageReadAt = ownershipReadAt;
+    const ownedMarkCappedRows = [
+      { ts: "10.999999", root: "10.999999", text: "report" },
+    ];
+    const ownedMarkResumedRows = [
+      { ts: "10.500000", root: "10.500000", text: "older report" },
+    ];
+    const cappedOwnedMarkSearches = ownershipSearches.map((search) =>
+      search.emoji === "eyes"
+        ? {
+            ...search,
+            pages: [
+              {
+                cursor: null,
+                before: search.query.before,
+                nextCursor: "owned-cap",
+                exhausted: false,
+                readAt: ownedMarkCappedPageReadAt,
+                messageCount: 1,
+                rows: ownedMarkCappedRows,
+              },
+              {
+                cursor: null,
+                before: "10.999998",
+                nextCursor: null,
+                exhausted: true,
+                readAt: ownedMarkResumedPageReadAt,
+                messageCount: 1,
+                rows: ownedMarkResumedRows,
+              },
+            ],
+            pageLimitRecoveries: [
+              {
+                cursor: "owned-cap",
+                boundaryTs: "10.999999",
+                errorCode: "page_limit_exceeded" as const,
+                readAt: ownedMarkRecoveryReadAt,
+                args: {
+                  after: ownershipChannel.scanQuery.after,
+                  before: ownershipChannel.scanQuery.before,
+                  filters: `in:<#${ownershipChannel.channelId}> hasmy::eyes:`,
+                  keywords: [],
+                  natural_language_query: "",
+                  include_bots: true,
+                  include_context: false,
+                  content_types: "messages",
+                  limit: 20,
+                  sort: "timestamp",
+                  sort_dir: "desc",
+                  response_format: "detailed",
+                  cursor: "owned-cap",
+                },
+                raw: JSON.stringify({
+                  error: { code: "page_limit_exceeded" },
+                }),
+              },
+            ],
+          }
+        : search,
+    );
+    const cappedOwnershipPages: RawOwnedMarkSearchPages = {
+      ...ownershipPages,
+      [ownershipChannel.channelName]: {
+        ...ownershipPages[ownershipChannel.channelName]!,
+        eyes: [
+          {
+            cursor: null,
+            before: ownershipChannel.scanQuery.before,
+            nextCursor: "owned-cap",
+            exhausted: false,
+            readAt: ownedMarkCappedPageReadAt,
+            messageCount: 1,
+            sourceTimestamps: ["10.999999"],
+            rows: ownedMarkCappedRows,
+          },
+          {
+            cursor: null,
+            before: "10.999998",
+            nextCursor: null,
+            exhausted: true,
+            readAt: ownedMarkResumedPageReadAt,
+            messageCount: 1,
+            sourceTimestamps: ["10.500000"],
+            rows: ownedMarkResumedRows,
+          },
+        ],
+      },
+    };
+    const ownershipResult = validateOwnedMarkSearches(
+      ownershipChannel,
+      ownershipChannel.channelName,
+      valid.sweepActorId,
+      now - 3_000,
+      ownershipPages,
+      true,
+    );
+    const normalizedTestRootTs = slackTimestamp(
+      "10.000000",
+      "self-test ownership root",
+    ).toString();
+    if (
+      ownershipEmojis.some(
+        (emoji) =>
+          ownershipResult[emoji].get(normalizedTestRootTs) !==
+          normalizedTestRootTs,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test lost an owned root mark",
+      );
+    }
+    const expectFocusedFailure = (
+      name: string,
+      run: () => void,
+      diagnostic: string,
+    ): void => {
+      try {
+        run();
+        throw new Error(`self-test failed to reject ${name}`);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.startsWith("self-test failed to reject")
+        ) {
+          throw error;
+        }
+        if (!(error instanceof Error) || !error.message.includes(diagnostic)) {
+          throw new Error(
+            `self-test ${name} expected diagnostic containing "${diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
+          );
+        }
+      }
+    };
+    const fixedScopeSummaryDiagnostic =
+      "fixed-scope status needs a concise publicEvidenceSummary from a recorded scope verification in both internal proof and reply";
+    expectFocusedFailure(
+      "fixed-scope status with an unrelated public evidence summary",
+      () =>
+        validateTestInventory(
+          withFixedScopeStatusUpdates(
+            {
+              evidence:
+                "focused test passed for the initial route screen; account creation works now",
+              publicEvidenceSummary: "Account creation works now",
+              text: "Fixed: Account creation works now. The initial route screen works now. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+            },
+            "focused test passed for the initial route screen",
+          ),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    expectFocusedFailure(
+      "fixed-scope public evidence summary absent from internal proof",
+      () =>
+        validateTestInventory(
+          withFixedScopeStatusUpdates(
+            {
+              evidence: "focused test passed for the initial route screen",
+            },
+            "focused test passed for the initial route screen",
+          ),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    expectFocusedFailure(
+      "fixed-scope public evidence summary absent from the Slack reply",
+      () =>
+        validateTestInventory(
+          withFixedScopeStatusUpdates({
+            text: "Fixed: The initial route screen passed the focused test. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
+          }),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    const fillerEvidenceSummary = "and but";
+    const fillerEvidenceVerification = `The initial route screen passed its focused test and ${fillerEvidenceSummary}`;
+    expectFocusedFailure(
+      "fixed-scope public evidence summary made only of filler words",
+      () =>
+        validateTestInventory(
+          withFixedScopeStatusUpdates(
+            {
+              evidence: fillerEvidenceVerification,
+              publicEvidenceSummary: fillerEvidenceSummary,
+              text: `Fixed: ${fillerEvidenceSummary}. this was sent from a bot.`,
+            },
+            fillerEvidenceVerification,
+          ),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    const twoScopeSummary = "Both flows work now";
+    const twoScopeStatusText = `Fixed: ${twoScopeSummary}. :white_check_mark: covers the initial route screen and account creation. No :ticket: — no separate human-owned action remains. this was sent from a bot.`;
+    const twoScopeVerifications = [
+      `The initial route screen passed its focused test and ${twoScopeSummary}`,
+      "Account creation passed its focused test",
+    ] as const;
+    const twoScopeEvidence = twoScopeVerifications.join("; ");
+    expectFocusedFailure(
+      "two fixed scopes when the public summary proves only one",
+      () =>
+        validateTestInventory(
+          withTwoFixedScopeStatusUpdates(
+            {
+              evidence: twoScopeEvidence,
+              publicEvidenceSummary: twoScopeSummary,
+              text: twoScopeStatusText,
+            },
+            [...twoScopeVerifications],
+          ),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    const twoScopeVerificationsWithSummary = [
+      twoScopeVerifications[0],
+      `Account creation passed its focused test and ${twoScopeSummary}`,
+    ] as const;
+    validateTestInventory(
+      withTwoFixedScopeStatusUpdates(
+        {
+          evidence: twoScopeVerificationsWithSummary.join("; "),
+          publicEvidenceSummary: twoScopeSummary,
+          text: twoScopeStatusText,
+        },
+        [...twoScopeVerificationsWithSummary],
+      ),
+    );
+    const verboseFixedScopeSummary =
+      "The initial route screen now works across every tab after the focused end to end browser verification finished successfully";
+    const verboseFixedScopeVerification = `The initial route screen passed a focused test and ${verboseFixedScopeSummary}`;
+    expectFocusedFailure(
+      "fixed-scope public evidence summary that is not concise",
+      () =>
+        validateTestInventory(
+          withFixedScopeStatusUpdates(
+            {
+              evidence: verboseFixedScopeVerification,
+              publicEvidenceSummary: verboseFixedScopeSummary,
+              text: `Fixed: ${verboseFixedScopeSummary}. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.`,
+            },
+            verboseFixedScopeVerification,
+          ),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    expectFocusedFailure(
+      "held source root with thread snapshot",
+      () =>
+        validateInventory(heldReport, {
+          scopeConfirmation: scopeConfirmationForTestInventory(heldReport),
+        }),
+      "held root 11.000000 must not include threadSnapshot evidence",
+    );
+    expectFocusedFailure(
+      "held source root with raw thread page",
+      () =>
+        validateInventory(heldReportWithoutThread, {
+          rawThreadPages: {
+            "test-channel": { "11.000000": [] },
+          },
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            heldReportWithoutThread,
+          ),
+        }),
+      "held root 11.000000 must not include raw thread evidence",
+    );
+    const noMarkSnapshot =
+      withTestThreadSnapshots(valid).channels[0]!.threadSnapshots![0]!;
+    const noMarkReply = noMarkSnapshot.replies[0]!;
+    expectFocusedFailure(
+      "unmarked reply reaction read outside the freshness window",
+      () =>
+        validateThreadSnapshotStructure(
+          "self-test unmarked reply freshness",
+          noMarkSnapshot.rootTs,
+          {
+            ...noMarkSnapshot,
+            readAt: new Date(now - 1_000).toISOString(),
+            replies: [
+              {
+                ...noMarkReply,
+                workflowReactionReadback: [],
+                workflowReactionSummary: "none",
+                workflowReactionOwners: {},
+                workflowReactionReadAt: new Date(
+                  now + 2 * 60_000,
+                ).toISOString(),
+              },
+            ],
+          },
+          valid.sweepActorId,
+          true,
+        ),
+      "more than one minute in the future",
+    );
+    const sourceAttachmentFixture = {
+      id: "FTEST1",
+      name: "report.png",
+      mimeType: "image/png",
+    };
+    const ambiguousHeldSearchMessage = filesMetadataPage.messages[0]!;
+    const heldSourceTextInventory: Inventory = {
+      ...heldPageRootWithoutThread,
+      channels: heldPageRootWithoutThread.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) => ({
+            ...parent,
+            sourceText: parent.ownershipSkip
+              ? ambiguousHeldSearchMessage.rawText
+              : "",
+            ...(parent.ownershipSkip &&
+            ambiguousHeldSearchMessage.filesMetadata !== undefined
+              ? { files: ambiguousHeldSearchMessage.filesMetadata }
+              : {}),
+          })),
+        })),
+      })),
+    };
+    const heldSourceTextReceipt = sourceReceiptFor(heldSourceTextInventory);
+    const heldSourceTextRawPages = rawSourcePagesFor(heldSourceTextReceipt);
+    const heldSourceChannel = heldSourceTextInventory.channels[0]!;
+    const heldSourceParentsByTs = new Map(
+      heldSourceChannel.pages.flatMap((page) =>
+        page.parents.map((parent) => [parent.ts, parent] as const),
+      ),
+    );
+    for (const rawPage of heldSourceTextRawPages[
+      sourceReceiptChannelName(heldSourceChannel)
+    ]!) {
+      for (const row of rawPage.rows) {
+        const parent = heldSourceParentsByTs.get(row.ts)!;
+        row.text = parent.ownershipSkip ? ambiguousHeldSearchMessage.text : "";
+        row.rawText = parent.ownershipSkip
+          ? ambiguousHeldSearchMessage.rawText
+          : "";
+        if (parent.ownershipSkip) {
+          row.filesMetadata = ambiguousHeldSearchMessage.filesMetadata;
+        }
+      }
+    }
+    validateSourceReceipt(
+      heldSourceTextInventory,
+      heldSourceTextReceipt,
+      heldSourceTextRawPages,
+      true,
+    );
+    const threadReadAttachmentInventory: Inventory = {
+      ...receiptFreshInventory,
+      channels: receiptFreshInventory.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) =>
+            parent.ts === "11.000000"
+              ? { ...parent, files: [sourceAttachmentFixture] }
+              : parent,
+          ),
+        })),
+        threadSnapshots: channel.threadSnapshots?.map((snapshot) =>
+          snapshot.rootTs === "11.000000"
+            ? { ...snapshot, rootFiles: [sourceAttachmentFixture] }
+            : snapshot,
+        ),
+      })),
+    };
+    const threadAttachmentReceipt = sourceReceiptFor(
+      threadReadAttachmentInventory,
+    );
+    validateInventory(threadReadAttachmentInventory, {
+      requireFreshReads: true,
+      sourceReceipt: threadAttachmentReceipt,
+      rawSourcePages: rawSourcePagesFor(threadAttachmentReceipt),
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        threadReadAttachmentInventory,
+      ),
+    });
+    expectFocusedFailure(
+      "source attachment list differs from the full thread read",
+      () =>
+        validateSourceFilesInSnapshot(
+          "self-test attachment snapshot",
+          {
+            ts: "11.000000",
+            threadParentTs: "11.000000",
+            files: [],
+          },
+          {
+            rootTs: "11.000000",
+            readAt: freshSnapshotReadAt,
+            replyCount: 0,
+            rootFiles: [sourceAttachmentFixture],
+            replies: [],
+          },
+        ),
+      "threadSnapshot attachment IDs, names, and MIME types must match the source message",
+    );
+    const rawFilesWithoutInventoryCopy = structuredClone(
+      completeRawSourcePages,
+    );
+    rawFilesWithoutInventoryCopy["test-channel"]![0]!.rows[0]!.filesMetadata = [
+      sourceAttachmentFixture,
+    ];
+    expectFocusedFailure(
+      "source attachment listing omitted from its inventory row",
+      () =>
+        validateInventory(receiptFreshInventory, {
+          requireFreshReads: true,
+          sourceReceipt: completeSourceReceipt,
+          rawSourcePages: rawFilesWithoutInventoryCopy,
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            receiptFreshInventory,
+          ),
+        }),
+      "attachment IDs, names, and MIME types must match the raw source listing",
+    );
+    const heldAttachmentInventory = withPageRoot(
+      heldPageRootWithoutThread,
+      "11.000000",
+      (parent) => ({ ...parent, files: [sourceAttachmentFixture] }),
+    );
+    const heldAttachmentReceipt = sourceReceiptFor(heldAttachmentInventory);
+    const heldAttachmentRawPages = rawSourcePagesFor(heldAttachmentReceipt);
+    heldAttachmentRawPages["test-channel"]![0]!.rows[0]!.filesMetadata = [
+      sourceAttachmentFixture,
+    ];
+    validateInventory(heldAttachmentInventory, {
+      requireFreshReads: true,
+      sourceReceipt: heldAttachmentReceipt,
+      rawSourcePages: heldAttachmentRawPages,
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        heldAttachmentInventory,
+      ),
+    });
+    const heldAttachmentStateUnknown = withPageRoot(
+      heldPageRootWithoutThread,
+      "11.000000",
+      (parent) => ({ ...parent, files: [] }),
+    );
+    const heldAttachmentUnknownReceipt = sourceReceiptFor(
+      heldAttachmentStateUnknown,
+    );
+    expectFocusedFailure(
+      "held root invents an empty attachment list after search omitted metadata",
+      () =>
+        validateInventory(heldAttachmentStateUnknown, {
+          requireFreshReads: true,
+          sourceReceipt: heldAttachmentUnknownReceipt,
+          rawSourcePages: rawSourcePagesFor(heldAttachmentUnknownReceipt),
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            heldAttachmentStateUnknown,
+          ),
+        }),
+      "without a raw source file listing, held-root attachment state must remain unknown",
+    );
+    expectFocusedFailure(
+      "held source root with stale direct reaction evidence",
+      () =>
+        validateInventory(
+          withPageRoot(heldPageRootWithoutThread, "11.000000", (parent) => ({
+            ...parent,
+            reactionReadAt: new Date(now - 60 * 60_000).toISOString(),
+          })),
+          {
+            requireFreshReads: true,
+            sourceReceipt: completeSourceReceipt,
+            rawSourcePages: completeRawSourcePages,
+            scopeConfirmation: scopeConfirmationForTestInventory(
+              heldPageRootWithoutThread,
+            ),
+          },
+        ),
+      "older than 15 minutes",
+    );
+    const staleHeldSupplementalRoot: Inventory = {
+      ...heldSupplementalRoot,
+      channels: heldSupplementalRoot.channels.map((channel) => ({
+        ...channel,
+        threadRootAudits: channel.threadRootAudits?.map((parent) => ({
+          ...parent,
+          reactionReadAt: new Date(now - 60 * 60_000).toISOString(),
+        })),
+      })),
+    };
+    expectFocusedFailure(
+      "held supplemental root with stale direct reaction evidence",
+      () =>
+        validateInventory(staleHeldSupplementalRoot, {
+          requireFreshReads: true,
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            staleHeldSupplementalRoot,
+          ),
+        }),
+      "older than 15 minutes",
+    );
+    expectFocusedFailure(
+      "source request missing the frozen upper bound",
+      () =>
+        validateCapturedSlackRequestArgs(
+          { ...productionRequestArgs, before: undefined },
+          null,
+          "self-test source request",
+          "C0C4U4XRT6X",
+          productionSearchScope.scanQuery,
+        ),
+      "request args.before must be a Slack timestamp",
+    );
+    expectFocusedFailure(
+      "source request widening the frozen upper bound",
+      () =>
+        validateCapturedSlackRequestArgs(
+          { ...productionRequestArgs, before: "1700000001.000001" },
+          null,
+          "self-test source request",
+          "C0C4U4XRT6X",
+          productionSearchScope.scanQuery,
+        ),
+      "request args.before exceeds the fixed scan window",
+    );
+    const cappedOwnershipResult = validateOwnedMarkSearches(
+      { ...ownershipChannel, ownedMarkSearches: cappedOwnedMarkSearches },
+      ownershipChannel.channelName,
+      valid.sweepActorId,
+      now - 3_000,
+      cappedOwnershipPages,
+      true,
+    );
+    const recoveredRecentRootTs = slackTimestamp(
+      "10.999999",
+      "self-test recovered recent root",
+    ).toString();
+    const recoveredOlderRootTs = slackTimestamp(
+      "10.500000",
+      "self-test recovered older root",
+    ).toString();
+    if (
+      cappedOwnershipResult.eyes.get(recoveredRecentRootTs) !==
+        recoveredRecentRootTs ||
+      cappedOwnershipResult.eyes.get(recoveredOlderRootTs) !==
+        recoveredOlderRootTs
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test lost a recovered owned root mark",
+      );
+    }
+    if (
+      parseStructuredJsonTextBlock("ordinary text block", "self-test") !==
+      undefined
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test parsed ordinary text as JSON",
+      );
+    }
+    expectFocusedFailure(
+      "malformed structured Slack response text",
+      () => parseStructuredJsonTextBlock("{ malformed", "self-test"),
+      "malformed JSON text block",
+    );
+    expectFocusedFailure(
+      "narrowed scope without external orchestrator confirmation",
+      () => validateInventory(withTestThreadSnapshots(valid)),
+      "pending a human check; provide a separate orchestrator confirmation file",
+    );
+    expectFocusedFailure(
+      "external scope confirmation with a different user request",
+      () =>
+        validateTestInventory(valid, {
+          scopeConfirmation: {
+            ...scopeConfirmationForTestInventory(valid)!,
+            userRequest: "Scan only C_OTHER.",
+          },
+        }),
+      "must match the inventory's exact userRequest and channelIds",
+    );
+    expectFocusedFailure(
+      "external scope confirmation with different channel IDs",
+      () =>
+        validateTestInventory(valid, {
+          scopeConfirmation: {
+            ...scopeConfirmationForTestInventory(valid)!,
+            channelIds: ["C_OTHER"],
+          },
+        }),
+      "must match the inventory's exact userRequest and channelIds",
+    );
+    expectFocusedFailure(
+      "narrowed scope omits an explicitly requested channel",
+      () =>
+        validateTestInventory({
+          ...valid,
+          scope: {
+            ...valid.scope,
+            userRequest:
+              "Scan only #test-channel and #qa for this synthetic self-test.",
+            narrowingJudgment: {
+              ...valid.scope.narrowingJudgment!,
+              instruction:
+                "Scan only #test-channel and #qa for this synthetic self-test.",
+            },
+          },
+        }),
+      "must explicitly name exactly the listed channels",
+    );
+    expectFocusedFailure(
+      "narrowed scope rejects a channel-name prefix",
+      () =>
+        validateTestInventory({
+          ...valid,
+          scope: {
+            ...valid.scope,
+            userRequest:
+              "Scan only #test-channel-extra (C_TEST) for this synthetic self-test.",
+            narrowingJudgment: {
+              ...valid.scope.narrowingJudgment!,
+              instruction:
+                "Scan only #test-channel-extra (C_TEST) for this synthetic self-test.",
+            },
+          },
+        }),
+      "must explicitly name exactly the listed channels",
+    );
+    validateTestInventory({
+      ...valid,
+      scope: {
+        ...valid.scope,
+        userRequest: "Scan only C_TEST for this synthetic self-test.",
+        narrowingJudgment: {
+          ...valid.scope.narrowingJudgment!,
+          instruction: "Scan only C_TEST for this synthetic self-test.",
+        },
+      },
+    });
+    expectFocusedFailure(
+      "bounded search missing the ticket query",
+      () =>
+        validateOwnedMarkSearches(
+          {
+            ...ownershipChannel,
+            ownedMarkSearches: ownershipSearches.slice(0, 2),
+          },
+          ownershipChannel.channelName,
+          valid.sweepActorId,
+          now - 3_000,
+          ownershipPages,
+          true,
+        ),
+      "must cover 👀, ✅, and 🎫",
+    );
+    expectFocusedFailure(
+      "bounded search without cursor exhaustion",
+      () => {
+        const incompleteSearches = ownershipSearches.map((search, index) =>
+          index === 0
+            ? {
+                ...search,
+                pages: [
+                  {
+                    ...search.pages[0]!,
+                    nextCursor: "unread-page",
+                    exhausted: false,
+                  },
+                ],
+              }
+            : search,
+        );
+        const incompletePages: RawOwnedMarkSearchPages = {
+          ...ownershipPages,
+          [ownershipChannel.channelName]: {
+            ...ownershipPages[ownershipChannel.channelName]!,
+            eyes: ownershipPages[ownershipChannel.channelName]!.eyes.map(
+              (page) => ({
+                ...page,
+                nextCursor: "unread-page",
+                exhausted: false,
+              }),
+            ),
+          },
+        };
+        validateOwnedMarkSearches(
+          { ...ownershipChannel, ownedMarkSearches: incompleteSearches },
+          ownershipChannel.channelName,
+          valid.sweepActorId,
+          now - 3_000,
+          incompletePages,
+          true,
+        );
+      },
+      "follow the owned-mark cursor until explicit exhaustion",
+    );
+    expectFocusedFailure(
+      "owned-mark cap recovery without its recorded error",
+      () => {
+        const searches = cappedOwnedMarkSearches.map((search) =>
+          search.emoji === "eyes"
+            ? { ...search, pageLimitRecoveries: [] }
+            : search,
+        );
+        validateOwnedMarkSearches(
+          { ...ownershipChannel, ownedMarkSearches: searches },
+          ownershipChannel.channelName,
+          valid.sweepActorId,
+          now - 3_000,
+          cappedOwnershipPages,
+          true,
+        );
+      },
+      "restarted slice must match a captured page_limit_exceeded result",
+    );
+    expectFocusedFailure(
+      "owned-mark cap recovery with a gap in its before boundary",
+      () => {
+        const searches = cappedOwnedMarkSearches.map((search) =>
+          search.emoji === "eyes"
+            ? {
+                ...search,
+                pages: search.pages.map((page, index) =>
+                  index === 1 ? { ...page, before: "9.999998" } : page,
+                ),
+              }
+            : search,
+        );
+        const pages: RawOwnedMarkSearchPages = {
+          ...cappedOwnershipPages,
+          [ownershipChannel.channelName]: {
+            ...cappedOwnershipPages[ownershipChannel.channelName]!,
+            eyes: cappedOwnershipPages[ownershipChannel.channelName]!.eyes.map(
+              (page, index) =>
+                index === 1 ? { ...page, before: "9.999998" } : page,
+            ),
+          },
+        };
+        validateOwnedMarkSearches(
+          { ...ownershipChannel, ownedMarkSearches: searches },
+          ownershipChannel.channelName,
+          valid.sweepActorId,
+          now - 3_000,
+          pages,
+          true,
+        );
+      },
+      "start exactly one microsecond before its oldest source message",
+    );
+    expectFocusedFailure(
+      "owned-mark recovery error read outside the capped-to-resumed interval",
+      () => {
+        const searches = cappedOwnedMarkSearches.map((search) =>
+          search.emoji === "eyes"
+            ? {
+                ...search,
+                pageLimitRecoveries: search.pageLimitRecoveries?.map(
+                  (recovery) => ({
+                    ...recovery,
+                    readAt: ownedMarkCappedPageReadAt,
+                  }),
+                ),
+              }
+            : search,
+        );
+        validateOwnedMarkSearches(
+          { ...ownershipChannel, ownedMarkSearches: searches },
+          ownershipChannel.channelName,
+          valid.sweepActorId,
+          now - 3_000,
+          cappedOwnershipPages,
+          true,
+        );
+      },
+      "page_limit_exceeded must be read after the capped page and before the restarted slice",
+    );
+    expectFocusedFailure(
+      "owned-mark recovery slice that still has an unread cursor",
+      () => {
+        const searches = cappedOwnedMarkSearches.map((search) =>
+          search.emoji === "eyes"
+            ? {
+                ...search,
+                pages: search.pages.map((page, index) =>
+                  index === 1
+                    ? {
+                        ...page,
+                        nextCursor: "unread-recovered-page",
+                        exhausted: false,
+                      }
+                    : page,
+                ),
+              }
+            : search,
+        );
+        const pages: RawOwnedMarkSearchPages = {
+          ...cappedOwnershipPages,
+          [ownershipChannel.channelName]: {
+            ...cappedOwnershipPages[ownershipChannel.channelName]!,
+            eyes: cappedOwnershipPages[ownershipChannel.channelName]!.eyes.map(
+              (page, index) =>
+                index === 1
+                  ? {
+                      ...page,
+                      nextCursor: "unread-recovered-page",
+                      exhausted: false,
+                    }
+                  : page,
+            ),
+          },
+        };
+        validateOwnedMarkSearches(
+          { ...ownershipChannel, ownedMarkSearches: searches },
+          ownershipChannel.channelName,
+          valid.sweepActorId,
+          now - 3_000,
+          pages,
+          true,
+        );
+      },
+      "follow the owned-mark cursor until explicit exhaustion",
+    );
+    const exactOwnedSearchArgs = {
+      after: ownershipChannel.scanQuery.after,
+      before: ownershipChannel.scanQuery.before,
+      filters: `in:<#${ownershipChannel.channelId}> hasmy::eyes:`,
+      keywords: [],
+      natural_language_query: "",
+      include_bots: true,
+      include_context: false,
+      content_types: "messages",
+      limit: 20,
+      sort: "timestamp",
+      sort_dir: "desc",
+      response_format: "detailed",
+    };
+    validateCapturedOwnedMarkRequestArgs(
+      exactOwnedSearchArgs,
+      null,
+      "self-test owned-mark request",
+      ownershipChannel.channelId,
+      "eyes",
+      ownershipChannel.scanQuery.after,
+      ownershipChannel.scanQuery.before,
+    );
+    expectFocusedFailure(
+      "owned-mark request missing the frozen upper bound",
+      () =>
+        validateCapturedOwnedMarkRequestArgs(
+          { ...exactOwnedSearchArgs, before: undefined },
+          null,
+          "self-test owned-mark request",
+          ownershipChannel.channelId,
+          "eyes",
+          ownershipChannel.scanQuery.after,
+          ownershipChannel.scanQuery.before,
+        ),
+      "request args.before must be a Slack timestamp",
+    );
+    expectFocusedFailure(
+      "owned-mark request widening the frozen upper bound",
+      () =>
+        validateCapturedOwnedMarkRequestArgs(
+          { ...exactOwnedSearchArgs, before: "11.000001" },
+          null,
+          "self-test owned-mark request",
+          ownershipChannel.channelId,
+          "eyes",
+          ownershipChannel.scanQuery.after,
+          ownershipChannel.scanQuery.before,
+        ),
+      "request args.before exceeds the fixed scan window",
+    );
+    expectFocusedFailure(
+      "owned-mark modifier missing Slack's trailing emoji colon",
+      () =>
+        validateCapturedOwnedMarkRequestArgs(
+          {
+            ...exactOwnedSearchArgs,
+            filters: `in:<#${ownershipChannel.channelId}> hasmy::eyes`,
+          },
+          null,
+          "self-test owned-mark request",
+          ownershipChannel.channelId,
+          "eyes",
+          ownershipChannel.scanQuery.after,
+          ownershipChannel.scanQuery.before,
+        ),
+      "request args.filters does not match the exhaustive eyes ownership query",
+    );
+    if (
+      validateCapturedOwnedMarkRequestArgs(
+        {
+          ...exactOwnedSearchArgs,
+          cursor: "owned-cap",
+          before: "10.999998",
+        },
+        "owned-cap",
+        "self-test recovered owned-mark request",
+        ownershipChannel.channelId,
+        "eyes",
+        ownershipChannel.scanQuery.after,
+        ownershipChannel.scanQuery.before,
+      ) !== "10.999998"
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test lost an owned-mark recovery bound",
+      );
+    }
+    expectFocusedFailure(
+      "owned-mark request missing the fixed lower bound",
+      () =>
+        validateCapturedOwnedMarkRequestArgs(
+          { ...exactOwnedSearchArgs, after: undefined },
+          null,
+          "self-test owned-mark request",
+          ownershipChannel.channelId,
+          "eyes",
+          ownershipChannel.scanQuery.after,
+          ownershipChannel.scanQuery.before,
+        ),
+      "request args.after must be a Slack timestamp",
+    );
+    expectFocusedFailure(
+      "owned-mark query with a mismatched source-window cutoff",
+      () =>
+        validateCapturedOwnedMarkRequestArgs(
+          { ...exactOwnedSearchArgs, after: "9.000000" },
+          null,
+          "self-test owned-mark request",
+          ownershipChannel.channelId,
+          "eyes",
+          ownershipChannel.scanQuery.after,
+          ownershipChannel.scanQuery.before,
+        ),
+      "request args.after must match the fixed source-window lower bound",
+    );
+
+    const classificationFixture: Parent = {
+      ts: "10.000000",
+      threadParentTs: "10.000000",
+      sourceText: "report",
+      rootClassification: "report",
+      rootClassificationJudgment: {
+        actorId: valid.sweepActorId,
+        decision: "report",
+        rationale: "The exact source message reports a user-facing failure.",
+      },
+      reactionChecked: true,
+      reactionSummary: "none",
+      reactionOwners: {},
+      disposition: "Open - no question",
+    };
+    const heldSkipRoot: Parent = {
+      ...classificationFixture,
+      ts: "8.500000",
+      threadParentTs: "8.500000",
+      disposition: "Skipped",
+      ownershipSkip: {
+        rootTs: "8.500000",
+        reason: "foreign_workflow_mark",
+      },
+    };
+    const heldSkipReply: Parent = {
+      ...classificationFixture,
+      ts: "8.600000",
+      threadParentTs: "8.500000",
+      disposition: "Skipped",
+      ownershipSkip: {
+        rootTs: "8.500000",
+        reason: "foreign_workflow_mark",
+      },
+    };
+    validateHeldMessageSkipRecords("self-test held reply", [
+      heldSkipRoot,
+      heldSkipReply,
+    ]);
+    expectFocusedFailure(
+      "held reply without a matching skip record",
+      () =>
+        validateHeldMessageSkipRecords("self-test held reply", [
+          heldSkipRoot,
+          { ...heldSkipReply, ownershipSkip: undefined },
+        ]),
+      "every message under a held root must carry its exact root",
+    );
+    validateRootClassificationJudgment(
+      "self-test classification",
+      classificationFixture,
+      valid.sweepActorId,
+      "report",
+      true,
+    );
+    const heldRootWithOptOutAndOwnedMark = {
+      ...classificationFixture,
+      reactionSummary: `eyes (1): ${valid.sweepActorId}; mag (1): ${valid.sweepActorId}`,
+      reactionOwners: {
+        eyes: [valid.sweepActorId],
+        mag: [valid.sweepActorId],
+      },
+      disposition: "Skipped" as const,
+      ownershipSkip: {
+        rootTs: classificationFixture.ts,
+        reason: "mag_opt_out" as const,
+      },
+    };
+    validateOwnershipSkipRecord(
+      "self-test held root",
+      heldRootWithOptOutAndOwnedMark,
+      classificationFixture.ts,
+    );
+    validateOwnershipSkipRootEvidence(
+      "self-test held root",
+      heldRootWithOptOutAndOwnedMark,
+      valid.sweepActorId,
+    );
+    expectFocusedFailure(
+      "classification detached from source text",
+      () =>
+        validateRootClassificationJudgment(
+          "self-test classification",
+          classificationFixture,
+          valid.sweepActorId,
+          "different source body",
+          true,
+        ),
+      "human report/admin judgment",
+    );
+
+    const ownedThreadReadAt = new Date(now - 1_000).toISOString();
+    const ownedThreadSnapshot: ThreadSnapshot = {
+      rootTs: "10.000000",
+      readAt: ownedThreadReadAt,
+      replyCount: 1,
+      rootText: "report",
+      rootFiles: [],
+      replies: [
+        {
+          ts: "10.100000",
+          actorId: valid.sweepActorId,
+          kind: "sweep",
+          text: "In progress: checking this report.",
+          files: [],
+          workflowReactionReadback: [],
+          workflowReactionSummary: "none",
+          workflowReactionOwners: {},
+          workflowReactionReadAt: new Date(
+            Date.parse(ownedThreadReadAt) + 1,
+          ).toISOString(),
+        },
+      ],
+    };
+    validateRootClassificationText(
+      "search rendering removed inline-code delimiters",
+      {
+        ...classificationFixture,
+        sourceText: "The `report` remains visible &gt; hidden.",
+      },
+      {
+        ...ownedThreadSnapshot,
+        rootText: "The report remains visible > hidden.",
+      },
+      true,
+    );
+    const jiraAutomationReply = parseFormattedSlackThreadMessage(
+      "From: Jira <botuser-test@slack-bots.com> (U01BOT)\nTime: 2026-10-20 00:00:00 UTC\nMessage TS: 10.100000\nCreated an issue.",
+      "10.000000",
+      "Jira bot self-test",
+    );
+    if (!jiraAutomationReply.isBot) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: Slack botuser accounts must be classified as bots.",
+      );
+    }
+    if (
+      !matchesSlackMessageText(
+        "Status reply. this was sent from a bot.",
+        "Status reply. this was sent from a bot.\n\n*Sent using* <@U09M7FX8WDN|ChatGPT>",
+      ) ||
+      !matchesSlackMessageText(
+        " Status reply. this was sent from a bot.\n\n---",
+        "Status reply.",
+      ) ||
+      !matchesSlackMessageText(
+        "First paragraph.\n\nSecond paragraph.",
+        "First paragraph.\nSecond paragraph.",
+      ) ||
+      !matchesSlackMessageText(
+        "```\n  first line\nsecond line\n```",
+        "```first line\nsecond line\n```",
+      ) ||
+      matchesSlackMessageText(
+        "Status reply. this was sent from a bot.",
+        "Status reply. this was sent from a bot.\n\n*Sent using* user text",
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: only the exact Slack connector footer may differ between search and thread reads.",
+      );
+    }
+    validateSourceFilesInSnapshot(
+      "search rendering removed reply inline-code delimiters",
+      {
+        ts: "10.100000",
+        threadParentTs: "10.000000",
+        sourceText: "The `agent-chat` request timed out.",
+        files: [],
+      },
+      {
+        ...ownedThreadSnapshot,
+        replies: [
+          {
+            ...ownedThreadSnapshot.replies[0],
+            text: "The agent-chat request timed out.",
+          },
+        ],
+      },
+    );
+    validateRootClassificationText(
+      "self-test classification source text",
+      classificationFixture,
+      ownedThreadSnapshot,
+      true,
+    );
+    expectFocusedFailure(
+      "classified root missing a complete text read-back",
+      () =>
+        validateRootClassificationText(
+          "self-test classification source text",
+          classificationFixture,
+          undefined,
+          true,
+        ),
+      "every classified root requires a complete thread read-back",
+    );
+    for (const fieldMarker of ["Reactions:"]) {
+      const fullMessageText = `administrative notice\n${fieldMarker} user-authored continuation`;
+      const results = [
+        "# Search Results for: in:qa after:2026-10-17 before:2026-10-17",
+        "",
+        "## Messages (1 result)",
+        "### Result 1 of 1",
+        "Channel: #qa-agent-native (ID: C0C4U4XRT6X)",
+        "Message_ts: 1700000000.123456",
+        "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)",
+        "Text: administrative notice",
+        `${fieldMarker} user-authored continuation`,
+      ].join("\n");
+      const parsedMessage = parseRawSlackSearchPage(
+        results,
+        exhaustedSlackSearchPagination,
+        `self-test ${fieldMarker} body marker`,
+        selfTestSearchScope,
+      ).messages[0]!;
+      if (parsedMessage.rawText !== fullMessageText) {
+        throw new Error(
+          `Feedback inventory checker self-test did not preserve the raw ${fieldMarker} body line`,
+        );
+      }
+      expectFocusedFailure(
+        `classification rejects truncated ${fieldMarker} source text`,
+        () =>
+          validateRootClassificationText(
+            "self-test classified root",
+            { ...classificationFixture, sourceText: parsedMessage.text },
+            { ...ownedThreadSnapshot, rootText: fullMessageText },
+            true,
+          ),
+        "classified source text must match the complete thread root text",
+      );
+    }
+    const rawOwnedThreadPages: RawThreadPages = {
+      [ownershipChannel.channelName]: {
+        [ownedThreadSnapshot.rootTs]: [
+          {
+            cursor: null,
+            nextCursor: null,
+            exhausted: true,
+            readAt: ownedThreadReadAt,
+            replyCount: 1,
+            messages: [
+              {
+                ts: "10.000000",
+                actorId: "U_REPORTER",
+                isBot: false,
+                text: "report",
+                threadParentTs: "10.000000",
+                files: [],
+                replyCount: 1,
+              },
+              {
+                ts: "10.100000",
+                actorId: valid.sweepActorId,
+                isBot: false,
+                text: "In progress: checking this report.",
+                threadParentTs: "10.000000",
+                files: [],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const parsedOwnedThreadPage = parseCapturedSlackThreadPage(
+      {
+        cursor: null,
+        readAt: ownedThreadReadAt,
+        args: {
+          channel_id: ownershipChannel.channelId,
+          message_ts: ownedThreadSnapshot.rootTs,
+          limit: 1000,
+          response_format: "detailed",
+        },
+        raw: JSON.stringify({
+          has_more: false,
+          reply_count: 1,
+          messages: [
+            {
+              ts: "10.000000",
+              user: "U_REPORTER",
+              text: "report",
+              thread_ts: "10.000000",
+              reply_count: 1,
+            },
+            {
+              ts: "10.100000",
+              user: valid.sweepActorId,
+              text: "In progress: checking this report.",
+              thread_ts: "10.000000",
+            },
+          ],
+        }),
+      },
+      "self-test thread page",
+      ownershipChannel.channelId,
+      ownedThreadSnapshot.rootTs,
+    );
+    if (
+      !parsedOwnedThreadPage.exhausted ||
+      parsedOwnedThreadPage.replyCount !== 1 ||
+      parsedOwnedThreadPage.messages.length !== 2
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected a complete raw thread page",
+      );
+    }
+    const ownedMarkContinuationArgs = {
+      after: ownershipChannel.scanQuery.after,
+      before: ownershipChannel.scanQuery.before,
+      filters: `in:<#${ownershipChannel.channelId}> hasmy::eyes:`,
+      keywords: [],
+      natural_language_query: "",
+      include_bots: true,
+      include_context: false,
+      content_types: "messages",
+      limit: 20,
+      sort: "timestamp",
+      sort_dir: "desc",
+      response_format: "detailed",
+      cursor: "owned-mark-next",
+    };
+    validateCapturedOwnedMarkRequestArgs(
+      ownedMarkContinuationArgs,
+      "owned-mark-next",
+      "self-test owned-mark continuation",
+      ownershipChannel.channelId,
+      "eyes",
+      ownershipChannel.scanQuery.after,
+      ownershipChannel.scanQuery.before,
+    );
+    const ownedMarkContinuationWithoutCursor = Object.fromEntries(
+      Object.entries(ownedMarkContinuationArgs).filter(
+        ([key]) => key !== "cursor",
+      ),
+    );
+    expectFocusedFailure(
+      "owned-mark continuation request omits cursor",
+      () =>
+        validateCapturedOwnedMarkRequestArgs(
+          ownedMarkContinuationWithoutCursor,
+          "owned-mark-next",
+          "self-test owned-mark continuation",
+          ownershipChannel.channelId,
+          "eyes",
+          ownershipChannel.scanQuery.after,
+          ownershipChannel.scanQuery.before,
+        ),
+      "request cursor does not match the captured page",
+    );
+    const threadContinuationArgs = {
+      channel_id: ownershipChannel.channelId,
+      message_ts: ownedThreadSnapshot.rootTs,
+      limit: 1000,
+      response_format: "detailed",
+      cursor: "thread-next",
+    };
+    const threadContinuationRaw = JSON.stringify({
+      has_more: false,
+      reply_count: 0,
+      messages: [],
+    });
+    const parsedThreadContinuation = parseCapturedSlackThreadPage(
+      {
+        cursor: "thread-next",
+        readAt: ownedThreadReadAt,
+        args: threadContinuationArgs,
+        raw: threadContinuationRaw,
+      },
+      "self-test thread continuation",
+      ownershipChannel.channelId,
+      ownedThreadSnapshot.rootTs,
+    );
+    if (!parsedThreadContinuation.exhausted) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected a valid continuation request cursor",
+      );
+    }
+    const threadContinuationWithoutCursor = Object.fromEntries(
+      Object.entries(threadContinuationArgs).filter(
+        ([key]) => key !== "cursor",
+      ),
+    );
+    expectFocusedFailure(
+      "thread continuation request omits cursor",
+      () =>
+        parseCapturedSlackThreadPage(
+          {
+            cursor: "thread-next",
+            readAt: ownedThreadReadAt,
+            args: threadContinuationWithoutCursor,
+            raw: threadContinuationRaw,
+          },
+          "self-test thread continuation",
+          ownershipChannel.channelId,
+          ownedThreadSnapshot.rootTs,
+        ),
+      "request cursor does not match the captured thread page",
+    );
+    validateThreadSnapshotAgainstRawPages(
+      ownershipChannel.channelName,
+      ownedThreadSnapshot,
+      valid.sweepActorId,
+      rawOwnedThreadPages,
+      now - 3_000,
+      true,
+    );
+    expectFocusedFailure(
+      "thread evidence without cursor exhaustion",
+      () =>
+        validateThreadSnapshotAgainstRawPages(
+          ownershipChannel.channelName,
+          ownedThreadSnapshot,
+          valid.sweepActorId,
+          {
+            ...rawOwnedThreadPages,
+            [ownershipChannel.channelName]: {
+              [ownedThreadSnapshot.rootTs]: [
+                {
+                  ...rawOwnedThreadPages[ownershipChannel.channelName]![
+                    ownedThreadSnapshot.rootTs
+                  ]![0]!,
+                  nextCursor: "missing-thread-page",
+                  exhausted: false,
+                },
+              ],
+            },
+          },
+          now - 3_000,
+          true,
+        ),
+      "follow every thread cursor until explicit exhaustion",
+    );
+
+    const integratedSearches = ownershipSearches.map((search) => {
+      const rows = [{ ts: "10.000000", root: "10.000000", text: "report" }];
+      return {
+        ...search,
+        pages: [{ ...search.pages[0]!, messageCount: rows.length, rows }],
+      };
+    });
+    const integratedOwnedPages: RawOwnedMarkSearchPages = {
+      [ownershipChannel.channelName]: {
+        eyes: [],
+        white_check_mark: [],
+        ticket: [],
+      },
+    };
+    for (const search of integratedSearches) {
+      const rows = search.pages[0]!.rows.map((row) => ({ ...row }));
+      integratedOwnedPages[ownershipChannel.channelName]![search.emoji] = [
+        {
+          cursor: null,
+          before: ownershipChannel.scanQuery.before,
+          nextCursor: null,
+          exhausted: true,
+          readAt: ownershipReadAt,
+          messageCount: rows.length,
+          sourceTimestamps: rows.map((row) => row.ts),
+          rows,
+        },
+      ];
+    }
+    const integratedBase = withPageRoot(valid, "11.000000", (parent) => ({
+      ...parent,
+      disposition: "Skipped",
+      reactionSummary: "eyes (1): UOTHER",
+      reactionOwners: { eyes: ["UOTHER"] },
+      ownershipSkip: {
+        rootTs: "11.000000",
+        reason: "foreign_workflow_mark",
+      },
+      clusteredUnder: undefined,
+      latestRelevantHumanReply: undefined,
+      latestOwnedReply: undefined,
+      statusReply: undefined,
+      reactionDecision: undefined,
+    }));
+    const integratedInventory: Inventory = {
+      ...integratedBase,
+      channels: integratedBase.channels.map((channel) => ({
+        ...channel,
+        threadSnapshots: channel.threadSnapshots?.filter(
+          (snapshot) => snapshot.rootTs !== "11.000000",
+        ),
+        ownedMarkSearches: integratedSearches,
+      })),
+    };
+    const integratedThreadPages: RawThreadPages = {
+      [ownershipChannel.channelName]: {
+        "10.000000": [
+          {
+            cursor: null,
+            nextCursor: null,
+            exhausted: true,
+            readAt: new Date(Date.parse(ownershipReadAt) + 1_000).toISOString(),
+            messages: [],
+          },
+        ],
+      },
+    };
+    const integratedOptions: ValidationOptions = {
+      requireOwnershipDiscovery: true,
+      rawOwnedMarkPages: integratedOwnedPages,
+      rawThreadPages: integratedThreadPages,
+      scopeConfirmation: scopeConfirmationForTestInventory(integratedInventory),
+    };
+    const integratedSummaries = validateInventory(
+      integratedInventory,
+      integratedOptions,
+    );
+    if (
+      !integratedSummaries.some((summary) =>
+        summary.includes(
+          "owned 👀 1, ✅ marks 1 for 1 verified scopes, 🎫 marks 0",
+        ),
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test counted hasmy query emoji candidates as confirmed root marks",
+      );
+    }
+
+    const integratedCandidateRoots = ownedMarkSearchRootCandidates({
+      eyes: new Map([["10.000000", "10.000000"]]),
+      white_check_mark: new Map([
+        ["10.000000", "10.000000"],
+        ["11.000000", "11.000000"],
+      ]),
+      ticket: new Map([["11.000000", "11.000000"]]),
+    });
+    if (
+      ownedMarkSearchRootCandidates({
+        eyes: new Map([["10.100000", "10.000000"]]),
+        white_check_mark: new Map(),
+        ticket: new Map(),
+      }).size !== 0
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test treated a reply hasmy hit as a root mark candidate",
+      );
+    }
+    const integratedAuditedRoots = new Map(
+      valid.channels[0]!.pages[0]!.parents.filter(
+        (parent) => parent.ts === "10.000000" || parent.ts === "11.000000",
+      ).map((parent) => [parent.ts, parent]),
+    );
+    const confirmedCandidateMarks = confirmedOwnedRootMarksFromReadback(
+      "#test-channel",
+      valid.sweepActorId,
+      integratedCandidateRoots,
+      integratedAuditedRoots,
+    );
+    if (
+      confirmedCandidateMarks.size !== 1 ||
+      confirmedCandidateMarks.get("10.000000")?.size !== 2 ||
+      !confirmedCandidateMarks.get("10.000000")!.has("eyes") ||
+      !confirmedCandidateMarks.get("10.000000")!.has("white_check_mark") ||
+      confirmedCandidateMarks.has("11.000000")
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed to exclude a false-positive root candidate from exact reaction ownership",
+      );
+    }
+    expectFocusedFailure(
+      "in-window hasmy root is missing from the source inventory",
+      () => {
+        const missingRootSearches = integratedSearches.map((search) =>
+          search.emoji === "eyes"
+            ? {
+                ...search,
+                pages: [
+                  {
+                    ...search.pages[0]!,
+                    messageCount: 1,
+                    rows: [
+                      {
+                        ts: "10.500000",
+                        root: "10.500000",
+                        text: "bounded report missing from source pages",
+                      },
+                    ],
+                  },
+                ],
+              }
+            : search,
+        );
+        const missingRootPages: RawOwnedMarkSearchPages = {
+          ...integratedOwnedPages,
+          [ownershipChannel.channelName]: {
+            ...integratedOwnedPages[ownershipChannel.channelName]!,
+            eyes: [
+              {
+                cursor: null,
+                before: ownershipChannel.scanQuery.before,
+                nextCursor: null,
+                exhausted: true,
+                readAt: ownershipReadAt,
+                messageCount: 1,
+                sourceTimestamps: ["10.500000"],
+                rows: [
+                  {
+                    ts: "10.500000",
+                    root: "10.500000",
+                    text: "bounded report missing from source pages",
+                  },
+                ],
+              },
+            ],
+          },
+        };
+        validateInventory(
+          {
+            ...integratedInventory,
+            channels: integratedInventory.channels.map((channel) => ({
+              ...channel,
+              ownedMarkSearches: missingRootSearches,
+            })),
+          },
+          { ...integratedOptions, rawOwnedMarkPages: missingRootPages },
+        );
+      },
+      "bounded hasmy root candidate(s) 10500000 are missing from source pages or supplemental-root audits",
+    );
+    expectFocusedFailure(
+      "exact owned root absent from all hasmy candidates",
+      () =>
+        confirmedOwnedRootMarksFromReadback(
+          "#test-channel",
+          valid.sweepActorId,
+          new Set(["11.000000"]),
+          integratedAuditedRoots,
+        ),
+      "exact root reaction read-back shows this actor owns",
+    );
+    expectFocusedFailure(
+      "owned-mark result cannot escape the fixed source-window lower bound",
+      () => {
+        const oldRootSearches = integratedSearches.map((search) =>
+          search.emoji === "eyes"
+            ? {
+                ...search,
+                pages: [
+                  {
+                    ...search.pages[0]!,
+                    messageCount: 1,
+                    rows: [
+                      {
+                        ts: "8.500000",
+                        root: "8.500000",
+                        text: "older report",
+                      },
+                    ],
+                  },
+                ],
+              }
+            : search,
+        );
+        const oldRootPages: RawOwnedMarkSearchPages = {
+          ...integratedOwnedPages,
+          [ownershipChannel.channelName]: {
+            ...integratedOwnedPages[ownershipChannel.channelName]!,
+            eyes: [
+              {
+                cursor: null,
+                before: ownershipChannel.scanQuery.before,
+                nextCursor: null,
+                exhausted: true,
+                readAt: ownershipReadAt,
+                messageCount: 1,
+                sourceTimestamps: ["8.500000"],
+                rows: [
+                  { ts: "8.500000", root: "8.500000", text: "older report" },
+                ],
+              },
+            ],
+          },
+        };
+        validateInventory(
+          {
+            ...integratedInventory,
+            channels: integratedInventory.channels.map((channel) => ({
+              ...channel,
+              ownedMarkSearches: oldRootSearches,
+            })),
+          },
+          { ...integratedOptions, rawOwnedMarkPages: oldRootPages },
+        );
+      },
+      "owned-mark result is older than the fixed source-window lower bound",
+    );
+
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + 3} negative cases; 30 positive inventory cases; 6 handoff phrase cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 38} negative cases; 38 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -9350,31 +19468,57 @@ if (args[0] === "--self-test" && args.length === 1) {
 const inputPath = args[0];
 const sourceReceiptPath = args[1];
 const rawSourcePagesDirectory = args[2];
+const scopeConfirmationPath = args[3];
 if (
   !inputPath ||
   !sourceReceiptPath ||
   !rawSourcePagesDirectory ||
-  args.length !== 3
+  args.length < 3 ||
+  args.length > 4
 ) {
   console.error(
-    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages",
+    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json] (required for narrowed scope)",
+  );
+  console.error(
+    'Scope confirmation JSON: {"source":"orchestrator","decision":"explicitly-requested","userRequest":"<exact user instruction>","channelIds":["<channel ID>"]}',
   );
   process.exit(2);
 }
 
 try {
+  if (
+    scopeConfirmationPath &&
+    [inputPath, sourceReceiptPath].some(
+      (path) => realpathSync(path) === realpathSync(scopeConfirmationPath),
+    )
+  ) {
+    throw new Error(
+      "scope confirmation must be supplied in a separate file outside the inventory and source receipt",
+    );
+  }
   const inventory = JSON.parse(readFileSync(inputPath, "utf8")) as Inventory;
   const sourceReceipt = JSON.parse(
     readFileSync(sourceReceiptPath, "utf8"),
   ) as SourceReceipt;
+  const scopeConfirmation = scopeConfirmationPath
+    ? (JSON.parse(readFileSync(scopeConfirmationPath, "utf8")) as unknown)
+    : undefined;
   const rawSourcePages = readRawSourcePages(rawSourcePagesDirectory, inventory);
   const summaries = validateInventory(inventory, {
     requireFreshReads: true,
     sourceReceipt,
     rawSourcePages,
+    requireOwnershipDiscovery: true,
+    requireSourceText: true,
+    rawOwnedMarkPages: readRawOwnedMarkSearchPages(
+      rawSourcePagesDirectory,
+      inventory,
+    ),
+    rawThreadPages: readRawThreadPages(rawSourcePagesDirectory, inventory),
+    scopeConfirmation,
   });
   console.log(
-    `Feedback inventory is complete through the requested cutoff.\n${summaries.join("\n")}`,
+    `Feedback inventory is complete for the requested fixed window.\n${summaries.join("\n")}`,
   );
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

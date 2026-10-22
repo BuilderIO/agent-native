@@ -166,13 +166,15 @@ Un puñado de acciones son demasiado consecuentes como para dejar que el agente 
 
 Cuando se omite `needsApproval`, el comportamiento no cambia ni un solo byte. No hay ningún costo adicional en el camino habitual.
 
-Esto funciona igual para las acciones heredadas de estilo `parameters` y para las acciones basadas en esquema. También funciona igual para el agente dentro de la app, los subagentes, A2A y los invocadores de MCP, porque todas las superficies del agente pasan por el mismo bucle.
+Esto funciona igual para las acciones heredadas de estilo `parameters` y para las acciones basadas en esquema. El agente de la app y sus subagentes se pausan en el bucle del agente. MCP y A2A usan flujos de aprobación propios.
+
+Las llamadas directas a través de la [API HTTP](/docs/http-api) no pueden aportar aprobación humana. La ruta solo ejecuta una acción protegida desde la interfaz verificada de la app o desde el widget de directorio MCP de la app. Las demás llamadas HTTP directas reciben `409` con `errorCode: "approval_required"`. Una identidad de servicio no puede aprobar. El cliente compartido envía una capacidad de UI de corta duración con las escrituras de una sesión iniciada. Una llamada sin esa prueba recibe `403` con `errorCode: "ui_capability_required"`; después, el cliente obtiene la capacidad y reintenta una vez. Las tareas A2A usan su propio flujo de aprobación, no esta respuesta HTTP. La tarea espera la aprobación de su responsable y después vuelve a ejecutar la llamada a la herramienta aprobada. El comando local `pnpm action ...` llama directamente a `handler.run()` y no evalúa `needsApproval`. Trata este campo como un flujo de aprobación, no como un límite de autorización.
 
 ### Cómo se pausa el bucle {#loop}
 
 Cuando el agente llama a una acción con guarda y esta llamada específica **no** ha sido aprobada todavía, el bucle **no** ejecuta `run()`. En su lugar:
 
-1. Resuelve la guarda. Para un predicado, el bucle llama a `needsApproval(input, ctx)`. Si esa llamada lanza un error, el bucle la trata igual que un resultado `true`, así que la acción exige aprobación.
+1. Resuelve la guarda. Primero, el bucle prepara la llamada: valida los argumentos y aplica los valores por defecto y las conversiones del esquema. Una llamada no válida se detiene aquí con su error de validación, y no se pide aprobación a nadie. Para un predicado, el bucle llama después a `needsApproval(args, ctx)` con los argumentos preparados, los mismos que recibiría `run()`. Si esa llamada lanza un error, el bucle la trata igual que un resultado `true`, así que la acción exige aprobación.
 2. Emite un evento `tool_start` (para que la UI muestre la llamada) seguido inmediatamente de un evento **`approval_required`**, y luego detiene el turno. El efecto secundario de la acción nunca ocurre.
 
 El evento `approval_required` lleva todo lo que el cliente necesita para mostrar un control de interacción:
@@ -404,12 +406,12 @@ Una acción de creación no llama a ninguno de los dos ayudantes. Solo necesita 
 
 Los cuatro mecanismos no son intercambiables:
 
-| Mecanismo                         | Pregunta que responde                                        | Se aplica a                                |
-| --------------------------------- | ------------------------------------------------------------ | ------------------------------------------ |
-| `access`                          | ¿Tiene el invocador el rol o la membresía declarados?        | Los seis puntos de despacho                |
-| `authorize`                       | ¿Puede este invocador realizar la operación?                 | Los seis puntos de despacho                |
-| `needsApproval`                   | ¿Debe un humano aprobar esta llamada permitida en concreto?  | Solo el bucle del agente                   |
-| `accessFilter()`/`assertAccess()` | ¿Qué filas puede ver o escribir este invocador ya permitido? | Dentro de `run()`, por consulta o por fila |
+| Mecanismo                         | Pregunta que responde                                        | Se aplica a                                                                                                    |
+| --------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `access`                          | ¿Tiene el invocador el rol o la membresía declarados?        | Los seis puntos de despacho                                                                                    |
+| `authorize`                       | ¿Puede este invocador realizar la operación?                 | Los seis puntos de despacho                                                                                    |
+| `needsApproval`                   | ¿Debe un humano aprobar esta llamada permitida en concreto?  | flujos de aprobación del agente, MCP y A2A. HTTP rechaza llamadas sin prueba de UI. La CLI local no comprueba. |
+| `accessFilter()`/`assertAccess()` | ¿Qué filas puede ver o escribir este invocador ya permitido? | Dentro de `run()`, por consulta o por fila                                                                     |
 
 Una acción de escritura restringida normalmente necesita tanto `authorize` como una comprobación de fila. La primera mantiene fuera de la operación a quien no sea coach. La segunda mantiene a un coach fuera del plan de otra organización. La comprobación de fila es `assertAccess()`, o `access` cuando el id de la fila es un campo de entrada. `needsApproval` es un eje aparte. Nunca restringe quién puede llamar, solo si el agente puede proceder sin supervisión.
 

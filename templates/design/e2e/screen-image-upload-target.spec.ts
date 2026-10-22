@@ -122,7 +122,6 @@ async function waitForGate(gate: Promise<void>, label: string) {
   }
 }
 
-// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 test("delayed Screen-root image upload stays with its original Screen", async ({
   app,
   page,
@@ -134,11 +133,16 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     "the test makes the upload's save conflict with a concurrent edit",
   );
   app.allowFailure(
+    /^console\.error Failed to load resource: the server responded with a status of 409 \(\)$/,
+    "the versioned mirror-only save intentionally returns a conflict",
+  );
+  app.allowFailure(
     /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
     "the conflict is reported to the user",
   );
   const uploadTimeline: Array<Record<string, unknown>> = [];
   const timelineStart = Date.now();
+  let observedRequestSequence = 0;
   page.on("request", (request) => {
     const url = request.url();
     if (!url.includes("/_agent-native/actions/")) return;
@@ -146,6 +150,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     if (action === "get-design") {
       uploadTimeline.push({
         ms: Date.now() - timelineStart,
+        sequence: observedRequestSequence++,
         event: "browser-get-design-request",
       });
       return;
@@ -161,6 +166,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     const content = typeof body.content === "string" ? body.content : "";
     uploadTimeline.push({
       ms: Date.now() - timelineStart,
+      sequence: observedRequestSequence++,
       event: "browser-update-file-request",
       fileId: body.id,
       expectedVersionHash: body.expectedVersionHash ?? null,
@@ -199,6 +205,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       return;
     }
     if (!url.includes("/_agent-native/actions/get-design")) return;
+    const sequence = observedRequestSequence++;
     void response
       .json()
       .then((body: DesignRecord) => {
@@ -206,6 +213,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
         if (!file) return;
         uploadTimeline.push({
           ms: Date.now() - timelineStart,
+          sequence,
           event: "browser-get-design-response",
           screenAHasConcurrentMarker: file.content.includes(
             "Screen A source updated during upload",
@@ -217,12 +225,26 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       .catch(() => {});
   });
   let releaseUpload!: () => void;
+  let releaseScreenACollabPoll!: () => void;
   let releaseBrowserDesignReads!: () => void;
   let markUploadStarted!: () => void;
   let markUploadCompleted!: () => void;
+  let markScreenACollabPollObserved!: () => void;
+  let markScreenACollabPollCompleted!: () => void;
+  let holdNextScreenACollabPoll = false;
+  let screenACollabPollHeld = false;
   let holdBrowserDesignReads = false;
   const uploadGate = new Promise<void>((resolve) => {
     releaseUpload = resolve;
+  });
+  const screenACollabPollReleaseGate = new Promise<void>((resolve) => {
+    releaseScreenACollabPoll = resolve;
+  });
+  const screenACollabPollObserved = new Promise<void>((resolve) => {
+    markScreenACollabPollObserved = resolve;
+  });
+  const screenACollabPollCompleted = new Promise<void>((resolve) => {
+    markScreenACollabPollCompleted = resolve;
   });
   const browserDesignReadGate = new Promise<void>((resolve) => {
     releaseBrowserDesignReads = resolve;
@@ -237,11 +259,51 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
   let uploadBody: string | undefined;
   let uploadRouteError: string | undefined;
   const uploadRoute = "**/_agent-native/actions/upload-image";
+  const pollRoute = "**/_agent-native/poll?*";
+  const eventsRoute = "**/_agent-native/events*";
   const designReadRoute = "**/_agent-native/actions/get-design*";
   // The client also reads get-design inside batches; an unheld batch leaks the concurrent edit.
   const batchedReadRoute = "**/_agent-native/actions/get-actions-batch*";
 
   try {
+    await page.route(eventsRoute, async (route) => {
+      await route.fulfill({ status: 204, body: "" });
+    });
+    await page.route(pollRoute, async (route) => {
+      const response = await route.fetch();
+      const body = await response.text();
+      const payload = JSON.parse(body) as {
+        events?: Array<{ source?: string; docId?: string }>;
+      };
+      const events = payload.events ?? [];
+      const hasScreenACollabEvent = events.some(
+        (event) => event.source === "collab" && event.docId === screenAId,
+      );
+      if (holdNextScreenACollabPoll && hasScreenACollabEvent) {
+        holdNextScreenACollabPoll = false;
+        screenACollabPollHeld = true;
+        markScreenACollabPollObserved();
+        uploadTimeline.push({
+          ms: Date.now() - timelineStart,
+          event: "screen-a-collab-poll-held",
+        });
+        try {
+          await waitForGate(
+            screenACollabPollReleaseGate,
+            "Screen A collaboration poll release",
+          );
+          await route.fulfill({ response, body });
+          uploadTimeline.push({
+            ms: Date.now() - timelineStart,
+            event: "screen-a-collab-poll-released",
+          });
+        } finally {
+          markScreenACollabPollCompleted();
+        }
+        return;
+      }
+      await route.fulfill({ response, body });
+    });
     await app.open(designId);
     await page.route(designReadRoute, async (route) => {
       if (!holdBrowserDesignReads) {
@@ -369,6 +431,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       .replace("background-color:#253b50", "background-color:#2e4a62");
     expect(screenAHtmlWithConcurrentEdit).not.toBe(screenAHtmlBeforeEdit);
     expect(screenAHtmlWithConcurrentEdit).toContain("#2e4a62");
+    holdNextScreenACollabPoll = true;
     holdBrowserDesignReads = true;
     const externalUpdateResult = await postAction(page, "update-file", {
       id: screenAId,
@@ -383,6 +446,8 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     await expect
       .poll(() => readScreenHtml(page, designId, screenAId))
       .toContain("Screen A source updated during upload");
+    await waitForGate(screenACollabPollObserved, "Screen A collaboration poll");
+    expect(screenACollabPollHeld).toBe(true);
     expect(await readBodyFill(page, screenBHtmlBefore)).toMatchObject({
       backgroundColor: "rgb(128, 85, 0)",
       backgroundImage: "",
@@ -392,6 +457,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     uploadTimeline.push({
       ms: Date.now() - timelineStart,
       event: "upload-response-released",
+      screenACollabPollHeld: screenACollabPollHeld,
       browserHadObservedConcurrentMarker: uploadTimeline.some(
         (event) =>
           event.event === "browser-get-design-response" &&
@@ -445,11 +511,25 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
         { exact: true },
       ),
     ).toBeVisible();
+    const staleUploadSave = uploadTimeline.find(
+      (event) =>
+        event.event === "browser-update-file-request" &&
+        event.fileId === screenAId &&
+        event.hasUploadUrl === true,
+    );
+    expect(staleUploadSave).toBeDefined();
+    expect(staleUploadSave?.hasConcurrentMarker).toBe(false);
+    expect(typeof staleUploadSave?.expectedVersionHash).toBe("string");
+    const staleUploadSaveSequence = staleUploadSave?.sequence;
+    expect(typeof staleUploadSaveSequence).toBe("number");
     expect(
       uploadTimeline.some(
         (event) =>
           event.event === "browser-get-design-response" &&
-          event.screenAHasConcurrentMarker === true,
+          event.screenAHasConcurrentMarker === true &&
+          typeof event.sequence === "number" &&
+          typeof staleUploadSaveSequence === "number" &&
+          event.sequence < staleUploadSaveSequence,
       ),
     ).toBe(false);
     expect(
@@ -463,6 +543,8 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     ).toBe(true);
     releaseBrowserDesignReads();
     holdBrowserDesignReads = false;
+    releaseScreenACollabPoll();
+    await screenACollabPollCompleted;
     await expect
       .poll(() => designFrame(page, screenAId).locator("body").textContent())
       .toContain("Screen A source updated during upload");
@@ -591,18 +673,25 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     );
   } finally {
     releaseUpload?.();
+    releaseScreenACollabPoll?.();
     releaseBrowserDesignReads?.();
     await Promise.race([
       uploadCompleted,
       new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
     ]);
+    if (screenACollabPollHeld) {
+      await Promise.race([
+        screenACollabPollCompleted,
+        new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+      ]);
+    }
     await page.unroute(uploadRoute).catch(() => {});
+    await page.unroute(pollRoute).catch(() => {});
+    await page.unroute(eventsRoute).catch(() => {});
     await page.unroute(designReadRoute).catch(() => {});
     await page.unroute(batchedReadRoute).catch(() => {});
   }
 });
-
-// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name and how Interact is left and its frame swapped changed here.
 test("active Screen upload conflict preserves SQL and live-collaboration source", async ({
   app,
   page,
@@ -612,6 +701,10 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
   app.allowFailure(
     /^http 409 POST \/_agent-native\/actions\/update-file$/,
     "the test makes the upload's save conflict with a concurrent edit",
+  );
+  app.allowFailure(
+    /^console\.error Failed to load resource: the server responded with a status of 409 \(\)$/,
+    "the versioned mirror-only save intentionally returns a conflict",
   );
   app.allowFailure(
     /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
@@ -812,14 +905,12 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       "data-screen-interact-mode",
       "false",
     );
-    const focusScreen = screenAShell.locator("[data-frame-full-view]");
-    await expect(focusScreen).toHaveCount(1);
+    const screenTitle = screenAShell.locator("[data-frame-title]").first();
+    await expect(screenTitle).toBeVisible();
     await expect(
       screenAShell.locator("iframe[data-design-preview-iframe]").first(),
     ).toBeVisible();
-    await focusScreen.evaluate((element) => {
-      (element as HTMLButtonElement).click();
-    });
+    await screenTitle.dblclick();
     await expect(
       screenAShell.locator("iframe[data-design-preview-iframe]").first(),
     ).toBeVisible();
@@ -950,12 +1041,8 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       JSON.stringify(timeline),
     );
     expect(requestBody.syncCollab, JSON.stringify(timeline)).toBe(false);
-    if (fileUpdateResponse.status() === 409) {
-      expect(fileUpdateBody.skippedStaleMirror).not.toBe(true);
-    } else {
-      expect(fileUpdateResponse.status()).toBe(200);
-      expect(fileUpdateBody.skippedStaleMirror).toBe(true);
-    }
+    expect(fileUpdateResponse.status(), JSON.stringify(timeline)).toBe(409);
+    expect(fileUpdateBody.skippedStaleMirror).not.toBe(true);
     await expect(
       page.getByText(
         "This screen changed elsewhere. Your last edit was not saved.",
@@ -1038,12 +1125,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
     const persistedHtml = await readScreenHtml(page, designId, screenAId);
     expect(persistedHtml).toContain(marker);
     expect(persistedHtml).toContain("#2e4a62");
-    if (
-      fileUpdateResponse.status() === 409 ||
-      fileUpdateBody.skippedStaleMirror
-    ) {
-      expect(persistedHtml).not.toContain(uploadResult.url!);
-    }
+    expect(persistedHtml).not.toContain(uploadResult.url!);
     const reloadedFrame = page.frameLocator(
       `iframe[data-screen-iframe-id="${screenAId}"]`,
     );
@@ -1087,7 +1169,6 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
   }
 });
 
-// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 test("accepted Screen-root image upload persists and renders its source", async ({
   app,
   page,
@@ -1219,9 +1300,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     const screenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
     );
-    await screenAShell.locator("[data-frame-full-view]").evaluate((element) => {
-      (element as HTMLButtonElement).click();
-    });
+    await screenAShell.locator("[data-frame-title]").first().dblclick();
     await page
       .locator('[data-design-top-bar] [data-design-mode="interact"]')
       .click();
@@ -1308,6 +1387,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
+    await app.zoomToFit();
     await expect
       .poll(async () => readScreenHtml(page, designId, screenAId))
       .toContain(uploadResult.url!);
@@ -1316,14 +1396,15 @@ test("accepted Screen-root image upload persists and renders its source", async 
       .locator('[role="treeitem"][aria-level="1"]')
       .filter({ hasText: "Screen A" });
     await reloadedScreenARow.locator("[data-layer-row-button]").click();
+    await expect(reloadedScreenARow).toHaveAttribute("aria-selected", "true");
     const reloadedScreenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
     );
-    await reloadedScreenAShell
-      .locator("[data-frame-full-view]")
-      .evaluate((element) => {
-        (element as HTMLButtonElement).click();
-      });
+    const reloadedScreenTitle = reloadedScreenAShell
+      .locator("[data-frame-title]")
+      .first();
+    await expect(reloadedScreenTitle).toBeVisible({ timeout: 30_000 });
+    await reloadedScreenTitle.dblclick();
     await page
       .locator('[data-design-top-bar] [data-design-mode="interact"]')
       .click();

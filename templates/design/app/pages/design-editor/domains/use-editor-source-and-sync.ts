@@ -207,6 +207,7 @@ export function useEditorSourceAndSync({
     motionDockOpen,
     undoManagerRef,
     contentUndoStackRef,
+    localContentUndoStackRef,
     selectedLayerIdsStateRef,
     explicitOverviewScreenSelectionRef,
     hasPendingVisualStyleEdits,
@@ -505,6 +506,7 @@ export function useEditorSourceAndSync({
         canEditDesign,
         contentHistorySelectionAfterRef,
         contentUndoStackRef,
+        localContentUndoStackRef,
         files,
         getFreshActiveContent,
         overviewSelectedScreenIds,
@@ -520,6 +522,7 @@ export function useEditorSourceAndSync({
       canEditDesign,
       files,
       getFreshActiveContent,
+      localContentUndoStackRef,
       overviewSelectedScreenIds,
       selectedLayerIdsState,
       t,
@@ -786,6 +789,7 @@ export function useEditorSourceAndSync({
     if (
       !retryablePrompt ||
       !generationIssue ||
+      retryablePrompt.autoRetry === false ||
       !canEditDesign ||
       generating ||
       pendingGenerationActive

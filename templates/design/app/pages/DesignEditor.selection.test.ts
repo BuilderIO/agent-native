@@ -1881,6 +1881,7 @@ describe("DesignEditor escape semantics", () => {
         mode: "edit",
         pinMode: false,
         selectedElement: null,
+        selectedLayerIds: [],
         viewMode: "single",
       }),
     ).toBe(true);
@@ -1902,6 +1903,7 @@ describe("DesignEditor escape semantics", () => {
           isFlexChild: false,
           isFlexContainer: false,
         },
+        selectedLayerIds: [],
         viewMode: "single",
       }),
     ).toBe(false);
@@ -1915,6 +1917,7 @@ describe("DesignEditor escape semantics", () => {
         mode: "edit",
         pinMode: false,
         selectedElement: null,
+        selectedLayerIds: [],
         viewMode: "single",
       }),
     ).toBe(false);
@@ -1925,6 +1928,7 @@ describe("DesignEditor escape semantics", () => {
         mode: "annotate",
         pinMode: false,
         selectedElement: null,
+        selectedLayerIds: [],
         viewMode: "single",
       }),
     ).toBe(false);

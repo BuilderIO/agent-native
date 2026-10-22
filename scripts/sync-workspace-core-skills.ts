@@ -429,7 +429,7 @@ function factorySkillFiles(skill) {
 }
 
 function factorySkillContent(skill, file, content) {
-  if (skill !== "review-latest-feedback" || file !== "SKILL.md") return content;
+  if (skill !== "review-latest-feedback") return content;
   const output = [];
   let inRepoOnlyBlock = false;
   let blockCount = 0;
@@ -451,9 +451,10 @@ function factorySkillContent(skill, file, content) {
     }
     if (!inRepoOnlyBlock) output.push(line);
   }
-  if (inRepoOnlyBlock || blockCount === 0) {
+  if (inRepoOnlyBlock || (file === "SKILL.md" && blockCount === 0)) {
     throw new Error("review-latest-feedback needs repo-only section markers");
   }
+  if (blockCount === 0) return content;
   return output.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
@@ -984,11 +985,14 @@ function copySkill(skill, targetSkillDir, factoryTarget = false) {
     for (const file of FACTORY_EXCLUDED_SKILL_FILES[skill] ?? []) {
       rmSync(join(targetSkillDir, file), { force: true });
     }
-    const skillFile = join(targetSkillDir, "SKILL.md");
-    writeFileSync(
-      skillFile,
-      factorySkillContent(skill, "SKILL.md", readFileSync(skillFile, "utf-8")),
-    );
+    for (const file of factorySkillFiles(skill)) {
+      const targetFile = join(targetSkillDir, file);
+      const sourceContent = readFileSync(targetFile, "utf-8");
+      const targetContent = factorySkillContent(skill, file, sourceContent);
+      if (targetContent !== sourceContent) {
+        writeFileSync(targetFile, targetContent);
+      }
+    }
   }
 }
 

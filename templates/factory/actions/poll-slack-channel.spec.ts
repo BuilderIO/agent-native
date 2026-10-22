@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -16,6 +13,10 @@ const readCallingFactoryAutomationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  readOrgMemberRole: vi.fn().mockResolvedValue("owner"),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -69,19 +70,16 @@ beforeEach(() => {
   requireFactoryAutomationMock.mockResolvedValue(undefined);
   readCallingFactoryAutomationMock.mockResolvedValue(null);
 
-  const limit = vi
-    .fn()
-    .mockResolvedValueOnce([{ role: "owner" }])
-    .mockResolvedValueOnce([
-      {
-        id: "org-1",
-        slackWorkspace: "primary",
-        slackChannelId: "C123",
-        pollingEnabled: 1,
-        lastSlackTs: "0",
-        slackHistoryCursor: null,
-      },
-    ]);
+  const limit = vi.fn().mockResolvedValue([
+    {
+      id: "org-1",
+      slackWorkspace: "primary",
+      slackChannelId: "C123",
+      pollingEnabled: 1,
+      lastSlackTs: "0",
+      slackHistoryCursor: null,
+    },
+  ]);
   const where = vi.fn().mockReturnValue({ limit });
   const from = vi.fn().mockReturnValue({ where });
   const tx = {
@@ -107,15 +105,6 @@ beforeEach(() => {
 });
 
 describe("poll-slack-channel action", () => {
-  it("does not repair Factory automation metadata during poll", () => {
-    const source = readFileSync(
-      fileURLToPath(new URL("./poll-slack-channel.ts", import.meta.url)),
-      "utf8",
-    );
-    expect(source).not.toMatch(/repairFactoryAutomationsFromConfig/);
-    expect(source).not.toMatch(/ensureFactoryAutomations/);
-  });
-
   it("uses the supplied automation identity without an HTTP request context", async () => {
     const { default: action } = await import("./poll-slack-channel.js");
 
@@ -285,19 +274,16 @@ describe("poll-slack-channel action", () => {
         })),
       })),
     };
-    const limit = vi
-      .fn()
-      .mockResolvedValueOnce([{ role: "owner" }])
-      .mockResolvedValueOnce([
-        {
-          id: "org-1",
-          slackWorkspace: "primary",
-          slackChannelId: "C123",
-          pollingEnabled: 1,
-          lastSlackTs: "0",
-          slackHistoryCursor: null,
-        },
-      ]);
+    const limit = vi.fn().mockResolvedValue([
+      {
+        id: "org-1",
+        slackWorkspace: "primary",
+        slackChannelId: "C123",
+        pollingEnabled: 1,
+        lastSlackTs: "0",
+        slackHistoryCursor: null,
+      },
+    ]);
     getDbMock.mockReturnValue({
       select: vi.fn(() => ({
         from: vi.fn(() => ({

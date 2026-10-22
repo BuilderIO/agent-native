@@ -154,7 +154,12 @@ export interface ChatGPTSubscriptionAccountSummary {
 export interface ChatGPTSubscriptionStatus {
   supported: boolean;
   localLoopback: boolean;
-  supportReason: "requires_local_loopback" | "requires_lab" | null;
+  supportReason:
+    | "requires_local_loopback"
+    | "requires_personal_scope"
+    | "scope_unresolved"
+    | "requires_lab"
+    | null;
   connected: boolean;
   reconnectRequired: boolean;
   /** Retained for callers that used the former ChatGPT account header value. */
@@ -330,7 +335,12 @@ function callbackUriForEvent(event: H3Event): string | null {
     : null;
 }
 
-type CurrentRequestLoopbackAccess = "local" | "untrusted" | "non_loopback";
+type CurrentRequestLoopbackAccess =
+  | "local"
+  | "personal_scope_required"
+  | "scope_unresolved"
+  | "untrusted"
+  | "non_loopback";
 
 function currentRequestLoopbackAccess(): CurrentRequestLoopbackAccess {
   const context = getRequestContext();
@@ -342,22 +352,27 @@ function currentRequestLoopbackAccess(): CurrentRequestLoopbackAccess {
   if (
     !context.isDirectLoopbackRequest ||
     !context.requestOrigin ||
-    context.orgId ||
-    context.orgScope !== "personal" ||
     !URL.canParse(context.requestOrigin)
   ) {
     return "untrusted";
   }
   const origin = new URL(context.requestOrigin);
-  return origin.protocol === "http:" &&
-    origin.hostname === "127.0.0.1" &&
-    origin.username === "" &&
-    origin.password === "" &&
-    origin.pathname === "/" &&
-    origin.search === "" &&
-    origin.hash === ""
-    ? "local"
-    : "untrusted";
+  if (
+    !(
+      origin.protocol === "http:" &&
+      origin.hostname === "127.0.0.1" &&
+      origin.username === "" &&
+      origin.password === "" &&
+      origin.pathname === "/" &&
+      origin.search === "" &&
+      origin.hash === ""
+    )
+  ) {
+    return "untrusted";
+  }
+  if (context.orgId) return "personal_scope_required";
+  if (context.orgScope === "personal") return "local";
+  return "scope_unresolved";
 }
 
 function currentRequestIsLocalLoopback(): boolean {
@@ -837,6 +852,34 @@ export async function getChatGPTSubscriptionStatus(
 ): Promise<ChatGPTSubscriptionStatus> {
   const loopbackAccess = currentRequestLoopbackAccess();
   const localLoopback = loopbackAccess === "local";
+  if (loopbackAccess === "personal_scope_required") {
+    return {
+      supported: false,
+      localLoopback: false,
+      supportReason: "requires_personal_scope",
+      connected: false,
+      reconnectRequired: false,
+      accountId: null,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+  }
+  if (loopbackAccess === "scope_unresolved") {
+    return {
+      supported: false,
+      localLoopback: false,
+      supportReason: "scope_unresolved",
+      connected: false,
+      reconnectRequired: false,
+      accountId: null,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+  }
   const labEnabled =
     localLoopback && (await chatGPTSubscriptionLabEnabled(email));
   if (loopbackAccess === "untrusted" || (localLoopback && !labEnabled)) {

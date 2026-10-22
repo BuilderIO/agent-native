@@ -70,6 +70,8 @@ import {
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { attachNativePreviewViewportPublisher } from "@/components/design/bridge/native-preview-viewport-transport";
+import { installNativeWorkerBroker } from "@/components/design/bridge/native-worker-broker";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -173,7 +175,10 @@ import {
   inlineDesignStylesheets,
   useDesignStylesheets,
 } from "./design-canvas/linked-stylesheets";
-import { withLocalRuntimes } from "./design-canvas/local-runtime";
+import {
+  withLocalRuntimes,
+  withNativeShaderRuntime,
+} from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import {
   applyMotionPathEdit,
@@ -183,6 +188,16 @@ import type {
   MotionPathTracksChangeResult,
   MotionTrackWire,
 } from "./design-canvas/motion-types";
+import {
+  connectNativePublicAssetPreview,
+  prepareNativePublicAssetPreviewDocument,
+  type NativePublicAssetPreviewDocument,
+} from "./design-canvas/native-public-asset-preview";
+import {
+  connectNativePublicWorkerPreview,
+  prepareNativePublicWorkerPreviewDocument,
+  type NativePublicWorkerPreviewDocument,
+} from "./design-canvas/native-public-worker-preview";
 import {
   acknowledgePendingTextInsert,
   beginPendingTextDelivery,
@@ -237,6 +252,7 @@ import {
   sendLinkedScreenPreviewStyleChange,
 } from "./multi-screen/linked-screen-preview";
 import type { KScaleStyleChange } from "./multi-screen/types";
+import { setNativePreviewIframeRef } from "./native-preview-iframe-lifecycle";
 import { PIXEL_GRID_BACKGROUND_IMAGE, PIXEL_GRID_ZOOM } from "./pixel-grid";
 import {
   getIframePaintRetentionStyle,
@@ -255,6 +271,7 @@ import type {
   RuntimeVerificationRequest,
   TextEditingState,
 } from "./types";
+import { useNativeShaderApprovals } from "./use-native-shader-approvals";
 
 function getSingleScreenZoomTransform(
   zoom: number,
@@ -384,6 +401,8 @@ function isAllowedFusionOrigin(
   }
   return host === "builder.io" || host.endsWith(".builder.io");
 }
+
+if (typeof window !== "undefined") installNativeWorkerBroker(window);
 
 const EDITABLE_FOCUS_SELECTOR =
   'input, textarea, select, [contenteditable="true"], [role="textbox"], [data-agent-native-text-editing]';
@@ -1352,11 +1371,17 @@ function runtimeDocumentNeedsReload(
   const scriptSignature = (html: string) => {
     const headEnd = html.search(/<\/head\s*>/i);
     const boundary = headEnd === -1 ? 0 : headEnd;
-    return Array.from(
-      html.matchAll(SCRIPT_ELEMENT_RE),
-      (match) =>
-        `${(match.index ?? 0) < boundary ? "head" : "body"}:${normalizeScriptMarkup(match[0])}`,
-    ).join("\n");
+    return Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => {
+      if (
+        /\btype\s*=\s*["']application\/x-agent-native-effects["']/i.test(
+          match[0],
+        )
+      )
+        return null;
+      return `${(match.index ?? 0) < boundary ? "head" : "body"}:${normalizeScriptMarkup(match[0])}`;
+    })
+      .filter((signature) => signature !== null)
+      .join("\n");
   };
   return scriptSignature(previousContent) !== scriptSignature(nextContent);
 }
@@ -1617,7 +1642,85 @@ export function DesignCanvas({
   const t = useT();
   const { resolvedTheme } = useTheme();
   const browserOrigin = useBrowserOrigin();
+  const [replacedFrame, setReplacedFrame] =
+    useState<ReplacedPreviewFrame | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const replacedFrameRef = useRef<HTMLIFrameElement>(null);
+  const nativeViewportPublisherCleanupsRef = useRef(
+    new Map<HTMLIFrameElement, () => void>(),
+  );
+  const nativePublicAssetPreviewCleanupsRef = useRef(
+    new Map<HTMLIFrameElement, () => void>(),
+  );
+  const nativePublicWorkerPreviewCleanupsRef = useRef(
+    new Map<HTMLIFrameElement, () => void>(),
+  );
+  const nativePublicAssetPreviewRef =
+    useRef<NativePublicAssetPreviewDocument | null>(null);
+  const replacedPublicAssetPreviewRef =
+    useRef<NativePublicAssetPreviewDocument | null>(null);
+  const nativePublicWorkerPreviewRef =
+    useRef<NativePublicWorkerPreviewDocument | null>(null);
+  const replacedPublicWorkerPreviewRef =
+    useRef<NativePublicWorkerPreviewDocument | null>(null);
+  const setPreviewFrameRef = useCallback(
+    (
+      ref: React.RefObject<HTMLIFrameElement | null>,
+      next: HTMLIFrameElement | null,
+    ) => {
+      const previous = ref.current;
+      if (previous === next) return;
+      if (previous && previous !== next) {
+        nativeViewportPublisherCleanupsRef.current.get(previous)?.();
+        nativeViewportPublisherCleanupsRef.current.delete(previous);
+        nativePublicAssetPreviewCleanupsRef.current.get(previous)?.();
+        nativePublicAssetPreviewCleanupsRef.current.delete(previous);
+        nativePublicWorkerPreviewCleanupsRef.current.get(previous)?.();
+        nativePublicWorkerPreviewCleanupsRef.current.delete(previous);
+      }
+      setNativePreviewIframeRef(ref, next);
+      if (next && !nativeViewportPublisherCleanupsRef.current.has(next))
+        nativeViewportPublisherCleanupsRef.current.set(
+          next,
+          attachNativePreviewViewportPublisher(next),
+        );
+      const publicAssetPreview =
+        ref === replacedFrameRef
+          ? replacedPublicAssetPreviewRef.current
+          : nativePublicAssetPreviewRef.current;
+      if (next && publicAssetPreview)
+        nativePublicAssetPreviewCleanupsRef.current.set(
+          next,
+          connectNativePublicAssetPreview(next, publicAssetPreview),
+        );
+      const publicWorkerPreview =
+        ref === replacedFrameRef
+          ? replacedPublicWorkerPreviewRef.current
+          : nativePublicWorkerPreviewRef.current;
+      if (next && publicWorkerPreview)
+        nativePublicWorkerPreviewCleanupsRef.current.set(
+          next,
+          connectNativePublicWorkerPreview(
+            next,
+            publicWorkerPreview,
+            publicAssetPreview?.html ?? publicWorkerPreview.html,
+          ),
+        );
+    },
+    [],
+  );
+  const setIframeRef = useCallback(
+    (next: HTMLIFrameElement | null) => {
+      setPreviewFrameRef(iframeRef, next);
+    },
+    [setPreviewFrameRef],
+  );
+  const setReplacedFrameRef = useCallback(
+    (next: HTMLIFrameElement | null) => {
+      setPreviewFrameRef(replacedFrameRef, next);
+    },
+    [setPreviewFrameRef],
+  );
   const canvasFocusProbeRequestIdRef = useRef(0);
   const pendingCanvasFocusProbeRef = useRef<{
     requestId: number;
@@ -1666,6 +1769,12 @@ export function DesignCanvas({
     frameId: number;
   } | null>(null);
   const runtimeVerificationIframeRef = useRef<HTMLIFrameElement>(null);
+  const setRuntimeVerificationIframeRef = useCallback(
+    (next: HTMLIFrameElement | null) => {
+      setNativePreviewIframeRef(runtimeVerificationIframeRef, next);
+    },
+    [],
+  );
   const embeddedCanvasPanSessionRef = useRef<EmbeddedCanvasPanSession | null>(
     null,
   );
@@ -2588,6 +2697,14 @@ export function DesignCanvas({
     iframePreviewUrlRef.current.url = resolvedExternalPreviewUrl;
   }
   const externalPreviewUrl = iframePreviewUrlRef.current.url;
+  const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
+    useNativeShaderApprovals({
+      designId,
+      fileId: screenId,
+      enabled:
+        !externalPreviewUrl &&
+        content.includes("application/x-agent-native-effects"),
+    });
   const runtimeVerificationUrl = useMemo(() => {
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
@@ -3643,7 +3760,10 @@ export function DesignCanvas({
     if (isEmbeddedFrame) {
       frameDocument = appendContentSizeReporter(frameDocument);
     }
-    return injectSessionReplayIframeBootstrap(frameDocument);
+    return withNativeShaderRuntime(
+      injectSessionReplayIframeBootstrap(frameDocument),
+      true,
+    );
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
@@ -5473,6 +5593,17 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "text-editing-state") {
+        // Selecting in a fusion frame moves keyboard focus to the canvas, and
+        // a cross-origin frame cannot take it back itself, so the text edit it
+        // just started would get no keystrokes. The parent can focus the frame.
+        if (e.data.active === true && sourceType === "fusion") {
+          const editingFrame = Array.from(
+            document.querySelectorAll("iframe"),
+          ).find((frame) => frame.contentWindow === e.source);
+          if (editingFrame && document.activeElement !== editingFrame) {
+            editingFrame.focus({ preventScroll: true });
+          }
+        }
         const activatedSourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : "";
         const owner = capturedOwnerRef.current;
@@ -8198,6 +8329,126 @@ export function DesignCanvas({
     parentOrigin: browserOrigin ?? undefined,
     liveApp: interactMode,
   });
+  const nativePublicWorkerPreview = useMemo(
+    () =>
+      browserOrigin &&
+      !externalPreviewUrl &&
+      !previewIframeSandbox.includes("allow-same-origin")
+        ? prepareNativePublicWorkerPreviewDocument(
+            privateScreenshotPreview.html,
+            approvedDefinitionHashes,
+          )
+        : null,
+    [
+      approvedDefinitionHashes,
+      browserOrigin,
+      externalPreviewUrl,
+      privateScreenshotPreview.html,
+      previewIframeSandbox,
+    ],
+  );
+  const nativePublicAssetPreview = useMemo(
+    () =>
+      browserOrigin &&
+      !externalPreviewUrl &&
+      !previewIframeSandbox.includes("allow-same-origin")
+        ? prepareNativePublicAssetPreviewDocument(
+            nativePublicWorkerPreview?.html ?? privateScreenshotPreview.html,
+            window.location.href,
+          )
+        : null,
+    [
+      browserOrigin,
+      externalPreviewUrl,
+      nativePublicWorkerPreview,
+      privateScreenshotPreview.html,
+      previewIframeSandbox,
+    ],
+  );
+  const replacedPublicWorkerPreview = useMemo(
+    () =>
+      browserOrigin &&
+      replacedFrame &&
+      !replacedFrame.sandbox.includes("allow-same-origin")
+        ? prepareNativePublicWorkerPreviewDocument(
+            replacedFrame.srcDoc,
+            approvedDefinitionHashes,
+          )
+        : null,
+    [approvedDefinitionHashes, browserOrigin, replacedFrame],
+  );
+  const replacedPublicAssetPreview = useMemo(
+    () =>
+      browserOrigin &&
+      replacedFrame &&
+      !replacedFrame.sandbox.includes("allow-same-origin")
+        ? prepareNativePublicAssetPreviewDocument(
+            replacedPublicWorkerPreview?.html ?? replacedFrame.srcDoc,
+            window.location.href,
+          )
+        : null,
+    [browserOrigin, replacedFrame, replacedPublicWorkerPreview],
+  );
+  nativePublicAssetPreviewRef.current = nativePublicAssetPreview;
+  replacedPublicAssetPreviewRef.current = replacedPublicAssetPreview;
+  nativePublicWorkerPreviewRef.current = nativePublicWorkerPreview;
+  replacedPublicWorkerPreviewRef.current = replacedPublicWorkerPreview;
+  useEffect(() => {
+    const frame = iframeRef.current;
+    if (!frame) return;
+    nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
+    nativePublicAssetPreviewCleanupsRef.current.delete(frame);
+    nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
+    nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
+    if (nativePublicAssetPreview)
+      nativePublicAssetPreviewCleanupsRef.current.set(
+        frame,
+        connectNativePublicAssetPreview(frame, nativePublicAssetPreview),
+      );
+    if (nativePublicWorkerPreview)
+      nativePublicWorkerPreviewCleanupsRef.current.set(
+        frame,
+        connectNativePublicWorkerPreview(
+          frame,
+          nativePublicWorkerPreview,
+          nativePublicAssetPreview?.html ?? nativePublicWorkerPreview.html,
+        ),
+      );
+    return () => {
+      nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
+      nativePublicAssetPreviewCleanupsRef.current.delete(frame);
+      nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
+      nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
+    };
+  }, [nativePublicAssetPreview, nativePublicWorkerPreview]);
+  useEffect(() => {
+    const frame = replacedFrameRef.current;
+    if (!frame) return;
+    nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
+    nativePublicAssetPreviewCleanupsRef.current.delete(frame);
+    nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
+    nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
+    if (replacedPublicAssetPreview)
+      nativePublicAssetPreviewCleanupsRef.current.set(
+        frame,
+        connectNativePublicAssetPreview(frame, replacedPublicAssetPreview),
+      );
+    if (replacedPublicWorkerPreview)
+      nativePublicWorkerPreviewCleanupsRef.current.set(
+        frame,
+        connectNativePublicWorkerPreview(
+          frame,
+          replacedPublicWorkerPreview,
+          replacedPublicAssetPreview?.html ?? replacedPublicWorkerPreview.html,
+        ),
+      );
+    return () => {
+      nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
+      nativePublicAssetPreviewCleanupsRef.current.delete(frame);
+      nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
+      nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
+    };
+  }, [replacedPublicAssetPreview, replacedPublicWorkerPreview]);
   const previewIframeName = externalPreviewUrl
     ? undefined
     : previewColorSchemeFrameName(previewColorScheme);
@@ -8236,8 +8487,6 @@ export function DesignCanvas({
     !(snapshotOnly && !iframeRenderContent.trim()) &&
     !(rawExternalPreviewUrl && !externalPreviewUrl) &&
     !externalPreviewPendingOrigin;
-  const [replacedFrame, setReplacedFrame] =
-    useState<ReplacedPreviewFrame | null>(null);
   const mountedMarkupFrameRef = useRef<ReplacedPreviewFrame | null>(null);
   const markupFrame: ReplacedPreviewFrame | null = markupFrameMounted
     ? {
@@ -8359,7 +8608,12 @@ export function DesignCanvas({
           {replacedFrame ? (
             <iframe
               key={replacedFrame.key}
-              srcDoc={replacedFrame.srcDoc}
+              ref={setReplacedFrameRef}
+              srcDoc={
+                replacedPublicAssetPreview?.html ??
+                replacedPublicWorkerPreview?.html ??
+                replacedFrame.srcDoc
+              }
               name={replacedFrame.name}
               sandbox={replacedFrame.sandbox}
               data-design-preview-replaced
@@ -8375,10 +8629,14 @@ export function DesignCanvas({
           ) : null}
           <iframe
             key={iframeElementIdentity}
-            ref={iframeRef}
+            ref={setIframeRef}
             src={externalPreviewUrl ?? undefined}
             srcDoc={
-              externalPreviewUrl ? undefined : privateScreenshotPreview.html
+              externalPreviewUrl
+                ? undefined
+                : (nativePublicAssetPreview?.html ??
+                  nativePublicWorkerPreview?.html ??
+                  privateScreenshotPreview.html)
             }
             // The starting scheme of a markup preview; see
             // previewColorSchemeFrameName. A URL page keeps its own name.
@@ -8398,6 +8656,8 @@ export function DesignCanvas({
               requestCanvasFocusProbe(event.currentTarget);
             }}
             onLoad={(event) => {
+              if (!externalPreviewUrl)
+                syncNativeShaderApprovals(event.currentTarget);
               pendingCanvasFocusProbeRef.current = null;
               if (!externalPreviewUrl && designId) {
                 connectPrivateReplayScreenshotPreview(
@@ -8468,7 +8728,7 @@ export function DesignCanvas({
       {runtimeVerificationUrl && browserOrigin ? (
         <iframe
           key={`${runtimeVerificationUrl}::${runtimeVerificationRequest?.requestId ?? 0}`}
-          ref={runtimeVerificationIframeRef}
+          ref={setRuntimeVerificationIframeRef}
           src={runtimeVerificationUrl}
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: true,

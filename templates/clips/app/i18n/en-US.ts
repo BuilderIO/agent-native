@@ -614,6 +614,14 @@ const messages = {
       "Line {{line}}: this time is earlier than the one before it.",
     errorPastEnd: "Line {{line}}: this time is after the end of the video.",
   },
+  transcriptHistory: {
+    title: "Earlier transcripts",
+    automatic: "Automatic",
+    restore: "Restore",
+    restored: "Transcript restored",
+    restoreFailed: "Couldn't restore transcript",
+    undo: "Undo",
+  },
   thumbnailPicker: {
     failedCapture: "Failed to capture frame",
     failedGif: "Failed to generate GIF — try a shorter range",
@@ -1309,6 +1317,15 @@ const messages = {
     playClip: "Play clip",
     unsupportedFormat:
       "This browser can't play this video. Try opening the link in Chrome, Edge, or Firefox.",
+    youtubeLoading: "Loading YouTube's player",
+    youtubeUnavailable: "This YouTube video is private or has been removed.",
+    youtubeEmbedBlocked:
+      "This video's owner doesn't allow it to play outside YouTube.",
+    youtubeInvalid: "This YouTube link doesn't point to a playable video.",
+    youtubePlaybackFailed: "YouTube couldn't play this video here.",
+    youtubeApiUnavailable:
+      "YouTube's player didn't load. Check your connection or content blocker, then reload.",
+    watchOnYouTube: "Watch on YouTube",
   },
   searchBar: {
     placeholder: "Search recordings…",
@@ -1793,7 +1810,7 @@ const messages = {
     unmuteMicrophone: "Unmute",
     uploadVideo: "Upload video",
     takeScreenshot: "Take screenshot",
-    importLoom: "Import Loom",
+    importLoom: "Import video",
     importing: "Importing...",
     import: "Import",
     recordNew: "Record new",
@@ -1930,6 +1947,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}}",
     couldNotStartRecording: "Could not start recording",
+    intakeStorageUnavailable:
+      "This link needs its owner to connect video storage before you can record.",
+    streamingStorageUnavailable:
+      "The current storage setup does not support the resumable upload Clips needs. Configure a compatible provider, or ask a workspace owner or admin to do it, then start a new recording.",
     couldNotStartRecorder: "Could not start recorder",
     openSettings: "Open settings",
     openedRecorderInNewTab: "Opened recorder in a new tab",
@@ -1939,6 +1960,8 @@ const messages = {
     storageNeededToFinishLoomImport: "Storage needed to finish Loom import",
     loomImported: "Loom imported",
     couldNotImportLoom: "Could not import that Loom.",
+    youtubeImported: "YouTube video added",
+    couldNotImportVideo: "Could not import that video.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Link copied",
@@ -1958,6 +1981,8 @@ const messages = {
     sessionExpired: "Session expired",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording.",
+    accountMismatch:
+      "Your signed-in account changed after recording setup started. Switch back to the account you started with, then try again.",
     logIn: "Log in",
     betterInDesktop: "Better in the desktop app",
     desktopAppDescription:
@@ -1971,8 +1996,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab",
     retryUpload: "Retry upload",
     tryAgain: "Try again",
-    storageConnectedReopeningRecorder:
-      "Storage connected. Reopening recorder...",
+    storageConnectedRecorderReady:
+      "Storage connected. Start a new recording when you're ready.",
     connectStorageToFinish:
       "On the next screen, use Builder.io storage (free tier storage + AI) or configure S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
@@ -2038,12 +2063,12 @@ const messages = {
       "This recording is still processing, so Clips kept your copy here. Wait for it, or upload it again.",
   },
   importRoute: {
-    pageTitle: "Import Loom — Clips",
-    title: "Import Loom",
+    pageTitle: "Import video — Clips",
+    title: "Import video",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Import",
     helperText:
-      "Works great with Loom. You can also paste a link to any other screen recording or video file.",
+      "Works great with Loom and YouTube. You can also paste a link to any other screen recording or video file.",
     stageFetching: "Pulling in your video…",
     stageUploading: "Uploading the raw footage…",
     stageTranscript: "Making speech and on-screen visuals agent-readable…",

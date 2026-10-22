@@ -14,6 +14,7 @@ import {
   sharedRule13,
   SHARED_RULE_14,
   SHARED_RULE_15,
+  WORKSPACE_APP_DELEGATION_GUIDANCE,
   type PromptExamples,
 } from "./shared-rules.js";
 
@@ -83,7 +84,7 @@ Workspace resources are user-facing by default. If you need temporary working fi
   const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
   const callAgentSection = groupOn("workspaceApps")
     ? `
-**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media, use agent "assets" unless the current app has its own generation action that already delegates there.
+**call-agent** is for A2A peer delegation, never local actions or self-calls. ${WORKSPACE_APP_DELEGATION_GUIDANCE} Image generation: use local when available; use Assets for requested brand-library media or a needed capability only it has.
 `
     : "";
 

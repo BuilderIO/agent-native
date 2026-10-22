@@ -1,18 +1,20 @@
-import { requestAgentSidebarOpen } from "@agent-native/core/client/agent-chat";
-import { startAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import {
   DEFAULT_LOCALE,
   useOptionalLocale,
   useT,
 } from "@agent-native/core/client/i18n";
 import { cn } from "@agent-native/toolkit/utils";
-import { IconDownload, IconExternalLink, IconTable } from "@tabler/icons-react";
+import { IconDownload, IconTable } from "@tabler/icons-react";
 
 import { downloadFile, toCSVTable } from "../../../db-admin/export-utils.js";
-import type { DataTableWidget as DataTableWidgetData } from "./data-widget-types.js";
-
-const SAFE_ACTION_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+import type {
+  DataTableWidget as DataTableWidgetData,
+  DataWidgetDisplay,
+} from "./data-widget-types.js";
+import {
+  DataWidgetDisplayControls,
+  DataWidgetSourceChips,
+} from "./DataWidgetDisplayControls.js";
 
 function formatCell(
   value: unknown,
@@ -42,60 +44,6 @@ function formatCell(
   return text;
 }
 
-function normalizeActionHref(href: string): string | null {
-  const trimmed = href.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) {
-    return appPath(trimmed);
-  }
-
-  const base =
-    typeof window === "undefined"
-      ? "http://agent-native.local/"
-      : window.location.href;
-  try {
-    const url = new URL(trimmed, base);
-    if (!SAFE_ACTION_PROTOCOLS.has(url.protocol)) return null;
-
-    if (
-      typeof window !== "undefined" &&
-      url.origin === window.location.origin
-    ) {
-      return appPath(`${url.pathname}${url.search}${url.hash}`);
-    }
-
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
-function isSameAppHref(href: string): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const url = new URL(href, window.location.href);
-    return (
-      url.origin === window.location.origin && url.pathname.startsWith("/")
-    );
-  } catch {
-    return false;
-  }
-}
-
-function navigateSameAppHref(href: string): void {
-  if (typeof window === "undefined") return;
-  const url = new URL(href, window.location.href);
-  startAgentChatViewTransition(() => {
-    requestAgentSidebarOpen();
-    window.history.pushState(
-      window.history.state,
-      "",
-      `${url.pathname}${url.search}${url.hash}`,
-    );
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  });
-}
-
 function slugifyFilenamePart(value: string | undefined): string {
   const slug = (value ?? "data-table")
     .trim()
@@ -108,14 +56,20 @@ function slugifyFilenamePart(value: string | undefined): string {
 export function DataTableWidget({
   table,
   action,
+  display,
 }: {
   table: DataTableWidgetData;
   action?: { label: string; href: string };
+  display?: DataWidgetDisplay;
 }) {
   const t = useT();
   const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const rows = table.rows ?? [];
-  const actionHref = action ? normalizeActionHref(action.href) : null;
+  const resolvedDisplay = display
+    ? { ...display, primaryAction: display.primaryAction ?? action }
+    : action
+      ? { primaryAction: action }
+      : undefined;
   const canExportCsv = table.columns.length > 0;
   const exportCsv = () => {
     if (!canExportCsv) return;
@@ -151,30 +105,11 @@ export function DataTableWidget({
             {table.truncated ? ` ${t("agentChat.widget.sampled")}` : ""}
           </div>
         </div>
-        {action && actionHref ? (
-          <a
-            href={actionHref}
-            onClick={(event) => {
-              if (
-                event.defaultPrevented ||
-                event.button !== 0 ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey ||
-                !isSameAppHref(actionHref)
-              ) {
-                return;
-              }
-              event.preventDefault();
-              navigateSameAppHref(actionHref);
-            }}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground no-underline hover:bg-muted hover:no-underline"
-          >
-            {action.label}
-            <IconExternalLink className="h-3 w-3" />
-          </a>
-        ) : null}
+        <DataWidgetDisplayControls
+          display={resolvedDisplay}
+          variant="secondary"
+          kind="table"
+        />
         <button
           type="button"
           onClick={exportCsv}
@@ -240,6 +175,7 @@ export function DataTableWidget({
           </tbody>
         </table>
       </div>
+      <DataWidgetSourceChips sources={display?.sources ?? []} />
     </div>
   );
 }

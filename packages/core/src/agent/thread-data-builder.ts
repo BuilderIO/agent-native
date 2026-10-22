@@ -31,6 +31,7 @@ import {
   toolInputsMatch,
 } from "../shared/tool-inputs.js";
 import { approvalKeyForHistory } from "./approval-key.js";
+import { isAgentInternalContinuationPrompt } from "./continuation-prompt.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import {
   INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
@@ -51,6 +52,8 @@ interface ContentPart {
   text?: string;
   toolCallId?: string;
   toolName?: string;
+  executionStepId?: string;
+  inputFingerprint?: string;
   argsText?: string;
   args?: Record<string, unknown>;
   result?: string;
@@ -344,15 +347,15 @@ export function buildAssistantMessage(
 
     if (event.type === "tool_start") {
       const explicitToolCallId = event.id?.trim();
-      if (explicitToolCallId) {
-        const replayed = content.some(
-          (part) =>
-            part.type === "tool-call" &&
-            part.toolCallId === explicitToolCallId &&
-            part.toolName === (event.tool ?? "unknown"),
+      const executionStepId = event.executionStepId?.trim();
+      const replayed = content.some((part) => {
+        if (part.type !== "tool-call") return false;
+        return (
+          executionStepId !== undefined &&
+          part.executionStepId === executionStepId
         );
-        if (replayed) continue;
-      }
+      });
+      if (replayed) continue;
       toolCallCounter += 1;
       const toolCallId =
         explicitToolCallId ||
@@ -364,6 +367,10 @@ export function buildAssistantMessage(
         toolName: event.tool ?? "unknown",
         argsText: JSON.stringify(args),
         args,
+        ...(executionStepId ? { executionStepId } : {}),
+        ...(event.inputFingerprint
+          ? { inputFingerprint: event.inputFingerprint }
+          : {}),
       });
       continue;
     }
@@ -393,38 +400,98 @@ export function buildAssistantMessage(
     if (event.type === "tool_done") {
       const eventToolCallId = event.id?.trim();
       let matchingIndex = -1;
-
-      if (eventToolCallId) {
-        for (let i = content.length - 1; i >= 0; i--) {
-          const part = content[i];
-          if (
-            part.type === "tool-call" &&
-            part.toolCallId === eventToolCallId &&
-            part.result === undefined
-          ) {
-            matchingIndex = i;
-            break;
-          }
+      const executionStepId = event.executionStepId?.trim();
+      const candidates = content.flatMap((part, index) => {
+        if (
+          part.type !== "tool-call" ||
+          part.result !== undefined ||
+          part.toolName !== (event.tool ?? "unknown")
+        ) {
+          return [];
         }
-      }
-
-      if (matchingIndex === -1) {
-        for (let i = content.length - 1; i >= 0; i--) {
-          const part = content[i];
-          if (
-            part.type === "tool-call" &&
-            part.toolName === event.tool &&
-            part.result === undefined
-          ) {
-            matchingIndex = i;
-            break;
-          }
+        if (executionStepId) {
+          return part.executionStepId === executionStepId ? [index] : [];
         }
+        if (
+          event.inputFingerprint !== undefined &&
+          part.inputFingerprint !== event.inputFingerprint
+        ) {
+          return [];
+        }
+        if (
+          event.input !== undefined &&
+          !toolInputsMatch(part.args, event.input)
+        ) {
+          return [];
+        }
+        return [index];
+      });
+      const legacyCandidates = executionStepId
+        ? content.flatMap((part, index) => {
+            if (
+              part.type !== "tool-call" ||
+              part.result !== undefined ||
+              part.executionStepId !== undefined ||
+              part.toolName !== (event.tool ?? "unknown") ||
+              (event.inputFingerprint !== undefined &&
+                part.inputFingerprint !== event.inputFingerprint) ||
+              (event.input !== undefined &&
+                !toolInputsMatch(part.args, event.input))
+            ) {
+              return [];
+            }
+            return [index];
+          })
+        : candidates;
+      const candidateMatches =
+        candidates.length > 0
+          ? candidates
+          : executionStepId && legacyCandidates.length !== 1
+            ? []
+            : legacyCandidates;
+      const idCandidates =
+        eventToolCallId === undefined
+          ? candidateMatches
+          : candidateMatches.filter(
+              (index) =>
+                content[index]?.type === "tool-call" &&
+                content[index]?.toolCallId === eventToolCallId,
+            );
+      const matchingCandidates =
+        idCandidates.length > 0 || eventToolCallId === undefined
+          ? idCandidates
+          : candidateMatches;
+      if (matchingCandidates.length === 1) {
+        // Legacy results lack occurrence identity, so attach only a unique pending match.
+        matchingIndex = matchingCandidates[0]!;
       }
 
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
+        if (event.replayed === true && !executionStepId) {
+          const earlierDuplicate = content.findIndex(
+            (candidate, index) =>
+              index !== matchingIndex &&
+              candidate.type === "tool-call" &&
+              candidate.result !== undefined &&
+              candidate.toolCallId === part.toolCallId &&
+              candidate.toolName === part.toolName &&
+              (event.inputFingerprint !== undefined
+                ? candidate.inputFingerprint === event.inputFingerprint
+                : event.input === undefined ||
+                  toolInputsMatch(candidate.args, event.input)),
+          );
+          if (earlierDuplicate >= 0) {
+            content.splice(matchingIndex, 1);
+            approvalPauseCandidates.delete(part);
+            continue;
+          }
+        }
         part.result = event.result ?? "";
+        if (executionStepId) part.executionStepId = executionStepId;
+        if (event.inputFingerprint) {
+          part.inputFingerprint = event.inputFingerprint;
+        }
         // Older journals have approval_required but no pause marker on tool_done.
         const inferredLegacyPause =
           event.approvalPause === undefined &&
@@ -1152,7 +1219,18 @@ function assistantReplayContent(
     const name = typeof part.toolName === "string" ? part.toolName.trim() : "";
     if (!id || !name) continue;
     const input = replayedToolInput(part.args);
-    assistant.push({ type: "tool-call", id, name, input });
+    assistant.push({
+      type: "tool-call",
+      id,
+      name,
+      input,
+      ...(typeof part.executionStepId === "string"
+        ? { executionStepId: part.executionStepId }
+        : {}),
+      ...(typeof part.inputFingerprint === "string"
+        ? { inputFingerprint: part.inputFingerprint }
+        : {}),
+    });
     const result = replayedToolResult(part);
     results.push({
       type: "tool-result",
@@ -1160,6 +1238,12 @@ function assistantReplayContent(
       toolName: name,
       toolInput: stringifyToolUseInputForGateway(input),
       ...result,
+      ...(typeof part.executionStepId === "string"
+        ? { executionStepId: part.executionStepId }
+        : {}),
+      ...(typeof part.inputFingerprint === "string"
+        ? { inputFingerprint: part.inputFingerprint }
+        : {}),
       ...(part.approvalPause === true ? { approvalPause: true } : {}),
       ...(typeof part.approval?.askId === "string"
         ? { approvalAskId: part.approval.askId }
@@ -1295,16 +1379,7 @@ export function resumeThreadHistoryForRequest(
   const messages = threadDataToEngineMessages(threadData, {
     includeToolCalls: true,
   });
-  let turnStart = messages.length - 1;
-  while (
-    turnStart >= 0 &&
-    !(
-      messages[turnStart]!.role === "user" &&
-      messages[turnStart]!.content.some((part) => part.type === "text")
-    )
-  ) {
-    turnStart--;
-  }
+  const turnStart = lastUserPromptIndex(messages);
   if (turnStart < 0) return { messages, foundTurnPrompt: false };
   return {
     messages: [
@@ -1313,6 +1388,21 @@ export function resumeThreadHistoryForRequest(
     ],
     foundTurnPrompt: true,
   };
+}
+
+export function lastUserPromptIndex(messages: EngineMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (
+      messages[index]!.role === "user" &&
+      messages[index]!.content.some(
+        (part) =>
+          part.type === "text" && !isAgentInternalContinuationPrompt(part.text),
+      )
+    ) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 /**
@@ -4510,7 +4600,11 @@ function assistantContentWeight(content: unknown): number {
   return weight;
 }
 
-function appendFoldedContent(existing: any[], incoming: any[]): any[] {
+function appendFoldedContent(
+  existing: any[],
+  incoming: any[],
+  separateRunBoundary = false,
+): any[] {
   const merged = existing.map((p) => ({ ...p }));
   for (const part of incoming) {
     if (part?.type === "tool-call" && part.result !== undefined) {
@@ -4541,10 +4635,11 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
       last?.type === "text" &&
       typeof last.text === "string"
     ) {
-      last.text = `${last.text}${part.text}`;
+      last.text = `${last.text}${separateRunBoundary ? "\n\n" : ""}${part.text}`;
     } else {
       merged.push({ ...part });
     }
+    separateRunBoundary = false;
   }
   return normalizeAssistantToolCallIds({
     role: "assistant",
@@ -4589,19 +4684,44 @@ export function foldAssistantTurn(
     ? assistantMsg.content
     : [];
   const existingFolded = foldedRunIdsOf(lastMsg);
+  const incomingFolded = foldedRunIdsOf(assistantMsg);
   const runAlreadyFolded =
     !!runId &&
     (existingFolded.includes(runId) || getMessageRunId(lastMsg) === runId);
+  const supersededRunReplay =
+    runAlreadyFolded && !!runId && getMessageRunId(lastMsg) !== runId;
+  const incomingCoversExistingRuns =
+    existingFolded.length > 0 &&
+    !!runId &&
+    incomingFolded.includes(runId) &&
+    existingFolded.every((foldedRunId) => incomingFolded.includes(foldedRunId));
 
-  const mergedContent = runAlreadyFolded
-    ? assistantContentWeight(incomingContent) >
-      assistantContentWeight(existingContent)
-      ? incomingContent
-      : existingContent
-    : appendFoldedContent(existingContent, incomingContent);
+  let mergedContent = existingContent;
+  if (!supersededRunReplay) {
+    if (incomingCoversExistingRuns) {
+      mergedContent = incomingContent;
+    } else if (runAlreadyFolded) {
+      if (
+        assistantContentWeight(incomingContent) >
+        assistantContentWeight(existingContent)
+      ) {
+        mergedContent = incomingContent;
+      }
+    } else {
+      mergedContent = appendFoldedContent(
+        existingContent,
+        incomingContent,
+        lastMsg.status?.type === "incomplete",
+      );
+    }
+  }
 
   const mergedFolded = Array.from(
-    new Set([...existingFolded, ...(runId ? [runId] : [])]),
+    new Set([
+      ...existingFolded,
+      ...(supersededRunReplay ? [] : incomingFolded),
+      ...(runId ? [runId] : []),
+    ]),
   );
 
   const existingCustom =
@@ -4616,7 +4736,7 @@ export function foldAssistantTurn(
 
   const mergedCustom: Record<string, unknown> = {
     ...existingCustom,
-    ...incomingCustom,
+    ...(supersededRunReplay ? {} : incomingCustom),
     turnId,
     foldedRunIds: mergedFolded,
   };
@@ -4634,7 +4754,9 @@ export function foldAssistantTurn(
   if (mergedDurationMs != null) {
     mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
   }
-  if (incomingCustom.continued !== true) delete mergedCustom.continued;
+  if (!supersededRunReplay && incomingCustom.continued !== true) {
+    delete mergedCustom.continued;
+  }
   // A turn's failure is its newest run's: a run that continued past an
   // earlier stop clears the stop's error instead of inheriting it.
   if (!runAlreadyFolded && incomingCustom.runError === undefined) {
@@ -4647,10 +4769,14 @@ export function foldAssistantTurn(
       role: "assistant",
       content: mergedContent,
     }).content,
-    status: assistantMsg.status ?? lastMsg.status,
+    status: supersededRunReplay
+      ? lastMsg.status
+      : (assistantMsg.status ?? lastMsg.status),
     metadata: {
       ...lastMsg.metadata,
-      runId: runId ?? lastMsg.metadata?.runId,
+      runId: supersededRunReplay
+        ? lastMsg.metadata?.runId
+        : (runId ?? lastMsg.metadata?.runId),
       custom: mergedCustom,
     },
   };

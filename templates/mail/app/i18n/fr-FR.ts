@@ -317,7 +317,12 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enrichissement des contacts et données d’entreprise",
       hubspotDescription: "Contacts CRM, affaires et tickets",
-      gongDescription: "Appels récents et intelligence conversationnelle",
+      gongDescription: "Historique des appels Gong",
+      gongAccessCheckFailed:
+        "Impossible de vérifier si vous pouvez connecter Gong.",
+      gongKeyPlaceholder: "Clé API Gong",
+      gongKeyFormatHint:
+        "Saisissez la clé d’accès et le secret au format access_key:secret.",
       pylonDescription: "Tickets de support et données de compte",
       gongCalls: "Appels Gong",
       deals: "Affaires",
@@ -441,6 +446,7 @@ const messages = {
       tryDifferentKeywords: "Essayez d’autres mots-clés",
       nothingHere: "Rien ici pour l’instant",
       loadingMore: "Chargement...",
+      openAllMailForOlder: "Ouvrir tous les e-mails pour les anciens messages",
     },
     toasts: {
       noEmailSelected: "Aucun email sélectionné.",
@@ -474,6 +480,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Message envoyé.",
       failedToSaveDraft: "Échec de l'enregistrement du brouillon.",
+      failedToRefreshInbox:
+        "Impossible d'actualiser la boîte de réception. Réessayez dans un instant.",
       failedToDeleteDraft: "Échec de la suppression du brouillon.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",

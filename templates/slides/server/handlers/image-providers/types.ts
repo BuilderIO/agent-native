@@ -10,6 +10,7 @@ export interface ImageGenerationResult {
   mimeType: string;
   model: string;
   provider: string;
+  referenceImagesSubmitted?: number;
 }
 
 export interface ReferenceImage {

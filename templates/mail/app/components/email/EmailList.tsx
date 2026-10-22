@@ -107,7 +107,11 @@ import {
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import { mailThreadHref } from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import {
+  ensureThread,
+  THREAD_PREFETCH_INTENT_MS,
+  warmThreads,
+} from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 
@@ -206,6 +210,8 @@ interface EmailListProps {
   labels?: Label[];
   refetchEmails?: () => unknown;
   hasNextPage?: boolean;
+  /** Paging stopped at the server's offset cap; older mail is out of reach here. */
+  reachedCap?: boolean;
   fetchNextPage?: () => Promise<unknown>;
   isFetchingNextPage?: boolean;
   isFetchNextPageError?: boolean;
@@ -516,6 +522,7 @@ export function EmailList({
   labels: labelsProp,
   refetchEmails,
   hasNextPage: hasNextPageProp,
+  reachedCap = false,
   fetchNextPage: fetchNextPageProp,
   isFetchingNextPage: isFetchingNextPageProp,
   isFetchNextPageError: isFetchNextPageErrorProp,
@@ -1150,6 +1157,16 @@ export function EmailList({
   const selectUnstarredThreads = useCallback(() => {
     selectThreads((thread) => !thread.hasStarred);
   }, [selectThreads]);
+
+  // Hover is speculative, so it goes through warmThreads: that path skips work
+  // during a rate-limit or auth cooldown. Opening a thread stays on ensureThread.
+  const prefetchThread = useCallback((thread: ThreadSummary) => {
+    const email = thread.latestMessage;
+    if (email.isDraft) return;
+    warmThreads([
+      { id: email.threadId || email.id, accountEmail: email.accountEmail },
+    ]);
+  }, []);
 
   const moveFocus = useCallback(
     (delta: number) => {
@@ -1904,15 +1921,20 @@ export function EmailList({
     if (!focusedId || threads.length === 0) return;
     const idx = threads.findIndex((t) => t.latestMessage.id === focusedId);
     if (idx === -1) return;
-    const windowIdx = [idx - 1, idx, idx + 1].filter(
-      (i) => i >= 0 && i < threads.length,
-    );
-    warmThreads(
-      windowIdx.map((i) => ({
-        id: threads[i].latestMessage.threadId || threads[i].latestMessage.id,
-        accountEmail: threads[i].latestMessage.accountEmail,
-      })),
-    );
+    // Warm only once focus rests, so holding J/K does not fetch every row it
+    // passes. Each focus change restarts the timer.
+    const timer = setTimeout(() => {
+      const windowIdx = [idx - 1, idx, idx + 1].filter(
+        (i) => i >= 0 && i < threads.length,
+      );
+      warmThreads(
+        windowIdx.map((i) => ({
+          id: threads[i].latestMessage.threadId || threads[i].latestMessage.id,
+          accountEmail: threads[i].latestMessage.accountEmail,
+        })),
+      );
+    }, THREAD_PREFETCH_INTENT_MS);
+    return () => clearTimeout(timer);
   }, [focusedId, threads]);
 
   const [rowHeightEstimate, setRowHeightEstimate] = useState(() =>
@@ -2811,6 +2833,7 @@ export function EmailList({
                   onConfirmUncertainScheduled={handleConfirmUncertainScheduled}
                   onRetryUncertainScheduled={handleRetryUncertainScheduled}
                   onHover={handleHoverThread}
+                  onPrefetch={prefetchThread}
                   onSwipeArchive={handleSwipeArchive}
                   onSwipeSnooze={handleSwipeSnooze}
                   highlight={searchQuery}
@@ -2868,6 +2891,17 @@ export function EmailList({
                 {t("mail.error.tryAgain")}
               </button>
             )}
+          </div>
+        )}
+        {reachedCap && !hasNextPage && (
+          <div className="flex items-center justify-center py-3 text-xs text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => void navigate("/all")}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              {t("mail.empty.openAllMailForOlder")}
+            </button>
           </div>
         )}
       </div>

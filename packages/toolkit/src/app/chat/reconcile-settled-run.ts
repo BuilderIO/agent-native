@@ -6,6 +6,31 @@ import {
 import type { RunReconcileOutcome } from "./RunStuckBanner.js";
 
 /**
+ * A run that yielded to a connection request ends on the server by design, so
+ * the server reporting it settled says nothing about a chat that is waiting on
+ * the user rather than on a response.
+ */
+export function isWaitingOnConnectionRequest(
+  thread: AgentThreadState,
+): boolean {
+  const openRequestRunIds = new Set(
+    Object.entries(thread.connectionRequests).flatMap(([id, request]) =>
+      request.status === "requested" || request.status === "connecting"
+        ? [thread.connectionRequestRunIds[id]]
+        : [],
+    ),
+  );
+  return (
+    thread.activeRunIds.length > 0 &&
+    thread.activeRunIds.every(
+      (runId) =>
+        thread.runs[runId]?.status === "awaiting_input" &&
+        openRequestRunIds.has(runId),
+    )
+  );
+}
+
+/**
  * The server stopped tracking a run this chat still shows as running, so the
  * run's ending, and the tool-done events that refresh the app's data, never
  * arrived. Reload the thread from the server to settle it, then replay the

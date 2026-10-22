@@ -60,6 +60,7 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
     errorCode: over.errorCode ?? null,
     ownerEmail: over.ownerEmail ?? "alice@x.com",
     visibility: over.visibility ?? "private",
+    identityAssurance: over.identityAssurance ?? null,
   };
 }
 
@@ -77,6 +78,23 @@ afterEach(async () => {
 });
 
 describe("audit store scoping", () => {
+  it("persists verified identity assurance on list and detail reads", async () => {
+    await insertAuditEvent(
+      makeEvent({
+        id: "org-member-event",
+        identityAssurance: "org-member",
+      }),
+    );
+
+    const [listed] = await queryAuditEvents({ userEmail: "alice@x.com" });
+    const detailed = await getAuditEventById("org-member-event", {
+      userEmail: "alice@x.com",
+    });
+
+    expect(listed.identityAssurance).toBe("org-member");
+    expect(detailed?.identityAssurance).toBe("org-member");
+  });
+
   it("returns a user only their own rows", async () => {
     await insertAuditEvent(makeEvent({ ownerEmail: "alice@x.com" }));
     await insertAuditEvent(makeEvent({ ownerEmail: "bob@x.com" }));
@@ -413,6 +431,28 @@ describe("app, date range, and paging", () => {
       reportedClientVersion: null,
       oauthClientId: null,
       approval: null,
+    });
+  });
+
+  it("keeps a row whose text carries a NUL", async () => {
+    await insertAuditEvent({
+      ...makeEvent({
+        id: "nul",
+        caller: "mcp",
+        targetId: "form\u00001",
+        summary: "Renamed to a\u0000b",
+      }),
+      reportedClientName: "evil\u0000client",
+      approval: "mcp-client-accepted",
+    });
+
+    expect(
+      await getAuditEventById("nul", { userEmail: "alice@x.com" }),
+    ).toMatchObject({
+      targetId: "form�1",
+      summary: "Renamed to a�b",
+      reportedClientName: "evil�client",
+      approval: "mcp-client-accepted",
     });
   });
 

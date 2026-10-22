@@ -707,6 +707,14 @@ const messages = {
     errorOutOfOrder: "Zeile {{line}}: Diese Zeit liegt vor der vorherigen.",
     errorPastEnd: "Zeile {{line}}: Diese Zeit liegt nach dem Ende des Videos.",
   },
+  transcriptHistory: {
+    title: "Frühere Transkripte",
+    automatic: "Automatisch",
+    restore: "Wiederherstellen",
+    restored: "Transkript wiederhergestellt",
+    restoreFailed: "Transkript konnte nicht wiederhergestellt werden",
+    undo: "Rückgängig",
+  },
   thumbnailPicker: {
     failedCapture: "Frame konnte nicht erfasst werden",
     failedGif:
@@ -1420,6 +1428,15 @@ const messages = {
     playClip: "Clip abspielen",
     unsupportedFormat:
       "Dieser Browser kann dieses Video nicht abspielen. Öffne den Link in Chrome, Edge oder Firefox.",
+    youtubeLoading: "YouTube-Player wird geladen",
+    youtubeUnavailable: "Dieses YouTube-Video ist privat oder wurde entfernt.",
+    youtubeEmbedBlocked:
+      "Der Inhaber dieses Videos erlaubt keine Wiedergabe außerhalb von YouTube.",
+    youtubeInvalid: "Dieser YouTube-Link führt zu keinem abspielbaren Video.",
+    youtubePlaybackFailed: "YouTube konnte dieses Video hier nicht abspielen.",
+    youtubeApiUnavailable:
+      "Der YouTube-Player wurde nicht geladen. Prüfe deine Verbindung oder deinen Inhaltsblocker und lade die Seite neu.",
+    watchOnYouTube: "Auf YouTube ansehen",
   },
   searchBar: {
     placeholder: "Aufzeichnungen suchen…",
@@ -1854,7 +1871,7 @@ const messages = {
     unmuteMicrophone: "Stummschaltung aufheben",
     uploadVideo: "Upload video (Lokalisiert)",
     takeScreenshot: "Screenshot aufnehmen",
-    importLoom: "Import Loom (Lokalisiert)",
+    importLoom: "Video importieren",
     importing: "Importing... (Lokalisiert)",
     import: "Import (Lokalisiert)",
     recordNew: "Neu aufnehmen",
@@ -1997,6 +2014,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (Lokalisiert)",
     couldNotStartRecording: "Could not start recording (Lokalisiert)",
+    intakeStorageUnavailable:
+      "Der Eigentümer dieses Links muss Videospeicher verbinden, bevor du aufnehmen kannst. Bitte ihn darum und versuche es dann erneut.",
+    streamingStorageUnavailable:
+      "Der aktuelle Speicher unterstützt den fortsetzbaren Upload für Clips nicht. Richte einen kompatiblen Anbieter ein oder bitte den Workspace-Inhaber oder Admin darum. Starte danach eine neue Aufnahme.",
     couldNotStartRecorder: "Could not start recorder (Lokalisiert)",
     openSettings: "Open settings (Lokalisiert)",
     openedRecorderInNewTab: "Opened recorder in a new tab (Lokalisiert)",
@@ -2007,6 +2028,8 @@ const messages = {
       "Storage needed to finish Loom import (Lokalisiert)",
     loomImported: "Loom imported (Lokalisiert)",
     couldNotImportLoom: "Dieser Loom konnte nicht importiert werden.",
+    youtubeImported: "YouTube-Video hinzugefügt",
+    couldNotImportVideo: "Dieses Video konnte nicht importiert werden.",
     recordingReadyToUpload: "Recording is ready to upload (Lokalisiert)",
     recordingSaved: "Recording saved (Lokalisiert)",
     linkCopied: "Link kopiert",
@@ -2028,6 +2051,8 @@ const messages = {
     sessionExpired: "Session expired (Lokalisiert)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (Lokalisiert)",
+    accountMismatch:
+      "Dein angemeldetes Konto hat sich nach dem Start der Aufnahmevorbereitung geändert. Wechsle zurück zum ursprünglichen Konto und versuche es erneut.",
     logIn: "Log in (Lokalisiert)",
     betterInDesktop: "Better in the desktop app (Lokalisiert)",
     desktopAppDescription:
@@ -2041,8 +2066,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (Lokalisiert)",
     retryUpload: "Upload erneut versuchen",
     tryAgain: "Erneut versuchen",
-    storageConnectedReopeningRecorder:
-      "Speicher verbunden. Recorder wird erneut geöffnet...",
+    storageConnectedRecorderReady:
+      "Speicher verbunden. Starte eine neue Aufnahme, wenn du bereit bist.",
     connectStorageToFinish:
       "Nutze im nächsten Bildschirm Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder konfiguriere S3-kompatiblen Speicher. Clips schließt das Speichern ab.",
     connectStorageToRetryLoom:
@@ -2111,12 +2136,12 @@ const messages = {
       "Diese Aufnahme wird noch verarbeitet, daher hat Clips deine Kopie hier behalten. Warte darauf oder lade sie erneut hoch.",
   },
   importRoute: {
-    pageTitle: "Loom importieren — Clips",
-    title: "Loom importieren",
+    pageTitle: "Video importieren — Clips",
+    title: "Video importieren",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importieren",
     helperText:
-      "Funktioniert hervorragend mit Loom. Du kannst auch einen Link zu einer anderen Bildschirmaufnahme oder Videodatei einfügen.",
+      "Funktioniert hervorragend mit Loom und YouTube. Du kannst auch einen Link zu einer anderen Bildschirmaufnahme oder Videodatei einfügen.",
     stageFetching: "Dein Video wird geladen…",
     stageUploading: "Rohmaterial wird hochgeladen…",
     stageTranscript: "Sprache und Bildschirminhalte agentenlesbar machen…",

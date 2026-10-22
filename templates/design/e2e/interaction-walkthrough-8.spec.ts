@@ -391,7 +391,7 @@ test("Shift+A on an element that already has auto layout wraps it in a new auto-
   expectOnlyChanged(before, after, ["nav", wrapperId]);
 });
 
-test("step 5 [overview, screens as top-level frames]: Cmd+D finds free slots, stacks above the source, and groups undo/redo", async ({
+test("Cmd+D places screen duplicates in free slots above the source, and grouped undo/redo restores their positions", async ({
   app,
 }) => {
   const id = await app.seed(NAV_SCREEN, {
@@ -505,7 +505,7 @@ test("step 5 [overview, screens as top-level frames]: Cmd+D finds free slots, st
     .toStrictEqual([redoneId]);
 });
 
-test("step 5 [overview, multi-selection]: Cmd+D duplicates every selected screen in one undo step", async ({
+test("Cmd+D duplicates every selected screen in one undo step", async ({
   app,
 }) => {
   const id = await app.seed(BLANK_SCREEN("Source"), {
@@ -546,6 +546,7 @@ test("step 5 [overview, multi-selection]: Cmd+D duplicates every selected screen
   await app.page
     .locator(`[data-frame-id="${sourceId}"] [data-screen-card]`)
     .click();
+  await app.settled();
   await expect
     .poll(() => selectedScreenIds(app.page))
     .toStrictEqual([sourceId]);

@@ -5,12 +5,14 @@ import type {
   WrapNodeSizeHint,
 } from "@shared/code-layer";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { inferAutoLayoutSuggestion } from "@/pages/design-editor/auto-layout-suggestion";
 import type { EffectiveCodeLayerState } from "@/pages/design-editor/code-layer-state";
 import {
   codeLayerPatchMessage,
@@ -165,7 +167,7 @@ export function runAddAutoLayout({
       designSourceType,
     );
 
-    if (screenSourceType === "localhost") {
+    if (isRunningAppSourceType(screenSourceType)) {
       const snapshot = runtimeLayerSnapshotsById[screenId];
       if (!snapshot) {
         toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
@@ -277,6 +279,18 @@ export function runAddAutoLayout({
         : { x: 0, y: 0, width: 0, height: 0 },
       selectedRects,
     );
+    const alignment = bounds
+      ? inferAutoLayoutSuggestion({
+          container: {
+            id: "selection",
+            x: bounds.left,
+            y: bounds.top,
+            width: bounds.width,
+            height: bounds.height,
+          },
+          children: selectedRects,
+        })?.alignItems
+      : undefined;
     const patch = applyVisualEdit(
       baseContent,
       {
@@ -340,6 +354,21 @@ export function runAddAutoLayout({
         );
         if (alignPatch.result.status === "applied") {
           nextContent = alignPatch.content;
+        }
+      }
+      if (alignment && alignment !== "stretch") {
+        const alignmentPatch = applyVisualEdit(
+          nextContent,
+          {
+            kind: "style",
+            target: { nodeId: wrapperId },
+            property: "align-items",
+            value: alignment,
+          },
+          { source },
+        );
+        if (alignmentPatch.result.status === "applied") {
+          nextContent = alignmentPatch.content;
         }
       }
     }

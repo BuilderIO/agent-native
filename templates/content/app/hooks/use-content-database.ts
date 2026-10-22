@@ -1837,7 +1837,9 @@ export function useRefreshContentDatabaseSource(documentId: string) {
     RefreshContentDatabaseSourceRequest
   >("refresh-content-database-source", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => {
+    // A GitHub refresh that fails stores the problem on the source first, so
+    // the status line rereads after a failure too.
+    onSettled: () => {
       invalidateContentDatabaseSourceRefreshQueries(queryClient, documentId);
     },
   });

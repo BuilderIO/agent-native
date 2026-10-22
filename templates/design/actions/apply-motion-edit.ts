@@ -20,6 +20,7 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   assertMotionAnimationStyleDefinitions,
   MOTION_ANIMATION_STYLE_MAX_DEFINITIONS,
@@ -106,6 +107,7 @@ import {
   withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
 import {
   isBridgeSha256VersionHash,
   MotionLocalSourceError,
@@ -146,6 +148,9 @@ const motionTextDocumentSchema = z
             order: z.enum(MOTION_TEXT_ORDERS).optional(),
             overlapPercent: z.number().min(0).max(100).optional(),
             ignoreSpaces: z.boolean().optional(),
+            clipContent: z.boolean().optional(),
+            originX: z.number().min(0).max(100).optional(),
+            originY: z.number().min(0).max(100).optional(),
             delayMs: z.number().min(0).max(MAX_MOTION_DURATION_MS).optional(),
             property: z.enum(MOTION_TEXT_PROPERTIES),
             durationMs: z.number().positive().max(MAX_MOTION_DURATION_MS),
@@ -603,6 +608,7 @@ async function persistFileContent(
   },
   content: string,
   expectedVersionHash: string,
+  expectedWorkingCopyHash: string,
 ): Promise<string> {
   agentEnterDocument(file.id);
   try {
@@ -620,6 +626,7 @@ async function persistFileContent(
       file: workspaceFile,
       content,
       expectedVersionHash,
+      expectedWorkingCopyHash,
     });
     return result.updatedAt;
   } finally {
@@ -737,7 +744,7 @@ export default defineAction({
       )
       .optional()
       .describe(
-        "Lossless native Figma Motion style instances stored in the versioned " +
+        "Lossless imported Motion style instances stored in the versioned " +
           "source metadata. Omit to preserve existing instances; provide an " +
           "array to replace them or [] to clear them.",
       ),
@@ -1202,7 +1209,7 @@ export default defineAction({
       fail(
         error instanceof MotionNativeStyleInstanceError
           ? `${error.message}${error.path ? ` (${error.path})` : ""}`
-          : "Invalid native Figma Motion styles.",
+          : "Invalid imported Motion styles.",
         {
           errorCode: "motion_native_style_invalid",
           statusCode: 422,
@@ -1739,6 +1746,7 @@ export default defineAction({
         },
         patchedContent,
         baseVersionHash,
+        sourceContentHash(currentContent),
       );
     }
 
@@ -1779,6 +1787,7 @@ export default defineAction({
     return {
       timelineId: resolvedTimelineId,
       designId,
+      _receipt: designOutputWriteReceipt(designId, 1),
       fileId,
       sourceRef: resolvedSourceRef,
       sourceType: localSourceLocation ? "localhost" : "inline",

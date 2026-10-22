@@ -17,6 +17,8 @@ export type FetchedDashboard = {
   createdBy: string | null;
   updatedAt: string | null;
   updatedBy: string | null;
+  /** Set for a built-in; its id differs from `id` when `id` was an old copy's. */
+  builtin?: { id: string; version: string };
 } & ResourceAccess;
 
 function parseDashboardDemoMetadata(
@@ -117,6 +119,7 @@ export async function fetchDashboard(
         columns: typeof data.columns === "number" ? data.columns : undefined,
         panels: data.panels ?? [],
         annotations: data.annotations,
+        introducedPanels: data.introducedPanels,
       },
       archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
       hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
@@ -134,6 +137,11 @@ export async function fetchDashboard(
       canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
       canManage:
         typeof data.canManage === "boolean" ? data.canManage : undefined,
+      ...(data.builtin &&
+      typeof data.builtin.id === "string" &&
+      typeof data.builtin.version === "string"
+        ? { builtin: { id: data.builtin.id, version: data.builtin.version } }
+        : {}),
     };
   } catch (error) {
     if (options?.reportScreenshot) throw error;

@@ -19,6 +19,7 @@ A few entry points:
 - `writing-agent-instructions` — before editing instructions, skills, or tool/action descriptions.
 - `verifying-changes` — exercise the broken path before calling a fix done.
 - `adding-tests-and-ci` — before adding tests, CI jobs, or workflow triggers.
+- `test-audit` — test changes.
 - `reporting-progress` — during long runs and before asking for status.
 - `concurrent-agents` — before shared-checkout work.
 - `ship` — guarded shipping; beta/docs deploy automatically, other production promotion is manual.
@@ -35,10 +36,13 @@ Use `/sidecar <task>` for read-only investigations.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
-- In task worktrees, create safe needed branches without asking. For `/ship`
-  from an unsafe shared checkout, use a managed worktree without asking:
-  fresh `origin/main` for new PRs, the live PR head and its head repository
-  for updates. Carry only task changes; preserve the checkout. See `new-branch`.
+- A user's task-scoped authorization persists across replies, heartbeats, and
+  compaction until complete or revoked. An affirmative answer resolves the
+  pending action; do not ask again. Revalidate live ownership and state before
+  writing; verification is not renewed approval. Ask only for scope beyond the
+  authorization, a user-reserved boundary such as production promotion or
+  contacting another person, a missing credential, a user-only decision, or a
+  destructive data change. See `ship` and `new-branch` for covered git/PR work.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - Use the current suitable branch. PRs are ready for review unless drafts are
   requested.
@@ -57,9 +61,9 @@ Use `/sidecar <task>` for read-only investigations.
   one does not promote production.
 - When shipping from a worktree, commit, push, and open or update the PR there;
   leave the shared checkout untouched.
-- Never push to someone else's PR without explicit authorization for that exact
-  PR in this request. This does not authorize merging. See `ship` and
-  `babysit-pr` for the live author/head verification gate.
+- Never push to another's PR without exact-PR authorization; merge authorization
+  is separate unless the user explicitly authorized that exact merge. See
+  `ship`/`babysit-pr` for author/head checks.
 - On your own PRs, replies to every review thread you fix or disposition are
   always authorized and expected; add a concise top-level recap for review-body-only
   feedback. On others' PRs, comment only with explicit authorization for that
@@ -68,13 +72,7 @@ Use `/sidecar <task>` for read-only investigations.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
 - Keep the chat title accurate.
-- Do the work instead of asking whether to do it. If a step is inside the task
-  you were given and is not destructive, irreversible, or a spend/send/publish
-  action, run it and report the result — deploys, database reads and writes,
-  scripts, and browser checks included. Ask only for a missing credential, a
-  decision only the user can make, or a destructive action. `reporting-progress`
-  is the authority on what to post while long work runs and on the one legal
-  shape of a mid-task stop.
+- Follow `reporting-progress` for updates and mid-task stops.
 - Use sub-agents liberally for complex independent work when Agent Teams are
   available; keep the main thread focused on orchestration.
 - When adding package dependencies or framework integrations, verify the current
@@ -143,6 +141,8 @@ Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-source-reading-tests` check only lines this branch added, so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma, and every opt-out is a decision a reviewer should see.
+`no-new-legacy-mcp-hints` has none: the MCP `destructiveHint` baseline only
+shrinks.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
@@ -246,11 +246,11 @@ argument rots into exactly the patchwork it warns about.
   and must not be required, auto-installed, or vendored by default. Its public
   repository currently declares no license. Use n8n and Zapier as
   automation/workflow or remote MCP connections rather than provider presets.
-- For composable workspace workflows, prefer many focused headless or small-UI
-  mini-apps that discover and call each other over A2A instead of one oversized
-  app. Pass artifact ids, URLs, and bounded summaries between apps instead of
-  pasting large provider dumps through prompts. Read `composable-mini-apps`
-  before designing cross-app orchestration.
+- Keep apps focused, but default to local actions. Use A2A only on request or
+  for required peer-owned data, credentials, or capabilities. Availability or
+  enrichment alone doesn't qualify; artifacts stay in their owning app. Pass
+  bounded ids, URLs, and summaries across app boundaries. Read
+  `composable-mini-apps` before designing cross-app workflows.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.

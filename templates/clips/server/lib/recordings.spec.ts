@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
   getRequestUserEmail: vi.fn(),
   implicitServiceOrgRole: vi.fn(),
+  readOrgMemberRole: vi.fn(),
   readAppState: vi.fn(),
   resolveOrgIdForEmail: vi.fn(),
 }));
@@ -66,6 +67,7 @@ vi.mock("@agent-native/core/org", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mocks.getSession(...args),
+  readOrgMemberRole: (...args: unknown[]) => mocks.readOrgMemberRole(...args),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -87,6 +89,7 @@ import {
   countedViewCondition,
   countRecordingViews,
   getEventOwnerContext,
+  getOrganizationRoleForEmail,
   getActiveOrganizationId,
   getDefaultRecordingVisibility,
   requireActiveOrganizationId,
@@ -104,6 +107,50 @@ describe("getEventOwnerContext", () => {
       userEmail: "Owner@Example.test",
       orgId: "org-1",
       authUserId: "better-auth-user-1",
+    });
+  });
+});
+
+describe("getOrganizationRoleForEmail", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readOrgMemberRole.mockReset();
+    mocks.implicitServiceOrgRole.mockReturnValue(null);
+  });
+
+  it.each(["owner", "admin"] as const)(
+    "keeps a normal %s role unchanged",
+    async (role) => {
+      mocks.readOrgMemberRole.mockResolvedValue(role);
+
+      await expect(
+        getOrganizationRoleForEmail("org-1", "owner@example.test"),
+      ).resolves.toBe(role);
+    },
+  );
+
+  it.each(["owner", "admin"] as const)(
+    "uses the capped member role returned for a delegated %s",
+    async () => {
+      mocks.readOrgMemberRole.mockResolvedValue("member");
+
+      await expect(
+        getOrganizationRoleForEmail("org-1", "owner@example.test"),
+      ).resolves.toBe("member");
+    },
+  );
+
+  it("preserves the implicit service-member fallback without a membership row", async () => {
+    mocks.readOrgMemberRole.mockResolvedValue(null);
+    mocks.implicitServiceOrgRole.mockReturnValue("member");
+
+    await expect(
+      getOrganizationRoleForEmail("org-1", "svc-transcriber@service.org-1"),
+    ).resolves.toBe("member");
+    expect(mocks.implicitServiceOrgRole).toHaveBeenCalledWith({
+      email: "svc-transcriber@service.org-1",
+      orgId: "org-1",
+      requestOrgId: undefined,
     });
   });
 });
@@ -348,6 +395,7 @@ function stubSelects(...results: unknown[][]) {
 describe("getActiveOrganizationId legacy fallbacks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.readOrgMemberRole.mockResolvedValue(null);
     mocks.implicitServiceOrgRole.mockReturnValue(null);
     mocks.readAppState.mockResolvedValue(null);
     mocks.getUserSetting.mockResolvedValue(null);
@@ -385,6 +433,7 @@ describe("getActiveOrganizationId legacy fallbacks", () => {
 
   it("still resolves a legacy workspace the caller belongs to", async () => {
     mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
+    mocks.readOrgMemberRole.mockResolvedValue("admin");
     stubSelects(
       [{ id: "org_legacy" }],
       [{ id: "org_legacy" }],

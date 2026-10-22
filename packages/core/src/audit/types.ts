@@ -4,10 +4,14 @@ export type AuditActorKind = "agent" | "human" | "service" | "system";
 
 /**
  * Source of the accepted authorization signal. `agent-chat` records a
- * person's approval in agent chat. `mcp-client-accepted` records an accepted
- * MCP elicitation response; the server cannot verify who responded.
+ * person's approval in agent chat. `a2a-review` records the owner's approval
+ * of a paused A2A call on its review page. `mcp-client-accepted` records an
+ * accepted MCP elicitation response; the server cannot verify who responded.
  */
-export type AuditApproval = "agent-chat" | "mcp-client-accepted";
+export type AuditApproval = "agent-chat" | "a2a-review" | "mcp-client-accepted";
+
+/** Verified identity provenance for a request authenticated through A2A. */
+export type AuditIdentityAssurance = "user" | "organization" | "org-member";
 
 /**
  * Who can read an event besides its owner.
@@ -90,6 +94,8 @@ export interface AuditEvent {
    * not verify who responded. Rows written before the column existed are null.
    */
   approval?: AuditApproval | null;
+  /** Verified identity provenance; null on older rows or non-A2A calls. */
+  identityAssurance?: AuditIdentityAssurance | null;
 }
 
 export interface AuditQueryFilters {

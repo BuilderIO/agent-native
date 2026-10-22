@@ -643,6 +643,14 @@ const messages = {
     errorOutOfOrder: "第 {{line}} 行：此時間早於上一個時間。",
     errorPastEnd: "第 {{line}} 行：此時間晚於影片結束時間。",
   },
+  transcriptHistory: {
+    title: "較早的逐字稿",
+    automatic: "自動",
+    restore: "還原",
+    restored: "已還原逐字稿",
+    restoreFailed: "無法還原逐字稿",
+    undo: "復原",
+  },
   thumbnailPicker: {
     failedCapture: "擷取影格失敗",
     failedGif: "無法產生 GIF，請嘗試較短的範圍",
@@ -1316,6 +1324,14 @@ const messages = {
     playClip: "播放剪輯",
     unsupportedFormat:
       "此瀏覽器無法播放此影片。請嘗試在 Chrome、Edge 或 Firefox 中開啟連結。",
+    youtubeLoading: "正在載入 YouTube 播放器",
+    youtubeUnavailable: "這部 YouTube 影片是私人影片或已遭移除。",
+    youtubeEmbedBlocked: "這部影片的擁有者不允許在 YouTube 以外播放。",
+    youtubeInvalid: "這個 YouTube 連結並未指向可播放的影片。",
+    youtubePlaybackFailed: "YouTube 無法在這裡播放這部影片。",
+    youtubeApiUnavailable:
+      "YouTube 播放器未能載入。請檢查網路連線或內容封鎖工具，然後重新載入。",
+    watchOnYouTube: "在 YouTube 上觀看",
   },
   searchBar: {
     placeholder: "搜尋錄製…",
@@ -1718,7 +1734,7 @@ const messages = {
     unmuteMicrophone: "取消靜音",
     uploadVideo: "上傳影片",
     takeScreenshot: "擷取截圖",
-    importLoom: "匯入 Loom",
+    importLoom: "匯入影片",
     importing: "正在匯入...",
     import: "匯入",
     recordNew: "新增錄製",
@@ -1850,6 +1866,10 @@ const messages = {
     uploadFailed: "上傳失敗",
     uploadFailedAtChunk: "第 {{chunk}}/{{total}} 個區塊上傳失敗：{{message}}",
     couldNotStartRecording: "無法開始錄製",
+    intakeStorageUnavailable:
+      "此連結的擁有者必須先連結影片儲存空間，您才能開始錄製。請對方連結儲存空間後再試一次。",
+    streamingStorageUnavailable:
+      "目前的儲存空間不支援 Clips 所需的可續傳上傳。請設定相容的供應商，或請工作區擁有者或管理員協助，然後開始新的錄製。",
     couldNotStartRecorder: "無法啟動錄製工具",
     openSettings: "開啟設定",
     openedRecorderInNewTab: "已在新分頁開啟錄製工具",
@@ -1859,6 +1879,8 @@ const messages = {
     storageNeededToFinishLoomImport: "需要儲存才能完成 Loom 匯入",
     loomImported: "Loom 已匯入",
     couldNotImportLoom: "無法匯入該 Loom。",
+    youtubeImported: "已新增 YouTube 影片",
+    couldNotImportVideo: "無法匯入這部影片。",
     recordingReadyToUpload: "錄製已準備好上傳",
     recordingSaved: "錄製已儲存",
     linkCopied: "已複製連結",
@@ -1876,6 +1898,8 @@ const messages = {
     savingRecording: "正在儲存您的錄製…",
     sessionExpired: "工作階段已過期",
     sessionExpiredDescription: "您的登入工作階段已過期。請重新登入以開始錄製。",
+    accountMismatch:
+      "開始準備錄製後，登入的帳戶已變更。請切換回一開始使用的帳戶，然後再試一次。",
     logIn: "登入",
     betterInDesktop: "桌面應用程式體驗更好",
     desktopAppDescription:
@@ -1889,8 +1913,7 @@ const messages = {
     openRecorderInTab: "在分頁中開啟錄製工具",
     retryUpload: "重試上傳",
     tryAgain: "再試一次",
-    storageConnectedReopeningRecorder:
-      "儲存空間已連線。正在重新開啟錄製工具...",
+    storageConnectedRecorderReady: "儲存空間已連線。準備好後即可開始新的錄製。",
     connectStorageToFinish:
       "在下一個畫面使用 Builder.io 儲存空間（免費方案儲存空間和 AI），或設定 S3 相容儲存空間。Clips 會完成儲存。",
     connectStorageToRetryLoom:
@@ -1947,12 +1970,12 @@ const messages = {
       "此錄製仍在處理中，因此 Clips 在這裡保留了你的副本。請等待處理完成，或重新上傳。",
   },
   importRoute: {
-    pageTitle: "匯入 Loom — Clips",
-    title: "匯入 Loom",
+    pageTitle: "匯入影片 — Clips",
+    title: "匯入影片",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "匯入",
     helperText:
-      "與 Loom 搭配使用效果極佳。你也可以貼上其他螢幕錄製或影片檔案的連結。",
+      "與 Loom 和 YouTube 搭配使用效果極佳。你也可以貼上其他螢幕錄製或影片檔案的連結。",
     stageFetching: "正在擷取你的影片…",
     stageUploading: "正在上傳原始素材…",
     stageTranscript: "讓語音與螢幕畫面都能被代理程式讀取…",

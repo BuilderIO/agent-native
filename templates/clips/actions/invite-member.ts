@@ -93,6 +93,10 @@ export default defineAction({
       "Role to assign when the invite is accepted",
     ),
   }),
+  // The invitation email reaches a real person, so every agent call needs
+  // the user's approval and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => {
     const db = getDb();
 

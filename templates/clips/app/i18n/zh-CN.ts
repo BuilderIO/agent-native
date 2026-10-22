@@ -641,6 +641,14 @@ const messages = {
     errorOutOfOrder: "第 {{line}} 行：此时间早于上一个时间。",
     errorPastEnd: "第 {{line}} 行：此时间晚于视频结束时间。",
   },
+  transcriptHistory: {
+    title: "较早的文字记录",
+    automatic: "自动",
+    restore: "恢复",
+    restored: "已恢复文字记录",
+    restoreFailed: "无法恢复文字记录",
+    undo: "撤销",
+  },
   thumbnailPicker: {
     failedCapture: "捕捉帧失败",
     failedGif: "无法生成 GIF — 尝试更短的范围",
@@ -1313,6 +1321,14 @@ const messages = {
     playClip: "播放剪辑",
     unsupportedFormat:
       "此浏览器无法播放该视频。请尝试在 Chrome、Edge 或 Firefox 中打开链接。",
+    youtubeLoading: "正在加载 YouTube 播放器",
+    youtubeUnavailable: "此 YouTube 视频为私享视频或已被移除。",
+    youtubeEmbedBlocked: "此视频的所有者不允许在 YouTube 之外播放。",
+    youtubeInvalid: "此 YouTube 链接未指向可播放的视频。",
+    youtubePlaybackFailed: "YouTube 无法在此处播放该视频。",
+    youtubeApiUnavailable:
+      "YouTube 播放器未能加载。请检查网络连接或内容拦截器，然后重新加载。",
+    watchOnYouTube: "在 YouTube 上观看",
   },
   searchBar: {
     placeholder: "搜索录制…",
@@ -1720,7 +1736,7 @@ const messages = {
     unmuteMicrophone: "取消静音",
     uploadVideo: "Upload video (已本地化)",
     takeScreenshot: "截屏",
-    importLoom: "Import Loom (已本地化)",
+    importLoom: "导入视频",
     importing: "Importing... (已本地化)",
     import: "Import (已本地化)",
     recordNew: "新建录制",
@@ -1854,6 +1870,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (已本地化)",
     couldNotStartRecording: "Could not start recording (已本地化)",
+    intakeStorageUnavailable:
+      "此链接的所有者需要先连接视频存储，你才能开始录制。请让所有者连接存储后重试。",
+    streamingStorageUnavailable:
+      "当前存储不支持 Clips 所需的可续传上传。请配置兼容的存储提供商，或请工作区所有者或管理员配置，然后开始新的录制。",
     couldNotStartRecorder: "Could not start recorder (已本地化)",
     openSettings: "Open settings (已本地化)",
     openedRecorderInNewTab: "Opened recorder in a new tab (已本地化)",
@@ -1864,6 +1884,8 @@ const messages = {
       "Storage needed to finish Loom import (已本地化)",
     loomImported: "Loom imported (已本地化)",
     couldNotImportLoom: "无法导入此 Loom。",
+    youtubeImported: "已添加 YouTube 视频",
+    couldNotImportVideo: "无法导入此视频。",
     recordingReadyToUpload: "Recording is ready to upload (已本地化)",
     recordingSaved: "Recording saved (已本地化)",
     linkCopied: "已复制链接",
@@ -1885,6 +1907,8 @@ const messages = {
     sessionExpired: "Session expired (已本地化)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (已本地化)",
+    accountMismatch:
+      "开始准备录制后，登录的账号已更改。请切换回开始时使用的账号，然后重试。",
     logIn: "Log in (已本地化)",
     betterInDesktop: "Better in the desktop app (已本地化)",
     desktopAppDescription:
@@ -1898,8 +1922,7 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (已本地化)",
     retryUpload: "重试上传",
     tryAgain: "重试",
-    storageConnectedReopeningRecorder:
-      "存储空间已连接。正在重新打开录制工具...",
+    storageConnectedRecorderReady: "存储空间已连接。准备好后即可开始新的录制。",
     connectStorageToFinish:
       "在下一屏使用 Builder.io 存储（免费套餐存储和 AI），或配置 S3 兼容存储。Clips 会完成保存。",
     connectStorageToRetryLoom:
@@ -1957,12 +1980,12 @@ const messages = {
       "此录制仍在处理中，因此 Clips 在这里保留了你的副本。请等待处理完成，或重新上传。",
   },
   importRoute: {
-    pageTitle: "导入 Loom — Clips",
-    title: "导入 Loom",
+    pageTitle: "导入视频 — Clips",
+    title: "导入视频",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "导入",
     helperText:
-      "与 Loom 配合得很好。你也可以粘贴其他屏幕录制或视频文件的链接。",
+      "与 Loom 和 YouTube 配合得很好。你也可以粘贴其他屏幕录制或视频文件的链接。",
     stageFetching: "正在拉取你的视频…",
     stageUploading: "正在上传原始素材…",
     stageTranscript: "让语音和屏幕画面都能被智能体读取…",

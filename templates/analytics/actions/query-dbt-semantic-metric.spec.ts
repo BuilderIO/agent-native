@@ -1332,6 +1332,55 @@ describe("query-dbt-semantic-metric", () => {
     });
   });
 
+  it("returns a typed provider error instead of a 502 when dbt returns an invalid metadata page", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValueOnce(
+      providerResult({
+        data: {
+          metricsPaginated: {
+            items: "not-an-array",
+            totalItems: 1,
+            totalPages: 1,
+          },
+        },
+      }),
+    );
+
+    await expect(
+      runAction({ metricName: "weekly_active_users" }),
+    ).resolves.toMatchObject({
+      status: "provider_error",
+      message: expect.stringMatching(
+        /incomplete metric metadata pagination \(items string/,
+      ),
+    });
+  });
+
+  it("returns a typed provider error instead of a 502 when dbt returns an invalid semantic manifest count", async () => {
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            metricsPaginated: { items: [], totalItems: 0, totalPages: 0 },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: { metricsPaginated: { totalItems: "many" } },
+        }),
+      );
+
+    await expect(
+      runAction({ metricName: "weekly_active_users" }),
+    ).resolves.toMatchObject({
+      status: "provider_error",
+      message: expect.stringMatching(
+        /invalid semantic manifest count \(totalItems string\)/,
+      ),
+    });
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("paginates bounded metric results without losing rows or environment context", async () => {
     const firstPageRows = Array.from({ length: 25 }, (_, index) => [index + 1]);
     const secondPageRows = [[26], [27], [28]];
@@ -1769,6 +1818,47 @@ describe("query-dbt-semantic-metric", () => {
     expect(
       mocks.executeProviderApiRequest.mock.calls[3]?.[0].body.query,
     ).toContain("query AnalyticsMetricResult");
+  });
+
+  it("keeps polling a COMPILED metric query until dbt reports it successful", async () => {
+    const rows = [{ active_workspaces: 42 }];
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({ data: { query: { status: "COMPILED" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: rows }),
+            },
+          },
+        }),
+      );
+
+    const result = await runAction({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({
+      status: "success",
+      queryId: "fake_query_1",
+      rows,
+      rowCount: 1,
+    });
+    expect(action.outputSchema.parse(result)).toEqual(result);
+    expect(
+      mocks.executeProviderApiRequest.mock.calls.filter(([request]) =>
+        request.body.query.includes("query AnalyticsMetricResult"),
+      ),
+    ).toHaveLength(2);
   });
 
   it.each([
