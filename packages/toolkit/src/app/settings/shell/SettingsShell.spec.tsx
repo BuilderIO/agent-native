@@ -474,6 +474,28 @@ describe("SettingsShell", () => {
     await waitFor(() =>
       Boolean(container.querySelector('[data-testid="app-settings-page"]')),
     );
+    expect(
+      container.querySelector('[data-testid="app-settings-page"]')?.textContent,
+    ).toContain("page:custom-controls");
+  });
+
+  it("opens an app page when its id matches an app area", async () => {
+    await render({
+      appAreas: [{ id: "recordings", label: "Recordings", content: null }],
+      appSettingsPages: [
+        appPage("recordings", "Recordings settings", 25, AppSettingsPage),
+      ],
+    });
+
+    clickPage("recordings");
+    await waitFor(() =>
+      Boolean(container.querySelector('[data-testid="app-settings-page"]')),
+    );
+
+    expect(
+      container.querySelector('[data-testid="app-settings-page"]')?.textContent,
+    ).toContain("page:recordings");
+    expect(window.location.pathname).toBe("/settings/recordings");
   });
 
   it("rejects app page ids that would replace an existing page", () => {

@@ -43,7 +43,7 @@ export interface ResolvedSettingsRoute extends SettingsRoute {
 export interface ResolveSettingsRouteOptions {
   /** Tabs on the app's General page, routed `/settings/app/<id>`. */
   appAreaIds?: readonly string[];
-  /** Derived template pages take precedence over same-named app-owned pages. */
+  /** Legacy template tab ids map unless a direct page claims that path. */
   templateTabPageIds?: ReadonlyMap<string, string>;
   /**
    * The tab a controlled template chose. A bare `/settings` opens it, which
@@ -161,9 +161,8 @@ function pageForTabIds(
 }
 
 /**
- * The page a template's tab id opens. The template's own tabs win, because
- * its id space is its own: Mail's inbox `automations` tab is not the core
- * Automations page.
+ * The page a template's tab id opens. Direct page ids are canonical paths;
+ * template aliases still win over legacy redirects and core tab aliases.
  */
 export function resolveSettingsTabValue(
   value: string,
@@ -173,6 +172,12 @@ export function resolveSettingsTabValue(
 ): ResolvedSettingsRoute {
   const tab = value.trim();
   if (!tab) return NO_ROUTE;
+  const directAppPage = pages.find(
+    (page) => isAppPage(page) && page.id === tab,
+  );
+  if (directAppPage) {
+    return { page: directAppPage.id, sub: null, anchor: null, legacy: false };
+  }
   const templatePage = templateTabPageIds?.get(tab);
   if (templatePage && pages.some((page) => page.id === templatePage)) {
     return { page: templatePage, sub: null, anchor: null, legacy: true };
@@ -224,6 +229,14 @@ export function resolveSettingsRoute(
         legacy: segments.length > 2,
       };
     }
+    if (directPage) {
+      return {
+        page: pageId,
+        sub: segments[1] ?? null,
+        anchor: hash || null,
+        legacy: segments.length > 2,
+      };
+    }
     const templatePageId = options.templateTabPageIds?.get(pageId);
     const templatePage = templatePageId
       ? pages.find((page) => page.id === templatePageId)
@@ -241,14 +254,6 @@ export function resolveSettingsRoute(
     // `resolveSettingsTabValue`, because the area id is the template's own.
     if (options.appAreaIds?.includes(pageId)) {
       return { page: "app", sub: pageId, anchor: hash || null, legacy: true };
-    }
-    if (directPage) {
-      return {
-        page: pageId,
-        sub: segments[1] ?? null,
-        anchor: hash || null,
-        legacy: segments.length > 2,
-      };
     }
     const redirect = resolveLegacySettingsId(joined, "tab");
     if (redirect) return redirectRoute(redirect, pages, hash || null);

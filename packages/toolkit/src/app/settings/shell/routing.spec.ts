@@ -247,7 +247,7 @@ describe("legacy settings links", () => {
     const collidingPages = [...CORE_SETTINGS_PAGES, appPage("alerts")];
     expect(
       resolveSettingsTabValue("alerts", collidingPages, ["alerts"]),
-    ).toMatchObject({ page: "app", sub: "alerts" });
+    ).toMatchObject({ page: "alerts", sub: null, legacy: false });
     expect(
       resolveSettingsRoute(
         { pathname: "/settings", hash: "" },
@@ -257,14 +257,14 @@ describe("legacy settings links", () => {
           tabValue: "alerts",
         },
       ),
-    ).toMatchObject({ page: "app", sub: "alerts" });
+    ).toMatchObject({ page: "alerts", sub: null, legacy: false });
     expect(
       resolveSettingsRoute(
         { pathname: "/settings/alerts", hash: "" },
         collidingPages,
         { appAreaIds: ["alerts"] },
       ),
-    ).toMatchObject({ page: "app", sub: "alerts" });
+    ).toMatchObject({ page: "alerts", sub: null, legacy: false });
     // Today's tab path for an area (Analytics' Alerts tab).
     expect(
       resolveSettingsRoute(
@@ -288,7 +288,7 @@ describe("legacy settings links", () => {
     ).toMatchObject({ page: "usage", legacy: false });
   });
 
-  it("routes a colliding template tab path to its derived page", () => {
+  it("keeps app and derived template pages addressable when ids collide", () => {
     const pages = [
       ...CORE_SETTINGS_PAGES,
       appPage("app-drafting", "drafting"),
@@ -301,11 +301,26 @@ describe("legacy settings links", () => {
         { templateTabPageIds: new Map([["drafting", "app-drafting"]]) },
       ),
     ).toEqual({
-      page: "app-drafting",
+      page: "drafting",
       sub: null,
       anchor: null,
-      legacy: true,
+      legacy: false,
     });
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/app-drafting", hash: "" },
+        pages,
+        { templateTabPageIds: new Map([["drafting", "app-drafting"]]) },
+      ),
+    ).toMatchObject({ page: "app-drafting", legacy: false });
+    expect(
+      resolveSettingsTabValue(
+        "drafting",
+        pages,
+        [],
+        new Map([["drafting", "app-drafting"]]),
+      ),
+    ).toMatchObject({ page: "drafting", legacy: false });
   });
 
   it("preserves nested routes for app-owned page ids that match legacy patterns", () => {
