@@ -109,8 +109,7 @@ describe("Content action-owned agent catalogs", () => {
     }
   });
 
-  it("requires approval before copying local content to a shareable document", () => {
-    expect(shareLocalFileDocument.needsApproval).toBe(true);
+  it("classifies shareable local-file copies as disclosure-capable writes", () => {
     expect(shareLocalFileDocument.mcpAnnotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: true,

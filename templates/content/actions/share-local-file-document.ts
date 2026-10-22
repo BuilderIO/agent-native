@@ -76,7 +76,8 @@ function serializeDocument(row: typeof schema.documents.$inferSelect) {
 
 export default defineAction({
   mcpTool: true,
-  needsApproval: true,
+  // Direct outside calls need approval; the app agent (including ask_app) uses "tool".
+  needsApproval: (_args, ctx) => ctx?.caller === "mcp" || ctx?.caller === "a2a",
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,

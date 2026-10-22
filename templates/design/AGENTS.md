@@ -1,7 +1,6 @@
 # Design — Agent Guide
 
-Design agents build prototypes, systems, variants, and handoffs through
-actions against shared SQL state.
+Build prototypes, systems, variants, and handoffs with actions and shared SQL state.
 
 ## Skills
 
@@ -23,12 +22,11 @@ Also read `.agents/skills/<name>/SKILL.md` for shared guides: `actions`,
 `delegate-to-agent`, `agent-native-docs`, `agent-native-toolkit`,
 `customizing-agent-native`, `client-side-routing`, `reliable-mutations`,
 `performance`, `external-agents`, `portability`, `self-modifying-code`,
-`turn-into-skill`, and `workspace-conventions`. Each guide is at
-`.agents/skills/<name>/SKILL.md`.
+`turn-into-skill`, and `workspace-conventions`.
 
 ## Framework Docs
 
-Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug with `pnpm action docs-search --slug "<slug>"`.
+Find docs: `pnpm action docs-search --query "<topic>"`; read: `pnpm action docs-search --slug "<slug>"`.
 
 ## Actions
 
@@ -46,7 +44,7 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `add-session-replay-screenshots-to-board` | Add private Analytics replay screenshots to a Design board |
 | `stage-journey-canvas-frames` | Stage native PNGs in Design-owned private blob storage in batches |
 | `discard-journey-canvas-frame-import` | Discard staged import; queue its private blobs for cleanup |
-| `create-journey-canvas` | Create provenance-backed storyboard with stubs, same-recording links, and explicit recording-gap references; no cohort metrics |
+| `create-journey-canvas` | Create provenance-backed storyboards with stubs, same-recording links, and recording-gap references; no cohort metrics |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
@@ -58,17 +56,20 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `get-shader` / `edit-native-shader` | Inspect curated native effects; CAS-edit one inline scene |
 | `get-native-shader-approvals` | Read viewer-scoped exact effect approvals for accessible Design previews |
 | `prepare-native-scene-export` | Pin scene for PNG |
-| `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Request foreground native PNG and inspect attachment |
+| `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Request foreground native PNG; inspect attachment |
 | `generate-screens` | Plan screens |
-| `export-png` / `export-coding-handoff` | PNG/code; handoff needs approval (7-day bearer URLs) |
+| `export-png` / `export-coding-handoff` | PNG/code; only direct MCP/A2A handoff calls need approval (7-day bearer URLs) |
+| `export-html` | Export standalone HTML |
+| `export-zip` | Export ZIP |
+| `export-design-as-figma-svg` | Export Figma SVG |
 
 ## Core Rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use actions for design data and writes; never write design rows directly with SQL.
-- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
+- For external integrations, inspect workspace/provider connections first; reuse the scoped resolver.
 - `[Reprompt selection]` is preview-only: only `propose-node-rewrite` may mutate. `[Selection question]` is read-only; answer without content-writing actions.
-- Generated files are complete standalone HTML (Alpine.js + Tailwind CDN), rendered without a build step. Follow `design-generation` for its quality/audit pass and `data-agent-native-locked="true"` for locked subtrees.
+- Generated files are standalone HTML (Alpine.js + Tailwind CDN), rendered without a build step. Follow `design-generation` for its quality/audit pass and `data-agent-native-locked="true"` for locked subtrees.
 - Source modes are `inline`, `localhost`, and `fusion` (`full-app-build`). `/design/:id` is read-only; `/visual-edit/:id` allows DOM-only localhost edits. Source writes and snapshot publishing require editor access.
 - `capability:visual-edit` scopes handoff actions. External agents use `get-visual-edit-pending`; browser agents use the page-local tool.
 
@@ -83,6 +84,6 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor behavior lives in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before changing it.
+For workspace/agent UI, read `agent-native-toolkit`; for shared UI changes, read `customizing-agent-native`. Before editor changes, read `design-editor-architecture`; commands live in `app/pages/design-editor/commands/*.ts`.
 
 Search with `rg --hidden --follow`; read the exact linked guide before deeper work.

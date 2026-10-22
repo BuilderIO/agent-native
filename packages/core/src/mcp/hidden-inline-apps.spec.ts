@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { actionCallIntent, preparedCallNeedsApproval } from "../action.js";
 import {
   LOAD_TIMEOUT_MS,
   listAdvertised,
@@ -73,12 +74,34 @@ describe("explicit connector inline apps", () => {
     ["content", "share-local-file-document", { id: "local-file-test" }],
     ["design", "export-coding-handoff", { id: "design-test" }],
   ] as const)(
+    "requires approval only for outside callers of %s/%s",
+    async (appId, name, args) => {
+      const app = apps.find((candidate) => candidate.appId === appId)!;
+      const entry = app.surfaces[0]!.config.actions[name]!;
+      const call = await actionCallIntent(entry, args);
+      if (!call.valid) throw call.error;
+      for (const [caller, expected] of [
+        ["tool", false],
+        ["mcp", true],
+        ["a2a", true],
+      ] as const) {
+        expect(
+          await preparedCallNeedsApproval(entry, call, { caller }),
+          `${appId}/${name} approval for ${caller}`,
+        ).toBe(expected);
+      }
+    },
+  );
+
+  it.each([
+    ["content", "share-local-file-document", { id: "local-file-test" }],
+    ["design", "export-coding-handoff", { id: "design-test" }],
+  ] as const)(
     "refuses %s/%s without host approval before running it",
     async (appId, name, args) => {
       const app = apps.find((candidate) => candidate.appId === appId)!;
       const config = app.surfaces[0]!.config;
       const entry = config.actions[name]!;
-      expect(entry.needsApproval).toBe(true);
       const run = vi.fn(async () => ({ id: "unexpected-write" }));
       const actions = { ...config.actions, [name]: { ...entry, run } };
       const server = await createMCPServerForRequest(

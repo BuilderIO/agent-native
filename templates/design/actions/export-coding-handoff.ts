@@ -33,7 +33,8 @@ function designDeepLink(designId: string): string {
 }
 
 export default defineAction({
-  needsApproval: true,
+  // Direct outside calls need approval; the app agent (including ask_app) uses "tool".
+  needsApproval: (_args, ctx) => ctx?.caller === "mcp" || ctx?.caller === "a2a",
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,
