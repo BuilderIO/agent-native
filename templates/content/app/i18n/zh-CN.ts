@@ -189,6 +189,7 @@ const database = {
   listRowsMedium: "中等",
   listRowsBold: "粗体",
   listRowsNothing: "无",
+  listRowsPageText: "页面文本",
   listRowsOneLine: "1 行",
   listRowsLineCount: "{{count}} 行",
   listRowsNoStatus: "无状态",

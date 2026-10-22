@@ -15,12 +15,14 @@ import {
 import {
   CONTENT_DATABASE_ITEM_LAYOUT_PRESET_IDS,
   CONTENT_DATABASE_ITEM_LEADING_KINDS,
+  CONTENT_DATABASE_ITEM_LINE2_SOURCES,
   CONTENT_DATABASE_ITEM_TITLE_WEIGHTS,
   MAX_ITEM_LAYOUT_META_PROPERTIES,
   contentDatabaseItemLayoutPresets,
   contentDatabaseItemLayoutReferenceErrors,
   dropDeletedContentDatabaseItemLayoutReferences,
   itemLayoutLeadingCandidates,
+  itemLayoutLine2Candidates,
   normalizeContentDatabaseItemLayout,
   pruneContentDatabaseItemLayout,
   savableContentDatabaseItemLayout,
@@ -118,6 +120,7 @@ export const contentDatabaseItemLayoutSchema = z
     titleWeight: z.enum(CONTENT_DATABASE_ITEM_TITLE_WEIGHTS),
     line2: z
       .object({
+        source: z.enum(CONTENT_DATABASE_ITEM_LINE2_SOURCES).optional(),
         propertyId: itemLayoutPropertyIdSchema.nullable(),
         lines: itemLayoutLinesSchema,
       })
@@ -139,6 +142,7 @@ const itemLayoutPatchSchema = z
     titleWeight: z.enum(CONTENT_DATABASE_ITEM_TITLE_WEIGHTS).optional(),
     line2: z
       .object({
+        source: z.enum(CONTENT_DATABASE_ITEM_LINE2_SOURCES).optional(),
         propertyId: itemLayoutPropertyIdSchema.nullable().optional(),
         lines: itemLayoutLinesSchema.optional(),
       })
@@ -149,7 +153,7 @@ const itemLayoutPatchSchema = z
   })
   .strict()
   .describe(
-    "List views only. Slots to change in each row; omitted slots keep their saved value. leading.kind checkbox or status uses the first property of that type unless propertyId names one. line2 shows a text, URL, or Blocks property; line3 and trailing list property IDs in order. Trailing values move under the title on narrow screens. Pass null to restore the default rows.",
+    "List views only. Slots to change in each row; omitted slots keep their saved value. leading.kind checkbox or status uses the first property of that type unless propertyId names one. line2 shows a text, URL, or Blocks property, or with source page the first lines of each row's page; line3 and trailing list property IDs in order. Trailing values move under the title on narrow screens. Pass null to restore the default rows.",
   );
 
 const listPatchFields = {
@@ -467,6 +471,17 @@ function nextListItemLayout(
     const ids = itemLayout[slot];
     if (ids) uniqueReferences(ids, slot);
   }
+  if (itemLayout.line2?.source === "page" && itemLayout.line2.propertyId) {
+    setupError(
+      "INVALID_VIEW_REFERENCE",
+      "line2.propertyId must be null or left out when line2.source is page.",
+      400,
+    );
+  }
+  // Naming a property switches line 2 back from page text.
+  const line2Source =
+    itemLayout.line2?.source ??
+    (itemLayout.line2?.propertyId !== undefined ? "property" : undefined);
   const leading = itemLayout.leading && {
     kind: itemLayout.leading.kind,
     propertyId:
@@ -480,10 +495,14 @@ function nextListItemLayout(
       leading: leading ?? from.leading,
       titleWeight: itemLayout.titleWeight ?? from.titleWeight,
       line2: {
+        source: line2Source ?? from.line2.source,
         propertyId:
           itemLayout.line2?.propertyId !== undefined
             ? itemLayout.line2.propertyId
-            : from.line2.propertyId,
+            : line2Source === "property" && from.line2.source === "page"
+              ? (itemLayoutLine2Candidates(properties)[0]?.definition.id ??
+                null)
+              : from.line2.propertyId,
         lines: itemLayout.line2?.lines ?? from.line2.lines,
       },
       line3: itemLayout.line3 ?? from.line3,

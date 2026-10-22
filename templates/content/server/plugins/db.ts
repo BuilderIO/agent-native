@@ -1484,6 +1484,29 @@ export const runContentMigrations = runMigrations(
       name: "content-live-copy-version",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_copy_version INTEGER`,
     },
+    {
+      version: 126,
+      name: "builder-private-payload-cleanup-queue",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_name TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_value TEXT;
+        CREATE INDEX IF NOT EXISTS document_comments_document_idx
+          ON document_comments (document_id, owner_email);
+        CREATE TABLE IF NOT EXISTS content_database_builder_blob_cleanup (
+          blob_reference TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+    },
+    {
+      version: 127,
+      name: "builder-private-payload-cleanup-retries",
+      sql: `ALTER TABLE content_database_builder_blob_cleanup
+          ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE content_database_builder_blob_cleanup
+          ADD COLUMN IF NOT EXISTS next_attempt_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z';
+        CREATE INDEX IF NOT EXISTS content_database_builder_blob_cleanup_due_idx
+          ON content_database_builder_blob_cleanup (next_attempt_at, created_at)`,
+    },
   ],
   { table: "content_migrations" },
 );
