@@ -44,6 +44,7 @@ import {
 } from "react";
 
 import type { AgentMessageContentOrderResolver } from "./message-content-order.js";
+import type { AgentChatWorkedForRowLayout } from "./transcript-layout.js";
 
 export interface AgentKitRenderProps<T> {
   value: T;
@@ -87,6 +88,7 @@ export interface AgentKitWorkedForSummaryRenderProps {
   expandable: boolean;
   open: boolean;
   current?: ReactNode;
+  layout?: AgentChatWorkedForRowLayout;
 }
 
 export interface AgentConnectionErrorRenderProps {
@@ -495,6 +497,7 @@ export interface AgentKitProviderProps {
   /** Receives full renderer failures while the UI shows a safe fallback. */
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
     name: string;
@@ -525,6 +528,7 @@ export interface AgentKitContextValue {
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
   requestComposerFocus: (threadId: ThreadId) => void;
 }
@@ -546,6 +550,7 @@ export function AgentKitProvider({
   onConnectionRequest,
   onRenderError,
   resolveMessageContentOrder,
+  workedForRowLayout,
   onClientEffect,
   children,
 }: AgentKitProviderProps) {
@@ -613,6 +618,7 @@ export function AgentKitProvider({
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
+      workedForRowLayout,
       registerComposerFocus,
       requestComposerFocus,
     }),
@@ -631,6 +637,7 @@ export function AgentKitProvider({
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
+      workedForRowLayout,
       registerComposerFocus,
       requestComposerFocus,
     ],

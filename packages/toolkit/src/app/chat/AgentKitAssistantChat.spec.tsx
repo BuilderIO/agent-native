@@ -1054,6 +1054,20 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.composerProps.isReferenceTarget).toBe(true);
   });
 
+  it("passes the worked-for row layout into the shared AgentKit root", async () => {
+    const layout = {
+      chevronSize: 12,
+      iconGap: 8,
+      fontSize: 13,
+      lineHeight: 16,
+      paddingBlock: 2,
+      paddingInline: 4,
+    };
+    await mount(baseProps({ workedForRowLayout: layout }));
+
+    expect(chatMocks.rootProps.workedForRowLayout).toEqual(layout);
+  });
+
   it("reports whether a composer can hold a prefill with its current context", async () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);

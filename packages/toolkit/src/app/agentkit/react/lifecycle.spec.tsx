@@ -1771,10 +1771,19 @@ describe("AgentChat lifecycle", () => {
     });
     const observable = observableController(snapshot(0));
     const tree = mount();
+    const workedForRowLayout = {
+      chevronSize: 12,
+      iconGap: 8,
+      fontSize: 13,
+      lineHeight: 16,
+      paddingBlock: 2,
+      paddingInline: 4,
+    };
     await tree.render(
       <AgentKitProvider
         controller={observable.controller}
         threadId={threadId}
+        workedForRowLayout={workedForRowLayout}
         registry={{
           activities: {
             reasoning: ({ value }) => (
@@ -1821,10 +1830,17 @@ describe("AgentChat lifecycle", () => {
         ".agentkit-activities-summary > .agentkit-summary-chevron",
       ),
     ).not.toBeNull();
+    expect(work.querySelector("summary")?.getAttribute("style")).toContain(
+      "gap: 8px",
+    );
+    expect(
+      work.querySelector<HTMLElement>(".agentkit-summary-chevron")?.style.width,
+    ).toBe("12px");
     await tree.render(
       <AgentKitProvider
         controller={observable.controller}
         threadId={threadId}
+        workedForRowLayout={workedForRowLayout}
         registry={{
           activities: {
             reasoning: ({ value }) => (
@@ -1838,8 +1854,12 @@ describe("AgentChat lifecycle", () => {
               {value.text}
             </span>
           ),
-          workedForSummary: ({ label, open, current }) => (
-            <span data-work-summary data-open={open}>
+          workedForSummary: ({ label, open, current, layout }) => (
+            <span
+              data-work-summary
+              data-open={open}
+              data-icon-gap={layout?.iconGap}
+            >
               <span>{label}</span>
               <span data-work-chevron aria-hidden="true">
                 ›
@@ -1856,6 +1876,9 @@ describe("AgentChat lifecycle", () => {
       "Searching documentation",
     );
     expect(work.querySelector("[data-work-chevron]")).not.toBeNull();
+    expect(work.querySelector("[data-work-summary]")?.dataset.iconGap).toBe(
+      "8",
+    );
     expect(
       work.querySelector("[data-work-summary]")?.getAttribute("data-open"),
     ).toBe("false");

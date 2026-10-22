@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 export interface AgentChatTranscriptLayout {
   /** Top padding above transcript messages, in CSS pixels. */
   topInset?: number;
@@ -35,4 +37,39 @@ export interface AgentChatWorkedForRowLayout {
   paddingBlock?: number;
   /** Padding on the inline axis, in CSS pixels. */
   paddingInline?: number;
+}
+
+function workedForRowLength(
+  value: number | undefined,
+  name: keyof AgentChatWorkedForRowLayout,
+  positive = false,
+) {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value) || value < 0 || (positive && value === 0)) {
+    throw new RangeError(
+      `workedForRowLayout.${name} must be a valid CSS length`,
+    );
+  }
+  return `${value}px`;
+}
+
+export function workedForRowSummaryStyle(
+  layout?: AgentChatWorkedForRowLayout,
+): CSSProperties | undefined {
+  if (!layout) return undefined;
+  return {
+    gap: workedForRowLength(layout.iconGap, "iconGap"),
+    fontSize: workedForRowLength(layout.fontSize, "fontSize", true),
+    lineHeight: workedForRowLength(layout.lineHeight, "lineHeight", true),
+    paddingBlock: workedForRowLength(layout.paddingBlock, "paddingBlock"),
+    paddingInline: workedForRowLength(layout.paddingInline, "paddingInline"),
+    fontFamily: "inherit",
+  };
+}
+
+export function workedForRowChevronStyle(
+  layout?: AgentChatWorkedForRowLayout,
+): CSSProperties | undefined {
+  const size = workedForRowLength(layout?.chevronSize, "chevronSize", true);
+  return size ? { width: size, height: size } : undefined;
 }

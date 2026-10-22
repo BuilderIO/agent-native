@@ -47,7 +47,11 @@ import React, {
   useRef,
 } from "react";
 
-import type { AgentChatWorkedForRowLayout } from "../../agentkit/react/transcript-layout.js";
+import {
+  workedForRowChevronStyle,
+  workedForRowSummaryStyle,
+  type AgentChatWorkedForRowLayout,
+} from "../../agentkit/react/transcript-layout.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
@@ -1870,7 +1874,7 @@ export function WorkedForSummary({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className="agent-kit-density flex w-full items-center gap-1 rounded-lg p-3 text-start text-muted-foreground transition-colors hover:text-foreground"
-        style={workedForSummaryStyle(layout)}
+        style={workedForRowSummaryStyle(layout)}
       >
         <IconChevronRight
           aria-hidden="true"
@@ -1878,7 +1882,7 @@ export function WorkedForSummary({
             "size-4 shrink-0 transition-transform rtl:-scale-x-100",
             open && "rotate-90 rtl:-rotate-90",
           )}
-          style={workedForSummaryIconStyle(layout)}
+          style={workedForRowChevronStyle(layout)}
         />
         <span className={cn(isRunning && "agent-running-shimmer")}>
           {label}
@@ -1891,44 +1895,6 @@ export function WorkedForSummary({
       </AnimatedCollapse>
     </div>
   );
-}
-
-function workedForSummaryMetric(
-  value: number | undefined,
-  name: keyof AgentChatWorkedForRowLayout,
-  positive = false,
-) {
-  if (value === undefined) return undefined;
-  if (!Number.isFinite(value) || value < 0 || (positive && value === 0)) {
-    throw new RangeError(
-      `workedForRowLayout.${name} must be a valid CSS length`,
-    );
-  }
-  return `${value}px`;
-}
-
-function workedForSummaryStyle(
-  layout?: AgentChatWorkedForRowLayout,
-): React.CSSProperties | undefined {
-  if (!layout) return undefined;
-  return {
-    gap: workedForSummaryMetric(layout.iconGap, "iconGap"),
-    fontSize: workedForSummaryMetric(layout.fontSize, "fontSize", true),
-    lineHeight: workedForSummaryMetric(layout.lineHeight, "lineHeight", true),
-    paddingBlock: workedForSummaryMetric(layout.paddingBlock, "paddingBlock"),
-    paddingInline: workedForSummaryMetric(
-      layout.paddingInline,
-      "paddingInline",
-    ),
-    fontFamily: "inherit",
-  };
-}
-
-function workedForSummaryIconStyle(
-  layout?: AgentChatWorkedForRowLayout,
-): React.CSSProperties | undefined {
-  const size = workedForSummaryMetric(layout?.chevronSize, "chevronSize", true);
-  return size ? { width: size, height: size } : undefined;
 }
 
 export function RanToolsSummary({

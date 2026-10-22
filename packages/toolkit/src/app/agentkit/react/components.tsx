@@ -139,7 +139,11 @@ import {
 } from "./context.js";
 import { orderMessageContent } from "./message-content-order.js";
 import { AgentStreamingText } from "./streaming-text.js";
-import type { AgentChatTranscriptLayout } from "./transcript-layout.js";
+import {
+  workedForRowChevronStyle,
+  workedForRowSummaryStyle,
+  type AgentChatTranscriptLayout,
+} from "./transcript-layout.js";
 
 // AgentKit React installs without @agent-native/core, so it repeats core's
 // replay markers. Its specs assert core's attribute names.
@@ -1910,7 +1914,7 @@ function AgentWorkDisclosure({
   current?: ReactNode;
   children: ReactNode;
 }) {
-  const { slots } = useAgentKit();
+  const { slots, workedForRowLayout } = useAgentKit();
   const [open, setOpen] = useState(false);
   const Summary = slots.workedForSummary;
   return (
@@ -1923,6 +1927,7 @@ function AgentWorkDisclosure({
       <summary
         className="agentkit-activities-summary"
         aria-disabled={!expandable}
+        style={workedForRowSummaryStyle(workedForRowLayout)}
         onClick={(event) => {
           event.preventDefault();
           if (!expandable) return;
@@ -1936,12 +1941,14 @@ function AgentWorkDisclosure({
             expandable={expandable}
             open={open}
             current={current}
+            layout={workedForRowLayout}
           />
         ) : (
           <>
             <IconChevronRight
               aria-hidden="true"
               className="agentkit-icon agentkit-summary-chevron"
+              style={workedForRowChevronStyle(workedForRowLayout)}
             />
             <span className="agentkit-activities-summary-content">
               {label ? (
