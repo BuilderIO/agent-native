@@ -7,6 +7,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Collapsed shader layers no longer interrupt other shaders on the canvas
+- Shader fills keep rendering when other screen content cannot be captured
 - Shader fills and effects render correctly on canvas elements created or updated in the editor.
 
 ## 2026-10-21
