@@ -537,6 +537,54 @@ describe("renderReportEmail", () => {
     );
   });
 
+  it("shows duration columns and tiles as text, as the dashboard does", async () => {
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "checks",
+          config: {
+            columns: [
+              { key: "check" },
+              { key: "median", label: "Median time", format: "duration" },
+            ],
+          },
+        }),
+        panel({
+          id: "to-merge",
+          chartType: "metric",
+          config: { yFormatter: "duration" },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "checks",
+          {
+            status: "rows" as const,
+            rows: [
+              { check: "build", median: 960 },
+              { check: "lint", median: "120" },
+              { check: "docs", median: null },
+            ],
+            schema: [],
+          },
+        ],
+        [
+          "to-merge",
+          {
+            status: "rows" as const,
+            rows: [{ seconds: 57600 }],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    expect(rendered.text).toContain("build | 16 min");
+    expect(rendered.text).toContain("lint | 2 min");
+    expect(rendered.text).toContain("docs | –");
+    expect(rendered.html).toContain(">16 hours</p>");
+  });
+
   it("attaches exactly one inline PNG per chart panel and references it by cid", async () => {
     const rendered = await renderReportEmail({
       snapshot: snapshotOf([

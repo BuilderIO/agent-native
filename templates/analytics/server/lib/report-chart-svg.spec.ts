@@ -266,6 +266,28 @@ describe("renderReportChartSvg", () => {
     ]);
   });
 
+  it("formats duration axis ticks as minutes and hours", () => {
+    const svg = renderReportChartSvg({
+      ...base,
+      type: "line",
+      series: [
+        {
+          label: "Median time",
+          data: [600, 1200, 1800, 2400],
+          formatter: "duration",
+        },
+      ],
+    });
+
+    expect(leftAxisTicks(svg)).toEqual([
+      "40 min",
+      "30 min",
+      "20 min",
+      "10 min",
+      "0 sec",
+    ]);
+  });
+
   it("stacks bars per axis instead of summing two units into one bar", () => {
     const svg = renderReportChartSvg({
       ...base,

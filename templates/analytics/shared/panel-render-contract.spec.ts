@@ -566,6 +566,26 @@ describe("unknownPanelConfigKeys on shipped panels and value shapes", () => {
     expect(issues[0].message).toContain("config.yKeys must be an array");
   });
 
+  it("accepts the duration formatter and names the formatters on a typo", () => {
+    expect(
+      unknownPanelConfigKeys(
+        stray("line", { yFormatter: "duration", rightYFormatter: "duration" }),
+      ),
+    ).toEqual([]);
+
+    const issues = unknownPanelConfigKeys(
+      stray("line", { yFormatter: "seconds", rightYFormatter: "minutes" }),
+    );
+
+    expect(issues.map((issue) => [issue.kind, issue.key])).toEqual([
+      ["invalid-value", "yFormatter"],
+      ["invalid-value", "rightYFormatter"],
+    ]);
+    expect(issues[0].message).toContain(
+      'one of "number", "currency", "percent", "duration"',
+    );
+  });
+
   it("does not flag a misshapen value the baseline already had", () => {
     const config = { yKeys: "n" };
 

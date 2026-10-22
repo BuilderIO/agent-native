@@ -1484,6 +1484,7 @@ export default {
     columnFormatCurrency: "Devise",
     columnFormatPercent: "Pourcentage",
     columnFormatDate: "Date",
+    columnFormatDuration: "Durée (secondes)",
     columnRename: "Renommer la colonne",
     columnHide: "Masquer la colonne",
     columnShow: "Afficher « {{name}} »",

@@ -13,6 +13,7 @@ import {
   type DashboardFunnelOutcomeSummary,
 } from "../../shared/dashboard-funnel";
 import { formatDollars } from "../../shared/format-dollars";
+import { formatDuration } from "../../shared/format-duration";
 import { isSafeSvgHexColor } from "../../shared/svg-color";
 import {
   FUNNEL_OUTCOME_REPORT_COLORS,
@@ -46,7 +47,11 @@ export type ReportChartBand = {
 
 export type ReportChartAxis = "left" | "right";
 
-export type ReportChartValueFormatter = "number" | "currency" | "percent";
+export type ReportChartValueFormatter =
+  | "number"
+  | "currency"
+  | "percent"
+  | "duration";
 
 export type ReportChartSeries = {
   label: string;
@@ -141,6 +146,7 @@ function formatTick(
     const percent = value <= 1 && value >= -1 ? value * 100 : value;
     return `${percent.toFixed(2)}%`;
   }
+  if (formatter === "duration") return formatDuration(value);
   const abs = Math.abs(value);
   if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}b`;
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;

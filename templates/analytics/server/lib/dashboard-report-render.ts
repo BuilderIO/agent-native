@@ -14,6 +14,7 @@ import {
   timeRangeDays,
 } from "../../app/pages/adhoc/sql-dashboard/pivot";
 import type {
+  ChartValueFormatter,
   ColumnFormat,
   SqlDashboardConfig,
   PanelEvent,
@@ -34,6 +35,10 @@ import {
   type DataNoteTone,
 } from "../../shared/data-notes";
 import { formatDollars } from "../../shared/format-dollars";
+import {
+  EMPTY_DURATION,
+  formatDuration,
+} from "../../shared/format-duration";
 import { panelEventsWithKeyDates } from "../../shared/key-dates";
 import { resolvePanelEvents } from "../../shared/panel-events";
 import {
@@ -287,19 +292,20 @@ function toNumber(value: unknown): number | null {
 
 function formatYValue(
   value: number,
-  formatter?: "number" | "currency" | "percent",
+  formatter?: ChartValueFormatter,
 ): string {
   if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
   }
+  if (formatter === "duration") return formatDuration(value);
   return value.toLocaleString();
 }
 
 function formatMetricValue(
   raw: unknown,
-  formatter?: "number" | "currency" | "percent",
+  formatter?: ChartValueFormatter,
   valueLabels?: Record<string, string>,
 ): string {
   const label = valueLabels?.[String(raw)];
@@ -313,7 +319,11 @@ function formatMetricValue(
 }
 
 function formatCell(value: unknown, format: ColumnFormat | undefined): string {
-  if (value == null) return "";
+  if (value == null) return format === "duration" ? EMPTY_DURATION : "";
+  if (format === "duration") {
+    const seconds = toNumber(value);
+    if (seconds !== null) return formatDuration(seconds);
+  }
   if (typeof value === "number") {
     if (format === "number") return value.toLocaleString();
     if (format === "currency") return formatDollars(value);

@@ -1487,6 +1487,7 @@ export default {
     columnFormatCurrency: "Währung",
     columnFormatPercent: "Prozent",
     columnFormatDate: "Datum",
+    columnFormatDuration: "Dauer (Sekunden)",
     columnRename: "Spalte umbenennen",
     columnHide: "Spalte ausblenden",
     columnShow: 'Einblenden: "{{name}}"',

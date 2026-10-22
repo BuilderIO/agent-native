@@ -140,6 +140,32 @@ describe("SqlChart table helpers", () => {
     ]);
   });
 
+  it("shows duration cells as text and a dash when empty", () => {
+    expect(formatCell(960, "duration")).toBe("16 min");
+    expect(formatCell("26640", "duration")).toBe("7.4 hours");
+    expect(formatCell(null, "duration")).toBe("–");
+    expect(formatCell(undefined, "duration")).toBe("–");
+    expect(formatCell(null, "number")).toBe("");
+  });
+
+  it("sorts a duration column by its seconds with empty cells last both ways", () => {
+    const rows = [
+      { check: "build", median: 960 },
+      { check: "lint", median: null },
+      { check: "unit", median: 60 },
+      { check: "types", median: 120 },
+    ];
+    const shown = (sorted: Record<string, unknown>[]) =>
+      sorted.map((row) => formatCell(row.median, "duration"));
+
+    expect(
+      shown(sortTableRows(rows, [{ key: "median", direction: "asc" }])),
+    ).toEqual(["1 min", "2 min", "16 min", "–"]);
+    expect(
+      shown(sortTableRows(rows, [{ key: "median", direction: "desc" }])),
+    ).toEqual(["16 min", "2 min", "1 min", "–"]);
+  });
+
   it("builds formatted tab-separated clipboard content", () => {
     const columns: TableColumnConfig[] = [
       { key: "name", label: "Name" },

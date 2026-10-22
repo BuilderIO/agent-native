@@ -19,6 +19,7 @@ import {
   type DashboardFunnelRows,
 } from "@shared/dashboard-funnel";
 import { formatDollars } from "@shared/format-dollars";
+import { EMPTY_DURATION, formatDuration } from "@shared/format-duration";
 import {
   isNumericLikeValue,
   limitChartRows,
@@ -282,13 +283,14 @@ function stringifyValue(value: unknown): string {
 
 function formatYValue(
   value: number,
-  formatter?: "number" | "currency" | "percent",
+  formatter?: ChartValueFormatter,
 ): string {
   if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
   }
+  if (formatter === "duration") return formatDuration(value);
   return value.toLocaleString();
 }
 
@@ -382,7 +384,7 @@ export function seriesValueFormatter(
 
 export function formatMetricValue(
   raw: unknown,
-  formatter?: "number" | "currency" | "percent",
+  formatter?: ChartValueFormatter,
   valueLabels?: Record<string, string>,
 ): string {
   const valueLabel = valueLabels?.[String(raw)];
@@ -2353,7 +2355,7 @@ export function formatCell(
   value: unknown,
   format: ColumnFormat | undefined,
 ): string {
-  if (value == null) return "";
+  if (value == null) return format === "duration" ? EMPTY_DURATION : "";
   const numeric = numericTableValue(value);
   if (format === "number" && numeric !== null) {
     return numeric.toLocaleString();
@@ -2368,6 +2370,9 @@ export function formatCell(
   if (format === "delta" && numeric !== null) {
     const sign = numeric > 0 ? "+" : "";
     return `${sign}${numeric.toFixed(1)}%`;
+  }
+  if (format === "duration" && numeric !== null) {
+    return formatDuration(numeric);
   }
   if (format === "date") {
     const d = new Date(stringifyValue(value));
@@ -2466,7 +2471,8 @@ export function isNumericColumnFormat(
     format === "number" ||
     format === "currency" ||
     format === "percent" ||
-    format === "delta"
+    format === "delta" ||
+    format === "duration"
   );
 }
 
@@ -2838,6 +2844,9 @@ function TableRenderer({
                 </ContextMenuRadioItem>
                 <ContextMenuRadioItem value="date">
                   {t("sqlDashboard.columnFormatDate")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="duration">
+                  {t("sqlDashboard.columnFormatDuration")}
                 </ContextMenuRadioItem>
               </ContextMenuRadioGroup>
             </ContextMenuSubContent>
@@ -3398,7 +3407,7 @@ function BarRenderer({
   xKey: string;
   yKeys: string[];
   colors: string[];
-  yFormatter?: "number" | "currency" | "percent";
+  yFormatter?: ChartValueFormatter;
   stacked?: boolean;
   panel: SqlPanel;
   onDatumClick?: DatumClickHandler;
@@ -3571,7 +3580,7 @@ function ComboRenderer({
   xKey: string;
   yKeys: string[];
   colors: string[];
-  yFormatter?: "number" | "currency" | "percent";
+  yFormatter?: ChartValueFormatter;
   barKeys: string[];
   panel: SqlPanel;
   onDatumClick?: DatumClickHandler;
@@ -3763,7 +3772,7 @@ function TimeSeriesRenderer({
   xKey: string;
   yKeys: string[];
   colors: string[];
-  yFormatter?: "number" | "currency" | "percent";
+  yFormatter?: ChartValueFormatter;
   chartType: "line" | "area";
   stacked?: boolean;
   panel: SqlPanel;
@@ -4315,7 +4324,7 @@ function OutcomeFunnelStage({
   outcomes: DashboardFunnelOutcomes;
   segments: FunnelOutcomeSegment[];
   shown: string;
-  formatter?: "number" | "currency" | "percent";
+  formatter?: ChartValueFormatter;
   onDatumClick?: DatumClickHandler;
 }) {
   const t = useT();
