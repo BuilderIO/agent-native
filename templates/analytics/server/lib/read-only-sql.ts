@@ -16,6 +16,15 @@ function hasBigQueryRawStringPrefix(sql: string, quoteIndex: number): boolean {
   return !beforePrefix || !/[A-Za-z0-9_]/.test(beforePrefix);
 }
 
+const TEMPLATE_SLOT_AT = /\{\{\w+(:list)?\}\}/y;
+
+// Sticky so each lookup costs only the slot's own length; slicing the rest of
+// a 50,000-character template at every `{{` or `\` makes validation quadratic.
+function templateSlotAt(sql: string, index: number): RegExpExecArray | null {
+  TEMPLATE_SLOT_AT.lastIndex = index;
+  return TEMPLATE_SLOT_AT.exec(sql);
+}
+
 function sanitizeSqlForInspection(
   sql: string,
   dialect: "bigquery" | "standard",
@@ -27,6 +36,7 @@ function sanitizeSqlForInspection(
   let quoteLength = 1;
   let rawString = false;
   let quoteStart = 0;
+  let checkedSlotRunEnd = -1;
   const inspectTemplateLiteral = (end: number) => {
     if (
       validateTemplateVariables &&
@@ -44,7 +54,7 @@ function sanitizeSqlForInspection(
     const ch = sql[i];
     const next = sql[i + 1];
     if (validateTemplateVariables && ch === "{" && next === "{") {
-      const variable = sql.slice(i).match(/^\{\{\w+(:list)?\}\}/);
+      const variable = templateSlotAt(sql, i);
       if (variable && (state === "line" || state === "block")) {
         rejectSourceSql("SQL template variables must not occur in comments.");
       }
@@ -61,29 +71,26 @@ function sanitizeSqlForInspection(
       }
       // An empty value joins the quotes around a slot run, which can form a
       // new delimiter (`'''x'{{v}}''` closes early), so only a triple-quoted
-      // string's own delimiters may touch the run.
+      // string's own delimiters may touch the run. Each run is checked once,
+      // from its first slot.
       if (
         variable &&
         (state === "single" || state === "double") &&
         !rawString &&
-        quoteLength === 3
+        quoteLength === 3 &&
+        i >= checkedSlotRunEnd
       ) {
         const quote = state === "single" ? "'" : '"';
-        let runStart = i;
         let runEnd = i + variable[0].length;
-        let slot: RegExpMatchArray | null;
-        while (
-          (slot = sql.slice(0, runStart).match(/\{\{\w+(?::list)?\}\}$/))
-        ) {
-          runStart -= slot[0].length;
-        }
-        while ((slot = sql.slice(runEnd).match(/^\{\{\w+(?::list)?\}\}/))) {
+        let slot: RegExpExecArray | null;
+        while ((slot = templateSlotAt(sql, runEnd))) {
           runEnd += slot[0].length;
         }
-        const opensString = runStart === quoteStart + quoteLength;
+        checkedSlotRunEnd = runEnd;
+        const opensString = i === quoteStart + quoteLength;
         const closesString = sql.startsWith(quote.repeat(3), runEnd);
         if (
-          (sql[runStart - 1] === quote && !opensString) ||
+          (sql[i - 1] === quote && !opensString) ||
           (sql[runEnd] === quote && !closesString)
         ) {
           rejectSourceSql(
@@ -121,7 +128,7 @@ function sanitizeSqlForInspection(
         if (
           validateTemplateVariables &&
           !rawString &&
-          /^\{\{\w+(?::list)?\}\}/.test(sql.slice(i + 1))
+          templateSlotAt(sql, i + 1)
         ) {
           rejectSourceSql(
             "SQL template variables must not follow a backslash escape.",
