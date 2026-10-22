@@ -11,7 +11,7 @@ import {
   IconPencil,
   IconTrash,
 } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import {
   useCallback,
   useEffect,
@@ -20,11 +20,16 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
-import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  DRAFT_DELETE_FAILED_EVENT,
+  DRAFT_SAVE_FAILED_EVENT,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import { useEmail, useThreadMessages } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { ensureThread } from "@/lib/thread-cache";
@@ -43,7 +48,8 @@ type CardOutcome =
   | { status: "sending" }
   | { status: "sent" }
   | { status: "scheduled"; runAt: number }
-  | { status: "deleted" };
+  // Shown at once; the model hears about it only once the delete has stuck.
+  | { status: "deleted"; confirmed: boolean };
 
 type MailAccount = { email: string; displayName?: string; photoUrl?: string };
 
@@ -114,23 +120,35 @@ export function DraftCard({ draftId }: { draftId: string }) {
   // The composer discards the draft after it sends or schedules it too; only a
   // discard with nothing in flight is the reader deleting it.
   const { discard } = compose;
+  const [deleteFailed, setDeleteFailed] = useState(false);
   const handleDiscard = useCallback(
     (id: string) => {
-      discard(id);
-      if (!outcomeRef.current) settle({ status: "deleted" });
+      const deleted = discard(id);
+      if (outcomeRef.current) return;
+      settle({ status: "deleted", confirmed: false });
+      void deleted.then((ok) => {
+        if (outcomeRef.current?.status !== "deleted") return;
+        if (ok) {
+          settle({ status: "deleted", confirmed: true });
+        } else {
+          settle(null);
+          setDeleteFailed(true);
+        }
+      });
     },
     [discard, settle],
   );
 
   useReportOutcomeToModel(draftId, outcome);
+  useDraftFailureToasts(draftId, outcomeRef);
 
   const thread = useDraftThread(shownDraft, accounts);
   const cardDraft = useMemo(
     () =>
-      draft && thread.threadId && !draft.replyToThreadId
-        ? { ...draft, replyToThreadId: thread.threadId }
+      draft && thread.resolvedThreadId && !draft.replyToThreadId
+        ? { ...draft, replyToThreadId: thread.resolvedThreadId }
         : draft,
-    [draft, thread.threadId],
+    [draft, thread.resolvedThreadId],
   );
 
   let body: ReactNode;
@@ -152,12 +170,18 @@ export function DraftCard({ draftId }: { draftId: string }) {
         }
       />
     );
+  } else if (deleteFailed && !draft) {
+    body = (
+      <CardNotice
+        icon={<IconAlertCircle className="size-5 text-destructive" />}
+        title={t("mail.toasts.failedToDeleteDraft")}
+      />
+    );
   } else if (!shownDraft || (!draft && !outcome)) {
     body = (
       <CardNotice
         icon={<IconTrash className="size-5 text-muted-foreground" />}
         title={t("mail.draftCard.notFoundTitle")}
-        description={t("mail.draftCard.notFoundDescription")}
       />
     );
   } else {
@@ -280,11 +304,15 @@ function useDraftThread(draft: ComposeState | null, accounts: MailAccount[]) {
     replyToId && !knownThreadId ? replyToId : undefined,
     accountEmail,
   );
-  const threadId = replyToId
-    ? (knownThreadId ??
-      email.data?.threadId ??
-      (email.isError || !accountEmail ? replyToId : undefined))
+  const resolvedThreadId = replyToId
+    ? (knownThreadId ?? email.data?.threadId)
     : undefined;
+  // A thread often shares its first message's ID, which is worth trying for
+  // the conversation when the lookup can't run. The draft never gets it, since
+  // a reply sent into the wrong thread is worse than one Gmail threads itself.
+  const threadId =
+    resolvedThreadId ??
+    (replyToId && (email.isError || !accountEmail) ? replyToId : undefined);
 
   // The thread cache reports no errors and refetches a failed thread on every
   // render, so the card catches the failure and stops asking.
@@ -313,7 +341,7 @@ function useDraftThread(draft: ComposeState | null, accounts: MailAccount[]) {
 
   return {
     wanted: Boolean(replyToId),
-    threadId,
+    resolvedThreadId,
     subject: messages[0]?.subject,
     messages,
     loading,
@@ -489,23 +517,16 @@ function OutcomePanel({ outcome }: { outcome: CardOutcome }) {
 function CardNotice({
   icon,
   title,
-  description,
   action,
 }: {
   icon: ReactNode;
   title: string;
-  description?: string;
   action?: ReactNode;
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
       {icon}
       <p className="text-sm font-medium">{title}</p>
-      {description && (
-        <p className="max-w-xs text-[13px] text-muted-foreground">
-          {description}
-        </p>
-      )}
       {action}
     </div>
   );
@@ -529,7 +550,8 @@ function useReportOutcomeToModel(draftId: string, outcome: CardOutcome | null) {
     if (
       !outcome ||
       outcome.status === "queued" ||
-      outcome.status === "sending"
+      outcome.status === "sending" ||
+      (outcome.status === "deleted" && !outcome.confirmed)
     ) {
       return;
     }
@@ -568,4 +590,31 @@ function useReportOutcomeToModel(draftId: string, outcome: CardOutcome | null) {
       );
     }
   }, [draftId, outcome]);
+}
+
+// The inbox shows these from AppLayout, which the card renders without. A
+// delete the reader asked for gets the card's own failure state instead.
+function useDraftFailureToasts(
+  draftId: string,
+  outcomeRef: RefObject<CardOutcome | null>,
+) {
+  const t = useT();
+  useEffect(() => {
+    const handleSaveFailed = (event: Event) => {
+      const failedId =
+        event instanceof CustomEvent ? event.detail?.draftId : undefined;
+      if (failedId && failedId !== draftId) return;
+      toast.error(t("mail.toasts.failedToSaveDraft"));
+    };
+    const handleDeleteFailed = () => {
+      if (outcomeRef.current?.status === "deleted") return;
+      toast.error(t("mail.toasts.failedToDeleteDraft"));
+    };
+    window.addEventListener(DRAFT_SAVE_FAILED_EVENT, handleSaveFailed);
+    window.addEventListener(DRAFT_DELETE_FAILED_EVENT, handleDeleteFailed);
+    return () => {
+      window.removeEventListener(DRAFT_SAVE_FAILED_EVENT, handleSaveFailed);
+      window.removeEventListener(DRAFT_DELETE_FAILED_EVENT, handleDeleteFailed);
+    };
+  }, [draftId, outcomeRef, t]);
 }

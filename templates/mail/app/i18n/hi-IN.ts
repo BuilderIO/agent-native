@@ -760,7 +760,6 @@ const messages = {
     draftCard: {
       loadFailed: "यह ड्राफ़्ट लोड नहीं हो सका।",
       notFoundTitle: "ड्राफ़्ट नहीं मिला",
-      notFoundDescription: "हो सकता है इसे पहले ही भेजा या हटाया जा चुका हो।",
       threadUnavailable: "इस बातचीत के पिछले संदेश लोड नहीं हो सके।",
       earlierMessages: "पिछले संदेश ({{count}})",
       deleted: "ड्राफ़्ट हटा दिया गया।",

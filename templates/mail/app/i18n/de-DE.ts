@@ -801,8 +801,6 @@ const messages = {
     draftCard: {
       loadFailed: "Dieser Entwurf konnte nicht geladen werden.",
       notFoundTitle: "Entwurf nicht gefunden",
-      notFoundDescription:
-        "Er wurde möglicherweise bereits gesendet oder gelöscht.",
       threadUnavailable:
         "Die früheren Nachrichten dieser Unterhaltung konnten nicht geladen werden.",
       earlierMessages: "Frühere Nachrichten ({{count}})",

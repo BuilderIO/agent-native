@@ -760,7 +760,6 @@ const messages = {
     draftCard: {
       loadFailed: "تعذّر تحميل هذه المسودة.",
       notFoundTitle: "لم يتم العثور على المسودة",
-      notFoundDescription: "ربما تم إرسالها أو حذفها بالفعل.",
       threadUnavailable: "تعذّر تحميل الرسائل السابقة في هذه المحادثة.",
       earlierMessages: "الرسائل السابقة ({{count}})",
       deleted: "تم حذف المسودة.",

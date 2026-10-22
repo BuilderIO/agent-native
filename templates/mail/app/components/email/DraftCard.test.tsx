@@ -32,6 +32,7 @@ const mockUseThreadMessages = vi.hoisted(() => vi.fn());
 const mockUseEmail = vi.hoisted(() => vi.fn());
 const mockEnsureThread = vi.hoisted(() => vi.fn());
 const mockUpdateModelContext = vi.hoisted(() => vi.fn());
+const mockToast = vi.hoisted(() => ({ error: vi.fn() }));
 const mockAccounts = vi.hoisted(() => ({
   current: [{ email: "agent@example.com" }] as Array<{ email: string }>,
 }));
@@ -50,6 +51,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     formatDate: (date: Date) => date.toISOString(),
   }),
 }));
+vi.mock("sonner", () => ({ toast: mockToast }));
 vi.mock("@agent-native/core/client/mcp-app-host", () => ({
   updateMcpAppModelContext: mockUpdateModelContext,
 }));
@@ -62,6 +64,8 @@ vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: () => <div data-testid="skeleton" />,
 }));
 vi.mock("@/hooks/use-compose-state", () => ({
+  DRAFT_DELETE_FAILED_EVENT: "mail:draft-delete-failed",
+  DRAFT_SAVE_FAILED_EVENT: "mail:draft-save-failed",
   useComposeState: () => mockCompose,
 }));
 vi.mock("@/hooks/use-emails", () => ({
@@ -119,6 +123,11 @@ vi.mock("./EmailThread", () => ({
   ),
 }));
 
+import {
+  DRAFT_DELETE_FAILED_EVENT,
+  DRAFT_SAVE_FAILED_EVENT,
+} from "@/hooks/use-compose-state";
+
 import { DraftCard } from "./DraftCard";
 
 const newDraft: ComposeState = {
@@ -160,6 +169,8 @@ describe("DraftCard", () => {
     mockCompose.isLoading = false;
     mockCompose.isError = false;
     mockCompose.discard.mockReset();
+    mockCompose.discard.mockResolvedValue(true);
+    mockToast.error.mockReset();
     mockCompose.refetch.mockReset();
     mockThread.data = undefined;
     mockThread.isLoading = false;
@@ -392,6 +403,71 @@ describe("DraftCard", () => {
       ),
     );
     warn.mockRestore();
+  });
+
+  it("keeps a reply in its own thread when the lookup fails", () => {
+    mockCompose.drafts = [{ ...replyDraft, replyToThreadId: undefined }];
+    mockUseEmail.mockReturnValue({ data: undefined, isError: true });
+    render(<DraftCard draftId="reply-draft" />);
+
+    // The message ID is only a guess at the thread, good for showing it.
+    expect(mockUseThreadMessages).toHaveBeenLastCalledWith(
+      "message-6",
+      "agent@example.com",
+    );
+    expect(composeProps.current?.activeDraft?.replyToThreadId).toBeUndefined();
+  });
+
+  it("says so when a delete doesn't stick, without telling the model", async () => {
+    let finishDelete!: (ok: boolean) => void;
+    mockCompose.discard.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        finishDelete = resolve;
+      }),
+    );
+    mockCompose.drafts = [newDraft];
+    const { getByRole, getByText, findByText, rerender } = render(
+      <DraftCard draftId="new-draft" />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "discard" }));
+    mockCompose.drafts = [];
+    rerender(<DraftCard draftId="new-draft" />);
+    expect(getByText("mail.draftCard.deleted")).toBeTruthy();
+    // The card shows its own failure, not a toast on top of it.
+    act(() => {
+      window.dispatchEvent(new Event(DRAFT_DELETE_FAILED_EVENT));
+    });
+    await act(async () => finishDelete(false));
+
+    expect(await findByText("mail.toasts.failedToDeleteDraft")).toBeTruthy();
+    expect(mockToast.error).not.toHaveBeenCalled();
+    expect(mockUpdateModelContext).not.toHaveBeenCalled();
+  });
+
+  it("warns when an edit to this draft doesn't save", () => {
+    mockCompose.drafts = [newDraft];
+    render(<DraftCard draftId="new-draft" />);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(DRAFT_SAVE_FAILED_EVENT, {
+          detail: { draftId: "other-draft" },
+        }),
+      );
+    });
+    expect(mockToast.error).not.toHaveBeenCalled();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(DRAFT_SAVE_FAILED_EVENT, {
+          detail: { draftId: "new-draft" },
+        }),
+      );
+    });
+    expect(mockToast.error).toHaveBeenCalledWith(
+      "mail.toasts.failedToSaveDraft",
+    );
   });
 
   it("confirms a deleted draft", async () => {

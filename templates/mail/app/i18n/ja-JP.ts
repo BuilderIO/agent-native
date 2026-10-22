@@ -772,7 +772,6 @@ const messages = {
     draftCard: {
       loadFailed: "この下書きを読み込めませんでした。",
       notFoundTitle: "下書きが見つかりません",
-      notFoundDescription: "すでに送信または削除された可能性があります。",
       threadUnavailable: "この会話の以前のメッセージを読み込めませんでした。",
       earlierMessages: "以前のメッセージ（{{count}}）",
       deleted: "下書きを削除しました。",

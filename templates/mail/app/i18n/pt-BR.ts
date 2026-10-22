@@ -790,7 +790,6 @@ const messages = {
     draftCard: {
       loadFailed: "Não foi possível carregar este rascunho.",
       notFoundTitle: "Rascunho não encontrado",
-      notFoundDescription: "Ele pode já ter sido enviado ou excluído.",
       threadUnavailable:
         "Não foi possível carregar as mensagens anteriores desta conversa.",
       earlierMessages: "Mensagens anteriores ({{count}})",

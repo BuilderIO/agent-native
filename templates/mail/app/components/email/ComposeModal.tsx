@@ -602,12 +602,17 @@ export function ComposeModal({
       const currentDraft = draftsRef.current.find(
         (draft) => draft.id === schedulingId,
       );
-      onSendProgress?.({ status: "scheduled", runAt });
-      if (currentDraft && isSameScheduledDraft(currentDraft, draftSnapshot)) {
+      // An edit made while scheduling stays open as a draft, so only the
+      // toast says the earlier version is scheduled.
+      const draftKept = Boolean(
+        currentDraft && !isSameScheduledDraft(currentDraft, draftSnapshot),
+      );
+      if (!draftKept) onSendProgress?.({ status: "scheduled", runAt });
+      if (currentDraft && !draftKept) {
         onDiscard(schedulingId);
       }
 
-      if (showSendToasts) {
+      if (showSendToasts || draftKept) {
         const scheduledDate = formatters.formatDate(new Date(runAt), {
           weekday: "short",
           month: "short",
