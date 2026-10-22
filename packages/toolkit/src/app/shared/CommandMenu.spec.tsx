@@ -1460,7 +1460,7 @@ describe("CommandMenu", () => {
         query === "alias" &&
         label === "Open record" &&
         value === "record" &&
-        keywords.includes("Find by description"),
+        keywords.includes("unrelated"),
     );
     renderAppCommands({
       itemMatcher,
@@ -1494,6 +1494,37 @@ describe("CommandMenu", () => {
         '[cmdk-item][data-value="app-command:actions:record"]',
       ),
     ).toBeTruthy();
+  });
+
+  it("uses the app matcher even when the group heading matches", () => {
+    const itemMatcher = vi.fn(() => false);
+    renderAppCommands({
+      itemMatcher,
+      groups: [
+        {
+          id: "reports",
+          order: 1,
+          heading: "Reports",
+          commands: [
+            {
+              id: "open-report",
+              order: 1,
+              label: "Open report",
+              onSelect() {},
+            },
+          ],
+        },
+      ],
+    });
+
+    search("reports");
+
+    expect(itemMatcher).toHaveBeenCalled();
+    expect(
+      document.querySelector(
+        '[cmdk-item][data-value="app-command:reports:open-report"]',
+      ),
+    ).toBeNull();
   });
 
   it("renders the selected command inline preview", () => {
@@ -1628,6 +1659,16 @@ describe("CommandMenu", () => {
     const selectedBefore = document.querySelector(
       '[cmdk-item][aria-selected="true"]',
     );
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const dialogKeyDown = vi.fn();
+    dialog?.addEventListener("keydown", dialogKeyDown);
+    const tab = new KeyboardEvent("keydown", {
+      key: "Tab",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => input!.dispatchEvent(tab));
+    expect(dialogKeyDown).toHaveBeenCalledOnce();
     const arrowDown = new KeyboardEvent("keydown", {
       key: "ArrowDown",
       bubbles: true,

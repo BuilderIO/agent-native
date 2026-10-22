@@ -82,6 +82,16 @@ function CommandSelectionTracker({
   return null;
 }
 
+function stopCommandNavigation(event: React.KeyboardEvent<HTMLDivElement>) {
+  const key = event.key.toLowerCase();
+  if (
+    ["arrowdown", "arrowup", "home", "end", "enter"].includes(key) ||
+    (event.ctrlKey && ["n", "j", "p", "k"].includes(key))
+  ) {
+    event.stopPropagation();
+  }
+}
+
 const CommandMenuContext = createContext<CommandMenuContextValue | null>(null);
 
 function useCommandMenuContext() {
@@ -337,17 +347,17 @@ function filterAppCommandGroups<TAppContext>(
           .includes(searchLower);
       const commands = ordered(group.commands).filter((command) => {
         if (!(command.visibleWhen?.(context) ?? true)) return false;
+        if (!searchLower) return true;
+        if (itemMatcher) {
+          return itemMatcher({
+            query: search,
+            label: command.label,
+            value: command.id,
+            keywords: command.keywords ?? [],
+          });
+        }
         return (
-          !searchLower ||
-          groupMatches ||
-          (itemMatcher
-            ? itemMatcher({
-                query: search,
-                label: command.label,
-                value: command.id,
-                keywords: command.keywords ?? [],
-              })
-            : appCommandSearchText(command).includes(searchLower))
+          groupMatches || appCommandSearchText(command).includes(searchLower)
         );
       });
       return { group, commands };
@@ -1071,7 +1081,7 @@ export function CommandMenu<TAppContext = unknown>({
         {embeddedChatSlot ? (
           <div
             data-testid="command-menu-embedded-chat"
-            onKeyDown={(event) => event.stopPropagation()}
+            onKeyDown={stopCommandNavigation}
           >
             {embeddedChatSlot(appCommandContext)}
           </div>
