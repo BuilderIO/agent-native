@@ -53,6 +53,14 @@ jobs:
           mkdir -p "$files_dir"
           gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/files" \
             | jq -c 'add | .[]' > "$files_dir/files.jsonl"
+          # The files endpoint stops at 3,000 entries; a short list is not a
+          # clean one.
+          expected_files=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.changed_files')
+          listed_files=$(wc -l < "$files_dir/files.jsonl" | tr -d ' ')
+          if [ "$listed_files" != "$expected_files" ]; then
+            echo "::error::Refusing admin-merge: listed $listed_files of $expected_files changed files" >&2
+            exit 1
+          fi
           while IFS= read -r entry; do
             [ -z "$entry" ] && continue
             file=$(jq -r '.filename' <<< "$entry")
