@@ -84,7 +84,11 @@ import {
   trackMcpToolCall,
   trackMcpToolsList,
 } from "./analytics.js";
-import { mcpApprovalPrompt, mcpApprovalReviewUrl } from "./approval-route.js";
+import {
+  mcpApprovalPrompt,
+  mcpApprovalRelativeLinkNote,
+  mcpApprovalReviewUrl,
+} from "./approval-route.js";
 import { mcpApprovalAppId } from "./approval-store.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import {
@@ -345,13 +349,17 @@ function priorRunNote(review: McpApprovalReview): string {
  * renders an empty widget for it nor holds it to the tool's output schema.
  * Every word is the server's, and none of it approves anything.
  */
-export function actionApprovalReviewResult(
+export async function actionApprovalReviewResult(
   review: McpApprovalReview,
   reason: McpApprovalReviewReason,
   requestMeta: MCPRequestMeta | undefined,
-): CallToolResult {
+  ownerEmail: string | undefined,
+): Promise<CallToolResult> {
   const { actionName: name } = review;
   const url = mcpApprovalReviewUrl(review.nonce, requestMeta);
+  const relativeLinkNote = URL.canParse(url)
+    ? ""
+    : `\n\n${await mcpApprovalRelativeLinkNote(ownerEmail)}`;
   const status =
     reason === "unprompted"
       ? `${name} needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${url}`
@@ -366,7 +374,8 @@ export function actionApprovalReviewResult(
           `${status}
 
 After they approve, call ${name} again with exactly the same arguments before ${new Date(review.expiresAt).toISOString()}. It runs once; different arguments need a new approval.` +
-          priorRunNote(review),
+          priorRunNote(review) +
+          relativeLinkNote,
       },
     ],
     isError: true,
@@ -3103,7 +3112,9 @@ export async function createMCPServerForRequest(
         await import("../server/better-auth-instance.js");
       approvalCodec = createRequestStateCodec<McpActionApprovalState>({
         key: getAuthSecret(),
-        ttlSeconds: MCP_ACTION_APPROVAL_TTL_SECONDS,
+        // A page decision can grant another full use window near the review
+        // deadline. The store still enforces expiry and one-use consumption.
+        ttlSeconds: MCP_ACTION_APPROVAL_TTL_SECONDS * 2,
         bind: (ctx) => `${ctx.mcpReq.method}\0${approvalPrincipal}`,
       });
     } catch {
@@ -3235,7 +3246,9 @@ export async function createMCPServerForRequest(
     const offersForm =
       elicitation !== undefined &&
       (elicitation.form !== undefined || elicitation.url === undefined);
-    const offersUrl = elicitation?.url !== undefined;
+    const reviewUrl = mcpApprovalReviewUrl(review.nonce, requestMeta);
+    // The SDK requires an absolute URL for URL elicitation.
+    const offersUrl = elicitation?.url !== undefined && URL.canParse(reviewUrl);
     const mode =
       offersUrl && (MCP_APPROVAL_PROMPT_PREFERENCE === "url" || !offersForm)
         ? "url"
@@ -3243,9 +3256,13 @@ export async function createMCPServerForRequest(
           ? "form"
           : undefined;
     if (mode === undefined) {
-      return actionApprovalReviewResult(review, "unprompted", requestMeta);
+      return actionApprovalReviewResult(
+        review,
+        "unprompted",
+        requestMeta,
+        effectiveIdentity?.userEmail,
+      );
     }
-    const reviewUrl = mcpApprovalReviewUrl(review.nonce, requestMeta);
     const prompt = await mcpApprovalPrompt({
       entry: actions[name],
       review,

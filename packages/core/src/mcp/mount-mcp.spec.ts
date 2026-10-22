@@ -130,7 +130,7 @@ describe("mountMCP", () => {
       "/mcp",
     ]);
     expect(mockServerState.registerAuthPublicPaths).toHaveBeenCalledWith(
-      ["/_agent-native/mcp/approvals/:id"],
+      ["/_agent-native/mcp/approvals/:id(uuidv4)"],
       { use },
     );
   });
@@ -146,10 +146,35 @@ describe("mountMCP", () => {
     // The review page serves its own sign-in, so the auth guard lets it
     // through wherever it is mounted.
     expect(mockServerState.registerAuthPublicPaths).toHaveBeenCalledWith(
-      ["/custom/mcp/approvals/:id"],
+      ["/custom/mcp/approvals/:id(uuidv4)"],
       { use },
     );
   });
+
+  it.each(["", "/workspace"])(
+    "registers the canonical approval exception with base path %s",
+    (basePath) => {
+      vi.stubEnv("APP_BASE_PATH", basePath);
+      vi.stubEnv(
+        "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        "/framework",
+      );
+      try {
+        const use = vi.fn();
+        mountMCP(
+          { h3: { use } },
+          { actions: {} } as any,
+          `${basePath}/framework`,
+        );
+        expect(mockServerState.registerAuthPublicPaths).toHaveBeenCalledWith(
+          ["/_agent-native/mcp/approvals/:id(uuidv4)"],
+          { use },
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 
   it("mounts the curated directory before the broader public MCP prefix", () => {
     const use = vi.fn();

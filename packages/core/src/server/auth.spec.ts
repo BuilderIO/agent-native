@@ -3836,7 +3836,7 @@ describe("server/auth", () => {
       ).resolves.toBeUndefined();
     });
 
-    it("admits a registered path's id segment, and only that one segment", async () => {
+    it("admits only a canonical registered approval path with a minted grant id", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       const { autoMountAuth, registerAuthPublicPaths } =
@@ -3844,7 +3844,7 @@ describe("server/auth", () => {
       const app = createMockApp();
 
       registerAuthPublicPaths(
-        ["/_agent-native/org/apps/mcp/approvals/:id"],
+        ["/_agent-native/org/apps/mcp/approvals/:id(uuidv4)"],
         app,
       );
       await autoMountAuth(app);
@@ -3855,7 +3855,7 @@ describe("server/auth", () => {
       await expect(
         guard(
           createMockEvent({
-            path: "/_agent-native/org/apps/mcp/approvals/grant-1",
+            path: "/_agent-native/org/apps/mcp/approvals/12345678-1234-4123-8123-123456789abc",
           }),
         ),
       ).resolves.toBeUndefined();
@@ -3864,10 +3864,18 @@ describe("server/auth", () => {
         "/_agent-native/org/apps/mcp/approvals",
         "/_agent-native/org/apps/mcp/approvals/grant-1/more",
         "/_agent-native/mcp/approvals/grant-1",
+        "/_agent-native/org/apps/mcp/approvals/grant-1",
+        "/_agent-native/org/apps/mcp/approvals/12345678-1234-1123-8123-123456789abc",
+        "/_agent-native/org/apps/mcp/approvals/12345678-1234-4123-7123-123456789abc",
+        String.raw`/_agent-native/org/apps/mcp/approvals/..\..\..\..\..\api\private`,
+        "/_agent-native/org/apps/mcp/approvals/%2e%2e%5capi%5cprivate",
+        "/_agent-native/org/apps/mcp/approvals/../api/private",
       ]) {
-        await expect(guard(createMockEvent({ path }))).resolves.toEqual({
-          error: "Unauthorized",
-        });
+        await expect
+          .soft(guard(createJsonMethodEvent(path, "POST")), path)
+          .resolves.toEqual({
+            error: "Unauthorized",
+          });
       }
     });
 

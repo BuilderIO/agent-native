@@ -678,6 +678,7 @@ function approvedResume(
 
 describe("direct tools/call wire output", () => {
   beforeEach(() => {
+    vi.stubEnv("APP_URL", ORIGIN);
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     process.env.ACCESS_TOKEN = "test-access-token";
@@ -690,6 +691,7 @@ describe("direct tools/call wire output", () => {
     trace.length = 0;
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.useRealTimers();
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;

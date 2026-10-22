@@ -54,16 +54,36 @@ function redactString(value: string, maxString: number): string {
   return scrubbed;
 }
 
-const EMBEDDED_BEARER = /\b(bearer\s+)([^\s"',}]+)/gi;
+const QUOTED_CREDENTIAL = String.raw`"(?:\\[\s\S]|[^"\\])*(?:"|\\?$)|'(?:\\[\s\S]|[^'\\])*(?:'|\\?$)`;
+const EMBEDDED_BEARER = new RegExp(
+  String.raw`\b(bearer[ \t]+)(${QUOTED_CREDENTIAL}|[^\s"',}]+)`,
+  "gi",
+);
+const EMBEDDED_AUTHORIZATION = new RegExp(
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?[ \t]*[:=][ \t]*)(${QUOTED_CREDENTIAL}|[^\r\n]+)`,
+  "gi",
+);
 const EMBEDDED_CREDENTIAL_FIELD = new RegExp(
-  `(["']?\\b${SENSITIVE_KEY.source}\\b["']?\\s*[:=]\\s*)(["']?)(?!bearer\\b)([^"'\\s,}]+)\\2`,
+  String.raw`(["']?\b${SENSITIVE_KEY.source}\b["']?[ \t]*[:=][ \t]*)((?:bearer[ \t]+)?(?:${QUOTED_CREDENTIAL}|[^"'\s,}]+))`,
   "gi",
 );
 
+function redactEmbeddedField(
+  _match: string,
+  prefix: string,
+  value: string,
+): string {
+  const quote = value[0] === '"' || value[0] === "'" ? value[0] : "";
+  return `${prefix}${quote}${REDACTED}${quote}`;
+}
+
 function redactEmbeddedSecrets(value: string): string {
+  // Token matching can consume an escape that belongs to a quoted field,
+  // so complete field values must be redacted first.
   return value
-    .replace(EMBEDDED_BEARER, `$1${REDACTED}`)
-    .replace(EMBEDDED_CREDENTIAL_FIELD, `$1$2${REDACTED}$2`);
+    .replace(EMBEDDED_AUTHORIZATION, redactEmbeddedField)
+    .replace(EMBEDDED_CREDENTIAL_FIELD, redactEmbeddedField)
+    .replace(EMBEDDED_BEARER, `$1${REDACTED}`);
 }
 
 function redact(value: unknown, depth: number, maxString: number): unknown {

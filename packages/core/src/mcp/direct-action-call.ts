@@ -343,6 +343,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         outcome.review,
         outcome.reason,
         requestMeta,
+        effectiveIdentity?.userEmail,
       );
     }
 

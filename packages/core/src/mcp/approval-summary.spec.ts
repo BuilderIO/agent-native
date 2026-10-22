@@ -164,7 +164,10 @@ describe("summarizeMcpApproval", () => {
         time: { at: EVENT_AT, zone: "America/Los_Angeles" },
       },
       { label: "Start time zone", value: "America/Los_Angeles" },
-      { label: "Attendees", value: "dana@example.com" },
+      {
+        label: "Attendees",
+        value: '{"email":"dana@example.com","displayName":"Dana"}',
+      },
       { label: "Account email", value: "me@example.com" },
       { label: "Send updates", value: "all" },
       { label: "All day", value: "No" },
@@ -401,6 +404,7 @@ describe("mcpApprovalPromptText", () => {
     const form = (
       args: unknown,
       argumentsJson = storedApprovalArguments(args),
+      reviewUrl = REVIEW_URL,
     ) =>
       mcpApprovalPromptText({
         summary: summarizeMcpApproval({
@@ -414,11 +418,20 @@ describe("mcpApprovalPromptText", () => {
         locale: "en-US",
         readerZone: undefined,
         mode: "form",
-        reviewUrl: REVIEW_URL,
+        reviewUrl,
       }).split("\n");
     const people = (count: number) =>
       Array.from({ length: count }, (_, i) => `guest-${i}@example.com`);
     const seeAll = `See all of it on the review page: ${REVIEW_URL}`;
+
+    it("explains the origin and configuration for a relative form review link", () => {
+      const reviewUrl = "/_agent-native/mcp/approvals/grant-1";
+      const lines = form({ body: "word ".repeat(100) }, undefined, reviewUrl);
+      expect(lines.slice(-2)).toEqual([
+        `See all of it on the review page: ${reviewUrl}`,
+        "Relative link: resolve it against this MCP server's origin. No public URL is configured; set APP_URL.",
+      ]);
+    });
 
     it("says how many recipients and fields it leaves out, and links the page that shows them", () => {
       const body = "word ".repeat(100);
@@ -437,6 +450,33 @@ describe("mcpApprovalPromptText", () => {
         "Long values are shortened here.",
         seeAll,
       ]);
+    });
+
+    it("shows all attendee object details when they fit in the form", () => {
+      const attendee = {
+        email: "dana@example.com",
+        displayName: "Dana",
+        optional: true,
+      };
+      expect(form({ attendees: [attendee] })).toEqual([
+        "Send email needs your approval before it runs. Check what it will do, then choose Approve or Deny.",
+        "Reaches: dana@example.com",
+        'Attendees: {"email":"dana@example.com","displayName":"Dana","optional":true}',
+      ]);
+    });
+
+    it("marks shortened object values and links to the full review", () => {
+      const lines = form({
+        attendees: [
+          {
+            email: "dana@example.com",
+            displayName: "Dana ".repeat(70),
+            optional: true,
+          },
+        ],
+      });
+      expect(lines).toContain(en.valuesShortened);
+      expect(lines).toContain(seeAll);
     });
 
     it("shows a call that fits in full, with nothing more to see", () => {

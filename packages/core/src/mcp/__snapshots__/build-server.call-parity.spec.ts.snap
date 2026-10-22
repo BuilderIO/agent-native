@@ -256,10 +256,26 @@ exports[`direct tools/call wire output > approval: a resume after the approval w
       },
     },
     {
-      "clientError": {
-        "code": -32602,
-        "message": "Invalid or expired requestState",
-        "name": "ProtocolError",
+      "grantReviewedConsume": {
+        "actionName": "publish",
+        "appId": "mail",
+        "argumentsHash": "9ag6kJz4LMAoYjg-U55tPt-98FTzTbFyk2UfbJwjxsA",
+        "callerKey": "kuNDJUykcGeTyP8OnBA6Kg2boL7Eb9VTKYZldg7vDvg",
+        "expiresAt": 1767226200000,
+        "found": false,
+        "nonce": "<nonce #1>",
+      },
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": true,
+        "parameters": {
+          "draftId": "d-9",
+        },
+        "toolCategory": "write",
+        "toolDescription": "Publish",
+        "toolName": "publish",
       },
     },
   ],
@@ -311,15 +327,25 @@ Draft id: d-9",
     },
     {
       "body": {
-        "error": {
-          "code": -32602,
-          "data": {
-            "reason": "invalid_request_state",
-          },
-          "message": "Invalid or expired requestState",
-        },
         "id": 1,
         "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Approval for publish is invalid, expired, or already used.",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
       },
       "status": 200,
     },

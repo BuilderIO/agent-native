@@ -23,6 +23,7 @@ import {
   type LocaleCode,
   type ResolvedLocalizationPreference,
 } from "../localization/shared.js";
+import { stripAppBasePath } from "../server/app-base-path.js";
 import {
   getBrowserCookieSession,
   getConfiguredLoginHtml,
@@ -30,7 +31,10 @@ import {
 } from "../server/auth.js";
 import { toAbsoluteOpenUrl } from "../server/deep-link.js";
 import { getH3App } from "../server/framework-request-handler.js";
-import { publicFrameworkPath } from "../server/framework-route-prefix.js";
+import {
+  canonicalFrameworkPathname,
+  publicFrameworkPath,
+} from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
 import { startIntervalJob } from "../server/interval-job.js";
 import { declaredLinkOrigin } from "../server/origin-allowlist.js";
@@ -84,12 +88,11 @@ export interface McpApprovalApp {
 
 const TTL_MS = MCP_ACTION_APPROVAL_TTL_SECONDS * 1000;
 const GRANT_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /**
  * The review page for one grant, on the route the request's MCP mount
- * serves it from, absolute when an origin is known: the request's, if the
- * app declares it or declares none.
+ * serves it from, absolute only for a configured origin or local development.
  */
 export function mcpApprovalReviewUrl(
   nonce: string,
@@ -686,6 +689,16 @@ export async function mcpApprovalPrompt(input: {
   };
 }
 
+export async function mcpApprovalRelativeLinkNote(
+  ownerEmail: string | undefined,
+): Promise<string> {
+  const { locale } = resolveLocaleFromRequest({
+    preference: await readerPreference(ownerEmail),
+    fallback: DEFAULT_LOCALE,
+  });
+  return mcpApprovalMessagesForLocale(locale).relativeLink;
+}
+
 export const MCP_APPROVAL_PRUNE_SWEEP_ID = "mcp-approval-grants";
 
 let pruneWorkerStarted = false;
@@ -713,7 +726,10 @@ export function mountMcpApprovalRoute(
   // Like /open, the page reads the browser session itself and serves the
   // login form at its own URL when signed out, so signing in returns to the
   // review. Its POST re-checks the session and the grant's owner and app.
-  registerAuthPublicPaths([`${route}/:id`], h3);
+  registerAuthPublicPaths(
+    [`${stripAppBasePath(canonicalFrameworkPathname(route))}/:id(uuidv4)`],
+    h3,
+  );
   h3.use(
     route,
     defineEventHandler((event) =>

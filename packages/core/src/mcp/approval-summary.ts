@@ -137,14 +137,7 @@ function readableValue(
   if (typeof value === "boolean") return value ? labels.yes : labels.no;
   if (Array.isArray(value)) {
     const items = value
-      .map((item) => {
-        if (item && typeof item === "object" && !Array.isArray(item)) {
-          const emails = new Set<string>();
-          collectEmails(item, emails, 0);
-          if (emails.size > 0) return [...emails].join(", ");
-        }
-        return readableValue(item, labels);
-      })
+      .map((item) => readableValue(item, labels))
       .filter((item): item is string => item !== undefined);
     return items.length > 0 ? items.join(", ") : undefined;
   }
@@ -376,6 +369,7 @@ export function mcpApprovalPromptText(input: {
     }
     if (moreRecipients > 0 || moreFields > 0 || shortened) {
       lines.push(messages.reviewWhole.replace("{url}", input.reviewUrl));
+      if (!URL.canParse(input.reviewUrl)) lines.push(messages.relativeLink);
     }
   }
   return lines.join("\n");

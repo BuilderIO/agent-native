@@ -49,6 +49,7 @@ export interface McpApprovalMessages {
   valuesShortened: string;
   argumentsCut: string;
   reviewWhole: string;
+  relativeLink: string;
 }
 
 export const MCP_APPROVAL_MESSAGES: Record<
@@ -106,6 +107,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "Long values are shortened here.",
     argumentsCut:
       "Part of this request was too large to keep, so not all of it can be shown, and the list of who it reaches may be incomplete.",
+    relativeLink:
+      "Relative link: resolve it against this MCP server's origin. No public URL is configured; set APP_URL.",
     reviewWhole: "See all of it on the review page: {url}",
   },
   "zh-CN": {
@@ -153,6 +156,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "较长的值在此处已缩短。",
     argumentsCut:
       "此请求有一部分过大，无法保存，因此无法全部显示，涉及人员列表也可能不完整。",
+    relativeLink:
+      "相对链接：请以此 MCP 服务器的源地址解析。应用未配置公共 URL；请设置 APP_URL。",
     reviewWhole: "在审核页面查看完整内容：{url}",
   },
   "zh-TW": {
@@ -200,6 +205,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "較長的值在此處已縮短。",
     argumentsCut:
       "此請求有一部分過大，無法儲存，因此無法全部顯示，涉及人員清單也可能不完整。",
+    relativeLink:
+      "相對連結：請以此 MCP 伺服器的來源位址解析。應用程式未設定公開 URL；請設定 APP_URL。",
     reviewWhole: "在審核頁面查看完整內容：{url}",
   },
   "es-ES": {
@@ -254,6 +261,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "Los valores largos aparecen abreviados aquí.",
     argumentsCut:
       "Parte de esta solicitud era demasiado grande para guardarla, así que no se puede mostrar entera y la lista de personas a las que afecta puede estar incompleta.",
+    relativeLink:
+      "Enlace relativo: resuélvelo con el origen de este servidor MCP. No hay URL pública configurada; define APP_URL.",
     reviewWhole:
       "Consulta la solicitud completa en la página de revisión: {url}",
   },
@@ -309,6 +318,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "Les valeurs longues sont raccourcies ici.",
     argumentsCut:
       "Une partie de cette demande était trop volumineuse pour être conservée ; elle ne peut donc pas être affichée en entier, et la liste des destinataires peut être incomplète.",
+    relativeLink:
+      "Lien relatif : utilisez l’origine de ce serveur MCP. Aucune URL publique n’est configurée ; définissez APP_URL.",
     reviewWhole:
       "Consultez la demande complète sur la page de vérification : {url}",
   },
@@ -366,6 +377,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "Lange Werte sind hier gekürzt.",
     argumentsCut:
       "Ein Teil dieser Anfrage war zu groß zum Speichern. Sie kann daher nicht vollständig angezeigt werden, und die Liste der Betroffenen ist möglicherweise unvollständig.",
+    relativeLink:
+      "Relativer Link: mit dem Origin dieses MCP-Servers auflösen. Keine öffentliche URL konfiguriert; APP_URL setzen.",
     reviewWhole: "Die vollständige Anfrage findest du auf der Prüfseite: {url}",
   },
   "ja-JP": {
@@ -420,6 +433,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "長い値はここでは省略されています。",
     argumentsCut:
       "このリクエストの一部は大きすぎて保存できなかったため、すべてを表示することはできません。対象者の一覧も不完全な可能性があります。",
+    relativeLink:
+      "相対リンクです。この MCP サーバーのオリジンを基準に解決してください。公開 URL が未設定です。APP_URL を設定してください。",
     reviewWhole: "確認ページですべての内容を確認できます：{url}",
   },
   "ko-KR": {
@@ -473,6 +488,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "긴 값은 여기에서 줄여서 표시됩니다.",
     argumentsCut:
       "이 요청의 일부가 너무 커서 저장할 수 없었기 때문에 전체를 표시할 수 없으며, 대상 목록도 불완전할 수 있습니다.",
+    relativeLink:
+      "상대 링크입니다. 이 MCP 서버의 오리진을 기준으로 해석하세요. 공개 URL이 설정되지 않았습니다. APP_URL을 설정하세요.",
     reviewWhole: "검토 페이지에서 전체 내용을 확인하세요: {url}",
   },
   "pt-BR": {
@@ -527,6 +544,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "Valores longos aparecem abreviados aqui.",
     argumentsCut:
       "Parte desta solicitação era grande demais para ser salva, então ela não pode ser exibida por inteiro, e a lista de quem ela atinge pode estar incompleta.",
+    relativeLink:
+      "Link relativo: resolva-o usando a origem deste servidor MCP. Nenhuma URL pública está configurada; defina APP_URL.",
     reviewWhole: "Veja a solicitação completa na página de revisão: {url}",
   },
   "hi-IN": {
@@ -580,6 +599,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "लंबे मान यहां छोटे करके दिखाए गए हैं।",
     argumentsCut:
       "इस अनुरोध का एक हिस्सा सहेजने के लिए बहुत बड़ा था, इसलिए इसे पूरा नहीं दिखाया जा सकता, और यह किन तक पहुंचेगा, उसकी सूची अधूरी हो सकती है।",
+    relativeLink:
+      "सापेक्ष लिंक: इसे इस MCP सर्वर के ऑरिजिन के आधार पर पूरा करें। सार्वजनिक URL कॉन्फ़िगर नहीं है; APP_URL सेट करें।",
     reviewWhole: "पूरा अनुरोध समीक्षा पेज पर देखें: {url}",
   },
   "ar-SA": {
@@ -632,6 +653,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     valuesShortened: "القيم الطويلة مختصرة هنا.",
     argumentsCut:
       "كان جزء من هذا الطلب أكبر من أن يُحفظ، لذا لا يمكن عرضه كاملًا، وقد تكون قائمة من يصل إليهم غير مكتملة.",
+    relativeLink:
+      "رابط نسبي: أكمله باستخدام أصل خادم MCP هذا. لم يُضبط عنوان URL عام؛ اضبط APP_URL.",
     reviewWhole: "اطّلع على الطلب كاملًا في صفحة المراجعة: {url}",
   },
 };

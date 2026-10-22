@@ -24,6 +24,10 @@ import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
+import {
+  EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+  WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+} from "../server/origin-allowlist.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
@@ -994,6 +998,7 @@ async function mcpAppsFullCatalogHeaders(
 
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
+    vi.stubEnv("BETTER_AUTH_TRUSTED_ORIGINS", "https://mail.agent-native.com");
     process.env.ACCESS_TOKEN = "test-access-token";
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
@@ -1018,6 +1023,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
@@ -5846,6 +5852,133 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       await client.close();
     }
   });
+
+  it.each(["approved", "expired", "denied"] as const)(
+    "checks a URL continuation against its %s stored grant after the original prompt deadline",
+    async (state) => {
+      const now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+      const run = vi.fn(async () => ({ sent: true }));
+      const { client } = await createModernClient(sendEmailConfig(run), {
+        manualInputRequired: true,
+        elicitation: { url: {} },
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      const args = { to: ["ana@example.com"] };
+      try {
+        const first = (await client.callTool(
+          { name: "send-email", arguments: args },
+          { allowInputRequired: true } as any,
+        )) as any;
+        const [grant] = [...approvalStoreMocks.grants.values()];
+        // A page decision at minute nine grants another ten minutes to use it.
+        clock.mockReturnValue(now + 9 * 60_000);
+        grant.reviewed = state === "denied" ? "denied" : "approved";
+        if (state !== "expired") grant.expiresAt = Date.now() + 10 * 60_000;
+        clock.mockReturnValue(now + 11 * 60_000);
+        const retry = () =>
+          client.callTool({
+            name: "send-email",
+            arguments: args,
+            requestState: first.requestState,
+            inputResponses: {
+              actionApproval: {
+                action: "accept",
+                content: { decision: "approve" },
+              },
+            },
+          } as any);
+        const result = await retry();
+        if (state === "approved") {
+          expect(result.isError).not.toBe(true);
+          expect(run).toHaveBeenCalledTimes(1);
+          expect((await retry()).isError).toBe(true);
+          expect(run).toHaveBeenCalledTimes(1);
+        } else {
+          expect(result.isError).toBe(true);
+          expect(run).not.toHaveBeenCalled();
+        }
+      } finally {
+        await client.close();
+        clock.mockRestore();
+      }
+    },
+  );
+
+  it.each(
+    [
+      {
+        locale: "en-US",
+        note: "Relative link: resolve it against this MCP server's origin. No public URL is configured; set APP_URL.",
+      },
+      {
+        locale: "fr-FR",
+        note: "Lien relatif : utilisez l’origine de ce serveur MCP. Aucune URL publique n’est configurée ; définissez APP_URL.",
+      },
+    ].flatMap((item) =>
+      ["none", "url", "form"].map((mode) => ({ ...item, mode })),
+    ),
+  )(
+    "explains relative review links in $locale when mode=$mode",
+    async ({ locale, note, mode }) => {
+      for (const key of [
+        ...EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+        ...WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+        "BETTER_AUTH_TRUSTED_ORIGINS",
+      ])
+        vi.stubEnv(key, "");
+      vi.mocked(getUserSetting).mockImplementation(async (email, key) =>
+        email === "oauth@example.com" && key === "localization"
+          ? { locale }
+          : null,
+      );
+      const run = vi.fn(async () => ({ sent: true }));
+      const { client } = await createModernClient(sendEmailConfig(run), {
+        manualInputRequired: true,
+        ...(mode === "none" ? {} : { elicitation: { [mode]: {} } }),
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      try {
+        const result = (await client.callTool(
+          {
+            name: "send-email",
+            arguments: {
+              to: ["ana@example.com"],
+              subject: "visible ".repeat(50),
+            },
+          },
+          { allowInputRequired: true } as any,
+        )) as any;
+        const [grant] = [...approvalStoreMocks.grants.values()];
+        if (mode === "form") {
+          expect(result.inputRequests.actionApproval.params).toMatchObject({
+            mode: "form",
+            message: expect.stringContaining(note),
+          });
+          expect(result.inputRequests.actionApproval.params.message).toContain(
+            `/_agent-native/mcp/approvals/${grant.nonce}`,
+          );
+        } else {
+          expect(result).toMatchObject({
+            isError: true,
+            _meta: {
+              "agent-native/approvalReview": {
+                url: `/_agent-native/mcp/approvals/${grant.nonce}`,
+              },
+            },
+          });
+          expect(result.content[0]).toMatchObject({
+            type: "text",
+            text: expect.stringContaining(note),
+          });
+        }
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        vi.mocked(getUserSetting).mockImplementation(async () => null);
+        await client.close();
+      }
+    },
+  );
 
   it("asks for approval in the owner's saved language, summarizing the call's own arguments", async () => {
     vi.mocked(getUserSetting).mockImplementation(async (email, key) =>

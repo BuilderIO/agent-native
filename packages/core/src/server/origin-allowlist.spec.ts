@@ -74,10 +74,9 @@ describe("declaredLinkOrigin", () => {
     vi.unstubAllEnvs();
   });
 
-  it("keeps the request's origin when the app declares none", () => {
-    expect(declaredLinkOrigin("https://mail.example.com")).toBe(
-      "https://mail.example.com",
-    );
+  it("leaves links relative when no origin is configured", () => {
+    expect(declaredLinkOrigin("https://mail.example.com")).toBeUndefined();
+    expect(declaredLinkOrigin(undefined)).toBeUndefined();
   });
 
   it("sends a link only to an origin the app declares", () => {
@@ -98,21 +97,68 @@ describe("declaredLinkOrigin", () => {
     expect(declaredLinkOrigin(undefined)).toBe("https://mail.example.com");
   });
 
-  it("keeps the request's origin when only the platform's hostnames are set", () => {
+  it("uses a configured platform origin when only platform public URLs are set", () => {
     vi.stubEnv("URL", "https://mail-site.netlify.app");
     vi.stubEnv("DEPLOY_URL", "https://abc123--mail-site.netlify.app");
     vi.stubEnv("APP_URL", "http://localhost:8080");
 
     expect(declaredLinkOrigin("https://mail.example.com")).toBe(
-      "https://mail.example.com",
+      "https://mail-site.netlify.app",
     );
-    expect(declaredLinkOrigin(undefined)).toBeUndefined();
+    expect(declaredLinkOrigin(undefined)).toBe("https://mail-site.netlify.app");
+    expect(declaredLinkOrigin("http://localhost:8080")).toBe(
+      "https://mail-site.netlify.app",
+    );
+    expect(declaredLinkOrigin("https://abc123--mail-site.netlify.app")).toBe(
+      "https://mail-site.netlify.app",
+    );
   });
 
-  it("keeps a local server's own origin", () => {
+  it("uses DEPLOY_URL only when the primary platform URL is missing", () => {
+    vi.stubEnv("DEPLOY_URL", "https://abc123--mail-site.netlify.app");
+    expect(declaredLinkOrigin("https://unconfigured.example.com")).toBe(
+      "https://abc123--mail-site.netlify.app",
+    );
+  });
+
+  it("uses a public configured origin over an inbound loopback origin", () => {
     vi.stubEnv("APP_URL", "https://mail.example.com");
     expect(declaredLinkOrigin("http://localhost:8080")).toBe(
+      "https://mail.example.com",
+    );
+  });
+
+  it("keeps a local server's own origin when no public origin is configured", () => {
+    expect(declaredLinkOrigin("http://localhost:8080")).toBe(
       "http://localhost:8080",
+    );
+  });
+
+  it.each([
+    "APP_URL",
+    "WORKSPACE_OAUTH_ORIGIN",
+    "WORKSPACE_GATEWAY_URL",
+    "BETTER_AUTH_TRUSTED_ORIGINS",
+  ])("keeps a proxied origin configured through %s", (key) => {
+    vi.stubEnv("URL", "https://mail-site.netlify.app");
+    vi.stubEnv(key, "https://proxy.example.com");
+    const request = new Request("http://localhost:3000/mcp", {
+      headers: {
+        "x-forwarded-host": "proxy.example.com",
+        "x-forwarded-proto": "https",
+      },
+    });
+    expect(declaredLinkOrigin(requestForwardedOrigin(request))).toBe(
+      "https://proxy.example.com",
+    );
+    const other = new Request("http://localhost:3000/mcp", {
+      headers: {
+        "x-forwarded-host": "unconfigured.example.com",
+        "x-forwarded-proto": "https",
+      },
+    });
+    expect(declaredLinkOrigin(requestForwardedOrigin(other))).toBe(
+      "https://proxy.example.com",
     );
   });
 });

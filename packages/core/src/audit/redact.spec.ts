@@ -37,14 +37,60 @@ describe("redactArgsToJson", () => {
   it("redacts a credential inside an ordinary string, keeping the text around it", () => {
     const parsed = JSON.parse(
       redactArgsToJson({
-        notes: "Call it with Authorization: Bearer short-token please",
+        notes: "Call it with\nAuthorization: Bearer short-token\nthen run it",
         steps: ["export password=hunter2", "then run it"],
       })!,
     );
     expect(parsed.notes).toBe(
-      "Call it with Authorization: Bearer [redacted] please",
+      "Call it with\nAuthorization: [redacted]\nthen run it",
     );
     expect(parsed.steps).toEqual(["export password=[redacted]", "then run it"]);
+  });
+
+  it.each([
+    ["Authorization: Basic ZmFrZTpmYWtl", "Authorization: [redacted]"],
+    ["Authorization: Bearer fake-token", "Authorization: [redacted]"],
+    ["Use token=Bearer fake-credential", "Use token=[redacted]"],
+    [
+      String.raw`Use token="Bearer fake\"quoted\" phrase" next=visible`,
+      'Use token="[redacted]" next=visible',
+    ],
+    [
+      String.raw`Use token='Bearer fake\'quoted\' phrase' next=visible`,
+      "Use token='[redacted]' next=visible",
+    ],
+    [
+      'Use token=Bearer "fake phrase" next=visible',
+      "Use token=[redacted] next=visible",
+    ],
+    [
+      "Authorization:\nContent-Type: application/json\nBody: visible",
+      "Authorization:\nContent-Type: application/json\nBody: visible",
+    ],
+    ["password=\nvisible", "password=\nvisible"],
+    [
+      'Authorization: Digest username="fake", realm="fake"',
+      "Authorization: [redacted]",
+    ],
+    [
+      '{"Authorization":"Basic ZmFrZTpmYWtl"}',
+      '{"Authorization":"[redacted]"}',
+    ],
+    [
+      'password="fake phrase with spaces" next=visible',
+      'password="[redacted]" next=visible',
+    ],
+    [
+      "password='fake phrase with spaces' next=visible",
+      "password='[redacted]' next=visible",
+    ],
+    [
+      String.raw`password="fake \"quoted\" phrase" next=visible`,
+      'password="[redacted]" next=visible',
+    ],
+  ])("redacts complete embedded credentials in %s", (text, expected) => {
+    expect(JSON.parse(redactArgsToJson({ notes: text })!).notes).toBe(expected);
+    expect(redactTextToSummary(text)).toBe(expected);
   });
 
   it("redacts webhook URLs under a generic field, regardless of key", () => {
@@ -149,6 +195,13 @@ describe("redactArgsToJson", () => {
 });
 
 describe("redactTextToSummary", () => {
+  it("redacts a quoted value when the summary boundary cuts an escape", () => {
+    const text = 'password="' + "x".repeat(85) + '\\fake suffix"';
+    const summary = redactTextToSummary(text, 64);
+    expect(summary).toContain('password="[redacted]"');
+    expect(summary).not.toContain("x".repeat(10));
+  });
+
   it("keeps short text verbatim and marks clipped text", () => {
     expect(redactTextToSummary("all good", 100)).toBe("all good");
 
@@ -167,9 +220,9 @@ describe("redactTextToSummary", () => {
 
   it("redacts credentials embedded in text and JSON fields", () => {
     const summary = redactTextToSummary(
-      'request failed: Authorization: Bearer fake-bearer-value token=fake-token-value body={"apiKey":"fake-api-key"}',
+      'request failed:\nAuthorization: Bearer fake-bearer-value\ntoken=fake-token-value body={"apiKey":"fake-api-key"}',
     );
-    expect(summary).toContain("Authorization: Bearer [redacted]");
+    expect(summary).toContain("Authorization: [redacted]");
     expect(summary).toContain("token=[redacted]");
     expect(summary).toContain('"apiKey":"[redacted]"');
     expect(summary).not.toContain("fake-bearer-value");

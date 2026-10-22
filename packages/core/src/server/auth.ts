@@ -2409,8 +2409,9 @@ const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
  * the handler. The handler remains responsible for verifying the credential.
  *
  * Registered paths are exact matches, where a `:name` segment stands for any
- * one segment: `/x/:id` admits `/x/abc`, never `/x` or `/x/abc/more`. This is
- * registered separately from
+ * one segment: `/x/:id` admits `/x/abc`, never `/x` or `/x/abc/more`.
+ * `/x/:id(uuidv4)` restricts that segment to a lowercase UUID v4.
+ * These are registered separately from
  * template auth options because framework routes can be mounted after the auth
  * plugin and must also work in custom workspace deployments that do not own a
  * template auth file.
@@ -5127,15 +5128,16 @@ export function redirectWithStagedCookies(
 export { isHttpsRequest };
 
 function isPublicPath(
-  url: string,
+  path: string,
   publicPaths: string[],
   exactPublicPaths: string[] = [],
 ): boolean {
-  const p = url.split("?")[0];
-  if (exactPublicPaths.some((candidate) => matchesPathPattern(p, candidate))) {
+  if (
+    exactPublicPaths.some((candidate) => matchesPathPattern(path, candidate))
+  ) {
     return true;
   }
-  return matchesPathList(p, publicPaths);
+  return matchesPathList(path, publicPaths);
 }
 
 /** `path` is `pattern`, where a `:name` segment stands for any one segment. */
@@ -5145,8 +5147,17 @@ function matchesPathPattern(path: string, pattern: string): boolean {
   return (
     expectedSegments.length === actualSegments.length &&
     expectedSegments.every((segment, index) => {
-      if (/^:[A-Za-z][A-Za-z0-9_]*$/.test(segment)) {
-        return Boolean(actualSegments[index]);
+      const parameter = /^:[A-Za-z][A-Za-z0-9_]*(\(uuidv4\))?$/.exec(segment);
+      if (parameter) {
+        const value = actualSegments[index];
+        return (
+          value !== undefined &&
+          (parameter[1]
+            ? /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+                value,
+              )
+            : value.length > 0)
+        );
       }
       return segment === actualSegments[index];
     })
