@@ -425,6 +425,7 @@ function SettingsShellContent({
       extraTabs ?? [],
       declared,
       BridgedTabSettingsPage,
+      appSettingsPages,
     );
     return {
       pages: sortSettingsPages(

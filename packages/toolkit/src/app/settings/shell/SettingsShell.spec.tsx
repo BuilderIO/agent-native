@@ -313,6 +313,25 @@ describe("SettingsShell", () => {
     ).toBeNull();
   });
 
+  it("keeps template tabs separate when an app page uses the same id", async () => {
+    await render({
+      appSettingsPages: [
+        appPage("custom-controls", "Custom controls", 25, AppSettingsPage),
+      ],
+      extraTabs: [
+        { id: "custom-controls", label: "Template controls", content: "tabs" },
+      ],
+    });
+
+    expect(groupLabels().find((group) => group.id === "app")?.pages).toEqual(
+      expect.arrayContaining(["custom-controls", "app-custom-controls"]),
+    );
+    clickPage("custom-controls");
+    await waitFor(() =>
+      Boolean(container.querySelector('[data-testid="app-settings-page"]')),
+    );
+  });
+
   it("rejects app page ids that would replace an existing page", () => {
     expect(() =>
       mergeAppSettingsPages(CORE_SETTINGS_PAGES, [
