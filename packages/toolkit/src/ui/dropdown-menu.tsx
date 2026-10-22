@@ -57,6 +57,10 @@ const DropdownMenuSubContent = React.forwardRef<
         // compositing-ok: Radix content mounts on open and unmounts on close,
         // so the promoted layer is retired with it.
         "z-[290] min-w-[8rem] origin-[var(--radix-dropdown-menu-content-transform-origin)] overflow-hidden rounded-[10px] border border-border bg-popover p-0 text-popover-foreground shadow-md will-change-[transform,opacity] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-100 data-[state=open]:duration-150 data-[state=closed]:ease-out data-[state=open]:ease-out data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1 motion-reduce:data-[state=open]:zoom-in-100 motion-reduce:data-[state=closed]:zoom-out-100 motion-reduce:data-[side=bottom]:slide-in-from-top-0 motion-reduce:data-[side=left]:slide-in-from-right-0 motion-reduce:data-[side=right]:slide-in-from-left-0 motion-reduce:data-[side=top]:slide-in-from-bottom-0",
+        // Radix flips a submenu to the other side but never slides it along
+        // its side, so one with no room beside its menu, as on a phone, would
+        // run off the screen. It slides back over the menu instead.
+        "data-[side=right]:[translate:min(0px,calc(var(--radix-dropdown-menu-content-available-width)_-_100%))] data-[side=left]:[translate:max(0px,calc(100%_-_var(--radix-dropdown-menu-content-available-width)))]",
         className,
       )}
       {...props}

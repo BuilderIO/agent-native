@@ -158,6 +158,16 @@ test.describe("block menu", () => {
     await expect(
       page.locator(`${EDITOR} > p`, { hasText: /^First line\.$/ }),
     ).toHaveCount(2);
+
+    const again = await openMenu(page, block(page, "Second line."));
+    await page.keyboard.type("red b");
+    await expect(again.getByRole("menuitemradio")).toHaveText([
+      "Red background",
+    ]);
+    await page.keyboard.press("Enter");
+    await expect(
+      page.locator(`${EDITOR} p[data-notion-color="red_bg"]`),
+    ).toHaveText("Second line.");
   });
 
   test("its shortcut hints work in the menu and on the block it selects", async ({
@@ -263,6 +273,16 @@ test.describe("block menu on a touch screen", () => {
     await block(page, "Second line.").tap();
     await page.locator(GRIP).tap();
     await menu.getByRole("menuitem", { name: "Color" }).tap();
+    // With no room beside the menu, the colours slide over it, on screen.
+    const colors = page.getByRole("menu").filter({
+      has: page.getByRole("menuitemradio", { name: "Red text" }),
+    });
+    await expect
+      .poll(async () => {
+        const box = await colors.boundingBox();
+        return box ? box.x + box.width : Infinity;
+      })
+      .toBeLessThanOrEqual(390);
     await page.getByRole("menuitemradio", { name: "Red text" }).tap();
     await expect(
       page.locator(`${EDITOR} p[data-notion-color="red"]`),
