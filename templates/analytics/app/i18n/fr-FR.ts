@@ -1417,6 +1417,8 @@ export default {
       "Ce panneau ne contient que des lignes agrégées. Les lignes du point cliqué sont mises en évidence.",
     drilldownNoRecords: "Aucun enregistrement correspondant",
     drilldownLoadFailed: "Impossible de charger les enregistrements",
+    drilldownOverByteCap:
+      "Ces enregistrements liraient plus de {{gib}} Gio, ils n'ont donc pas été chargés. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Remplacer la plage horaire de ce graphique",
     chartTimeRangeInherit: "Plage du tableau de bord",

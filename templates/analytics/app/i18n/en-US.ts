@@ -967,6 +967,8 @@ export default {
       "This panel only has aggregate rows. Rows matching the clicked point are highlighted.",
     drilldownNoRecords: "No matching records",
     drilldownLoadFailed: "Couldn't load records",
+    drilldownOverByteCap:
+      "These records would read more than {{gib}} GiB, so they didn't load. Narrow the dashboard's filters or date range and try again.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Override time range for this chart",
     chartTimeRangeInherit: "Dashboard range",

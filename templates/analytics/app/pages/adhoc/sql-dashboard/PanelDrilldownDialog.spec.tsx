@@ -521,6 +521,31 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     expect(downloadButton?.disabled).toBe(true);
   });
 
+  it("explains a record query refused at its byte cap", async () => {
+    const { SqlQueryRefusalError } = await import("@shared/sql-query-contract");
+    mocks.actionQuery = {
+      data: {
+        drilldown: { sql: "SELECT record FROM signups" },
+      },
+      isError: false,
+      isLoading: false,
+      isSuccess: true,
+    };
+    mocks.sqlError = new SqlQueryRefusalError({
+      error: "breakdown_over_byte_cap",
+      message: "These records would read more than 50 GiB.",
+    });
+
+    await render();
+
+    expect(container.textContent).toContain(
+      'sqlDashboard.drilldownOverByteCap {"gib":50}',
+    );
+    expect(container.textContent).not.toContain(
+      "sqlDashboard.drilldownLoadFailed",
+    );
+  });
+
   it("posts long panel SQL in the request body", async () => {
     const sql = `SELECT ${"column_name, ".repeat(2_140)} value`;
     const panel = { ...PANEL, sql };

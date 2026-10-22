@@ -1348,6 +1348,8 @@ export default {
       "इस पैनल में केवल समेकित पंक्तियाँ हैं। क्लिक किए गए बिंदु से मेल खाने वाली पंक्तियाँ हाइलाइट की गई हैं।",
     drilldownNoRecords: "कोई मेल खाता रिकॉर्ड नहीं",
     drilldownLoadFailed: "रिकॉर्ड लोड नहीं हो सके",
+    drilldownOverByteCap:
+      "ये रिकॉर्ड {{gib}} GiB से ज़्यादा पढ़ेंगे, इसलिए लोड नहीं हुए। डैशबोर्ड के फ़िल्टर या तारीख की सीमा छोटी करें और फिर से कोशिश करें।",
     filterSeries: "Filter",
     chartTimeRangeOverride: "इस चार्ट के लिए समय सीमा ओवरराइड करें",
     chartTimeRangeInherit: "डैशबोर्ड सीमा",

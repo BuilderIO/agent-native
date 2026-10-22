@@ -1,5 +1,10 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import {
+  BREAKDOWN_OVER_BYTE_CAP_ERROR,
+  ROW_BREAKDOWN_MAX_BYTES_BILLED,
+} from "@shared/row-breakdown";
+import { SqlQueryRefusalError } from "@shared/sql-query-contract";
 import { IconDownload } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -165,11 +170,16 @@ export function PanelDrilldownDialog({
   const activeQuery = hasRecordQuery ? recordQuery : aggregateQuery;
   const allRows = activeQuery.data?.rows ?? [];
   const error =
-    (drilldownQuery.isError ||
-    (drilldownQuery.isSuccess && !hasDrilldownResult) ||
-    activeQuery.error
-      ? t("sqlDashboard.drilldownLoadFailed")
-      : undefined) ?? activeQuery.data?.error;
+    (activeQuery.error instanceof SqlQueryRefusalError &&
+    activeQuery.error.code === BREAKDOWN_OVER_BYTE_CAP_ERROR
+      ? t("sqlDashboard.drilldownOverByteCap", {
+          gib: ROW_BREAKDOWN_MAX_BYTES_BILLED / 1024 ** 3,
+        })
+      : drilldownQuery.isError ||
+          (drilldownQuery.isSuccess && !hasDrilldownResult) ||
+          activeQuery.error
+        ? t("sqlDashboard.drilldownLoadFailed")
+        : undefined) ?? activeQuery.data?.error;
   const loading =
     drilldownQuery.isLoading || activeQuery.isLoading || activeQuery.isFetching;
   const settledResult =

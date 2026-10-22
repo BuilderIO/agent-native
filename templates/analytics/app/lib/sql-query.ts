@@ -388,7 +388,8 @@ export function useSqlQuery(
     /**
      * A completed result for a SQL string is never stale, so enabling or
      * returning to a SQL that already has one does not rescan it. Only an
-     * explicit `refreshToken` refresh does. Ignored when `staleTime` is set.
+     * explicit `refreshToken` refresh does. A `partial` result is not
+     * completed and reruns on the next enable. Ignored when `staleTime` is set.
      */
     reuseCompletedOnEnable?: boolean;
     purpose?: SqlQueryPurpose;
@@ -553,7 +554,9 @@ export function useSqlQuery(
     },
     staleTime:
       options?.staleTime ??
-      (options?.reuseCompletedOnEnable ? Infinity : 5 * 60 * 1000),
+      (options?.reuseCompletedOnEnable
+        ? (cached) => (cached.state.data?.partial ? 0 : Infinity)
+        : 5 * 60 * 1000),
   });
   const refetch = query.refetch;
   const accessDenied = isSqlQueryAccessDenied(query.error);

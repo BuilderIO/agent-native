@@ -413,6 +413,22 @@ describe("useSqlQuery retained results", () => {
       expect(mocks.callAction).toHaveBeenCalledTimes(1);
     });
 
+    it("reruns a partial result when it is enabled again", async () => {
+      mocks.callAction.mockResolvedValue({
+        rows: [{ v: "a" }],
+        schema: [],
+        partial: true,
+      });
+      await render({ sql: "A", reuse: true });
+      await settle();
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+      await render({ sql: "A", enabled: false, reuse: true });
+      await render({ sql: "A", reuse: true });
+      await settle();
+      expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    });
+
     it("keeps the five minute freshness for ordinary consumers", async () => {
       answers({ A: { v: "a" } });
       await render({ sql: "A" });

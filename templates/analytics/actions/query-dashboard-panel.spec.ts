@@ -141,15 +141,16 @@ describe("query-dashboard-panel", () => {
     );
   });
 
-  it("caps record drill-downs and preserves their over-cap error", async () => {
+  it("caps record drill-downs and reports their over-cap refusal", async () => {
     const context = { userEmail: "alice@example.com", orgId: "org-1" };
     const signal = new AbortController().signal;
     mocks.getCredentialContext.mockReturnValue(context);
     mocks.normalizeDashboardPanelQuery.mockReturnValue(
       "SELECT visitor FROM events LIMIT 500",
     );
-    const error = new BigQueryMaximumBytesBilledError(400);
-    mocks.resolveAnalyticsPanelSource.mockRejectedValue(error);
+    mocks.resolveAnalyticsPanelSource.mockRejectedValue(
+      new BigQueryMaximumBytesBilledError(400),
+    );
     await expect(
       queryDashboardPanel.run(
         {
@@ -159,7 +160,12 @@ describe("query-dashboard-panel", () => {
         },
         { caller: "frontend", signal } as ActionRunContext,
       ),
-    ).rejects.toBe(error);
+    ).resolves.toEqual({
+      error: "breakdown_over_byte_cap",
+      message: expect.stringMatching(
+        /^These records would read more than 50 GiB/,
+      ),
+    });
     expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledWith(
       {
         source: "bigquery",

@@ -1397,6 +1397,8 @@ export default {
     drilldownAggregateOnly: "此面板只有彙總列。與所點選資料點相符的列已標示。",
     drilldownNoRecords: "沒有相符的記錄",
     drilldownLoadFailed: "無法載入記錄",
+    drilldownOverByteCap:
+      "這些記錄將讀取超過 {{gib}} GiB 的資料，因此未載入。請縮小儀表板的篩選條件或日期範圍後再試一次。",
     filterSeries: "篩選",
     chartTimeRangeOverride: "覆寫此圖表的時間範圍",
     chartTimeRangeInherit: "儀表板範圍",

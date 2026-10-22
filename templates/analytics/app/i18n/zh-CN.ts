@@ -1311,6 +1311,8 @@ export default {
       "此面板只有聚合行。与所点击数据点匹配的行已高亮显示。",
     drilldownNoRecords: "没有匹配的记录",
     drilldownLoadFailed: "无法加载记录",
+    drilldownOverByteCap:
+      "这些记录将读取超过 {{gib}} GiB 的数据，因此未加载。请缩小仪表板的筛选条件或日期范围后重试。",
     filterSeries: "Filter",
     chartTimeRangeOverride: "覆盖此图表的时间范围",
     chartTimeRangeInherit: "仪表板范围",

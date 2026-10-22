@@ -1389,6 +1389,8 @@ export default {
       "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
     drilldownNoRecords: "一致するレコードがありません",
     drilldownLoadFailed: "レコードを読み込めませんでした",
+    drilldownOverByteCap:
+      "これらのレコードは {{gib}} GiB を超えて読み込むため、読み込みませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
     filterSeries: "Filter",
     chartTimeRangeOverride: "このチャートの期間を上書き",
     chartTimeRangeInherit: "ダッシュボードの期間",

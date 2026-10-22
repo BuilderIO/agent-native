@@ -35,7 +35,6 @@ export default defineAction({
     }
 
     const query = normalizeDashboardPanelQuery(args.source, args.query);
-    const breakdown = args.purpose === "row-breakdown";
     try {
       return await resolveAnalyticsPanelSource(
         {
@@ -50,10 +49,14 @@ export default defineAction({
         context,
       );
     } catch (error) {
-      if (breakdown && error instanceof BigQueryMaximumBytesBilledError) {
+      if (args.purpose && error instanceof BigQueryMaximumBytesBilledError) {
+        const gib = ROW_BREAKDOWN_MAX_BYTES_BILLED / 1024 ** 3;
         return {
           error: BREAKDOWN_OVER_BYTE_CAP_ERROR,
-          message: `This breakdown would read more than ${ROW_BREAKDOWN_MAX_BYTES_BILLED / 1024 ** 3} GiB, so it did not run. Narrow the dashboard filters or the panel's date range and try again.`,
+          message:
+            args.purpose === "panel-drilldown"
+              ? `These records would read more than ${gib} GiB, so they did not load. Narrow the dashboard filters or the panel's date range and try again.`
+              : `This breakdown would read more than ${gib} GiB, so it did not run. Narrow the dashboard filters or the panel's date range and try again.`,
         };
       }
       throw error;
