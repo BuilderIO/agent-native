@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,6 +23,7 @@ import {
   preparePackagesForTagging,
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
+import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
   gitBlobSha,
   syncCommunityQrBlobPins,
@@ -26,7 +35,10 @@ import {
   decodeGitHubContentResponse,
   parseCompletePullRequestFiles,
 } from "./verify-community-qr-release-pin.ts";
-import { assertReleaseOnlyPullRequestFiles } from "./verify-release-package-files.ts";
+import {
+  assertReleaseOnlyPullRequestFiles,
+  extractPullRequestFileNames,
+} from "./verify-release-package-files.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -678,6 +690,23 @@ importers:
     );
   });
 
+  it("collects filenames from every paginated GitHub file response", () => {
+    assert.deepEqual(
+      extractPullRequestFileNames([
+        [{ filename: ".changeset/release.md" }],
+        [
+          { filename: "package.json" },
+          { filename: "packages/core/CHANGELOG.md" },
+        ],
+      ]),
+      [".changeset/release.md", "package.json", "packages/core/CHANGELOG.md"],
+    );
+    assert.throws(
+      () => extractPullRequestFileNames([[{ filename: 1 }]]),
+      /invalid pull request file list/,
+    );
+  });
+
   it("rejects unreadable or incomplete GitHub Contents API responses", () => {
     const content = Buffer.from("manifest");
     assert.deepEqual(
@@ -736,6 +765,97 @@ importers:
     assert.throws(
       () => parseCompletePullRequestFiles(atLimit),
       /pull request files API reached its 3,000-file limit/,
+    );
+  });
+
+  it("runs both release verifier CLIs through the shared file request", () => {
+    const files = [
+      { filename: "packages/core/package.json", status: "modified" },
+      { filename: ".changeset/core-fix.md", status: "added" },
+      { filename: "packages/core/CHANGELOG.md", status: "modified" },
+    ];
+    const pages = JSON.stringify([[files[0], files[1]], [files[2]]]);
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-pr-files-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    mkdirSync(binDirectory);
+    const ghPath = path.join(binDirectory, "gh");
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+printf '%s\\n' '---' "$@" >> "$GH_CALLS_FILE"
+if [ "$#" -eq 4 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] && [ "$3" = "--slurp" ] && [ "$4" = "$GH_EXPECTED_FILE_ENDPOINT" ]; then
+  printf '%s' "$GH_FILE_PAGES"
+elif [ "$#" -eq 2 ] && [ "$1" = "api" ] && [ "$2" = "$GH_EXPECTED_PR_ENDPOINT" ]; then
+  printf '%s' "$GH_PULL_REQUEST"
+else
+  printf '%s\\n' 'unexpected gh arguments' >&2
+  exit 1
+fi
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    const endpoint = "repos/BuilderIO/agent-native/pulls/8062/files";
+    const pullRequestEndpoint = "repos/BuilderIO/agent-native/pulls/8062";
+    const env = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+      REPO: "BuilderIO/agent-native",
+      PR_NUMBER: "8062",
+      GH_CALLS_FILE: callsPath,
+      GH_EXPECTED_FILE_ENDPOINT: endpoint,
+      GH_EXPECTED_PR_ENDPOINT: pullRequestEndpoint,
+      GH_FILE_PAGES: pages,
+      GH_PULL_REQUEST: JSON.stringify({ changed_files: files.length }),
+    };
+
+    const runCli = (script: string) =>
+      execFileSync(
+        process.execPath,
+        ["--experimental-strip-types", path.resolve(script)],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    try {
+      const packageOutput = runCli("scripts/list-release-pr-package-files.ts");
+      assert.deepEqual(JSON.parse(packageOutput), [
+        { filename: "packages/core/package.json", status: "modified" },
+      ]);
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "---",
+        "api",
+        "--paginate",
+        "--slurp",
+        endpoint,
+      ]);
+
+      writeFileSync(callsPath, "");
+      assert.match(
+        runCli("scripts/verify-release-package-files.ts"),
+        /Verified 3 complete release PR file paths against the allowlist\./,
+      );
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "---",
+        "api",
+        "--paginate",
+        "--slurp",
+        endpoint,
+        "---",
+        "api",
+        pullRequestEndpoint,
+      ]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+
+    assert.throws(
+      () => parseReleasePullRequestPackageFiles([[{}]]),
+      /invalid release PR file list/,
+    );
+    assert.throws(
+      () => parseReleasePullRequestPackageFiles({ files: [] }),
+      /invalid release PR file list/,
     );
   });
 
@@ -839,6 +959,10 @@ importers:
     assert(releaseDiff);
     assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
     assert(majorPromotionGuard);
+    assert(
+      autoMergeSteps.indexOf(releaseDiff) <
+        autoMergeSteps.indexOf(majorPromotionGuard),
+    );
     assert.match(
       String((majorPromotionGuard.env as Workflow).BASE_SHA),
       /inputs\.base_sha/,
@@ -851,16 +975,21 @@ importers:
       String((majorPromotionGuard.env as Workflow).PR_NUMBER),
       /inputs\.pull_request_number/,
     );
-    assert.match(String(majorPromotionGuard.run), /"--slurp"/);
-    assert.match(String(majorPromotionGuard.run), /JSON\.parse\(gh\(/);
-    assert.doesNotMatch(String(majorPromotionGuard.run), /\.split\("\\n"\)/);
-    assert.match(String(majorPromotionGuard.run), /HTTP 404/);
-    assert.match(String(majorPromotionGuard.run), /status === "added"/);
-    assert.match(String(majorPromotionGuard.run), /status === "removed"/);
-    assert.doesNotMatch(
-      String(majorPromotionGuard.run),
-      /catch\s*\{\s*return null/,
+    const majorPromotionRun = String(majorPromotionGuard.run);
+    assert.match(
+      majorPromotionRun,
+      /scripts\/list-release-pr-package-files\.ts/,
     );
+    assert.match(
+      majorPromotionRun,
+      /readFileSync\(process\.env\.RELEASE_PACKAGE_FILES_PATH, "utf8"\)/,
+    );
+    assert.doesNotMatch(majorPromotionRun, /--paginate|--slurp/);
+    assert.doesNotMatch(majorPromotionRun, /\.split\("\\n"\)/);
+    assert.match(majorPromotionRun, /HTTP 404/);
+    assert.match(majorPromotionRun, /status === "added"/);
+    assert.match(majorPromotionRun, /status === "removed"/);
+    assert.doesNotMatch(majorPromotionRun, /catch\s*\{\s*return null/);
     assert(qrPinGuard);
     assert.equal(
       qrPinGuard.run,

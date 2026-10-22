@@ -226,8 +226,12 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          package_files="$RUNNER_TEMP/release-package-files.json"
+          node --experimental-strip-types scripts/list-release-pr-package-files.ts > "$package_files"
+          export RELEASE_PACKAGE_FILES_PATH="$package_files"
           node <<'NODE'
           const { execFileSync } = require("node:child_process");
+          const { readFileSync } = require("node:fs");
 
           const repo = process.env.REPO;
           const gh = (args) =>
@@ -279,13 +283,10 @@ jobs:
             return match.slice(1).map(Number);
           };
 
-          const files = JSON.parse(gh([
-            "api", "--paginate", "--slurp", `repos/${repo}/pulls/${process.env.PR_NUMBER}/files`,
-            "--jq", 'add | map(select(.filename == "package.json" or (.filename | endswith("/package.json"))) | {filename, status})',
-          ]));
-          if (!Array.isArray(files) || files.some((file) =>
-            !file || typeof file.filename !== "string" || typeof file.status !== "string"
-          )) {
+          const files = JSON.parse(
+            readFileSync(process.env.RELEASE_PACKAGE_FILES_PATH, "utf8"),
+          );
+          if (!Array.isArray(files)) {
             throw new Error("GitHub returned an invalid release PR file list");
           }
 
