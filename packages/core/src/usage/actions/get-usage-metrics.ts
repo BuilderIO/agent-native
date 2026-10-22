@@ -60,7 +60,9 @@ export default defineAction({
   }),
   run: async ({ sinceDays, scope, userEmail, app, appId }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    // scope "me" ignores userEmail, so only a workspace lookup is checked.
     if (
+      scope === "workspace" &&
       userEmail &&
       ctx.orgId &&
       userEmail.toLowerCase() !== ctx.userEmail.toLowerCase()

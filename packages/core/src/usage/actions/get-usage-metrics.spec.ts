@@ -225,6 +225,24 @@ describe("get-usage-metrics action", () => {
     },
   );
 
+  it('ignores userEmail for scope "me", matching Dispatch', async () => {
+    canViewWorkspaceUsageMock.mockResolvedValue(false);
+    isOrgMemberMock.mockResolvedValue(false);
+
+    await getUsageMetrics.run(
+      { sinceDays: 7, scope: "me", userEmail: "someone@example.com" },
+      {
+        caller: "agent",
+        userEmail: "member@example.com",
+        orgId: "org-1",
+      } as any,
+    );
+
+    expect(canViewWorkspaceUsageMock).not.toHaveBeenCalled();
+    expect(isOrgMemberMock).not.toHaveBeenCalled();
+    expect(listAppUsageMetricsMock).toHaveBeenCalled();
+  });
+
   it("scopes the description to this organization's members, not external customers", () => {
     const description = (getUsageMetrics as unknown as { description: string })
       .description;
