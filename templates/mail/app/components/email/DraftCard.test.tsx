@@ -343,6 +343,34 @@ describe("DraftCard", () => {
     expect(queryByText("mail.compose.sending")).toBeNull();
   });
 
+  it("confirms a scheduled send and tells the model when it goes out", async () => {
+    mockCompose.drafts = [newDraft];
+    const runAt = Date.UTC(2026, 9, 22, 13, 0);
+    const { getByText, queryByText, rerender } = render(
+      <DraftCard draftId="new-draft" />,
+    );
+
+    progress({ status: "scheduled", runAt });
+    act(() => composeProps.current!.onDiscard("new-draft"));
+    mockCompose.drafts = [];
+    rerender(<DraftCard draftId="new-draft" />);
+
+    expect(getByText("mail.sendLater.scheduledFor")).toBeTruthy();
+    expect(queryByText("mail.draftCard.deleted")).toBeNull();
+    await waitFor(() =>
+      expect(mockUpdateModelContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          structuredContent: {
+            draftId: "new-draft",
+            status: "scheduled",
+            runAt: "2026-10-22T13:00:00.000Z",
+          },
+        }),
+      ),
+    );
+    expect(mockUpdateModelContext).toHaveBeenCalledTimes(1);
+  });
+
   it("confirms a deleted draft", async () => {
     mockCompose.drafts = [newDraft];
     const { getByRole, getByText, rerender } = render(
