@@ -8579,6 +8579,18 @@ function PageEditorSessionBody({
               : current,
           );
           void suggestionsQuery.refetch();
+          // Accepting moves each asking thread's quote onto the new text.
+          if (
+            result.suggestions.some(
+              (suggestion) =>
+                suggestion.status === "accepted" &&
+                suggestionSourceThreadId(suggestion),
+            )
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "list-comments", { documentId }],
+            });
+          }
           awaitingReadback = true;
           const readback = await refreshSuggestionDecisionDocument(
             continueSuggesting,
