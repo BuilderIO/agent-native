@@ -17,7 +17,7 @@ const cards = [
     appId: "design",
     tool: "generate-screens",
     profile: design,
-    args: { designId: "design/one" },
+    args: { designId: "design/from-input" },
     result: { designId: "design/one", path: "/untrusted" },
     path: "/design/design%2Fone?editorView=overview",
     resourceKey: "designId",
@@ -29,7 +29,7 @@ const cards = [
     appId: "design",
     tool: "export-coding-handoff",
     profile: design,
-    args: { id: "design/one" },
+    args: { id: "design/from-input" },
     result: { designId: "design/one", rawUrl: "https://example.test/raw" },
     path: "/design/design%2Fone",
     resourceKey: "designId",
@@ -37,14 +37,11 @@ const cards = [
     write: "update-design",
     writeArgs: { title: "Updated" },
   },
-  ...[
-    { appId: "slides", profile: slides },
-    { appId: "slides-2", profile: slides2 },
-  ].map(({ appId, profile }) => ({
-    appId,
+  {
+    appId: "slides",
     tool: "clone-context-slide",
-    profile,
-    args: { deckId: "deck/one" },
+    profile: slides,
+    args: { deckId: "deck/from-input" },
     result: { deckId: "deck/one", slideId: "cloned-slide", slideNumber: 3 },
     path: "/deck/deck%2Fone?slide=3",
     resourceKey: "deckId",
@@ -53,7 +50,7 @@ const cards = [
     writeArgs: {
       operations: [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
     },
-  })),
+  },
   {
     appId: "content",
     tool: "share-local-file-document",
@@ -147,10 +144,7 @@ describe("existing-resource inline cards", () => {
           args,
           allowedArgumentNames: Object.keys(writeMap[write]!),
         });
-      const readArgs = {
-        id: resourceId,
-        ...(appId === "slides-2" ? { compact: "true" } : {}),
-      };
+      const readArgs = { id: resourceId };
       const writeIdKey = appId.startsWith("slides") ? "deckId" : "id";
       const allowedWrite = { [writeIdKey]: resourceId, ...writeArgs };
       expect(normalizeRead(read, readArgs)).toEqual(readArgs);
@@ -174,88 +168,46 @@ describe("existing-resource inline cards", () => {
     },
   );
 
-  it.each([slides])("ignores malformed cloned slide positions", (profile) => {
-    for (const slideNumber of [0, -1, 1.5, "3", Number.MAX_SAFE_INTEGER + 1]) {
-      expect(
-        profile.widgetTargets["clone-context-slide"](
-          {},
-          { deckId: "deck", slideNumber },
-        )?.targetPath,
-      ).toBe("/deck/deck");
+  it("requires authoritative result IDs for every new card", () => {
+    for (const { profile, tool, args } of cards) {
+      const targets = profile.widgetTargets as Record<
+        string,
+        (
+          args: Record<string, unknown>,
+          result: unknown,
+        ) => McpDirectoryWidgetTarget | null
+      >;
+      for (const result of [
+        {},
+        null,
+        undefined,
+        { id: " ", designId: " ", deckId: " " },
+      ]) {
+        expect(targets[tool]!(args, result)).toBeNull();
+      }
     }
   });
 
-  it("requires the exact cloned Slides-2 slide before granting source and render reads", () => {
-    const resolve = slides2.widgetTargets["clone-context-slide"];
-    expect(
-      resolve({ deckId: "deck" }, { deckId: "deck", slideNumber: 3 }),
-    ).toBeNull();
-    expect(
-      resolve({}, { deckId: "deck", slideId: "slide", slideNumber: 0 }),
-    ).toBeNull();
-    const target = resolve(
-      {},
-      { deckId: "deck", slideId: "slide", slideNumber: 3 },
-    )!;
-    const profile = slides2.widgetReadActionArguments;
-    const maps = {
-      "get-deck-design-tokens": profile["get-deck-design-tokens"],
-      "get-slide-source": profile["get-slide-source"],
-      "get-slide-render": profile["get-slide-render"],
-    };
-    const actionArguments = Object.fromEntries(
-      Object.entries(maps).map(([action, map]) => [
-        action,
-        Object.fromEntries(
-          Object.entries(map).map(([argument, rule]) => [
-            argument,
-            typeof rule === "string"
-              ? target.resourceIds[rule as keyof typeof target.resourceIds]
-              : rule,
-          ]),
+  it("requires a valid cloned slide position", () => {
+    for (const slideNumber of [
+      undefined,
+      0,
+      -1,
+      1.5,
+      "3",
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      expect(
+        slides.widgetTargets["clone-context-slide"](
+          { deckId: "deck" },
+          { deckId: "deck", slideNumber },
         ),
-      ]),
-    );
-    const identity = {
-      appId: "slides-2",
-      resourceUri: "ui://slides-2/clone",
-      userEmail: "editor@example.test",
-    };
-    const scope = createMcpDirectoryWidgetWriteCapability({
-      ...identity,
-      resourceIds: target.resourceIds,
-      expiresAtMs: Date.now() + 60_000,
-      readActionArguments: actionArguments,
-      writeActionArguments: {
-        "patch-deck": {
-          ...slides2.widgetWriteActionArguments["patch-deck"],
-          deckId: target.resourceIds.deckId,
-        },
-      },
-    });
-    expect(scope).toBeDefined();
-    for (const [actionName, map] of Object.entries(maps)) {
-      const args = {
-        deckId: "deck",
-        ...(actionName !== "get-deck-design-tokens"
-          ? { slideId: "slide" }
-          : {}),
-        ...(actionName === "get-slide-render"
-          ? { expectedRevision: 2, expectedSourceHash: "a".repeat(64) }
-          : {}),
-      };
-      const normalize = (args: Record<string, unknown>) =>
-        normalizeMcpDirectoryWidgetReadActionArguments(scope, {
-          ...identity,
-          actionName,
-          allowedArgumentNames: Object.keys(map),
-          args,
-        });
-      expect(normalize(args)).toEqual(args);
-      expect(normalize({ ...args, deckId: "other-deck" })).toBeUndefined();
-      expect(normalize({ ...args, slideId: "other-slide" })).toBeUndefined();
-      expect(normalize({ ...args, undeclared: true })).toBeUndefined();
+      ).toBeNull();
     }
+  });
+
+  it("keeps Slides-2 HTML clones on their full-app link", () => {
+    expect(slides2.widgetTargets).not.toHaveProperty("clone-context-slide");
   });
 
   it("never binds Content sharing to the local source or a missing copy", () => {
