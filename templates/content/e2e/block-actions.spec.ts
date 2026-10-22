@@ -217,6 +217,15 @@ test.describe("block menu", () => {
     const highlights = page.locator(`${EDITOR} .comment-highlight`);
     await expect(highlights).toHaveText(["Second line."]);
 
+    // A copy of the block above lands right before the commented one, and
+    // stays out of its highlight.
+    const above = await openMenu(page, block(page, "First line."));
+    await above.getByRole("menuitem", { name: /^Duplicate/ }).click();
+    await expect(
+      page.locator(`${EDITOR} > p`, { hasText: /^First line\.$/ }),
+    ).toHaveCount(2);
+    await expect(highlights).toHaveText(["Second line."]);
+
     await openMenu(page, block(page, "Third line."));
     await page.keyboard.press("ControlOrMeta+Shift+m");
     await expect(page.getByRole("menu")).toHaveCount(0);
@@ -280,9 +289,9 @@ test.describe("block menu on a touch screen", () => {
     await expect
       .poll(async () => {
         const box = await colors.boundingBox();
-        return box ? box.x + box.width : Infinity;
+        return box && box.x >= 0 && box.x + box.width <= 390;
       })
-      .toBeLessThanOrEqual(390);
+      .toBe(true);
     await page.getByRole("menuitemradio", { name: "Red text" }).tap();
     await expect(
       page.locator(`${EDITOR} p[data-notion-color="red"]`),
