@@ -62,10 +62,12 @@ export function StepToolbar() {
     <div
       data-tw-surface
       data-tauri-drag-region
+      // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
       className="flex h-screen w-screen cursor-grab items-center gap-2 rounded-full bg-zinc-900/95 px-3 text-white shadow-lg ring-1 ring-white/10 select-none"
     >
       <span
         data-tauri-drag-region
+        // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
         className={`size-2.5 shrink-0 rounded-full ${paused ? "bg-amber-400" : "animate-pulse bg-red-500"}`}
       />
       <span
@@ -81,6 +83,7 @@ export function StepToolbar() {
         aria-label={paused ? "Resume" : "Pause"}
         onClick={togglePause}
         disabled={finishing}
+        // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
         className="inline-flex size-7 cursor-pointer items-center justify-center rounded-full text-zinc-200 hover:bg-white/15 disabled:opacity-40 [&_svg]:size-3.5"
       >
         {paused ? <IconPlayerPlayFilled /> : <IconPlayerPauseFilled />}
@@ -89,6 +92,7 @@ export function StepToolbar() {
         type="button"
         onClick={finish}
         disabled={finishing}
+        // guard:allow-raw-color — theme-invariant capture chrome, like the recording toolbar.
         className="inline-flex h-7 cursor-pointer items-center rounded-full bg-white px-3 text-[13px] font-semibold text-zinc-900 hover:bg-zinc-200 disabled:opacity-60"
       >
         {finishing ? "Building…" : "Done"}

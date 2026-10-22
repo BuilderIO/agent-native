@@ -1265,10 +1265,11 @@ const messages = {
     paginationPage: "Page {{page}} sur {{totalPages}}",
   },
   stepGuide: {
-    pageTitle: "Guide · Clips",
+    pageTitle: "Guide pas à pas · Clips",
     viewAsGuide: "Afficher comme guide",
     guide: "Guide",
     stepCount_one: "{{count}} étape",
+    stepCount_many: "{{count}} étapes",
     stepCount_other: "{{count}} étapes",
     step: "Étape {{number}}",
     copyMarkdown: "Copier en Markdown",

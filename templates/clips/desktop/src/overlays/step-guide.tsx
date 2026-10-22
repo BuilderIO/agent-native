@@ -32,8 +32,10 @@ const SCALE = 1.2;
 const pt = (value: number) => `${value * SCALE}px`;
 const ZOOM_STEP = 0.5;
 const SAVE_DELAY_MS = 400;
-const TEXT_COLOR = "#515151";
-const BADGE_COLOR = "#E10992";
+// The page preview mirrors the exported PDF, so it keeps the PDF palette in
+// every theme.
+const TEXT_COLOR = "#515151"; // guard:allow-raw-color — PDF body text colour.
+const BADGE_COLOR = "#E10992"; // guard:allow-raw-color — PDF step badge colour.
 
 function fileUrl(directory: string, fileName: string): string {
   return convertFileSrc(`${directory}/${fileName}`);
@@ -74,11 +76,12 @@ function StepFrame({
   const drag = image.dragTo ? place(image.dragTo.x, image.dragTo.y) : null;
   return (
     <div
+      // guard:allow-raw-color — the page preview mirrors the exported PDF, which is theme-invariant.
       className="relative overflow-hidden rounded-[3px] border-2 border-white"
       style={{
         width: frameWidth + 4,
         height: FRAME_HEIGHT * SCALE + 4,
-        boxShadow: "3px 3.5px 8px rgba(0, 0, 0, 0.17)",
+        boxShadow: "3px 3.5px 8px rgba(0, 0, 0, 0.17)", // guard:allow-raw-color — PDF frame shadow.
       }}
     >
       <img
@@ -105,6 +108,7 @@ function StepFrame({
               y1={click.top}
               x2={drag.left}
               y2={drag.top}
+              // guard:allow-raw-color — click marker matches the PDF.
               stroke="#ffff00"
               strokeWidth={3 * SCALE}
             />
@@ -112,7 +116,9 @@ function StepFrame({
               cx={drag.left}
               cy={drag.top}
               r={ring / 2 - SCALE}
+              // guard:allow-raw-color — click marker matches the PDF.
               fill="rgba(255,255,0,0.4)"
+              // guard:allow-raw-color — click marker matches the PDF.
               stroke="#ffff00"
               strokeWidth={2 * SCALE}
             />
@@ -122,7 +128,9 @@ function StepFrame({
           cx={click.left}
           cy={click.top}
           r={ring / 2 - SCALE}
+          // guard:allow-raw-color — click marker matches the PDF.
           fill="rgba(255,255,0,0.4)"
+          // guard:allow-raw-color — click marker matches the PDF.
           stroke="#ffff00"
           strokeWidth={2 * SCALE}
         />
@@ -163,7 +171,7 @@ function ToolButton({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex size-7 items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-200 disabled:opacity-30 [&_svg]:size-4"
+      className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 [&_svg]:size-4"
     >
       {children}
     </button>
@@ -198,7 +206,7 @@ function GrowingText({
       value={value}
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
-      className={`w-full resize-none overflow-hidden rounded border border-transparent bg-transparent outline-none hover:border-zinc-200 focus:border-sky-400 ${className ?? ""}`}
+      className={`w-full resize-none overflow-hidden rounded border border-transparent bg-transparent outline-none hover:border-border focus:border-ring ${className ?? ""}`}
       style={{ color: TEXT_COLOR, fontFamily: "Arial, sans-serif", ...style }}
     />
   );
@@ -296,7 +304,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
     return (
       <div
         data-tw-surface
-        className="flex h-full items-center justify-center bg-zinc-100 text-sm text-zinc-500"
+        className="flex h-full items-center justify-center bg-muted text-sm text-muted-foreground"
       >
         {status.kind === "error" ? status.text : "Loading step guide…"}
       </div>
@@ -310,18 +318,20 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
   return (
     <div
       data-tw-surface
-      className="flex h-full flex-col bg-zinc-100 text-zinc-900"
+      className="flex h-full flex-col bg-muted text-foreground"
     >
-      <header className="flex items-center gap-2 border-b border-zinc-200 bg-white px-4 py-2">
-        <span className="text-sm font-semibold text-zinc-700">Step guide</span>
-        <span className="flex-1 truncate text-xs text-zinc-500">
+      <header className="flex items-center gap-2 border-b border-border bg-background px-4 py-2">
+        <span className="text-sm font-semibold text-foreground">
+          Step guide
+        </span>
+        <span className="flex-1 truncate text-xs text-muted-foreground">
           {status.kind === "idle" ? "Edits save automatically" : status.text}
         </span>
         <button
           type="button"
           onClick={reveal}
           disabled={busy}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 [&_svg]:size-4"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 [&_svg]:size-4"
         >
           <IconFolder /> Show files
         </button>
@@ -329,7 +339,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
           type="button"
           onClick={share}
           disabled={busy}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-300 px-3 text-sm text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 [&_svg]:size-4"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-3 text-sm text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 [&_svg]:size-4"
         >
           <IconShare /> Share
         </button>
@@ -337,13 +347,14 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
           type="button"
           onClick={exportPdf}
           disabled={busy}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 [&_svg]:size-4"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 [&_svg]:size-4"
         >
           <IconFileTypePdf /> Export PDF
         </button>
       </header>
       <main className="flex-1 overflow-y-auto py-8">
         <article
+          // guard:allow-raw-color — the page preview mirrors the exported PDF, which is theme-invariant.
           className="mx-auto bg-white shadow-md"
           style={{
             width: pt(612),
@@ -376,7 +387,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
                   padding: `0 0 ${pt(28)} ${pt(27)}`,
                 }}
               >
-                <div className="absolute top-0 right-0 z-10 flex gap-0.5 rounded-md bg-white/90 p-0.5 opacity-0 shadow-sm ring-1 ring-zinc-200 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                <div className="absolute top-0 right-0 z-10 flex gap-0.5 rounded-md bg-popover/90 p-0.5 opacity-0 shadow-sm ring-1 ring-border transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
                   {item.kind === "step" && item.image ? (
                     <>
                       <ToolButton
@@ -456,6 +467,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
                   <>
                     <div className="flex items-start" style={{ gap: pt(15) }}>
                       <span
+                        // guard:allow-raw-color — the page preview mirrors the exported PDF, which is theme-invariant.
                         className="flex shrink-0 items-center justify-center rounded-full text-white"
                         style={{
                           width: pt(26.5),
@@ -498,6 +510,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
                       updateItem(item.id, (current) => ({ ...current, text }))
                     }
                     placeholder="Write a note"
+                    // guard:allow-raw-color — the page preview mirrors the exported PDF, which is theme-invariant.
                     className="bg-zinc-50"
                     style={{
                       fontSize: pt(14),

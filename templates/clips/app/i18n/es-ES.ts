@@ -1264,6 +1264,7 @@ const messages = {
     viewAsGuide: "Ver como guía",
     guide: "Guía",
     stepCount_one: "{{count}} paso",
+    stepCount_many: "{{count}} pasos",
     stepCount_other: "{{count}} pasos",
     step: "Paso {{number}}",
     copyMarkdown: "Copiar Markdown",
