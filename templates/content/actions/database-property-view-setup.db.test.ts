@@ -489,6 +489,98 @@ describe("ordinary property and table-view setup", () => {
     }
   });
 
+  it("saves relative date filters as tokens and rejects a range it does not know", async () => {
+    const created = await asOwner(() =>
+      createDatabase.run({
+        spaceId,
+        title: "Relative dates",
+        idempotencyKey: "relative-date-database",
+      }),
+    );
+    const target = {
+      spaceId,
+      databaseId: created.database.id,
+      databaseDocumentId: created.database.documentId,
+    };
+    const revisions = async () => {
+      const current = await asOwner(() =>
+        readDatabase.run({ databaseId: created.database.id }),
+      );
+      if (
+        !("mutationContract" in current) ||
+        !current.mutationContract ||
+        !("configurationRevision" in current)
+      ) {
+        throw new Error("Expected setup revisions");
+      }
+      return {
+        expectedSchemaRevision: current.mutationContract.schemaRevision,
+        expectedConfigurationRevision: current.configurationRevision,
+      };
+    };
+    const due = await asOwner(async () =>
+      configureProperty.run({
+        operation: "create",
+        target,
+        expectedSchemaRevision: (await revisions()).expectedSchemaRevision,
+        idempotencyKey: "create-relative-due",
+        definition: { name: "Due", type: "date" },
+      }),
+    );
+    const filters = [
+      {
+        key: "name",
+        label: "Name",
+        operator: "starts_with" as const,
+        value: "Launch",
+      },
+      {
+        key: due.value.id,
+        label: "Due",
+        operator: "on_or_before" as const,
+        value: "today",
+      },
+      {
+        key: due.value.id,
+        label: "Due",
+        operator: "is_within" as const,
+        value: "next_7_days",
+      },
+    ];
+
+    const saved = await asOwner(async () =>
+      updateView.run({
+        operation: "update",
+        target,
+        ...(await revisions()),
+        idempotencyKey: "save-relative-date-filters",
+        viewId: "default",
+        patch: { filters },
+      }),
+    );
+    expect(saved.value.filters).toEqual(filters);
+
+    for (const [index, filter] of [
+      { ...filters[2]!, value: "next_fortnight" },
+      { ...filters[1]!, key: "name", label: "Name" },
+    ].entries()) {
+      const before = await revisions();
+      await expect(
+        asOwner(() =>
+          updateView.run({
+            operation: "update",
+            target,
+            ...before,
+            idempotencyKey: `invalid-relative-date-filter-${index}`,
+            viewId: "default",
+            patch: { filters: [filter] },
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+      expect(await revisions()).toEqual(before);
+    }
+  });
+
   it("sets a list view's row layout from a preset and slot patches", async () => {
     const created = await asOwner(() =>
       createDatabase.run({

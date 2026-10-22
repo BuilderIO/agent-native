@@ -26,7 +26,11 @@ import {
   savableContentDatabaseItemLayout,
   startingContentDatabaseItemLayout,
 } from "../shared/database-item-layout.js";
-import { contentDatabaseFilterOperatorsForType } from "../shared/database-query.js";
+import {
+  CONTENT_DATABASE_RELATIVE_DATE_RANGES,
+  contentDatabaseFilterOperatorsForType,
+  isContentDatabaseRelativeDateRange,
+} from "../shared/database-query.js";
 import {
   normalizePropertyVisibility,
   parsePropertyOptions,
@@ -315,6 +319,17 @@ function validateTablePatch(
       setupError(
         "INVALID_VIEW_REFERENCE",
         `Filter operator \"${filter.operator}\" is not valid for property \"${filter.key}\".`,
+        400,
+      );
+    }
+    if (
+      filter.operator === "is_within" &&
+      filter.value.trim() &&
+      !isContentDatabaseRelativeDateRange(filter.value.trim())
+    ) {
+      setupError(
+        "INVALID_VIEW_REFERENCE",
+        `Filter on "${filter.key}" uses is_within with "${filter.value}"; use one of ${CONTENT_DATABASE_RELATIVE_DATE_RANGES.join(", ")}.`,
         400,
       );
     }

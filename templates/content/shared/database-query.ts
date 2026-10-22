@@ -8,6 +8,7 @@ import type {
   DocumentProperty,
 } from "./api.js";
 import {
+  documentPropertyDateKey,
   documentPropertyDatePart,
   formulaValueText,
   type DocumentPropertyType,
@@ -25,7 +26,21 @@ const DATE_FILTER_OPERATORS = [
   "does_not_equal",
   "before",
   "after",
+  "on_or_before",
+  "on_or_after",
   "between",
+  "is_within",
+  "is_empty",
+  "is_not_empty",
+] as const satisfies readonly ContentDatabaseFilterOperator[];
+
+const TEXT_FILTER_OPERATORS = [
+  "contains",
+  "does_not_contain",
+  "equals",
+  "does_not_equal",
+  "starts_with",
+  "ends_with",
   "is_empty",
   "is_not_empty",
 ] as const satisfies readonly ContentDatabaseFilterOperator[];
@@ -33,6 +48,15 @@ const DATE_FILTER_OPERATORS = [
 const FILTER_OPERATORS_BY_TYPE: Partial<
   Record<DocumentPropertyType, readonly ContentDatabaseFilterOperator[]>
 > = {
+  text: TEXT_FILTER_OPERATORS,
+  url: TEXT_FILTER_OPERATORS,
+  email: TEXT_FILTER_OPERATORS,
+  phone: TEXT_FILTER_OPERATORS,
+  place: TEXT_FILTER_OPERATORS,
+  formula: TEXT_FILTER_OPERATORS,
+  id: TEXT_FILTER_OPERATORS,
+  created_by: TEXT_FILTER_OPERATORS,
+  last_edited_by: TEXT_FILTER_OPERATORS,
   checkbox: ["is_checked", "is_unchecked"],
   select: OPTION_FILTER_OPERATORS,
   status: OPTION_FILTER_OPERATORS,
@@ -107,10 +131,239 @@ export function contentDatabaseFilterDateRangeValues(
   }
 }
 
+/** Values a single-date filter can hold in place of a date. */
+export const CONTENT_DATABASE_RELATIVE_DATES = [
+  "today",
+  "tomorrow",
+  "yesterday",
+] as const;
+
+export type ContentDatabaseRelativeDate =
+  (typeof CONTENT_DATABASE_RELATIVE_DATES)[number];
+
+/** The values an `is_within` date filter holds. */
+export const CONTENT_DATABASE_RELATIVE_DATE_RANGES = [
+  "past_7_days",
+  "next_7_days",
+  "past_30_days",
+  "next_30_days",
+  "last_week",
+  "this_week",
+  "next_week",
+] as const;
+
+export type ContentDatabaseRelativeDateRange =
+  (typeof CONTENT_DATABASE_RELATIVE_DATE_RANGES)[number];
+
+const RELATIVE_DATE_OFFSETS: Record<ContentDatabaseRelativeDate, number> = {
+  yesterday: -1,
+  today: 0,
+  tomorrow: 1,
+};
+
+// Weeks start on Sunday, like the calendar view's grid.
+const RELATIVE_DATE_RANGES: Record<
+  ContentDatabaseRelativeDateRange,
+  (today: string, weekStart: string) => [string, string]
+> = {
+  past_7_days: (today) => [addDays(today, -7), today],
+  next_7_days: (today) => [today, addDays(today, 7)],
+  past_30_days: (today) => [addDays(today, -30), today],
+  next_30_days: (today) => [today, addDays(today, 30)],
+  last_week: (_today, weekStart) => [
+    addDays(weekStart, -7),
+    addDays(weekStart, -1),
+  ],
+  this_week: (_today, weekStart) => [weekStart, addDays(weekStart, 6)],
+  next_week: (_today, weekStart) => [
+    addDays(weekStart, 7),
+    addDays(weekStart, 13),
+  ],
+};
+
+const DATE_COMPARISONS = {
+  equals: "=",
+  does_not_equal: "<>",
+  before: "<",
+  after: ">",
+  on_or_before: "<=",
+  on_or_after: ">=",
+} as const satisfies Partial<Record<ContentDatabaseFilterOperator, string>>;
+
+type DateComparisonOperator = keyof typeof DATE_COMPARISONS;
+
+const DATE_PROPERTY_TYPES: ReadonlySet<DocumentPropertyType> = new Set([
+  "date",
+  "created_time",
+  "last_edited_time",
+]);
+
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isContentDatabaseRelativeDate(
+  value: string,
+): value is ContentDatabaseRelativeDate {
+  return (CONTENT_DATABASE_RELATIVE_DATES as readonly string[]).includes(value);
+}
+
+export function isContentDatabaseRelativeDateRange(
+  value: string,
+): value is ContentDatabaseRelativeDateRange {
+  return (CONTENT_DATABASE_RELATIVE_DATE_RANGES as readonly string[]).includes(
+    value,
+  );
+}
+
+/** Whether the rows a filter matches depend on the day it is read. */
+export function contentDatabaseFilterIsRelative(filter: ContentDatabaseFilter) {
+  if (filter.operator === "is_within") return true;
+  if (filter.operator === "between") {
+    return contentDatabaseFilterDateRangeValues(filter.value).some(
+      isContentDatabaseRelativeDate,
+    );
+  }
+  return (
+    filter.operator in DATE_COMPARISONS &&
+    isContentDatabaseRelativeDate(filter.value.trim())
+  );
+}
+
+/**
+ * The calendar day ("YYYY-MM-DD") relative date filters count from: today in
+ * `timeZone`, or in this machine's zone when there is none or it is one this
+ * runtime does not know.
+ */
+export function contentDatabaseFilterToday(
+  timeZone?: string,
+  now = new Date(),
+) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timeZone && isKnownTimeZone(timeZone) ? timeZone : undefined,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function isKnownTimeZone(timeZone: string) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch (error) {
+    if (error instanceof RangeError) return false;
+    throw error;
+  }
+}
+
+/**
+ * A date filter value read for comparison: a whole calendar day, or a moment
+ * when the value is written with a time.
+ */
+export type ContentDatabaseDateFilterBound =
+  | { day: string }
+  | { instant: string };
+
+export type ContentDatabaseDateFilterCheck =
+  | {
+      op: (typeof DATE_COMPARISONS)[DateComparisonOperator];
+      bound: ContentDatabaseDateFilterBound;
+    }
+  | {
+      op: "between";
+      start: ContentDatabaseDateFilterBound;
+      end: ContentDatabaseDateFilterBound;
+    };
+
+export type ContentDatabaseDateComparisonFilter = ContentDatabaseFilter & {
+  operator: DateComparisonOperator | "between" | "is_within";
+};
+
+export function contentDatabaseFilterComparesDates(
+  filter: ContentDatabaseFilter,
+): filter is ContentDatabaseDateComparisonFilter {
+  return (
+    filter.operator in DATE_COMPARISONS ||
+    filter.operator === "between" ||
+    filter.operator === "is_within"
+  );
+}
+
+export function contentDatabaseFilterDateBound(
+  value: string,
+  today: string,
+): ContentDatabaseDateFilterBound | null {
+  const trimmed = value.trim();
+  if (isContentDatabaseRelativeDate(trimmed)) {
+    return { day: addDays(today, RELATIVE_DATE_OFFSETS[trimmed]) };
+  }
+  if (DAY_PATTERN.test(trimmed)) {
+    return addDays(trimmed, 0) === trimmed ? { day: trimmed } : null;
+  }
+  return trimmed && Number.isFinite(new Date(trimmed).getTime())
+    ? { instant: trimmed }
+    : null;
+}
+
+/**
+ * How a date filter compares a row's date once relative values are resolved
+ * against `today`. A value without a time covers its whole day, so it is
+ * compared with the row's calendar day, the date the row's value is written
+ * on; a value with a time is compared as a moment. Null when the value cannot
+ * be read, and the filter then matches no row. The shared evaluator and the
+ * Files navigation SQL both read this, so they agree on every boundary.
+ */
+export function contentDatabaseDateFilterCheck(
+  filter: ContentDatabaseDateComparisonFilter,
+  today: string,
+): ContentDatabaseDateFilterCheck | null {
+  if (filter.operator === "is_within") {
+    const token = filter.value.trim();
+    if (!isContentDatabaseRelativeDateRange(token)) return null;
+    const weekStart = addDays(today, -dayDate(today).getUTCDay());
+    const [start, end] = RELATIVE_DATE_RANGES[token](today, weekStart);
+    return { op: "between", start: { day: start }, end: { day: end } };
+  }
+  if (filter.operator === "between") {
+    const [startValue, endValue] = contentDatabaseFilterDateRangeValues(
+      filter.value,
+    );
+    const start = contentDatabaseFilterDateBound(startValue, today);
+    const end = contentDatabaseFilterDateBound(endValue, today);
+    if (!start || !end) return null;
+    return dateBoundText(start) <= dateBoundText(end)
+      ? { op: "between", start, end }
+      : { op: "between", start: end, end: start };
+  }
+  const bound = contentDatabaseFilterDateBound(filter.value, today);
+  return bound ? { op: DATE_COMPARISONS[filter.operator], bound } : null;
+}
+
+function dateBoundText(bound: ContentDatabaseDateFilterBound) {
+  return "day" in bound ? bound.day : bound.instant;
+}
+
+function dayDate(day: string) {
+  const [year, month, date] = day.split("-").map(Number);
+  return new Date(Date.UTC(year!, month! - 1, date!));
+}
+
+function addDays(day: string, days: number) {
+  const date = dayDate(day);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 export function applyContentDatabaseTableQuery(
   items: ContentDatabaseItem[],
   properties: DocumentProperty[],
   query: ContentDatabaseTableQuery,
+  options: {
+    /** The day relative date filters count from; defaults to today here. */
+    today?: string;
+  } = {},
 ) {
   const search = query.search.trim().toLowerCase();
   const searched = search
@@ -121,11 +374,23 @@ export function applyContentDatabaseTableQuery(
   const filterTree = query.filters.some(isActiveFilter)
     ? contentDatabaseFilterTree(query.filters, query.filterMode)
     : null;
+  let today = options.today;
+  const dateChecks = new Map<
+    ContentDatabaseFilter,
+    ContentDatabaseDateFilterCheck | null
+  >();
+  const dateCheck = (filter: ContentDatabaseDateComparisonFilter) => {
+    if (!dateChecks.has(filter)) {
+      today ??= contentDatabaseFilterToday();
+      dateChecks.set(filter, contentDatabaseDateFilterCheck(filter, today));
+    }
+    return dateChecks.get(filter)!;
+  };
   const filtered = filterTree
     ? searched.filter((item) =>
         reduceContentDatabaseFilterTree(
           filterTree,
-          (filter) => itemMatchesFilter(item, properties, filter),
+          (filter) => itemMatchesFilter(item, properties, filter, dateCheck),
           combineMatches,
         ),
       )
@@ -365,6 +630,9 @@ function itemMatchesFilter(
   item: ContentDatabaseItem,
   properties: DocumentProperty[],
   filter: ContentDatabaseFilter,
+  dateCheck: (
+    filter: ContentDatabaseDateComparisonFilter,
+  ) => ContentDatabaseDateFilterCheck | null,
 ) {
   const value = itemFilterValue(item, properties, filter.key);
   const property = itemFilterProperty(item, properties, filter.key);
@@ -381,20 +649,14 @@ function itemMatchesFilter(
     return compareNumbers(current, target);
   }
 
+  // "Is" and "is not" compare dates only on date properties; elsewhere they
+  // compare text below.
   if (
-    filter.operator === "before" ||
-    filter.operator === "after" ||
-    filter.operator === "between"
+    contentDatabaseFilterComparesDates(filter) &&
+    ((filter.operator !== "equals" && filter.operator !== "does_not_equal") ||
+      (property && DATE_PROPERTY_TYPES.has(property.definition.type)))
   ) {
-    const current = propertyDateValue(property);
-    if (!Number.isFinite(current)) return false;
-    if (filter.operator === "between") {
-      const range = filterDateRange(filter.value);
-      return !!range && current >= range[0] && current <= range[1];
-    }
-    const target = new Date(filter.value.trim()).getTime();
-    if (!Number.isFinite(target)) return false;
-    return filter.operator === "before" ? current < target : current > target;
+    return dateFilterMatches(propertyDateText(property), dateCheck(filter));
   }
 
   const candidateValues = itemFilterCandidateValues(
@@ -431,7 +693,66 @@ function itemMatchesFilter(
   if (filter.operator === "does_not_equal") {
     return !candidateValues.includes(normalizedFilter);
   }
+  // Like "is not", "does not contain" matches empty values.
+  if (filter.operator === "does_not_contain") {
+    return !normalizedValue.includes(normalizedFilter);
+  }
+  if (filter.operator === "starts_with") {
+    return normalizedValue.startsWith(normalizedFilter);
+  }
+  if (filter.operator === "ends_with") {
+    return normalizedValue.endsWith(normalizedFilter);
+  }
   return normalizedValue.includes(normalizedFilter);
+}
+
+// Rows with no date match only "is not".
+function dateFilterMatches(
+  current: string,
+  check: ContentDatabaseDateFilterCheck | null,
+) {
+  if (!check) return false;
+  if (!current) return check.op === "<>";
+  if (check.op === "between") {
+    return (
+      compareDateToBound(current, check.start) >= 0 &&
+      compareDateToBound(current, check.end) <= 0
+    );
+  }
+  const comparison = compareDateToBound(current, check.bound);
+  switch (check.op) {
+    case "=":
+      return comparison === 0;
+    case "<>":
+      return comparison !== 0;
+    case "<":
+      return comparison < 0;
+    case "<=":
+      return comparison <= 0;
+    case ">":
+      return comparison > 0;
+    case ">=":
+      return comparison >= 0;
+  }
+}
+
+/** Negative, zero, or positive; NaN when the row's date cannot be read. */
+function compareDateToBound(
+  current: string,
+  bound: ContentDatabaseDateFilterBound,
+) {
+  if ("day" in bound) {
+    // The written date, as the Files navigation SQL reads it; only a value in
+    // another format is parsed.
+    const day =
+      /^\d{4}-\d{2}-\d{2}/.exec(current)?.[0] ??
+      documentPropertyDateKey(current);
+    if (!day) return Number.NaN;
+    return day < bound.day ? -1 : day > bound.day ? 1 : 0;
+  }
+  return Math.sign(
+    new Date(current).getTime() - new Date(bound.instant).getTime(),
+  );
 }
 
 function selectedFilterValues(value: string) {
@@ -451,14 +772,6 @@ function selectedFilterValues(value: string) {
   } catch {
     return [trimmed];
   }
-}
-
-function filterDateRange(value: string): [number, number] | null {
-  const [startValue, endValue] = contentDatabaseFilterDateRangeValues(value);
-  const start = new Date(startValue).getTime();
-  const end = new Date(endValue).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-  return start <= end ? [start, end] : [end, start];
 }
 
 function itemSearchText(
@@ -621,13 +934,7 @@ function propertyNumberValue(property: DocumentProperty | null | undefined) {
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
-function propertyDateValue(property: DocumentProperty | null | undefined) {
-  if (!property || !property.value) return Number.NaN;
-  const value = new Date(
-    documentPropertyDatePart(property.value, "start") ||
-      (typeof property.value === "string"
-        ? property.value
-        : (JSON.stringify(property.value) ?? "")),
-  ).getTime();
-  return Number.isFinite(value) ? value : Number.NaN;
+function propertyDateText(property: DocumentProperty | null | undefined) {
+  if (!property || !property.value) return "";
+  return documentPropertyDatePart(property.value, "start");
 }

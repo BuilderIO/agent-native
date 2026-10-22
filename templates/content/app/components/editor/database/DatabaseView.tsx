@@ -50,11 +50,19 @@ import { contentDatabaseFormQuestions } from "@shared/database-form";
 import { contentDatabaseItemLayoutField } from "@shared/database-item-layout";
 import {
   applyContentDatabaseTableQuery,
+  CONTENT_DATABASE_RELATIVE_DATE_RANGES,
+  CONTENT_DATABASE_RELATIVE_DATES,
+  contentDatabaseFilterDateBound,
   contentDatabaseFilterDateRangeValues,
   contentDatabaseFilterGroupMode,
   contentDatabaseFilterOperatorNeedsValue,
   contentDatabaseFilterOperatorsForType,
+  contentDatabaseFilterToday,
   contentDatabaseRequiredFilters,
+  type ContentDatabaseRelativeDate,
+  type ContentDatabaseRelativeDateRange,
+  isContentDatabaseRelativeDate,
+  isContentDatabaseRelativeDateRange,
   materializeContentDatabaseFilterGroupModes,
   withContentDatabaseFilterGroupMode,
 } from "@shared/database-query";
@@ -7138,16 +7146,13 @@ function DatabaseAdvancedFilterGroupControl({
   function updateFilterAt(index: number, next: Partial<DatabaseFilter>) {
     const nextFilters = [...filters];
     const currentFilter = nextFilters[index] ?? defaultDatabaseFilter();
-    const nextOperator = next.operator ?? currentFilter.operator;
     nextFilters[index] = {
       ...currentFilter,
       ...next,
       filterGroupId: next.filterGroupId ?? currentFilter.filterGroupId,
       parentFilterGroupId:
         next.parentFilterGroupId ?? currentFilter.parentFilterGroupId,
-      value: contentDatabaseFilterOperatorNeedsValue(nextOperator)
-        ? (next.value ?? currentFilter.value)
-        : "",
+      value: databaseFilterNextValue(currentFilter, next),
     };
     onFiltersChange(nextFilters);
   }
@@ -7698,13 +7703,10 @@ function DatabaseInlineFilterControl({
   function updateFilter(next: Partial<DatabaseFilter>) {
     const nextFilters = [...filters];
     const currentFilter = nextFilters[filterIndex] ?? defaultDatabaseFilter();
-    const nextOperator = next.operator ?? currentFilter.operator;
     nextFilters[filterIndex] = {
       ...currentFilter,
       ...next,
-      value: contentDatabaseFilterOperatorNeedsValue(nextOperator)
-        ? (next.value ?? currentFilter.value)
-        : "",
+      value: databaseFilterNextValue(currentFilter, next),
     };
     onFiltersChange(nextFilters);
   }
@@ -17734,8 +17736,13 @@ function databaseFilterDefaultValueForNewItem(
   if (filter.operator !== "equals") return undefined;
 
   if (property.definition.type === "date") {
-    return /^\d{4}-\d{2}-\d{2}$/.test(value)
-      ? { start: value, includeTime: false }
+    // "Is today" seeds today's date, so the new row matches the view now.
+    const bound = contentDatabaseFilterDateBound(
+      value,
+      contentDatabaseFilterToday(),
+    );
+    return bound && "day" in bound
+      ? { start: bound.day, includeTime: false }
       : undefined;
   }
   if (property.definition.type === "checkbox") return undefined;
@@ -18185,13 +18192,29 @@ function DatabaseFilterValueControl({
     }
   }
 
-  if (
-    filter.operator === "between" &&
-    (type === "date" || type === "created_time" || type === "last_edited_time")
-  ) {
+  if (filter.operator === "between" && isDateFilterPropertyType(type)) {
     return (
       <DatabaseBetweenDateFilterValueControl
         filter={filter}
+        onValueChange={onValueChange}
+      />
+    );
+  }
+
+  if (filter.operator === "is_within" && isDateFilterPropertyType(type)) {
+    return (
+      <DatabaseDateRangeFilterValueControl
+        filter={filter}
+        onValueChange={onValueChange}
+      />
+    );
+  }
+
+  if (isDateFilterPropertyType(type)) {
+    return (
+      <DatabaseDateFilterValueControl
+        filter={filter}
+        autoFocus={autoFocus}
         onValueChange={onValueChange}
       />
     );
@@ -18345,21 +18368,43 @@ function FilterFieldIcon({
   return <Icon className="mr-2 size-4 text-muted-foreground" />;
 }
 
-const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
-  contains: "Contains",
-  equals: "Is",
-  does_not_equal: "Is not",
-  greater_than: "Greater than",
-  less_than: "Less than",
-  greater_than_or_equal: "Greater than or equal to",
-  less_than_or_equal: "Less than or equal to",
-  before: "Before",
-  after: "After",
-  between: "Between",
-  is_checked: "Checked",
-  is_unchecked: "Unchecked",
-  is_empty: "Is empty",
-  is_not_empty: "Is not empty",
+const FILTER_OPERATOR_LABEL_KEYS: Record<FilterOperator, DatabaseMessageKey> = {
+  contains: "filterOperatorContains",
+  does_not_contain: "filterOperatorDoesNotContain",
+  starts_with: "filterOperatorStartsWith",
+  ends_with: "filterOperatorEndsWith",
+  equals: "filterOperatorIs",
+  does_not_equal: "filterOperatorIsNot",
+  greater_than: "filterOperatorGreaterThan",
+  less_than: "filterOperatorLessThan",
+  greater_than_or_equal: "filterOperatorGreaterThanOrEqual",
+  less_than_or_equal: "filterOperatorLessThanOrEqual",
+  before: "filterOperatorBefore",
+  after: "filterOperatorAfter",
+  on_or_before: "filterOperatorOnOrBefore",
+  on_or_after: "filterOperatorOnOrAfter",
+  between: "filterOperatorBetween",
+  is_within: "filterOperatorIsWithin",
+  is_checked: "filterOperatorChecked",
+  is_unchecked: "filterOperatorUnchecked",
+  is_empty: "filterOperatorIsEmpty",
+  is_not_empty: "filterOperatorIsNotEmpty",
+};
+
+const RELATIVE_DATE_LABEL_KEYS: Record<
+  ContentDatabaseRelativeDate | ContentDatabaseRelativeDateRange,
+  DatabaseMessageKey
+> = {
+  today: "filterDateToday",
+  tomorrow: "filterDateTomorrow",
+  yesterday: "filterDateYesterday",
+  past_7_days: "filterDatePast7Days",
+  next_7_days: "filterDateNext7Days",
+  past_30_days: "filterDatePast30Days",
+  next_30_days: "filterDateNext30Days",
+  last_week: "filterDateLastWeek",
+  this_week: "filterDateThisWeek",
+  next_week: "filterDateNextWeek",
 };
 
 function databaseFilterOperatorLabel(
@@ -18375,9 +18420,43 @@ function databaseFilterOperatorLabel(
       type === "multi_select" ||
       type === "person")
   ) {
-    return "Does not contain";
+    return dbText("filterOperatorDoesNotContain");
   }
-  return FILTER_OPERATOR_LABELS[operator] ?? "Contains";
+  return dbText(
+    FILTER_OPERATOR_LABEL_KEYS[operator] ?? "filterOperatorContains",
+  );
+}
+
+function isDateFilterPropertyType(type: DocumentPropertyType) {
+  return (
+    type === "date" || type === "created_time" || type === "last_edited_time"
+  );
+}
+
+// Only "is within" holds a relative range, so a value never carries across
+// that operator in either direction.
+function databaseFilterNextValue(
+  current: DatabaseFilter,
+  next: Partial<DatabaseFilter>,
+) {
+  const operator = next.operator ?? current.operator;
+  if (!contentDatabaseFilterOperatorNeedsValue(operator)) return "";
+  if (next.value !== undefined) return next.value;
+  return (operator === "is_within") === (current.operator === "is_within")
+    ? current.value
+    : "";
+}
+
+// Day words sit mid-phrase in a chip ("on or before today"); ranges stand
+// alone ("Due: Next 7 days"), so they keep their capital.
+function databaseFilterDateValueLabel(value: string) {
+  if (isContentDatabaseRelativeDate(value)) {
+    return dbText(RELATIVE_DATE_LABEL_KEYS[value]).toLowerCase();
+  }
+  if (isContentDatabaseRelativeDateRange(value)) {
+    return dbText(RELATIVE_DATE_LABEL_KEYS[value]);
+  }
+  return value;
 }
 
 function databaseFilterOperatorInlineLabel(
@@ -18421,8 +18500,6 @@ function filterValuePlaceholder(key: string, properties: DocumentProperty[]) {
   if (type === "person") return "Person or email";
   if (type === "place") return "City, venue, or address";
   if (type === "files_media") return "File or media link";
-  if (type === "date" || type === "created_time" || type === "last_edited_time")
-    return "YYYY-MM-DD";
   return "Value";
 }
 
@@ -18439,10 +18516,7 @@ function filterOptionSearchPlaceholder(
 }
 
 function filterValueInputType(type: DocumentPropertyType) {
-  if (type === "number") return "number";
-  if (type === "date" || type === "created_time" || type === "last_edited_time")
-    return "date";
-  return "text";
+  return type === "number" ? "number" : "text";
 }
 
 function DatabaseBetweenDateFilterValueControl({
@@ -18475,6 +18549,119 @@ function DatabaseBetweenDateFilterValueControl({
         className="h-9 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
       />
     </div>
+  );
+}
+
+function DatabaseDateFilterValueControl({
+  filter,
+  autoFocus,
+  onValueChange,
+}: {
+  filter: DatabaseFilter;
+  autoFocus?: boolean;
+  onValueChange: (value: string) => void;
+}) {
+  const value = filter.value.trim();
+  const relative = isContentDatabaseRelativeDate(value) ? value : null;
+  const choiceLabel = (choice: ContentDatabaseRelativeDate | null) =>
+    choice
+      ? dbText(RELATIVE_DATE_LABEL_KEYS[choice])
+      : dbText("filterDateExact");
+
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex h-9 shrink-0 items-center rounded border border-input bg-background px-2 text-left text-xs hover:bg-muted/50 data-[state=open]:bg-muted/50"
+          >
+            <span className="truncate">{choiceLabel(relative)}</span>
+            <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-40">
+          {[null, ...CONTENT_DATABASE_RELATIVE_DATES].map((choice) => (
+            <DropdownMenuItem
+              key={choice ?? "exact"}
+              onSelect={() => {
+                if (choice) {
+                  onValueChange(choice);
+                } else if (relative) {
+                  // An exact date starts from the day the relative one means now.
+                  const bound = contentDatabaseFilterDateBound(
+                    relative,
+                    contentDatabaseFilterToday(),
+                  );
+                  onValueChange(bound && "day" in bound ? bound.day : "");
+                }
+              }}
+            >
+              <span className="flex-1">{choiceLabel(choice)}</span>
+              {choice === relative ? (
+                <IconCheck className="size-4 text-muted-foreground" />
+              ) : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {relative ? null : (
+        <Input
+          autoFocus={autoFocus}
+          type="date"
+          value={filter.value}
+          aria-label={filter.label}
+          onChange={(event) => onValueChange(event.target.value)}
+          className="h-9 min-w-0 flex-1 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
+        />
+      )}
+    </div>
+  );
+}
+
+function DatabaseDateRangeFilterValueControl({
+  filter,
+  onValueChange,
+}: {
+  filter: DatabaseFilter;
+  onValueChange: (value: string) => void;
+}) {
+  const value = filter.value.trim();
+  const selected = isContentDatabaseRelativeDateRange(value) ? value : null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex h-9 w-full min-w-0 items-center rounded border border-input bg-background px-2 text-left text-xs hover:bg-muted/50 data-[state=open]:bg-muted/50"
+        >
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate",
+              !selected && "text-muted-foreground",
+            )}
+          >
+            {selected
+              ? dbText(RELATIVE_DATE_LABEL_KEYS[selected])
+              : dbText("filterChooseDates")}
+          </span>
+          <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-44">
+        {CONTENT_DATABASE_RELATIVE_DATE_RANGES.map((range) => (
+          <DropdownMenuItem key={range} onSelect={() => onValueChange(range)}>
+            <span className="flex-1">
+              {dbText(RELATIVE_DATE_LABEL_KEYS[range])}
+            </span>
+            {range === selected ? (
+              <IconCheck className="size-4 text-muted-foreground" />
+            ) : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -18569,9 +18756,16 @@ function databaseFilterValueLabel(
   properties: DocumentProperty[],
 ) {
   if (filter.operator === "between") {
-    const [start, end] = contentDatabaseFilterDateRangeValues(filter.value);
-    if (start && end) return `${start} to ${end}`;
-    return start || end || "Choose dates";
+    const [start, end] = contentDatabaseFilterDateRangeValues(filter.value).map(
+      databaseFilterDateValueLabel,
+    );
+    if (start && end) return dbText("filterDateRangeValue", { start, end });
+    return start || end || dbText("filterChooseDates");
+  }
+  if (
+    isDateFilterPropertyType(filterPropertyTypeForKey(filter.key, properties))
+  ) {
+    return databaseFilterDateValueLabel(filter.value.trim());
   }
   const values = databaseFilterSelectedValues(filter.value);
   const options = databaseFilterOptionChoices(filter.key, properties);
@@ -18584,9 +18778,9 @@ function databaseFilterValueLabel(
       );
       return option?.name ?? value;
     });
-    return labels.length > 0 ? labels.join(", ") : "Choose option";
+    return labels.length > 0 ? labels.join(", ") : dbText("filterChooseOption");
   }
-  return values[0] || "Choose option";
+  return values[0] || dbText("filterChooseOption");
 }
 
 function databaseFilterSelectedValues(value: string) {
@@ -18667,15 +18861,20 @@ function databaseFilterChipOperatorLabel(
   switch (operator) {
     case "contains":
     case "between":
+    case "is_within":
       return "";
     case "equals":
       if (type === "number") return "=";
-      return databaseFilterOptionPropertyForKey(key, properties) ? "" : "is";
+      return databaseFilterOptionPropertyForKey(key, properties)
+        ? ""
+        : dbText("filterOperatorIs").toLowerCase();
     case "does_not_equal":
       if (type === "number") return "≠";
-      return type === "multi_select" || type === "person"
-        ? "does not contain"
-        : "is not";
+      return dbText(
+        type === "multi_select" || type === "person"
+          ? "filterOperatorDoesNotContain"
+          : "filterOperatorIsNot",
+      ).toLowerCase();
     case "greater_than":
       return ">";
     case "less_than":
@@ -18684,8 +18883,13 @@ function databaseFilterChipOperatorLabel(
       return "≥";
     case "less_than_or_equal":
       return "≤";
+    case "does_not_contain":
+    case "starts_with":
+    case "ends_with":
     case "before":
     case "after":
+    case "on_or_before":
+    case "on_or_after":
     case "is_checked":
     case "is_unchecked":
     case "is_empty":

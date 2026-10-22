@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   ContentDatabaseFilter,
@@ -8,7 +8,9 @@ import type {
 import {
   applyContentDatabaseTableQuery,
   contentDatabaseFilterGroupMode,
+  contentDatabaseFilterIsRelative,
   contentDatabaseFilterOperatorsForType,
+  contentDatabaseFilterToday,
   contentDatabaseFilterTree,
   contentDatabaseTableQueryUsesProperties,
   materializeContentDatabaseFilterGroupModes,
@@ -550,5 +552,336 @@ describe("content database filter groups", () => {
     );
     expect(matchingIds(inheriting, "and")).toEqual([]);
     expect(matchingIds(frozenOr, "and")).toEqual(["rank-4", "rank-30"]);
+  });
+});
+
+function titledItem(id: string, title: string): ContentDatabaseItem {
+  return { ...item(id, title, "2026-01-01"), properties: [] };
+}
+
+const titledItems = [
+  titledItem("alpha", "Alpha launch"),
+  titledItem("beta", "Beta Launch plan"),
+  titledItem("padded", "  alpha notes "),
+  titledItem("untitled", ""),
+  titledItem("gamma", "Gamma"),
+];
+
+function titleMatches(
+  operator: ContentDatabaseFilter["operator"],
+  value: string,
+) {
+  return applyContentDatabaseTableQuery(titledItems, [], {
+    search: "",
+    filters: [{ key: "name", label: "Name", operator, value }],
+    sorts: [],
+  }).map((row) => row.document.id);
+}
+
+describe("content database text filters", () => {
+  it("matches does not contain, starts with, and ends with without case", () => {
+    expect(titleMatches("does_not_contain", "ALPHA")).toEqual([
+      "beta",
+      "untitled",
+      "gamma",
+    ]);
+    expect(titleMatches("starts_with", "alpha")).toEqual(["alpha", "padded"]);
+    expect(titleMatches("starts_with", "BETA")).toEqual(["beta"]);
+    expect(titleMatches("ends_with", "launch")).toEqual(["alpha"]);
+    expect(titleMatches("ends_with", "NOTES")).toEqual(["padded"]);
+  });
+
+  it("matches empty rows only with does not contain", () => {
+    expect(titleMatches("does_not_contain", "a")).toEqual(["untitled"]);
+    expect(titleMatches("starts_with", "a")).not.toContain("untitled");
+    expect(titleMatches("ends_with", "a")).not.toContain("untitled");
+  });
+
+  it("ignores a text filter until it has a value", () => {
+    const allIds = titledItems.map((row) => row.document.id);
+    for (const operator of [
+      "does_not_contain",
+      "starts_with",
+      "ends_with",
+    ] as const) {
+      expect(titleMatches(operator, "")).toEqual(allIds);
+      expect(titleMatches(operator, "   ")).toEqual(allIds);
+    }
+  });
+
+  it("offers the new text operators only to text-like properties", () => {
+    for (const type of [
+      "text",
+      "url",
+      "email",
+      "phone",
+      "created_by",
+    ] as const) {
+      expect(contentDatabaseFilterOperatorsForType(type)).toEqual([
+        "contains",
+        "does_not_contain",
+        "equals",
+        "does_not_equal",
+        "starts_with",
+        "ends_with",
+        "is_empty",
+        "is_not_empty",
+      ]);
+    }
+    for (const type of [
+      "number",
+      "date",
+      "select",
+      "multi_select",
+      "checkbox",
+      "relation",
+    ] as const) {
+      const operators = contentDatabaseFilterOperatorsForType(type);
+      expect(operators).not.toContain("does_not_contain");
+      expect(operators).not.toContain("starts_with");
+      expect(operators).not.toContain("ends_with");
+    }
+  });
+});
+
+function datedItem(
+  id: string,
+  value: DocumentProperty["value"],
+): ContentDatabaseItem {
+  const row = item(id, id, "2026-01-01");
+  return { ...row, properties: [{ ...dateProperty, value }] };
+}
+
+// Thursday 22 October 2026. Its week runs Sunday the 18th to Saturday the 24th.
+const TODAY = "2026-10-22";
+
+const datedItems = [
+  datedItem("day-before", { start: "2026-10-21", includeTime: false }),
+  datedItem("morning", "2026-10-22T08:00"),
+  datedItem("whole-day", { start: "2026-10-22", includeTime: false }),
+  datedItem("evening", { start: "2026-10-22T18:00", includeTime: true }),
+  datedItem("day-after", "2026-10-23"),
+  datedItem("undated", null),
+];
+
+function dateMatches(
+  operator: ContentDatabaseFilter["operator"],
+  value: string,
+  items = datedItems,
+) {
+  return applyContentDatabaseTableQuery(
+    items,
+    [dateProperty],
+    {
+      search: "",
+      filters: [{ key: "date", label: "Date", operator, value }],
+      sorts: [],
+    },
+    { today: TODAY },
+  ).map((row) => row.document.id);
+}
+
+describe("content database date filters", () => {
+  it("treats a date without a time as the whole day", () => {
+    expect(dateMatches("equals", "2026-10-22")).toEqual([
+      "morning",
+      "whole-day",
+      "evening",
+    ]);
+    expect(dateMatches("does_not_equal", "2026-10-22")).toEqual([
+      "day-before",
+      "day-after",
+      "undated",
+    ]);
+    expect(dateMatches("before", "2026-10-22")).toEqual(["day-before"]);
+    expect(dateMatches("after", "2026-10-22")).toEqual(["day-after"]);
+    expect(
+      dateMatches("between", JSON.stringify(["2026-10-21", "2026-10-22"])),
+    ).toEqual(["day-before", "morning", "whole-day", "evening"]);
+  });
+
+  it("includes the whole boundary day for on or before and on or after", () => {
+    expect(dateMatches("on_or_before", "2026-10-22")).toEqual([
+      "day-before",
+      "morning",
+      "whole-day",
+      "evening",
+    ]);
+    expect(dateMatches("on_or_after", "2026-10-22")).toEqual([
+      "morning",
+      "whole-day",
+      "evening",
+      "day-after",
+    ]);
+    expect(dateMatches("on_or_before", "2026-10-20")).toEqual([]);
+  });
+
+  it("compares a value written with a time as a moment", () => {
+    expect(dateMatches("on_or_after", "2026-10-22T12:00")).toEqual([
+      "evening",
+      "day-after",
+    ]);
+  });
+
+  it("matches nothing for a date that does not exist", () => {
+    expect(dateMatches("on_or_before", "2026-02-30")).toEqual([]);
+    expect(dateMatches("before", "not a date")).toEqual([]);
+  });
+
+  it("resolves today, tomorrow, and yesterday against the day it is read", () => {
+    expect(dateMatches("on_or_before", "today")).toEqual([
+      "day-before",
+      "morning",
+      "whole-day",
+      "evening",
+    ]);
+    expect(dateMatches("equals", "tomorrow")).toEqual(["day-after"]);
+    expect(dateMatches("equals", "yesterday")).toEqual(["day-before"]);
+    expect(
+      dateMatches("between", JSON.stringify(["yesterday", "today"])),
+    ).toEqual(["day-before", "morning", "whole-day", "evening"]);
+  });
+
+  it("counts relative ranges in whole days from today", () => {
+    const items = [
+      datedItem("oct-14", "2026-10-14"),
+      datedItem("oct-15", "2026-10-15T23:59"),
+      ...datedItems,
+      datedItem("oct-29", "2026-10-29T00:00"),
+      datedItem("oct-30", "2026-10-30"),
+    ];
+    expect(dateMatches("is_within", "past_7_days", items)).toEqual([
+      "oct-15",
+      "day-before",
+      "morning",
+      "whole-day",
+      "evening",
+    ]);
+    expect(dateMatches("is_within", "next_7_days", items)).toEqual([
+      "morning",
+      "whole-day",
+      "evening",
+      "day-after",
+      "oct-29",
+    ]);
+    expect(dateMatches("is_within", "past_30_days", items)).toEqual([
+      "oct-14",
+      "oct-15",
+      "day-before",
+      "morning",
+      "whole-day",
+      "evening",
+    ]);
+  });
+
+  it("runs weeks from Sunday to Saturday", () => {
+    const items = [
+      datedItem("sat-10", "2026-10-10"),
+      datedItem("sun-11", "2026-10-11"),
+      datedItem("sat-17", "2026-10-17T23:00"),
+      datedItem("sun-18", "2026-10-18"),
+      datedItem("sat-24", "2026-10-24"),
+      datedItem("sun-25", "2026-10-25T09:00"),
+      datedItem("sat-31", "2026-10-31"),
+      datedItem("sun-nov-1", "2026-11-01"),
+    ];
+    expect(dateMatches("is_within", "last_week", items)).toEqual([
+      "sun-11",
+      "sat-17",
+    ]);
+    expect(dateMatches("is_within", "this_week", items)).toEqual([
+      "sun-18",
+      "sat-24",
+    ]);
+    expect(dateMatches("is_within", "next_week", items)).toEqual([
+      "sun-25",
+      "sat-31",
+    ]);
+  });
+
+  it("matches nothing for a range it does not know", () => {
+    expect(dateMatches("is_within", "next_fortnight")).toEqual([]);
+  });
+
+  it("marks only filters that depend on the day as relative", () => {
+    const filter = (
+      operator: ContentDatabaseFilter["operator"],
+      value: string,
+    ): ContentDatabaseFilter => ({
+      key: "date",
+      label: "Date",
+      operator,
+      value,
+    });
+    expect(
+      contentDatabaseFilterIsRelative(filter("is_within", "this_week")),
+    ).toBe(true);
+    expect(
+      contentDatabaseFilterIsRelative(filter("on_or_before", "today")),
+    ).toBe(true);
+    expect(
+      contentDatabaseFilterIsRelative(
+        filter("between", JSON.stringify(["2026-10-01", "today"])),
+      ),
+    ).toBe(true);
+    expect(
+      contentDatabaseFilterIsRelative(filter("on_or_before", "2026-10-22")),
+    ).toBe(false);
+    expect(contentDatabaseFilterIsRelative(filter("contains", "today"))).toBe(
+      false,
+    );
+  });
+
+  it("offers on or before, on or after, and is within only to dates", () => {
+    for (const type of ["date", "created_time", "last_edited_time"] as const) {
+      expect(contentDatabaseFilterOperatorsForType(type)).toEqual([
+        "equals",
+        "does_not_equal",
+        "before",
+        "after",
+        "on_or_before",
+        "on_or_after",
+        "between",
+        "is_within",
+        "is_empty",
+        "is_not_empty",
+      ]);
+    }
+    for (const type of ["text", "number", "select", "relation"] as const) {
+      const operators = contentDatabaseFilterOperatorsForType(type);
+      expect(operators).not.toContain("on_or_before");
+      expect(operators).not.toContain("on_or_after");
+      expect(operators).not.toContain("is_within");
+    }
+  });
+});
+
+describe("content database filter today", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reads today in the given time zone", () => {
+    const now = new Date("2026-10-23T02:30:00Z");
+    expect(contentDatabaseFilterToday("America/New_York", now)).toBe(
+      "2026-10-22",
+    );
+    expect(contentDatabaseFilterToday("Asia/Tokyo", now)).toBe("2026-10-23");
+    expect(contentDatabaseFilterToday("Not/AZone", now)).toBe(
+      contentDatabaseFilterToday(undefined, now),
+    );
+  });
+
+  it("counts from this machine's today when no day is given", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 22, 12));
+    const ids = applyContentDatabaseTableQuery(datedItems, [dateProperty], {
+      search: "",
+      filters: [
+        { key: "date", label: "Date", operator: "equals", value: "today" },
+      ],
+      sorts: [],
+    }).map((row) => row.document.id);
+    expect(ids).toEqual(["morning", "whole-day", "evening"]);
   });
 });

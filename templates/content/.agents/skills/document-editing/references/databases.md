@@ -174,11 +174,28 @@ timeline, and form views saved in `content_databases.view_config_json`. Each
 view has its own stacked sorts, type-aware filters with an all/any match
 mode, per-view hidden property IDs, column widths, and (for table, list,
 gallery, and board views) grouping property or (for calendar/timeline views)
-date property: text-like fields can use contains/exact/empty filters, numbers
-support comparisons, dates support before/after, and checkboxes support
-checked/unchecked. Users can reorder stacked sort and filter conditions from
-the collection toolbar menus, and sort priority follows the same top-to-bottom
-order shown in the menu.
+date property: text-like fields can use contains, does not contain, is, is
+not, starts with, ends with, and empty filters (all ignore case), numbers
+support comparisons, dates support is, is not, before, after, on or before, on
+or after, between, and is within, and checkboxes support checked/unchecked.
+Users can reorder stacked sort and filter conditions from the collection
+toolbar menus, and sort priority follows the same top-to-bottom order shown in
+the menu. "Does not contain" matches rows with an empty value; starts with and
+ends with do not. A text filter with no value is ignored.
+
+Date filter values are `YYYY-MM-DD`, a date with a time, or a relative token.
+`equals`, `does_not_equal`, `before`, `after`, `on_or_before`, `on_or_after`,
+and each end of a `between` pair accept `today`, `tomorrow`, or `yesterday`;
+`is_within` takes `past_7_days`, `next_7_days`, `past_30_days`,
+`next_30_days`, `last_week`, `this_week`, or `next_week` (weeks run Sunday to
+Saturday). Store the token, not a date: it is resolved each time the view is
+read, in the caller's time zone (the browser's, or the `x-user-timezone`
+request header on the server, falling back to the server's zone).
+`update-content-database-view` rejects an unknown `is_within` token. A value
+without a time covers its whole day and is compared with the date a row's value
+is written on, so "on or before today" includes a row due at 18:00 today and
+created/edited times fall on their UTC date. A value with a time is compared
+as a moment.
 
 Filters can be grouped. Rules with `filterGroupId: "advanced"` and no parent
 form the UI's advanced filter; rules with `parentFilterGroupId: "advanced"` and
@@ -195,7 +212,8 @@ New rows created from a filtered UI view inherit simple editable equality and
 checkbox filters as initial property values, resolving option labels back to
 stable option IDs for select, status, and multi-select filters, so a row
 created under "Status is Published" remains visible instead of immediately
-disappearing. Agents can mirror that behavior by passing
+disappearing. A date "is today" (or tomorrow/yesterday) filter seeds that
+day; ranges and the other text and date operators seed nothing. Agents can mirror that behavior by passing
 the discovered property IDs in `propertyValues` to `add-database-item`. The
 action also requires the exact space/collection/backing-page target, current
 schema revision, and a caller-stable idempotency key. Filter
@@ -205,7 +223,8 @@ option from the typed query, and property settings can rename option labels
 or change option colors while preserving stable option IDs. Option-backed
 filter value pickers are searchable, can create a new option from the typed
 query, and can be cleared without removing the whole filter row. Date
-properties use date inputs, and number properties use numeric inputs.
+filters choose an exact date or a relative day, `is_within` chooses a relative
+range, and number properties use numeric inputs.
 
 Column header menus can add or clear column sorts, add or replace type-aware
 quick filters (including checked/unchecked for checkbox fields), clear

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
+import { getRequestTimezone } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -30,9 +31,14 @@ import type {
   ContentDatabasePersonalViewOverrides,
 } from "../shared/api.js";
 import {
+  contentDatabaseDateFilterCheck,
+  contentDatabaseFilterComparesDates,
+  contentDatabaseFilterIsRelative,
   contentDatabaseFilterOperatorNeedsValue,
+  contentDatabaseFilterToday,
   contentDatabaseFilterTree,
   reduceContentDatabaseFilterTree,
+  type ContentDatabaseDateFilterBound,
 } from "../shared/database-query.js";
 import { favoritesSystemIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
@@ -139,26 +145,52 @@ function textFilterSql(
     return sql`${normalized} <> ${values[0]}`;
   if (filter.operator === "contains")
     return sql`position(${values[0]} in ${normalized}) > 0`;
+  if (filter.operator === "does_not_contain")
+    return sql`position(${values[0]} in ${normalized}) = 0`;
+  // The shared evaluator trims a value before matching its ends.
+  const trimmed = sql<string>`btrim(${normalized})`;
+  if (filter.operator === "starts_with")
+    return sql`left(${trimmed}, char_length(${values[0]})) = ${values[0]}`;
+  if (filter.operator === "ends_with")
+    return sql`right(${trimmed}, char_length(${values[0]})) = ${values[0]}`;
   return undefined;
 }
 
 function dateFilterSql(
   expression: SQL<string>,
   filter: ContentDatabaseFilter,
+  today: string,
 ): SQL | undefined {
-  const values = selectedFilterValues(filter.value);
   if (filter.operator === "is_empty")
     return sql`coalesce(${expression}, '') = ''`;
   if (filter.operator === "is_not_empty")
     return sql`coalesce(${expression}, '') <> ''`;
-  if (filter.operator === "before") return sql`${expression} < ${values[0]}`;
-  if (filter.operator === "after") return sql`${expression} > ${values[0]}`;
-  if (filter.operator === "between" && values.length >= 2) {
-    const [start, end] =
-      values[0]! <= values[1]! ? values : [values[1]!, values[0]!];
-    return and(sql`${expression} >= ${start}`, sql`${expression} <= ${end}`);
+  if (!contentDatabaseFilterComparesDates(filter)) return undefined;
+  const check = contentDatabaseDateFilterCheck(filter, today);
+  if (!check) return sql`false`;
+  const value = sql<string>`coalesce(${expression}, '')`;
+  // Stored times are ISO strings, so the first ten characters are the day.
+  const compare = (
+    op: "=" | "<>" | "<" | "<=" | ">" | ">=",
+    bound: ContentDatabaseDateFilterBound,
+  ) =>
+    "day" in bound
+      ? sql`left(${value}, 10) ${sql.raw(op)} ${bound.day}`
+      : sql`${value} ${sql.raw(op)} ${bound.instant}`;
+  if (check.op === "between") {
+    return and(
+      sql`${value} <> ''`,
+      compare(">=", check.start),
+      compare("<=", check.end),
+    );
   }
-  return undefined;
+  // Instants were never compared for equality here; the shared evaluator
+  // parses both sides, which plain text comparison cannot match.
+  if ((check.op === "=" || check.op === "<>") && "instant" in check.bound) {
+    return undefined;
+  }
+  if (check.op === "<>") return compare("<>", check.bound);
+  return and(sql`${value} <> ''`, compare(check.op, check.bound));
 }
 
 async function navigationFilterDefinitions(
@@ -195,6 +227,7 @@ async function navigationFilterDefinitions(
 function navigationFilterSql(args: {
   filters: ContentDatabaseFilter[];
   filterMode: ContentDatabaseFilterMode;
+  today: string;
   definitionById: Awaited<ReturnType<typeof navigationFilterDefinitions>>;
   document: {
     id: SQL<string>;
@@ -266,9 +299,9 @@ function navigationFilterSql(args: {
         else if (filter.operator === "is_empty") predicate = sql`false`;
         else if (filter.operator === "is_not_empty") predicate = sql`true`;
       } else if (definition.type === "created_time") {
-        predicate = dateFilterSql(args.document.createdAt, filter);
+        predicate = dateFilterSql(args.document.createdAt, filter, args.today);
       } else if (definition.type === "last_edited_time") {
-        predicate = dateFilterSql(args.document.updatedAt, filter);
+        predicate = dateFilterSql(args.document.updatedAt, filter, args.today);
       } else if (
         definition.type === "created_by" ||
         definition.type === "last_edited_by"
@@ -382,6 +415,7 @@ export async function getContentDatabaseNavigationPage(args: {
       : [];
   const orderHash =
     effectiveSort === "custom" ? orderFingerprint(itemIds) : null;
+  const today = contentDatabaseFilterToday(getRequestTimezone());
   const configHash = orderFingerprint([
     JSON.stringify({
       viewId,
@@ -389,6 +423,10 @@ export async function getContentDatabaseNavigationPage(args: {
       personalView: personalView ?? null,
       effectiveSort,
       descending,
+      // A relative date filter matches other rows on another day.
+      ...(effectiveFilters.some(contentDatabaseFilterIsRelative)
+        ? { today }
+        : {}),
     }),
   ]);
   if (
@@ -410,6 +448,7 @@ export async function getContentDatabaseNavigationPage(args: {
   const effectiveFilter = navigationFilterSql({
     filters: effectiveFilters,
     filterMode: effectiveFilterMode,
+    today,
     definitionById,
     document: {
       id: sql`${schema.documents.id}`,
@@ -484,6 +523,7 @@ export async function getContentDatabaseNavigationPage(args: {
         navigationFilterSql({
           filters: effectiveFilters,
           filterMode: effectiveFilterMode,
+          today,
           definitionById,
           document: {
             id: sql`${childDocuments.id}`,
