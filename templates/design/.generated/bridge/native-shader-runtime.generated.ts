@@ -6034,6 +6034,26 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     };
   }
 
+  // app/components/design/bridge/native-dom.ts
+  function isNativeNode(value) {
+    return typeof value === "object" && value !== null && "nodeType" in value && typeof value.nodeType === "number";
+  }
+  function isNativeElement(value) {
+    return isNativeNode(value) && value.nodeType === 1;
+  }
+  function isNativeHtmlElement(value) {
+    return isNativeElement(value) && value.namespaceURI === "http://www.w3.org/1999/xhtml";
+  }
+  function isNativeHtmlTag(value, tag) {
+    return isNativeHtmlElement(value) && value.localName === tag;
+  }
+  function isNativeSvgElement(value) {
+    return isNativeElement(value) && value.namespaceURI === "http://www.w3.org/2000/svg";
+  }
+  function isNativeSvgRoot(value) {
+    return isNativeSvgElement(value) && value.localName === "svg";
+  }
+
   // app/components/design/bridge/native-effect-output-geometry.ts
   function originCoordinate(token, size, axis2) {
     const fraction2 = token === "center" ? 0.5 : axis2 === "x" ? token === "left" ? 0 : token === "right" ? 1 : void 0 : token === "top" ? 0 : token === "bottom" ? 1 : void 0;
@@ -6778,7 +6798,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       for (const child of original.childNodes) {
         if (child.nodeType === Node.TEXT_NODE) {
           clone2.append(document.createTextNode(child.textContent ?? ""));
-        } else if (child instanceof Element) {
+        } else if (isNativeElement(child)) {
           clone2.append(copy(child));
         } else if (child.nodeType !== Node.COMMENT_NODE) {
           throw new NativeSvgSourceError(
@@ -7913,7 +7933,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         "Shadow DOM source content is unsupported."
       );
     }
-    if (element instanceof HTMLIFrameElement) {
+    if (isNativeHtmlTag(element, "iframe")) {
       throw new NativeSourceError(
         "source-iframe",
         "Iframe source content is unsupported."
@@ -7932,7 +7952,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "source-transform",
           "The selected source target has a 3D or perspective transform."
         );
-    } else if (element instanceof HTMLElement) {
+    } else if (isNativeHtmlElement(element)) {
       nodeGlobalTransform(element, readStyle);
     }
     for (const animation of element.getAnimations({ subtree: false })) {
@@ -7976,7 +7996,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     );
   }
   function isInlineFlowChild(element) {
-    if (element instanceof HTMLBRElement) return true;
+    if (isNativeHtmlTag(element, "br")) return true;
     const display = getComputedStyle(element).display;
     return display === "contents" || display.startsWith("inline");
   }
@@ -8000,12 +8020,12 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         "[data-an-native-layer-instance],canvas[data-an-native-canvas]:not([data-an-native-presentation])"
       ))
         return false;
-      if (!(child instanceof HTMLElement) || child instanceof HTMLImageElement || child instanceof HTMLVideoElement || child instanceof HTMLCanvasElement || child instanceof HTMLIFrameElement || ["SCRIPT", "STYLE"].includes(child.tagName))
+      if (!isNativeHtmlElement(child) || isNativeHtmlTag(child, "img") || isNativeHtmlTag(child, "video") || isNativeHtmlTag(child, "canvas") || isNativeHtmlTag(child, "iframe") || ["SCRIPT", "STYLE"].includes(child.tagName))
         return false;
       const style = getComputedStyle(child);
       if (style.position === "absolute" || style.position === "fixed")
         return false;
-      if (child instanceof HTMLBRElement) continue;
+      if (isNativeHtmlTag(child, "br")) continue;
       if (child.textContent?.trim() && !isPureTextFlow(child)) return false;
     }
     return true;
@@ -8159,7 +8179,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       }
       assertLeafSupported(child);
       copyComputedCss(child, copy);
-      if (child instanceof HTMLElement) preserveTextFlowStyles(child, copy);
+      if (isNativeHtmlElement(child)) preserveTextFlowStyles(child, copy);
     }
   }
   function hasOwnPaint(element) {
@@ -8264,10 +8284,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   function sizeOf(element) {
     const rect = element.getBoundingClientRect();
     const width = Math.ceil(
-      element instanceof HTMLElement ? element.offsetWidth || rect.width : rect.width
+      isNativeHtmlElement(element) ? element.offsetWidth || rect.width : rect.width
     );
     const height = Math.ceil(
-      element instanceof HTMLElement ? element.offsetHeight || rect.height : rect.height
+      isNativeHtmlElement(element) ? element.offsetHeight || rect.height : rect.height
     );
     if (width <= 0 || height <= 0)
       throw new NativeSourceError(
@@ -8283,7 +8303,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     return { width, height };
   }
   function contentBoxOf(element) {
-    if (element instanceof SVGSVGElement) {
+    if (isNativeSvgRoot(element)) {
       let box;
       try {
         box = element.getBBox();
@@ -8531,7 +8551,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const cache = memo?.matches(target, space) ? memo.sizes : void 0;
     const cached = cache?.get(element);
     if (cached) return cached;
-    if (element instanceof SVGSVGElement) return nativeSvgViewportSize(element);
+    if (isNativeSvgRoot(element)) return nativeSvgViewportSize(element);
     if (element === document.documentElement && Number.isFinite(element.offsetWidth) && Number.isFinite(element.offsetHeight) && element.offsetWidth >= 0 && element.offsetHeight >= 0 && (element.offsetWidth === 0 || element.offsetHeight === 0))
       return { width: innerWidth, height: innerHeight };
     const size = { width: element.offsetWidth, height: element.offsetHeight };
@@ -8579,7 +8599,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   }
   function viewportToTargetAffine(target, readStyle = getComputedStyle, memo) {
     const inverted = invertNativeSourceAffine(
-      target instanceof SVGSVGElement ? nativeSvgViewportToClient(target) : viewportSourceAffine(target, readStyle, memo)
+      isNativeSvgRoot(target) ? nativeSvgViewportToClient(target) : viewportSourceAffine(target, readStyle, memo)
     );
     if (!inverted.ok)
       throw new NativeSourceError("source-transform", "source-transform");
@@ -8589,13 +8609,13 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     return viewportToTargetAffine(target);
   }
   function relativeAffine(element, target, space, localBox, readStyle = getComputedStyle, measuredSize, memo) {
-    if ((element instanceof SVGSVGElement || target instanceof SVGSVGElement) && (element instanceof HTMLElement || element instanceof SVGSVGElement) && (target instanceof HTMLElement || target instanceof SVGSVGElement)) {
+    if ((isNativeSvgRoot(element) || isNativeSvgRoot(target)) && (isNativeHtmlElement(element) || isNativeSvgRoot(element)) && (isNativeHtmlElement(target) || isNativeSvgRoot(target))) {
       const box2 = localBox ?? {
         x: 0,
         y: 0,
         ...measuredSize ?? sourceLayoutSize(element, target, space, memo)
       };
-      const elementToClient = element instanceof SVGSVGElement ? nativeSvgViewportToClient(element) : viewportSourceAffine(element, readStyle);
+      const elementToClient = isNativeSvgRoot(element) ? nativeSvgViewportToClient(element) : viewportSourceAffine(element, readStyle);
       const matrix2 = space === "target-viewport-axis-aligned" ? composeAffine(
         translated(
           -target.getBoundingClientRect().left,
@@ -8622,7 +8642,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         rect: geometry.physicalBounds
       };
     }
-    if (!(element instanceof HTMLElement) || !(target instanceof HTMLElement))
+    if (!isNativeHtmlElement(element) || !isNativeHtmlElement(target))
       throw new NativeSourceError(
         "source-transform",
         "A source has no HTML layout box."
@@ -8732,7 +8752,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         space === "target-local" ? target : void 0,
         readStyle
       );
-      if (!(node instanceof HTMLElement) && !(node instanceof SVGSVGElement))
+      if (!isNativeHtmlElement(node) && !isNativeSvgRoot(node))
         throw new NativeSourceError(
           "source-clip-unreadable",
           "A source clip has no HTML border box."
@@ -8897,9 +8917,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "nextElementSibling"
     ]) {
       let sibling = canvas[direction];
-      while (sibling instanceof HTMLCanvasElement && sibling.hasAttribute("data-an-native-backdrop-presentation"))
+      while (isNativeHtmlTag(sibling, "canvas") && sibling.hasAttribute("data-an-native-backdrop-presentation"))
         sibling = sibling[direction];
-      if ((sibling instanceof HTMLElement || sibling instanceof SVGSVGElement) && sibling.getAttribute("data-agent-native-node-id") === receiverNodeId)
+      if ((isNativeHtmlElement(sibling) || isNativeSvgRoot(sibling)) && sibling.getAttribute("data-agent-native-node-id") === receiverNodeId)
         return sibling;
     }
     throw new NativeSourceError(
@@ -8912,7 +8932,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const overflow = classifyNativeComputedOverflowClip(style);
     if (!overflow.ok)
       throw new NativeSourceError(\`source-\${overflow.reason}\`, overflow.detail);
-    if (target instanceof SVGSVGElement) {
+    if (isNativeSvgRoot(target)) {
       if (overflow.edge === "none")
         throw new NativeSourceError(
           "source-svg-overflow-unsupported",
@@ -9208,7 +9228,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const current = sourceStackingContext(element);
       const order = context ?? current.order;
       const precedes = uncertainFlexGridOrder || order.rank < receiverOrder.rank || order.rank === receiverOrder.rank && receiverOrder.phase === "positioned" && order.phase === "flow";
-      if (precedes && (element instanceof HTMLElement && (hasOwnPaint(element) || element instanceof HTMLImageElement || element instanceof HTMLVideoElement || element instanceof HTMLCanvasElement) || element instanceof SVGElement)) {
+      if (precedes && (isNativeHtmlElement(element) && (hasOwnPaint(element) || isNativeHtmlTag(element, "img") || isNativeHtmlTag(element, "video") || isNativeHtmlTag(element, "canvas")) || isNativeSvgElement(element))) {
         const rect = element.getBoundingClientRect();
         if (nativeBoxesOverlap(receiver, {
           x: rect.left,
@@ -9227,7 +9247,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     return false;
   }
   function rasterOwnedStyleNodes(element, phase) {
-    if (element instanceof SVGSVGElement)
+    if (isNativeSvgRoot(element))
       return [element, ...element.querySelectorAll("*")];
     if (phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage" || phase === "outer-shadow" || phase === "inset-shadow" || phase === "outline" || phase === "media-underlay" || phase === "media-overlay")
       return [element];
@@ -9411,7 +9431,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         continue;
       }
       if (ownText && isInlineFlowChild(child)) {
-        if (!(child instanceof HTMLElement) || child instanceof HTMLImageElement || child instanceof HTMLCanvasElement || child instanceof HTMLVideoElement) {
+        if (!isNativeHtmlElement(child) || isNativeHtmlTag(child, "img") || isNativeHtmlTag(child, "canvas") || isNativeHtmlTag(child, "video")) {
           throw new NativeSourceError(
             "source-inline-media",
             "Inline media mixed into a text flow needs a separate source path."
@@ -9523,7 +9543,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         node.style.boxShadow = "none";
         node.style.outlineColor = "transparent";
         for (const child of node.children)
-          if (child instanceof HTMLElement && !child.hasAttribute("data-an-native-canvas"))
+          if (isNativeHtmlElement(child) && !child.hasAttribute("data-an-native-canvas"))
             clearBox(child);
       };
       clearBox(clone);
@@ -9546,7 +9566,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       node.style.boxShadow = "none";
       node.style.opacity = "1";
       for (const child of node.children)
-        if (child instanceof HTMLElement) whiten(child);
+        if (isNativeHtmlElement(child)) whiten(child);
     };
     whiten(clone);
     return clone;
@@ -9677,9 +9697,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     };
   }
   function nativeLeafCaptureDensity(element, requested, phase = "all") {
-    const size = element instanceof SVGSVGElement ? nativeSvgViewportSize(element) : sizeOf(element);
+    const size = isNativeSvgRoot(element) ? nativeSvgViewportSize(element) : sizeOf(element);
     const style = getComputedStyle(element);
-    const paint = element instanceof SVGSVGElement ? { x: 0, y: 0, ...size } : nativeOwnPaintCaptureBox(style, phase, size);
+    const paint = isNativeSvgRoot(element) ? { x: 0, y: 0, ...size } : nativeOwnPaintCaptureBox(style, phase, size);
     const overflow = classifyNativeComputedOverflowClip(style);
     if (!overflow.ok)
       throw new NativeSourceError(\`source-\${overflow.reason}\`, overflow.detail);
@@ -9910,7 +9930,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         node.style.setProperty("-webkit-text-fill-color", "transparent");
         node.style.textShadow = "none";
         for (const child of node.children)
-          if (child instanceof HTMLElement) clearText(child);
+          if (isNativeHtmlElement(child)) clearText(child);
       };
       clearText(clone);
     }
@@ -10034,34 +10054,34 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     return true;
   }
   function unchangedAttributeMutation(record5) {
-    return record5.type === "attributes" && record5.target instanceof Element && record5.attributeName !== null && record5.oldValue === record5.target.getAttribute(record5.attributeName);
+    return record5.type === "attributes" && isNativeElement(record5.target) && record5.attributeName !== null && record5.oldValue === record5.target.getAttribute(record5.attributeName);
   }
   function runtimeCanvasMutation(record5) {
     const runtimeCanvas = "canvas[data-an-native-canvas],canvas[data-an-native-presentation]";
-    if (record5.target instanceof Element && record5.target.closest(runtimeCanvas))
+    if (isNativeElement(record5.target) && record5.target.closest(runtimeCanvas))
       return true;
     if (record5.type !== "childList") return false;
     const changed = [...record5.addedNodes, ...record5.removedNodes];
     return changed.length > 0 && changed.every(
-      (node) => node instanceof Element && node.matches(runtimeCanvas)
+      (node) => isNativeElement(node) && node.matches(runtimeCanvas)
     );
   }
   function omittedSourceMutation(record5) {
-    const target = record5.target instanceof Element ? record5.target : record5.target.parentElement;
+    const target = isNativeElement(record5.target) ? record5.target : record5.target.parentElement;
     if (target?.closest(OMIT)) return true;
     if (record5.type !== "childList") return false;
     const changed = [...record5.addedNodes, ...record5.removedNodes];
-    return changed.length > 0 && changed.every((node) => node instanceof Element && node.matches(OMIT));
+    return changed.length > 0 && changed.every((node) => isNativeElement(node) && node.matches(OMIT));
   }
   function isNativeSourceOmittedMutation(record5) {
     return runtimeCanvasMutation(record5) || omittedSourceMutation(record5);
   }
   function isNativeSvgVectorGroup(element) {
-    return element instanceof HTMLElement && element.hasAttribute("data-an-svg-vector-group");
+    return isNativeHtmlElement(element) && element.hasAttribute("data-an-svg-vector-group");
   }
   var CachedLeaf = class {
     constructor(element, onCapture, density, raster = async (element2, canvas, density2) => {
-      if (!(element2 instanceof HTMLElement))
+      if (!isNativeHtmlElement(element2))
         throw new NativeSourceError(
           "source-inline-svg",
           "An SVG source needs its vector raster path."
@@ -10100,7 +10120,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             continue;
           if (record5.type === "attributes" && document.documentElement.hasAttribute(
             "data-an-native-source-idle-observer"
-          ) && record5.target instanceof Element && record5.attributeName) {
+          ) && isNativeElement(record5.target) && record5.attributeName) {
             const target = record5.target;
             this.onObservedAttribute({
               targetTag: target.tagName.toLowerCase(),
@@ -10314,10 +10334,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     }
   }
   function staticDomRecord(record5) {
-    if (record5.node instanceof SVGSVGElement) {
+    if (isNativeSvgRoot(record5.node)) {
       return validateNativeSvgPrimitiveMarkup(record5.node.outerHTML);
     }
-    if (!(record5.node instanceof HTMLElement)) return "unknown";
+    if (!isNativeHtmlElement(record5.node)) return "unknown";
     try {
       for (const pseudo of [void 0, "::before", "::after"]) {
         const style = getComputedStyle(record5.node, pseudo);
@@ -10381,9 +10401,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.bodyStructureObserver = null;
       this.wakeDynamicSource = (event) => {
         const scope = this.placement === "backdrop" ? document.body : this.target;
-        if (!(event.target instanceof Node)) return;
+        if (!isNativeNode(event.target)) return;
         const withinSource = scope.contains(event.target);
-        const ancestorAnimation = (event.type.startsWith("animation") || event.type.startsWith("transition")) && event.target instanceof Element && event.target.contains(scope);
+        const ancestorAnimation = (event.type.startsWith("animation") || event.type.startsWith("transition")) && isNativeElement(event.target) && event.target.contains(scope);
         if (withinSource || ancestorAnimation) this.onDirty();
       };
       this.onFontLoaded = () => this.invalidateAll("font");
@@ -10414,7 +10434,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         let moved = false;
         const scope = this.placement === "backdrop" ? document.body : this.target;
         for (const record5 of records) {
-          if (!(record5.target instanceof Element)) continue;
+          if (!isNativeElement(record5.target)) continue;
           if (unchangedAttributeMutation(record5) || runtimeCanvasMutation(record5))
             continue;
           if (record5.target.closest(OMIT) || !(scope.contains(record5.target) || record5.target.contains(scope)))
@@ -10480,7 +10500,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         });
     }
     omit(element) {
-      if (!(element instanceof HTMLCanvasElement) || !element.hasAttribute("data-an-native-backdrop-presentation"))
+      if (!isNativeHtmlTag(element, "canvas") || !element.hasAttribute("data-an-native-backdrop-presentation"))
         return element.matches(OMIT);
       if (element.matches(
         "[data-agent-native-edit-overlay],[data-agent-native-editor-chrome],[data-agent-native-editor-chrome-host]"
@@ -10496,7 +10516,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       return !(element.compareDocumentPosition(receiver) & Node.DOCUMENT_POSITION_FOLLOWING);
     }
     authoredContentTextPaint(element) {
-      if (!(element instanceof HTMLElement) || this.targetCapture !== "content" || element !== this.target || !element.hasAttribute("data-an-native-text-suppressed"))
+      if (!isNativeHtmlElement(element) || this.targetCapture !== "content" || element !== this.target || !element.hasAttribute("data-an-native-text-suppressed"))
         return void 0;
       if (!hasDirectText(element) || [...element.children].some(
         (child) => !child.matches(
@@ -10612,9 +10632,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     }
     needsContinuousFrames() {
       const scope = this.placement === "backdrop" ? document.body : this.target;
-      if (scope instanceof HTMLVideoElement && !scope.paused && !scope.ended || [...scope.querySelectorAll("video")].some(
+      if (isNativeHtmlTag(scope, "video") && !scope.paused && !scope.ended || [...scope.querySelectorAll("video")].some(
         (video) => !video.paused && !video.ended
-      ) || scope instanceof HTMLCanvasElement && !scope.hasAttribute("data-an-native-canvas") && !scope.hasAttribute("data-an-native-presentation") || scope.querySelector(
+      ) || isNativeHtmlTag(scope, "canvas") && !scope.hasAttribute("data-an-native-canvas") && !scope.hasAttribute("data-an-native-presentation") || scope.querySelector(
         "canvas:not([data-an-native-canvas]):not([data-an-native-presentation])"
       ))
         return true;
@@ -10632,7 +10652,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.invalidateAll("explicit");
     }
     groupLocalBackdropReceiver(element) {
-      if (this.placement !== "layer" && this.placement !== "fill" || !this.groupLocalBackdropSource || !(element instanceof HTMLCanvasElement) || !element.hasAttribute("data-an-native-backdrop-presentation") || !element.getAttribute("data-an-native-canvas") || !this.target.contains(element))
+      if (this.placement !== "layer" && this.placement !== "fill" || !this.groupLocalBackdropSource || !isNativeHtmlTag(element, "canvas") || !element.hasAttribute("data-an-native-backdrop-presentation") || !element.getAttribute("data-an-native-canvas") || !this.target.contains(element))
         return null;
       return nativeBackdropReceiver(element);
     }
@@ -10946,7 +10966,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         this.mediaPaintLeaves.delete(element);
     }
     isolationPath(element, groupClips, ownOpacityBaked, layerOutputOpacityDeferred = false, readStyle = getComputedStyle) {
-      const isBackdropCanvas = (node) => node instanceof HTMLCanvasElement && node.hasAttribute("data-an-native-backdrop-presentation") && !!node.getAttribute("data-an-native-canvas");
+      const isBackdropCanvas = (node) => isNativeHtmlTag(node, "canvas") && node.hasAttribute("data-an-native-backdrop-presentation") && !!node.getAttribute("data-an-native-canvas");
       const receiverForCanvas = nativeBackdropReceiver;
       const pairedBackdropCanvas = (node) => {
         for (const direction of [
@@ -11023,7 +11043,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           const style = readStyle(current);
           if (current !== stop && !transformOwner && hasSourceTransform(style))
             transformOwner = current;
-          if (!(current === record5.node && current instanceof SVGSVGElement) && hasUnsupportedSourceMask(style.clipPath, style.maskImage))
+          if (!(current === record5.node && isNativeSvgRoot(current)) && hasUnsupportedSourceMask(style.clipPath, style.maskImage))
             throw new NativeSourceError(
               "source-mask-unsupported",
               "CSS clip-path and masks need an explicit source mask compositor."
@@ -11103,7 +11123,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     async rasterSvgVectorGroup(element, canvas, density) {
       this.assertSvgVectorGroupComposition(element);
       const children = [...element.children].filter((child) => !this.omit(child));
-      if (hasDirectText(element) || children.some((child) => !(child instanceof SVGSVGElement)))
+      if (hasDirectText(element) || children.some((child) => !isNativeSvgRoot(child)))
         throw new NativeSourceError(
           "receiver-svg-group-unsupported",
           "An imported SVG vector group contains non-vector content."
@@ -11143,7 +11163,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       if (metrics) metrics.recordDirectStyleReads += 1;
       const style = getComputedStyle(element);
       if (style.display === "none" || style.visibility === "hidden") return;
-      if (element instanceof SVGSVGElement && element.hasAttribute("transform"))
+      if (isNativeSvgRoot(element) && element.hasAttribute("transform"))
         throw new NativeSourceError(
           "source-svg-transform-unsupported",
           "An SVG root transform needs an affine vector source path."
@@ -11160,7 +11180,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       }
       if (isNativeSvgVectorGroup(element))
         this.assertSvgVectorGroupComposition(element);
-      const size = element instanceof SVGSVGElement ? nativeSvgViewportSize(element) : sourceLayoutSize(element, this.target, this.coordinateSpace, memo);
+      const size = isNativeSvgRoot(element) ? nativeSvgViewportSize(element) : sourceLayoutSize(element, this.target, this.coordinateSpace, memo);
       const geometry = relativeAffine(
         element,
         this.target,
@@ -11186,7 +11206,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const isolationPath = this.isolationPath(
         element,
         sourceClip.groupClips,
-        element instanceof SVGSVGElement
+        isNativeSvgRoot(element)
       );
       if (!isolationPath || sourceClip.clip.width <= 0 || sourceClip.clip.height <= 0)
         return;
@@ -11201,9 +11221,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           () => nativeLeafCaptureDensity(
             element,
             this.density,
-            element instanceof SVGSVGElement ? "all" : "coverage"
+            isNativeSvgRoot(element) ? "all" : "coverage"
           ),
-          (node, canvas, density) => node instanceof SVGSVGElement ? rasterNativeSvgSource(
+          (node, canvas, density) => isNativeSvgRoot(node) ? rasterNativeSvgSource(
             node,
             canvas,
             density,
@@ -11243,7 +11263,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             density: nativeLeafCaptureDensity(
               element,
               this.density,
-              element instanceof SVGSVGElement ? "all" : "coverage"
+              isNativeSvgRoot(element) ? "all" : "coverage"
             ),
             maxDimension: 4096,
             maxPixels: 8388608
@@ -11294,7 +11314,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     record(element, out, paintPhase = "all", metrics, memo, allowVisibleTargetOverflow = false) {
       if (!element.isConnected || this.omit(element)) return;
       if (element.hasAttribute("data-an-native-receiver-suppressed")) return;
-      if (element instanceof SVGSVGElement)
+      if (isNativeSvgRoot(element))
         return this.recordSvg(
           element,
           out,
@@ -11302,12 +11322,12 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           memo,
           allowVisibleTargetOverflow
         );
-      if (element instanceof SVGElement)
+      if (isNativeSvgElement(element))
         throw new NativeSourceError(
           "source-inline-svg",
           "An SVG fragment outside an SVG root cannot be captured."
         );
-      if (!(element instanceof HTMLElement)) return;
+      if (!isNativeHtmlElement(element)) return;
       const recordStyles = memo?.styles ?? /* @__PURE__ */ new Map();
       const readRecordStyle = (node) => {
         let style2 = recordStyles.get(node);
@@ -11331,7 +11351,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const visibility = groupLocalReceiver ? readCountedRecordStyle(groupLocalReceiver) : style;
       if (visibility.display === "none" || visibility.visibility === "hidden" || visibility.visibility === "collapse")
         return;
-      if (element instanceof HTMLCanvasElement && element.hasAttribute("data-an-shader-canvas")) {
+      if (isNativeHtmlTag(element, "canvas") && element.hasAttribute("data-an-shader-canvas")) {
         for (let node = element; node; node = node.parentElement) {
           const ancestorStyle = readCountedRecordStyle(node);
           if (ancestorStyle.display === "none" || ancestorStyle.visibility !== "visible" || authoredOpacity(node, readRecordStyle) <= 0)
@@ -11390,8 +11410,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       );
       const box = geometry.rect;
       if (box.width <= 0 || box.height <= 0) return;
-      const nativeInstanceId = element instanceof HTMLCanvasElement ? element.getAttribute("data-an-native-canvas") : null;
-      const media = element instanceof HTMLImageElement || element instanceof HTMLVideoElement || element instanceof HTMLCanvasElement && !nativeInstanceId;
+      const nativeInstanceId = isNativeHtmlTag(element, "canvas") ? element.getAttribute("data-an-native-canvas") : null;
+      const media = isNativeHtmlTag(element, "img") || isNativeHtmlTag(element, "video") || isNativeHtmlTag(element, "canvas") && !nativeInstanceId;
       const ownOverflow = classifyNativeComputedOverflowClip(style);
       if (!ownOverflow.ok)
         throw new NativeSourceError(
@@ -11491,7 +11511,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         return recordMediaPaint(() => void 0);
       }
       const mediaBox = sourceClip.clips[0]?.localBox ?? geometry.localBox;
-      if (element instanceof HTMLImageElement) {
+      if (isNativeHtmlTag(element, "img")) {
         const imageSourceUrl = element.currentSrc || element.src;
         assertLocalAsset(imageSourceUrl);
         return afterMaybePromise(
@@ -11542,7 +11562,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           }
         );
       }
-      if (element instanceof HTMLVideoElement) {
+      if (isNativeHtmlTag(element, "video")) {
         assertLocalAsset(element.currentSrc || element.src);
         if (!element.videoWidth || !element.videoHeight || element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA)
           throw new NativeSourceError(
@@ -11586,7 +11606,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         recordStyles.clear();
         return recordMediaPaint(appendVideo);
       }
-      if (element instanceof HTMLCanvasElement) {
+      if (isNativeHtmlTag(element, "canvas")) {
         if (nativeInstanceId) {
           out.push({
             ...common,
@@ -11757,7 +11777,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       if (isNativeSvgVectorGroup(element) && element.hasAttribute("data-an-native-receiver-suppressed"))
         return false;
       if (metrics) metrics.walkNodeVisits += 1;
-      if (element instanceof HTMLElement && element !== this.target) {
+      if (isNativeHtmlElement(element) && element !== this.target) {
         if (metrics) metrics.walkDirectLayoutSizeReads += 1;
         initialSize = sourceLayoutSize(
           element,
@@ -11792,7 +11812,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const replacementInstance = layerInstance || fillInstance;
       if (replacementInstance) {
         const presentations = [...element.parentElement?.children ?? []].filter(
-          (child) => child instanceof HTMLCanvasElement && child.hasAttribute("data-an-native-presentation") && child.dataset.anNativeCanvas === replacementInstance
+          (child) => isNativeHtmlTag(child, "canvas") && child.hasAttribute("data-an-native-presentation") && child.dataset.anNativeCanvas === replacementInstance
         );
         if (presentations.length !== 1)
           throw new NativeSourceError(
@@ -11897,7 +11917,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "canvas[data-an-native-canvas]:not([data-an-native-presentation])"
         )
       );
-      const boxBeforeNativeFill = fillCanvases.length > 0 && element instanceof HTMLElement && !hasDirectText(element);
+      const boxBeforeNativeFill = fillCanvases.length > 0 && isNativeHtmlElement(element) && !hasDirectText(element);
       if (boxBeforeNativeFill) {
         if (yield this.record(
           element,
@@ -11930,8 +11950,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         ))
           crossedAsyncBoundary = true;
       }
-      if (element instanceof SVGSVGElement) return crossedAsyncBoundary;
-      if (element instanceof HTMLElement) {
+      if (isNativeSvgRoot(element)) return crossedAsyncBoundary;
+      if (isNativeHtmlElement(element)) {
         let size = initialSize;
         if (crossedAsyncBoundary || !size) {
           if (metrics) metrics.walkDirectLayoutSizeReads += 1;
@@ -11972,7 +11992,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     recordTargetBackdropPresentations(out, metrics, memo, side) {
       const presentations = [];
       const direction = side === "before" ? "previousElementSibling" : "nextElementSibling";
-      for (let sibling = this.target[direction]; sibling instanceof HTMLCanvasElement && sibling.hasAttribute("data-an-native-backdrop-presentation"); sibling = sibling[direction])
+      for (let sibling = this.target[direction]; isNativeHtmlTag(sibling, "canvas") && sibling.hasAttribute("data-an-native-backdrop-presentation"); sibling = sibling[direction])
         if (side === "before") presentations.unshift(sibling);
         else presentations.push(sibling);
       for (const canvas of presentations) {
@@ -12235,8 +12255,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const clip = backdrop ? intersect(rect, {
         x: 0 - insets.left,
         y: 0 - insets.top,
-        width: (this.target instanceof SVGSVGElement ? nativeSvgViewportSize(this.target).width : this.target.offsetWidth) + insets.left + insets.right,
-        height: (this.target instanceof SVGSVGElement ? nativeSvgViewportSize(this.target).height : this.target.offsetHeight) + insets.top + insets.bottom
+        width: (isNativeSvgRoot(this.target) ? nativeSvgViewportSize(this.target).width : this.target.offsetWidth) + insets.left + insets.right,
+        height: (isNativeSvgRoot(this.target) ? nativeSvgViewportSize(this.target).height : this.target.offsetHeight) + insets.top + insets.bottom
       }) : viewport;
       if (clip.width <= 0 || clip.height <= 0) return null;
       return {
@@ -12309,7 +12329,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       if (isNativeSvgVectorGroup(target))
         this.assertSvgVectorGroupComposition(target);
       assertLeafSupported(target, target);
-      const size = target instanceof SVGSVGElement ? nativeSvgViewportSize(target) : { width: target.offsetWidth, height: target.offsetHeight };
+      const size = isNativeSvgRoot(target) ? nativeSvgViewportSize(target) : { width: target.offsetWidth, height: target.offsetHeight };
       const density = nativeLeafCaptureDensity(
         target,
         Math.max(1, this.density),
@@ -12320,7 +12340,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         this.trackLeaf(
           target,
           key,
-          target instanceof SVGSVGElement ? "svg" : "own-paint"
+          isNativeSvgRoot(target) ? "svg" : "own-paint"
         );
         this.receiverLeaf = new CachedLeaf(
           target,
@@ -12331,7 +12351,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             "coverage"
           ),
           async (element, canvas, scale) => {
-            if (element instanceof SVGSVGElement) {
+            if (isNativeSvgRoot(element)) {
               await rasterNativeSvgSource(
                 element,
                 canvas,
@@ -12418,7 +12438,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         cssBox: expected.plan.cssBox,
         ...size,
         revision: this.receiverLeaf.revision,
-        geometryKind: target instanceof SVGSVGElement ? "svg-silhouette" : isNativeSvgVectorGroup(target) ? "svg-group-silhouette" : "box"
+        geometryKind: isNativeSvgRoot(target) ? "svg-silhouette" : isNativeSvgVectorGroup(target) ? "svg-group-silhouette" : "box"
       };
     }
     async readSvgFillPhase(svg, phase) {
@@ -12500,7 +12520,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "source-placement-invalid",
           "Only a Fill target has an authored background capture."
         );
-      if (this.target instanceof SVGSVGElement)
+      if (isNativeSvgRoot(this.target))
         return this.readSvgFillPhase(this.target, phase);
       const style = getComputedStyle(this.target);
       if (style.borderImageOutset && style.borderImageOutset.split(/\\s+/).some((value) => Number.parseFloat(value) > 0))
@@ -12532,7 +12552,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "source-disposed",
           "The source provider was disposed."
         );
-      if (this.placement !== "fill" || !(this.target instanceof HTMLElement) || !isPureTextFlow(this.target))
+      if (this.placement !== "fill" || !isNativeHtmlElement(this.target) || !isPureTextFlow(this.target))
         throw new NativeSourceError(
           "fill-text-complex",
           "A Fill text foreground needs a text-only flow."
@@ -12564,7 +12584,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       return this.markReplayRead(out);
     }
     hasFillGlyph() {
-      return !(this.target instanceof SVGSVGElement) && isPureTextFlow(this.target) && Boolean(this.target.textContent?.trim());
+      return !isNativeSvgRoot(this.target) && isPureTextFlow(this.target) && Boolean(this.target.textContent?.trim());
     }
     async readFillForeground() {
       if (this.disposed)
@@ -12577,7 +12597,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "fill-foreground-unavailable",
           "Only a Fill target has a foreground phase."
         );
-      if (this.target instanceof SVGSVGElement) return this.markReplayRead([]);
+      if (isNativeSvgRoot(this.target)) return this.markReplayRead([]);
       if (isPureTextFlow(this.target)) return this.markReplayRead([]);
       if (hasDirectText(this.target))
         throw new NativeSourceError(
@@ -12718,8 +12738,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "source-capture-geometry-stale",
           "The Layer records no longer match the current source epoch."
         );
-      const width = this.target instanceof SVGSVGElement ? nativeSvgViewportSize(this.target).width : this.target.offsetWidth;
-      const height = this.target instanceof SVGSVGElement ? nativeSvgViewportSize(this.target).height : this.target.offsetHeight;
+      const width = isNativeSvgRoot(this.target) ? nativeSvgViewportSize(this.target).width : this.target.offsetWidth;
+      const height = isNativeSvgRoot(this.target) ? nativeSvgViewportSize(this.target).height : this.target.offsetHeight;
       if (![width, height].every((value) => Number.isFinite(value) && value > 0))
         throw new NativeSourceError(
           "source-capture-geometry-invalid",
@@ -12781,7 +12801,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           if (staticDomRecord(record5) === "unknown") safety = "unknown";
           continue;
         }
-        if (record5.kind !== "image" || !(record5.source instanceof HTMLImageElement)) {
+        if (record5.kind !== "image" || !isNativeHtmlTag(record5.source, "img")) {
           safety = "unknown";
           continue;
         }
@@ -13359,7 +13379,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
   }
   function assertDeclarativeSource(root, owned) {
     for (const element of sourceElements(root, owned)) {
-      if (element instanceof HTMLCanvasElement)
+      if (isNativeHtmlTag(element, "canvas"))
         throw failure(
           "composition-canvas-source",
           "An authored canvas needs an explicit deterministic source contract."
@@ -13369,7 +13389,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
           "composition-scripted-source",
           "An authored event handler can change pixels outside the composition clock."
         );
-      if (element instanceof HTMLScriptElement) {
+      if (isNativeHtmlTag(element, "script")) {
         if (element.type === "application/x-agent-native-effects") continue;
         if (element.type === NATIVE_EMBEDDED_ASSETS_SCRIPT_TYPE && element.hasAttribute(NATIVE_EMBEDDED_ASSETS_ATTR)) {
           let boundary = "embedded-attributes";
@@ -13487,7 +13507,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
   }
   function animationTarget(animation) {
     const target = animation.effect?.target;
-    return target instanceof Element ? target : null;
+    return isNativeElement(target) ? target : null;
   }
   function relevantAnimations(doc, root, owned) {
     if (typeof doc.getAnimations !== "function")
@@ -13781,7 +13801,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
         await deadline.awaitBounded(animation.ready);
       }
       const sourceVideos = [
-        ...root instanceof HTMLVideoElement ? [root] : [],
+        ...isNativeHtmlTag(root, "video") ? [root] : [],
         ...root.querySelectorAll("video")
       ];
       if (sourceVideos.length > MAX_SOURCE_VIDEOS)
@@ -17058,6 +17078,11 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     }
     if (canvas.parentElement !== document.documentElement || canvas.previousElementSibling !== body)
       document.documentElement.insertBefore(canvas, body.nextSibling);
+  }
+
+  // app/components/design/bridge/native-scene-presentation-element.ts
+  function isNativeScenePresentationElement(element) {
+    return isNativeHtmlElement(element) || isNativeSvgRoot(element);
   }
 
   // app/components/design/bridge/native-simulation-timeline.ts
@@ -21392,7 +21417,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if ([...body.childNodes].some(
         (node) => node.nodeType === Node.TEXT_NODE && !!node.textContent?.trim()
       ) || [...body.children].some(
-        (child) => !(child instanceof HTMLElement || child instanceof SVGSVGElement)
+        (child) => !isNativeScenePresentationElement(child)
       ))
         throw new NativeSourceError(
           "scene-direct-content-unsupported",
@@ -21555,10 +21580,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             \`\${options ? \`export:\${generation}:\` : ""}\${entry.instance.id}:provider:\${state.captureScope}:epoch:\${targetSourceEpoch}\`,
             receiver,
             needsGeometry,
-            needsInterior && entry.target instanceof SVGSVGElement
+            needsInterior && isNativeSvgRoot(entry.target)
           );
           let cornerRadii;
-          if (entry.instance.clip === "bounds" && entry.target instanceof HTMLElement) {
+          if (entry.instance.clip === "bounds" && isNativeHtmlElement(entry.target)) {
             const radius = resolveNativeClipRadii({
               width: outputExtent.sourceWidth,
               height: outputExtent.sourceHeight,
@@ -21724,7 +21749,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
           if (nearest) child.groupLocalOwnerId = nearest.instance.id;
           if (!nearest || nearest.instance.placement !== "fill") continue;
-          if (!(nearest.target instanceof HTMLElement))
+          if (!isNativeHtmlElement(nearest.target))
             throw new NativeSourceError(
               "source-inline-svg",
               "An SVG Fill cannot contain a nested HTML Backdrop."
@@ -22007,7 +22032,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       };
     }
     async textMask(snapshot, entry, width, height, cssWidth, sourceEpoch, generation, isExport) {
-      if (!(entry.target instanceof HTMLElement))
+      if (!isNativeHtmlElement(entry.target))
         throw new NativeSourceError(
           "source-inline-svg",
           "An SVG Fill uses vector coverage rather than a text mask."
@@ -22490,12 +22515,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       );
     });
   }
-  function isNativeScenePresentationElement(element) {
-    return element instanceof HTMLElement || element instanceof SVGSVGElement;
-  }
   function nativePresentationTargetLayout(target) {
     const style = getComputedStyle(target);
-    if (target instanceof HTMLElement)
+    if (isNativeHtmlElement(target))
       return {
         width: target.offsetWidth,
         height: target.offsetHeight,
@@ -22508,7 +22530,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         scale: style.scale
       };
     const parent = target.parentElement;
-    if (!(parent instanceof HTMLElement))
+    if (!isNativeHtmlElement(parent))
       throw new NativeSourceError(
         "source-inline-svg",
         "A native SVG target needs an HTML parent."
@@ -23420,7 +23442,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             (pass) => pass.kind === "render" && !pass.previousFrameReads?.length
           ) && nativeWorkerSupportsInputResources(
             planNativeInputResources(definition, instance),
-            target instanceof SVGSVGElement
+            isNativeSvgRoot(target)
           )
         );
         if (workerCapable) {
@@ -26119,14 +26141,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           return;
         }
         for (const record5 of authoredRecords) {
-          if (record5.type !== "attributes" || !(record5.target instanceof Element))
+          if (record5.type !== "attributes" || !isNativeElement(record5.target))
             continue;
           for (const mount of this.mounts.values())
             if (record5.target === mount.target || record5.target.contains(mount.target))
               mount.authoredStyleDirty = true;
         }
       };
-      const encoded = runtimeScript instanceof HTMLScriptElement ? runtimeScript.getAttribute(
+      const encoded = isNativeHtmlTag(runtimeScript, "script") ? runtimeScript.getAttribute(
         "data-agent-native-export-initial-pixel-ratio"
       ) : null;
       if (encoded === null) this.exportInitialPixelRatio = null;
@@ -26139,7 +26161,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         this.exportInitialPixelRatio = ratio;
       }
-      const encodedEpoch = runtimeScript instanceof HTMLScriptElement ? runtimeScript.getAttribute("data-agent-native-animation-epoch-ms") : null;
+      const encodedEpoch = isNativeHtmlTag(runtimeScript, "script") ? runtimeScript.getAttribute("data-agent-native-animation-epoch-ms") : null;
       if (encodedEpoch !== null) {
         const epoch = Number(encodedEpoch);
         if (!Number.isFinite(epoch) || epoch <= 0 || epoch > 864e13 || String(epoch) !== encodedEpoch)
@@ -28764,7 +28786,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       } else if (owner) this.positionedParents.set(parent, owner - 1);
     }
     presentationFollowsTarget(target, canvas) {
-      for (let sibling = target.nextElementSibling; sibling instanceof HTMLCanvasElement; sibling = sibling.nextElementSibling) {
+      for (let sibling = target.nextElementSibling; isNativeHtmlTag(sibling, "canvas"); sibling = sibling.nextElementSibling) {
         if (sibling === canvas) return true;
         const owner = this.mounts.get(sibling.dataset.anNativeCanvas ?? "");
         if (owner?.target !== target) break;
@@ -28790,7 +28812,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if (this.presentationFollowsTarget(target, canvas)) return parent;
       let insertionPoint = target;
       if (instance.placement === "backdrop")
-        while (insertionPoint.nextElementSibling instanceof HTMLCanvasElement && insertionPoint.nextElementSibling !== canvas && insertionPoint.nextElementSibling.hasAttribute(
+        while (isNativeHtmlTag(insertionPoint.nextElementSibling, "canvas") && insertionPoint.nextElementSibling !== canvas && insertionPoint.nextElementSibling.hasAttribute(
           "data-an-native-backdrop-presentation"
         ) && insertionPoint.nextElementSibling.getAttribute(
           "data-an-native-backdrop-receiver-node-id"
@@ -30059,7 +30081,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             [uploadWidth, uploadHeight]
           );
         } catch (directError) {
-          if (scale >= 1 && !(record5.source instanceof HTMLImageElement)) {
+          if (scale >= 1 && !isNativeHtmlTag(record5.source, "img")) {
             throw new NativeSourceError(
               "source-gpu-upload",
               \`A \${record5.kind} source could not be uploaded to WebGPU: \${String(directError)}\`
@@ -32802,7 +32824,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       capture.borrowed = void 0;
       capture.borrowedImages = void 0;
       if (capture.replaySafety === "immutable" && binding.capture === "content" && scene.length === 1 && scene.every(
-        (record5) => record5.kind === "image" && record5.source instanceof HTMLImageElement && !!record5.imageSourceUrl && (record5.source.currentSrc || record5.source.src) === record5.imageSourceUrl
+        (record5) => record5.kind === "image" && isNativeHtmlTag(record5.source, "img") && !!record5.imageSourceUrl && (record5.source.currentSrc || record5.source.src) === record5.imageSourceUrl
       )) {
         const images = scene.map((record5) => ({
           source: record5.source,
@@ -33475,8 +33497,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           \`The camera input is \${state}.\`
         );
       }
-      const width = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
-      const height = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+      const width = isNativeHtmlTag(source, "video") ? source.videoWidth : source.width;
+      const height = isNativeHtmlTag(source, "video") ? source.videoHeight : source.height;
       if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 || width > Math.min(MAX_DIMENSION, 1920) || height > Math.min(MAX_DIMENSION, 1080) || width * height > MAX_PIXELS)
         throw new NativeSourceError(
           "input-camera-size",
@@ -33670,7 +33692,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const receiverInteriorRequested = [...inputPlan.inputs.values()].some(
         (binding) => binding.kind === "builtin" && binding.source === "receiver-interior"
       );
-      const svgInterior = receiverInteriorRequested && mount.target instanceof SVGSVGElement;
+      const svgInterior = receiverInteriorRequested && isNativeSvgRoot(mount.target);
       const receiverGeometry = receiverGeometryRequested || svgInterior ? await this.receiverGeometryTextures(mount, svgInterior) : null;
       if (!receiverGeometry) this.releaseReceiverGeometry(mount);
       for (const [name, binding] of inputPlan.inputs) {
@@ -34152,7 +34174,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     async textMask(mount) {
       if (mount.instance.clip !== "text") return this.white;
-      if (!(mount.target instanceof HTMLElement))
+      if (!isNativeHtmlElement(mount.target))
         throw new NativeSourceError(
           "source-inline-svg",
           "An SVG Fill uses vector paint coverage rather than a text mask."
@@ -34955,7 +34977,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     async stageFillLocalBackdrop(parent, child, prefix, prefixExtent, encoder, transaction, authoredSourceEpoch) {
       const ancestor = parent.target;
-      if (!(ancestor instanceof HTMLElement))
+      if (!isNativeHtmlElement(ancestor))
         throw new NativeSourceError(
           "source-inline-svg",
           "An SVG Fill cannot contain a nested HTML Backdrop."
@@ -37099,11 +37121,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if (this.previewDirty || this.draft || this.instancePreview || this.compositionPixelRatio !== null || this.exportInitialPixelRatio !== null || this.scenePresentation || !this.canPrepareStatelessFrame() || this.presentationMirrorCapture || this.presentationFaultHold || this.presentationFaultLatch.pending())
         return false;
       return [...this.mounts.values()].every((mount) => {
-        if (mount.instance.placement !== "fill" || mount.instance.clip === "text" || !(mount.target instanceof HTMLElement) || !mount.provider || !this.hasPresentationGeometry(mount.target) || this.offscreen(mount) || mount.definition.passes.length !== 1 || mount.outputExtent?.expanded)
+        if (mount.instance.placement !== "fill" || mount.instance.clip === "text" || !isNativeHtmlElement(mount.target) || !mount.provider || !this.hasPresentationGeometry(mount.target) || this.offscreen(mount) || mount.definition.passes.length !== 1 || mount.outputExtent?.expanded)
           return false;
         const style = getComputedStyle(mount.target);
         return style.boxShadow === "none" && (style.outlineStyle === "none" || style.outlineWidth === "0px") && [...mount.target.childNodes].every(
-          (node) => node instanceof Element ? node.hasAttribute("data-an-native-canvas") : node.nodeType !== Node.TEXT_NODE || !node.textContent?.trim()
+          (node) => isNativeElement(node) ? node.hasAttribute("data-an-native-canvas") : node.nodeType !== Node.TEXT_NODE || !node.textContent?.trim()
         );
       });
     }
@@ -39502,7 +39524,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         subtree: true
       });
       const affectsEffects = (node) => {
-        if (!(node instanceof Element)) return false;
+        if (!isNativeElement(node)) return false;
         return node.matches(
           \`script[type="\${SCRIPT_TYPE}"],[data-agent-native-node-id]\`
         ) || !!node.querySelector(
@@ -39516,8 +39538,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               \`script[type="\${SCRIPT_TYPE}"]\`
             );
           if (record5.type === "attributes")
-            return record5.target instanceof Element && (record5.target instanceof HTMLScriptElement || record5.attributeName === "data-agent-native-node-id");
-          if (record5.target instanceof HTMLScriptElement && record5.target.type === SCRIPT_TYPE)
+            return isNativeElement(record5.target) && (isNativeHtmlTag(record5.target, "script") || record5.attributeName === "data-agent-native-node-id");
+          if (isNativeHtmlTag(record5.target, "script") && record5.target.type === SCRIPT_TYPE)
             return true;
           return [...record5.addedNodes, ...record5.removedNodes].some(
             affectsEffects

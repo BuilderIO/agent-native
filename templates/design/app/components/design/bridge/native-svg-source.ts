@@ -4,6 +4,7 @@ import {
   setNativeCaptureRoi,
   type NativeCaptureRoi,
 } from "./native-capture-roi";
+import { isNativeElement } from "./native-dom";
 import type { NativeAffine2D } from "./native-source-affine-geometry";
 import {
   MAX_NATIVE_SVG_PATTERN_WORK,
@@ -852,7 +853,7 @@ export function serializeNativeSvgSource(
     for (const child of original.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
         clone.append(document.createTextNode(child.textContent ?? ""));
-      } else if (child instanceof Element) {
+      } else if (isNativeElement(child)) {
         clone.append(copy(child));
       } else if (child.nodeType !== Node.COMMENT_NODE) {
         throw new NativeSvgSourceError(
