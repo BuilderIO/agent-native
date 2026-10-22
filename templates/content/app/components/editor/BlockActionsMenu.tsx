@@ -45,7 +45,13 @@ export function openBlockActionsMenu(request: DragHandleMenuRequest) {
   // Compared when the grip asks: until the editor mounts, `editor.view` is a
   // stand-in, not the view the grip will report.
   for (const host of hosts) {
-    if (host.editor.view === request.view) return host.open(request);
+    if (host.editor.view === request.view) {
+      // The menu takes focus only after it renders, and losing focus
+      // re-renders everything that watches the editor. Blurring now folds
+      // that into the render that opens the menu.
+      request.view.dom.blur();
+      return host.open(request);
+    }
   }
   return null;
 }
