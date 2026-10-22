@@ -101,11 +101,23 @@ describe("useChatThreadList", () => {
     const url = requestedUrls()[0];
     expect(url.pathname).toBe("/api/chat/threads");
     expect(url.searchParams.get("ownership")).toBe("mine");
+    expect(url.searchParams.has("includeArchived")).toBe(false);
     expect(url.searchParams.get("limit")).toBe("2");
     expect(latest.threads.map((t) => t.id)).toEqual(["a", "b"]);
     expect(latest.hasMore).toBe(true);
     expect(latest.loading).toBe(false);
     expect(latest.error).toBeNull();
+  });
+
+  it("requests archived threads when enabled", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ threads: [], hasMore: false }));
+    await mount({
+      ownership: "mine",
+      includeArchived: true,
+      apiUrl: "/api/chat",
+    });
+
+    expect(requestedUrls()[0].searchParams.get("includeArchived")).toBe("1");
   });
 
   it("pages forward by server rows consumed, deduping rows that shifted", async () => {
