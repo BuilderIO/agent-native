@@ -4,6 +4,7 @@ import { endsAtContinuationBoundary } from "../agent/production-agent.js";
 import type { ActiveRun } from "../agent/run-manager.js";
 import type { AgentChatEvent, AgentChatScope } from "../agent/types.js";
 import {
+  runAgentChatRunCompletionHooksAfterProjection,
   runPostAgentRunComplete,
   runPostAgentTurnAutosave,
   runPreAgentTurnAutosave,
@@ -28,6 +29,26 @@ const scope: AgentChatScope = {
   id: "deck-1",
   label: "Launch",
 };
+
+describe("run completion projection hooks", () => {
+  it("runs completion hooks before surfacing a projection failure", async () => {
+    const projectionError = new Error("projection unavailable");
+    const persistProjection = vi.fn(async () => {
+      throw projectionError;
+    });
+    const completionHooks = vi.fn();
+
+    await expect(
+      runAgentChatRunCompletionHooksAfterProjection(
+        persistProjection,
+        completionHooks,
+      ),
+    ).rejects.toBe(projectionError);
+
+    expect(persistProjection).toHaveBeenCalledOnce();
+    expect(completionHooks).toHaveBeenCalledOnce();
+  });
+});
 
 describe("pre-agent-turn autosave", () => {
   it("runs for a scoped turn before generation", async () => {

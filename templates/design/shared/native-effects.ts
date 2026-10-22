@@ -3,6 +3,7 @@ import { parse } from "parse5";
 import {
   FEEDBACK_UNIFORM_SLOTS,
   feedbackUniformProperties,
+  isEffectMeshPassCompatible,
   planEffectGraph,
   type EffectFeedbackSpec,
   type EffectLinearResourceGraphSpec,
@@ -109,6 +110,15 @@ export interface EffectVisibilityCondition {
   equals: number | boolean | string;
 }
 
+export type EffectRecordField = Extract<
+  EffectProperty,
+  { type: "float" | "int" | "bool" | "vec2" | "color" }
+>;
+export type EffectRecordValue = Record<
+  string,
+  number | boolean | [number, number] | EffectColor
+>;
+
 export type EffectProperty = (
   | EffectPaintProperty
   | {
@@ -182,6 +192,18 @@ export type EffectProperty = (
       rebuild?: boolean;
     }
   | {
+      type: "record-array";
+      label: string;
+      itemLabel?: string;
+      default: EffectRecordValue[];
+      minCount?: number;
+      maxCount: number;
+      fields: Record<string, EffectRecordField>;
+      parameterConstraints?: EffectParameterConstraint[];
+      group?: string;
+      rebuild?: boolean;
+    }
+  | {
       type: "texture";
       label: string;
       default: EffectTextureRef | null;
@@ -200,6 +222,7 @@ export type EffectValue =
   | NativePositionValue
   | EffectColor[]
   | EffectColorStop[]
+  | EffectRecordValue[]
   | EffectPaint
   | EffectTextureRef
   | null;
@@ -293,6 +316,8 @@ export interface EffectDefinition {
   kind: "generator" | "processor" | "simulation";
   placements: ("fill" | "layer" | "backdrop")[];
   properties: Record<string, EffectProperty>;
+  uniformPacking?: "compact";
+  uniformFloats?: 256;
   interaction?: {
     positionProperty: string;
     activeProperty: string;
@@ -747,6 +772,66 @@ function validateValue(
           `property "${name}" needs at most ${prop.maxCount} normalized color stops with positions within 0–1`,
         );
       break;
+    case "record-array": {
+      const names = record(prop.fields) ? Object.keys(prop.fields) : [];
+      if (
+        !Array.isArray(value) ||
+        !Number.isSafeInteger(prop.maxCount) ||
+        prop.maxCount < 1 ||
+        prop.maxCount > 4 ||
+        value.length < (prop.minCount ?? 0) ||
+        value.length > prop.maxCount ||
+        names.length < 1 ||
+        names.length > 16
+      ) {
+        errors.push(`property "${name}" needs a bounded record array`);
+        break;
+      }
+      try {
+        planNativeRecordLayout(prop.fields);
+      } catch (error) {
+        if (!(error instanceof NativeEffectPropertyLayoutError)) throw error;
+        errors.push(`property "${name}" ${error.message}`);
+        break;
+      }
+      for (const [index, row] of value.entries()) {
+        if (
+          !record(row) ||
+          Object.keys(row).length !== names.length ||
+          !names.every((fieldName) =>
+            Object.prototype.hasOwnProperty.call(row, fieldName),
+          )
+        ) {
+          errors.push(`property "${name}" record ${index} has invalid fields`);
+          continue;
+        }
+        for (const fieldName of names)
+          validateValue(
+            prop.fields[fieldName]!,
+            row[fieldName],
+            `${name}[${index}].${fieldName}`,
+            errors,
+          );
+        if (
+          prop.parameterConstraints &&
+          validateParameterConstraintDefinitions(
+            prop.parameterConstraints,
+            prop.fields,
+          ).length === 0
+        )
+          errors.push(
+            ...validateResolvedParameterConstraints(
+              prop.parameterConstraints,
+              prop.fields,
+              row,
+            ).map(
+              (issue) =>
+                `property "${name}" record ${index} (${names.join(", ")}) ${issue}`,
+            ),
+          );
+      }
+      break;
+    }
     case "paint":
       if (!isEffectPaint(value, prop.maxCount))
         errors.push(
@@ -773,10 +858,197 @@ function validateValue(
 
 export function propertySlots(prop: EffectProperty): number {
   if (prop.type === "texture") return 0;
+  if (prop.type === "record-array")
+    return 1 + (prop.maxCount * planNativeRecordLayout(prop.fields).stride) / 4;
   if (prop.type === "color-array") return 1 + prop.maxCount;
   if (prop.type === "color-ramp" || prop.type === "paint")
     return 1 + 2 * prop.maxCount;
   return 1;
+}
+
+export interface NativePropertyLayoutPlan {
+  offsets: Readonly<Record<string, number>>;
+  floatCount: number;
+}
+
+export class NativeEffectPropertyLayoutError extends TypeError {
+  constructor(
+    readonly code: "invalid-mode" | "invalid-property" | "overflow",
+    message: string,
+  ) {
+    super(message);
+    this.name = "NativeEffectPropertyLayoutError";
+  }
+}
+
+export function nativeEffectUniformFloats(
+  definition: Pick<EffectDefinition, "uniformFloats">,
+): 128 | 256 {
+  if (definition.uniformFloats === undefined) return 128;
+  if (definition.uniformFloats === 256) return 256;
+  throw new NativeEffectPropertyLayoutError(
+    "invalid-mode",
+    "uniformFloats must be 256 when present",
+  );
+}
+
+export interface NativeRecordLayoutPlan {
+  offsets: Readonly<Record<string, number>>;
+  floatCount: number;
+  stride: number;
+}
+
+export function planNativeRecordLayout(
+  fields: Record<string, EffectRecordField>,
+): NativeRecordLayoutPlan {
+  if (
+    !record(fields) ||
+    Object.keys(fields).length < 1 ||
+    Object.keys(fields).length > 16
+  )
+    throw new NativeEffectPropertyLayoutError(
+      "invalid-property",
+      "record fields need 1–16 named entries",
+    );
+  const offsets: Record<string, number> = Object.create(null);
+  let next = 0;
+  for (const [name, field] of Object.entries(fields)) {
+    if (
+      !PROPERTY_RE.test(name) ||
+      !record(field) ||
+      typeof field.type !== "string" ||
+      !["float", "int", "bool", "vec2", "color"].includes(field.type)
+    )
+      throw new NativeEffectPropertyLayoutError(
+        "invalid-property",
+        `record field "${name}" has invalid uniform type`,
+      );
+    const alignment =
+      field.type === "vec2" ? 2 : field.type === "color" ? 4 : 1;
+    const width = field.type === "vec2" ? 2 : field.type === "color" ? 4 : 1;
+    next = Math.ceil(next / alignment) * alignment;
+    offsets[name] = next;
+    next += width;
+  }
+  return { offsets, floatCount: next, stride: Math.ceil(next / 4) * 4 };
+}
+
+export function planNativePropertyLayout(
+  definition: Pick<
+    EffectDefinition,
+    "properties" | "uniformPacking" | "uniformFloats"
+  >,
+): NativePropertyLayoutPlan {
+  const mode = definition.uniformPacking;
+  if (mode !== undefined && mode !== "compact")
+    throw new NativeEffectPropertyLayoutError(
+      "invalid-mode",
+      "uniformPacking must be compact when present",
+    );
+  const capacity = nativeEffectUniformFloats(definition);
+  if (capacity === 256 && mode !== "compact")
+    throw new NativeEffectPropertyLayoutError(
+      "invalid-mode",
+      "uniformFloats 256 needs compact uniformPacking",
+    );
+  if (!record(definition.properties))
+    throw new NativeEffectPropertyLayoutError(
+      "invalid-property",
+      "properties must be an object",
+    );
+  const offsets: Record<string, number> = Object.create(null);
+  let next = 0;
+  for (const [name, prop] of Object.entries(definition.properties)) {
+    if (
+      !record(prop) ||
+      !PROPERTY_RE.test(name) ||
+      ![
+        "float",
+        "int",
+        "bool",
+        "enum",
+        "vec2",
+        "color",
+        "position",
+        "color-array",
+        "color-ramp",
+        "paint",
+        "texture",
+        "record-array",
+      ].includes(prop.type)
+    )
+      throw new NativeEffectPropertyLayoutError(
+        "invalid-property",
+        `property "${name}" has invalid uniform type`,
+      );
+    const property = prop as EffectProperty;
+    if (property.type === "texture") continue;
+    if (property.type === "record-array") {
+      if (
+        mode !== "compact" ||
+        !Number.isSafeInteger(property.maxCount) ||
+        property.maxCount < 1 ||
+        property.maxCount > 4
+      )
+        throw new NativeEffectPropertyLayoutError(
+          "invalid-property",
+          `property "${name}" needs compact packing and 1–4 records`,
+        );
+      const row = planNativeRecordLayout(property.fields);
+      const offset = Math.ceil(next / 4) * 4;
+      offsets[name] = offset;
+      next = offset + 4 + property.maxCount * row.stride;
+      continue;
+    }
+    if (
+      property.type === "color-array" ||
+      property.type === "color-ramp" ||
+      property.type === "paint"
+    ) {
+      const maximum =
+        property.type === "paint"
+          ? MAX_EFFECT_PAINT_STOPS
+          : property.type === "color-ramp"
+            ? MAX_COLOR_RAMP
+            : MAX_COLOR_ARRAY;
+      if (
+        !Number.isSafeInteger(property.maxCount) ||
+        property.maxCount < 1 ||
+        property.maxCount > maximum
+      )
+        throw new NativeEffectPropertyLayoutError(
+          "invalid-property",
+          `property "${name}" has invalid uniform count`,
+        );
+    }
+    let alignment = 4;
+    let width = propertySlots(property) * 4;
+    if (mode === "compact") {
+      if (["float", "int", "bool", "enum"].includes(property.type)) {
+        alignment = 1;
+        width = 1;
+      } else if (property.type === "vec2") {
+        alignment = 2;
+        width = 2;
+      }
+    }
+    if (!Number.isSafeInteger(width) || width < 1 || width > capacity)
+      throw new NativeEffectPropertyLayoutError(
+        "invalid-property",
+        `property "${name}" has invalid uniform width`,
+      );
+    const offset = Math.ceil(next / alignment) * alignment;
+    offsets[name] = offset;
+    next = offset + width;
+  }
+  if (next > capacity)
+    throw new NativeEffectPropertyLayoutError(
+      "overflow",
+      mode === "compact"
+        ? `properties need ${next} float uniforms; max is ${capacity}`
+        : `properties need ${next / 4} vec4 slots; max is ${MAX_PROPERTY_SLOTS}`,
+    );
+  return { offsets, floatCount: next };
 }
 
 function validatePorts(
@@ -933,14 +1205,16 @@ function validateProperties(
   properties: unknown,
   prefix: string,
   errors: string[],
+  uniformPacking?: "compact",
+  uniformFloats?: 256,
 ): void {
   if (!record(properties)) {
     errors.push(`${prefix}.properties must be an object`);
     return;
   }
+  const initialErrorCount = errors.length;
   if (Object.keys(properties).length > 64)
     errors.push(`${prefix}.properties must contain at most 64 entries`);
-  let slots = 0;
   for (const [name, unknownProp] of Object.entries(properties)) {
     if (!PROPERTY_RE.test(name))
       errors.push(`${prefix} property name "${name}" is invalid`);
@@ -962,6 +1236,7 @@ function validateProperties(
         "color-ramp",
         "paint",
         "texture",
+        "record-array",
       ].includes(prop.type)
     ) {
       errors.push(`${prefix} property "${name}" has unsupported type`);
@@ -1057,6 +1332,142 @@ function validateProperties(
         continue;
       }
     }
+    if (prop.type === "record-array") {
+      if (
+        Object.keys(prop).some(
+          (key) =>
+            ![
+              "type",
+              "label",
+              "itemLabel",
+              "default",
+              "minCount",
+              "maxCount",
+              "fields",
+              "parameterConstraints",
+              "group",
+              "rebuild",
+              "visibleWhen",
+              "advanced",
+            ].includes(key),
+        )
+      )
+        errors.push(`${prefix} property "${name}" has unknown fields`);
+      if (
+        uniformPacking !== "compact" ||
+        !Number.isSafeInteger(prop.maxCount) ||
+        prop.maxCount < 1 ||
+        prop.maxCount > 4 ||
+        (prop.minCount !== undefined &&
+          (!Number.isSafeInteger(prop.minCount) ||
+            prop.minCount < 0 ||
+            prop.minCount > prop.maxCount)) ||
+        (prop.itemLabel !== undefined &&
+          (typeof prop.itemLabel !== "string" ||
+            !prop.itemLabel.trim() ||
+            prop.itemLabel.length > 80))
+      )
+        errors.push(`${prefix} property "${name}" has invalid record bounds`);
+      if (!record(prop.fields)) {
+        errors.push(`${prefix} property "${name}" needs record fields`);
+      } else {
+        try {
+          planNativeRecordLayout(prop.fields);
+        } catch (error) {
+          if (!(error instanceof NativeEffectPropertyLayoutError)) throw error;
+          errors.push(`${prefix} property "${name}" ${error.message}`);
+        }
+        for (const [fieldName, field] of Object.entries(prop.fields)) {
+          if (!record(field)) continue;
+          const allowed =
+            field.type === "bool" || field.type === "color"
+              ? ["type", "label", "default"]
+              : [
+                  "type",
+                  "label",
+                  "default",
+                  "min",
+                  "max",
+                  "step",
+                  "displayScale",
+                  "unit",
+                ];
+          if (Object.keys(field).some((key) => !allowed.includes(key)))
+            errors.push(
+              `${prefix} property "${name}" field "${fieldName}" has unknown fields`,
+            );
+          if (
+            typeof field.label !== "string" ||
+            !field.label.trim() ||
+            field.label.length > 80
+          )
+            errors.push(
+              `${prefix} property "${name}" field "${fieldName}" needs a label`,
+            );
+          if (
+            field.type === "float" ||
+            field.type === "int" ||
+            field.type === "vec2"
+          ) {
+            if (field.min !== undefined && !finite(field.min))
+              errors.push(
+                `${prefix} property "${name}" field "${fieldName}" min is invalid`,
+              );
+            if (field.max !== undefined && !finite(field.max))
+              errors.push(
+                `${prefix} property "${name}" field "${fieldName}" max is invalid`,
+              );
+            if (
+              field.min !== undefined &&
+              field.max !== undefined &&
+              field.min > field.max
+            )
+              errors.push(
+                `${prefix} property "${name}" field "${fieldName}" bounds are reversed`,
+              );
+            if (
+              field.step !== undefined &&
+              (!finite(field.step) || field.step <= 0)
+            )
+              errors.push(
+                `${prefix} property "${name}" field "${fieldName}" step is invalid`,
+              );
+            if (
+              field.displayScale !== undefined &&
+              (!finite(field.displayScale) ||
+                field.displayScale <= 0 ||
+                field.displayScale > 1_000_000)
+            )
+              errors.push(
+                `${prefix} property "${name}" field "${fieldName}" displayScale is invalid`,
+              );
+            if (
+              field.unit !== undefined &&
+              (typeof field.unit !== "string" || field.unit.length > 32)
+            )
+              errors.push(
+                `${prefix} property "${name}" field "${fieldName}" unit is invalid`,
+              );
+          }
+          if (
+            typeof field.type === "string" &&
+            ["float", "int", "bool", "vec2", "color"].includes(field.type)
+          )
+            validateValue(
+              field as EffectRecordField,
+              field.default,
+              `${name}.${fieldName}`,
+              errors,
+            );
+        }
+        errors.push(
+          ...validateParameterConstraintDefinitions(
+            prop.parameterConstraints,
+            prop.fields,
+          ).map((issue) => `${prefix} property "${name}" ${issue}`),
+        );
+      }
+    }
     if (
       prop.type === "position" &&
       prop.basis !== "source" &&
@@ -1085,7 +1496,6 @@ function validateProperties(
       errors.push(`${prefix} property "${name}" needs a named texture input`);
     if (prop.type !== "enum" || Array.isArray(prop.options))
       validateValue(prop, prop.default, name, errors);
-    slots += propertySlots(prop);
   }
   for (const [name, candidate] of Object.entries(properties)) {
     if (!record(candidate) || candidate.visibleWhen === undefined) continue;
@@ -1138,10 +1548,18 @@ function validateProperties(
       current = next;
     }
   }
-  if (slots > MAX_PROPERTY_SLOTS)
-    errors.push(
-      `${prefix} properties need ${slots} vec4 slots; max is ${MAX_PROPERTY_SLOTS}`,
-    );
+  if (errors.length === initialErrorCount) {
+    try {
+      planNativePropertyLayout({
+        properties: properties as Record<string, EffectProperty>,
+        uniformPacking,
+        uniformFloats,
+      });
+    } catch (error) {
+      if (!(error instanceof NativeEffectPropertyLayoutError)) throw error;
+      errors.push(`${prefix} ${error.message}`);
+    }
+  }
 }
 
 function validateDefinition(
@@ -1167,6 +1585,12 @@ function validateDefinition(
   }
   if (!["generator", "processor", "simulation"].includes(String(value.kind)))
     errors.push(`${prefix}.kind is invalid`);
+  if (value.uniformPacking !== undefined && value.uniformPacking !== "compact")
+    errors.push(`${prefix}.uniformPacking must be compact when present`);
+  if (value.uniformFloats !== undefined && value.uniformFloats !== 256)
+    errors.push(`${prefix}.uniformFloats must be 256 when present`);
+  if (value.uniformFloats === 256 && value.uniformPacking !== "compact")
+    errors.push(`${prefix}.uniformFloats needs compact uniformPacking`);
   if (
     value.sourceSizing !== undefined &&
     (value.kind !== "processor" ||
@@ -1685,7 +2109,13 @@ function validateDefinition(
     )
       errors.push(`${prefix}.feedback is invalid or unbounded`);
   }
-  validateProperties(value.properties, prefix, errors);
+  validateProperties(
+    value.properties,
+    prefix,
+    errors,
+    value.uniformPacking === "compact" ? "compact" : undefined,
+    value.uniformFloats === 256 ? 256 : undefined,
+  );
   if (value.interaction !== undefined) {
     const interaction = value.interaction;
     const properties = record(value.properties) ? value.properties : {};
@@ -1924,7 +2354,15 @@ function validateDefinition(
                   value.resourceGraph.abi === "stateful-resource-v2" ||
                   value.resourceGraph.abi === "stateful-resource-v3") &&
                 isStatefulResourceDraw(pass.draw)
-              ))))
+              )))) ||
+        (pass.mesh !== undefined &&
+          !isEffectMeshPassCompatible(
+            pass as unknown as EffectPass,
+            value.feedback !== undefined ||
+              value.simulation !== undefined ||
+              value.statelessCompute !== undefined ||
+              value.resourceGraph !== undefined,
+          ))
       ) {
         errors.push(`${prefix}.passes[${passIndex}] is malformed`);
       } else {
@@ -2756,12 +3194,12 @@ export function packNativeProperties(
   );
   if (constraintErrors.length)
     throw new NativeEffectParameterConstraintError(constraintErrors);
-  const packed = new Float32Array(128);
-  let slot = 0;
+  const packed = new Float32Array(nativeEffectUniformFloats(definition));
+  const layout = planNativePropertyLayout(definition);
   for (const [name, prop] of Object.entries(definition.properties)) {
     if (prop.type === "texture") continue;
     const value = params[name] ?? prop.default;
-    const offset = slot * 4;
+    const offset = layout.offsets[name]!;
     if (prop.type === "float" || prop.type === "int")
       packed[offset] = value as number;
     else if (prop.type === "bool") packed[offset] = value ? 1 : 0;
@@ -2797,8 +3235,27 @@ export function packNativeProperties(
         packEffectPaint(value as EffectPaint, prop.maxCount, linearSrgb),
         offset,
       );
+    } else if (prop.type === "record-array") {
+      const rows = value as EffectRecordValue[];
+      const rowLayout = planNativeRecordLayout(prop.fields);
+      packed[offset] = rows.length;
+      for (const [index, row] of rows.entries()) {
+        const base = offset + 4 + index * rowLayout.stride;
+        for (const [fieldName, field] of Object.entries(prop.fields)) {
+          const fieldOffset = base + rowLayout.offsets[fieldName]!;
+          const item = row[fieldName];
+          if (field.type === "bool") packed[fieldOffset] = item ? 1 : 0;
+          else if (field.type === "float" || field.type === "int")
+            packed[fieldOffset] = item as number;
+          else if (field.type === "vec2")
+            packed.set(item as [number, number], fieldOffset);
+          else if (field.type === "color") {
+            const color = item as EffectColor;
+            packed.set([...linearSrgb(color), color.alpha], fieldOffset);
+          }
+        }
+      }
     }
-    slot += propertySlots(prop);
   }
   return packed;
 }

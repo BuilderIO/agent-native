@@ -726,8 +726,8 @@ export class NativeStatefulResourceSession {
               : textureSize(spec, this.width, this.height);
           const data = options.uniforms(pass, width, height, stepTime, dt);
           if (
-            data.byteLength !== 544 ||
-            (uniforms.length + 1) * 544 > MAX_UNIFORM_BYTES
+            (data.byteLength !== 544 && data.byteLength !== 1056) ||
+            (uniforms.length + 1) * data.byteLength > MAX_UNIFORM_BYTES
           )
             throw new NativeStatefulResourceError("stateful-uniform-budget");
           const uniform = this.device.createBuffer({

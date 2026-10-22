@@ -1,5 +1,22 @@
 # @agent-native/scheduling
 
+## 0.2.39
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [05d1481]
+  - @agent-native/toolkit@0.214.0
+
+## 0.2.38
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.213.1
+
 ## 0.2.37
 
 ### Patch Changes
@@ -1118,17 +1135,5 @@
 - b24446e: Add `@agent-native/toolkit` for reusable app-building UI, move shared template primitives into it, and keep core UI shim imports working through compatibility re-exports.
 - Updated dependencies [b24446e]
   - @agent-native/toolkit@0.2.0
-
-## 0.1.15
-
-### Patch Changes
-
-- 6338989: Add Traditional Chinese copy for shared scheduling booking-link components.
-
-## 0.1.14
-
-### Patch Changes
-
-- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

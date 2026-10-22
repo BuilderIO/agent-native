@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canonicalizeNfm } from "../shared/nfm";
+import { canonicalizeNfm, nfmToDoc } from "../shared/nfm";
 import {
   canonicalizationLosses,
   canonicalizerFingerprint,
@@ -84,29 +84,55 @@ describe("body classification", () => {
     expect(result.losses).toEqual([]);
   });
 
-  it("sees an escape Content keeps as a visible backslash", () => {
+  it("recognizes the repaired punctuation escape without inventing a loss", () => {
     const result = classifyBody("snake\\_case word");
     expect(result.status).toBe("non-canonical");
     if (result.status !== "non-canonical") return;
-    expect(result.kinds).toEqual(["escape-kept-as-backslash"]);
-    expect(result.losses).toEqual(["gfm-escape-shown-literally"]);
+    expect(result.canonical).toBe("snake_case word");
+    expect(result.kinds).toEqual(["backslash-escapes"]);
+    expect(result.losses).toEqual([]);
 
     const mixed = classifyBody("Uses snake\\_case and costs $60");
     expect(mixed.status === "non-canonical" && mixed.kinds).toEqual([
       "backslash-escapes",
-      "escape-kept-as-backslash",
     ]);
+    expect(mixed).toMatchObject({ losses: [] });
+    expect(
+      canonicalizationLosses("snake\\_case word", "snake\\\\_case word"),
+    ).toContain("gfm-escape-shown-literally");
   });
 
-  it("flags agent formatting Content misreads even when the bytes are canonical", () => {
-    expect(classifyBody("__bold__ text")).toEqual({
-      status: "canonical",
-      losses: ["gfm-strong-dropped"],
-    });
-    expect(classifyBody(L("- a", "    - child", "- b"))).toEqual({
-      status: "canonical",
-      losses: ["gfm-list-nesting-lost", "gfm-list-items-lost"],
-    });
+  it("recognizes repaired emphasis and nested-list readings while retaining loss controls", () => {
+    for (const [body, canonical] of [
+      ["__bold__ text", "**bold** text"],
+      [L("- a", "    - child", "- b"), L("- a", "\t- child", "- b")],
+      ["**kept**__lost__", "**keptlost**"],
+      ["*a * _b_", "*a * *b*"],
+      ["*a * _a_", "*a * *a*"],
+    ]) {
+      expect(classifyBody(body!), body).toMatchObject({
+        status: "non-canonical",
+        canonical,
+        losses: [],
+        idempotence: "idempotent",
+      });
+      expect(nfmToDoc(canonical!)).toEqual(nfmToDoc(body!));
+    }
+    expect(canonicalizationLosses("__bold__ text", "bold text")).toContain(
+      "gfm-strong-dropped",
+    );
+    expect(
+      canonicalizationLosses(
+        L("- a", "    - child", "- b"),
+        L("- a", "- child", "- b"),
+      ),
+    ).toContain("gfm-list-nesting-lost");
+    expect(canonicalizationLosses("*a * _b_", "*a* b")).toContain(
+      "gfm-emphasis-dropped",
+    );
+  });
+
+  it("flags agent formatting Content still misreads even when the bytes are canonical", () => {
     for (const heading of [L("Heading", "======="), L("Heading", "--")]) {
       expect(classifyBody(heading), heading).toEqual({
         status: "canonical",
@@ -118,19 +144,6 @@ describe("body classification", () => {
       status: "canonical",
       losses: ["gfm-code-blocks-lost"],
     });
-    // One run of bold to GFM, half of which Content shows as underscores.
-    expect(classifyBody("**kept**__lost__")).toEqual({
-      status: "canonical",
-      losses: ["gfm-strong-dropped"],
-    });
-    // The same amount of italic, on different text: b to GFM, "a " to Content,
-    // and with repeated letters, the second a to GFM and the first to Content.
-    for (const moved of ["*a * _b_", "*a * _a_"]) {
-      expect(classifyBody(moved), moved).toEqual({
-        status: "canonical",
-        losses: ["gfm-emphasis-dropped"],
-      });
-    }
     // A toggle's summary is plain text, so its asterisks show.
     expect(classifyBody(L('## **Toggle** {toggle="true"}', "\tChild"))).toEqual(
       { status: "canonical", losses: ["gfm-strong-dropped"] },
@@ -138,10 +151,6 @@ describe("body classification", () => {
   });
 
   it("flags formatting canonicalizing removes", () => {
-    const result = classifyBody(L("~~~js", "code", "~~~"));
-    expect(result.status).toBe("non-canonical");
-    if (result.status !== "non-canonical") return;
-    expect(result.losses).toContain("gfm-code-blocks-lost");
     // Content writes `---` under a paragraph as a divider; a longer underline
     // is a heading to GFM, which canonicalizing turns into one.
     expect(classifyBody(L("Title", "-----"))).toMatchObject({
@@ -190,6 +199,57 @@ describe("body classification", () => {
         block,
       ).toContain("gfm-text-dropped");
     }
+  });
+
+  it("keeps tilde-fenced code while still detecting a dropped code block", () => {
+    const source = L("~~~js", "code", "~~~");
+    expect(classifyBody(source)).toEqual({
+      status: "non-canonical",
+      canonical: L("```js", "code", "```"),
+      kinds: ["code-fence"],
+      losses: [],
+      idempotence: "idempotent",
+    });
+    expect(nfmToDoc(source)).toMatchObject({
+      content: [
+        { type: "codeBlock", content: [{ type: "text", text: "code" }] },
+      ],
+    });
+    expect(canonicalizationLosses(source, "code")).toContain(
+      "gfm-code-blocks-lost",
+    );
+  });
+
+  it("counts visible words across inline nodes without joining separate words or blocks", () => {
+    for (const body of [
+      "[one](https://a.example)[two](https://a.example)",
+      "**one**two",
+      "one**two**",
+      "**kept**__lost__",
+      "<span>one</span>two",
+    ]) {
+      const canonical = canonicalizeNfm(body);
+      expect(nfmToDoc(canonical), body).toEqual(nfmToDoc(body));
+      expect(canonicalizationLosses(body, canonical), body).toEqual([]);
+    }
+    expect(
+      canonicalizeNfm("[one](https://a.example)[two](https://a.example)"),
+    ).toBe("[onetwo](https://a.example)");
+    for (const before of ["one two", "one\n\ntwo"]) {
+      expect(canonicalizationLosses(before, "onetwo")).toContain(
+        "gfm-text-dropped",
+      );
+      expect(canonicalizationLosses(before, "one")).toContain(
+        "gfm-text-dropped",
+      );
+    }
+    expect(canonicalizationLosses("[one](u)[two](u)", "[one](u)")).toContain(
+      "gfm-text-dropped",
+    );
+    const imageBetween = "one![](https://a.example/i.png)two";
+    expect(
+      canonicalizationLosses(imageBetween, canonicalizeNfm(imageBetween)),
+    ).toEqual(["gfm-images-lost"]);
   });
 
   it("classifies a line of list or quote markers in linear time", () => {
@@ -244,7 +304,7 @@ describe("body classification", () => {
       L("$$", "\\int_0^1 x^2 dx", "$$"),
       "Escaped \\< and \\* and price \\$5",
       "[one](https://a.example)[two](https://b.example)",
-      "[one](https://a.example)[two](https://a.example)",
+      "[onetwo](https://a.example)",
       L("```html", '<a href="C:\\temp">x</a>', "```"),
       L("\t```", '\t<a href="C:\\temp">', "\t```"),
       'Use `<a href="C:\\temp">` here',

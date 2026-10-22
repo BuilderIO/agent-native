@@ -4,7 +4,7 @@ import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
 import {
@@ -16,10 +16,20 @@ import { TemplateLandingActions } from "./template-landing/TemplateLandingAction
 import { templates } from "./TemplateCard";
 import { Button } from "./website-redesign/ds/button";
 
+beforeEach(() => {
+  // Attribution storage depends on the visitor's time zone, so pin it.
+  const realOptions = new Intl.DateTimeFormat().resolvedOptions();
+  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+    ...realOptions,
+    timeZone: "America/Los_Angeles",
+  });
+});
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function renderWithProviders(children: ReactNode) {

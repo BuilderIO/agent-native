@@ -1,5 +1,25 @@
 # @agent-native/toolkit
 
+## 0.214.0
+
+### Minor Changes
+
+- 05d1481: Add app-scoped theme family preferences and shared chat presentation controls.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.214.0
+
+## 0.213.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.1
+
 ## 0.213.0
 
 ### Minor Changes
@@ -1255,18 +1275,5 @@
   Dictation also survives browsers that ship `SpeechRecognition` without a speech backend. Brave exposes `webkitSpeechRecognition` but removed the Google service behind it, so `auto` mode selected a recognizer that can only ever fail with `network`. In `auto` mode a recognizer that produced no text — because it failed, or because it ended before the microphone opened — now falls back to the MediaRecorder upload path. Permission and device errors are excluded, since retrying those through another provider fails identically. A mid-session drop that already captured speech keeps the transcript rather than failing over.
 
   The amplitude meter's own `getUserMedia` also moved to after recognition claims the microphone, since taking the device first can make Chrome abort the session.
-
-## 0.13.3
-
-### Patch Changes
-
-- d3f8794: Allow hosts to configure the shared composer document attachment limit and label.
-
-## 0.13.2
-
-### Patch Changes
-
-- 277be3f: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
-- 277be3f: Keep the public app-config export available to browser-safe toolkit consumers.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

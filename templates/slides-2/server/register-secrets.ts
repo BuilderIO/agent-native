@@ -1,0 +1,209 @@
+import {
+  GEMINI_API_KEY,
+  registerRequiredSecret,
+  registerSecretUsage,
+} from "@agent-native/core/secrets";
+
+// The framework registers the one Gemini key (Google Gemini API key), so
+// Slides records what it uses the key for instead of registering a
+// second copy under another name or scope.
+registerSecretUsage(GEMINI_API_KEY, [
+  {
+    appId: "slides-2",
+    feature: "Image generation",
+    effectWhenRemoved:
+      "Uses another image provider, or stops if none is set up.",
+  },
+]);
+
+registerRequiredSecret({
+  key: "OPENAI_API_KEY",
+  label: "OpenAI API Key",
+  description:
+    "Required for image generation with gpt-image-2. Excellent text rendering and photorealistic output.",
+  docsUrl: "https://platform.openai.com/api-keys",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides-2",
+      feature: "Image generation",
+      effectWhenRemoved:
+        "Uses another image provider, or stops if none is set up.",
+    },
+  ],
+  required: false,
+  validator: async (value) => {
+    if (!value) return true;
+    if (typeof value !== "string" || value.length < 20) {
+      return { ok: false, error: "Key looks too short." };
+    }
+    try {
+      const res = await fetch("https://api.openai.com/v1/models", {
+        headers: { Authorization: `Bearer ${value}` },
+      });
+      if (res.ok) return true;
+      if (res.status === 401)
+        return { ok: false, error: "OpenAI rejected this key (401)." };
+      return { ok: false, error: `OpenAI returned ${res.status}.` };
+    } catch (err: any) {
+      return {
+        ok: false,
+        error: `Could not reach OpenAI: ${err?.message ?? err}`,
+      };
+    }
+  },
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_API_KEY",
+  label: "Google API Key",
+  description: "Required for image search with Google Custom Search.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides-2",
+      feature: "Image search",
+      effectWhenRemoved: "Image search stops.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_SEARCH_CX",
+  label: "Google Search Engine ID",
+  description: "Required with GOOGLE_API_KEY for image search.",
+  docsUrl: "https://programmablesearchengine.google.com/controlpanel/all",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides-2",
+      feature: "Image search",
+      effectWhenRemoved: "Image search stops.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "LOGO_DEV_SECRET_KEY",
+  label: "Logo.dev Search Key",
+  description: "Optional server-side key for company and domain logo search.",
+  docsUrl: "https://www.logo.dev/",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides-2",
+      feature: "Logo search",
+      effectWhenRemoved: "Logo search uses the other logo sources.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "LOGO_DEV_TOKEN",
+  label: "Logo.dev Publishable Token",
+  description: "Optional publishable token for rendering Logo.dev images.",
+  docsUrl: "https://www.logo.dev/",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides-2",
+      feature: "Logo search",
+      effectWhenRemoved: "Logo search uses the other logo sources.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "BRANDFETCH_CLIENT_ID",
+  label: "Brandfetch Client ID",
+  description: "Optional public client ID for Brandfetch logo rendering.",
+  docsUrl: "https://developers.brandfetch.com/",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides-2",
+      feature: "Logo search",
+      effectWhenRemoved: "Logo search uses the other logo sources.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_CLIENT_ID",
+  label: "Google OAuth Client ID",
+  description: "Required for Google Docs import.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides-2",
+      feature: "Google Docs import",
+      effectWhenRemoved: "Google Docs import stops.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_CLIENT_SECRET",
+  label: "Google OAuth Client Secret",
+  description: "Required for Google Docs import.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides-2",
+      feature: "Google Docs import",
+      effectWhenRemoved: "Google Docs import stops.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_PICKER_API_KEY",
+  label: "Google Picker API Key",
+  description: "Required for the Google Docs picker.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides-2",
+      feature: "Google Docs import",
+      effectWhenRemoved: "The Google Docs picker stops.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_PICKER_APP_ID",
+  label: "Google Picker App ID",
+  description: "Required for the Google Docs picker.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides-2",
+      feature: "Google Docs import",
+      effectWhenRemoved: "The Google Docs picker stops.",
+    },
+  ],
+  required: false,
+});

@@ -1713,7 +1713,7 @@ if (
   !betaMigrationRun.includes("netlify api getEnvVars") ||
   !betaMigrationRun.includes("scripts/netlify-migration-url.ts") ||
   !betaMigrationRun.includes("BETA_DATABASE_URL_SECRET") ||
-  !betaMigrationRun.includes("brain|factory") ||
+  betaMigrationRun.includes("relying on the strict") ||
   !betaMigrationRun.includes("@agent-native/docs") ||
   !betaMigrationRun.includes("CONTEXT=production") ||
   !betaMigrationRun.includes("pnpm --filter") ||

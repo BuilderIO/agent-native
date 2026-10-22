@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -18,7 +19,11 @@ import {
   storeSecondarySourceRows,
   updateReadOnlySourceMetadata,
 } from "./_database-source-utils.js";
-import { githubSyncChangedRows } from "./_github-source-freshness.js";
+import {
+  announceGitHubSyncChange,
+  githubSyncChangedRows,
+  readGitHubStatusShown,
+} from "./_github-source-freshness.js";
 import { githubSyncSummary, syncGitHubSource } from "./_github-source.js";
 import { serializeDatabase } from "./_property-utils.js";
 
@@ -80,13 +85,41 @@ export default defineAction({
     let githubSummary: string | null = null;
     let githubChanged = false;
     if (source.sourceType === "github") {
+      const shownBefore = await readGitHubStatusShown(source.id);
       const result = await syncGitHubSource({
         sourceId: source.id,
         budgetMs: args.fullRefresh === true ? 25_000 : 6_000,
         throwConnectionErrors: true,
+        throwUnexpectedErrors: true,
+      }).catch((error: unknown) => {
+        // A sync that fails may have written rows first, and it stores the
+        // problem on the link, so readers hear about it either way.
+        try {
+          announceGitHubSyncChange(
+            database.documentId,
+            getRequestUserEmail() ?? null,
+          );
+        } catch (announceError) {
+          // The caller still gets the sync's error; other tabs catch up on their next read.
+          console.warn(
+            "[github-source] change event failed:",
+            announceError instanceof Error
+              ? announceError.message
+              : String(announceError),
+          );
+        }
+        throw error;
       });
       githubSummary = githubSyncSummary(source.sourceName, result);
-      githubChanged = githubSyncChangedRows(result);
+      // The rows are written by now, so a status that can't be read back
+      // counts as changed rather than failing the refresh.
+      // coercion-ok: null differs from every reading, so readers look again.
+      const shownAfter = await readGitHubStatusShown(source.id).catch(
+        () => null,
+      );
+      githubChanged =
+        githubSyncChangedRows(result) ||
+        (result.state !== "busy" && shownAfter !== shownBefore);
     } else if (source.sourceType === "mock-local") {
       await resyncMockSourceSnapshot({ database, source, now });
     } else if (source.sourceType === "builder-cms") {
@@ -182,8 +215,8 @@ export default defineAction({
       ...(source.sourceType === "github" ? { githubChanged } : {}),
     };
   },
-  // A GitHub sync that changed rows changed them for everyone reading the
-  // collection, as with Sync now.
+  // A GitHub sync that changed rows or the status line changed them for
+  // everyone reading the collection, as with Sync now.
   changeResource: (_input, result) =>
     result.githubChanged
       ? documentChangeResource(result.database.documentId)
