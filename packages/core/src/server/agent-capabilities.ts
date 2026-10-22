@@ -254,14 +254,10 @@ export function formatCapabilitySummary(
 
 const MAX_INPUT_SCHEMA_CHARS = 600;
 const PRIMITIVE_TYPES = new Set(["string", "number", "integer", "boolean"]);
-const NESTED_SCHEMA_KEYS = [
-  "properties",
-  "items",
-  "oneOf",
-  "anyOf",
-  "allOf",
-  "$ref",
-] as const;
+// A field renders compactly only when this is everything it says; any other
+// keyword (minimum, pattern, format, items, oneOf, …) is a constraint the
+// compact form would drop, so the schema shows as JSON instead.
+const COMPACT_FIELD_KEYS = new Set(["type", "enum", "description", "title"]);
 
 // Callers build a direct `input` from this line, so it must never look more
 // complete than the published schema: an unknown schema is not an empty one,
@@ -297,7 +293,7 @@ function formatSkillInput(skill: AgentSkill): {
     return (
       typeof field.type === "string" &&
       PRIMITIVE_TYPES.has(field.type) &&
-      NESTED_SCHEMA_KEYS.every((key) => !(key in field))
+      Object.keys(field).every((key) => COMPACT_FIELD_KEYS.has(key))
     );
   });
   if (flat) {

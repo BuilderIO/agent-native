@@ -230,6 +230,13 @@ describe("describe-workspace-apps", () => {
             },
           }),
           skill({
+            id: "bounded",
+            inputSchema: {
+              type: "object",
+              properties: { limit: { type: "integer", minimum: 1 } },
+            },
+          }),
+          skill({
             id: "nested",
             inputSchema: {
               type: "object",
@@ -273,6 +280,9 @@ describe("describe-workspace-apps", () => {
     );
     expect(output).toContain(
       'nested: Run a bounded analytics query. — input schema: {"type":"object","properties":{"filter":{"type":"object","properties":{"owner":{"type":"string"}}}}}',
+    );
+    expect(output).toContain(
+      'bounded: Run a bounded analytics query. — input schema: {"type":"object","properties":{"limit":{"type":"integer","minimum":1}}}',
     );
     expect(output).toContain(
       "huge (message only; full input not shown): Run a bounded analytics query. — input: { rows } (nested input not shown)",

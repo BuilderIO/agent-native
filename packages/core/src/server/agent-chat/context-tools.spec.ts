@@ -44,4 +44,21 @@ describe("peer-app delegation guidance", () => {
       "before building something a sibling may already own",
     );
   });
+
+  it("keeps every routing skill on the tool-first, full-input rule", async () => {
+    for (const name of ["composable-mini-apps", "a2a-protocol"]) {
+      const skill = await readFile(
+        path.join(repoRoot, `.agents/skills/${name}/SKILL.md`),
+        "utf8",
+      );
+      expect(skill, name).toContain("describe-workspace-apps");
+      expect(skill, name).not.toContain(
+        "Natural-language delegation is the default",
+      );
+      expect(skill, name).not.toContain(
+        "Send a natural-language objective by default",
+      );
+      expect(skill, name).not.toContain("not an agent-performance shortcut");
+    }
+  });
 });

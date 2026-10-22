@@ -274,11 +274,14 @@ actions.
 
 ## Calling another agent
 
-Natural-language delegation is the default for agent-to-agent work. Tell the
-receiving specialist the objective, relevant IDs/date range, and desired result
-shape. The receiver owns source selection, schemas, queries, joins, SQL, and
-provider-specific details. Do not switch to a direct action merely because a
-delegated run is slow or flaky; fix the A2A path instead.
+For a bounded read that the peer serves with a published read-only action
+whose full input you can see (`describe-workspace-apps` with that app), call
+the action directly; that skips a full agent run in the receiver. Everything
+else is natural-language delegation: tell the receiving specialist the
+objective, relevant IDs/date range, and desired result shape. The receiver owns
+source selection, schemas, queries, joins, SQL, and provider-specific details.
+Never guess an action's input, and never switch to a direct action because a
+delegated run was slow or failed; fix the A2A path instead.
 
 ### Simple: `callAgent()` (text in, text out)
 
@@ -300,12 +303,12 @@ production. `resolveA2ACallerAuth()` pulls the authenticated email, org domain,
 and org secret out of request context; pass them explicitly only from CLI or
 cron, where there is no request.
 
-### Explicit machine-contract exception: `invokeAgentAction()`
+### Direct read contract: `invokeAgentAction()`
 
-Use direct invocation only when a trusted integration already specifies the
-exact receiver-owned semantic read action and complete arguments. It is an
-optional machine API, not an agent-performance shortcut or fallback for failed
-message delegation:
+Use direct invocation for a published read-only action whose complete input is
+known, from the receiver's agent card (`describe-workspace-apps`) or a trusted
+integration's spec. It is the fast path for bounded reads, never a fallback for
+failed message delegation, and never for side effects:
 
 ```ts
 import { invokeAgentAction } from "@agent-native/core/a2a";
