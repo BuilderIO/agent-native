@@ -10811,15 +10811,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (!event.source) return;
       // Free the screen to send its next step; it folds steps until this
       // arrives, and waits for it once it has seen one.
-      try {
-        (event.source as Window).postMessage(
-          {
-            type: "embedded-canvas-wheel-read",
-            seq: Number(event.data.seq) || 0,
-          },
-          "*",
-        );
-      } catch {}
+      (event.source as Window).postMessage(
+        {
+          type: "embedded-canvas-wheel-read",
+          seq: Number(event.data.seq) || 0,
+        },
+        "*",
+      );
       if (focusedInteractRef.current) return;
       const surface = surfaceRef.current;
       if (!surface) return;
