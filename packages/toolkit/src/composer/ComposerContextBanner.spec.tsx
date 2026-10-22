@@ -71,4 +71,27 @@ describe("ComposerContextBanner", () => {
     expect(onAddContext).toHaveBeenCalledOnce();
     expect(onDismiss).toHaveBeenCalledOnce();
   });
+
+  it("renders a host-provided decorative add-context icon", async () => {
+    await act(async () =>
+      root.render(
+        <ComposerContextBanner
+          ariaLabel="Context guidance"
+          addContextLabel="Add context"
+          addContextIcon={<svg data-testid="custom-action-icon" />}
+          onAddContext={vi.fn()}
+        >
+          Improve answers by adding data definitions.
+        </ComposerContextBanner>,
+      ),
+    );
+
+    const button = container.querySelector<HTMLButtonElement>("button")!;
+    const actionIcon = container.querySelector<SVGSVGElement>(
+      '[data-testid="custom-action-icon"]',
+    )!;
+
+    expect(button.textContent).toBe("Add context");
+    expect(actionIcon.parentElement?.getAttribute("aria-hidden")).toBe("true");
+  });
 });
