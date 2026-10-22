@@ -958,7 +958,13 @@ if [ "$#" -eq 4 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] && [ "$3" = "--
   printf '%s' "$GH_FILE_PAGES"
 elif [ "$#" -eq 2 ] && [ "$1" = "api" ]; then
   case "$2" in
-    *ref=base-sha) printf '%s' "$GH_BASE_MANIFEST" ;;
+    *ref=base-sha)
+      if [ "$GH_BASE_MANIFEST" = "__HTTP_404__" ]; then
+        printf '%s\\n' 'gh: HTTP 404' >&2
+        exit 1
+      fi
+      printf '%s' "$GH_BASE_MANIFEST"
+      ;;
     *ref=head-sha) printf '%s' "$GH_HEAD_MANIFEST" ;;
     *) printf '%s\\n' 'unexpected gh endpoint' >&2; exit 1 ;;
   esac
@@ -1033,6 +1039,34 @@ fi
         assert.match(
           String(commandError.stderr),
           /::error::This release PR contains a forbidden major promotion/,
+        );
+        return true;
+      });
+
+      env.GH_FILE_PAGES = files;
+      env.GH_BASE_MANIFEST = "__HTTP_404__";
+      env.GH_HEAD_MANIFEST = manifestResponse({ name: "qr" });
+      assert.throws(runCli, (error: unknown) => {
+        const commandError = error as { status?: number; stderr?: Buffer };
+        assert.equal(commandError.status, 1);
+        assert.match(
+          String(commandError.stderr),
+          /Could not verify package manifest versions/,
+        );
+        return true;
+      });
+
+      env.GH_BASE_MANIFEST = JSON.stringify({
+        encoding: "base64",
+        content: "%%%",
+        size: 3,
+      });
+      assert.throws(runCli, (error: unknown) => {
+        const commandError = error as { status?: number; stderr?: Buffer };
+        assert.equal(commandError.status, 1);
+        assert.match(
+          String(commandError.stderr),
+          /GitHub returned invalid base64 for/,
         );
         return true;
       });
