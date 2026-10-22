@@ -281,34 +281,6 @@ export async function lockLiveCopyPage(
   return locked;
 }
 
-/**
- * The inline-collection reconcile soft-deletes collections the body dropped.
- * One created after the lock pass would be locked after the page, which
- * deadlocks against a Trash of the page: Trash locks it first.
- */
-async function assertInlineDatabasesLocked(
-  db: ContentDb,
-  documentId: string,
-  ownerEmail: string,
-  lockedDatabaseIds: ReadonlySet<string>,
-): Promise<void> {
-  const owned = await db
-    .select({ id: schema.contentDatabases.id })
-    .from(schema.contentDatabases)
-    .where(
-      and(
-        eq(schema.contentDatabases.ownerDocumentId, documentId),
-        eq(schema.contentDatabases.ownerEmail, ownerEmail),
-        isNull(schema.contentDatabases.deletedAt),
-      ),
-    );
-  if (owned.some((database) => !lockedDatabaseIds.has(database.id))) {
-    scopeChanged(
-      "An inline collection was added to the document while it saved. Read the document again and retry.",
-    );
-  }
-}
-
 type EditorHistory =
   | { kind: "record"; cause: DocumentHistoryCause }
   | { kind: "update"; versionId: string };
@@ -532,18 +504,13 @@ async function writeBody(args: {
           ),
         );
     }
-    await assertInlineDatabasesLocked(
-      db,
-      documentId,
-      page.ownerEmail,
-      lockedDatabaseIds,
-    );
     softDeletedDatabaseIds = await reconcileInlineDatabasesForDocumentWithDb({
       db,
       documentId,
       content: text,
       ownerEmail: page.ownerEmail,
       now: updatedAt,
+      lockedDatabaseIds,
     });
   }
   if (cause?.intent) {

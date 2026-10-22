@@ -1630,17 +1630,16 @@ describe("a browser save to a switched page's body", () => {
     expect(await receipts("noncanonical")).toEqual([]);
   });
 
-  it("keeps a tab's draft when the live copy cannot compare its save in time", async () => {
+  it("keeps a tab's draft when the live copy cannot compare its save within the worker's limits", async () => {
     await switchedPage("unchecked", "Hello there");
     const loaded = await page("unchecked");
     await keepDraft("unchecked", "Hello there\nOnly in tab A");
     const { documentRevisionToken } =
       await import("../../actions/_document-edit-mutation.js");
-    // Unclosed backtick runs, as in the SF-07 deadline test, under the
-    // 500,000-character bound on an authored body.
-    const base = Array.from({ length: 990 }, (_, index) =>
-      "`".repeat(index + 1),
-    ).join(" ");
+    // A 122,000-row table, under the 500,000-character bound on an authored
+    // body. Its parsed form outgrows the worker's heap, which a fast machine
+    // can't outrun; a slow one hits the deadline first.
+    const base = "|a|\n|-|\n" + "|a|\n".repeat(122_000);
 
     const saved = await browserSave(
       "unchecked",
@@ -2129,19 +2128,18 @@ describe("the SF-07 bound on Content's derive and build", () => {
     expect(content.split("\n")).toHaveLength(200_003);
   });
 
-  it("stops building a body of 1,000 unmatched backtick runs at the deadline", async () => {
-    await switchedPage("backticks", "Hello there");
-    // Runs of 1 to 1,000 backticks, none closed. Building it takes over 20 s
-    // with either NFM parser; 1M `[` stopped tripping once the parser got fast.
-    const content = Array.from({ length: 1_000 }, (_, index) =>
-      "`".repeat(index + 1),
-    ).join(" ");
+  it("stops building a paragraph of 500,000 unclosed `$` runs at the deadline", async () => {
+    await switchedPage("dollars", "Hello there");
+    // About 5 s to parse on a fast machine, in under half the worker's heap.
+    // Parser fixes retire inputs like this: 1M `[` and 1,000 unclosed
+    // backtick runs both stopped tripping.
+    const content = "$a ".repeat(500_000);
 
     await expectRefused(
-      "backticks",
+      "dollars",
       () =>
         cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
-          collab.mutateLiveCopy(binding.contentLiveCopy, "backticks", {
+          collab.mutateLiveCopy(binding.contentLiveCopy, "dollars", {
             edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
             input: { content },
           }),
