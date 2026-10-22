@@ -727,7 +727,11 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     const cleanupDragVisuals = () => {
       dragSession?.preview?.remove();
       dragSession?.dropLine?.remove();
-      dragSession?.sourceBlock.classList.remove("notion-block--dragging");
+      // Even a class write that changes nothing makes ProseMirror read the
+      // block back, which turns the block a click selected into its text.
+      if (dragSession?.dragging) {
+        dragSession.sourceBlock.classList.remove("notion-block--dragging");
+      }
       document.documentElement.classList.remove("notion-editor-is-dragging");
     };
 

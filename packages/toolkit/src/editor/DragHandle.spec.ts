@@ -302,6 +302,22 @@ describe("DragHandle menu", () => {
     }
   });
 
+  it("leaves its block selected once the editor reads back its page", async () => {
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
+
+    try {
+      clickHandle(handle);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(editor.state.selection.toJSON()).toEqual({
+        type: "node",
+        anchor: 0,
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("inserts an empty focused paragraph below the current block", () => {
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
 

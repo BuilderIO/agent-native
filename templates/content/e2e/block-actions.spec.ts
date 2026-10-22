@@ -174,6 +174,7 @@ test.describe("block menu", () => {
     await expect(menu.getByRole("menuitem", { name: /^Delete/ })).toContainText(
       "Del",
     );
+    await expect(page.locator(SELECTED_BLOCK)).toHaveText("First line.");
 
     await page.keyboard.press("ControlOrMeta+d");
     await expect(page.getByRole("menu")).toHaveCount(0);
