@@ -366,6 +366,9 @@ const MIN_ZOOM = DEFAULT_CANVAS_MIN_ZOOM;
 const MAX_ZOOM = DEFAULT_CANVAS_MAX_ZOOM;
 const AUTOFIT_MIN_ZOOM = DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM;
 const MAX_WHEEL_PAN_DELTA = 240;
+// A quiet gap this long ends a wheel gesture over a screen; the next one
+// re-measures the frame instead of trusting a box from before the pause.
+const EMBEDDED_WHEEL_FRAME_IDLE_MS = 120;
 const CHROME_SCALE_CSS_VAR = "--an-chrome-scale";
 const BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR =
   "--an-breakpoint-label-gesture-visibility";
@@ -1686,11 +1689,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   > | null>(null);
   const zoomGestureDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const wheelGestureFrameRef = useRef<number | null>(null);
+  const embeddedWheelFrameRef = useRef<{
+    source: MessageEventSource;
+    iframe: HTMLIFrameElement;
+    surfaceLeft: number;
+    surfaceTop: number;
+    // The frame's box in world units: a wheel gesture only moves the camera.
+    worldX: number;
+    worldY: number;
+    worldScaleX: number;
+    worldScaleY: number;
+    usedAt: number;
+  } | null>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const pixelGridRef = useRef<HTMLDivElement>(null);
   const rulersRef = useRef<CanvasRulersHandle>(null);
   const marqueeOverlayRef = useRef<HTMLSpanElement>(null);
   const viewCommitTimerRef = useRef<number | null>(null);
+  const viewCommitFrameRef = useRef<number | null>(null);
   const lastCameraCommandNonceRef = useRef<number | null>(null);
   const lastCameraCommandZoomRef = useRef<number | null>(null);
   const lastCameraCommandControlledZoomRef = useRef<number | null>(null);
@@ -2822,6 +2838,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       if (viewCommitTimerRef.current !== null) {
         window.clearTimeout(viewCommitTimerRef.current);
+      }
+      if (viewCommitFrameRef.current !== null) {
+        window.cancelAnimationFrame(viewCommitFrameRef.current);
       }
       if (chromeSettleTimerRef.current !== null) {
         window.clearTimeout(chromeSettleTimerRef.current);
@@ -10337,7 +10356,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (viewCommitTimerRef.current !== null) {
         window.clearTimeout(viewCommitTimerRef.current);
       }
-      viewCommitTimerRef.current = window.setTimeout(commitView, 120);
+      if (viewCommitFrameRef.current !== null) {
+        window.cancelAnimationFrame(viewCommitFrameRef.current);
+        viewCommitFrameRef.current = null;
+      }
+      const commitAfterQueuedSteps = () => {
+        viewCommitFrameRef.current = null;
+        // A frame slower than the delay holds the next steps back. Committing
+        // between them re-renders and re-rasters mid-pinch, which slows the
+        // following frame further, so wait for the queued step instead.
+        if (wheelGestureFrameRef.current !== null) {
+          viewCommitTimerRef.current = window.setTimeout(waitForFrame, 120);
+          return;
+        }
+        commitView();
+      };
+      const waitForFrame = () => {
+        viewCommitTimerRef.current = null;
+        viewCommitFrameRef.current = window.requestAnimationFrame(
+          commitAfterQueuedSteps,
+        );
+      };
+      viewCommitTimerRef.current = window.setTimeout(waitForFrame, 120);
     },
     [commitView],
   );
@@ -10653,7 +10693,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       ctrlKey: boolean;
       metaKey: boolean;
       shiftKey: boolean;
+      // Wheels a screen folded into this one while the canvas was behind.
+      steps?: number;
+      surfaceOrigin?: { left: number; top: number };
     }) => {
+      const steps = args.steps ?? 1;
       const delta = getWheelDeltaFromValues(
         args.deltaX,
         args.deltaY,
@@ -10661,10 +10705,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
 
       if (args.ctrlKey || args.metaKey) {
-        const rect = surfaceRef.current?.getBoundingClientRect();
+        const rect =
+          args.surfaceOrigin ?? surfaceRef.current?.getBoundingClientRect();
         if (!rect) return;
         const device = resolveZoomGestureDevice({
-          deltaY: args.deltaY,
+          // A folded pinch is judged by its average wheel, or its summed
+          // delta would read as a mouse notch and switch curves.
+          deltaY: args.deltaY / steps,
           deltaMode: args.deltaMode,
           ctrlKey: args.ctrlKey,
           metaKey: args.metaKey,
@@ -10685,15 +10732,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return;
       }
 
+      const maxPanDelta = MAX_WHEEL_PAN_DELTA * steps;
       const deltaX = clamp(
         args.shiftKey && delta.x === 0 ? delta.y : delta.x,
-        -MAX_WHEEL_PAN_DELTA,
-        MAX_WHEEL_PAN_DELTA,
+        -maxPanDelta,
+        maxPanDelta,
       );
       const deltaY = clamp(
         args.shiftKey && delta.x === 0 ? 0 : delta.y,
-        -MAX_WHEEL_PAN_DELTA,
-        MAX_WHEEL_PAN_DELTA,
+        -maxPanDelta,
+        maxPanDelta,
       );
       enqueueWheelGesture({ mode: "pan", deltaX, deltaY });
     },
@@ -10755,32 +10803,75 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (!event.data || event.data.type !== "embedded-canvas-wheel") return;
       if (focusedInteractRef.current) return;
       const surface = surfaceRef.current;
-      if (!surface) return;
-      const sourceIframe = Array.from(
-        surface.querySelectorAll<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
-        ),
-      ).find((iframe) => iframe.contentWindow === event.source);
-      if (!sourceIframe) return;
+      if (!surface || !event.source) return;
 
-      const rect = sourceIframe.getBoundingClientRect();
-      const scaleX =
-        sourceIframe.clientWidth > 0
-          ? rect.width / sourceIframe.clientWidth
-          : 1;
-      const scaleY =
-        sourceIframe.clientHeight > 0
-          ? rect.height / sourceIframe.clientHeight
-          : 1;
+      // Measure the frame once per gesture. Reading its box on every step
+      // forced a layout per step, and Safari queued those steps behind it.
+      const now = performance.now();
+      let frame = embeddedWheelFrameRef.current;
+      if (
+        !frame ||
+        frame.source !== event.source ||
+        !frame.iframe.isConnected ||
+        now - frame.usedAt > EMBEDDED_WHEEL_FRAME_IDLE_MS
+      ) {
+        const sourceIframe = Array.from(
+          surface.querySelectorAll<HTMLIFrameElement>(
+            "iframe[data-design-preview-iframe]",
+          ),
+        ).find((iframe) => iframe.contentWindow === event.source);
+        if (!sourceIframe) return;
+        const rect = sourceIframe.getBoundingClientRect();
+        const surfaceRect = surface.getBoundingClientRect();
+        const scale = zoomRef.current / 100 || 1;
+        const pan = panRef.current;
+        frame = {
+          source: event.source,
+          iframe: sourceIframe,
+          surfaceLeft: surfaceRect.left,
+          surfaceTop: surfaceRect.top,
+          worldX: (rect.left - surfaceRect.left - pan.x) / scale,
+          worldY: (rect.top - surfaceRect.top - pan.y) / scale,
+          worldScaleX:
+            sourceIframe.clientWidth > 0
+              ? rect.width / sourceIframe.clientWidth / scale
+              : 1 / scale,
+          worldScaleY:
+            sourceIframe.clientHeight > 0
+              ? rect.height / sourceIframe.clientHeight / scale
+              : 1 / scale,
+          usedAt: now,
+        };
+        embeddedWheelFrameRef.current = frame;
+      }
+      frame.usedAt = now;
+      // Free the frame to send its next step; it folds steps until this arrives.
+      frame.iframe.contentWindow?.postMessage(
+        { type: "embedded-canvas-wheel-read" },
+        "*",
+      );
+
+      const scale = zoomRef.current / 100;
+      const pan = panRef.current;
+      const localX = Number(event.data.clientX) || 0;
+      const localY = Number(event.data.clientY) || 0;
       enqueueWheelGestureFromClient({
         deltaX: Number(event.data.deltaX) || 0,
         deltaY: Number(event.data.deltaY) || 0,
         deltaMode: Number(event.data.deltaMode) || WheelEvent.DOM_DELTA_PIXEL,
-        clientX: rect.left + (Number(event.data.clientX) || 0) * scaleX,
-        clientY: rect.top + (Number(event.data.clientY) || 0) * scaleY,
+        clientX:
+          frame.surfaceLeft +
+          pan.x +
+          (frame.worldX + localX * frame.worldScaleX) * scale,
+        clientY:
+          frame.surfaceTop +
+          pan.y +
+          (frame.worldY + localY * frame.worldScaleY) * scale,
         ctrlKey: Boolean(event.data.ctrlKey),
         metaKey: Boolean(event.data.metaKey),
         shiftKey: Boolean(event.data.shiftKey),
+        steps: clamp(Math.trunc(Number(event.data.steps)) || 1, 1, 32),
+        surfaceOrigin: { left: frame.surfaceLeft, top: frame.surfaceTop },
       });
     };
 

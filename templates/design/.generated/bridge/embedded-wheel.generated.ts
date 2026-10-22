@@ -25,6 +25,9 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     var lastShiftKey = false;
     var lastAltKey = false;
     var freezeStyle = null;
+    var pendingWheel = null;
+    var wheelAwaitingHost = false;
+    var wheelReadTimer = null;
     function syncEditingSafetyStyle() {
       var currentStyle = freezeStyle || document.querySelector(
         "style[data-agent-native-editing-safety-style]"
@@ -73,13 +76,49 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       } catch {
       }
     }
+    function sendWheel(wheel) {
+      wheelAwaitingHost = true;
+      if (wheelReadTimer !== null) window.clearTimeout(wheelReadTimer);
+      wheelReadTimer = window.setTimeout(onWheelRead, 100);
+      postToParent({
+        type: "embedded-canvas-wheel",
+        deltaX: wheel.deltaX,
+        deltaY: wheel.deltaY,
+        deltaZ: wheel.deltaZ,
+        deltaMode: wheel.deltaMode,
+        clientX: wheel.clientX,
+        clientY: wheel.clientY,
+        ctrlKey: wheel.ctrlKey,
+        metaKey: wheel.metaKey,
+        shiftKey: wheel.shiftKey,
+        altKey: wheel.altKey,
+        steps: wheel.steps
+      });
+    }
+    function onWheelRead() {
+      if (wheelReadTimer !== null) {
+        window.clearTimeout(wheelReadTimer);
+        wheelReadTimer = null;
+      }
+      wheelAwaitingHost = false;
+      var next = pendingWheel;
+      pendingWheel = null;
+      if (next) sendWheel(next);
+    }
+    function resetWheelForwarding() {
+      if (wheelReadTimer !== null) {
+        window.clearTimeout(wheelReadTimer);
+        wheelReadTimer = null;
+      }
+      wheelAwaitingHost = false;
+      pendingWheel = null;
+    }
     function onWheel(e) {
       if (interactionMode) return;
       var zoomIntent = !!(e.ctrlKey || e.metaKey);
       if (!wheelEnabled && !zoomIntent) return;
       stopNativeInteraction(e);
-      postToParent({
-        type: "embedded-canvas-wheel",
+      var wheel = {
         deltaX: clamp(e.deltaX, 240),
         deltaY: clamp(e.deltaY, 240),
         deltaZ: clamp(e.deltaZ, 240),
@@ -89,8 +128,25 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         ctrlKey: !!e.ctrlKey,
         metaKey: !!e.metaKey,
         shiftKey: !!e.shiftKey,
-        altKey: !!e.altKey
-      });
+        altKey: !!e.altKey,
+        steps: 1
+      };
+      if (!wheelAwaitingHost) {
+        sendWheel(wheel);
+        return;
+      }
+      var pending = pendingWheel;
+      if (pending && pending.deltaMode === wheel.deltaMode && pending.ctrlKey === wheel.ctrlKey && pending.metaKey === wheel.metaKey && pending.shiftKey === wheel.shiftKey && pending.altKey === wheel.altKey) {
+        pending.deltaX += wheel.deltaX;
+        pending.deltaY += wheel.deltaY;
+        pending.deltaZ += wheel.deltaZ;
+        pending.clientX = wheel.clientX;
+        pending.clientY = wheel.clientY;
+        pending.steps += 1;
+        return;
+      }
+      if (pending) sendWheel(pending);
+      pendingWheel = wheel;
     }
     function shouldStartPan(e) {
       if (e.button === 1) return true;
@@ -237,6 +293,10 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         cancelActivePan();
         return;
       }
+      if (e.data.type === "embedded-canvas-wheel-read") {
+        onWheelRead();
+        return;
+      }
       if (e.data.type === "embedded-canvas-pan-mode") {
         leftButtonEnabled = !!e.data.leftButtonEnabled;
         return;
@@ -244,6 +304,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       if (e.data.type === "set-interaction-mode") {
         interactionMode = e.data.interact === true;
         if (interactionMode) {
+          resetWheelForwarding();
           cancelActivePan();
           if (forwardedSpaceKeyDown) {
             forwardedSpaceKeyDown = false;

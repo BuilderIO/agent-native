@@ -21,7 +21,12 @@
  * Protocol (iframe → parent, only when enabled):
  *
  *   { type: 'embedded-canvas-wheel', deltaX, deltaY, deltaZ, deltaMode,
- *     clientX, clientY, ctrlKey, metaKey, shiftKey, altKey }
+ *     clientX, clientY, ctrlKey, metaKey, shiftKey, altKey, steps }
+ *
+ *   Until the host answers the last one with 'embedded-canvas-wheel-read',
+ *   later wheels fold into a single pending message whose deltas are summed
+ *   over `steps` wheels, so a host that falls behind never works through a
+ *   queue of stale steps after the fingers stop.
  *
  *   { type: 'embedded-canvas-pan', phase: 'start'|'move'|'end'|'cancel',
  *     pointerId, button, buttons, clientX, clientY, movementX, movementY,
@@ -30,6 +35,7 @@
  * Protocol (parent → iframe):
  *
  *   { type: 'embedded-canvas-pan-mode', leftButtonEnabled }
+ *   { type: 'embedded-canvas-wheel-read' }
  *   { type: 'embedded-canvas-gesture-mode', wheelEnabled,
  *     spaceKeyForwardingEnabled }
  *   { type: 'embedded-canvas-pan-cancel' }
@@ -65,6 +71,22 @@ declare var __INTERACTION_MODE__: boolean;
   var lastShiftKey = false;
   var lastAltKey = false;
   var freezeStyle: HTMLStyleElement | null = null;
+  type ForwardedWheel = {
+    deltaX: number;
+    deltaY: number;
+    deltaZ: number;
+    deltaMode: number;
+    clientX: number;
+    clientY: number;
+    ctrlKey: boolean;
+    metaKey: boolean;
+    shiftKey: boolean;
+    altKey: boolean;
+    steps: number;
+  };
+  var pendingWheel: ForwardedWheel | null = null;
+  var wheelAwaitingHost = false;
+  var wheelReadTimer: number | null = null;
 
   function syncEditingSafetyStyle(): void {
     var currentStyle =
@@ -127,13 +149,54 @@ declare var __INTERACTION_MODE__: boolean;
     } catch {}
   }
 
+  function sendWheel(wheel: ForwardedWheel): void {
+    wheelAwaitingHost = true;
+    if (wheelReadTimer !== null) window.clearTimeout(wheelReadTimer);
+    // A host that never answers (the single-screen view reads pinches from the
+    // zoom bridge instead) still gets the folded wheels, a few times a second.
+    wheelReadTimer = window.setTimeout(onWheelRead, 100);
+    postToParent({
+      type: "embedded-canvas-wheel",
+      deltaX: wheel.deltaX,
+      deltaY: wheel.deltaY,
+      deltaZ: wheel.deltaZ,
+      deltaMode: wheel.deltaMode,
+      clientX: wheel.clientX,
+      clientY: wheel.clientY,
+      ctrlKey: wheel.ctrlKey,
+      metaKey: wheel.metaKey,
+      shiftKey: wheel.shiftKey,
+      altKey: wheel.altKey,
+      steps: wheel.steps,
+    });
+  }
+
+  function onWheelRead(): void {
+    if (wheelReadTimer !== null) {
+      window.clearTimeout(wheelReadTimer);
+      wheelReadTimer = null;
+    }
+    wheelAwaitingHost = false;
+    var next = pendingWheel;
+    pendingWheel = null;
+    if (next) sendWheel(next);
+  }
+
+  function resetWheelForwarding(): void {
+    if (wheelReadTimer !== null) {
+      window.clearTimeout(wheelReadTimer);
+      wheelReadTimer = null;
+    }
+    wheelAwaitingHost = false;
+    pendingWheel = null;
+  }
+
   function onWheel(e: WheelEvent): void {
     if (interactionMode) return;
     var zoomIntent = !!(e.ctrlKey || e.metaKey);
     if (!wheelEnabled && !zoomIntent) return;
     stopNativeInteraction(e);
-    postToParent({
-      type: "embedded-canvas-wheel",
+    var wheel: ForwardedWheel = {
       deltaX: clamp(e.deltaX, 240),
       deltaY: clamp(e.deltaY, 240),
       deltaZ: clamp(e.deltaZ, 240),
@@ -144,7 +207,33 @@ declare var __INTERACTION_MODE__: boolean;
       metaKey: !!e.metaKey,
       shiftKey: !!e.shiftKey,
       altKey: !!e.altKey,
-    });
+      steps: 1,
+    };
+    if (!wheelAwaitingHost) {
+      sendWheel(wheel);
+      return;
+    }
+    var pending = pendingWheel;
+    if (
+      pending &&
+      pending.deltaMode === wheel.deltaMode &&
+      pending.ctrlKey === wheel.ctrlKey &&
+      pending.metaKey === wheel.metaKey &&
+      pending.shiftKey === wheel.shiftKey &&
+      pending.altKey === wheel.altKey
+    ) {
+      pending.deltaX += wheel.deltaX;
+      pending.deltaY += wheel.deltaY;
+      pending.deltaZ += wheel.deltaZ;
+      pending.clientX = wheel.clientX;
+      pending.clientY = wheel.clientY;
+      pending.steps += 1;
+      return;
+    }
+    // A pinch turning into a scroll is a new kind of step: send the folded
+    // one as it is rather than mix the two.
+    if (pending) sendWheel(pending);
+    pendingWheel = wheel;
   }
 
   function shouldStartPan(e: PointerEvent): boolean {
@@ -324,6 +413,10 @@ declare var __INTERACTION_MODE__: boolean;
       cancelActivePan();
       return;
     }
+    if (e.data.type === "embedded-canvas-wheel-read") {
+      onWheelRead();
+      return;
+    }
     if (e.data.type === "embedded-canvas-pan-mode") {
       leftButtonEnabled = !!e.data.leftButtonEnabled;
       return;
@@ -331,6 +424,7 @@ declare var __INTERACTION_MODE__: boolean;
     if (e.data.type === "set-interaction-mode") {
       interactionMode = e.data.interact === true;
       if (interactionMode) {
+        resetWheelForwarding();
         cancelActivePan();
         if (forwardedSpaceKeyDown) {
           forwardedSpaceKeyDown = false;

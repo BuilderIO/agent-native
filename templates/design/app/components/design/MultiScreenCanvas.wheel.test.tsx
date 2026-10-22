@@ -378,6 +378,173 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     expect(onZoomChange).toHaveBeenCalledWith(notchFactor(100) * 100);
   });
 
+  it("does not commit a pinch while a slow frame holds its next step", async () => {
+    const onZoomChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[]}
+          zoom={100}
+          creation={{ activeTool: "move" }}
+          onPick={() => {}}
+          camera={{ onZoomChange }}
+        />,
+      );
+    });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]')!;
+    await applyTicks(surface, [{ deltaY: -6, ctrlKey: true }]);
+
+    const heldFrames: FrameRequestCallback[] = [];
+    const requestFrame = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => heldFrames.push(callback));
+    const cancelFrame = vi
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation((id) => {
+        heldFrames[id - 1] = () => {};
+      });
+    try {
+      await act(async () => {
+        surface.dispatchEvent(trustedWheel({ deltaY: -6, ctrlKey: true }));
+        await new Promise<void>((resolve) => setTimeout(resolve, 160));
+      });
+      expect(onZoomChange).not.toHaveBeenCalled();
+      expect(
+        container.querySelector<HTMLElement>(
+          "[data-multi-screen-canvas-world]",
+        )!.style.willChange,
+      ).toBe("transform");
+    } finally {
+      requestFrame.mockRestore();
+    }
+
+    try {
+      await act(async () => {
+        heldFrames.forEach((callback) => callback(performance.now()));
+      });
+    } finally {
+      cancelFrame.mockRestore();
+    }
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+    });
+    expect(onZoomChange).toHaveBeenCalledOnce();
+    expect(onZoomChange).toHaveBeenCalledWith(
+      readView(container).scale * 100,
+    );
+  });
+
+  it("keeps a pinch over a screen anchored while measuring the frame once", async () => {
+    const surface = await renderSurface();
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    surface.append(iframe);
+    Object.defineProperty(iframe, "clientWidth", { value: 400 });
+    Object.defineProperty(iframe, "clientHeight", { value: 300 });
+    const start = readView(container);
+    const frameRect = vi.fn(() => ({
+      x: start.x + 100,
+      y: start.y + 50,
+      left: start.x + 100,
+      top: start.y + 50,
+      right: start.x + 500,
+      bottom: start.y + 350,
+      width: 400,
+      height: 300,
+      toJSON: () => ({}),
+    }));
+    iframe.getBoundingClientRect = frameRect;
+    const cursor = { x: start.x + 150, y: start.y + 90 };
+    const worldUnderCursor = (view: ReturnType<typeof readView>) => ({
+      x: (cursor.x - view.x) / view.scale,
+      y: (cursor.y - view.y) / view.scale,
+    });
+
+    async function pinchStep() {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "embedded-canvas-wheel",
+              deltaX: 0,
+              deltaY: -6,
+              deltaMode: 0,
+              clientX: 50,
+              clientY: 40,
+              ctrlKey: true,
+              metaKey: false,
+              shiftKey: false,
+            },
+            source: iframe.contentWindow,
+          }),
+        );
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+      });
+      return readView(container);
+    }
+
+    const first = await pinchStep();
+    const second = await pinchStep();
+
+    expect(second.scale).toBeGreaterThan(first.scale);
+    expect(first.scale).toBeGreaterThan(start.scale);
+    expect(worldUnderCursor(second).x).toBeCloseTo(
+      worldUnderCursor(start).x,
+      6,
+    );
+    expect(worldUnderCursor(second).y).toBeCloseTo(
+      worldUnderCursor(start).y,
+      6,
+    );
+    expect(frameRect).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 140));
+    });
+    await pinchStep();
+    expect(frameRect).toHaveBeenCalledTimes(2);
+  });
+
+  it("answers a screen's wheel and keeps the full travel of folded steps", async () => {
+    const surface = await renderSurface();
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    surface.append(iframe);
+    const replies = vi.spyOn(iframe.contentWindow!, "postMessage");
+    const before = readView(container);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "embedded-canvas-wheel",
+            deltaX: 0,
+            deltaY: 600,
+            deltaMode: 0,
+            clientX: 10,
+            clientY: 10,
+            ctrlKey: false,
+            metaKey: false,
+            shiftKey: false,
+            steps: 3,
+          },
+          source: iframe.contentWindow,
+        }),
+      );
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+    });
+
+    expect(replies).toHaveBeenCalledWith(
+      { type: "embedded-canvas-wheel-read" },
+      "*",
+    );
+    expect(readView(container).y).toBeCloseTo(before.y - 600, 10);
+  });
+
   it("does not cancel a non-cancelable wheel", async () => {
     const surface = await renderSurface();
     const event = trustedWheel({

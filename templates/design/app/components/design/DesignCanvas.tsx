@@ -3695,7 +3695,9 @@ export function DesignCanvas({
       MOTION_PREVIEW_BRIDGE_SCRIPT +
       SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
       TWEAK_BRIDGE_SCRIPT +
-      ZOOM_BRIDGE_SCRIPT +
+      // An embedded frame's gesture bridge already forwards Cmd/Ctrl wheels,
+      // so a pinch-zoom-wheel copy would only double every pinch step's work.
+      (isEmbeddedFrame ? "" : ZOOM_BRIDGE_SCRIPT) +
       NAV_BRIDGE_SCRIPT +
       PREVIEW_THEME_BRIDGE_SCRIPT +
       LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
@@ -3962,6 +3964,9 @@ export function DesignCanvas({
 
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
+      // A wheel step arrives up to 120 times a second and reaches every
+      // screen's listener; MultiScreenCanvas reads it straight from the frame.
+      if (e.data?.type === "embedded-canvas-wheel") return;
       const iframeWindow = iframeRef.current?.contentWindow;
       const runtimeVerificationWindow =
         runtimeVerificationIframeRef.current?.contentWindow;
@@ -5800,34 +5805,6 @@ export function DesignCanvas({
           session: embeddedCanvasPanSessionRef.current,
         });
         embeddedCanvasPanSessionRef.current = result.session;
-        return;
-      }
-      if (e.data.type === "embedded-canvas-wheel") {
-        if (!isEmbeddedFrame || interactMode) return;
-        const iframe = iframeRef.current;
-        if (!iframe) return;
-        const rect = iframe.getBoundingClientRect();
-        const scaleX =
-          iframe.clientWidth > 0 ? rect.width / iframe.clientWidth : 1;
-        const scaleY =
-          iframe.clientHeight > 0 ? rect.height / iframe.clientHeight : 1;
-        const clientX = rect.left + Number(e.data.clientX || 0) * scaleX;
-        const clientY = rect.top + Number(e.data.clientY || 0) * scaleY;
-        const forwarded = new WheelEvent("wheel", {
-          bubbles: true,
-          cancelable: true,
-          deltaX: Math.max(-240, Math.min(240, Number(e.data.deltaX) || 0)),
-          deltaY: Math.max(-240, Math.min(240, Number(e.data.deltaY) || 0)),
-          deltaZ: Math.max(-240, Math.min(240, Number(e.data.deltaZ) || 0)),
-          deltaMode: Number(e.data.deltaMode) || WheelEvent.DOM_DELTA_PIXEL,
-          clientX,
-          clientY,
-          ctrlKey: Boolean(e.data.ctrlKey),
-          metaKey: Boolean(e.data.metaKey),
-          shiftKey: Boolean(e.data.shiftKey),
-          altKey: Boolean(e.data.altKey),
-        });
-        iframe.dispatchEvent(forwarded);
         return;
       }
       if (e.data.type === "pinch-zoom-wheel") {
