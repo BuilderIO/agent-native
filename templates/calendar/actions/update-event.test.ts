@@ -31,6 +31,7 @@ vi.mock("../server/lib/event-video-conferencing.js", () => ({
 import {
   actionCallIntent,
   preparedCallArguments,
+  preparedCallNeedsApproval,
 } from "@agent-native/core/action";
 
 import action from "./update-event";
@@ -44,7 +45,9 @@ async function gate(args: Record<string, unknown>) {
   }
   const intent = await actionCallIntent(action, args);
   if (!intent.valid) throw intent.error;
-  return needsApproval(preparedCallArguments(intent) as never);
+  return runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+    needsApproval(preparedCallArguments(intent) as never),
+  );
 }
 
 function recurringWorkingLocationEvent() {
@@ -721,13 +724,17 @@ describe("update-event working locations", () => {
 });
 
 describe("update-event approval gate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAuthStatusMock.mockResolvedValue({ accounts: [] });
+    getEventMock.mockResolvedValue({ attendees: [] });
+  });
+
   it("gates a guest notification and a cross-calendar move, not a field edit", async () => {
     expect(await gate({ id: "google-a", title: "Renamed" } as never)).toBe(
       false,
     );
-    expect(await gate({ id: "google-a", sendUpdates: "all" } as never)).toBe(
-      true,
-    );
+    expect(await gate({ id: "google-a", sendUpdates: "all" })).toBe(false);
     expect(
       await gate({ id: "google-a", notificationMessage: "Moved" } as never),
     ).toBe(true);
@@ -736,6 +743,77 @@ describe("update-event approval gate", () => {
         id: "google-a",
         targetAccountEmail: "other@example.com",
       } as never),
+    ).toBe(true);
+  });
+
+  it.each([
+    { attendees: undefined },
+    { attendees: [] },
+    { attendees: "" },
+    { attendees: "not-an-address" },
+  ])(
+    "does not gate notifications when no attendees remain: %j",
+    async ({ attendees }) => {
+      expect(
+        await gate({ id: "google-a", attendees, sendUpdates: "all" }),
+      ).toBe(false);
+    },
+  );
+
+  it("uses replacement attendees instead of the saved guest list", async () => {
+    getEventMock.mockResolvedValue({
+      attendees: [{ email: "old@example.com" }],
+    });
+    expect(
+      await gate({ id: "google-a", attendees: [], sendUpdates: "all" }),
+    ).toBe(false);
+    expect(
+      await gate({
+        id: "google-a",
+        attendees: [{ email: "new@example.com" }],
+        sendUpdates: "all",
+      }),
+    ).toBe(true);
+  });
+
+  it("gates notifications to unchanged and added attendees", async () => {
+    getEventMock.mockResolvedValue({
+      attendees: [{ email: "saved@example.com" }],
+    });
+    expect(await gate({ id: "google-a", sendUpdates: "all" })).toBe(true);
+    expect(getEventMock).toHaveBeenCalledWith("a", {
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+    });
+    for (const addAttendees of [[], "not-an-address"]) {
+      expect(
+        await gate({ id: "google-a", addAttendees, sendUpdates: "all" }),
+      ).toBe(true);
+    }
+    getEventMock.mockResolvedValue({ attendees: [] });
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: "guest@example.com",
+        sendUpdates: "all",
+      }),
+    ).toBe(true);
+    expect(
+      await gate({ id: "google-a", addAttendees: [], sendUpdates: "all" }),
+    ).toBe(false);
+  });
+
+  it("requires approval when unchanged attendees cannot be read", async () => {
+    getEventMock.mockRejectedValue(new Error("Calendar unavailable"));
+    const intent = await actionCallIntent(action, {
+      id: "google-a",
+      sendUpdates: "all",
+    });
+    if (!intent.valid) throw intent.error;
+    expect(
+      await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        preparedCallNeedsApproval(action, intent, { caller: "mcp" }),
+      ),
     ).toBe(true);
   });
 
