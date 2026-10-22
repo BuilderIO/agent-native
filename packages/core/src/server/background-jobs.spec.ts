@@ -57,6 +57,24 @@ describe("background job shutdown", () => {
     expect(closeHooks).toHaveLength(1);
   });
 
+  it("stops background jobs from the Nitro close hook before closing the database", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const stopper = vi.fn();
+    registerBackgroundJobStop(stopper);
+    const closeHooks: Array<() => void | Promise<void>> = [];
+    installDevDatabaseCloseHook({
+      hooks: {
+        hook(name: string, handler: () => void | Promise<void>) {
+          if (name === "close") closeHooks.push(handler);
+        },
+      },
+    });
+
+    await closeHooks[0]!();
+
+    expect(stopper).toHaveBeenCalledTimes(1);
+  });
+
   it("clears registered referenced timers so the process can exit", async () => {
     const childSource = `
       import { registerBackgroundJobStop, stopBackgroundJobs } from ${JSON.stringify(backgroundJobsModule)};

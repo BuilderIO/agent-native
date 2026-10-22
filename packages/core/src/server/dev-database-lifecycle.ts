@@ -44,9 +44,6 @@ if (process.env.NODE_ENV === "development" && devDatabaseHot) {
 }
 
 async function closeDevDatabase(requestId?: string): Promise<void> {
-  // Jobs must stop first: a tick against a closing client becomes an
-  // unhandled rejection and its next interval keeps the process alive.
-  stopBackgroundJobs();
   beginPgliteClientShutdown();
   if (requestId) {
     devDatabaseHot?.send("agent-native:dev-database-closing", { requestId });
@@ -66,5 +63,13 @@ async function closeDevDatabase(requestId?: string): Promise<void> {
 export function installDevDatabaseCloseHook(nitroApp: any): void {
   if (!nitroApp?.hooks?.hook || devDatabaseCloseApps.has(nitroApp)) return;
   devDatabaseCloseApps.add(nitroApp);
-  nitroApp.hooks.hook("close", closeDevDatabase);
+  // Jobs must stop first: a tick against a closing client becomes an
+  // unhandled rejection and its next interval keeps the process alive.
+  // Keep this on the Nitro close hook (not inside closeDevDatabase): a
+  // Vite HMR restart closes/resumes the DB through that same function and
+  // nothing restarts jobs on resume.
+  nitroApp.hooks.hook("close", async () => {
+    stopBackgroundJobs();
+    await closeDevDatabase();
+  });
 }
