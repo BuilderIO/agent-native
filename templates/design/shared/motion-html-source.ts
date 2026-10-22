@@ -481,10 +481,11 @@ function isStaticRuntimeScopeValue(value: string): boolean {
   );
 }
 
-function findRuntimeStyleMutationAttribute(
-  target: HtmlNode,
-):
-  | { attribute: { name: string; value: string }; isTargetAttribute: boolean }
+function findRuntimeStyleMutationAttribute(target: HtmlNode):
+  | {
+      attribute: { name: string; value: string };
+      location: "target" | "ancestor" | "runtime-scope";
+    }
   | undefined {
   const ancestors = [target];
   let current = target.parentNode;
@@ -497,19 +498,23 @@ function findRuntimeStyleMutationAttribute(
     current = current.parentNode;
   }
 
-  const lastIndex = Math.max(0, outermostScopeIndex);
-  for (let index = 0; index <= lastIndex; index++) {
+  for (let index = 0; index < ancestors.length; index++) {
     const node = ancestors[index]!;
     const attribute = node.attrs?.find(({ name, value }) =>
       isRuntimeStyleMutationHandler(name, value),
     );
-    if (attribute) return { attribute, isTargetAttribute: index === 0 };
+    if (attribute) {
+      return {
+        attribute,
+        location: index === 0 ? "target" : "ancestor",
+      };
+    }
   }
 
   if (outermostScopeIndex >= 0) {
     const scope = ancestors[outermostScopeIndex]!;
     const attribute = findRuntimeStyleMutationInScope(scope);
-    if (attribute) return { attribute, isTargetAttribute: false };
+    if (attribute) return { attribute, location: "runtime-scope" };
   }
 
   return undefined;
@@ -768,10 +773,13 @@ function assertTargetsExist(
     }
     const runtimeStyleMutation = findRuntimeStyleMutationAttribute(target);
     if (runtimeStyleMutation) {
-      const { attribute, isTargetAttribute } = runtimeStyleMutation;
-      const runtimeScope = isTargetAttribute
-        ? `uses ${attribute.name}`
-        : `is in a runtime scope using ${attribute.name}`;
+      const { attribute, location } = runtimeStyleMutation;
+      const runtimeScope =
+        location === "target"
+          ? `uses ${attribute.name}`
+          : location === "ancestor"
+            ? `has an ancestor using ${attribute.name}`
+            : `is in a runtime scope using ${attribute.name}`;
       sourceError(
         "unsupported-target",
         `Motion target "${nodeId}" ${runtimeScope}, whose runtime expression cannot be proven free of style mutations.`,

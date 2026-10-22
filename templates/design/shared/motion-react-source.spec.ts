@@ -999,6 +999,10 @@ function Card(style = { animationName: "fade" }) {
       'onClick={(event) => { event.currentTarget.style.setProperty("animation-name", "pulse"); }}',
     ],
     [
+      "global selector class mutation",
+      'onClick={() => document.querySelector("#hero-title")?.classList.add("animated")}',
+    ],
+    [
       "ref style assignment",
       'ref={(node) => { if (node) node.style.animationName = "pulse"; }}',
     ],
@@ -1091,6 +1095,30 @@ function Card(style = { animationName: "fade" }) {
     expect(() => apply(managed)).toThrow(MotionReactSourceError);
   });
 
+  it("rejects a named handler that closes over a global document alias", () => {
+    const managed =
+      `const pageDocument = document;\nfunction handleClick() { pageDocument.querySelector("#hero-title")?.classList.add("animated"); }\n${apply(source).source}`.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" onClick={handleClick}>Hello</h1>',
+      );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+  });
+
   it("allows literal object property keys matching a callback parameter", () => {
     const authored = source.replace(
       '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
@@ -1147,6 +1175,81 @@ function Card(style = { animationName: "fade" }) {
     expect(readMotionReactSource(edit.source)).toMatchObject({
       status: "valid",
     });
+  });
+
+  it("rejects a spread prop that resolves to a global DOM mutation handler", () => {
+    const authored = `const interactiveProps = { onClick: () => document.querySelector("#hero-title")?.classList.add("animated") };\n${apply(source).source}`;
+    const managedCases = [
+      authored.replace(
+        '<main className="card">',
+        '<main className="card" {...interactiveProps}>',
+      ),
+      authored.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<button {...interactiveProps}>Continue</button>\n      <h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      ),
+    ];
+
+    for (const managed of managedCases) {
+      expect(readMotionReactSource(managed)).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+      expect(
+        inspectMotionReactSourceWriteCapability({
+          source: managed,
+          targetNodeIds: ["hero-title"],
+          modulePath: "src/components/Card.tsx",
+          moduleVersionHash: "a".repeat(64),
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-authored-motion",
+      });
+      expect(() => apply(managed)).toThrow(MotionReactSourceError);
+    }
+  });
+
+  it("fails closed on unresolved JSX spread props in the Motion component root", () => {
+    const managed = apply(source).source.replace(
+      '<main className="card">',
+      '<main className="card" {...interactiveProps}>',
+    );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+  });
+
+  it("allows statically inspectable safe JSX spread props", () => {
+    const authored =
+      `const safeProps = { title: "Card", onClick: (event) => event.preventDefault() };\n${source}`.replace(
+        '<main className="card">',
+        '<main className="card" {...safeProps}>',
+      );
+    const managed = apply(authored).source;
+
+    expect(readMotionReactSource(managed)).toMatchObject({ status: "valid" });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
   });
 
   it("rejects Motion declarations in aliases under plain tag selector keys", () => {
@@ -2049,7 +2152,7 @@ function Card() {
     ).toThrow(/preview identity snapshot does not match/);
   });
 
-  it("rejects absent or ambiguous targets without blocking unrelated spread JSX", () => {
+  it("rejects absent or ambiguous targets and unresolved spreads in the target root", () => {
     expect(() =>
       apply(source.replace(' data-agent-native-node-id="hero-title"', "")),
     ).toThrow(/does not contain a static/);
@@ -2072,9 +2175,7 @@ function Card() {
       "    </main>",
       "      <p {...props}>Spread</p>\n    </main>",
     );
-    expect(apply(spread).source).toContain(
-      'data-agent-native-node-id="hero-title"',
-    );
+    expect(() => apply(spread)).toThrow(/JSX spread props/);
 
     const spreadTarget = source.replace(
       '<h1 data-agent-native-node-id="hero-title">Hello</h1>',

@@ -341,6 +341,50 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it.each([
+    [
+      "native ancestor handler",
+      `onclick="document.querySelector('[data-agent-native-node-id=hero-title]').style.transition = 'opacity 1s'"`,
+      "onclick",
+    ],
+    [
+      "Alpine ancestor handler",
+      `@click="document.querySelector('[data-agent-native-node-id=hero-title]').style.setProperty('transition', 'opacity 1s')"`,
+      "@click",
+    ],
+  ])(
+    "rejects Motion target reads and writes when an ordinary ancestor has a %s",
+    (_label, attribute, expectedAttribute) => {
+      const source = html.replace(
+        '<main class="card">',
+        `<main class="card" ${attribute}>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining(expectedAttribute),
+      });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+
+      const generated = apply(html).source.replace(
+        '<main class="card">',
+        `<main class="card" ${attribute}>`,
+      );
+      expect(readMotionHtmlSource(generated, "index.html")).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-target" },
+      });
+    },
+  );
+
   it("ignores handlers on inert template siblings in the target's owning scope", () => {
     const source = html
       .replace(

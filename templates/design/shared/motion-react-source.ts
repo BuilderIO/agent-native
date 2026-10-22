@@ -1118,6 +1118,28 @@ function assertNoUnsupportedReactStylePropAnimations(
     visitRoot(root);
   }
   const visit = (node: TypeScript.Node): void => {
+    if (ts.isJsxSpreadAttribute(node)) {
+      const opening = node.parent.parent;
+      const host = ts.isJsxOpeningElement(opening) ? opening.parent : opening;
+      const isRelevantTargetProp =
+        targetElements.has(host) || isWithinTargetRoot(host);
+      if (isRelevantTargetProp) {
+        const inspection = inspectReactJsxSpreadExpression(
+          node.expression,
+          sourceFile,
+          new Set(),
+        );
+        if (inspection !== "safe") {
+          throw new MotionReactSourceError(
+            "unsupported-authored-motion",
+            "React JSX spread props in a Motion component can supply style declarations or callbacks that mutate target styles and cannot be proven safe.",
+          );
+        }
+      }
+      ts.forEachChild(node, visit);
+      return;
+    }
+
     if (ts.isJsxAttribute(node)) {
       const attributeName = node.name.getText(sourceFile);
       const initializer = node.initializer;
@@ -1242,6 +1264,7 @@ function inspectReactStyleMutationCallback(
           functions[0]!.body,
           getReactCallbackParameterNames(functions[0]!.parameters),
           isRefCallback,
+          sourceFile,
         );
       }
     }
@@ -1259,6 +1282,7 @@ function inspectReactStyleMutationCallback(
     expression.body,
     getReactCallbackParameterNames(expression.parameters),
     isRefCallback,
+    sourceFile,
   );
 }
 
@@ -1266,10 +1290,16 @@ function inspectReactStyleMutationBody(
   body: TypeScript.ConciseBody,
   callbackParameterNames: Set<string>,
   isRefCallback: boolean,
+  sourceFile: TypeScript.SourceFile,
 ): ReactStyleInspection {
   let inspection: ReactStyleInspection = "safe";
   const visit = (node: TypeScript.Node): void => {
     if (inspection !== "safe") return;
+
+    if (isReactGlobalDocumentReference(node, sourceFile)) {
+      inspection = "unknown";
+      return;
+    }
 
     if (
       isRefCallback &&
@@ -1336,6 +1366,170 @@ function inspectReactStyleMutationBody(
   };
   visit(body);
   return inspection;
+}
+
+function isReactGlobalDocumentReference(
+  node: TypeScript.Node,
+  sourceFile: TypeScript.SourceFile,
+  resolving = new Set<string>(),
+): boolean {
+  if (ts.isIdentifier(node) && node.text === "document") {
+    return !isReactStaticPropertyName(node);
+  }
+
+  const propertyAccess = ts.isPropertyAccessExpression(node) ? node : null;
+  const elementAccess = ts.isElementAccessExpression(node) ? node : null;
+  const receiver =
+    propertyAccess?.expression ?? elementAccess?.expression ?? null;
+  const propertyName = propertyAccess
+    ? propertyAccess.name.text
+    : elementAccess?.argumentExpression &&
+        ts.isStringLiteralLike(elementAccess.argumentExpression)
+      ? elementAccess.argumentExpression.text
+      : null;
+  if (
+    propertyName === "document" &&
+    receiver !== null &&
+    ts.isIdentifier(receiver) &&
+    ["globalThis", "self", "window"].includes(receiver.text)
+  ) {
+    return true;
+  }
+
+  if (!ts.isIdentifier(node) || isReactStaticPropertyName(node)) return false;
+  const resolved = resolveReactStyleExpression(node, sourceFile);
+  if (!resolved) return false;
+  const declarationKey = `${resolved.start}:${resolved.end}`;
+  if (resolving.has(declarationKey)) return true;
+  resolving.add(declarationKey);
+
+  let found = false;
+  const visit = (current: TypeScript.Node): void => {
+    if (found) return;
+    if (isReactGlobalDocumentReference(current, sourceFile, resolving)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(resolved.expression);
+  resolving.delete(declarationKey);
+  return found;
+}
+
+function inspectReactJsxSpreadExpression(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  resolving: Set<string>,
+): ReactStyleInspection {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+
+  if (!ts.isObjectLiteralExpression(expression)) {
+    const resolved = resolveReactStyleExpression(expression, sourceFile);
+    if (!resolved) return "unknown";
+    const declarationKey = `${resolved.start}:${resolved.end}`;
+    if (resolving.has(declarationKey)) return "unknown";
+    resolving.add(declarationKey);
+    const result = inspectReactJsxSpreadExpression(
+      resolved.expression,
+      sourceFile,
+      resolving,
+    );
+    resolving.delete(declarationKey);
+    return result;
+  }
+
+  for (const property of expression.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      const inspection = inspectReactJsxSpreadExpression(
+        property.expression,
+        sourceFile,
+        resolving,
+      );
+      if (inspection !== "safe") return inspection;
+      continue;
+    }
+
+    const name =
+      ts.isPropertyAssignment(property) ||
+      ts.isShorthandPropertyAssignment(property)
+        ? property.name
+        : null;
+    if (!name) return "unknown";
+    const propertyName =
+      ts.isIdentifier(name) || ts.isStringLiteral(name)
+        ? name.text
+        : ts.isComputedPropertyName(name) && ts.isStringLiteral(name.expression)
+          ? name.expression.text
+          : null;
+    if (!propertyName) return "unknown";
+
+    const value = ts.isPropertyAssignment(property)
+      ? property.initializer
+      : ts.isShorthandPropertyAssignment(property)
+        ? property.name
+        : null;
+    if (!value) return "unknown";
+
+    let inspection: ReactStyleInspection;
+    if (propertyName === "style") {
+      inspection = inspectReactStyleExpression(value, sourceFile, new Set());
+    } else if (propertyName === "css" || propertyName === "sx") {
+      inspection = inspectReactCssExpression(
+        value,
+        sourceFile,
+        new Set(),
+        true,
+      );
+    } else if (propertyName === "ref" || /^on[A-Z]/.test(propertyName)) {
+      inspection = inspectReactStyleMutationCallback(
+        value,
+        sourceFile,
+        new Set(),
+        propertyName === "ref",
+      );
+    } else if (
+      ["class", "className", "children", "dangerouslySetInnerHTML"].includes(
+        propertyName,
+      )
+    ) {
+      inspection = "unknown";
+    } else {
+      inspection = isStaticReactJsxSpreadValue(value) ? "safe" : "unknown";
+    }
+    if (inspection !== "safe") return inspection;
+  }
+
+  return "safe";
+}
+
+function isStaticReactJsxSpreadValue(
+  expression: TypeScript.Expression,
+): boolean {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+
+  return (
+    ts.isStringLiteralLike(expression) ||
+    ts.isNumericLiteral(expression) ||
+    expression.kind === ts.SyntaxKind.TrueKeyword ||
+    expression.kind === ts.SyntaxKind.FalseKeyword ||
+    expression.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isIdentifier(expression) && expression.text === "undefined")
+  );
 }
 
 function isReactRefTargetMethodCall(

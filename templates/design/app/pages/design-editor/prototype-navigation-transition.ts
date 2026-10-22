@@ -175,8 +175,9 @@ function getFrameDocumentLoadState(
   if (src !== null && !URL.canParse(src, baseURI)) return "invalid-source";
 
   const current = frame.contentDocument;
+  if (current === null) return sourceChanged ? "pending" : "loaded";
   if (
-    current?.readyState !== "complete" ||
+    current.readyState !== "complete" ||
     (sourceChanged && current === previousDocument)
   ) {
     return "pending";
@@ -254,8 +255,23 @@ function animateEntry(
     return start() ? "animated" : "browser-fallback";
   }
 
-  const onLoad = () => start();
-  frame.addEventListener("load", onLoad, { once: true });
+  const onLoad = () => {
+    const loadState = getFrameDocumentLoadState(
+      frame,
+      previousDocument,
+      sourceChanged,
+    );
+    if (loadState === "pending") return;
+
+    frame.removeEventListener("load", onLoad);
+    setRunCleanup(documentRef, generation, undefined);
+    if (loadState === "loaded") {
+      start();
+    } else {
+      beforeStart?.();
+    }
+  };
+  frame.addEventListener("load", onLoad);
   setRunCleanup(documentRef, generation, () =>
     frame.removeEventListener("load", onLoad),
   );

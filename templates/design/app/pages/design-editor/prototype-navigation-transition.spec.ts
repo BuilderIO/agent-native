@@ -131,9 +131,10 @@ describe("runPrototypeNavigationTransition", () => {
       durationMs: 420,
       ease: dissolve.ease,
     };
+    const loadingDocument = { readyState: "loading" };
     Object.defineProperty(frame, "contentDocument", {
       configurable: true,
-      value: { readyState: "loading" },
+      value: loadingDocument,
     });
     const update = vi.fn();
 
@@ -141,6 +142,7 @@ describe("runPrototypeNavigationTransition", () => {
     expect(update).toHaveBeenCalledOnce();
     expect(animate).not.toHaveBeenCalled();
 
+    loadingDocument.readyState = "complete";
     frame.dispatchEvent(new Event("load"));
     expect(animate).toHaveBeenCalledWith(
       [
@@ -151,7 +153,7 @@ describe("runPrototypeNavigationTransition", () => {
     );
   });
 
-  it("does not animate a still-loaded iframe document after its source changes", () => {
+  it("waits through a stale load until a changed iframe source is complete", () => {
     const entrance: MotionPrototypeNavigationTransition = {
       ...instant,
       transition: "move-in",
@@ -172,6 +174,13 @@ describe("runPrototypeNavigationTransition", () => {
     expect(runPrototypeNavigationTransition(entrance, update)).toBe("animated");
     expect(animate).not.toHaveBeenCalled();
 
+    frame.dispatchEvent(new Event("load"));
+    expect(animate).not.toHaveBeenCalled();
+
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: { readyState: "complete", URL: "about:srcdoc" },
+    });
     frame.dispatchEvent(new Event("load"));
     expect(animate).toHaveBeenCalledOnce();
   });
@@ -415,6 +424,45 @@ describe("runPrototypeNavigationTransition", () => {
     });
     destinationFrame.dispatchEvent(new Event("load"));
 
+    expect(animations[0]!.cancel).toHaveBeenCalledOnce();
+    expect(destinationAnimate).toHaveBeenCalledWith(
+      [{ opacity: 0 }, { opacity: 1 }],
+      { duration: 210, easing: "ease-in-out", fill: "both" },
+    );
+    destinationFrame.remove();
+  });
+
+  it("does not wait for a load event from an opaque unchanged destination", async () => {
+    frame.dataset.screenIframeId = "source";
+    const destinationFrame = document.createElement("iframe");
+    destinationFrame.dataset.anPrototypePreview = "";
+    destinationFrame.dataset.screenIframeId = "target";
+    destinationFrame.setAttribute("srcdoc", "<p>already rendered</p>");
+    Object.defineProperty(destinationFrame, "contentDocument", {
+      configurable: true,
+      value: null,
+    });
+    const destinationAnimation = deferredAnimation();
+    const destinationAnimate = vi.fn(() => destinationAnimation.animation);
+    Object.defineProperty(destinationFrame, "animate", {
+      configurable: true,
+      value: destinationAnimate,
+    });
+    document.body.append(destinationFrame);
+
+    const update = vi.fn();
+    expect(
+      runPrototypeNavigationTransition(dissolve, update, document, {
+        sourceFrame: frame,
+        destinationFrameId: "target",
+      }),
+    ).toBe("animated");
+    expect(update).not.toHaveBeenCalled();
+
+    animations[0]!.finish();
+    await Promise.resolve();
+
+    expect(update).toHaveBeenCalledOnce();
     expect(animations[0]!.cancel).toHaveBeenCalledOnce();
     expect(destinationAnimate).toHaveBeenCalledWith(
       [{ opacity: 0 }, { opacity: 1 }],
