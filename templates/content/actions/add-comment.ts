@@ -457,7 +457,7 @@ export async function addCommentWithGuard(
 
 export default defineAction({
   description:
-    "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. To reply, provide both threadId and parentId; omit both to start a thread. Pass fieldId to start a thread in a Blocks field tab other than the page body.",
+    "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. To reply, provide both threadId and parentId; omit both to start a thread. A new thread with no quotedText and no propertyId is a comment on the whole page; it shows in the page's Discussion. Pass fieldId to start a thread in a Blocks field tab other than the page body.",
   deferLoading: false,
   mcpTool: true,
   schema: commentSchema,

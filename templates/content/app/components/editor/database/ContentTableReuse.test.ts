@@ -22,6 +22,10 @@ const trashRowSource = readFileSync(
   new URL("../../trash/TrashRow.tsx", import.meta.url),
   "utf8",
 );
+const discussionPanelSource = readFileSync(
+  new URL("../discussion-panel.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("Collection and Trash table composition", () => {
   it("routes both callers through the shared table surface", () => {
@@ -38,6 +42,21 @@ describe("Collection and Trash table composition", () => {
     expect(trashFiltersSource).toContain("<ContentTableToolbar");
     expect(trashFiltersSource).toContain("<ContentTableSearch");
     expect(trashFiltersSource).toContain("<ContentTableConstraintChip");
+  });
+
+  it("routes a Page's Discussion through the same search, toolbar, and chip controls", () => {
+    for (const control of [
+      "<ContentTableToolbar",
+      "<ContentTableToolbarButton",
+      "<ContentTableSearch",
+      "<ContentTableConstraintBar",
+      "<ContentTableConstraintChip",
+    ]) {
+      expect(discussionPanelSource).toContain(control);
+    }
+    expect(discussionPanelSource).toContain(
+      'from "@/components/editor/database/ContentTable"',
+    );
   });
 
   it("routes both callers through shared selection and row-action controls", () => {

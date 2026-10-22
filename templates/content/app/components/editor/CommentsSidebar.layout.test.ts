@@ -48,19 +48,21 @@ describe("comments sidebar layout", () => {
       source.indexOf("const historyThreads ="),
       source.indexOf("const pendingFocus ="),
     );
-    expect(
-      history.indexOf('if (historyKind === "suggestions") return [];'),
-    ).toBeLessThan(
-      history.indexOf("if (selectedThreadId === thread.threadId) return true;"),
+    // The selected thread passes every filter, Type included.
+    const selected = history.indexOf("thread.threadId === selectedThreadId ||");
+    const kind = history.indexOf(
+      'if (historyKind === "suggestions") return false;',
     );
-    expect(
-      history.indexOf("if (selectedThreadId === thread.threadId) return true;"),
-    ).toBeLessThan(
+    expect(selected).toBeGreaterThan(-1);
+    expect(selected).toBeLessThan(kind);
+    expect(kind).toBeLessThan(
       history.indexOf('if (historyStatus === "open" && thread.resolved)'),
     );
-    expect(history).toMatch(/threads,\s+selectedThreadId,?\s*\]/);
+    expect(history).toMatch(
+      /threads,\s+selectedThreadId,\s+postedThreadId,?\s*\]/,
+    );
     expect(source).toContain(
-      '(presentation === "inline" &&\n            (thread.threadId === selectedThreadId ||',
+      '(presentation === "inline" &&\n              (thread.threadId === selectedThreadId ||',
     );
     const resolve = source.slice(
       source.indexOf("const handleResolve ="),
@@ -111,7 +113,9 @@ describe("comments sidebar layout", () => {
       "utf8",
     );
     expect(source).toContain("replyDrafts.revealHistory(");
-    expect(source).toContain("setRevealedStatus({ documentId, accountKey })");
+    expect(source).toContain(
+      "setRevealed({ documentId, accountKey, status: true, filters: true })",
+    );
     expect(source).toContain("Number(right.id === activeConflictId)");
   });
   it("lays out mixed suggestion and comment identities in one collision flow", () => {
@@ -493,16 +497,25 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source.match(/t\("comments.filter"\)/g)).toHaveLength(1);
-    expect(source).toContain("DropdownMenuCheckboxItem");
+    const toolbarSource = readFileSync(
+      "app/components/editor/discussion-panel.tsx",
+      { encoding: "utf8" },
+    );
+
+    // One filter button, in the toolbar Collections and Trash share.
+    expect(source).toContain("<DiscussionToolbar");
+    expect(source).not.toContain('t("comments.filter")');
+    expect(toolbarSource.match(/t\("comments.filter"\)/g)).toHaveLength(1);
+    expect(toolbarSource).toContain("data-discussion-filter-group={group.key}");
+    expect(toolbarSource).toContain("aria-pressed={option.selected}");
     expect(source).toContain('"all" | "comments" | "suggestions"');
-    expect(source).toContain('historyKind === "comments"');
+    expect(source).toContain('historyKind !== "comments"');
     expect(source).toContain('historyKind === "suggestions"');
     expect(source).toContain('t("comments.typeFilter")');
     expect(source).not.toContain("aria-pressed={historyKind === kind}");
     expect(source).toContain('t("comments.statusFilter")');
     expect(source).toContain('t("comments.authorFilter")');
-    expect(source).toContain("event.preventDefault()");
+    expect(source).toContain('t("comments.targetFilter")');
     expect(source).toContain('["open", "resolved", "all"] as const');
     expect(source).toContain("historySuggestions.map((suggestion)");
     expect(source).toContain("renderSuggestionCard(thread.suggestion)");

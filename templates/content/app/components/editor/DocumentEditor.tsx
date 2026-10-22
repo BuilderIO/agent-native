@@ -54,13 +54,7 @@ import {
   suggestionMarkedSourceRanges,
 } from "@shared/suggestion-formatting";
 import { resolveMarkdownSuggestionRange } from "@shared/suggestion-rebase";
-import {
-  IconDatabase,
-  IconEye,
-  IconEyeOff,
-  IconLoader2,
-  IconX,
-} from "@tabler/icons-react";
+import { IconDatabase, IconLoader2, IconX } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
 import {
   hashKey,
@@ -229,6 +223,7 @@ import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import { directoryWidgetEditability } from "./directory-widget-editability";
+import { isPageCommentThread } from "./discussion-panel";
 import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
 import {
   DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
@@ -7611,6 +7606,11 @@ function PageEditorSessionBody({
   } = useComments(
     !isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? documentId : null,
   );
+  // Every open thread counts, whatever it points at, as on the Collection row.
+  const openCommentCount = useMemo(
+    () => (threads ?? []).filter((thread) => !thread.resolved).length,
+    [threads],
+  );
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
@@ -7689,8 +7689,12 @@ function PageEditorSessionBody({
       hasUtilityRailSpace,
       hasInlineCommentSpace,
     });
+  // A comment on the whole page lives in Discussion, not the margin, so it
+  // must not hold open an otherwise empty margin either.
   const hasOpenCommentThreads =
-    threads?.some((thread) => !thread.resolved) ?? false;
+    threads?.some(
+      (thread) => !thread.resolved && !isPageCommentThread(thread),
+    ) ?? false;
   // A suggestion whose text is gone lives in the comments panel only, so it
   // must not hold open an otherwise empty margin.
   const hasOpenSuggestions =
@@ -7702,7 +7706,11 @@ function PageEditorSessionBody({
     ) || draftSuggestions.length > 0;
   const hasSelectedCommentThread =
     !!selectedThreadId &&
-    (threads?.some((thread) => thread.threadId === selectedThreadId) ?? false);
+    (threads?.some(
+      (thread) =>
+        thread.threadId === selectedThreadId && !isPageCommentThread(thread),
+    ) ??
+      false);
   const showInlineComments = documentEditorShowsInlineComments({
     showIndicators: showCommentIndicators,
     hasUtilityRailSpace: hasInlineCommentSpace,
@@ -7758,13 +7766,20 @@ function PageEditorSessionBody({
     commentsFetching,
     commentsError,
   ]);
+  const threadsRef = useRef(threads);
+  threadsRef.current = threads;
   const activateCommentThread = useCallback(
     (threadId: string, preserveBrowseContext = false) => {
+      // A comment on the whole page has no highlight to open beside, so the
+      // Discussion panel shows it.
+      const pageThread = threadsRef.current?.some(
+        (thread) => thread.threadId === threadId && isPageCommentThread(thread),
+      );
       setSelectedSuggestionId(null);
       setPendingComment(null);
       setHoveredThreadId(null);
       setSelectedThreadId(threadId);
-      setCommentsBrowseOpen(preserveBrowseContext);
+      setCommentsBrowseOpen(preserveBrowseContext || !!pageThread);
       setUtilityPanel("comments");
     },
     [],
@@ -8655,6 +8670,10 @@ function PageEditorSessionBody({
       compact={!hasInlineCommentSpace}
       replyDrafts={replyDrafts}
       documentId={documentId}
+      highlightsVisible={showCommentIndicators}
+      onHighlightsVisibleChange={
+        presentation === "history" ? setShowCommentIndicators : undefined
+      }
       threads={
         presentation === "history"
           ? documentEditorCommentThreads(threads)
@@ -9059,10 +9078,10 @@ function PageEditorSessionBody({
     popoverContainer?: HTMLElement | null,
   ) => {
     const utilityPanelTitle =
-      panel === "info" ? t("editor.toolbar.info") : t("comments.title");
+      panel === "info" ? t("editor.toolbar.info") : t("comments.discussion");
     return (
       <div
-        className="w-full min-w-0 bg-background"
+        className="flex min-h-full w-full min-w-0 flex-col bg-background"
         data-document-utility-panel
         data-page-editor-owner={pageEditorOwner}
       >
@@ -9092,37 +9111,15 @@ function PageEditorSessionBody({
                 )}
               >
                 {tab === "comments"
-                  ? t("comments.title")
+                  ? t("comments.discussion")
                   : t("editor.toolbar.info")}
               </button>
             ))}
           </div>
-          {panel === "comments" ? (
-            <button
-              type="button"
-              className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-pressed={!showCommentIndicators}
-              aria-label={t(
-                showCommentIndicators
-                  ? "comments.hideIndicators"
-                  : "comments.showIndicators",
-              )}
-              onClick={() => setShowCommentIndicators((visible) => !visible)}
-            >
-              {showCommentIndicators ? (
-                <IconEye size={16} />
-              ) : (
-                <IconEyeOff size={16} />
-              )}
-            </button>
-          ) : null}
           <button
             ref={inSheet ? utilityPanelSheetCloseRef : undefined}
             type="button"
-            className={cn(
-              "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              panel !== "comments" && "ms-auto",
-            )}
+            className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("editor.toolbar.closeUtilityPanel")}
             onClick={() => handleUtilityPanelChange(null)}
           >
@@ -9259,6 +9256,7 @@ function PageEditorSessionBody({
             onToggleFavorite={handleToggleFavorite}
             utilityPanel={utilityPanel}
             commentsHistoryOpen={showCommentsHistoryDrawer}
+            openCommentCount={openCommentCount}
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
             commentsTriggerRef={commentsHistoryTriggerRef}
@@ -10145,7 +10143,7 @@ function PageEditorSessionBody({
             aria-label={
               utilityPanel === "info"
                 ? t("editor.toolbar.info")
-                : t("comments.title")
+                : t("comments.discussion")
             }
             data-document-utility-region
           >
@@ -10237,7 +10235,7 @@ function PageEditorSessionBody({
               <SheetTitle>
                 {lastUtilityPanel === "info"
                   ? t("editor.toolbar.info")
-                  : t("comments.title")}
+                  : t("comments.discussion")}
               </SheetTitle>
             </SheetHeader>
             {lastUtilityPanel === "comments" ? (

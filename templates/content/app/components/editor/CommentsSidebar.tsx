@@ -15,7 +15,6 @@ import {
   IconCircleCheck,
   IconCornerDownRight,
   IconChevronDown,
-  IconFilter,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -51,16 +50,6 @@ import {
   type SuggestionPresentationContext,
 } from "@shared/suggestion-text";
 
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { FilterTriggerIndicator } from "@/components/ui/filter-trigger";
 import {
   Tooltip,
   TooltipContent,
@@ -115,6 +104,24 @@ import {
   renderCommentBody,
   useCommentTimestamp,
 } from "./CommentRow";
+import {
+  commentThreadOrderFacts,
+  compareDiscussionEntries,
+  DISCUSSION_SORTS,
+  DISCUSSION_TARGETS,
+  DiscussionComposer,
+  discussionThreadTarget,
+  DiscussionToolbar,
+  isPageCommentThread,
+  suggestionMatchesSearch,
+  threadMatchesSearch,
+  threadMentions,
+  type DiscussionChip,
+  type DiscussionFilterGroup,
+  type DiscussionOrderFacts,
+  type DiscussionSort,
+  type DiscussionTarget,
+} from "./discussion-panel";
 import {
   PropertyThreadTargetLabel,
   propertyThreadTarget,
@@ -462,9 +469,14 @@ export function preserveCommentReplyEscape(event: KeyboardEvent) {
     event.key === "Escape" &&
     target instanceof HTMLElement &&
     (target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLInputElement ||
       target.getAttribute("contenteditable") === "true") &&
     target === target.ownerDocument.activeElement &&
-    target.closest("[data-comment-reply-composer]")
+    // Replies, the page composer and the Discussion search close their own
+    // menus and boxes; Escape there must not close the panel too.
+    target.closest(
+      "[data-comment-reply-composer], [data-discussion-composer], [data-discussion-toolbar]",
+    )
   ) {
     event.preventDefault();
   }
@@ -476,13 +488,48 @@ type CommentHistoryFilters = {
   author: string | null;
   /** A Blocks field tab's key (see `commentTabKey`); null is every tab. */
   tab: string | null;
+  target: "all" | DiscussionTarget;
+  /** Only threads that @mention the reader. */
+  mentionsMe: boolean;
+  query: string;
+  sort: DiscussionSort;
 };
-const defaultHistoryFilters: CommentHistoryFilters = {
-  status: "open",
+/** The filters each person keeps per Page; status and sort follow them. */
+type PageHistoryFilters = Pick<
+  CommentHistoryFilters,
+  "kind" | "author" | "tab" | "target" | "mentionsMe"
+>;
+const defaultPageHistoryFilters: PageHistoryFilters = {
   kind: "all",
   author: null,
   tab: null,
+  target: "all",
+  mentionsMe: false,
 };
+const pageHistoryFilterKeys = Object.keys(
+  defaultPageHistoryFilters,
+) as (keyof PageHistoryFilters)[];
+
+// Remembered values come back from storage, so anything unrecognized there
+// reads as the default rather than as a filter nobody can see or clear.
+function rememberedPageFilters(value: unknown): PageHistoryFilters {
+  const stored =
+    value && typeof value === "object"
+      ? (value as Partial<Record<keyof PageHistoryFilters, unknown>>)
+      : {};
+  return {
+    kind:
+      stored.kind === "comments" || stored.kind === "suggestions"
+        ? stored.kind
+        : "all",
+    author: typeof stored.author === "string" ? stored.author : null,
+    tab: typeof stored.tab === "string" ? stored.tab : null,
+    target: DISCUSSION_TARGETS.includes(stored.target as DiscussionTarget)
+      ? (stored.target as DiscussionTarget)
+      : "all",
+    mentionsMe: stored.mentionsMe === true,
+  };
+}
 
 export function useCommentReplyDrafts(
   documentId: string,
@@ -493,37 +540,92 @@ export function useCommentReplyDrafts(
   const [rememberedStatus, setRememberedStatus] = useLocalStorage<
     CommentHistoryFilters["status"]
   >(`content-review-status:${JSON.stringify(accountKey)}`, "open");
-  const [revealedStatus, setRevealedStatus] = useState<{
+  const [storedSort, setRememberedSort] = useLocalStorage<DiscussionSort>(
+    `content-discussion-sort:${JSON.stringify(accountKey)}`,
+    "page",
+  );
+  const rememberedSort = DISCUSSION_SORTS.includes(storedSort)
+    ? storedSort
+    : "page";
+  const pageFiltersKey = `content-discussion-filters:${JSON.stringify([
+    accountKey,
+    documentId,
+  ])}`;
+  const [storedPageFilters, setStoredPageFilters] =
+    useLocalStorage<PageHistoryFilters>(
+      pageFiltersKey,
+      defaultPageHistoryFilters,
+    );
+  const pageFilters = useMemo(
+    () => rememberedPageFilters(storedPageFilters),
+    [storedPageFilters],
+  );
+  // Opening a conflict or a linked suggestion shows every thread without
+  // saving over the filters someone chose. A search keeps that view; choosing
+  // a filter there starts from what's on screen.
+  const [revealed, setRevealed] = useState<{
     documentId: string;
     accountKey: string;
+    status: boolean;
+    filters: boolean;
   } | null>(null);
-  const [history, setHistory] = useState({
-    documentId,
-    filters: defaultHistoryFilters,
-  });
+  const [search, setSearch] = useState({ documentId, query: "" });
   const revealedHistory = useRef<string | null>(null);
   useEffect(() => {
-    setHistory({ documentId, filters: defaultHistoryFilters });
-    setRevealedStatus(null);
+    setSearch({ documentId, query: "" });
+    setRevealed(null);
     revealedHistory.current = null;
   }, [documentId, accountKey]);
+  const revealedHere =
+    revealed?.documentId === documentId && revealed.accountKey === accountKey
+      ? revealed
+      : null;
   const setHistoryFilters = useCallback(
     (filters: Partial<CommentHistoryFilters>) => {
-      if (filters.status) {
-        setRememberedStatus(filters.status);
-        setRevealedStatus(null);
+      if (filters.status) setRememberedStatus(filters.status);
+      if (filters.sort) setRememberedSort(filters.sort);
+      const pageChange = pageHistoryFilterKeys.filter((key) => key in filters);
+      const changesFilters = pageChange.length > 0;
+      if (pageChange.length) {
+        const next = {
+          ...(revealedHere?.filters ? defaultPageHistoryFilters : pageFilters),
+          ...Object.fromEntries(pageChange.map((key) => [key, filters[key]])),
+        };
+        setStoredPageFilters(next);
+        // Only Pages someone has filtered keep an entry.
+        if (
+          pageHistoryFilterKeys.every(
+            (key) => next[key] === defaultPageHistoryFilters[key],
+          )
+        ) {
+          try {
+            window.localStorage.removeItem(pageFiltersKey);
+            // coercion-ok: the in-memory filters are already the defaults.
+          } catch {}
+        }
       }
-      setHistory((current) => ({
-        documentId,
-        filters: {
-          ...(current.documentId === documentId
-            ? current.filters
-            : defaultHistoryFilters),
-          ...filters,
-        },
-      }));
+      if ("query" in filters)
+        setSearch({ documentId, query: filters.query ?? "" });
+      if (filters.status || changesFilters)
+        setRevealed((current) =>
+          current
+            ? {
+                ...current,
+                status: filters.status ? false : current.status,
+                filters: changesFilters ? false : current.filters,
+              }
+            : current,
+        );
     },
-    [documentId, setRememberedStatus],
+    [
+      documentId,
+      pageFilters,
+      pageFiltersKey,
+      revealedHere?.filters,
+      setRememberedSort,
+      setRememberedStatus,
+      setStoredPageFilters,
+    ],
   );
   const revealHistory = useCallback(
     (conflictId: string | null, focusId: string | null) => {
@@ -532,11 +634,11 @@ export function useCommentReplyDrafts(
       if (revealedHistory.current === key) return;
       revealedHistory.current = key;
       if (key) {
-        setHistoryFilters({ kind: "all", author: null, tab: null });
-        setRevealedStatus({ documentId, accountKey });
+        setRevealed({ documentId, accountKey, status: true, filters: true });
+        setSearch({ documentId, query: "" });
       }
     },
-    [documentId, accountKey, setHistoryFilters],
+    [documentId, accountKey],
   );
   const [openReplies, setOpenReplies] = useState<
     Record<string, { threadId: string | null; suggestionId: string | null }>
@@ -578,15 +680,11 @@ export function useCommentReplyDrafts(
   };
   return {
     historyFilters: {
-      ...(history.documentId === documentId
-        ? history.filters
-        : defaultHistoryFilters),
-      status:
-        revealedStatus?.documentId === documentId &&
-        revealedStatus.accountKey === accountKey
-          ? ("all" as const)
-          : rememberedStatus,
-    },
+      status: revealedHere?.status ? ("all" as const) : rememberedStatus,
+      ...(revealedHere?.filters ? defaultPageHistoryFilters : pageFilters),
+      query: search.documentId === documentId ? search.query : "",
+      sort: rememberedSort,
+    } satisfies CommentHistoryFilters,
     setHistoryFilters,
     revealHistory,
     openReply: openReplies[documentId],
@@ -808,6 +906,9 @@ interface CommentsSidebarOptions {
   onClose?: () => void;
   /** Extra header actions for each comment thread's card. */
   renderThreadActions?: (thread: CommentThread) => ReactNode;
+  /** Whether comment highlights show on the page; the panel can switch them. */
+  highlightsVisible?: boolean;
+  onHighlightsVisibleChange?: (visible: boolean) => void;
 }
 
 type CommentsSidebarProps = CommentsSidebarOptions &
@@ -881,6 +982,8 @@ export function CommentsSidebar({
   surface: surfaceProp,
   onClose,
   renderThreadActions,
+  highlightsVisible = true,
+  onHighlightsVisibleChange,
 }: CommentsSidebarProps) {
   const surface: CommentSurface =
     surfaceProp ?? (presentation === "history" ? "panel" : "rail");
@@ -894,6 +997,8 @@ export function CommentsSidebar({
   const resolveComment = useResolveComment();
   const queryClient = useQueryClient();
   const pendingDraft = useCommentDraft("pending");
+  const pageDraft = useCommentDraft("page");
+  const pageComposerRef = useRef<TiptapComposerHandle>(null);
   const draftStore = useCommentDraftContext();
   const [pendingHandoff, setPendingHandoff] = useState<{
     id: symbol;
@@ -945,15 +1050,12 @@ export function CommentsSidebar({
     kind: historyKind,
     author: historyAuthor,
     tab: historyTab,
+    target: historyTarget,
+    mentionsMe: historyMentionsMe,
+    query: historyQuery,
+    sort: historySort,
   } = replyDrafts.historyFilters;
-  const setHistoryStatus = (status: CommentHistoryFilters["status"]) =>
-    replyDrafts.setHistoryFilters({ status });
-  const setHistoryKind = (kind: CommentHistoryFilters["kind"]) =>
-    replyDrafts.setHistoryFilters({ kind });
-  const setHistoryAuthor = (author: string | null) =>
-    replyDrafts.setHistoryFilters({ author });
-  const setHistoryTab = (tab: string | null) =>
-    replyDrafts.setHistoryFilters({ tab });
+  const setHistoryFilters = replyDrafts.setHistoryFilters;
   // With several Blocks fields, the panel groups and filters by tab.
   const commentTabs = useMemo(
     () => commentTabsFromProperties(documentProperties),
@@ -981,11 +1083,16 @@ export function CommentsSidebar({
       (group.fieldId === null ? t("comments.pageBody") : group.fieldId);
     return group.removed ? t("comments.fieldRemoved", { name }) : name;
   };
-  const historyFiltered =
-    historyStatus !== "all" ||
+  const historySearch = historyQuery.trim();
+  // A filter someone chose; showing open threads is where the panel starts.
+  const historyNarrowed =
+    historyStatus !== "open" ||
     historyKind !== "all" ||
     historyAuthor !== null ||
-    activeHistoryTab !== null;
+    activeHistoryTab !== null ||
+    historyTarget !== "all" ||
+    historyMentionsMe ||
+    historySearch !== "";
   const [historyPortalContainer, setHistoryPortalContainer] =
     useState<HTMLDivElement | null>(null);
   // A failed accept leaves the suggestion pending at the revision that failed.
@@ -1019,10 +1126,13 @@ export function CommentsSidebar({
     const open =
       threads?.filter(
         (thread) =>
-          !thread.resolved ||
-          (presentation === "inline" &&
-            (thread.threadId === selectedThreadId ||
-              commentAi?.freshResolutions.has(thread.threadId))),
+          // A comment on the whole page has nothing in the margin to sit by;
+          // it lives in the Discussion panel.
+          !(presentation === "inline" && isPageCommentThread(thread)) &&
+          (!thread.resolved ||
+            (presentation === "inline" &&
+              (thread.threadId === selectedThreadId ||
+                commentAi?.freshResolutions.has(thread.threadId)))),
       ) ?? [];
     return visibleThreadId
       ? open.filter((thread) => thread.threadId === visibleThreadId)
@@ -1095,6 +1205,40 @@ export function CommentsSidebar({
     ],
     [openThreads, inlineDraftSuggestions, inlineSuggestions],
   );
+  // The panel puts every open thread in page order, so it measures where
+  // each suggested edit sits, not just the one the page has selected.
+  const measuredThreads = useMemo(
+    () =>
+      presentation === "history"
+        ? [
+            ...openThreads,
+            ...suggestions
+              .filter(
+                (suggestion) =>
+                  suggestion.status === "pending" &&
+                  !embeddedSuggestionIds.has(suggestion.id),
+              )
+              .map((suggestion) => ({
+                threadId: suggestion.threadId,
+                comments: [],
+                suggestion,
+              })),
+            ...draftSuggestions.map((suggestion) => ({
+              threadId: suggestion.threadId,
+              comments: [],
+              suggestion,
+            })),
+          ]
+        : inlineThreads,
+    [
+      draftSuggestions,
+      embeddedSuggestionIds,
+      inlineThreads,
+      openThreads,
+      presentation,
+      suggestions,
+    ],
+  );
   const inlineProposalMembers = useMemo(() => {
     const groups = new Map<string, ResourceSuggestion[]>();
     for (const suggestion of inlineSuggestions) {
@@ -1164,8 +1308,14 @@ export function CommentsSidebar({
   // Suggestions edit the page body, so they sit in its tab.
   const historyBodyTabShown =
     activeHistoryTab === null || activeHistoryTab === commentTabKey(null);
+  // Suggested edits point at text and carry no @mentions of their own.
+  const historyShowsSuggestions =
+    historyKind !== "comments" &&
+    historyBodyTabShown &&
+    (historyTarget === "all" || historyTarget === "text") &&
+    !historyMentionsMe;
   const historySuggestions = useMemo(() => {
-    if (historyKind === "comments" || !historyBodyTabShown) return [];
+    if (!historyShowsSuggestions) return [];
     return suggestions.filter((suggestion) => {
       if (historyKind === "all" && embeddedSuggestionIds.has(suggestion.id))
         return false;
@@ -1177,34 +1327,59 @@ export function CommentsSidebar({
       if (historyStatus === "resolved" && unresolved) {
         return false;
       }
-      return !historyAuthor || suggestion.authorEmail === historyAuthor;
+      if (historyAuthor && suggestion.authorEmail !== historyAuthor)
+        return false;
+      return suggestionMatchesSearch(suggestion, historySearch);
     });
   }, [
     embeddedSuggestionIds,
     historyAuthor,
-    historyBodyTabShown,
     historyKind,
+    historySearch,
+    historyShowsSuggestions,
     historyStatus,
     suggestions,
   ]);
   const historyDraftSuggestions = useMemo(() => {
-    if (historyKind === "comments" || !historyBodyTabShown) return [];
+    if (!historyShowsSuggestions) return [];
     if (historyStatus === "resolved") return [];
     return draftSuggestions.filter(
       (suggestion) =>
-        !historyAuthor || suggestion.authorEmail === historyAuthor,
+        (!historyAuthor || suggestion.authorEmail === historyAuthor) &&
+        suggestionMatchesSearch(suggestion, historySearch),
     );
   }, [
     draftSuggestions,
     historyAuthor,
-    historyBodyTabShown,
-    historyKind,
+    historySearch,
+    historyShowsSuggestions,
     historyStatus,
   ]);
+  // A comment someone just posted on the page stays in view even when their
+  // filters would hide it, until they change the filters.
+  const [postedThreadId, setPostedThreadId] = useState<string | null>(null);
+  useEffect(() => {
+    setPostedThreadId(null);
+  }, [
+    activeHistoryTab,
+    documentId,
+    historyAuthor,
+    historyKind,
+    historyMentionsMe,
+    historySearch,
+    historyStatus,
+    historyTarget,
+  ]);
   const historyThreads = useMemo(() => {
-    if (historyKind === "suggestions") return [];
     return threads.filter((thread) => {
-      if (selectedThreadId === thread.threadId) return true;
+      // A linked thread, or one just posted, shows whatever the filters say,
+      // Type included.
+      if (
+        thread.threadId === selectedThreadId ||
+        thread.threadId === postedThreadId
+      )
+        return true;
+      if (historyKind === "suggestions") return false;
       if (
         activeHistoryTab !== null &&
         commentTabKey(commentThreadFieldId(thread)) !== activeHistoryTab
@@ -1220,52 +1395,115 @@ export function CommentsSidebar({
       ) {
         return false;
       }
-      return true;
+      if (
+        historyTarget !== "all" &&
+        discussionThreadTarget(thread) !== historyTarget
+      )
+        return false;
+      if (historyMentionsMe && !threadMentions(thread, currentUserEmail))
+        return false;
+      return threadMatchesSearch(thread, historySearch);
     });
   }, [
     activeHistoryTab,
+    currentUserEmail,
     historyAuthor,
     historyKind,
+    historyMentionsMe,
+    historySearch,
     historyStatus,
+    historyTarget,
     threads,
     selectedThreadId,
+    postedThreadId,
   ]);
 
-  const historyEntries = useMemo(
+  const [threadPositions, setThreadPositions] = useState<
+    Map<string, CommentThreadPosition>
+  >(new Map());
+  const [threadPositionsMeasured, setThreadPositionsMeasured] = useState(false);
+  // Threads whose highlight waits in a tab that isn't open: still on the page.
+  const [hiddenTabThreadIds, setHiddenTabThreadIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const propertyOrder = useMemo(
     () =>
-      [
-        ...historyDraftSuggestions.map((suggestion) => ({
-          kind: "draft" as const,
-          id: suggestion.id,
-          createdAt: suggestion.createdAt,
-          suggestion,
-        })),
-        ...historySuggestions.map((suggestion) => ({
-          kind: "suggestion" as const,
-          id: suggestion.id,
-          createdAt: suggestion.createdAt,
-          suggestion,
-        })),
-        ...historyThreads.map((thread) => ({
-          kind: "comment" as const,
-          id: thread.threadId,
-          createdAt: thread.comments[0].created_at,
-          thread,
-        })),
-      ].sort(
-        (left, right) =>
-          Number(right.id === activeConflictId) -
-            Number(left.id === activeConflictId) ||
-          Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
-          left.id.localeCompare(right.id),
+      new Map(
+        (documentProperties ?? []).map((property, index) => [
+          property.definition.id,
+          index,
+        ]),
       ),
-    [
-      activeConflictId,
-      historyDraftSuggestions,
-      historySuggestions,
-      historyThreads,
-    ],
+    [documentProperties],
   );
+  const historyEntries = useMemo(() => {
+    const textFacts = (
+      id: string,
+      threadId: string,
+      createdAt: string,
+      lastActivityAt: string,
+      offset: number | undefined,
+    ): DiscussionOrderFacts => {
+      const top = threadPositions.get(threadId)?.documentTop;
+      return top === undefined
+        ? {
+            rank: 3,
+            position: offset ?? Infinity,
+            createdAt,
+            lastActivityAt,
+            id,
+          }
+        : { rank: 2, position: top, createdAt, lastActivityAt, id };
+    };
+    return [
+      ...historyDraftSuggestions.map((suggestion) => ({
+        kind: "draft" as const,
+        id: suggestion.id,
+        order: textFacts(
+          suggestion.id,
+          suggestion.threadId,
+          suggestion.createdAt,
+          suggestion.createdAt,
+          suggestion.anchor.from,
+        ),
+        suggestion,
+      })),
+      ...historySuggestions.map((suggestion) => ({
+        kind: "suggestion" as const,
+        id: suggestion.id,
+        order: textFacts(
+          suggestion.id,
+          suggestion.threadId,
+          suggestion.createdAt,
+          suggestion.updatedAt || suggestion.createdAt,
+          undefined,
+        ),
+        suggestion,
+      })),
+      ...historyThreads.map((thread) => ({
+        kind: "comment" as const,
+        id: thread.threadId,
+        order: commentThreadOrderFacts(thread, {
+          documentTop: threadPositions.get(thread.threadId)?.documentTop,
+          propertyIndex: (propertyId) => propertyOrder.get(propertyId) ?? -1,
+        }),
+        thread,
+      })),
+    ].sort(
+      (left, right) =>
+        Number(right.id === activeConflictId) -
+          Number(left.id === activeConflictId) ||
+        compareDiscussionEntries(historySort, left.order, right.order),
+    );
+  }, [
+    activeConflictId,
+    historyDraftSuggestions,
+    historySort,
+    historySuggestions,
+    historyThreads,
+    propertyOrder,
+    threadPositions,
+  ]);
 
   const pendingFocus = displayedPendingComment?.focus;
   useEffect(() => {
@@ -1411,6 +1649,60 @@ export function CommentsSidebar({
     if (pendingComment) onPendingDone(pendingComment.id);
   };
 
+  // A comment on the whole page: no quote and no Property.
+  const pageSubmitting = draftStore.isSubmittingDraft("page");
+  const handlePageSubmit = async (
+    agent?: CommentAiSelection,
+  ): Promise<{ id: string; threadId: string } | null> => {
+    const text = pageDraft.draft.text.trim();
+    if (!canComment || !text || pageSubmitting || ambiguousCreate())
+      return null;
+    const mentions = mentionsJsonFor(text, pageDraft.draft.mentions, agent);
+    const clientOperationId = crypto.randomUUID();
+    pageDraft.beginSubmission(clientOperationId);
+    try {
+      const result = await createComment.mutateAsync({
+        clientOperationId,
+        documentId,
+        content: text,
+        mentions,
+      });
+      pageDraft.finishSubmission(clientOperationId);
+      setPostedThreadId(result.threadId);
+      return { id: result.id, threadId: result.threadId };
+    } catch (error) {
+      // An unconfirmed save keeps its card, which offers the check instead.
+      if (!isAmbiguousCommentCreateError(error))
+        pageDraft.restoreSubmittedDraft(clientOperationId);
+      pageDraft.finishSubmission(clientOperationId);
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  };
+  const handlePageAiSubmit = async (selection: CommentAiSubmitPayload) => {
+    if (!commentAi) return;
+    const instructions = pageDraft.draft.text.trim();
+    const created = await handlePageSubmit(selection);
+    if (!created) return;
+    try {
+      await startCommentAiSubmission(commentAi, {
+        threadId: created.threadId,
+        rootCommentId: created.id,
+        submittedMode: selection.intent,
+        instructions,
+        provider: selection.provider,
+        model: selection.model,
+        engine: selection.engine,
+      });
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  };
+
   const handleReply = async (
     threadId: string,
     {
@@ -1467,14 +1759,6 @@ export function CommentsSidebar({
     }
   };
 
-  const [threadPositions, setThreadPositions] = useState<
-    Map<string, CommentThreadPosition>
-  >(new Map());
-  const [threadPositionsMeasured, setThreadPositionsMeasured] = useState(false);
-  // Threads whose highlight waits in a tab that isn't open: still on the page.
-  const [hiddenTabThreadIds, setHiddenTabThreadIds] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
   const [threadCardHeights, setThreadCardHeights] = useState<
     Map<string, number>
   >(new Map());
@@ -1535,7 +1819,7 @@ export function CommentsSidebar({
       ),
     [inlineThreads, inlineProposalLeaders, proposalMemberCounts],
   );
-  const openThreadKey = inlineThreads
+  const openThreadKey = measuredThreads
     .map(
       (t) =>
         `${t.threadId}:${"quotedText" in t ? (t.quotedText ?? "") : t.suggestion.id}`,
@@ -1569,14 +1853,17 @@ export function CommentsSidebar({
         ? prev
         : nextPendingPosition,
     );
-    if (!container || inlineThreads.length === 0) {
+    if (!container || measuredThreads.length === 0) {
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
       setHiddenTabThreadIds((prev) => (prev.size === 0 ? prev : new Set()));
       return;
     }
+    // With highlights hidden there are no marks to measure, and guessing from
+    // the text would reshuffle page order, so the last places measured stay.
+    if (presentation === "history" && !highlightsVisible) return;
     const positions = new Map<string, CommentThreadPosition>();
     const hiddenTabIds = new Set<string>();
-    for (const thread of inlineThreads) {
+    for (const thread of measuredThreads) {
       const fieldId =
         "suggestion" in thread ? null : commentThreadFieldId(thread);
       const position = findThreadPosition(
@@ -1612,7 +1899,14 @@ export function CommentsSidebar({
       }
       return positions;
     });
-  }, [alignToAnchors, hasPendingComment, inlineThreads, scrollContainerRef]);
+  }, [
+    alignToAnchors,
+    hasPendingComment,
+    highlightsVisible,
+    measuredThreads,
+    presentation,
+    scrollContainerRef,
+  ]);
 
   // Measured before paint, so a card under a new id never paints unplaced.
   useLayoutEffect(() => {
@@ -2236,155 +2530,233 @@ export function CommentsSidebar({
   );
 
   if (presentation === "history") {
+    const statusLabel = (status: CommentHistoryFilters["status"]) =>
+      status === "all"
+        ? t("comments.allStatuses")
+        : status === "open"
+          ? t("comments.open")
+          : t("comments.resolvedStatus");
+    const kindLabel = (kind: "comments" | "suggestions") =>
+      kind === "comments" ? t("comments.title") : t("comments.suggestions");
+    const targetLabel = (target: CommentHistoryFilters["target"]) =>
+      target === "all"
+        ? t("comments.allTargets")
+        : target === "page"
+          ? t("comments.targetPage")
+          : target === "text"
+            ? t("comments.targetText")
+            : t("comments.targetProperty");
+    const authorName = (email: string) =>
+      historyAuthors.find(([candidate]) => candidate === email)?.[1] ??
+      email.split("@")[0];
+    const activeTabOption = historyTabOptions.find(
+      (option) => option.key === activeHistoryTab,
+    );
+    const filterGroups: DiscussionFilterGroup[] = [
+      {
+        key: "status",
+        label: t("comments.statusFilter"),
+        options: (["open", "resolved", "all"] as const).map((status) => ({
+          key: status,
+          label: statusLabel(status),
+          selected: historyStatus === status,
+          onSelect: () => setHistoryFilters({ status }),
+        })),
+      },
+      {
+        key: "kind",
+        label: t("comments.typeFilter"),
+        // Both on is everything; turning one off leaves the other.
+        options: (["comments", "suggestions"] as const).map((kind) => {
+          const selected = historyKind === "all" || historyKind === kind;
+          return {
+            key: kind,
+            label: kindLabel(kind),
+            selected,
+            onSelect: () =>
+              setHistoryFilters({
+                kind: !selected
+                  ? "all"
+                  : kind === "comments"
+                    ? "suggestions"
+                    : "comments",
+              }),
+          };
+        }),
+      },
+      {
+        key: "target",
+        label: t("comments.targetFilter"),
+        options: (["all", ...DISCUSSION_TARGETS] as const).map((target) => ({
+          key: target,
+          label: targetLabel(target),
+          selected: historyTarget === target,
+          onSelect: () => setHistoryFilters({ target }),
+        })),
+      },
+      {
+        key: "person",
+        label: t("comments.authorFilter"),
+        columns: 1,
+        options: [
+          {
+            key: "mentions-me",
+            label: t("comments.mentionsMe"),
+            selected: historyMentionsMe,
+            onSelect: () =>
+              setHistoryFilters({ mentionsMe: !historyMentionsMe }),
+          },
+          {
+            key: "everyone",
+            label: t("comments.allAuthors"),
+            selected: historyAuthor === null,
+            onSelect: () => setHistoryFilters({ author: null }),
+          },
+          ...historyAuthors.map(([email, name]) => ({
+            key: email,
+            label: name,
+            selected: historyAuthor === email,
+            onSelect: () => setHistoryFilters({ author: email }),
+          })),
+        ],
+      },
+      ...(groupsByTab
+        ? [
+            {
+              key: "tab",
+              label: t("comments.tabFilter"),
+              columns: 1 as const,
+              options: [
+                {
+                  key: "all-tabs",
+                  label: t("comments.allTabs"),
+                  selected: activeHistoryTab === null,
+                  onSelect: () => setHistoryFilters({ tab: null }),
+                },
+                ...historyTabOptions.map((option) => ({
+                  key: option.key,
+                  label: tabGroupLabel(option),
+                  selected: activeHistoryTab === option.key,
+                  onSelect: () => setHistoryFilters({ tab: option.key }),
+                })),
+              ],
+            },
+          ]
+        : []),
+    ];
+    const chips: DiscussionChip[] = [
+      ...(historyStatus !== "open"
+        ? [
+            {
+              key: "status",
+              label: `${t("comments.statusFilter")}: ${statusLabel(historyStatus)}`,
+              onRemove: () => setHistoryFilters({ status: "open" }),
+            },
+          ]
+        : []),
+      ...(historyKind !== "all"
+        ? [
+            {
+              key: "kind",
+              label: `${t("comments.typeFilter")}: ${kindLabel(historyKind)}`,
+              onRemove: () => setHistoryFilters({ kind: "all" }),
+            },
+          ]
+        : []),
+      ...(historyTarget !== "all"
+        ? [
+            {
+              key: "target",
+              label: `${t("comments.targetFilter")}: ${targetLabel(historyTarget)}`,
+              onRemove: () => setHistoryFilters({ target: "all" }),
+            },
+          ]
+        : []),
+      ...(historyAuthor !== null
+        ? [
+            {
+              key: "author",
+              label: `${t("comments.authorFilter")}: ${authorName(historyAuthor)}`,
+              onRemove: () => setHistoryFilters({ author: null }),
+            },
+          ]
+        : []),
+      ...(historyMentionsMe
+        ? [
+            {
+              key: "mentions-me",
+              label: t("comments.mentionsMe"),
+              onRemove: () => setHistoryFilters({ mentionsMe: false }),
+            },
+          ]
+        : []),
+      ...(activeTabOption
+        ? [
+            {
+              key: "tab",
+              label: `${t("comments.tabFilter")}: ${tabGroupLabel(activeTabOption)}`,
+              onRemove: () => setHistoryFilters({ tab: null }),
+            },
+          ]
+        : []),
+    ];
+    const clearFilters = () =>
+      setHistoryFilters({
+        status: "open",
+        kind: "all",
+        target: "all",
+        author: null,
+        mentionsMe: false,
+        tab: null,
+        query: "",
+      });
+    const toolbar = (
+      <DiscussionToolbar
+        query={historyQuery}
+        onQueryChange={(query) => setHistoryFilters({ query })}
+        sort={historySort}
+        onSortChange={(sort) => setHistoryFilters({ sort })}
+        filterGroups={filterGroups}
+        chips={chips}
+        onClearFilters={clearFilters}
+        portalContainer={historyPortalContainer}
+        highlightsVisible={highlightsVisible}
+        onHighlightsVisibleChange={onHighlightsVisibleChange}
+      />
+    );
+    const composer = canComment ? (
+      <div className="sticky bottom-0 z-10 mt-auto border-t border-border bg-background">
+        <DiscussionComposer
+          ref={pageComposerRef}
+          currentUserEmail={currentUserEmail}
+          value={pageDraft.draft.text}
+          onChange={pageDraft.setText}
+          mentions={pageDraft.draft.mentions}
+          onMentionsChange={pageDraft.setMentions}
+          aiDraft={pageDraft.draft.aiDraft}
+          onAiDraftChange={pageDraft.setAiDraft}
+          aiModelStorageKey={aiModelStorageKey}
+          onSubmit={() => void handlePageSubmit()}
+          onAiSubmit={commentAi ? handlePageAiSubmit : undefined}
+          submitting={pageSubmitting}
+          submitDisabled={!pageDraft.draft.text.trim() || ambiguousCreate()}
+        />
+      </div>
+    ) : null;
+    const nothingYet =
+      threads.length === 0 &&
+      suggestions.length === 0 &&
+      draftSuggestions.length === 0;
     return (
       <div
         ref={setHistoryPortalContainer}
-        className="min-h-full w-full bg-background"
+        className="flex w-full flex-1 flex-col bg-background"
         data-comments-history
         data-comments-sidebar
       >
-        <div className="sticky top-0 z-10 flex items-center border-b border-border bg-background px-3 py-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  historyFiltered ? "text-foreground" : "text-muted-foreground",
-                )}
-              >
-                <FilterTriggerIndicator active={historyFiltered}>
-                  <IconFilter size={14} />
-                </FilterTriggerIndicator>
-                {t("comments.filter")}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="w-56"
-              container={historyPortalContainer}
-            >
-              <DropdownMenuLabel>{t("comments.typeFilter")}</DropdownMenuLabel>
-              <DropdownMenuGroup>
-                {(["comments", "suggestions"] as const).map((kind) => (
-                  <DropdownMenuCheckboxItem
-                    key={kind}
-                    checked={historyKind === "all" || historyKind === kind}
-                    onCheckedChange={(checked) =>
-                      setHistoryKind(
-                        checked
-                          ? "all"
-                          : kind === "comments"
-                            ? "suggestions"
-                            : "comments",
-                      )
-                    }
-                    onSelect={(event) => event.preventDefault()}
-                  >
-                    {kind === "comments"
-                      ? t("comments.title")
-                      : t("comments.suggestions")}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>
-                {t("comments.statusFilter")}
-              </DropdownMenuLabel>
-              <DropdownMenuGroup>
-                {(["open", "resolved", "all"] as const).map((status) => (
-                  <DropdownMenuCheckboxItem
-                    key={status}
-                    checked={historyStatus === status}
-                    onCheckedChange={(checked) =>
-                      checked && setHistoryStatus(status)
-                    }
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                  >
-                    {status === "all"
-                      ? t("comments.allStatuses")
-                      : status === "open"
-                        ? t("comments.open")
-                        : t("comments.resolvedStatus")}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>
-                {t("comments.authorFilter")}
-              </DropdownMenuLabel>
-              <DropdownMenuGroup>
-                <DropdownMenuCheckboxItem
-                  checked={historyAuthor === null}
-                  onCheckedChange={(checked) =>
-                    checked && setHistoryAuthor(null)
-                  }
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                >
-                  {t("comments.allAuthors")}
-                </DropdownMenuCheckboxItem>
-                {historyAuthors.map(([email, name]) => (
-                  <DropdownMenuCheckboxItem
-                    key={email}
-                    checked={historyAuthor === email}
-                    onCheckedChange={(checked) =>
-                      checked && setHistoryAuthor(email)
-                    }
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                  >
-                    {name}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuGroup>
-              {groupsByTab ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>
-                    {t("comments.tabFilter")}
-                  </DropdownMenuLabel>
-                  <DropdownMenuGroup data-comments-tab-filter>
-                    <DropdownMenuCheckboxItem
-                      checked={activeHistoryTab === null}
-                      onCheckedChange={(checked) =>
-                        checked && setHistoryTab(null)
-                      }
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                    >
-                      {t("comments.allTabs")}
-                    </DropdownMenuCheckboxItem>
-                    {historyTabOptions.map((option) => (
-                      <DropdownMenuCheckboxItem
-                        key={option.key}
-                        checked={activeHistoryTab === option.key}
-                        onCheckedChange={(checked) =>
-                          checked && setHistoryTab(option.key)
-                        }
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        data-comments-tab-option={option.key}
-                      >
-                        {tabGroupLabel(option)}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                  </DropdownMenuGroup>
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        {/* Below the panel's sticky h-12 header, not under it. */}
+        <div className="sticky top-12 z-10 border-b border-border bg-background">
+          {toolbar}
         </div>
         <div
           className="flex flex-col divide-y divide-border/60"
@@ -2397,18 +2769,9 @@ export function CommentsSidebar({
               </div>
             ))
           ) : historyEntries.length === 0 ? (
-            <div className="px-2 py-10 text-center text-sm text-muted-foreground">
-              {historyKind !== "suggestions" &&
-              historyStatus !== "resolved" &&
-              historyAuthor === null &&
-              threads.length === 0 &&
-              suggestions.length === 0 &&
-              draftSuggestions.length === 0
-                ? t(
-                    canComment
-                      ? "comments.selectTextToComment"
-                      : "comments.empty",
-                  )
+            <div className="px-6 py-10 text-center text-sm text-muted-foreground">
+              {nothingYet && !historyNarrowed
+                ? t(canComment ? "comments.discussionEmpty" : "comments.empty")
                 : t("comments.noFilteredComments")}
             </div>
           ) : (
@@ -2473,6 +2836,7 @@ export function CommentsSidebar({
             })()
           )}
         </div>
+        {composer}
       </div>
     );
   }

@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.comment.page-owned"
 name: "Comments"
-user_promise: "Threaded Comments stay owned by a Page while targeting one or more precise Blocks."
+user_promise: "Threaded Comments stay owned by a Page while pointing at precise Blocks, one Property value, or the whole Page."
 primary_user_job: "Give exact feedback that remains intelligible after the document changes or appears elsewhere."
 kind: "primitive"
 state: "approved_shape"
@@ -22,7 +22,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-10-18"
+last_reviewed: "2026-10-21"
 ---
 
 # Comments
@@ -37,9 +37,9 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 
 ## Product contract
 
-- A Comment thread is owned by one Page and may target one or several Blocks or ranges in its Blocks fields.
+- A Comment thread is owned by one Page and may target one or several Blocks or ranges in its Blocks fields. A thread with no quoted text and no Property is a page comment about the whole Page; every thread, page comments included, lives in the Page's Discussion (`content.discussion.page`).
 - A thread on a Collection row can instead target one Property value, such as Status or a date. It records the Property's name and the value it had when the thread started. Relations, rollups, and formulas are the exception: what they show depends on who is reading, so the thread records no value and each reader sees their own current one. Once a recorded value changes, the thread shows what it was; once the Property is deleted, the thread says so. It never moves itself onto the newer value. A Property thread has no quoted text, and replies follow the ordinary thread rules.
-- A Collection table shows how many open threads each row has, and marks each cell whose Property has an open thread. The row's count opens the row's Comments. A cell's marker opens a card on the cell with that Property's open threads, where they can be read, replied to, and resolved without leaving the table, and the card can open the row at any of them. Any cell also offers a Comment button to anyone who can comment on the row, which starts a thread on its Property in the same card; on touch screens, where nothing hovers, the button shows on a selected row and starts the thread in the row's peek, or on the row's full page when the Collection opens rows as pages. Counts include only rows the viewer can read, so a row they cannot open adds nothing. One Action reads every open thread in a Collection, with each thread's row and target, so an agent need not read row by row.
+- A Collection table shows how many open threads each row has, and marks each cell whose Property has an open thread. The row's count opens the row's Discussion. A cell's marker opens a card on the cell with that Property's open threads, where they can be read, replied to, and resolved without leaving the table, and the card can open the row at any of them. Any cell also offers a Comment button to anyone who can comment on the row, which starts a thread on its Property in the same card; on touch screens, where nothing hovers, the button shows on a selected row and starts the thread in the row's peek, or on the row's full page when the Collection opens rows as pages. Counts include only rows the viewer can read, so a row they cannot open adds nothing. One Action reads every open thread in a Collection, with each thread's row and target, so an agent need not read row by row.
 - Rich Comment bodies use the shared Blocks-field grammar; replies and mentions retain the same Page authority.
 - Anchors follow stable Block identity where possible and preserve historical target context after deletion rather than attaching to plausible new text.
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
@@ -57,7 +57,7 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 
 ## Boundaries and non-goals
 
-- Comments are exact-material feedback, not the Page-wide Discussion timeline.
+- Filtering, sorting, and the page-comment composer belong to the Discussion (`content.discussion.page`); this record covers the threads themselves.
 - A comment does not create a Page, Collection membership, or independent share policy.
 - This capability does not define named Version access, although Comments retain Version context.
 
@@ -81,7 +81,7 @@ Given a Collection table and a commenter who cannot edit its rows, when they hov
 
 ### See open Comments from a Collection
 
-Given a Collection where one row has two open threads and a private row has one, a viewer who can read every row but the private one sees "2" beside the first row's name and no count on the private row. Clicking the count opens that row's peek with its Comments showing. Resolving the last open thread clears the count. An agent listing the Collection's Comments in one call gets the same threads, each naming its row and target, and nothing from the private row.
+Given a Collection where one row has two open threads and a private row has one, a viewer who can read every row but the private one sees "2" beside the first row's name and no count on the private row. Clicking the count opens that row's peek with its Discussion showing. Resolving the last open thread clears the count. An agent listing the Collection's Comments in one call gets the same threads, each naming its row and target, and nothing from the private row.
 
 ### Preserve a deleted anchor
 
