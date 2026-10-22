@@ -4813,8 +4813,10 @@ type AgentKitTranscriptContentStyle = CSSProperties & {
   "--agentkit-transcript-lane-offset-inline"?: string;
   "--agentkit-transcript-message-gap"?: string;
   "--agentkit-transcript-message-line-height"?: string;
+  "--agentkit-transcript-font-family"?: string;
   "--agentkit-user-bubble-line-height"?: string;
   "--agentkit-user-bubble-max-width"?: string;
+  "--agentkit-user-bubble-offset-inline"?: string;
   "--agentkit-user-bubble-padding-block"?: string;
   "--agentkit-user-bubble-padding-inline"?: string;
 };
@@ -4862,6 +4864,7 @@ function transcriptContentStyle(
       layout.messageLineHeight,
       "messageLineHeight",
     ),
+    "--agentkit-transcript-font-family": layout.fontFamily,
     "--agentkit-user-bubble-line-height": transcriptLength(
       layout.userBubbleLineHeight,
       "userBubbleLineHeight",
@@ -4869,6 +4872,10 @@ function transcriptContentStyle(
     "--agentkit-user-bubble-max-width": transcriptLength(
       layout.userBubbleMaxWidth,
       "userBubbleMaxWidth",
+    ),
+    "--agentkit-user-bubble-offset-inline": transcriptOffset(
+      layout.userBubbleOffsetInline,
+      "userBubbleOffsetInline",
     ),
     "--agentkit-user-bubble-padding-block": transcriptLength(
       layout.userBubblePadding?.block,

@@ -3278,8 +3278,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       messageLaneOffsetInline: -33,
       messageGap: 12,
       messageLineHeight: 20,
+      fontFamily: "IBM Plex Sans",
       userBubbleLineHeight: 18,
       userBubbleMaxWidth: 600,
+      userBubbleOffsetInline: 10,
       userBubblePadding: { block: 8, inline: 13 },
     };
     await mount(baseProps({ transcriptLayout }));
