@@ -7,6 +7,7 @@ import {
 import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
   isMajorVersionPromotion,
+  packageManifestVersion,
   packageManifestVersionChange,
   type PackageManifestAtRef,
 } from "./release-package-version-policy.ts";
@@ -72,16 +73,12 @@ function manifestAt(file: string, ref: string): PackageManifestAtRef | null {
   } catch {
     throw new Error(`${file} at ${ref} is not valid JSON`);
   }
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
-    throw new Error(`${file} at ${ref} is not a package manifest`);
+  try {
+    return packageManifestVersion(manifest);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`${file} at ${ref}: ${detail}`);
   }
-
-  const version = (manifest as Record<string, unknown>).version;
-  if (version === undefined) return { version: null };
-  if (typeof version !== "string") {
-    throw new Error(`${file} at ${ref} has an invalid package version`);
-  }
-  return { version };
 }
 
 function main(): void {
@@ -111,11 +108,13 @@ function main(): void {
   }
 
   if (promotions.length > 0) {
-    throw new Error(
-      "This release PR contains a forbidden major promotion:\n" +
+    console.error(
+      "::error::This release PR contains a forbidden major promotion:\n" +
         promotions.map((line) => `  ${line}`).join("\n") +
         "\nMajor promotions remain human-only. Leaving the PR open for deliberate release handling.",
     );
+    process.exitCode = 1;
+    return;
   }
 
   console.log(

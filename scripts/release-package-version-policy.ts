@@ -2,6 +2,21 @@ export type PackageManifestAtRef = {
   version: string | null;
 };
 
+export function packageManifestVersion(
+  manifest: unknown,
+): PackageManifestAtRef {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new Error("Manifest is not a package manifest");
+  }
+
+  const version = (manifest as Record<string, unknown>).version;
+  if (version === undefined) return { version: null };
+  if (typeof version !== "string") {
+    throw new Error("Manifest has an invalid package version");
+  }
+  return { version };
+}
+
 export function packageManifestVersionChange(
   file: string,
   status: string,

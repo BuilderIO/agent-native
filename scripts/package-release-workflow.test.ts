@@ -26,6 +26,7 @@ import { packagesCoveredBy } from "./check-changeset.mjs";
 import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
   isMajorVersionPromotion,
+  packageManifestVersion,
   packageManifestVersionChange,
 } from "./release-package-version-policy.ts";
 import {
@@ -84,6 +85,16 @@ describe("npm package release workflow", () => {
         { version: null },
       ),
       null,
+    );
+  });
+
+  it("distinguishes an omitted package version from an invalid null version", () => {
+    assert.deepEqual(packageManifestVersion({ name: "qr" }), {
+      version: null,
+    });
+    assert.throws(
+      () => packageManifestVersion({ name: "qr", version: null }),
+      /invalid package version/,
     );
   });
 
@@ -906,6 +917,105 @@ fi
       () => parseReleasePullRequestPackageFiles({ files: [] }),
       /invalid release PR file list/,
     );
+  });
+
+  it("verifies versionless manifests through the release guard CLI", () => {
+    const file = "templates/community/qr/package.json";
+    const files = JSON.stringify([[{ filename: file, status: "modified" }]]);
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-version-guard-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    mkdirSync(binDirectory);
+    const ghPath = path.join(binDirectory, "gh");
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALLS_FILE"
+if [ "$#" -eq 4 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] && [ "$3" = "--slurp" ]; then
+  printf '%s' "$GH_FILE_PAGES"
+elif [ "$#" -eq 2 ] && [ "$1" = "api" ]; then
+  case "$2" in
+    *ref=base-sha) printf '%s' "$GH_BASE_MANIFEST" ;;
+    *ref=head-sha) printf '%s' "$GH_HEAD_MANIFEST" ;;
+    *) printf '%s\\n' 'unexpected gh endpoint' >&2; exit 1 ;;
+  esac
+else
+  printf '%s\\n' 'unexpected gh arguments' >&2
+  exit 1
+fi
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    const manifestResponse = (manifest: Record<string, unknown>) => {
+      const content = Buffer.from(JSON.stringify(manifest));
+      return JSON.stringify({
+        encoding: "base64",
+        content: content.toString("base64"),
+        size: content.length,
+      });
+    };
+    const env = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+      REPO: "BuilderIO/agent-native",
+      PR_NUMBER: "8062",
+      BASE_SHA: "base-sha",
+      HEAD_SHA: "head-sha",
+      GH_CALLS_FILE: callsPath,
+      GH_FILE_PAGES: files,
+      GH_BASE_MANIFEST: manifestResponse({ name: "qr" }),
+      GH_HEAD_MANIFEST: manifestResponse({
+        name: "qr",
+        dependencies: { "@agent-native/core": "^0.217.0" },
+      }),
+    };
+
+    const runCli = () =>
+      execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          path.resolve("scripts/verify-release-package-version-changes.ts"),
+        ],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    try {
+      assert.match(
+        runCli(),
+        /No forbidden promotion in 1 changed package.json file/,
+      );
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "api --paginate --slurp repos/BuilderIO/agent-native/pulls/8062/files",
+        `api repos/BuilderIO/agent-native/contents/${file}?ref=base-sha`,
+        `api repos/BuilderIO/agent-native/contents/${file}?ref=head-sha`,
+      ]);
+
+      writeFileSync(callsPath, "");
+      env.GH_FILE_PAGES = JSON.stringify([
+        [{ filename: "packages/core/package.json", status: "modified" }],
+      ]);
+      env.GH_BASE_MANIFEST = manifestResponse({
+        name: "core",
+        version: "0.216.0",
+      });
+      env.GH_HEAD_MANIFEST = manifestResponse({
+        name: "core",
+        version: "1.0.0",
+      });
+      assert.throws(runCli, (error: unknown) => {
+        const commandError = error as { status?: number; stderr?: Buffer };
+        assert.equal(commandError.status, 1);
+        assert.match(
+          String(commandError.stderr),
+          /::error::This release PR contains a forbidden major promotion/,
+        );
+        return true;
+      });
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("runs the community QR pin guard from the base commit before auto-merge", () => {
