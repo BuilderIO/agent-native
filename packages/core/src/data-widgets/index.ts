@@ -624,11 +624,15 @@ export const dataChartWidgetSchema = z
     sampled: z.boolean().optional(),
     actions: z.array(dataWidgetActionSchema).optional(),
   })
-  .passthrough()
-  .refine(hasBoundedValueAxisTicks, {
+  .passthrough();
+
+const boundedDataChartWidgetSchema = dataChartWidgetSchema.refine(
+  hasBoundedValueAxisTicks,
+  {
     path: ["valueAxisTickInterval"],
     message: `valueAxisTickInterval must produce between 1 and ${MAX_DATA_CHART_AXIS_TICKS} ticks.`,
-  });
+  },
+);
 
 const primaryActionSchema = z
   .object({
@@ -696,7 +700,7 @@ export const dataTableWidgetResultSchema = dataWidgetBaseSchema
 export const dataChartWidgetResultSchema = dataWidgetBaseSchema
   .extend({
     widget: z.literal(DATA_CHART_WIDGET),
-    chartSeries: dataChartWidgetSchema,
+    chartSeries: boundedDataChartWidgetSchema,
   })
   .passthrough();
 
@@ -704,7 +708,7 @@ export const dataInsightsWidgetResultSchema = dataWidgetBaseSchema
   .extend({
     widget: z.literal(DATA_INSIGHTS_WIDGET),
     table: dataTableWidgetSchema.optional(),
-    chartSeries: dataChartWidgetSchema.optional(),
+    chartSeries: boundedDataChartWidgetSchema.optional(),
   })
   .passthrough()
   .refine((value) => value.table || value.chartSeries, {

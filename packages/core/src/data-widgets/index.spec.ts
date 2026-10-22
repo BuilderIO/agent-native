@@ -103,20 +103,34 @@ describe("data widget helpers", () => {
     expect(dataChartWidgetResultSchema.parse(result)).toEqual(result);
   });
 
-  it("keeps chart schemas extensible for consumer composition", () => {
+  it("keeps chart schemas composable for consumers", () => {
+    const base = {
+      type: "bar" as const,
+      xKey: "category",
+      series: [{ key: "total", label: "Total" }],
+      data: [],
+    };
     const extendedSchema = dataChartWidgetSchema.extend({
-      workspaceScope: z.string(),
+      xKey: z.string().min(3),
     });
 
+    expect(dataChartWidgetSchema.partial().safeParse({}).success).toBe(true);
     expect(
-      extendedSchema.parse({
-        type: "bar",
-        xKey: "category",
-        series: [{ key: "total", label: "Total" }],
-        data: [],
-        workspaceScope: "current",
-      }),
+      dataChartWidgetSchema.pick({ xKey: true }).parse({ xKey: "category" }),
+    ).toEqual({ xKey: "category" });
+    expect(
+      dataChartWidgetSchema
+        .omit({ type: true })
+        .safeParse({ xKey: "category", series: base.series, data: [] }).success,
+    ).toBe(true);
+    expect(
+      dataChartWidgetSchema
+        .merge(z.object({ workspaceScope: z.string() }))
+        .parse({ ...base, workspaceScope: "current" }),
     ).toMatchObject({ workspaceScope: "current" });
+    expect(extendedSchema.safeParse({ ...base, xKey: "x" }).success).toBe(
+      false,
+    );
   });
 
   it("validates chart padding and label typography", () => {
@@ -223,8 +237,10 @@ describe("data widget helpers", () => {
       }).success,
     ).toBe(false);
     expect(
-      dataChartWidgetSchema.safeParse({ ...base, valueAxisTickInterval: 0.001 })
-        .success,
+      dataChartWidgetResultSchema.safeParse({
+        widget: DATA_CHART_WIDGET,
+        chartSeries: { ...base, valueAxisTickInterval: 0.001 },
+      }).success,
     ).toBe(false);
     expect(
       dataChartWidgetSchema.safeParse({
@@ -244,12 +260,15 @@ describe("data widget helpers", () => {
     );
 
     expect(
-      dataChartWidgetSchema.safeParse({
-        type: "line",
-        xKey: "day",
-        series: [{ key: "value", label: "Value" }],
-        data: [...data, { day: "Outlier", value: 10 }],
-        valueAxisTickInterval: 5,
+      dataChartWidgetResultSchema.safeParse({
+        widget: DATA_CHART_WIDGET,
+        chartSeries: {
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [...data, { day: "Outlier", value: 10 }],
+          valueAxisTickInterval: 5,
+        },
       }).success,
     ).toBe(false);
   });
