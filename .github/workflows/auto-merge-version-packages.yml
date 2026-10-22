@@ -235,13 +235,35 @@ jobs:
 
           /** Read one package.json at a ref, or null when it does not exist there. */
           function versionAt(file, ref) {
-            let raw;
+            let response;
             try {
-              raw = gh(["api", `repos/${repo}/contents/${file}?ref=${ref}`, "--jq", ".content"]);
-            } catch {
-              return null; // added in this PR, or unreadable at this ref
+              response = JSON.parse(
+                gh(["api", `repos/${repo}/contents/${file}?ref=${ref}`]),
+              );
+            } catch (error) {
+              const stderr =
+                error && typeof error === "object" && "stderr" in error
+                  ? String(error.stderr)
+                  : "";
+              if (/HTTP 404\b/.test(stderr)) return null;
+              throw new Error(`Could not read ${file} at ${ref}: ${stderr || error}`);
             }
-            const text = Buffer.from(raw.replace(/\s/g, ""), "base64").toString("utf8");
+            if (!response || typeof response !== "object") {
+              throw new Error(`GitHub returned invalid content for ${file} at ${ref}`);
+            }
+            const { encoding, content, size } = response;
+            if (encoding !== "base64" || typeof content !== "string" || !content.trim()) {
+              throw new Error(`GitHub returned unreadable content for ${file} at ${ref}`);
+            }
+            const encoded = content.replace(/\s/g, "");
+            if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+              throw new Error(`GitHub returned invalid base64 for ${file} at ${ref}`);
+            }
+            const bytes = Buffer.from(encoded, "base64");
+            if (!Number.isSafeInteger(size) || bytes.length === 0 || bytes.length !== size) {
+              throw new Error(`GitHub returned incomplete content for ${file} at ${ref}`);
+            }
+            const text = bytes.toString("utf8");
             let parsed;
             try {
               parsed = JSON.parse(text);
@@ -259,20 +281,34 @@ jobs:
 
           const files = JSON.parse(gh([
             "api", "--paginate", "--slurp", `repos/${repo}/pulls/${process.env.PR_NUMBER}/files`,
-            "--jq", "add | map(.filename)",
+            "--jq", 'add | map(select(.filename == "package.json" or (.filename | endswith("/package.json"))) | {filename, status})',
           ]));
-          if (!Array.isArray(files) || files.some((file) => typeof file !== "string")) {
+          if (!Array.isArray(files) || files.some((file) =>
+            !file || typeof file.filename !== "string" || typeof file.status !== "string"
+          )) {
             throw new Error("GitHub returned an invalid release PR file list");
           }
-          const packageFiles = files.filter(
-            (file) => file === "package.json" || file.endsWith("/package.json"),
-          );
 
           const promotions = [];
-          for (const file of packageFiles) {
+          for (const { filename: file, status } of files) {
             const before = versionAt(file, process.env.BASE_SHA);
             const after = versionAt(file, process.env.HEAD_SHA);
-            if (!before || !after || before === after) continue;
+            if (status === "added") {
+              if (before !== null || after === null) {
+                throw new Error(`Could not verify added package manifest ${file}`);
+              }
+              continue;
+            }
+            if (status === "removed") {
+              if (before === null || after !== null) {
+                throw new Error(`Could not verify removed package manifest ${file}`);
+              }
+              continue;
+            }
+            if (status !== "modified" || before === null || after === null) {
+              throw new Error(`Could not verify package manifest versions for ${file}`);
+            }
+            if (before === after) continue;
             const beforeParts = versionParts(before);
             const afterParts = versionParts(after);
             const majorPromotion = afterParts[0] > beforeParts[0];
@@ -290,8 +326,8 @@ jobs:
             process.exit(1);
           }
           console.log(
-            packageFiles.length > 0
-              ? `No forbidden promotion in ${packageFiles.length} changed package.json file(s).`
+            files.length > 0
+              ? `No forbidden promotion in ${files.length} changed package.json file(s).`
               : "No package.json changes in this release PR.",
           );
           NODE
@@ -332,4 +368,30 @@ jobs:
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"
+        run: |
+          set -euo pipefail
+          pull_request=$(gh api "repos/$REPO/pulls/$PR_NUMBER")
+          if ! jq -e \
+            --arg repo "$REPO" \
+            --arg base "$BASE_SHA" \
+            --arg head "$HEAD_SHA" \
+            '.state == "open" and .draft == false and
+              .user.login == "builder-io-integration[bot]" and
+              .head.ref == "changeset-release/main" and
+              .head.repo.full_name == $repo and .head.sha == $head and
+              .base.ref == "main" and .base.repo.full_name == $repo and
+              .base.sha == $base' <<< "$pull_request" >/dev/null; then
+            echo "::error::Release PR changed immediately before merge; refusing admin-merge." >&2
+            exit 1
+          fi
+          current_main=$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')
+          if [ "$current_main" != "$BASE_SHA" ]; then
+            echo "::error::Main advanced after validation; refusing to merge against an unvalidated base." >&2
+            exit 1
+          fi
+          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
+          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
+            echo "::error::Required release PR checks are no longer green; refusing admin-merge." >&2
+            exit 1
+          fi
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"

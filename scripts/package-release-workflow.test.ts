@@ -775,6 +775,9 @@ importers:
     const releasePrRecheck = autoMergeSteps.find(
       (step) => step.name === "Revalidate release PR before merge",
     );
+    const forceMerge = autoMergeSteps.find(
+      (step) => step.name === "Force-merge with admin bypass",
+    );
 
     for (const input of ["pull_request_number", "base_sha", "head_sha"]) {
       assert.equal((workflowDispatchInputs[input] as Workflow).required, true);
@@ -853,6 +856,13 @@ importers:
     assert.match(String(majorPromotionGuard.run), /"--slurp"/);
     assert.match(String(majorPromotionGuard.run), /JSON\.parse\(gh\(/);
     assert.doesNotMatch(String(majorPromotionGuard.run), /\.split\("\\n"\)/);
+    assert.match(String(majorPromotionGuard.run), /HTTP 404/);
+    assert.match(String(majorPromotionGuard.run), /status === "added"/);
+    assert.match(String(majorPromotionGuard.run), /status === "removed"/);
+    assert.doesNotMatch(
+      String(majorPromotionGuard.run),
+      /catch\s*\{\s*return null/,
+    );
     assert(qrPinGuard);
     assert.equal(
       qrPinGuard.run,
@@ -868,6 +878,14 @@ importers:
     assert.match(String(releasePrRecheck.run), /\.head\.sha == \$head/);
     assert.match(String(releasePrRecheck.run), /\.base\.sha == \$base/);
     assert.match(String(releasePrRecheck.run), /--required --json name,bucket/);
+    assert(forceMerge);
+    assert.match(String(forceMerge.run), /branches\/main/);
+    assert.match(String(forceMerge.run), /current_main.*BASE_SHA/s);
+    assert.match(String(forceMerge.run), /--match-head-commit "\$HEAD_SHA"/);
+    assert.match(
+      String(forceMerge.run),
+      /Required release PR checks are no longer green/,
+    );
   });
 
   it("waits until local runtime packages are fetchable before publishing dependents", async () => {
