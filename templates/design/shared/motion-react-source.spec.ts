@@ -546,6 +546,22 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("checks transitions across static React style blocks in source order", () => {
+    const authored = `function Card() {
+  return <main>
+    <style>{\`#hero { animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }\`}</style>
+    <style>{\`#hero { transition: opacity 1s; }\`}</style>
+    <h1 id="hero" data-agent-native-node-id="hero-title">Hello</h1>
+  </main>;
+}`;
+
+    expect(readMotionReactSource(authored, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+  });
+
   it.each([
     ["transition shorthand", "#hero { transition: opacity 2s ease; }"],
     [
@@ -1007,6 +1023,22 @@ function Card(style = { animationName: "fade" }) {
       'onClick={(event) => event.srcElement.classList.add("animated")}',
     ],
     [
+      "event currentTarget value assignment",
+      'onChange={(event) => { event.currentTarget.value = "updated"; }}',
+    ],
+    [
+      "event target mutating method",
+      'onClick={(event) => event.target.classList.add("animated")}',
+    ],
+    [
+      "forwarded event currentTarget",
+      "onClick={(event) => registerTarget(event.currentTarget)}",
+    ],
+    [
+      "forwarded aliased event srcElement",
+      "onClick={(event) => { const target = event.srcElement; registerTarget(target); }}",
+    ],
+    [
       "ref style assignment",
       'ref={(node) => { if (node) node.style.animationName = "pulse"; }}',
     ],
@@ -1061,6 +1093,38 @@ function Card(style = { animationName: "fade" }) {
     [
       "destructured event target parameter",
       "onClick={({ currentTarget }) => { registerTarget(currentTarget); }}",
+    ],
+    [
+      "destructured currentTarget mutation",
+      'onClick={({ currentTarget }) => currentTarget.classList.add("animated")}',
+    ],
+    [
+      "local alias of destructured currentTarget mutation",
+      'onClick={({ currentTarget }) => { const node = currentTarget; node.classList.add("animated"); }}',
+    ],
+    [
+      "aliased destructured target mutation",
+      'onClick={({ target: node }) => { node.className = "animated"; }}',
+    ],
+    [
+      "aliased destructured srcElement forwarding",
+      "onClick={({ srcElement: element }) => registerTarget(element)}",
+    ],
+    [
+      "nested destructured event target mutation",
+      'onClick={({ currentTarget: { classList } }) => classList.add("animated")}',
+    ],
+    [
+      "local event currentTarget destructuring mutation",
+      'onClick={(event) => { const { currentTarget } = event; currentTarget.classList.add("animated"); }}',
+    ],
+    [
+      "local aliased event target destructuring mutation",
+      'onClick={(event) => { const { target: node } = event; node.className = "animated"; }}',
+    ],
+    [
+      "local nested event target object mutation",
+      'onClick={(event) => { const { target: { classList } } = event; classList.add("animated"); }}',
     ],
     [
       "aliased default event target parameter",
@@ -1229,6 +1293,57 @@ function Card(style = { animationName: "fade" }) {
     expect(edit.source).toContain("event.preventDefault()");
     expect(readMotionReactSource(edit.source)).toMatchObject({
       status: "valid",
+    });
+  });
+
+  it.each([
+    [
+      "currentTarget value",
+      "onChange={(event) => setValue(event.currentTarget.value)}",
+    ],
+    [
+      "target checked state",
+      "onChange={(event) => setChecked(event.target.checked)}",
+    ],
+    [
+      "cast event target value",
+      "onChange={(event) => setValue((event.target as HTMLInputElement).value)}",
+    ],
+    [
+      "srcElement value with element access",
+      'onChange={(event) => setValue(event["srcElement"]["value"])}',
+    ],
+    [
+      "destructured currentTarget value",
+      "onChange={({ currentTarget }) => setValue(currentTarget.value)}",
+    ],
+    [
+      "aliased destructured target value",
+      "onChange={({ target: input }) => setValue(input.value)}",
+    ],
+    [
+      "destructured currentTarget trimmed value",
+      "onChange={({ currentTarget }) => setValue(currentTarget.value.trim())}",
+    ],
+    [
+      "nested destructured target value",
+      "onChange={({ target: { value } }) => setValue(value)}",
+    ],
+    [
+      "local nested destructured target value",
+      "onChange={(event) => { const { target: { value } } = event; setValue(value); }}",
+    ],
+  ])("allows a safe read of the event %s", (_label, handler) => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${handler}>Hello</h1>`,
+    );
+
+    const edit = apply(authored);
+    expect(edit.source).toContain(handler);
+    expect(readMotionReactSource(edit.source)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
     });
   });
 

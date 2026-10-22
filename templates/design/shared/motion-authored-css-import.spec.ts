@@ -121,6 +121,47 @@ describe("importAuthoredCssAnimations", () => {
     });
   });
 
+  it("checks transition rules from other static style blocks", () => {
+    const animationCss = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+    const transitionCss = ".hero:hover { transition: opacity 1s ease; }";
+
+    expect(
+      importAuthoredCssAnimations(animationCss, resolveHero, {
+        transitionCssBlocks: [transitionCss, animationCss],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
+  it("allows multiple nested transitions for properties outside the imported tracks", () => {
+    const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@media (min-width: 1px) { .hero:hover { transition: color 1s ease; } }
+@media (max-width: 1000px) { .hero:focus { transition: background-color 1s ease; } }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "valid",
+      tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
+    });
+  });
+
+  it("fails closed when uncertain transition rules can combine through the cascade", () => {
+    const css = `@media (min-width: 1px) {
+  .hero:hover { transition-property: color; transition-duration: 1s; }
+}
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+.hero:hover { transition-property: opacity; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
   it("allows a target transition when it does not overlap the imported track", () => {
     const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
 .hero:hover { transition-property: color; transition-duration: 1s; }
@@ -222,6 +263,26 @@ ${transition}
 @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
 
     expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "valid",
+      tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
+    });
+  });
+
+  it("respects a more-specific transition-property override across style blocks", () => {
+    const animationCss = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+#hero:hover { transition-property: none; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+    const transitionCss = ".hero:hover { transition: opacity 1s ease; }";
+    const resolveHeroAndId: MotionAuthoredCssTargetResolver = (selector) =>
+      selector === ".hero" || selector === "#hero"
+        ? { status: "resolved", targetNodeId: "node-hero" }
+        : { status: "unresolved" };
+
+    expect(
+      importAuthoredCssAnimations(animationCss, resolveHeroAndId, {
+        transitionCssBlocks: [transitionCss, animationCss],
+      }),
+    ).toMatchObject({
       status: "valid",
       tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
     });

@@ -345,6 +345,305 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it("rejects native inline handlers on siblings that can mutate Motion targets", () => {
+    const siblingHandler = `<button onclick="document.querySelector('[data-agent-native-node-id=hero-title]').style.setProperty('transition', 'opacity 1s')">Toggle</button>`;
+    const source = html.replace("</main>", `${siblingHandler}\n  </main>`);
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining("onclick"),
+    });
+    expect(() => apply(source)).toThrowError(
+      expect.objectContaining({ code: "unsupported-target" }),
+    );
+
+    const generated = apply(html).source.replace(
+      "</main>",
+      `${siblingHandler}\n  </main>`,
+    );
+    expect(readMotionHtmlSource(generated, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
+
+  it("allows native handlers that are static or select only unrelated markup", () => {
+    const safeTargetHandler = html.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 onclick="console.log(\'clicked\')" data-agent-native-node-id="hero-title">Hello</h1>',
+    );
+    const unrelatedSelectorHandler = html.replace(
+      "</main>",
+      "<aside id=\"footer\">Footer</aside>\n    <button onclick=\"document.querySelector('#footer').style.opacity = '0'\">Toggle</button>\n  </main>",
+    );
+
+    for (const source of [safeTargetHandler, unrelatedSelectorHandler]) {
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+      expect(readMotionHtmlSource(apply(source).source)).toMatchObject({
+        status: "valid",
+        targetNodeIds: ["hero-title"],
+      });
+    }
+  });
+
+  it.each([
+    ["event.target", "onclick=\"event.target.style.opacity = '0'\"", "target"],
+    ["e.target", "onclick=\"e.target.classList.add('hidden')\"", "target"],
+    [
+      "$event.target",
+      "@click=\"$event.target.setAttribute('data-state', 'hidden')\"",
+      "target",
+    ],
+    [
+      "an ancestor event.target",
+      "onclick=\"event.target.style.opacity = '0'\"",
+      "ancestor",
+    ],
+  ])(
+    "rejects direct %s mutations that may target a Motion node",
+    (_label, attribute, location) => {
+      const source =
+        location === "ancestor"
+          ? html.replace(
+              '<main class="card">',
+              `<main class="card" ${attribute}>`,
+            )
+          : html.replace(
+              '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+              `<h1 data-agent-native-node-id="hero-title" ${attribute}>Hello</h1>`,
+            );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining(attribute.split("=")[0]!),
+      });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+    },
+  );
+
+  it("allows static sibling markup without executable inline handlers", () => {
+    const source = html.replace(
+      "</main>",
+      '<button type="button">Toggle</button>\n  </main>',
+    );
+
+    const unrelatedResult = inspectMotionHtmlSourceWriteCapability({
+      source,
+      targetNodeIds: ["hero-title"],
+    });
+    expect(unrelatedResult).toMatchObject({
+      status: "supported",
+      targetNodeIds: ["hero-title"],
+    });
+    expect(
+      readMotionHtmlSource(apply(source).source, "index.html"),
+    ).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
+
+  it.each([
+    [
+      "Alpine",
+      `@click="document.querySelector('#hero-title').style.opacity = '0'"`,
+    ],
+    [
+      "Vue",
+      `v-on:click="window.document.getElementById('hero-title').style.setProperty('transition', 'opacity 1s')"`,
+    ],
+  ])(
+    "rejects sibling %s handlers that select and mutate a Motion target",
+    (_label, attribute) => {
+      const source = html
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">',
+          '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+        )
+        .replace("</main>", `<button ${attribute}>Toggle</button>\n  </main>`);
+
+      const result = inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      });
+      expect(result).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining(attribute.split("=")[0]!),
+      });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+    },
+  );
+
+  it.each([
+    [
+      "Alpine class selector",
+      `@click="document.querySelector('.hero').style.opacity = '0'"`,
+    ],
+    [
+      "Vue ID selector",
+      `v-on:click="window.document.querySelector('#hero').classList.add('hidden')"`,
+    ],
+  ])(
+    "rejects sibling %s handlers that select a Motion target by authored class or ID",
+    (_label, attribute) => {
+      const source = html
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">',
+          '<h1 id="hero" class="hero" data-agent-native-node-id="hero-title">',
+        )
+        .replace("</main>", `<button ${attribute}>Toggle</button>\n  </main>`);
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining(attribute.split("=")[0]!),
+      });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+    },
+  );
+
+  it("allows a sibling selector that resolves to a different stable HTML target", () => {
+    const source = html
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 id="hero" class="hero" data-agent-native-node-id="hero-title">',
+      )
+      .replace(
+        "</main>",
+        "<aside id=\"footer\">Footer</aside>\n    <button @click=\"document.querySelector('#footer').style.opacity = '0'\">Toggle</button>\n  </main>",
+      );
+
+    const unrelatedResult = inspectMotionHtmlSourceWriteCapability({
+      source,
+      targetNodeIds: ["hero-title"],
+    });
+    expect(unrelatedResult).toMatchObject({
+      status: "supported",
+      targetNodeIds: ["hero-title"],
+    });
+    expect(
+      readMotionHtmlSource(apply(source).source, "index.html"),
+    ).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
+
+  it("does not associate a selector read with a separate mutation sink", () => {
+    const source = html
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 id="hero" data-agent-native-node-id="hero-title">',
+      )
+      .replace(
+        "</main>",
+        `<aside id="footer">Footer</aside>
+    <button onclick="document.querySelector('#hero'); document.querySelector('#footer').style.opacity = '0'">Toggle</button>
+  </main>`,
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+    expect(
+      readMotionHtmlSource(apply(source).source, "index.html"),
+    ).toMatchObject({ status: "valid", targetNodeIds: ["hero-title"] });
+  });
+
+  it("matches selectors against path-generated Motion targets while reading source", () => {
+    const source = html.replace(
+      '<h1 data-agent-native-node-id="hero-title">',
+      '<h1 id="hero" class="hero">',
+    );
+    const preview = instrumentMotionHtmlPreviewSource({
+      source,
+      sourceFilePath: "index.html",
+    });
+    const targetNodeId = /<h1\b[^>]*\bdata-agent-native-node-id="([^"]+)"/.exec(
+      preview.source,
+    )?.[1];
+    expect(targetNodeId).toBeTruthy();
+    if (!targetNodeId)
+      throw new Error("The preview did not assign an H1 target ID.");
+
+    const written = apply(source, {
+      sourceFilePath: "index.html",
+      timeline: makeTimeline(targetNodeId),
+    });
+    const sourceWithoutInsertedId = written.source.replace(
+      ` data-agent-native-node-id="${targetNodeId}"`,
+      "",
+    );
+    const sourceWithHandler = sourceWithoutInsertedId.replace(
+      "</main>",
+      "<button @click=\"document.querySelector('.hero').style.opacity = '0'\">Toggle</button>\n  </main>",
+    );
+
+    expect(readMotionHtmlSource(sourceWithHandler, "index.html")).toMatchObject(
+      {
+        status: "invalid",
+        error: { code: "unsupported-target" },
+      },
+    );
+  });
+
+  it.each([
+    ["dynamic", `document.querySelector(selector)`],
+    ["unsupported", `document.querySelector('.hero > span')`],
+  ])(
+    "fails closed for %s document selectors in a mutating event handler",
+    (_label, call) => {
+      const source = html
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">',
+          '<h1 class="hero" data-agent-native-node-id="hero-title">',
+        )
+        .replace(
+          "</main>",
+          `<button @click="${call}.style.opacity = '0'">Toggle</button>\n  </main>`,
+        );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
   it.each([
     [
       "inline script",
@@ -892,6 +1191,34 @@ describe("HTML Motion source adapter", () => {
     expect(removed.source).toContain("/* Keep this authored note. */");
     expect(readMotionHtmlSource(removed.source, "index.html")).toEqual({
       status: "absent",
+    });
+  });
+
+  it("checks transitions across static HTML style blocks when importing animation", () => {
+    const source = `<!doctype html>
+<html>
+<head>
+  <style>
+.hero {
+  animation-name: hero-fade;
+  animation-duration: 900ms;
+  animation-fill-mode: both;
+}
+@keyframes hero-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+  </style>
+  <style>
+.hero { transition: opacity 1s; }
+  </style>
+</head>
+<body><h1 class="hero" data-agent-native-node-id="hero-css">Hello</h1></body>
+</html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
     });
   });
 

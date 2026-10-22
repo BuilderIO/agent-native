@@ -406,8 +406,7 @@ function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
     normalized.startsWith("x-on:") ||
     normalized === "v-on" ||
     normalized.startsWith("v-on:") ||
-    normalized.startsWith("@") ||
-    /^on[a-z]/.test(normalized)
+    normalized.startsWith("@")
   );
 }
 
@@ -416,6 +415,16 @@ function hasRuntimeStyleMutationHandler(
 ): boolean {
   return (attrs ?? []).some(({ name, value }) =>
     isRuntimeStyleMutationHandler(name, value),
+  );
+}
+
+function hasPotentialRuntimeMutationHandler(
+  attrs: readonly { name: string; value: string }[] | undefined,
+): boolean {
+  return (attrs ?? []).some(
+    ({ name, value }) =>
+      isRuntimeStyleMutationHandler(name, value) ||
+      isNativeInlineEventHandler(name),
   );
 }
 
@@ -578,17 +587,39 @@ function isManagedMotionTextRuntime(source: string, node: HtmlNode): boolean {
 function assertExecutableScriptsSafe(
   source: string,
   nodes: readonly HtmlNode[],
+  targetNodeIds: readonly string[],
+  generatedIds: Map<number | undefined, string>,
 ): void {
   for (const node of nodes) {
-    if (node.tagName !== "script" || node.insideTemplate) continue;
+    if (node.insideTemplate) continue;
+
+    const targetMutatingHandler = node.attrs?.find(
+      ({ name, value }) =>
+        isEventHandlerAttribute(name) &&
+        handlerMayMutateMotionTarget(
+          value,
+          node,
+          nodes,
+          targetNodeIds,
+          generatedIds,
+        ),
+    );
+    if (targetMutatingHandler) {
+      sourceError(
+        "unsupported-target",
+        `HTML Motion targets cannot be synchronized safely while an inline ${targetMutatingHandler.name} handler may mutate a Motion target.`,
+      );
+    }
+
+    if (node.tagName !== "script") continue;
     if (
       !isExecutableScript(node) &&
-      !hasRuntimeStyleMutationHandler(node.attrs)
+      !hasPotentialRuntimeMutationHandler(node.attrs)
     ) {
       continue;
     }
     if (
-      !hasRuntimeStyleMutationHandler(node.attrs) &&
+      !hasPotentialRuntimeMutationHandler(node.attrs) &&
       isManagedMotionTextRuntime(source, node)
     ) {
       continue;
@@ -598,6 +629,295 @@ function assertExecutableScriptsSafe(
       "HTML Motion targets cannot be synchronized safely while an executable script may change their class or style.",
     );
   }
+}
+
+function isRuntimeEventHandler(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    normalized === "x-on" ||
+    normalized.startsWith("x-on:") ||
+    normalized === "v-on" ||
+    normalized.startsWith("v-on:") ||
+    normalized.startsWith("@")
+  );
+}
+
+function isEventHandlerAttribute(name: string): boolean {
+  return isRuntimeEventHandler(name) || isNativeInlineEventHandler(name);
+}
+
+function isNativeInlineEventHandler(name: string): boolean {
+  return /^on[a-z]/i.test(name);
+}
+
+function handlerMayMutateMotionTarget(
+  value: string,
+  handlerNode: HtmlNode,
+  nodes: readonly HtmlNode[],
+  targetNodeIds: readonly string[],
+  generatedIds: Map<number | undefined, string>,
+): boolean {
+  const targetIds = new Set(targetNodeIds);
+  const directTargetMutation = DIRECT_ELEMENT_MUTATION.test(value);
+  if (
+    directTargetMutation &&
+    isMotionTargetNode(handlerNode, targetIds, generatedIds)
+  ) {
+    return true;
+  }
+  if (
+    DIRECT_EVENT_TARGET_MUTATION.test(value) &&
+    containsMotionTarget(handlerNode, nodes, targetIds, generatedIds)
+  ) {
+    return true;
+  }
+  return handlerSelectsAndMutatesMotionTarget(
+    value,
+    nodes,
+    targetIds,
+    generatedIds,
+  );
+}
+
+const DIRECT_ELEMENT_MUTATION =
+  /(?:\bthis\b|\b(?:event|e)\s*\.\s*(?:currentTarget|target)\b|\$el|\$event\s*\.\s*(?:currentTarget|target)\b)\s*(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute\b|removeAttribute\b|animate\b)/i;
+
+const DIRECT_EVENT_TARGET_MUTATION =
+  /(?:\b(?:event|e)\s*\.\s*target\b|\$event\s*\.\s*target)\s*(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute\b|removeAttribute\b|animate\b)/i;
+
+function containsMotionTarget(
+  node: HtmlNode,
+  nodes: readonly HtmlNode[],
+  targetNodeIds: ReadonlySet<string>,
+  generatedIds: Map<number | undefined, string>,
+): boolean {
+  return nodes.some((candidate) => {
+    if (!isMotionTargetNode(candidate, targetNodeIds, generatedIds))
+      return false;
+    let current = candidate.parentNode;
+    while (current) {
+      if (current === node) return true;
+      current = current.parentNode;
+    }
+    return false;
+  });
+}
+
+function isMotionTargetNode(
+  node: HtmlNode,
+  targetNodeIds: ReadonlySet<string>,
+  generatedIds: Map<number | undefined, string>,
+): boolean {
+  const targetAttrs = attributes(node, NODE_ID_ATTRIBUTE);
+  if (targetAttrs.some(({ value }) => targetNodeIds.has(value))) return true;
+  const generatedId = generatedIds.get(
+    node.sourceCodeLocation?.startTag?.startOffset,
+  );
+  return generatedId !== undefined && targetNodeIds.has(generatedId);
+}
+
+function handlerSelectsAndMutatesMotionTarget(
+  value: string,
+  nodes: readonly HtmlNode[],
+  targetIds: ReadonlySet<string>,
+  generatedIds: Map<number | undefined, string>,
+): boolean {
+  const usesDocumentSelector =
+    /\b(?:document|window|globalThis|self)\b/i.test(value) &&
+    /\b(?:querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName))\b/i.test(
+      value,
+    );
+  const mutatesElement =
+    /\.style(?:\s*(?:\.|\[)|\s*=)|\.classList\b|\.className\b|\.setAttribute\s*\(|\.removeAttribute\s*\(|\.animate\s*\(/i.test(
+      value,
+    );
+  if (!usesDocumentSelector || !mutatesElement) return false;
+
+  const selectorCalls =
+    /\b(?:document|window|globalThis|self)\s*(?:\.\s*document)?\s*\.\s*(querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName))\s*\(/gi;
+  let foundSelectorCall = false;
+  let match: RegExpExecArray | null;
+
+  while ((match = selectorCalls.exec(value)) !== null) {
+    foundSelectorCall = true;
+    const openParenIndex = selectorCalls.lastIndex - 1;
+    const callEndIndex = findSelectorCallEnd(value, openParenIndex);
+    if (callEndIndex === null) return true;
+    if (
+      !selectorCallFeedsMutationSink(
+        value,
+        match.index,
+        callEndIndex,
+        match[1]!,
+      )
+    ) {
+      selectorCalls.lastIndex = callEndIndex;
+      continue;
+    }
+
+    const selectorArgument = readStaticSelectorArgument(
+      value.slice(openParenIndex + 1, callEndIndex - 1),
+    );
+    if (!selectorArgument) return true;
+
+    const selector = selectorForDocumentCall(match[1]!, selectorArgument);
+    if (!selector) return true;
+
+    if (selectorMayTargetMotionNode(selector, nodes, targetIds, generatedIds)) {
+      return true;
+    }
+  }
+
+  return !foundSelectorCall;
+}
+
+function findSelectorCallEnd(
+  source: string,
+  openParenIndex: number,
+): number | null {
+  let depth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  let escaped = false;
+
+  for (let index = openParenIndex; index < source.length; index++) {
+    const character = source[index]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === "(") {
+      depth++;
+    } else if (character === ")" && --depth === 0) {
+      return index + 1;
+    }
+  }
+
+  return null;
+}
+
+function readStaticSelectorArgument(source: string): string | null {
+  const argument = source.trim();
+  const quote = argument[0];
+  if (
+    (quote !== "'" && quote !== '"') ||
+    argument[argument.length - 1] !== quote
+  ) {
+    return null;
+  }
+  const value = argument.slice(1, -1);
+  return value.includes("\\") || value.includes(quote) ? null : value;
+}
+
+function selectorCallFeedsMutationSink(
+  source: string,
+  callStartIndex: number,
+  callEndIndex: number,
+  method: string,
+): boolean {
+  const afterCall = source.slice(callEndIndex);
+  if (SELECTED_ELEMENT_MUTATION_SINK.test(afterCall)) return true;
+
+  if (method.toLowerCase() === "queryselectorall") {
+    const callback =
+      /^\s*\.\s*(?:forEach|map|filter|some|every)\s*\(\s*(?:async\s+)?(?:\(\s*([\w$]+)\s*\)|([\w$]+))\s*=>/i.exec(
+        afterCall,
+      );
+    const callbackParameter = callback?.[1] ?? callback?.[2];
+    if (
+      callbackParameter &&
+      elementMutationSinkForIdentifier(callbackParameter).test(afterCall)
+    ) {
+      return true;
+    }
+  }
+
+  const assignment =
+    /(?:\b(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*$/.exec(
+      source.slice(0, callStartIndex),
+    );
+  if (assignment) {
+    return elementMutationSinkForIdentifier(assignment[1]!).test(afterCall);
+  }
+
+  const remainingExpression = afterCall.trimStart();
+  if (!remainingExpression || /^[;),&|?]/.test(remainingExpression))
+    return false;
+  return true;
+}
+
+const SELECTED_ELEMENT_MUTATION_SINK =
+  /^\s*(?:\[\s*\d+\s*\]\s*)?(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute\s*\(|removeAttribute\s*\(|animate\s*\()/i;
+
+function elementMutationSinkForIdentifier(identifier: string): RegExp {
+  const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `\\b${escapedIdentifier}\\s*(?:\\?\\.|\\.)\\s*(?:style\\b|classList\\b|className\\b|setAttribute\\s*\\(|removeAttribute\\s*\\(|animate\\s*\\()`,
+    "i",
+  );
+}
+
+function selectorForDocumentCall(
+  method: string,
+  argument: string,
+): string | null {
+  switch (method.toLowerCase()) {
+    case "queryselector":
+    case "queryselectorall":
+      return argument;
+    case "getelementbyid":
+      return `#${argument}`;
+    case "getelementsbyclassname":
+      return `.${argument}`;
+    case "getelementsbyname":
+      return `[name="${argument}"]`;
+    case "getelementsbytagname":
+      return argument;
+    default:
+      return null;
+  }
+}
+
+function selectorMayTargetMotionNode(
+  selector: string,
+  nodes: readonly HtmlNode[],
+  targetNodeIds: ReadonlySet<string>,
+  generatedIds: Map<number | undefined, string>,
+): boolean {
+  const parsed = parseMotionAuthoredCssSimpleSelector(selector);
+  if (!parsed) return true;
+  const selectorAttribute =
+    parsed.kind === "id"
+      ? "id"
+      : parsed.kind === "class"
+        ? "class"
+        : parsed.kind === "attribute"
+          ? parsed.name
+          : null;
+
+  return nodes.some((node) => {
+    if (!node.tagName) return false;
+    const targetAttrs = attributes(node, NODE_ID_ATTRIBUTE);
+    if (
+      targetAttrs.length > 1 &&
+      targetAttrs.some(({ value }) => targetNodeIds.has(value))
+    ) {
+      return true;
+    }
+    const targetNodeId =
+      targetAttrs[0]?.value ??
+      generatedIds.get(node.sourceCodeLocation?.startTag?.startOffset);
+    if (!targetNodeId || !targetNodeIds.has(targetNodeId)) return false;
+
+    return (
+      (node.attrs ?? []).some(({ name }) =>
+        isDynamicHtmlAttribute(name, selectorAttribute),
+      ) || matchesHtmlSelector(node, parsed)
+    );
+  });
 }
 
 function findRuntimeStyleMutationInScope(
@@ -775,7 +1095,16 @@ function assertTargetsExist(
 ): void {
   if (targetNodeIds.length === 0) return;
   const { nodes } = parseHtml(source);
-  assertExecutableScriptsSafe(source, nodes);
+  const generatedTargets = sourceFilePath
+    ? generatedHtmlTargets(source, sourceFilePath)
+    : [];
+  const generatedIds = new Map(
+    generatedTargets.map((target) => [
+      target.node.sourceCodeLocation?.startTag?.startOffset,
+      target.nodeId,
+    ]),
+  );
+  assertExecutableScriptsSafe(source, nodes, targetNodeIds, generatedIds);
   const targets = new Map<string, HtmlNode[]>();
   for (const node of nodes) {
     if (!node.tagName) continue;
@@ -793,12 +1122,7 @@ function assertTargetsExist(
     targets.set(nodeId, matches);
   }
   const generatedById = new Map(
-    sourceFilePath
-      ? generatedHtmlTargets(source, sourceFilePath).map((target) => [
-          target.nodeId,
-          target.node,
-        ])
-      : [],
+    generatedTargets.map((target) => [target.nodeId, target.node]),
   );
 
   for (const nodeId of targetNodeIds) {
@@ -934,6 +1258,56 @@ interface AuthoredHtmlMotion {
   rangesToRemove: MotionAuthoredCssSourceRange[];
 }
 
+function staticAuthoredHtmlStyleContents(
+  source: string,
+  nodes: readonly HtmlNode[],
+): string[] {
+  const dynamicStyleAttribute = (name: string) => {
+    const normalized = name.toLowerCase();
+    return (
+      (normalized.startsWith("x-") && normalized !== "x-cloak") ||
+      (normalized.startsWith("v-") && normalized !== "v-cloak") ||
+      (normalized.startsWith("ng-") && normalized !== "ng-cloak") ||
+      normalized.startsWith(":")
+    );
+  };
+
+  return nodes.flatMap((node) => {
+    if (
+      node.tagName !== "style" ||
+      node.insideTemplate ||
+      !isPotentialCssStyle(node) ||
+      attributes(node, MANAGED_STYLE_ATTRIBUTE).length > 0 ||
+      hasPotentialRuntimeMutationHandler(node.attrs) ||
+      node.attrs?.some(({ name }) => dynamicStyleAttribute(name))
+    ) {
+      return [];
+    }
+
+    const location = node.sourceCodeLocation;
+    const contentStart = location?.startTag?.endOffset;
+    const contentEnd = location?.endTag?.startOffset;
+    if (
+      contentStart === undefined ||
+      contentEnd === undefined ||
+      contentStart < 0 ||
+      contentEnd < contentStart ||
+      contentEnd > source.length
+    ) {
+      return [];
+    }
+
+    const css = source.slice(contentStart, contentEnd);
+    if (
+      textContent(node) !== css ||
+      /(?:\{\{[\s\S]*?\}\}|\$\{[\s\S]*?\}|<%[\s\S]*?%>)/u.test(css)
+    ) {
+      return [];
+    }
+    return [css];
+  });
+}
+
 function readAuthoredHtmlMotion(
   source: string,
   nodes: HtmlNode[],
@@ -952,6 +1326,7 @@ function readAuthoredHtmlMotion(
   const importedTargetNodeIds = new Set<string>();
   const usedKeyframeNames = new Set<string>();
   const keyframeNameCounts = new Map<string, number>();
+  const transitionCssBlocks = staticAuthoredHtmlStyleContents(source, nodes);
   let durationMs = 1;
 
   for (const node of nodes) {
@@ -985,8 +1360,11 @@ function readAuthoredHtmlMotion(
       }
       continue;
     }
-    const result = importAuthoredCssAnimations(css, (selector) =>
-      resolveAuthoredHtmlTarget(source, nodes, selector, generatedIds),
+    const result = importAuthoredCssAnimations(
+      css,
+      (selector) =>
+        resolveAuthoredHtmlTarget(source, nodes, selector, generatedIds),
+      { transitionCssBlocks },
     );
     if (result.status === "absent") {
       for (const name of result.definedKeyframeNames) {
@@ -1130,7 +1508,7 @@ function hasDynamicStyleContent(nodes: readonly HtmlNode[]): boolean {
   return nodes.some((node) => {
     if (node.tagName !== "style" || node.insideTemplate) return false;
     if (
-      hasRuntimeStyleMutationHandler(node.attrs) ||
+      hasPotentialRuntimeMutationHandler(node.attrs) ||
       (node.attrs ?? []).some(({ name }) => {
         const normalized = name.toLowerCase();
         return (
@@ -1307,6 +1685,7 @@ function isDynamicHtmlAttribute(
   const normalized = name.toLowerCase();
   return (
     normalized === "x-bind" ||
+    normalized === "v-bind" ||
     [
       `:${selectorAttribute}`,
       `x-bind:${selectorAttribute}`,

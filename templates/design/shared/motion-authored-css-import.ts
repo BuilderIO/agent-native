@@ -34,6 +34,11 @@ export type MotionAuthoredCssTargetResolver = (
   selector: string,
 ) => MotionAuthoredCssTargetResolution;
 
+export interface MotionAuthoredCssImportOptions {
+  /** Ordered static style-block contents used to evaluate transition conflicts. */
+  transitionCssBlocks?: readonly string[];
+}
+
 export type MotionAuthoredCssSimpleSelector =
   | { kind: "type"; name: string }
   | { kind: "id"; value: string }
@@ -128,6 +133,7 @@ const RESERVED_ANIMATION_NAMES = new Set([
 export function importAuthoredCssAnimations(
   css: string,
   resolveTarget: MotionAuthoredCssTargetResolver,
+  options?: MotionAuthoredCssImportOptions,
 ): MotionAuthoredCssImportResult {
   let root: postcss.Root;
   try {
@@ -385,12 +391,56 @@ export function importAuthoredCssAnimations(
   const durationMs = motionTimelineDurationForTracks(0, tracks);
   const validation = validateTracks(tracks, durationMs);
   if (validation) return unsupported(validation);
+  const transitionCssBlocks = options?.transitionCssBlocks ?? [css];
+  if (
+    !Array.isArray(transitionCssBlocks) ||
+    !transitionCssBlocks.some((block) => block === css)
+  ) {
+    return unsupported(
+      "CSS transition analysis must include the current static style block.",
+    );
+  }
+  const transitionRoots: postcss.Root[] = [];
+  const transitionReducedMotionOverrides = new Set(reducedMotionOverrides);
+  for (const block of transitionCssBlocks) {
+    if (typeof block !== "string") {
+      return unsupported(
+        "CSS transition analysis requires static style-block contents.",
+      );
+    }
+    let transitionRoot: postcss.Root;
+    try {
+      transitionRoot = postcss.parse(block);
+    } catch {
+      return unsupported(
+        "CSS transition rules across style blocks could not be parsed safely.",
+      );
+    }
+    let hasImportedTransitionStylesheet = false;
+    transitionRoot.walkAtRules((atRule) => {
+      if (atRule.name.toLowerCase() === "import") {
+        hasImportedTransitionStylesheet = true;
+      }
+    });
+    if (hasImportedTransitionStylesheet) {
+      return unsupported(
+        "CSS transitions with unresolved @import stylesheets cannot be analyzed losslessly.",
+      );
+    }
+    for (const declaration of findReducedMotionOverrideDeclarations(
+      transitionRoot,
+    )) {
+      transitionReducedMotionOverrides.add(declaration);
+    }
+    transitionRoots.push(transitionRoot);
+  }
+
   if (
     hasConflictingCssTransitions(
-      root,
+      transitionRoots,
       tracks,
       resolveTarget,
-      reducedMotionOverrides,
+      transitionReducedMotionOverrides,
     )
   ) {
     return unsupported(
@@ -588,7 +638,7 @@ function isTransitionTimingToken(token: string): boolean {
 }
 
 function hasConflictingCssTransitions(
-  root: postcss.Root,
+  roots: readonly postcss.Root[],
   tracks: readonly MotionTrack[],
   resolveTarget: MotionAuthoredCssTargetResolver,
   reducedMotionOverrides: ReadonlySet<postcss.Declaration>,
@@ -599,50 +649,203 @@ function hasConflictingCssTransitions(
     properties.add(track.property.toLowerCase());
     propertiesByTarget.set(track.targetNodeId, properties);
   }
+  const declarationsByTarget = new Map<
+    string,
+    TransitionCascadeDeclaration[]
+  >();
+  const declarationsByTargetAndState = new Map<
+    string,
+    Map<string, TransitionCascadeDeclaration[]>
+  >();
+  const uncertainTargets = new Set<string>();
+  let sourceOrder = 0;
   let conflict = false;
-  root.walkRules((rule) => {
-    if (conflict || isInsideKeyframes(rule)) return;
-    const declarations = (rule.nodes ?? []).filter(
-      (node): node is postcss.Declaration =>
-        node.type === "decl" &&
-        isTransitionProperty(node.prop) &&
-        !reducedMotionOverrides.has(node),
-    );
-    if (declarations.length === 0) return;
 
-    for (const candidate of splitCssSelectorList(rule.selector)) {
-      const selector = transitionTargetSelector(candidate);
-      if (selector === "*") {
-        conflict = [...propertiesByTarget.values()].some((properties) =>
-          transitionDeclarationsConflict(declarations, properties),
+  for (const root of roots) {
+    let rootOrder = 0;
+    root.walkRules((rule) => {
+      if (conflict) return;
+      const currentSourceOrder = sourceOrder + rootOrder++;
+      if (isInsideKeyframes(rule)) return;
+      const declarations = (rule.nodes ?? []).filter(
+        (node): node is postcss.Declaration =>
+          node.type === "decl" &&
+          isTransitionProperty(node.prop) &&
+          !reducedMotionOverrides.has(node),
+      );
+      if (declarations.length === 0) return;
+
+      for (const candidate of splitCssSelectorList(rule.selector)) {
+        const simpleSelector = transitionTargetSelector(candidate);
+        const targetNodeIds = resolveTransitionTargets(
+          candidate,
+          simpleSelector,
+          resolveTarget,
         );
-        if (conflict) return;
-        continue;
-      }
-      for (const targetNodeId of resolveTransitionTargets(
-        candidate,
-        selector,
-        resolveTarget,
-      )) {
-        if (targetNodeId === "*") {
-          conflict = [...propertiesByTarget.values()].some((properties) =>
-            transitionDeclarationsConflict(declarations, properties),
+        const matchedTargets = targetNodeIds.includes("*")
+          ? [...propertiesByTarget.keys()]
+          : targetNodeIds;
+        if (matchedTargets.length === 0) continue;
+
+        const specificity =
+          rule.parent === root && simpleSelector !== null
+            ? transitionSelectorSpecificity(candidate, simpleSelector)
+            : null;
+        const state =
+          rule.parent === root && simpleSelector !== null
+            ? transitionSelectorState(candidate, simpleSelector)
+            : null;
+
+        for (const targetNodeId of matchedTargets) {
+          const targetProperties = propertiesByTarget.get(targetNodeId);
+          if (!targetProperties) continue;
+
+          // Nested conditions and selectors outside the static target subset
+          // cannot safely participate in cross-rule cascade resolution.
+          if (specificity === null || state === null) {
+            if (
+              transitionDeclarationsConflict(declarations, targetProperties)
+            ) {
+              conflict = true;
+              return;
+            }
+            uncertainTargets.add(targetNodeId);
+            continue;
+          }
+
+          const candidates = declarations.map(
+            (declaration, declarationOrder) => ({
+              declaration,
+              specificity,
+              sourceOrder: currentSourceOrder,
+              declarationOrder,
+            }),
           );
-          if (conflict) return;
-          continue;
+          const targetDeclarations =
+            declarationsByTarget.get(targetNodeId) ?? [];
+          targetDeclarations.push(...candidates);
+          declarationsByTarget.set(targetNodeId, targetDeclarations);
+
+          const states =
+            declarationsByTargetAndState.get(targetNodeId) ?? new Map();
+          const stateDeclarations = states.get(state) ?? [];
+          stateDeclarations.push(...candidates);
+          states.set(state, stateDeclarations);
+          declarationsByTargetAndState.set(targetNodeId, states);
         }
-        const targetProperties = propertiesByTarget.get(targetNodeId);
-        if (
-          targetProperties &&
-          transitionDeclarationsConflict(declarations, targetProperties)
-        ) {
-          conflict = true;
-          return;
-        }
+      }
+    });
+    if (conflict) return true;
+    sourceOrder += rootOrder;
+  }
+
+  for (const [targetNodeId, states] of declarationsByTargetAndState) {
+    const properties = propertiesByTarget.get(targetNodeId);
+    if (!properties) continue;
+    if (
+      uncertainTargets.has(targetNodeId) &&
+      (declarationsByTarget.get(targetNodeId)?.length ?? 0) > 0
+    ) {
+      return true;
+    }
+    for (const declarations of states.values()) {
+      if (
+        transitionDeclarationsConflict(
+          sortTransitionCascade(declarations).map((entry) => entry.declaration),
+          properties,
+        )
+      ) {
+        return true;
       }
     }
+
+    // Different pseudo-class states can be active together. This combined
+    // check is conservative; per-state checks above prevent one state from
+    // hiding a conflict in another state through a later override.
+    const declarations = declarationsByTarget.get(targetNodeId) ?? [];
+    if (
+      transitionDeclarationsConflict(
+        sortTransitionCascade(declarations).map((entry) => entry.declaration),
+        properties,
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+interface TransitionCascadeDeclaration {
+  declaration: postcss.Declaration;
+  specificity: readonly [number, number, number];
+  sourceOrder: number;
+  declarationOrder: number;
+}
+
+function sortTransitionCascade(
+  declarations: readonly TransitionCascadeDeclaration[],
+): TransitionCascadeDeclaration[] {
+  return [...declarations].sort((left, right) => {
+    if (left.declaration.important !== right.declaration.important) {
+      return left.declaration.important ? 1 : -1;
+    }
+    for (let index = 0; index < 3; index += 1) {
+      const difference = left.specificity[index]! - right.specificity[index]!;
+      if (difference !== 0) return difference;
+    }
+    return (
+      left.sourceOrder - right.sourceOrder ||
+      left.declarationOrder - right.declarationOrder
+    );
   });
-  return conflict;
+}
+
+function transitionSelectorState(
+  selector: string,
+  simpleSelector: string,
+): string | null {
+  if (simpleSelector === "*") {
+    return selector.trim().slice(1).toLowerCase();
+  }
+  const trimmed = selector.trim();
+  if (!trimmed.startsWith(simpleSelector)) return null;
+  const suffix = trimmed.slice(simpleSelector.length).trim();
+  if (
+    suffix &&
+    !/^(?::[_a-zA-Z][-_a-zA-Z0-9]*(?:\([^()]*\))?)+$/.test(suffix)
+  ) {
+    return null;
+  }
+  return suffix.toLowerCase();
+}
+
+function transitionSelectorSpecificity(
+  selector: string,
+  simpleSelector: string,
+): readonly [number, number, number] | null {
+  let specificity: [number, number, number] = [0, 0, 0];
+  const simple = parseMotionAuthoredCssSimpleSelector(simpleSelector);
+  if (simple?.kind === "id") specificity[0] = 1;
+  else if (simple?.kind === "class" || simple?.kind === "attribute") {
+    specificity[1] = 1;
+  } else if (simple?.kind === "type") specificity[2] = 1;
+  else if (simpleSelector !== "*") return null;
+
+  const state = transitionSelectorState(selector, simpleSelector);
+  if (state === null || state.length === 0)
+    return state === null ? null : specificity;
+  const pseudoClasses = /:([_a-zA-Z][-_a-zA-Z0-9]*)(?:\(([^()]*)\))?/g;
+  let matched = "";
+  for (const match of state.matchAll(pseudoClasses)) {
+    matched += match[0];
+    const name = match[1]!.toLowerCase();
+    if (match[2] !== undefined) {
+      if (name !== "where") return null;
+      continue;
+    }
+    specificity[1] += 1;
+  }
+  return matched === state ? specificity : null;
 }
 
 function resolveTransitionTargets(

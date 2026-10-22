@@ -385,7 +385,7 @@ describe("get-motion-timeline localhost React source", () => {
 
   it("recovers Motion source and write capability from the linked HTML route", async () => {
     const htmlPath = "pages/home.html";
-    const html = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><h1 data-agent-native-node-id="hero">Hello</h1></main></body></html>`;
+    const html = `<!doctype html><html><head></head><body><main><h1 data-agent-native-node-id="hero">Hello</h1></main></body></html>`;
     const htmlHash = sourceHash(html);
     const managedHtml = applyMotionHtmlSourceEdit({
       currentSource: html,
