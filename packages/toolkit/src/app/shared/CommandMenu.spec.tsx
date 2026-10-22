@@ -126,6 +126,7 @@ describe("CommandMenu", () => {
     renderResultsHasItems,
     renderResultsPosition,
     emptyState,
+    noMatchSuggestionsSlot,
     container: portalContainer,
     size,
     showSettingsCommand,
