@@ -4803,6 +4803,13 @@ function PageEditorSessionBody({
     null,
   );
   const retryPendingSaveDelayRef = useRef(800);
+  // Primary read receipts cover title/body; metadata errors still block navigation.
+  const readPrimaryPersistenceError = useCallback(
+    () =>
+      persistenceErrorsRef.current.get("title") ??
+      persistenceErrorsRef.current.get("content"),
+    [],
+  );
   const readEditorSaveState = useCallback(() => {
     const fieldsMatchingSaved: (keyof DocumentUpdates)[] = [];
     if (localTitleRef.current === lastSavedTitleRef.current.title)
@@ -4831,13 +4838,13 @@ function PageEditorSessionBody({
       recoveryPending:
         reconcileRecoveryStateRef.current !== null ||
         recoveryDraftRef.current !== null ||
-        persistenceErrorsRef.current.size > 0,
+        readPrimaryPersistenceError() !== undefined,
       localTitle: localTitleRef.current,
       localContent: localContentRef.current,
       savedTitle: lastSavedTitleRef.current,
       savedContent: lastSavedContentRef.current,
     });
-  }, []);
+  }, [readPrimaryPersistenceError]);
   publishEditorSaveStateRef.current = () => {
     const awareness = collabAwarenessRef.current;
     if (!awareness || isLocalFileDocument || isLinkedLocalSourceDocument)
@@ -5526,7 +5533,7 @@ function PageEditorSessionBody({
       await documentSaveQueueRef.current;
       while (pendingPersistenceRef.current.size > 0)
         await Promise.allSettled([...pendingPersistenceRef.current]);
-      const error = persistenceErrorsRef.current.values().next().value;
+      const error = readPrimaryPersistenceError();
       if (error !== undefined) throw error.error;
     },
   };

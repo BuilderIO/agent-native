@@ -72,6 +72,27 @@ const barrierStore = vi.hoisted(() => ({
   capture: vi.fn(),
 }));
 vi.mock("@agent-native/core", () => import("@agent-native/core/action"));
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => {
+    throw new Error("The mounted editor tests prohibit database access.");
+  },
+  createGetDb: () => {
+    throw new Error(
+      "The mounted editor tests prohibit database initialization.",
+    );
+  },
+}));
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  resolveAccess: async () => ({ resource: fixture.page }),
+}));
+vi.mock("@agent-native/core/server", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/server")>()),
+  buildDeepLink: () => "https://example.test/page/recovery-page",
+}));
+vi.mock("../../../actions/_database-utils.js", () => ({
+  isSoftDeletedDatabaseDocument: async () => false,
+}));
 vi.mock("../../../server/db/index.js", () => ({
   getDb: () => {
     throw new Error("The mounted barrier uses its canonical storage fixture.");
@@ -622,11 +643,25 @@ function connectBarrierStore(propertyId?: string) {
 async function runConnectedBarrier(propertyId?: string) {
   const { flushOpenDocumentEditorToSql } =
     await import("../../../actions/_document-flush");
+  return runConnectedRequest(() =>
+    flushOpenDocumentEditorToSql({
+      documentId: fixture.page!.id,
+      propertyId,
+    }),
+  );
+}
+
+async function runConnectedPull() {
+  const { default: pullDocument } =
+    await import("../../../actions/pull-document");
+  return runConnectedRequest(async () =>
+    pullDocument.run({ id: fixture.page!.id, format: "markdown" }),
+  );
+}
+
+async function runConnectedRequest(request: () => Promise<unknown>) {
   let result: { value?: unknown; error?: unknown } | null = null;
-  void flushOpenDocumentEditorToSql({
-    documentId: fixture.page!.id,
-    propertyId,
-  }).then(
+  void request().then(
     (value) => {
       result = { value };
     },
@@ -637,7 +672,7 @@ async function runConnectedBarrier(propertyId?: string) {
   for (let elapsed = 0; result === null && elapsed < 20_200; elapsed += 200) {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(200);
-      await new Promise((resolve) => setImmediate(resolve));
+      await realDelay(5);
     });
   }
   expect(result).not.toBeNull();
@@ -892,13 +927,20 @@ function pasteTitle(value: string) {
   });
 }
 
-it("settles the failed pending title carried by a direct icon save after a later queued save", async () => {
-  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
-  fixture.page!.revision = documentRevisionToken(1, fixture.page!.content);
-  const failure = new Error("The direct icon and title save failed.");
-  fixture.save
-    .mockRejectedValueOnce(failure)
-    .mockImplementation(async (input) => {
+it.each([false, true])(
+  "freshly reads an accepted primary title while preserving an independent failed icon and navigation refusal (reverted: %s)",
+  async (reverted) => {
+    fixture.realPrimaryEditor = true;
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    fixture.page!.revision = documentRevisionToken(1, fixture.page!.content);
+    const failure = new Error("The direct icon and title save failed.");
+    let failing = reverted;
+    let iconFailed = false;
+    fixture.save.mockImplementation(async (input) => {
+      if (failing || (input.icon !== undefined && !iconFailed)) {
+        if (input.icon !== undefined) iconFailed = true;
+        throw failure;
+      }
       fixture.page = {
         ...fixture.page!,
         ...(input.title !== undefined ? { title: input.title } : {}),
@@ -907,58 +949,113 @@ it("settles the failed pending title carried by a direct icon save after a later
       };
       return fixture.page;
     });
-  await act(async () => renderEditor());
-  pasteTitle("Saved after the icon failure");
-  await act(async () => {
-    await expect(fixture.pickIcon!("tabler:star")).rejects.toBe(failure);
-  });
-  expect(fixture.save.mock.calls[0][0]).toMatchObject({
-    icon: "tabler:star",
-    title: "Saved after the icon failure",
-    editorSessionId: undefined,
-    editorEditGeneration: undefined,
-  });
-  await act(async () => vi.advanceTimersByTimeAsync(500));
-  await act(async () => renderEditor());
-  expect(fixture.page!.title).toBe("Saved after the icon failure");
-  expect(fixture.save.mock.calls[1][0]).toMatchObject({
-    title: "Saved after the icon failure",
-    editorSessionId: fixture.awareness!.getLocalState()!.editorSessionId,
-    editorEditGeneration: 1,
-  });
-  // The icon also failed: settle it independently after the queued title ACK.
-  await act(async () => {
-    await fixture.pickIcon!("tabler:star");
-  });
-  expect(fixture.save.mock.calls[2][0]).not.toHaveProperty("title");
-  expect(fixture.save).toHaveBeenCalledTimes(3);
-  await act(async () => {
-    await expect(fixture.session!.flush()).resolves.toBeUndefined();
-  });
-  const store = connectBarrierStore();
-  expect(await runConnectedBarrier()).toMatchObject({
-    value: {
-      status: "flushed",
-      snapshot: {
-        title: "Saved after the icon failure",
+    await act(async () => renderEditor());
+    pasteTitle("Saved after the icon failure");
+    await act(async () => {
+      await expect(fixture.pickIcon!("tabler:star")).rejects.toBe(failure);
+    });
+    expect(fixture.save.mock.calls[0][0]).toMatchObject({
+      icon: "tabler:star",
+      title: "Saved after the icon failure",
+      editorSessionId: undefined,
+      editorEditGeneration: undefined,
+    });
+    if (reverted) {
+      await act(async () => vi.advanceTimersByTimeAsync(500));
+      pasteTitle("Saved title");
+      await act(async () => vi.advanceTimersByTimeAsync(500));
+      expect(fixture.save.mock.calls[2][0]).toMatchObject({
+        title: "Saved title",
         content: "Saved body",
+        editorEditGeneration: 2,
+      });
+      expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(true);
+      const refused = connectBarrierStore();
+      expect(await runConnectedPull()).toMatchObject({
+        error: { errorCode: "open_editor_flush_timeout" },
+      });
+      expect(refused.captures).toHaveLength(0);
+      failing = false;
+      pasteTitle("Saved title");
+    }
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    await act(async () => renderEditor());
+    const acceptedTitle = reverted
+      ? "Saved title"
+      : "Saved after the icon failure";
+    expect(fixture.page!.title).toBe(acceptedTitle);
+    const acceptedCount = reverted ? 4 : 2;
+    expect(fixture.save).toHaveBeenCalledTimes(acceptedCount);
+    expect(fixture.save.mock.calls[acceptedCount - 1][0]).toMatchObject({
+      title: acceptedTitle,
+      editorSessionId: fixture.awareness!.getLocalState()!.editorSessionId,
+      editorEditGeneration: reverted ? 3 : 1,
+    });
+    expect(
+      fixture.save.mock.calls
+        .slice(1)
+        .every(([input]) => input.icon === undefined),
+    ).toBe(true);
+    const store = connectBarrierStore();
+    const ackStart = publishedAcks().length;
+    expect(await runConnectedPull()).toMatchObject({
+      value: {
+        title: acceptedTitle,
+        content: "Saved body",
+        editorFlush: {
+          status: "flushed",
+          editors: [
+            {
+              clientId: fixture.awareness!.clientID,
+              editorSessionId:
+                fixture.awareness!.getLocalState()!.editorSessionId,
+              flush: "answered",
+              prepareToken: expect.any(String),
+              verifyToken: expect.any(String),
+            },
+          ],
+        },
       },
-    },
-  });
-  expect(store.requests.map((request) => request.phase)).toEqual([
-    "prepare",
-    "verify",
-  ]);
-  expect(publishedAcks().map((answer) => answer.status)).toEqual([
-    "prepared",
-    "verified",
-  ]);
-  expect(fixture.save).toHaveBeenCalledTimes(4);
-  expect(fixture.save.mock.calls[3][0]).toMatchObject({
-    title: "Saved after the icon failure",
-    content: "Saved body",
-  });
-});
+    });
+    expect(store.requests.map((request) => request.phase)).toEqual([
+      "prepare",
+      "verify",
+    ]);
+    expect(store.captures).toEqual([
+      expect.objectContaining({ title: acceptedTitle, content: "Saved body" }),
+    ]);
+    expect(
+      publishedAcks()
+        .slice(ackStart)
+        .map((answer) => answer.status),
+    ).toEqual(["prepared", "verified"]);
+    expect(store.requests[0].phaseToken).not.toBe(store.requests[1].phaseToken);
+    expect(store.values.size).toBe(0);
+    expect(fixture.save).toHaveBeenCalledTimes(acceptedCount);
+    await act(async () => {
+      await expect(fixture.session!.flush()).rejects.toThrow(
+        "editor.pageSaveBeforeNavigationFailed",
+      );
+    });
+    expect(fixture.save).toHaveBeenCalledTimes(acceptedCount + 1);
+    expect(fixture.save.mock.calls[acceptedCount][0]).toMatchObject({
+      title: acceptedTitle,
+      content: "Saved body",
+    });
+    await act(async () => {
+      await fixture.pickIcon!("tabler:star");
+    });
+    expect(fixture.save.mock.calls[acceptedCount + 1][0]).toMatchObject({
+      icon: "tabler:star",
+    });
+    expect(fixture.save.mock.calls[acceptedCount + 1][0]).not.toHaveProperty(
+      "title",
+    );
+    await act(async () => {
+      await expect(fixture.session!.flush()).resolves.toBeUndefined();
+    });
+  },
+);
 
 it.each(["title", "body"] as const)(
   "preserves attestation and retained recovery for reverted primary %s input until an accepted retry",
