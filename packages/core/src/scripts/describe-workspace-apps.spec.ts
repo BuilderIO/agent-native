@@ -292,6 +292,7 @@ describe("describe-workspace-apps", () => {
         description: "Customer success dashboard: account health and usage.",
         whenToUse: [
           "Look up AI credit usage for a customer account or user email.",
+          "Review renewal risk, ARR at risk, open support escalations, recent Gong calls, and HubSpot activity for a named customer account before a QBR, renewal, or executive check-in with that customer.",
         ],
       }),
       agent({
@@ -317,6 +318,9 @@ describe("describe-workspace-apps", () => {
       "When to use: Look up AI credit usage for a customer account or user email.";
     expect(summary).toContain(guidance);
     expect(detail).toContain(guidance);
+    // Later entries must survive past the 240-character description budget.
+    expect(summary).toContain("executive check-in with that customer.");
+    expect(detail).toContain("executive check-in with that customer.");
   });
 
   it("lists the real app ids when the requested app does not exist", async () => {

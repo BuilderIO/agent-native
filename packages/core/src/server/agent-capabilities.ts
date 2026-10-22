@@ -9,6 +9,7 @@ export const MAX_APPS = 30;
 const MAX_SKILLS_IN_SUMMARY = 8;
 const MAX_SKILLS_IN_DETAIL = 60;
 const MAX_DESCRIPTION_CHARS = 240;
+const MAX_WHEN_TO_USE_CHARS = 600;
 const CARD_TIMEOUT_MS = 6_000;
 const CARD_CONCURRENCY = 8;
 const CARD_CACHE_TTL_MS = 30_000;
@@ -206,7 +207,7 @@ export function purposeOf(peer: PeerCapabilities): string {
   // ranked apps by name alone and can overrule the ranking.
   const whenToUse = peer.agent.whenToUse?.join("; ").trim();
   return whenToUse
-    ? `${purpose}\nWhen to use: ${truncate(whenToUse, MAX_DESCRIPTION_CHARS)}`
+    ? `${purpose}\nWhen to use: ${truncate(whenToUse, MAX_WHEN_TO_USE_CHARS)}`
     : purpose;
 }
 
