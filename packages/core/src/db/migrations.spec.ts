@@ -517,6 +517,39 @@ describe("runMigrations – run-only entries", () => {
     expect(exec.insertedNames).toEqual([]);
     expect(exec.insertedVersions).toEqual([]);
   });
+
+  it("retries a callback that loses a concurrent CREATE TABLE catalog race", async () => {
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+    const exec = makeNamedExec({ version: 0, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+    const raced = Object.assign(
+      new Error(
+        'duplicate key value violates unique constraint "pg_type_typname_nsp_index"',
+      ),
+      { code: "23505", constraint_name: "pg_type_typname_nsp_index" },
+    );
+    const run = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(raced)
+      .mockResolvedValueOnce(undefined);
+
+    try {
+      const plugin = runMigrations(
+        [{ version: 1, name: "search-index", sql: {}, run }],
+        { table: "catalog_race_run_only_migrations" },
+      );
+      await plugin(null);
+
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(exit).not.toHaveBeenCalled();
+      expect(exec.insertedNames).toEqual(["search-index"]);
+      expect(exec.insertedVersions).toEqual([1]);
+    } finally {
+      exit.mockRestore();
+    }
+  });
 });
 
 describe("runMigrations – Postgres steady-state (no pending migrations)", () => {

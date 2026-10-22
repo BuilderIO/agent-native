@@ -46,6 +46,10 @@ const setupGateMocks = vi.hoisted(() => ({
   requireAgentChatAiSetup: vi.fn(async (..._args: unknown[]) => undefined),
 }));
 
+const queueDrainHarness = vi.hoisted(() => ({
+  schedule: vi.fn(),
+}));
+
 const handlerHarness = vi.hoisted(() => ({
   options: [] as Array<{
     actions: Record<string, unknown>;
@@ -166,6 +170,11 @@ vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./agent-chat-ai-setup.js")>()),
   requireAgentChatAiSetup: (...args: unknown[]) =>
     setupGateMocks.requireAgentChatAiSetup(...args),
+}));
+
+vi.mock("./queued-submission-inbox-drain.js", () => ({
+  scheduleQueuedSubmissionInboxDrain: (...args: unknown[]) =>
+    queueDrainHarness.schedule(...args),
 }));
 
 import {
@@ -311,6 +320,7 @@ beforeEach(() => {
   threadStoreMocks.updateThreadData.mockResolvedValue(true);
   runStoreMocks.listRunsForThread.mockReset();
   runStoreMocks.listRunsForThread.mockResolvedValue([]);
+  queueDrainHarness.schedule.mockReset();
   mocks.getSession.mockResolvedValue(null);
   mocks.getWorkspaceAppProfile.mockReset().mockResolvedValue(null);
   mocks.loadAgentsBundle.mockResolvedValue({
@@ -715,6 +725,13 @@ describe("agent chat queued-message route", () => {
         hashInput: submissionPayload,
       }),
       expect.any(Object),
+    );
+    expect(queueDrainHarness.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId,
+        turnContinues: false,
+        drain: expect.any(Function),
+      }),
     );
   });
 
