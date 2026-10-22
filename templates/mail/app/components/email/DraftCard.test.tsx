@@ -371,6 +371,29 @@ describe("DraftCard", () => {
     expect(mockUpdateModelContext).toHaveBeenCalledTimes(1);
   });
 
+  it("logs a report the chat couldn't take", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockUpdateModelContext.mockImplementation(() =>
+      Promise.reject(new Error("host gone")),
+    );
+    mockCompose.drafts = [newDraft];
+    const { getByText, rerender } = render(<DraftCard draftId="new-draft" />);
+
+    progress({ status: "sent" });
+    act(() => composeProps.current!.onDiscard("new-draft"));
+    mockCompose.drafts = [];
+    rerender(<DraftCard draftId="new-draft" />);
+
+    expect(getByText("mail.toasts.messageSent")).toBeTruthy();
+    await waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(
+        "Couldn't tell the chat about draft new-draft:",
+        expect.any(Error),
+      ),
+    );
+    warn.mockRestore();
+  });
+
   it("confirms a deleted draft", async () => {
     mockCompose.drafts = [newDraft];
     const { getByRole, getByText, rerender } = render(

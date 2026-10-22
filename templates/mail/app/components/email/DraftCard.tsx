@@ -543,15 +543,29 @@ function useReportOutcomeToModel(draftId: string, outcome: CardOutcome | null) {
         : outcome.status === "scheduled"
           ? `The user scheduled email draft ${draftId} to send at ${runAt}.`
           : `The user deleted email draft ${draftId} from the Mail card.`;
-    void Promise.resolve(
-      updateMcpAppModelContext({
-        structuredContent: {
-          draftId,
-          status: outcome.status,
-          ...(runAt ? { runAt } : {}),
+    const reported = updateMcpAppModelContext({
+      structuredContent: {
+        draftId,
+        status: outcome.status,
+        ...(runAt ? { runAt } : {}),
+      },
+      content: [{ type: "text", text }],
+    });
+    // Outside a chat there's no model to tell. In one, the card already shows
+    // the outcome, so a failed report only costs the model this update.
+    if (reported) {
+      void reported.then(
+        (ok) => {
+          if (!ok) {
+            console.warn(
+              `The chat didn't take the update for draft ${draftId}.`,
+            );
+          }
         },
-        content: [{ type: "text", text }],
-      }) || false,
-    ).catch(() => false);
+        (error) => {
+          console.warn(`Couldn't tell the chat about draft ${draftId}:`, error);
+        },
+      );
+    }
   }, [draftId, outcome]);
 }
