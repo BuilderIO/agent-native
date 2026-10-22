@@ -535,6 +535,54 @@ describe("opening a page", () => {
     },
   );
 
+  // Opening the panel stays out of undo history, so undoing the insert has to
+  // remove the video the panel change left in place.
+  it("undoes inserting a video after its source panel opens", async () => {
+    const opened = await open(livePage("Intro."));
+    const videos = () => {
+      let count = 0;
+      opened.editor.state.doc.forEach((node) => {
+        if (node.type.name === "video") count += 1;
+      });
+      return count;
+    };
+    act(() => {
+      opened.editor
+        .chain()
+        .insertContentAt(opened.editor.state.doc.content.size, {
+          type: "video",
+          attrs: { src: "https://example.com/demo.mp4" },
+        })
+        .run();
+    });
+    // Past the undo manager's capture window, so the panel change can't join
+    // the insert's undo step.
+    await settle(700);
+    expect(videos()).toBe(1);
+    const more = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.media.moreVideoActions"]',
+    );
+    expect(more).not.toBeNull();
+    act(() => more!.click());
+    const replace = [
+      ...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent?.includes("editor.media.replace"));
+    expect(replace).toBeDefined();
+    act(() => replace!.click());
+    await settle();
+    let panelOpen = false;
+    opened.editor.state.doc.forEach((node) => {
+      if (node.type.name === "video") panelOpen = node.attrs.sourcePanelOpen;
+    });
+    expect(panelOpen).toBe(true);
+    act(() => {
+      runPersistableHistoryCommand(opened.editor, "undo");
+    });
+    await settle();
+    expect(videos()).toBe(0);
+    expect(docToNfm(opened.editor.getJSON() as PMDoc)).not.toContain("video");
+  });
+
   it("does not save comment and suggestion highlights", async () => {
     const thread: CommentThread = {
       threadId: "t1",
