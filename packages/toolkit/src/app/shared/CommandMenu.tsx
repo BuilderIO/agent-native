@@ -390,6 +390,20 @@ function CommandDocsGroup({ docs, heading = "Docs" }: CommandDocsGroupProps) {
   );
 }
 
+function hasCommandItems(children: ReactNode): boolean {
+  return React.Children.toArray(children).some((child) => {
+    if (!React.isValidElement(child)) return false;
+    if (child.type === CommandItem || child.type === CommandItemPrimitive) {
+      return true;
+    }
+    if (child.type === CommandDocsGroup) {
+      const docs = (child.props as CommandDocsGroupProps).docs;
+      return docs.length > 0;
+    }
+    return hasCommandItems((child.props as { children?: ReactNode }).children);
+  });
+}
+
 const SETTINGS_SEARCH_TERMS = [
   "settings",
   "preferences",
@@ -798,8 +812,7 @@ export function CommandMenu<TAppContext = unknown>({
   };
 
   const renderList = (results: ReactNode = dynamicResults) => {
-    const hasResults =
-      hasCommandResults || (results != null && results !== false);
+    const hasResults = hasCommandResults || hasCommandItems(results);
     const list = (
       <CommandListPrimitive>
         {activeAppPage ? (
@@ -952,8 +965,7 @@ export function CommandMenu<TAppContext = unknown>({
                   showSettingsRow ||
                   showChangelogRow ||
                   showAboutRow ||
-                  showSignOutRow ||
-                  Boolean(results)) && <CommandSeparator />}
+                  showSignOutRow) && <CommandSeparator />}
                 <div className="p-1">
                   {providerStatus === "unavailable" ? (
                     <div
@@ -1052,7 +1064,7 @@ export function CommandMenu<TAppContext = unknown>({
           ref={containerRef}
           container={container}
           aria-describedby={undefined}
-          onPointerMove={(event) => {
+          onPointerMoveCapture={(event) => {
             if (
               initialSelection === "none" &&
               (event.target as HTMLElement).closest?.("[cmdk-item]")

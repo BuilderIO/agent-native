@@ -1592,6 +1592,22 @@ describe("CommandMenu", () => {
     expect(document.body.textContent).toContain("Ask AI");
   });
 
+  it("shows the custom empty state when dynamic results contain no command items", () => {
+    renderAppCommands({
+      groups: [],
+      renderResults: () => (
+        <CommandMenu.Group heading="Dynamic results">{null}</CommandMenu.Group>
+      ),
+      emptyState: "No matching records",
+    });
+
+    search("missing");
+
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "No matching records",
+    );
+  });
+
   it("honors first and none initial selection modes", () => {
     const groups = [
       {
@@ -1673,6 +1689,29 @@ describe("CommandMenu", () => {
         '[cmdk-item][data-value="app-command:async-results:first-result"][aria-selected="true"]',
       ),
     ).toBeTruthy();
+  });
+
+  it("allows pointer selection when initialSelection is none", () => {
+    renderAppCommands({
+      groups: [
+        {
+          id: "actions",
+          order: 1,
+          commands: [{ id: "first", order: 1, label: "First", onSelect() {} }],
+        },
+      ],
+      initialSelection: "none",
+    });
+
+    const row = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:actions:first"]',
+    );
+    expect(row).toBeTruthy();
+    act(() => {
+      row!.dispatchEvent(new Event("pointermove", { bubbles: true }));
+    });
+
+    expect(row?.getAttribute("aria-selected")).toBe("true");
   });
 
   it("portals the menu into an app-provided container", () => {
