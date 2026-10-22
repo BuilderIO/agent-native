@@ -483,7 +483,8 @@ groups, so make it a count such as people, not an average or a rate.
 Breakdowns don't work on a pivoted table (`config.pivot`). The
 open breakdown is in `view-screen` as `rowBreakdown`.
 
-BigQuery and first-party charts can declare `config.drilldown: { sql: "…" }`
+BigQuery and first-party line, area, bar, combo, pie and funnel charts can
+declare `config.drilldown: { sql: "…" }`
 to open records for a clicked point instead of aggregate rows. The template
 receives the dashboard filters plus `{{drillX}}` (raw x-axis value) and
 `{{drillSeries}}` (raw series key, or empty when absent), escaped for the source.

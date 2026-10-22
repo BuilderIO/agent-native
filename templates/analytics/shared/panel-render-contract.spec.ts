@@ -260,16 +260,15 @@ describe("unknownPanelConfigKeys", () => {
         expect.objectContaining({ kind: "invalid-value", key: "drilldown" }),
       ]);
     }
-    expect(
-      unknownPanelConfigKeys(
-        panel(
-          { drilldown: { sql: "SELECT 1" } },
-          { ...extra, chartType: "table" },
+    for (const chartType of ["table", "heatmap"]) {
+      expect(
+        unknownPanelConfigKeys(
+          panel({ drilldown: { sql: "SELECT 1" } }, { ...extra, chartType }),
         ),
-      ),
-    ).toEqual([
-      expect.objectContaining({ kind: "wrong-chart-type", key: "drilldown" }),
-    ]);
+      ).toEqual([
+        expect.objectContaining({ kind: "wrong-chart-type", key: "drilldown" }),
+      ]);
+    }
     expect(
       unknownPanelConfigKeys(
         panel({ drilldown: { sql: "SELECT 1" } }, { source: "prometheus" }),

@@ -79,7 +79,7 @@ export const PANEL_CONFIG_KEYS = {
   columns: {},
   breakdowns: { onlyFor: ["table"] },
   drilldown: {
-    onlyFor: ["line", "area", "bar", "combo", "pie", "funnel", "heatmap"],
+    onlyFor: ["line", "area", "bar", "combo", "pie", "funnel"],
   },
   limit: {},
   extensionId: {},
