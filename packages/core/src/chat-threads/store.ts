@@ -2576,6 +2576,7 @@ export interface ThreadQueuedMessageMutationResult {
   promotionBusy?: boolean;
   receiptManaged?: boolean;
   receiptUnavailable?: boolean;
+  retryDeferred?: boolean;
   receiptConflict?: boolean;
   receiptUpdated?: boolean;
   claimLost?: boolean;
@@ -2737,6 +2738,7 @@ export async function mutateThreadQueuedMessages(
   return withThreadDataLock(threadId, async () => {
     let result: ThreadQueuedMessageMutationResult | undefined;
     let receiptUnavailable = false;
+    let retryDeferred = false;
     let receiptConflict = false;
     let hadExistingQueuedMessage = false;
     let removedReceiptState: "removed" | "expired" = "removed";
@@ -3065,14 +3067,23 @@ export async function mutateThreadQueuedMessages(
                     tx,
                     threadId,
                     mutation.receipt.messageId,
+                    { forUpdate: true },
                   );
                   if (
+                    !currentReceipt ||
                     !queuedSubmissionReceiptSnapshotMatches(
                       currentReceipt,
                       mutation.receipt,
                     )
                   ) {
                     receiptUnavailable = true;
+                    return false;
+                  }
+                  if (
+                    currentReceipt.retryAfter !== undefined &&
+                    currentReceipt.retryAfter > Date.now()
+                  ) {
+                    retryDeferred = true;
                     return false;
                   }
                   return true;
@@ -3426,6 +3437,8 @@ export async function mutateThreadQueuedMessages(
       });
       if (receiptUnavailable) {
         result = { queuedMessages: [], receiptUnavailable: true };
+      } else if (retryDeferred) {
+        result = { queuedMessages: [], retryDeferred: true };
       } else if (receiptConflict) {
         result = { queuedMessages: [], receiptConflict: true };
       }

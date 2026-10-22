@@ -8924,6 +8924,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               deferReceipt(receipt.threadId);
               continue;
             }
+            if (claim?.retryDeferred) {
+              deferReceipt(receipt.threadId);
+              continue;
+            }
             if (claim?.receiptConflict) {
               claimId = undefined;
               result.blocked += 1;

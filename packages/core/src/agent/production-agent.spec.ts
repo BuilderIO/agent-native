@@ -5283,6 +5283,7 @@ describe("createProductionAgentHandler", () => {
             threadId: "thread-inline-approval",
             approvedToolCalls: [approvalKey],
             approvedToolCallAskIds: [approvalId],
+            internalContinuation: true,
             structuredHistory: [
               {
                 role: "assistant",
@@ -5338,6 +5339,7 @@ describe("createProductionAgentHandler", () => {
           dispatchMode: "foreground",
         });
         expect(slotOptions).not.toHaveProperty("dispatchPayload");
+        expect(slotOptions).not.toHaveProperty("hasPendingQueuedSubmission");
         expect(runAction).not.toHaveBeenCalled();
         expect(mockFireInternalDispatch).not.toHaveBeenCalled();
       } finally {

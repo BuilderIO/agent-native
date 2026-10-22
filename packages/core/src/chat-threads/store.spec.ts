@@ -3623,6 +3623,48 @@ describe("chat thread store", () => {
     });
   });
 
+  it("does not claim an inbox receipt whose retry time advanced after the scan", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-retry-after-scan",
+      threadId: "thread-1",
+      text: "Wait for the retry window",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    const scannedReceipt = await getQueuedSubmissionReceipt(
+      "thread-1",
+      message.id,
+    );
+    if (!scannedReceipt)
+      throw new Error("Queued receipt disappeared before claim");
+    const retryAfter = Date.now() + 60_000;
+    submissionRows[0]!.retry_after = retryAfter;
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+    executeMock.mockClear();
+
+    const claim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt: scannedReceipt,
+      claimId: "stale-inbox-scan",
+    });
+
+    expect(claim?.retryDeferred).toBe(true);
+    expect(claim?.claimedMessage).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+    expect(submissionRows[0]!.retry_after).toBe(retryAfter);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /FROM agent_chat_submission_inbox[\s\S]*FOR UPDATE/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("renews only a live interruption claim before its recorded run aborts", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
     const message = {

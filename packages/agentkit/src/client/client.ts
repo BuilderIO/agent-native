@@ -3000,7 +3000,8 @@ export class AgentKitClient implements AgentKitController {
       hasActiveAgentRuns(current) &&
       this.transport.queueMessage
     ) {
-      const queuedMessageId = this.createId("queued-message");
+      const queuedMessageId =
+        input.queuedMessageReservationId ?? this.createId("queued-message");
       let queued: AgentQueuedMessageSubmission;
       try {
         queued = await this.queueMessageWithId(
@@ -3086,7 +3087,7 @@ export class AgentKitClient implements AgentKitController {
     }
     const currentAfterReadiness = this.getThread(input.threadId);
     const message: AgentMessage = {
-      id: this.createId("message"),
+      id: input.queuedMessageReservationId ?? this.createId("message"),
       role: "user",
       createdAt: this.now(),
       status: "complete",

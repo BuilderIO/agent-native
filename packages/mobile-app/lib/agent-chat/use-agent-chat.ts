@@ -1,4 +1,4 @@
-import type { AgentThreadState } from "@agent-native/agentkit";
+import type { AgentRunHandle, AgentThreadState } from "@agent-native/agentkit";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import {
   ensureAgentEngineReadiness,
@@ -809,13 +809,134 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         }
       }, FLUSH_INTERVAL_MS);
 
+      let queuedMessageReservationId: string | undefined;
       try {
         const controller = new AbortController();
-        liveTurnRef.current = { abort: () => controller.abort(), runId: null };
+        let activeRunIdsBeforeSend = new Set<string>();
+        let sendPromise: Promise<AgentRunHandle> | undefined;
+        let sendHandle: AgentRunHandle | undefined;
+        let stopRequested = false;
+        let stopReconciliation: Promise<void> | undefined;
+        const reconcileStoppedDispatch = (): Promise<void> => {
+          stopRequested = true;
+          controller.abort();
+          if (!queuedMessageReservationId) return Promise.resolve();
+          if (!sendPromise) {
+            currentAgentKit.cancelQueuedMessageReservation?.(
+              activeThreadId,
+              queuedMessageReservationId,
+            );
+            return Promise.resolve();
+          }
+          if (stopReconciliation) return stopReconciliation;
+          stopReconciliation = (async () => {
+            let sendFailure: unknown;
+            try {
+              sendHandle ??= await sendPromise;
+            } catch (error) {
+              sendFailure = error;
+            }
+            const messageId = queuedMessageReservationId!;
+            const getStatus = session.client.getQueuedSubmissionStatus;
+            let status;
+            let statusFailure: unknown;
+            if (getStatus) {
+              try {
+                status = await getStatus.call(session.client, {
+                  threadId: activeThreadId,
+                  messageId,
+                });
+              } catch (error) {
+                statusFailure = error;
+              }
+            }
+            const directRunId =
+              sendHandle &&
+              "runId" in sendHandle &&
+              !activeRunIdsBeforeSend.has(sendHandle.runId)
+                ? sendHandle.runId
+                : undefined;
+            if (!status && directRunId) {
+              await session.client.cancelRun(activeThreadId, directRunId);
+              return;
+            }
+            if (!status || status.state === "queued") {
+              let removalFailure: unknown;
+              try {
+                await session.client.removeQueuedMessage(
+                  activeThreadId,
+                  messageId,
+                );
+              } catch (error) {
+                removalFailure = error;
+              }
+              if (getStatus) {
+                try {
+                  status = await getStatus.call(session.client, {
+                    threadId: activeThreadId,
+                    messageId,
+                  });
+                } catch (error) {
+                  status = undefined;
+                  statusFailure = error;
+                }
+              }
+              if (removalFailure && status?.state === "queued") {
+                throw new Error("The queued message could not be stopped.", {
+                  cause: removalFailure,
+                });
+              }
+            }
+            if (status?.state === "submitted") {
+              if (!status.submittedRunId) {
+                throw new Error("The queued message could not be stopped.");
+              }
+              await session.client.cancelRun(
+                activeThreadId,
+                status.submittedRunId,
+              );
+              return;
+            }
+            if (
+              status?.state === "removed" ||
+              status?.state === "expired" ||
+              status?.state === "blocked"
+            ) {
+              return;
+            }
+            throw new Error("The queued message could not be stopped.", {
+              cause: statusFailure ?? sendFailure,
+            });
+          })().catch((error: unknown) => {
+            if (activeGenerationRef.current !== currentGeneration) return;
+            turnBuffer.state = {
+              ...turnBuffer.state,
+              isStreaming: false,
+              activity: null,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "The queued message could not be stopped.",
+              errorCode: "queued_cancel_failed",
+            };
+            turnBuffer.sawTerminal = true;
+            turnBuffer.dirty = true;
+            stateRef.current = turnBuffer.state;
+            setState(turnBuffer.state);
+          });
+          return stopReconciliation;
+        };
+        liveTurnRef.current = {
+          abort: () => {
+            void reconcileStoppedDispatch();
+          },
+          runId: null,
+        };
 
         let loaded = await currentAgentKit.loadThread(activeThreadId, {
           signal: controller.signal,
         });
+        if (controller.signal.aborted) return;
         if (activeGenerationRef.current !== currentGeneration) return;
         const chatScope = [...loaded.messages]
           .reverse()
@@ -827,19 +948,38 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           loaded = await currentAgentKit.loadThread(activeThreadId, {
             signal: controller.signal,
           });
+          if (controller.signal.aborted) return;
           if (activeGenerationRef.current !== currentGeneration) return;
         }
+        activeRunIdsBeforeSend = new Set(loaded.activeRunIds);
         markThreadEventsSeen(activeThreadId, loaded.events);
         turnBuffer.acceptEvents = true;
         turnBuffer.awaitingQueuedHandle = true;
         turnBuffer.earlyQueuedEvents = new Map();
         turnBuffer.earlyQueuedRunIds = new Map();
         turnBuffer.earlyRunEvents = new Map();
+        const reservation = currentAgentKit.reserveQueuedMessage?.({
+          threadId: activeThreadId,
+          text,
+        }) ?? {
+          id: nextLocalId("queued"),
+          threadId: activeThreadId,
+          text,
+          createdAt: new Date().toISOString(),
+        };
+        queuedMessageReservationId = reservation.id;
         const durableAttachments = await uploadMobileChatAttachments(
           currentAgentKit,
           activeThreadId,
           extra.attachments,
         );
+        if (controller.signal.aborted) {
+          currentAgentKit.cancelQueuedMessageReservation?.(
+            activeThreadId,
+            reservation.id,
+          );
+          return;
+        }
         const details = durableAttachments.map(
           ({ type, name, contentType, url }) => ({
             type,
@@ -848,10 +988,11 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             url,
           }),
         );
-        const runHandle = await currentAgentKit.sendMessage(
+        sendPromise = currentAgentKit.sendMessage(
           {
             threadId: activeThreadId,
             text,
+            queuedMessageReservationId: reservation.id,
             attachments: mobileAttachmentsToAgentKitFiles(durableAttachments),
             options: {
               ...(settingsRef.current.model
@@ -889,7 +1030,14 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           },
           { signal: controller.signal },
         );
+        const runHandle = await sendPromise;
+        sendHandle = runHandle;
         reportDispatchResult(true);
+
+        if (stopRequested) {
+          await stopReconciliation;
+          return;
+        }
 
         if (activeGenerationRef.current !== currentGeneration) {
           return;
@@ -1326,6 +1474,12 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       } finally {
         reportDispatchResult(false);
         clearInterval(flushTimer);
+        if (queuedMessageReservationId) {
+          currentAgentKit.cancelQueuedMessageReservation?.(
+            activeThreadId,
+            queuedMessageReservationId,
+          );
+        }
         if (activeGenerationRef.current === currentGeneration) {
           if (activeTurnBufferRef.current === turnBuffer) {
             activeTurnBufferRef.current = null;

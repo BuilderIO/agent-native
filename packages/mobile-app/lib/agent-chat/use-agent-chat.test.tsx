@@ -60,7 +60,10 @@ vi.mock("./message-actions", async (importOriginal) => {
 });
 
 import { createAgentThreadState } from "@agent-native/agentkit";
-import type { AgentEvent } from "@agent-native/agentkit/protocol";
+import type {
+  AgentEvent,
+  AgentQueuedSubmissionStatus,
+} from "@agent-native/agentkit/protocol";
 import { invalidateAgentEngineReadiness } from "@agent-native/core/client/agent-engine-readiness";
 
 import {
@@ -119,17 +122,38 @@ function deferred<T>() {
 }
 
 function createSendClient() {
+  let reservationSequence = 0;
   return {
     subscribe: vi.fn(() => () => {}),
     loadThread: vi.fn(async (threadId: string) =>
       createAgentThreadState(threadId),
     ),
     sendMessage: vi.fn(
-      async (_request: { threadId: string; text: string }) => ({
+      async (
+        _request: {
+          threadId: string;
+          text: string;
+          queuedMessageReservationId?: string;
+        },
+        _context?: { signal?: AbortSignal },
+      ) => ({
         runId: "run-1",
         completed: Promise.resolve(),
       }),
     ),
+    reserveQueuedMessage: vi.fn(
+      ({ threadId, text }: { threadId: string; text: string }) => ({
+        id: `queued-reservation-${++reservationSequence}`,
+        threadId,
+        text,
+        createdAt: "2026-10-21T00:00:00.000Z",
+      }),
+    ),
+    cancelQueuedMessageReservation: vi.fn(),
+    getQueuedSubmissionStatus: vi.fn(
+      async (): Promise<AgentQueuedSubmissionStatus | null | undefined> => null,
+    ),
+    removeQueuedMessage: vi.fn(async () => {}),
     cancelRun: vi.fn(async () => {}),
   };
 }
@@ -374,6 +398,113 @@ describe("useAgentChat approval continuation", () => {
       }
     },
   );
+});
+
+describe("useAgentChat stopping a send before its handle arrives", () => {
+  let mounted: ReturnType<typeof mountAgentChat> | undefined;
+
+  afterEach(() => {
+    mounted?.cleanup();
+    mounted = undefined;
+  });
+
+  it("removes a receipt created by a send that was aborted before its handle arrived", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const client = createSendClient();
+    client.getQueuedSubmissionStatus
+      .mockResolvedValueOnce({ state: "queued" })
+      .mockResolvedValueOnce({ state: "removed" });
+    client.sendMessage.mockImplementationOnce(
+      (_request, context) =>
+        new Promise((_resolve, reject) => {
+          context?.signal?.addEventListener(
+            "abort",
+            () =>
+              reject(
+                Object.assign(new Error("aborted"), { name: "AbortError" }),
+              ),
+            { once: true },
+          );
+        }),
+    );
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+    let dispatchPromise: Promise<boolean> | undefined;
+    await act(async () => {
+      dispatchPromise = mounted?.chat?.send("Stop while dispatch is pending");
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+    const request = client.sendMessage.mock.calls[0]![0];
+    expect(request.queuedMessageReservationId).toBeTruthy();
+
+    await act(async () => {
+      mounted?.chat?.stop();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() =>
+      expect(client.removeQueuedMessage).toHaveBeenCalledOnce(),
+    );
+    await expect(dispatchPromise!).resolves.toBe(false);
+
+    expect(client.getQueuedSubmissionStatus).toHaveBeenNthCalledWith(1, {
+      threadId: request.threadId,
+      messageId: request.queuedMessageReservationId,
+    });
+    expect(client.removeQueuedMessage).toHaveBeenCalledWith(
+      request.threadId,
+      request.queuedMessageReservationId,
+    );
+    expect(mounted?.chat?.errorCode).toBeNull();
+  });
+
+  it("shows an error when an aborted send receipt cannot be confirmed", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const client = createSendClient();
+    client.sendMessage.mockImplementationOnce(
+      (_request, context) =>
+        new Promise((_resolve, reject) => {
+          context?.signal?.addEventListener(
+            "abort",
+            () =>
+              reject(
+                Object.assign(new Error("aborted"), { name: "AbortError" }),
+              ),
+            { once: true },
+          );
+        }),
+    );
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+    await act(async () => {
+      void mounted?.chat?.send("Stop while dispatch is pending");
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+    await act(async () => {
+      mounted?.chat?.stop();
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() =>
+      expect(mounted?.chat?.errorCode).toBe("queued_cancel_failed"),
+    );
+    expect(mounted?.chat?.error).toBe(
+      "The queued message could not be stopped.",
+    );
+    expect(client.removeQueuedMessage).toHaveBeenCalledOnce();
+    expect(mounted?.chat?.isStreaming).toBe(false);
+  });
 });
 
 describe("useAgentChat file uploads", () => {

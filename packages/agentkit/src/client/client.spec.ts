@@ -403,6 +403,49 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("keeps a host queue reservation ID when a run-slot race queues a send", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id, threadId, text }) => ({
+        message: {
+          id: id ?? "queued-raced-send",
+          threadId,
+          text,
+          createdAt: "2026-10-21T00:00:00.000Z",
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        async startRun() {
+          throw new AgentKitRunSlotBusyError("run-active");
+        },
+        queueMessage,
+        removeQueuedMessage: async () => {},
+      },
+    });
+    const reservation = client.reserveQueuedMessage({
+      threadId: "thread-1",
+      text: "Keep this ID across the run-slot race",
+    });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: reservation.text,
+      queuedMessageReservationId: reservation.id,
+    });
+
+    expect(queueMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: reservation.id }),
+      expect.anything(),
+    );
+    expect(client.getThread("thread-1").queuedMessages).toContainEqual(
+      expect.objectContaining({ id: reservation.id }),
+    );
+    await handle.cancel();
+    await client.shutdown();
+  });
+
   it("keeps a replayed queued receipt in its existing queue position", async () => {
     const first: AgentQueuedMessage = {
       id: "queued-first",

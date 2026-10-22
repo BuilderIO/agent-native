@@ -544,9 +544,11 @@ describe("queued submission inbox recurring sweep", () => {
       },
       { actor },
     );
+    const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+    if (!receipt) throw new Error("Queued receipt disappeared before claim");
     await mutateThreadQueuedMessages(threadId, {
-      type: "claim",
-      messageId,
+      type: "claimFromInbox",
+      receipt,
       claimId: "live-promoter",
     });
 

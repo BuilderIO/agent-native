@@ -13414,6 +13414,11 @@ export function createProductionAgentHandler(
         retryable: false,
       };
     }
+    const isAuthorizedApprovalContinuation = Boolean(
+      submittedInternalContinuation === true &&
+      requestedApprovedToolCallAskIds?.length &&
+      resolvedApprovalTurnId,
+    );
     // The continuation marker is client-controlled. Defer setup admission only
     // for automatic successors when the named stop and turn can be checked
     // under the run-slot lock. A user's manual Continue starts new work and
@@ -14850,7 +14855,10 @@ export function createProductionAgentHandler(
       try {
         const runThreadId = threadId;
         const shouldPreserveQueuedOrder = Boolean(
-          !queuedMessageId && !queuedMessageClaimId && !isBackgroundWorker,
+          !isAuthorizedApprovalContinuation &&
+          !queuedMessageId &&
+          !queuedMessageClaimId &&
+          !isBackgroundWorker,
         );
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
