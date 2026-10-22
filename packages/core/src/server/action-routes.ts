@@ -127,7 +127,7 @@ import {
 import { consumeOneTimeJti } from "./identity-sso-store.js";
 import {
   getForwardedRequestOrigin,
-  isSameOriginRequest,
+  hasSameOriginBrowserEvidence,
 } from "./request-origin.js";
 import { hasUiActionCapability } from "./ui-action-capability.js";
 
@@ -294,7 +294,7 @@ async function isProvenUiRequest(
     !userEmail ||
     embedded ||
     getHeader(event, "authorization") ||
-    !isSameOriginRequest(event) ||
+    !hasSameOriginBrowserEvidence(event) ||
     !hasUiActionCapability(event, userEmail)
   ) {
     return false;
@@ -1604,7 +1604,11 @@ function mountActionRoutesInternal(
                 !provenUiRequest &&
                 (await preparedCallNeedsApproval(entry, prepared, {
                   ...runContext,
-                  caller: embedded ? "mcp" : caller,
+                  caller: embedded
+                    ? "mcp"
+                    : caller === "frontend"
+                      ? "http"
+                      : caller,
                 }))
               ) {
                 if (embedded && entry.access) {
@@ -1616,7 +1620,9 @@ function mountActionRoutesInternal(
                 }
                 throw actionApprovalRequiredError(
                   name,
-                  caller,
+                  caller === "frontend" && getHeader(event, "authorization")
+                    ? "http"
+                    : caller,
                   Boolean(verifiedServiceIdentity),
                   embedded,
                 );

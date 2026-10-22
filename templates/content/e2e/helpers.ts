@@ -194,11 +194,13 @@ export async function postAction<T = Record<string, unknown>>(
   name: string,
   data: Record<string, unknown>,
   headers: Record<string, string> = ACTION_HEADERS,
+  baseURL?: string,
 ): Promise<T> {
   const response = await page.request.post(`/_agent-native/actions/${name}`, {
     data,
     headers: {
-      Origin: new URL(test.info().project.use.baseURL ?? page.url()).origin,
+      Origin: new URL(baseURL ?? test.info().project.use.baseURL ?? page.url())
+        .origin,
       ...headers,
     },
   });

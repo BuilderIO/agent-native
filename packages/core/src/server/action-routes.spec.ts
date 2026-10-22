@@ -478,6 +478,8 @@ describe("mountActionRoutes", () => {
     type Caller =
       | "proven UI"
       | "frontend header without UI proof"
+      | "browser cookie without capability"
+      | "bearer with frontend header"
       | "plain HTTP"
       | "MCP OAuth bearer"
       | "org service token"
@@ -486,6 +488,7 @@ describe("mountActionRoutes", () => {
       | "needsApproval true"
       | "predicate false"
       | "predicate throws"
+      | "predicate outside UI"
       | "no needsApproval";
     type Outcome = "runs" | "ui-capability" | "approval-required";
 
@@ -497,12 +500,18 @@ describe("mountActionRoutes", () => {
           throw new Error("cannot decide");
         },
       },
+      "predicate outside UI": {
+        needsApproval: (_args: unknown, ctx: { caller: string }) =>
+          ctx.caller !== "frontend",
+      },
       "no needsApproval": {},
     };
 
     const refusedBy: Record<Caller, Outcome> = {
       "proven UI": "runs",
       "frontend header without UI proof": "ui-capability",
+      "browser cookie without capability": "ui-capability",
+      "bearer with frontend header": "approval-required",
       "plain HTTP": "approval-required",
       "MCP OAuth bearer": "approval-required",
       "org service token": "approval-required",
@@ -512,6 +521,8 @@ describe("mountActionRoutes", () => {
     const labelled: Record<Caller, string> = {
       "proven UI": "frontend",
       "frontend header without UI proof": "frontend",
+      "browser cookie without capability": "frontend",
+      "bearer with frontend header": "frontend",
       "plain HTTP": "http",
       "MCP OAuth bearer": "mcp",
       "org service token": "mcp",
@@ -550,6 +561,11 @@ describe("mountActionRoutes", () => {
       const owner = "owner@example.com";
       if (caller === "proven UI") {
         mockHasUiActionCapability.mockReturnValue(true);
+      }
+      const browser =
+        caller === "proven UI" ||
+        caller === "browser cookie without capability";
+      if (browser) {
         mockGetBrowserCookieSession.mockResolvedValue({ email: owner } as any);
       }
 
@@ -585,6 +601,10 @@ describe("mountActionRoutes", () => {
         _headers: {
           host: "app.example.com",
           "sec-fetch-site": "same-origin",
+          ...(browser ? { cookie: "an_session=test-browser-session" } : {}),
+          ...(caller === "bearer with frontend header"
+            ? { authorization: "Bearer test-token" }
+            : {}),
           ...(caller === "plain HTTP"
             ? {}
             : { "x-agent-native-frontend": "1" }),
@@ -642,6 +662,18 @@ describe("mountActionRoutes", () => {
       name: "browser cookie without CSRF evidence",
       browser: "owner@example.com",
       headers: {},
+      runs: false,
+    },
+    {
+      name: "browser cookie with navigation fetch metadata",
+      browser: "owner@example.com",
+      headers: { "sec-fetch-site": "none" },
+      runs: false,
+    },
+    {
+      name: "browser cookie with desktop shell origin",
+      browser: "owner@example.com",
+      headers: { origin: "tauri://localhost" },
       runs: false,
     },
     {
@@ -732,7 +764,10 @@ describe("mountActionRoutes", () => {
           "better-auth.session_token=test-session; an_ui_capability=test-capability",
         ...testCase.headers,
       },
-      req: { json: async () => ({}) },
+      req: {
+        url: "https://app.example.com/_agent-native/actions/send-message",
+        json: async () => ({}),
+      },
     };
     const result = await mounted[0]!.handler(event);
     expect(mockGetSession).toHaveBeenCalled();
@@ -743,7 +778,9 @@ describe("mountActionRoutes", () => {
     }
     expect(run).not.toHaveBeenCalled();
     expect(result.errorCode).toBe(
-      testCase.embedded ? "approval_required" : "ui_capability_required",
+      testCase.embedded || testCase.headers.authorization
+        ? "approval_required"
+        : "ui_capability_required",
     );
     if (testCase.embedded) {
       expect(event._status).toBe(409);

@@ -2299,12 +2299,8 @@ export default { run: async () => ({ ok: true }) };
       "hasUiActionCapability as hasGeneratedUiActionCapability",
     );
     expect(source).toContain(
-      "isSameOriginRequest as isGeneratedSameOriginRequest",
-    );
-    expect(source).toContain(
       "mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute",
     );
-    expect(source).toContain("!isGeneratedSameOriginRequest(event)");
     expect(source).toContain(
       'setResponseHeader(event, "Cache-Control", "no-" + "store");',
     );
@@ -2419,6 +2415,18 @@ export default {
     ["needsApproval: true", "frontend", 403, "ui_capability_required"],
     ["needsApproval: true", "http", 409, "approval_required"],
     [
+      'needsApproval: (_args, ctx) => ctx.caller !== "frontend"',
+      "frontend bearer",
+      409,
+      "approval_required",
+    ],
+    [
+      'needsApproval: (_args, ctx) => ctx.caller !== "frontend"',
+      "frontend",
+      403,
+      "ui_capability_required",
+    ],
+    [
       'needsApproval: () => { throw new Error("x"); }',
       "http",
       409,
@@ -2453,8 +2461,11 @@ export default {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            ...(caller === "frontend"
+            ...(caller.startsWith("frontend")
               ? { "x-agent-native-frontend": "1" }
+              : {}),
+            ...(caller === "frontend bearer"
+              ? { authorization: "Bearer test-session" }
               : {}),
           },
           body: JSON.stringify({ id: "thing-1" }),

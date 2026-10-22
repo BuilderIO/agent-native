@@ -137,6 +137,11 @@ describe("UI action capability", () => {
 
   it.each([
     { name: "no browser headers", headers: {} },
+    {
+      name: "navigation fetch metadata",
+      headers: { "sec-fetch-site": "none" },
+    },
+    { name: "desktop shell origin", headers: { origin: "tauri://localhost" } },
     { name: "cross-site fetch", headers: { "sec-fetch-site": "cross-site" } },
     { name: "same-site fetch", headers: { "sec-fetch-site": "same-site" } },
     { name: "different origin", headers: { origin: "https://other.test" } },
