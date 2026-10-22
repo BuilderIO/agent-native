@@ -402,15 +402,19 @@ describe("BlockActionsMenu", () => {
     expect(searchBox().value).toBe("");
   });
 
-  it("leaves the keys that pick an input method's candidate to it", () => {
+  it("leaves the keys that pick an input method's candidate to it", async () => {
     const { request } = open(mount(), 0);
 
     search("dup");
     const enter = press(searchBox(), "Enter", { isComposing: true });
     const arrow = press(searchBox(), "ArrowDown", { isComposing: true });
+    const letter = press(searchBox(), "e", { isComposing: true });
+    // Type-to-find moves focus on the next task.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
     expect(enter.defaultPrevented).toBe(false);
     expect(arrow.defaultPrevented).toBe(false);
+    expect(letter.defaultPrevented).toBe(false);
     expect(request.duplicate).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(searchBox());
     expect(menus()).toHaveLength(1);

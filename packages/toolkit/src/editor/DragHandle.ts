@@ -644,6 +644,9 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     let hostMenu: { close: () => void } | null = null;
     let menuContext: DragHandleMenuContext | null = null;
     let menuView: EditorView | null = null;
+    // Fingers on the screen while a menu is open: a scroll they drive is a
+    // person's pan, not a keyboard opening.
+    let menuTouches = 0;
     let menuYBlock: YBlock | null = null;
     let menuEditing = false;
     let currentBlock: HTMLElement | null = null;
@@ -848,10 +851,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       document.removeEventListener("keydown", handleMenuKeyDown, {
         capture: true,
       });
-      window.removeEventListener("resize", handleMenuViewportChange);
-      window.removeEventListener("scroll", handleMenuViewportChange, {
-        capture: true,
-      });
+      unwatchMenuViewport();
       if (hideGrip) forceHideHandle();
     };
 
@@ -1069,10 +1069,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           entry.close = close;
           hostMenu = entry;
           handle?.setAttribute("aria-expanded", "true");
-          window.addEventListener("resize", handleMenuViewportChange);
-          window.addEventListener("scroll", handleMenuViewportChange, {
-            capture: true,
-          });
+          watchMenuViewport();
           return;
         }
       }
@@ -1112,10 +1109,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       document.addEventListener("keydown", handleMenuKeyDown, {
         capture: true,
       });
-      window.addEventListener("resize", handleMenuViewportChange);
-      window.addEventListener("scroll", handleMenuViewportChange, {
-        capture: true,
-      });
+      watchMenuViewport();
 
       el.querySelector<HTMLButtonElement>("button")?.focus({
         preventScroll: true,
@@ -1366,6 +1360,34 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       buttons[nextIndex]?.focus({ preventScroll: true });
     }
 
+    function countMenuTouches(event: TouchEvent) {
+      menuTouches = event.touches.length;
+    }
+
+    function watchMenuViewport() {
+      window.addEventListener("resize", handleMenuViewportChange);
+      window.addEventListener("scroll", handleMenuViewportChange, {
+        capture: true,
+      });
+      for (const type of ["touchstart", "touchend", "touchcancel"] as const) {
+        document.addEventListener(type, countMenuTouches, {
+          capture: true,
+          passive: true,
+        });
+      }
+    }
+
+    function unwatchMenuViewport() {
+      window.removeEventListener("resize", handleMenuViewportChange);
+      window.removeEventListener("scroll", handleMenuViewportChange, {
+        capture: true,
+      });
+      for (const type of ["touchstart", "touchend", "touchcancel"] as const) {
+        document.removeEventListener(type, countMenuTouches, { capture: true });
+      }
+      menuTouches = 0;
+    }
+
     function handleMenuViewportChange(event: Event) {
       // Only a scroll that moves the menu's block closes it: not the menu
       // scrolling its own items, or a sidebar keeping its current row in view.
@@ -1380,6 +1402,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       // the page and scrolls the field into view.
       const active = document.activeElement;
       if (
+        menuTouches === 0 &&
         active instanceof Element &&
         active.matches("input, textarea") &&
         active.closest('[role="menu"]') &&

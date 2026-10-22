@@ -321,8 +321,12 @@ export function BlockActionsMenu({
   };
 
   const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    // Enter or an arrow that picks an input method's candidate.
-    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    // Keys an input method is composing with, or picking a candidate with,
+    // are its alone: the menu's type-to-find would take focus from it.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) {
+      event.stopPropagation();
+      return;
+    }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const items = enabledItems();

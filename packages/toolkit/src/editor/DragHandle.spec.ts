@@ -1304,10 +1304,26 @@ describe("DragHandle app menu", () => {
       window.dispatchEvent(new Event("scroll"));
       expect(close).not.toHaveBeenCalled();
 
+      // Once the keyboard is up, a pan still moves the block away.
+      const touch = (type: string, touches: number) => {
+        const event = new Event(type, { bubbles: true });
+        Object.defineProperty(event, "touches", {
+          value: { length: touches },
+        });
+        document.body.dispatchEvent(event);
+      };
+      touch("touchstart", 1);
+      window.dispatchEvent(new Event("scroll"));
+      expect(close).toHaveBeenCalledTimes(1);
+      touch("touchend", 0);
+
+      hoverAt(32, 12);
+      clickHandle(handle);
+      field.focus();
       // A mouse user's resized window moves the block out from under it.
       coarse = false;
       window.dispatchEvent(new Event("resize"));
-      expect(close).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(2);
     } finally {
       matchMedia.mockRestore();
       menu.remove();
