@@ -65,6 +65,27 @@ export class NativeWorkerSourceSnapshot {
     return assetId;
   }
 
+  async inputBitmap(
+    assetId: string,
+    revision: number,
+    decode: () => Promise<ImageBitmap>,
+    sampleEncoding: "srgb-color" | "linear-data",
+  ): Promise<string> {
+    if (!this.require(assetId, revision)) return assetId;
+    const bitmap = await decode();
+    this.assets.push({
+      kind: "bitmap",
+      sceneId: this.sceneId,
+      generation: this.generation,
+      assetId,
+      revision,
+      bitmap,
+      sampleEncoding,
+    });
+    this.nextRevisions.set(assetId, revision);
+    return assetId;
+  }
+
   async records(
     scope: string,
     records: readonly NativeSourceRecord[],

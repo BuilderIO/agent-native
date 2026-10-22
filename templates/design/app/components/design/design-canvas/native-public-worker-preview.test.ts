@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
+import { createElement, act } from "react";
+import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { nativePreviewSurfaceDocumentKey } from "./native-preview-surface";
 import {
   connectNativePublicWorkerPreview,
   prepareNativePublicWorkerPreviewDocument,
@@ -143,6 +146,88 @@ async function connect(sceneId: string) {
 }
 
 describe("parent-owned public native worker", () => {
+  it("remounts a changed prepared document and accepts only its current READY nonce", async () => {
+    const first = prepareNativePublicWorkerPreviewDocument(html)!;
+    const second = prepareNativePublicWorkerPreviewDocument(html)!;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const cleanupRef: { current: (() => void) | null } = { current: null };
+    const render = (prepared: typeof first) => {
+      act(() => {
+        root.render(
+          createElement("iframe", {
+            key: nativePreviewSurfaceDocumentKey({
+              html: prepared.html,
+              profile: "interactive",
+              publicAsset: null,
+              publicWorker: prepared,
+            }),
+            srcDoc: prepared.html,
+            ref: (frame: HTMLIFrameElement | null) => {
+              cleanupRef.current?.();
+              cleanupRef.current = frame
+                ? connectNativePublicWorkerPreview(
+                    frame,
+                    prepared,
+                    prepared.html,
+                  )
+                : null;
+            },
+          }),
+        );
+      });
+      return container.querySelector("iframe")!;
+    };
+    const firstFrame = render(first);
+    const secondFrame = render(second);
+    expect(secondFrame).not.toBe(firstFrame);
+    expect(secondFrame.srcdoc).toBe(second.html);
+    const stale = new MessageChannel();
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: secondFrame.contentWindow,
+        origin: "null",
+        data: {
+          type: "native-public-worker-ready",
+          nonce: first.nonce,
+          sceneId: "stale-scene",
+        },
+        ports: [stale.port2],
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(FakeWorker.instances).toHaveLength(0);
+    const current = new MessageChannel();
+    const connected = new Promise<MessageEvent>((resolve) => {
+      current.port1.onmessage = resolve;
+      current.port1.start();
+    });
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: secondFrame.contentWindow,
+        origin: "null",
+        data: {
+          type: "native-public-worker-ready",
+          nonce: second.nonce,
+          sceneId: "current-scene",
+        },
+        ports: [current.port2],
+      }),
+    );
+    expect((await connected).data).toMatchObject({
+      type: "native-public-worker-connect",
+      nonce: second.nonce,
+      sceneId: "current-scene",
+    });
+    act(() => root.unmount());
+    cleanupRef.current?.();
+    stale.port1.close();
+    stale.port2.close();
+    current.port1.close();
+    current.port2.close();
+  });
+
   it.each([
     ["wrong origin", "https://other.example.test", false, true],
     ["wrong nonce", "null", true, true],
@@ -279,6 +364,43 @@ describe("parent-owned public native worker", () => {
     expect(worker.terminated).toBe(true);
     first.channel.port1.close();
     second.channel.port1.close();
+  });
+
+  it("forwards a bounded linear-data bitmap input with its encoding intact", async () => {
+    vi.stubGlobal("ImageBitmap", Object);
+    const child = await connect("child-input");
+    const worker = FakeWorker.instances[0]!;
+    child.channel.port1.postMessage({
+      type: "native-public-worker-message",
+      message: {
+        type: "init",
+        protocol: 1,
+        sceneId: "child-input",
+        canvas: {},
+      },
+    });
+    await vi.waitFor(() => expect(worker.messages).toHaveLength(1));
+    child.channel.port1.postMessage({
+      type: "native-public-worker-message",
+      message: {
+        type: "asset",
+        kind: "bitmap",
+        sceneId: "child-input",
+        generation: 1,
+        revision: 1,
+        assetId: "input:noise",
+        bitmap: { width: 2, height: 2 },
+        sampleEncoding: "linear-data",
+      },
+    });
+    await vi.waitFor(() => expect(worker.messages).toHaveLength(2));
+    expect(worker.messages[1]).toMatchObject({
+      type: "asset",
+      assetId: "input:noise",
+      sampleEncoding: "linear-data",
+    });
+    child.cleanup();
+    child.channel.port1.close();
   });
 
   it("reveals the parent canvas only for a matching committed scene and removes it on dispose", async () => {
@@ -611,6 +733,16 @@ describe("parent-owned public native worker", () => {
         cyclic.push(cyclic);
         return { type: "scene", scene: { ...scene(id, 1), records: cyclic } };
       },
+    ],
+    [
+      "oversized named input asset binding",
+      (id: string) => ({
+        type: "scene",
+        scene: {
+          ...scene(id, 1),
+          targets: [{ inputAssetIds: { noise: "x".repeat(4097) } }],
+        },
+      }),
     ],
     [
       "undersized float asset",

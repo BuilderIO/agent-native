@@ -5,12 +5,14 @@ import type {
   EffectDefinition,
   EffectInstance,
 } from "../../../../shared/native-effects";
+import { nativeWorkerTextureSizeValid } from "./native-worker-gpu";
 import type { NativeWorkerSourceRecord } from "./native-worker-protocol";
 import {
   NativeWorkerSceneHost,
   nativeWorkerDefinitions,
   nativeWorkerOutputRecords,
   nativeWorkerOutputSceneRecords,
+  planNativeWorkerSceneGeometry,
   type NativeWorkerSceneEntry,
 } from "./native-worker-scene-host";
 
@@ -171,6 +173,26 @@ describe("native worker record dimensions", () => {
 });
 
 describe("native worker camera coverage", () => {
+  it("fits full-screen preview density to the worker texture contract", () => {
+    const viewport = { x: 0, y: 0, width: 2560, height: 1440 };
+    const large = planNativeWorkerSceneGeometry({ viewport, pixelRatio: 2 });
+    expect(large.viewport).toBe(viewport);
+    expect(large.pixelRatio).toBeLessThan(2);
+    expect(nativeWorkerTextureSizeValid(large.width, large.height)).toBe(true);
+    expect(large.width).toBe(Math.ceil(viewport.width * large.pixelRatio));
+    expect(large.height).toBe(Math.ceil(viewport.height * large.pixelRatio));
+
+    const ordinary = planNativeWorkerSceneGeometry({
+      viewport: { x: 0, y: 0, width: 1280, height: 900 },
+      pixelRatio: 2,
+    });
+    expect(ordinary.pixelRatio).toBe(2);
+    expect([ordinary.width, ordinary.height]).toEqual([2560, 1800]);
+    expect(() =>
+      planNativeWorkerSceneGeometry({ viewport, pixelRatio: Number.NaN }),
+    ).toThrow("The native worker viewport has invalid geometry.");
+  });
+
   it("retains a committed scene only while viewport, density, source and targets still match", () => {
     vi.stubGlobal("innerWidth", 1044);
     vi.stubGlobal("innerHeight", 1042);
@@ -228,10 +250,12 @@ describe("native worker camera coverage", () => {
         ],
       ]),
     };
+    let compact = false;
     const host = Object.create(
       NativeWorkerSceneHost.prototype,
     ) as NativeWorkerSceneHost;
     Object.assign(host, {
+      sceneCadence: () => ({ frameRateTarget: 60, compact }),
       visible: true,
       disposed: false,
       dirty: false,
@@ -248,6 +272,10 @@ describe("native worker camera coverage", () => {
     });
     const crop = { x: 80, y: 60, width: 300, height: 250 };
     try {
+      expect(host.retainsPreviewViewport(crop, 1)).toBe(true);
+      compact = true;
+      expect(host.retainsPreviewViewport(crop, 1)).toBe(false);
+      compact = false;
       expect(host.retainsPreviewViewport(crop, 1)).toBe(true);
       expect(
         host.retainsPreviewViewport(
@@ -410,6 +438,7 @@ describe("native worker camera coverage", () => {
       disposed: false,
       capturingExport: false,
       preparingExport: false,
+      sceneCadence: () => ({ frameRateTarget: 60, compact: false }),
       provider: {
         sourceEpoch: () => sourceEpoch,
         authoredSourceEpoch: () => 3,
@@ -872,6 +901,7 @@ describe("native worker camera coverage", () => {
       pendingAssetRevisions: new Map(),
       assetRevisions: new Map(),
       worker: { sendScene, setVisible: vi.fn(), dispose: vi.fn() },
+      inputAssets: { dispose: vi.fn() },
       clock: () => ({ playing: true, timeSeconds: 0, speed: 1 }),
       getClockOrigin: () => 100,
       sceneGeometry: () => ({

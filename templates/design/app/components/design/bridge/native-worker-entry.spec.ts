@@ -533,6 +533,7 @@ describe("shared worker GPU batches", () => {
         pendingUploads: new Map(),
         cadence: {
           setPolicy: vi.fn(),
+          setOverviewCompact: vi.fn(),
           isSubmissionDue: vi.fn(() => true),
           commitSubmission: vi.fn(),
         },
@@ -1270,6 +1271,49 @@ describe("shared worker GPU batches", () => {
     expect(batch.mock.calls[1]?.[0].map((item) => item.sceneId)).toEqual([
       "a",
       "b",
+    ]);
+  });
+
+  it("admits compact, 60 Hz, and 120 Hz worker scenes on separate deadlines", async () => {
+    const { runtime, items } = fixture(false, 3);
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 3),
+    );
+    Object.assign(items[0]!.scene, { compact: true });
+    Object.assign(items[2]!.scene, { frameRateTarget: 120 });
+    const cadence = (
+      runtime as unknown as {
+        cadenceForRate(
+          rate: 60 | 120,
+          compact?: boolean,
+        ): NativePreviewPolicyController;
+      }
+    ).cadenceForRate.bind(runtime);
+    cadence(60, true).commitSubmission(0, false);
+    cadence(60).commitSubmission(0, false);
+    cadence(120).commitSubmission(0, false);
+    const batch = vi.fn(async (due: readonly { sceneId: string }[]) => {
+      void due;
+    });
+    stubAdmission(runtime, batch);
+    const pump = (now: number) =>
+      (runtime as unknown as { pumpAll(now: number): Promise<void> }).pumpAll(
+        now,
+      );
+
+    await pump(8.4);
+    expect(batch.mock.calls[0]?.[0].map((item) => item.sceneId)).toEqual(["c"]);
+    await pump(16.7);
+    expect(batch.mock.calls[1]?.[0].map((item) => item.sceneId)).toEqual([
+      "b",
+      "c",
+    ]);
+    await pump(66.7);
+    expect(batch.mock.calls[2]?.[0].map((item) => item.sceneId)).toEqual([
+      "a",
+      "b",
+      "c",
     ]);
   });
 

@@ -67,6 +67,34 @@ afterEach(() => {
 });
 
 describe("normal canvas native shader approval bootstrap", () => {
+  it("loads design-wide viewer approvals without a live file and drops hashes for another design", () => {
+    query.data = { designId: "design", approvedDefinitionHashes: [hash] };
+    const { result, rerender } = renderHook(() =>
+      useNativeShaderApprovals({
+        designId: "design",
+        fileId: undefined,
+        enabled: true,
+        scope: "design",
+      }),
+    );
+    expect(result.current.approvedDefinitionHashes).toEqual([hash]);
+    expect(useActionQuery).toHaveBeenCalledWith(
+      "get-native-shader-approvals",
+      { designId: "design" },
+      { enabled: true },
+    );
+    query.data = {
+      designId: "another-design",
+      approvedDefinitionHashes: [hash],
+    };
+    rerender();
+    expect(result.current.approvedDefinitionHashes).toEqual([]);
+    query.data = { designId: "design", approvedDefinitionHashes: [hash] };
+    query.error = new Error("Approvals unreadable");
+    rerender();
+    expect(result.current.approvedDefinitionHashes).toEqual([]);
+  });
+
   it("leaves anonymous previews unqueried and enables authenticated viewers", () => {
     session.email = undefined;
     const target = frame();

@@ -55,7 +55,10 @@ import {
   nativeFeedbackResetValuesChanged,
   type NativeFeedbackDefinition,
 } from "../../../../shared/native-feedback-plan";
-import { planNativeInputResources } from "../../../../shared/native-input-resources";
+import {
+  nativeWorkerSupportsInputResources,
+  planNativeInputResources,
+} from "../../../../shared/native-input-resources";
 import {
   hashEffectInstance,
   type NativeInstancePreviewRequest,
@@ -202,6 +205,10 @@ import {
   withNativeMountedTextureReadback,
 } from "./native-mounted-output-summary";
 import {
+  isOpaquePublicAssetPreview,
+  resolveOpaquePublicAssetBlob,
+} from "./native-opaque-public-asset";
+import {
   NativePackedUniformArena,
   type NativePackedUniformFrame,
 } from "./native-packed-uniform-arena";
@@ -257,6 +264,10 @@ import {
 import { beginNativeRegionExport } from "./native-region-export";
 import { nativeRenderPlacementConstants } from "./native-render-placement";
 import { createNativeRuntimeEpoch } from "./native-runtime-epoch";
+import {
+  attachNativeScenePresentationCanvas,
+  supportsNativeSceneBodyTransform,
+} from "./native-scene-body-transform";
 import {
   NativeSimulationTimelineError,
   planNativeSimulationSteps,
@@ -1094,22 +1105,39 @@ class NativeShaderRuntime {
             "data-agent-native-export-initial-pixel-ratio",
           )
         : null;
-    if (encoded === null) {
-      this.exportInitialPixelRatio = null;
-      return;
+    if (encoded === null) this.exportInitialPixelRatio = null;
+    else {
+      const ratio = Number(encoded);
+      if (
+        !Number.isFinite(ratio) ||
+        ratio <= 0 ||
+        ratio > 4 ||
+        String(ratio) !== encoded
+      )
+        throw new NativeSourceError(
+          "export-initial-density-invalid",
+          "export-initial-density-invalid",
+        );
+      this.exportInitialPixelRatio = ratio;
     }
-    const ratio = Number(encoded);
-    if (
-      !Number.isFinite(ratio) ||
-      ratio <= 0 ||
-      ratio > 4 ||
-      String(ratio) !== encoded
-    )
-      throw new NativeSourceError(
-        "export-initial-density-invalid",
-        "export-initial-density-invalid",
-      );
-    this.exportInitialPixelRatio = ratio;
+    const encodedEpoch =
+      runtimeScript instanceof HTMLScriptElement
+        ? runtimeScript.getAttribute("data-agent-native-animation-epoch-ms")
+        : null;
+    if (encodedEpoch !== null) {
+      const epoch = Number(encodedEpoch);
+      if (
+        !Number.isFinite(epoch) ||
+        epoch <= 0 ||
+        epoch > 8.64e15 ||
+        String(epoch) !== encodedEpoch
+      )
+        throw new NativeSourceError(
+          "preview-animation-epoch-invalid",
+          "The shared preview animation epoch is invalid.",
+        );
+      this.clockOrigin = epoch - performance.timeOrigin;
+    }
   }
   private device: GPUDevice | null = null;
   private deviceLifecycle = new NativeDeviceLifecycle<NativeDeviceResources>(
@@ -1398,6 +1426,7 @@ class NativeShaderRuntime {
     null;
   private opaquePreviewViewportPort: MessagePort | null = null;
   private opaquePreviewViewportReceived = false;
+  private opaquePreviewHostPixelRatio: number | null = null;
   private opaquePreviewViewportRetries = 0;
   private opaquePreviewViewportExhausted = false;
   private opaquePreviewViewportTimer: ReturnType<typeof setTimeout> | null =
@@ -1816,13 +1845,7 @@ class NativeShaderRuntime {
           "scene-background-unsupported",
           "A translucent or image root background needs a single captured presentation layer.",
         );
-    if (
-      bodyStyle.transform !== "none" ||
-      bodyStyle.translate !== "none" ||
-      bodyStyle.rotate !== "none" ||
-      bodyStyle.scale !== "none" ||
-      bodyStyle.opacity !== "1"
-    )
+    if (!supportsNativeSceneBodyTransform(bodyStyle))
       throw new NativeSourceError(
         "scene-presentation-transform-unsupported",
         "A transformed or translucent body needs a viewport presentation transform.",
@@ -1907,7 +1930,7 @@ class NativeShaderRuntime {
       canvas.style.height = `${sceneViewport?.height ?? innerHeight}px`;
       canvas.width = width;
       canvas.height = height;
-      body.prepend(canvas);
+      attachNativeScenePresentationCanvas(canvas, body, bodyStyle);
       const context = canvas.getContext("webgpu") as GPUCanvasContext | null;
       if (!context) {
         canvas.remove();
@@ -2004,6 +2027,7 @@ class NativeShaderRuntime {
       window.addEventListener("scroll", scene.onViewportChange, true);
       window.addEventListener("resize", scene.onViewportChange);
     }
+    attachNativeScenePresentationCanvas(scene.canvas, body, bodyStyle);
     const viewportMatches = (): boolean =>
       window.scrollX === 0 &&
       window.scrollY === 0 &&
@@ -3064,10 +3088,12 @@ class NativeShaderRuntime {
     const previousMaxViewportWidth = this.previewMaxViewportWidth;
     const previousMaxViewportHeight = this.previewMaxViewportHeight;
     const previousScale = this.previewDisplayScale;
+    const previousHostPixelRatio = this.opaquePreviewHostPixelRatio;
+    this.opaquePreviewHostPixelRatio = response.hostDevicePixelRatio ?? null;
     const scale = response.displayScale;
     if (
-      Math.abs(scale - this.previewDisplayScale) >
-      0.0001 * Math.max(1, scale)
+      previousHostPixelRatio !== this.opaquePreviewHostPixelRatio ||
+      Math.abs(scale - this.previewDisplayScale) > 0.0001 * Math.max(1, scale)
     ) {
       this.previewPolicy.resetDensityBudget();
       this.sceneBudgetFault = null;
@@ -3095,6 +3121,7 @@ class NativeShaderRuntime {
     if (
       wasReceived &&
       previousScale === this.previewDisplayScale &&
+      previousHostPixelRatio === this.opaquePreviewHostPixelRatio &&
       sameViewport &&
       previousMaxViewportWidth === this.previewMaxViewportWidth &&
       previousMaxViewportHeight === this.previewMaxViewportHeight &&
@@ -3355,9 +3382,13 @@ class NativeShaderRuntime {
     });
   };
 
+  private previewDevicePixelRatio(): number {
+    return this.opaquePreviewHostPixelRatio ?? (devicePixelRatio || 1);
+  }
+
   previewStatus = (): NativePreviewStatus => {
     const status = this.previewPolicy.status(
-      devicePixelRatio || 1,
+      this.previewDevicePixelRatio(),
       this.renderWallSamples[this.renderWallSamples.length - 1],
       this.rafIntervalSamples[this.rafIntervalSamples.length - 1],
     );
@@ -4446,7 +4477,7 @@ class NativeShaderRuntime {
 
   private offscreen(mount: Mount): boolean {
     const rect = mount.target.getBoundingClientRect();
-    const dpr = mount.pixelRatio || Math.min(devicePixelRatio || 1, 2);
+    const dpr = mount.pixelRatio || Math.min(this.previewDevicePixelRatio(), 2);
     const halo = mount.outputExtent;
     const margins = {
       left: Math.max(
@@ -5525,7 +5556,7 @@ class NativeShaderRuntime {
       typeof HTMLCanvasElement.prototype.transferControlToOffscreen ===
         "function" &&
       workerEntries.every(
-        ({ definition }) =>
+        ({ definition, instance, target }) =>
           !definition.simulation &&
           !definition.feedback &&
           !definition.statelessCompute &&
@@ -5534,6 +5565,10 @@ class NativeShaderRuntime {
           definition.passes.every(
             (pass) =>
               pass.kind === "render" && !pass.previousFrameReads?.length,
+          ) &&
+          nativeWorkerSupportsInputResources(
+            planNativeInputResources(definition, instance),
+            target instanceof SVGSVGElement,
           ),
       );
     if (workerCapable) {
@@ -5666,6 +5701,10 @@ class NativeShaderRuntime {
               pixelRatio: this.desiredScenePreviewPixelRatio(),
             };
           },
+          () => ({
+            frameRateTarget: this.previewStatus().frameRateTarget,
+            compact: this.previewPolicy.isOverviewCompact(),
+          }),
           () => this.clockOrigin,
         );
         this.workerScene.setVisible(
@@ -6724,7 +6763,7 @@ class NativeShaderRuntime {
       return false;
     }
     const baseDensity = this.previewPolicy.status(
-      devicePixelRatio || 1,
+      this.previewDevicePixelRatio(),
     ).effectivePixelRatio;
     const desiredDensity = this.desiredScenePreviewPixelRatio();
     const groups = new Map<NativeScenePresentationElement, Mount[]>();
@@ -7039,7 +7078,7 @@ class NativeShaderRuntime {
           ...Object.values(outputInsets),
         ) * localScale;
       requestedRatio = nativePreviewTargetDensity({
-        baseDensity: this.previewPolicy.status(devicePixelRatio || 1)
+        baseDensity: this.previewPolicy.status(this.previewDevicePixelRatio())
           .effectivePixelRatio,
         displayScale: this.targetPreviewDisplayScale(targetMembers, localScale),
         viewport: this.previewViewport,
@@ -7729,6 +7768,15 @@ class NativeShaderRuntime {
   }
 
   private async fetchInputBlob(url: URL, signal: AbortSignal): Promise<Blob> {
+    if (isOpaquePublicAssetPreview()) {
+      const blob = await resolveOpaquePublicAssetBlob(url.href);
+      if (signal.aborted)
+        throw new NativeSourceError(
+          "input-asset-aborted",
+          "The input asset load was cancelled.",
+        );
+      return blob;
+    }
     const response = await fetch(url.href, {
       credentials: "same-origin",
       mode: "same-origin",
@@ -16475,8 +16523,8 @@ class NativeShaderRuntime {
         this.colorPresented,
         this.dynamicRangePresented,
       ]) !== family.presentationFormat ||
-      this.previewPolicy.status(devicePixelRatio || 1).effectivePixelRatio !==
-        family.density ||
+      this.previewPolicy.status(this.previewDevicePixelRatio())
+        .effectivePixelRatio !== family.density ||
       this.compositionPixelRatio !== null ||
       this.exportInitialPixelRatio !== null ||
       this.compositionAbort ||
@@ -16652,7 +16700,7 @@ class NativeShaderRuntime {
         deviceEpoch: epoch,
         hostGeneration: this.previewHostGeneration,
         viewport: JSON.stringify(this.previewViewport),
-        density: this.previewPolicy.status(devicePixelRatio || 1)
+        density: this.previewPolicy.status(this.previewDevicePixelRatio())
           .effectivePixelRatio,
         presentationFormat: JSON.stringify([
           this.format,

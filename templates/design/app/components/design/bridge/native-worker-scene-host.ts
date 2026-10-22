@@ -3,6 +3,10 @@ import type {
   EffectDefinition,
   EffectInstance,
 } from "../../../../shared/native-effects";
+import {
+  nativeWorkerInputAssetId,
+  planNativeInputResources,
+} from "../../../../shared/native-input-resources";
 import { readNativeAuthoredPaint } from "./native-authored-paint";
 import {
   planNativeChainedEffectExtent,
@@ -14,7 +18,12 @@ import {
   supportsNativeOutput2D,
 } from "./native-effect-output-geometry";
 import { filterNativeExportSelection } from "./native-export-selection";
+import { fitNativeRasterDensity } from "./native-preview-geometry";
 import { beginNativeRegionExport } from "./native-region-export";
+import {
+  attachNativeScenePresentationCanvas,
+  supportsNativeSceneBodyTransform,
+} from "./native-scene-body-transform";
 import {
   createNativeSceneProvider,
   cloneNativeTextFlow,
@@ -27,10 +36,15 @@ import {
   type NativeSourceRecord,
 } from "./native-source-provider";
 import { NativeWorkerHost, NativeWorkerHostError } from "./native-worker-host";
+import { NativeWorkerInputAssets } from "./native-worker-input-assets";
 import type {
   NativeWorkerEffectTarget,
   NativeWorkerScene,
   NativeWorkerSourceRecord,
+} from "./native-worker-protocol";
+import {
+  NATIVE_WORKER_MAX_DIMENSION,
+  NATIVE_WORKER_MAX_PIXELS,
 } from "./native-worker-protocol";
 import { NativeWorkerSourceSnapshot } from "./native-worker-source-snapshot";
 
@@ -40,6 +54,57 @@ export type NativeWorkerSceneEntry = {
   definitionHash: string;
   target: HTMLElement | SVGSVGElement;
 };
+
+export function planNativeWorkerSceneGeometry(input: {
+  viewport: { x: number; y: number; width: number; height: number };
+  pixelRatio: number;
+}): {
+  viewport: { x: number; y: number; width: number; height: number };
+  pixelRatio: number;
+  width: number;
+  height: number;
+} {
+  const { viewport, pixelRatio: requestedRatio } = input;
+  if (
+    ![
+      viewport.x,
+      viewport.y,
+      viewport.width,
+      viewport.height,
+      requestedRatio,
+    ].every(Number.isFinite) ||
+    viewport.width <= 0 ||
+    viewport.height <= 0 ||
+    requestedRatio <= 0
+  )
+    throw new NativeSourceError(
+      "worker-viewport-geometry-invalid",
+      "The native worker viewport has invalid geometry.",
+    );
+  const pixelRatio = fitNativeRasterDensity({
+    width: viewport.width,
+    height: viewport.height,
+    density: requestedRatio,
+    maxDimension: NATIVE_WORKER_MAX_DIMENSION,
+    maxPixels: NATIVE_WORKER_MAX_PIXELS,
+  });
+  const width = Math.ceil(viewport.width * pixelRatio);
+  const height = Math.ceil(viewport.height * pixelRatio);
+  if (
+    !Number.isSafeInteger(width) ||
+    !Number.isSafeInteger(height) ||
+    width < 1 ||
+    height < 1 ||
+    width > NATIVE_WORKER_MAX_DIMENSION ||
+    height > NATIVE_WORKER_MAX_DIMENSION ||
+    width * height > NATIVE_WORKER_MAX_PIXELS
+  )
+    throw new NativeSourceError(
+      "worker-viewport-budget-exceeded",
+      "The requested native worker viewport exceeds its full-resolution budget.",
+    );
+  return { viewport, pixelRatio, width, height };
+}
 
 export function nativeWorkerDefinitions(
   entries: readonly NativeWorkerSceneEntry[],
@@ -162,8 +227,9 @@ function nativeWorkerTargetGeometry(
     ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) ||
     rect.width <= 0 ||
     rect.height <= 0 ||
-    width > 8192 ||
-    height > 8192
+    width > NATIVE_WORKER_MAX_DIMENSION ||
+    height > NATIVE_WORKER_MAX_DIMENSION ||
+    width * height > NATIVE_WORKER_MAX_PIXELS
   )
     throw new NativeSourceError(
       "worker-target-geometry-invalid",
@@ -186,6 +252,7 @@ export class NativeWorkerSceneHost {
     { signature: string; canvas: HTMLCanvasElement }
   >();
   private readonly assetRevisions = new Map<string, number>();
+  private readonly inputAssets = new NativeWorkerInputAssets();
   private readonly pendingAssetRevisions = new Map<
     number,
     Map<string, number>
@@ -256,6 +323,10 @@ export class NativeWorkerSceneHost {
       viewport: { x: number; y: number; width: number; height: number };
       pixelRatio: number;
     },
+    private readonly sceneCadence: () => {
+      frameRateTarget: 60 | 120;
+      compact: boolean;
+    },
     private readonly getClockOrigin?: () => number,
   ) {
     const body = document.body;
@@ -271,7 +342,11 @@ export class NativeWorkerSceneHost {
     this.canvas.setAttribute("aria-hidden", "true");
     this.canvas.style.cssText =
       "position:fixed;left:0;top:0;pointer-events:none;visibility:hidden;z-index:0;max-width:none;max-height:none;";
-    body.prepend(this.canvas);
+    attachNativeScenePresentationCanvas(
+      this.canvas,
+      body,
+      getComputedStyle(body),
+    );
     const provider = createNativeSceneProvider(
       document.documentElement,
       "layer",
@@ -558,7 +633,11 @@ export class NativeWorkerSceneHost {
       viewport.y + viewport.height > retained.y + retained.height + 0.001
     )
       return false;
-    const committed = this.currentCameraSource(pixelRatio);
+    const planned = planNativeWorkerSceneGeometry({
+      viewport: retained,
+      pixelRatio,
+    });
+    const committed = this.currentCameraSource(planned.pixelRatio);
     if (!committed || this.lastScene?.generation !== committed.scene.generation)
       return false;
     if (
@@ -573,6 +652,7 @@ export class NativeWorkerSceneHost {
     pixelRatio: number,
   ): ReturnType<NativeWorkerSceneHost["committedScene"]> {
     const committed = this.committedScene();
+    const cadence = this.sceneCadence();
     if (
       !this.visible ||
       this.disposed ||
@@ -587,6 +667,8 @@ export class NativeWorkerSceneHost {
       !Number.isFinite(pixelRatio) ||
       pixelRatio <= 0 ||
       Math.abs(pixelRatio - committed.scene.pixelRatio) > 0.000001 ||
+      (committed.scene.frameRateTarget ?? 60) !== cadence.frameRateTarget ||
+      (committed.scene.compact ?? false) !== cadence.compact ||
       this.entries.length !== committed.publication.payloads.size
     )
       return null;
@@ -622,8 +704,9 @@ export class NativeWorkerSceneHost {
   }
 
   private cameraCandidate(): CameraCandidate | null {
-    const { viewport, pixelRatio: requestedRatio } = this.sceneGeometry();
-    const committed = this.currentCameraSource(requestedRatio);
+    const geometry = planNativeWorkerSceneGeometry(this.sceneGeometry());
+    const { viewport } = geometry;
+    const committed = this.currentCameraSource(geometry.pixelRatio);
     if (!committed) return null;
     const pixelRatio = committed.scene.pixelRatio;
     const width = Math.ceil(viewport.width * pixelRatio);
@@ -636,8 +719,9 @@ export class NativeWorkerSceneHost {
       viewport.height <= 0 ||
       width < 1 ||
       height < 1 ||
-      width > 8192 ||
-      height > 8192
+      width > NATIVE_WORKER_MAX_DIMENSION ||
+      height > NATIVE_WORKER_MAX_DIMENSION ||
+      width * height > NATIVE_WORKER_MAX_PIXELS
     )
       return null;
     const sourceClock = this.clock();
@@ -799,19 +883,18 @@ export class NativeWorkerSceneHost {
           "scene-background-unsupported",
           "The native worker scene has an unsupported root background.",
         );
-    if (
-      bodyStyle.transform !== "none" ||
-      bodyStyle.translate !== "none" ||
-      bodyStyle.rotate !== "none" ||
-      bodyStyle.scale !== "none" ||
-      bodyStyle.opacity !== "1"
-    )
+    if (!supportsNativeSceneBodyTransform(bodyStyle))
       throw new NativeSourceError(
         "scene-presentation-transform-unsupported",
         "The native worker scene cannot project a transformed or translucent body.",
       );
+    attachNativeScenePresentationCanvas(this.canvas, body, bodyStyle);
+    const requestedGeometry = this.sceneGeometry();
+    const plannedGeometry = options
+      ? requestedGeometry
+      : planNativeWorkerSceneGeometry(requestedGeometry);
     const { viewport: previewViewport, pixelRatio: requestedPixelRatio } =
-      this.sceneGeometry();
+      plannedGeometry;
     const viewport = options?.cropRect ?? previewViewport;
     const pixelRatio = options?.pixelRatio ?? requestedPixelRatio;
     const width = Math.ceil(viewport.width * pixelRatio);
@@ -821,9 +904,9 @@ export class NativeWorkerSceneHost {
       pixelRatio <= 0 ||
       width < 1 ||
       height < 1 ||
-      width > 8192 ||
-      height > 8192 ||
-      width * height > 8192 * 8192
+      width > NATIVE_WORKER_MAX_DIMENSION ||
+      height > NATIVE_WORKER_MAX_DIMENSION ||
+      width * height > NATIVE_WORKER_MAX_PIXELS
     )
       throw new NativeSourceError(
         "worker-viewport-budget-exceeded",
@@ -884,8 +967,8 @@ export class NativeWorkerSceneHost {
           cssWidth: layout.width,
           cssHeight: layout.height,
           pixelRatio: targetPixelRatio,
-          maxDimension: 8192,
-          maxPixels: 8192 * 8192,
+          maxDimension: NATIVE_WORKER_MAX_DIMENSION,
+          maxPixels: NATIVE_WORKER_MAX_PIXELS,
           previous,
         });
         if (!planned.ok)
@@ -1079,6 +1162,39 @@ export class NativeWorkerSceneHost {
             "worker-target-epoch-stale",
             "The native effect target changed during capture.",
           );
+        const inputPlan = planNativeInputResources(
+          entry.definition,
+          entry.instance,
+        );
+        if (!inputPlan.ok)
+          throw new NativeSourceError(inputPlan.code, inputPlan.detail);
+        const inputAssetIds: Record<string, string> = {};
+        for (const [resource, input] of inputPlan.inputs) {
+          if (input.kind !== "asset") continue;
+          const sampleEncoding = input.sampleEncoding ?? "srgb-color";
+          if (
+            (sampleEncoding !== "srgb-color" &&
+              sampleEncoding !== "linear-data") ||
+            input.preprocess !== undefined ||
+            input.mipmap !== undefined
+          )
+            throw new NativeSourceError(
+              "worker-input-processing-unsupported",
+              `The worker cannot process input ${resource}.`,
+            );
+          const assetId = nativeWorkerInputAssetId(input);
+          if (!assetId)
+            throw new NativeSourceError(
+              "worker-input-asset-unsupported",
+              `The worker cannot identify input ${resource}.`,
+            );
+          inputAssetIds[resource] = await snapshot.inputBitmap(
+            assetId,
+            1,
+            () => this.inputAssets.bitmap(input.url, sampleEncoding),
+            sampleEncoding,
+          );
+        }
         targetSnapshots.push({
           instanceId: entry.instance.id,
           definitionHash: entry.definitionHash,
@@ -1089,6 +1205,7 @@ export class NativeWorkerSceneHost {
           pixelRatio: targetPixelRatio,
           sourceRecords,
           ...coverage,
+          ...(Object.keys(inputAssetIds).length ? { inputAssetIds } : {}),
           ...(cornerRadii ? { cornerRadii } : {}),
           ...(textMaskAssetId ? { textMaskAssetId } : {}),
           ...(fillPhases ? { fillPhases } : {}),
@@ -1280,6 +1397,7 @@ export class NativeWorkerSceneHost {
         : normalizedRootRecords;
       const { assets, requiredAssets, revisions } = snapshot.finish();
       const sourceClock = this.clock();
+      const cadence = this.sceneCadence();
       const scene: NativeWorkerScene = {
         sceneId: this.worker.sceneId,
         generation,
@@ -1290,6 +1408,8 @@ export class NativeWorkerSceneHost {
         height,
         pixelRatio,
         colorSpace: "srgb",
+        frameRateTarget: cadence.frameRateTarget,
+        compact: cadence.compact,
         clock: this.snapshotClock(viewport, !!options, sourceClock),
         requiredAssets,
         definitions: nativeWorkerDefinitions(this.entries),
@@ -1757,6 +1877,7 @@ export class NativeWorkerSceneHost {
     window.removeEventListener("scroll", this.requestUpdate, true);
     window.removeEventListener("resize", this.requestUpdate);
     this.worker.dispose();
+    this.inputAssets.dispose();
     this.provider.dispose();
     for (const state of this.targets.values()) {
       state.provider.dispose();
@@ -1965,6 +2086,7 @@ export class NativeWorkerSceneHost {
     window.removeEventListener("scroll", this.requestUpdate, true);
     window.removeEventListener("resize", this.requestUpdate);
     this.worker.dispose();
+    this.inputAssets.dispose();
     this.provider.dispose();
     for (const state of this.targets.values()) {
       state.provider.dispose();
