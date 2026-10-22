@@ -268,6 +268,51 @@ test.describe("inline table controls", () => {
     expect(Math.abs(tableBox.width - textBox.width)).toBeLessThanOrEqual(1);
   });
 
+  test("a duplicated table's block menu acts on the copy", async ({ page }) => {
+    await openTablePage(page, "Table duplicate menu");
+    const tables = page.locator(`${EDITOR} table`);
+    await cell(page, "Alpha").hover();
+    await page.locator(GRIP).click();
+    await page.getByRole("menuitem", { name: "Duplicate" }).click();
+    await expect(tables).toHaveCount(2);
+
+    await tables.nth(1).locator("td").first().hover();
+    await page.locator(GRIP).click();
+    await page.getByRole("menuitemcheckbox", { name: "Fit to width" }).click();
+    await expect(tables.nth(1)).toHaveAttribute("data-fit-page-width", "true");
+    await expect(tables.nth(0)).not.toHaveAttribute("data-fit-page-width");
+  });
+
+  test("the block menu closes when a collaborator changes its table, not another block", async ({
+    context,
+    page,
+  }) => {
+    const id = await openTablePage(page, "Table menu peer edit");
+    const peer = await context.newPage();
+    await gotoEditor(peer, id);
+    await expect(cell(peer, "Alpha")).toBeVisible();
+
+    await cell(page, "Alpha").hover();
+    await page.locator(GRIP).click();
+    const menu = page.getByRole("menu", { name: "Block actions" });
+    await expect(menu).toBeVisible();
+
+    await peer.getByText("After the table.").click();
+    await peer.keyboard.press("End");
+    await peer.keyboard.type(" More.");
+    await expect(page.getByText("After the table. More.")).toBeVisible();
+    await expect(menu).toBeVisible();
+
+    await cell(peer, "Beta").click();
+    await peer.keyboard.press("End");
+    await peer.keyboard.type("!");
+    // The cell also shows the collaborator's caret label.
+    await expect(
+      page.locator(`${EDITOR} td`, { hasText: "Beta!" }),
+    ).toBeVisible();
+    await expect(menu).toHaveCount(0);
+  });
+
   test("row and column colours are saved", async ({ page }) => {
     const id = await openTablePage(page, "Table colours");
     const savedContent = async () => (await getDocument(page, id)).content;
