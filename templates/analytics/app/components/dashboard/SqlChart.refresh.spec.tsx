@@ -113,6 +113,7 @@ describe("SqlChart refresh feedback", () => {
     mocks.queryReuseCompleted = undefined;
     mocks.queryKey = null;
     mocks.embeddedExtensionProps = null;
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -517,6 +518,69 @@ describe("SqlChart refresh feedback", () => {
     expect(
       container.querySelector('[data-dashboard-report-loading="true"]'),
     ).toBeNull();
+  });
+
+  it("sizes an extension panel to the height its iframe reports, even under one unit", async () => {
+    const panel = {
+      id: "github-status",
+      title: "GitHub data",
+      sql: "",
+      source: "first-party" as const,
+      chartType: "extension" as const,
+      width: 3,
+      config: { extensionId: "extension-1" },
+    };
+    const extensionProps = () =>
+      mocks.embeddedExtensionProps as {
+        initialHeight?: number;
+        onReady?: () => void;
+        onHeightChange?: (height: number) => void;
+      };
+    const wrapper = () =>
+      container.querySelector<HTMLElement>("[aria-busy]") as HTMLElement;
+
+    await act(async () => {
+      root.render(<SqlChart panel={panel} dashboardId="repo-health" />);
+    });
+
+    // Before the first report the panel holds one panel height unit.
+    expect(extensionProps().initialHeight).toBe(180);
+    expect(wrapper().style.minHeight).toBe("180px");
+
+    await act(async () => {
+      extensionProps().onHeightChange?.(64);
+      extensionProps().onReady?.();
+    });
+
+    // The wrapper no longer holds a floor, so the iframe's 64px is the panel.
+    expect(wrapper().style.minHeight).toBe("");
+    expect(wrapper().className).not.toMatch(/min-h-/);
+
+    // The next load starts at the reported height instead of jumping.
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<SqlChart panel={panel} dashboardId="repo-health" />);
+    });
+    expect(extensionProps().initialHeight).toBe(64);
+    expect(wrapper().style.minHeight).toBe("64px");
+
+    // Taller content is remembered as tall, and other dashboards start fresh.
+    await act(async () => {
+      extensionProps().onHeightChange?.(612);
+    });
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<SqlChart panel={panel} dashboardId="repo-health" />);
+    });
+    expect(extensionProps().initialHeight).toBe(612);
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<SqlChart panel={panel} dashboardId="other-dashboard" />);
+    });
+    expect(extensionProps().initialHeight).toBe(180);
   });
 
   it("shows a readable retry action when a chart query fails", async () => {

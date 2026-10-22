@@ -175,6 +175,10 @@ import {
   useEventMarkerGroups,
 } from "./event-markers";
 import {
+  initialExtensionPanelHeight,
+  rememberExtensionPanelHeight,
+} from "./extension-panel-height";
+import {
   useIsStaleResult,
   useRefreshConfirmation,
   type PanelFreshness,
@@ -1856,6 +1860,7 @@ export function SqlChart({
         panelId={panel.id}
         slotId={slotId}
         context={extensionContext}
+        dashboardId={dashboardId}
       />
     );
   }
@@ -2165,19 +2170,25 @@ function DashboardExtensionPanel({
   panelId,
   slotId,
   context,
+  dashboardId,
 }: {
   extensionId?: string;
   panelId: string;
   slotId?: string;
   context?: Record<string, unknown> | null;
+  dashboardId?: string;
 }) {
   const t = useT();
   const [ready, setReady] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const heightKey = `${dashboardId ?? ""}:${panelId}:${extensionId ?? ""}`;
+  const [initialHeight] = useState(() =>
+    initialExtensionPanelHeight(heightKey),
+  );
   const loadingSkeleton = !ready ? (
     <DashboardPanelSkeleton
       data-dashboard-extension-loading="true"
-      className="absolute inset-0 z-10 h-full min-h-[180px] w-full rounded-md"
+      className="absolute inset-0 z-10 h-full w-full rounded-md"
       aria-hidden="true"
     />
   ) : null;
@@ -2214,9 +2225,12 @@ function DashboardExtensionPanel({
     );
   }
 
+  // The panel is as tall as the height the iframe reports, even a single line;
+  // until then it holds its last reported height.
   return (
     <div
-      className="relative min-h-[180px] w-full"
+      className="relative w-full"
+      style={ready ? undefined : { minHeight: initialHeight }}
       aria-busy={!ready}
       data-dashboard-report-loading={ready ? undefined : "true"}
     >
@@ -2226,7 +2240,10 @@ function DashboardExtensionPanel({
         slotId={`dashboard-panel-${panelId}`}
         context={context}
         className={ready ? "w-full opacity-100" : "w-full opacity-0"}
-        initialHeight={180}
+        initialHeight={initialHeight}
+        onHeightChange={(height) =>
+          rememberExtensionPanelHeight(heightKey, height)
+        }
         onReady={() => setReady(true)}
         onUnavailable={() => {
           setReady(true);
