@@ -225,6 +225,7 @@ type DocumentListRow = Omit<
   typeof schema.documents.$inferSelect,
   | "content"
   | "collabBodyRevision"
+  | "liveBodySwitchedAt"
   | "createdBy"
   | "updatedBy"
   | "creationRequestDigest"

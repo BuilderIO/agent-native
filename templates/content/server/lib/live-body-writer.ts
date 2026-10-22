@@ -1,0 +1,199 @@
+import { getDbExec, type DbExec } from "@agent-native/core/db";
+import {
+  evaluateFeatureFlagRules,
+  getFeatureFlagRulesStrict,
+} from "@agent-native/core/feature-flags";
+import { eq } from "drizzle-orm";
+
+import {
+  LIVE_BODY_SHADOW_FLAG,
+  LIVE_BODY_WRITER_FLAG,
+} from "../../shared/feature-flags.js";
+import { drizzleOverExec } from "../db/exec.js";
+import { schema } from "../db/index.js";
+
+// Decision D2 of the stored-form rebuild: a page's body is written through its
+// live copy only when the page is switched, its live copy holds the page's
+// current body revision, and both flags are on for the page's owner.
+//
+// The flags are evaluated for the page, not the caller. Two collaborators with
+// different flags would otherwise write one body down two paths at once.
+//
+// `collab_body_revision == body_revision` is what makes the kill switch safe.
+// While the flags are off, a switched page takes legacy SQL writes that its
+// live copy never sees; once the flags come back, deriving from that stale
+// copy would overwrite them. A legacy write bumps only `body_revision`, so the
+// page stays on the legacy path until it is converted again.
+
+export type LiveBodyWritePath = "live_copy" | "legacy";
+
+export type LiveBodyLegacyReason =
+  | "no_page"
+  | "not_switched"
+  | "live_copy_behind"
+  | "flag_off";
+
+export type LiveBodyWriterGate =
+  | { writePath: "live_copy" }
+  | { writePath: "legacy"; reason: LiveBodyLegacyReason };
+
+export type LiveBodyWriterPageRow = Pick<
+  typeof schema.documents.$inferSelect,
+  | "liveBodySwitchedAt"
+  | "bodyRevision"
+  | "collabBodyRevision"
+  | "ownerEmail"
+  | "orgId"
+>;
+
+export const liveBodyWriterPageColumns = {
+  liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
+  bodyRevision: schema.documents.bodyRevision,
+  collabBodyRevision: schema.documents.collabBodyRevision,
+  ownerEmail: schema.documents.ownerEmail,
+  orgId: schema.documents.orgId,
+};
+
+/**
+ * Decides the write path for a page row the caller already read, for example
+ * under the row lock its write holds; pass that transaction so the flags are
+ * read in it rather than from the request's settings snapshot. Unreadable or
+ * malformed flag state throws: reading it as "off" would send a switched
+ * page's writes down the legacy path.
+ */
+export async function liveBodyWriterGateForRow(
+  row: LiveBodyWriterPageRow | null | undefined,
+  options: { transaction?: DbExec } = {},
+): Promise<LiveBodyWriterGate> {
+  if (!row) return { writePath: "legacy", reason: "no_page" };
+  if (!row.liveBodySwitchedAt)
+    return { writePath: "legacy", reason: "not_switched" };
+  if (row.collabBodyRevision !== row.bodyRevision)
+    return { writePath: "legacy", reason: "live_copy_behind" };
+  const scope = { userEmail: row.ownerEmail, orgId: row.orgId };
+  const [writer, shadow] = await Promise.all(
+    [LIVE_BODY_WRITER_FLAG, LIVE_BODY_SHADOW_FLAG].map(async (flag) =>
+      evaluateFeatureFlagRules(
+        flag.key,
+        await getFeatureFlagRulesStrict(flag.key, {
+          ...scope,
+          transaction: options.transaction,
+        }),
+        scope,
+      ),
+    ),
+  );
+  return writer && shadow
+    ? { writePath: "live_copy" }
+    : { writePath: "legacy", reason: "flag_off" };
+}
+
+// Request reads retain settings initialization and the request snapshot. A
+// transaction context is explicit: an executor's shape does not identify a
+// transaction. Ordinary database adapters enter through core's withDbExec.
+export type LiveBodyWriterReadContext =
+  | { kind: "request" }
+  | { kind: "transaction"; executor: DbExec };
+
+export type LiveBodyWriterReadOptions = {
+  context?: LiveBodyWriterReadContext;
+};
+
+export class LiveBodyWriterContextError extends Error {
+  readonly code = "LIVE_BODY_READ_CONTEXT_INVALID";
+
+  constructor() {
+    super(
+      "A live-body read requires a request context or one explicit transaction executor.",
+    );
+    this.name = "LiveBodyWriterContextError";
+  }
+}
+
+function contextFields(value: unknown, allowed: readonly string[]) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new LiveBodyWriterContextError();
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null)
+    throw new LiveBodyWriterContextError();
+  const fields = new Map<string, unknown>();
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string" || !allowed.includes(key))
+      throw new LiveBodyWriterContextError();
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    if (!Object.prototype.hasOwnProperty.call(descriptor, "value"))
+      throw new LiveBodyWriterContextError();
+    fields.set(key, descriptor.value);
+  }
+  for (const key of allowed) {
+    if (key in value && !fields.has(key))
+      throw new LiveBodyWriterContextError();
+  }
+  return fields;
+}
+
+function transactionExecutor(value: unknown): DbExec {
+  if (!value || typeof value !== "object")
+    throw new LiveBodyWriterContextError();
+  for (
+    let target = value;
+    target && target !== Object.prototype;
+    target = Object.getPrototypeOf(target)
+  ) {
+    const descriptor = Object.getOwnPropertyDescriptor(target, "execute");
+    if (!descriptor) continue;
+    if (
+      !Object.prototype.hasOwnProperty.call(descriptor, "value") ||
+      typeof descriptor.value !== "function"
+    )
+      throw new LiveBodyWriterContextError();
+    return { execute: descriptor.value.bind(value) };
+  }
+  throw new LiveBodyWriterContextError();
+}
+
+function readContext(options: LiveBodyWriterReadOptions): {
+  kind: "request" | "transaction";
+  executor: DbExec;
+} {
+  const optionsFields = contextFields(options, ["context"]);
+  if (!optionsFields.has("context"))
+    return { kind: "request", executor: getDbExec() };
+  const fields = contextFields(optionsFields.get("context"), [
+    "kind",
+    "executor",
+  ]);
+  if (fields.get("kind") === "request" && !fields.has("executor"))
+    return { kind: "request", executor: getDbExec() };
+  if (fields.get("kind") === "transaction" && fields.has("executor"))
+    return {
+      kind: "transaction",
+      executor: transactionExecutor(fields.get("executor")),
+    };
+  throw new LiveBodyWriterContextError();
+}
+
+export async function liveBodyWriterGate(
+  docId: string,
+  options: LiveBodyWriterReadOptions = {},
+): Promise<LiveBodyWriterGate> {
+  const context = readContext(options);
+  const db = drizzleOverExec(context.executor);
+  const [row] = await db
+    .select(liveBodyWriterPageColumns)
+    .from(schema.documents)
+    .where(eq(schema.documents.id, docId))
+    .limit(1);
+  return liveBodyWriterGateForRow(
+    row,
+    context.kind === "transaction" ? { transaction: context.executor } : {},
+  );
+}
+
+/** True when `docId`'s body must be written through its live copy. */
+export async function isLiveBodyWriterPage(
+  docId: string,
+  options: LiveBodyWriterReadOptions = {},
+): Promise<boolean> {
+  return (await liveBodyWriterGate(docId, options)).writePath === "live_copy";
+}
