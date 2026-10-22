@@ -5498,6 +5498,12 @@ export function App({
             <div className="error-banner">{recError}</div>
           )
         ) : null}
+        {!recError &&
+        localRecordingMode === "off" &&
+        authStatus === "authed" &&
+        videoStorageStatus === "missing" ? (
+          <StorageConnectionBanner onConnect={() => openVideoStorageSetup()} />
+        ) : null}
         {cameraError && !recError ? (
           cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
           cameraError === DESKTOP_CAPTURE_PERMISSION_MESSAGE ? (
