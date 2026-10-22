@@ -187,11 +187,14 @@ Date filter values are `YYYY-MM-DD`, a date with a time, or a relative token.
 `equals`, `does_not_equal`, `before`, `after`, `on_or_before`, `on_or_after`,
 and each end of a `between` pair accept `today`, `tomorrow`, or `yesterday`;
 `is_within` takes `past_7_days`, `next_7_days`, `past_30_days`,
-`next_30_days`, `last_week`, `this_week`, or `next_week` (weeks run Sunday to
-Saturday). Store the token, not a date: it is resolved each time the view is
-read, in the caller's time zone (the browser's, or the `x-user-timezone`
-request header on the server, falling back to the server's zone).
-`update-content-database-view` rejects an unknown `is_within` token. A value
+`next_30_days`, `last_week`, `this_week`, or `next_week`. The 7- and 30-day
+windows count today as their first or last day, so `next_7_days` runs from
+today through six days from now; weeks run Sunday to Saturday. Store the
+token, not a date: it is resolved each time the view is read, in the caller's
+time zone (the browser's, or the `x-user-timezone` request header on the
+server, falling back to the server's zone). `update-content-database-view`
+rejects an unknown `is_within` token and a date it cannot read, such as
+`2026-02-30`; an empty value or an unfinished `between` end still saves. A value
 without a time covers its whole day and is compared with the date a row's value
 is written on, so "on or before today" includes a row due at 18:00 today and
 created/edited times fall on their UTC date. A value with a time is compared

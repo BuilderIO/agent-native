@@ -546,6 +546,13 @@ describe("ordinary property and table-view setup", () => {
         operator: "is_within" as const,
         value: "next_7_days",
       },
+      // A range still being filled in saves.
+      {
+        key: due.value.id,
+        label: "Due",
+        operator: "between" as const,
+        value: JSON.stringify(["2026-10-01", ""]),
+      },
     ];
 
     const saved = await asOwner(async () =>
@@ -563,6 +570,8 @@ describe("ordinary property and table-view setup", () => {
     for (const [index, filter] of [
       { ...filters[2]!, value: "next_fortnight" },
       { ...filters[1]!, key: "name", label: "Name" },
+      { ...filters[1]!, value: "2026-02-30" },
+      { ...filters[3]!, value: JSON.stringify(["2026-10-01", "soon"]) },
     ].entries()) {
       const before = await revisions();
       await expect(

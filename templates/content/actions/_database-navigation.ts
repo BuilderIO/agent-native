@@ -169,14 +169,17 @@ function dateFilterSql(
   const check = contentDatabaseDateFilterCheck(filter, today);
   if (!check) return sql`false`;
   const value = sql<string>`coalesce(${expression}, '')`;
-  // Stored times are ISO strings, so the first ten characters are the day.
+  // Stored times start with their day, in both the app's ISO strings and the
+  // database's default timestamps. A moment is compared as a timestamp, since
+  // those two formats and offset-bearing bounds don't sort as text. The bound
+  // is read the way the shared evaluator reads it.
   const compare = (
     op: "=" | "<>" | "<" | "<=" | ">" | ">=",
     bound: ContentDatabaseDateFilterBound,
   ) =>
     "day" in bound
       ? sql`left(${value}, 10) ${sql.raw(op)} ${bound.day}`
-      : sql`${value} ${sql.raw(op)} ${bound.instant}`;
+      : sql`nullif(${value}, '')::timestamptz ${sql.raw(op)} ${new Date(bound.instant).toISOString()}::timestamptz`;
   if (check.op === "between") {
     return and(
       sql`${value} <> ''`,
@@ -184,12 +187,10 @@ function dateFilterSql(
       compare("<=", check.end),
     );
   }
-  // Instants were never compared for equality here; the shared evaluator
-  // parses both sides, which plain text comparison cannot match.
-  if ((check.op === "=" || check.op === "<>") && "instant" in check.bound) {
-    return undefined;
+  // Rows with no date match only "is not".
+  if (check.op === "<>") {
+    return or(sql`${value} = ''`, compare("<>", check.bound));
   }
-  if (check.op === "<>") return compare("<>", check.bound);
   return and(sql`${value} <> ''`, compare(check.op, check.bound));
 }
 

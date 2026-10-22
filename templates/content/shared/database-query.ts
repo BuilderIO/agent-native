@@ -161,15 +161,16 @@ const RELATIVE_DATE_OFFSETS: Record<ContentDatabaseRelativeDate, number> = {
   tomorrow: 1,
 };
 
-// Weeks start on Sunday, like the calendar view's grid.
+// Each "N days" range is N calendar days counting today. Weeks start on
+// Sunday, like the calendar view's grid.
 const RELATIVE_DATE_RANGES: Record<
   ContentDatabaseRelativeDateRange,
   (today: string, weekStart: string) => [string, string]
 > = {
-  past_7_days: (today) => [addDays(today, -7), today],
-  next_7_days: (today) => [today, addDays(today, 7)],
-  past_30_days: (today) => [addDays(today, -30), today],
-  next_30_days: (today) => [today, addDays(today, 30)],
+  past_7_days: (today) => [addDays(today, -6), today],
+  next_7_days: (today) => [today, addDays(today, 6)],
+  past_30_days: (today) => [addDays(today, -29), today],
+  next_30_days: (today) => [today, addDays(today, 29)],
   last_week: (_today, weekStart) => [
     addDays(weekStart, -7),
     addDays(weekStart, -1),
@@ -305,6 +306,33 @@ export function contentDatabaseFilterDateBound(
   return trimmed && Number.isFinite(new Date(trimmed).getTime())
     ? { instant: trimmed }
     : null;
+}
+
+export function isContentDatabaseDatePropertyType(type: DocumentPropertyType) {
+  return DATE_PROPERTY_TYPES.has(type);
+}
+
+/**
+ * The values a date filter holds that no comparison can read, such as
+ * "2026-02-30" or "soon". Empty values are left out, since a filter still
+ * being filled in has them.
+ */
+export function contentDatabaseDateFilterUnreadableValues(
+  filter: ContentDatabaseFilter,
+) {
+  if (filter.operator === "is_within") {
+    const token = filter.value.trim();
+    return token && !isContentDatabaseRelativeDateRange(token) ? [token] : [];
+  }
+  if (!contentDatabaseFilterComparesDates(filter)) return [];
+  const values =
+    filter.operator === "between"
+      ? contentDatabaseFilterDateRangeValues(filter.value)
+      : [filter.value.trim()];
+  // Any day will do: only relative values read it, and every day reads them.
+  return values.filter(
+    (value) => value && !contentDatabaseFilterDateBound(value, "2000-01-01"),
+  );
 }
 
 /**

@@ -1999,10 +1999,8 @@ describe("Files navigation text and date filters", () => {
         created("between", JSON.stringify(["yesterday", "today"])),
         ids("oct-21", ...october22),
       ],
-      [
-        created("is_within", "next_7_days"),
-        ids(...october22, "oct-23", "oct-29"),
-      ],
+      // 22 to 28 October.
+      [created("is_within", "next_7_days"), ids(...october22, "oct-23")],
       [created("is_within", "past_7_days"), ids("oct-21", ...october22)],
       [
         created("is_within", "this_week"),
@@ -2011,6 +2009,24 @@ describe("Files navigation text and date filters", () => {
       [
         created("on_or_after", "2026-10-22T12:00:00.000Z"),
         ids("oct-22-evening", "oct-22-end", "oct-23", "oct-29", "oct-30"),
+      ],
+      // 17:00 UTC: as text, "…T19:00:00+02:00" sorts after the 18:00 UTC row.
+      [
+        created("on_or_after", "2026-10-22T19:00:00+02:00"),
+        ids("oct-22-evening", "oct-22-end", "oct-23", "oct-29", "oct-30"),
+      ],
+      [created("equals", "2026-10-22T20:00:00+02:00"), ids("oct-22-evening")],
+      [
+        created("does_not_equal", "2026-10-22T18:00:00.000Z"),
+        ids(
+          "oct-14",
+          "oct-21",
+          "oct-22-start",
+          "oct-22-end",
+          "oct-23",
+          "oct-29",
+          "oct-30",
+        ),
       ],
       [created("on_or_before", "2026-02-30"), []],
       [created("is_within", "next_fortnight"), []],

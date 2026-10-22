@@ -744,16 +744,21 @@ describe("content database date filters", () => {
     ).toEqual(["day-before", "morning", "whole-day", "evening"]);
   });
 
-  it("counts relative ranges in whole days from today", () => {
+  it("counts relative ranges in whole days, today included", () => {
     const items = [
-      datedItem("oct-14", "2026-10-14"),
+      datedItem("sep-22", "2026-09-22T23:59"),
+      datedItem("sep-23", "2026-09-23"),
       datedItem("oct-15", "2026-10-15T23:59"),
+      datedItem("oct-16", "2026-10-16T00:00"),
       ...datedItems,
+      datedItem("oct-28", "2026-10-28T23:59"),
       datedItem("oct-29", "2026-10-29T00:00"),
-      datedItem("oct-30", "2026-10-30"),
+      datedItem("nov-20", "2026-11-20"),
+      datedItem("nov-21", "2026-11-21"),
     ];
+    // Seven days: 16 to 22 October and 22 to 28 October.
     expect(dateMatches("is_within", "past_7_days", items)).toEqual([
-      "oct-15",
+      "oct-16",
       "day-before",
       "morning",
       "whole-day",
@@ -764,15 +769,26 @@ describe("content database date filters", () => {
       "whole-day",
       "evening",
       "day-after",
-      "oct-29",
+      "oct-28",
     ]);
+    // Thirty days: 23 September to 22 October and 22 October to 20 November.
     expect(dateMatches("is_within", "past_30_days", items)).toEqual([
-      "oct-14",
+      "sep-23",
       "oct-15",
+      "oct-16",
       "day-before",
       "morning",
       "whole-day",
       "evening",
+    ]);
+    expect(dateMatches("is_within", "next_30_days", items)).toEqual([
+      "morning",
+      "whole-day",
+      "evening",
+      "day-after",
+      "oct-28",
+      "oct-29",
+      "nov-20",
     ]);
   });
 

@@ -18434,7 +18434,8 @@ function isDateFilterPropertyType(type: DocumentPropertyType) {
 }
 
 // Only "is within" holds a relative range, so a value never carries across
-// that operator in either direction.
+// that operator in either direction. Leaving "between" keeps the range's start;
+// a single date already reads as the start of a range.
 function databaseFilterNextValue(
   current: DatabaseFilter,
   next: Partial<DatabaseFilter>,
@@ -18442,9 +18443,13 @@ function databaseFilterNextValue(
   const operator = next.operator ?? current.operator;
   if (!contentDatabaseFilterOperatorNeedsValue(operator)) return "";
   if (next.value !== undefined) return next.value;
-  return (operator === "is_within") === (current.operator === "is_within")
-    ? current.value
-    : "";
+  if ((operator === "is_within") !== (current.operator === "is_within")) {
+    return "";
+  }
+  if (current.operator === "between" && operator !== "between") {
+    return contentDatabaseFilterDateRangeValues(current.value)[0];
+  }
+  return current.value;
 }
 
 // Day words sit mid-phrase in a chip ("on or before today"); ranges stand
