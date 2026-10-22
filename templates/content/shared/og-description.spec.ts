@@ -278,12 +278,23 @@ const flag = true;
         truncated: true,
       }),
     ).toBe("One two three...");
-    expect(
-      buildDocumentExcerpt({
-        content: "Read the [launch plan](https://exa",
-        truncated: true,
-      }),
-    ).toBe("Read the...");
+    // A link the cut leaves open keeps its text, whole once its address starts.
+    for (const [content, expected] of [
+      ["Read the [launch plan](https://exa", "Read the launch plan..."],
+      ["Read the [launch pl", "Read the launch..."],
+      ["Pick [A or B and go", "Pick A or B and..."],
+      ["See ![Hero](https://exa", "See..."],
+    ]) {
+      expect(
+        buildDocumentExcerpt({ content, truncated: true, nextCharacter: "m" }),
+      ).toBe(expected);
+    }
+    // Markup or an opening bracket or quote right before the cut drops out.
+    for (const content of ["One two **", "One two (", 'One two "']) {
+      expect(buildDocumentExcerpt({ content, truncated: true })).toBe(
+        "One two...",
+      );
+    }
     // The character after the prefix tells whether the last word goes on.
     for (const [nextCharacter, expected] of [
       [" ", "One two three..."],

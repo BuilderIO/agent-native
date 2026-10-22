@@ -221,20 +221,36 @@ export function buildDocumentExcerpt({
   if (body === null) return "";
   let markdown = body;
   if (truncated) {
-    // Drop a link, image or tag the cut leaves open, and a word it splits,
-    // with any markup or punctuation in front of it. A cut right after
-    // punctuation or closing markup ends a whole word, an apostrophe after
-    // the cut means the word goes on, and text in a script written without
-    // spaces has no word to finish.
+    // Drop an image or tag the cut leaves open. A link it leaves open keeps
+    // its text, and when the cut falls in its address, that text is whole.
+    let linkTextEnded = false;
     markdown = markdown
-      .replace(/!?\[[^\]\n]*(?:\]\([^)\n]*)?$/, "")
-      .replace(/<[A-Za-z/!][^>\n]*$/, "");
+      .replace(/!\[[^\]\n]*(?:\]\([^)\n]*)?$/, "")
+      .replace(/<[A-Za-z/!][^>\n]*$/, "")
+      .replace(
+        /\[([^\]\n]*)(\]\([^)\n]*)?$/,
+        (_match, text: string, address?: string) => {
+          linkTextEnded = address !== undefined;
+          return text;
+        },
+      );
+    // Drop a word the cut splits, with any markup or punctuation in front of
+    // it. A cut right after punctuation or closing markup ends a whole word,
+    // an apostrophe after the cut means the word goes on, and text in a
+    // script written without spaces has no word to finish.
     const lastWord = /\s(\S*[\p{L}\p{M}\p{N}'’])$/u.exec(markdown)?.[1];
     const wordGoesOn =
       nextCharacter === undefined || /[\p{L}\p{M}\p{N}'’]/u.test(nextCharacter);
-    if (lastWord && wordGoesOn && !SPACELESS_SCRIPT.test(lastWord)) {
+    if (
+      lastWord &&
+      wordGoesOn &&
+      !linkTextEnded &&
+      !SPACELESS_SCRIPT.test(lastWord)
+    ) {
       markdown = markdown.slice(0, -lastWord.length);
     }
+    // Then markup or an opening bracket or quote left with nothing after it.
+    markdown = markdown.replace(/(^|\s)[*_~`(["'“‘]+$/u, "$1");
   }
   const blocks = stripFencedCode(markdown)
     // Headings and dividers stand alone even without blank lines around them.
