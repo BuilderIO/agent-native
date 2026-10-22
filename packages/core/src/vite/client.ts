@@ -1418,6 +1418,10 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
 
   return [
     ...standaloneChatEntries,
+    ...(hasCoreDep("cron-parser", cwd) ? ["@agent-native/core/jobs/cron"] : []),
+    ...(hasCoreDep("ajv", cwd)
+      ? ["@agent-native/core > ajv", "@agent-native/core > ajv/dist/2020.js"]
+      : []),
     ...(hasDep("react", cwd) ? ["react"] : []),
     ...(hasDep("react-dom", cwd)
       ? ["react-dom", "react-dom/client", "react-dom/server"]
@@ -4424,12 +4428,16 @@ const DEFAULT_VITE_WATCH_IGNORED_DIRS = new Set([
 export function defaultViteWatchIgnored(
   root: string,
 ): (file: string) => boolean {
-  return (file) =>
-    path
-      .relative(root, file)
-      .split(/[\\/]/)
+  return (file) => {
+    const segments = path.relative(root, file).split(/[\\/]/);
+    return segments
       .slice(0, -1)
-      .some((segment) => DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment));
+      .some((segment, index) =>
+        segment === ".generated" && index === 0 && segments[1] === "bridge"
+          ? false
+          : DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment),
+      );
+  };
 }
 
 function forceServeOnly(pluginOrPreset: any): any {

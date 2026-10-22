@@ -511,8 +511,11 @@ The helper refuses an omitted or generic subject. Update the existing PR
 instead of creating a second one. Never reset, rebase, stash, or overwrite
 local work without explicit authorization.
 
-Rebase or merge `origin/main` only when GitHub reports an actual conflict; for
-a shared branch, prefer a normal merge. Never sync just to clear a behind
+During review-only work, do not sync `origin/main`. During an explicitly
+authorized `/ship` for the same PR, follow that skill's safe-sync rule: merge
+fresh `origin/main` for a confirmed conflict or a failing required check fixed
+there, after verifying the exact live head and a clean task-owned worktree.
+Use a normal merge for shared branches. Never sync just to clear a behind
 count or restart checks.
 
 ## End-of-run recap

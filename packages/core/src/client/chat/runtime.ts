@@ -5286,12 +5286,22 @@ export function createAgentNativeChatRuntime(
       );
     }
     const pendingConnectionRequestId = value?.pendingConnectionRequestId;
+    const startMessageId = value?.startMessageId;
     if (
       input.includePendingConnectionRequest &&
       (!value || !Object.hasOwn(value, "pendingConnectionRequestId"))
     ) {
       throw unreadable(
         "Agent chat run state is unreadable (pending connection request was not returned).",
+        response.status,
+      );
+    }
+    if (
+      startMessageId !== undefined &&
+      (typeof startMessageId !== "string" || !startMessageId.trim())
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (start message ID is invalid).",
         response.status,
       );
     }
@@ -5312,6 +5322,7 @@ export function createAgentNativeChatRuntime(
       ...(typeof value?.turnId === "string" && value.turnId
         ? { turnId: value.turnId }
         : {}),
+      ...(typeof startMessageId === "string" ? { startMessageId } : {}),
       ...(typeof value?.startedAt === "number" &&
       Number.isFinite(value.startedAt)
         ? { startedAt: value.startedAt }

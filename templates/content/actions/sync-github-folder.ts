@@ -3,10 +3,15 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   getContentDatabaseSourceSnapshot,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
+import {
+  githubSyncChangedRows,
+  readGitHubStatusShown,
+} from "./_github-source-freshness.js";
 import {
   githubSyncSummary,
   readLinkedGitHubSource,
@@ -62,12 +67,23 @@ export default defineAction({
         { errorCode: "NOT_GITHUB_LINKED", statusCode: 409 },
       );
     }
+    const shownBefore = await readGitHubStatusShown(linked.id);
     const sync = await syncGitHubSource({
       sourceId: linked.id,
       budgetMs: SYNC_BUDGET_MS,
     });
     const failed: SyncFollowUp[] = [];
-    if (sync.state !== "unchanged" && sync.state !== "busy") {
+    // A busy sync changed nothing; the run already going reports for itself.
+    // A status that can't be read back counts as changed, so readers check.
+    const statusChanged =
+      sync.state !== "busy" &&
+      (await afterSync("status_read", failed, () =>
+        readGitHubStatusShown(linked.id),
+      )) !== shownBefore;
+    if (
+      statusChanged ||
+      (sync.state !== "unchanged" && sync.state !== "busy")
+    ) {
       await afterSync("refresh_signal", failed, () =>
         writeAppState("refresh-signal", { ts: Date.now() }),
       );
@@ -78,6 +94,7 @@ export default defineAction({
     return {
       database: serializeDatabase(database),
       sync,
+      statusChanged,
       source,
       followUpFailed: failed,
       summary: [
@@ -86,11 +103,19 @@ export default defineAction({
       ].join(" "),
     };
   },
+  // Everyone reading the collection gets the synced rows and status, not just
+  // the caller.
+  changeResource: (_input, result) =>
+    githubSyncChangedRows(result.sync) || result.statusChanged
+      ? documentChangeResource(result.database.documentId)
+      : null,
 });
 
-type SyncFollowUp = "refresh_signal" | "source_read";
+type SyncFollowUp = "status_read" | "refresh_signal" | "source_read";
 
 const FOLLOW_UP_FAILED: Record<SyncFollowUp, string> = {
+  status_read:
+    "Whether the link's status changed couldn't be read, so readers were told to check it again.",
   refresh_signal:
     "Other open tabs couldn't be told about the changes; they show them once they reload.",
   source_read:

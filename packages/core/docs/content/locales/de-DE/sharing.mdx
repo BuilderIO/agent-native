@@ -124,6 +124,8 @@ Jede gemeinsam nutzbare Ressource erhält in ihrer Kopfzeile eine Schaltfläche 
 - Eine Liste aktueller Gewährungen mit Rollenauswahl und einer Entfernungskontrolle.
 - Eine Schaltfläche zum Kopieren von Links, die die aktuelle Sichtbarkeit berücksichtigt.
 
+Wenn eine Ressource von `Private` auf `Organization` gestellt wird, wird zuerst um Bestätigung gebeten. Bis zur Bestätigung ändert sich nichts. Mit Abbrechen oder Escape bleibt der aktuelle Zugriff erhalten. Schlägt das Speichern fehl, zeigt der Dialog den Fehler an, und die Person kann es erneut versuchen. Andere Sichtbarkeitsänderungen werden sofort gespeichert. Die Bestätigung gibt es nur in der Freigabe-UI. `set-resource-visibility` bleibt unverändert, sodass der Agent und jeder andere Aufrufer die Sichtbarkeit weiterhin direkt ändern und die Freigaberichtlinie der Ressource weiterhin bestimmt, was erlaubt ist.
+
 Die Schaltfläche „Teilen“ ist ein einzelner Import:
 
 ```tsx
@@ -136,6 +138,40 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
 ```
 
 Fügen Sie bei Listen neben jeder Zeile ein `<VisibilityBadge visibility={row.visibility} />` ein, damit Benutzer auf einen Blick sehen können, was privat oder geteilt ist.
+
+## Geteilte Chats {#shared-chats}
+
+Chat-Threads des Agenten nutzen dasselbe Modell. Ein neuer oder abgezweigter Chat ist nur für seinen Eigentümer privat, und das Teilen eines Chats folgt den oben genannten Regeln.
+
+Jeder Chat in einer Verlaufsliste enthält zwei Felder, damit eine Zeile zeigen kann, wem der Chat gehört und warum Sie ihn sehen können:
+
+| Feld          | Wert                                                                                                                                         |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ownerEmail`  | Der Eigentümer des Chats.                                                                                                                    |
+| `accessBasis` | `owner`, `direct` (eine Berechtigung für Sie namentlich) oder `organization`. `direct` hat Vorrang vor `organization`, wenn beides zutrifft. |
+
+Verlaufslisten und die Suche akzeptieren einen `ownership`-Filter:
+
+- `all` (Standard) listet jeden Chat auf, auf den Sie Zugriff haben.
+- `mine` listet Chats auf, die Ihnen gehören, auch wenn sie mit der Organisation geteilt sind.
+- `shared` listet Chats auf, auf die Sie Zugriff haben und die jemand anderem gehören.
+
+Der Server wendet `ownership` vor der Paginierung an, daher beschreiben `limit`, `offset` und `hasMore` die gefilterte Liste. Die Suche akzeptiert denselben Filter. Ein unbekannter Wert wird mit einem 400 abgelehnt, statt auf `all` zurückzufallen. Die Zugriffsregeln ändern sich nicht, und beim Auflisten werden keine Transkripte geladen.
+
+Migration: Eigene Aufrufe der Verlaufsliste und Suche müssen eine positive Ganzzahl für `limit` und eine nicht negative Ganzzahl für `offset` senden oder beide für die Standardwerte weglassen. Ungültige Werte liefern jetzt HTTP 400, statt automatisch umgewandelt zu werden. Gültige Limits über 200 werden auf 200 begrenzt.
+
+Im Client-Code paginiert `useChatThreadList()` aus `@agent-native/core/client` jeweils eine Liste:
+
+```tsx
+import { useChatThreadList } from "@agent-native/core/client";
+
+const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
+// shared.threads, shared.hasMore, shared.loadMore(), shared.error
+```
+
+`refreshOnThreadUpdates` ist standardmäßig `true`. Mit `false` werden Aktualisierungen durch `notifyChatThreadsUpdated()` übersprungen. Das erstmalige Laden, manuelles `refresh()`, die Seitennavigation und das Neuladen beim Fortsetzen einer Activity funktionieren weiterhin. Eine Änderung dieser Option behält geladene Zeilen bei und löst selbst keine Anfrage aus.
+
+Eine fehlgeschlagene Anfrage setzt `error` und behält die bereits geladenen Zeilen bei. Sie sieht nie wie eine leere Liste aus. `<ShareButton>` und `<ShareDialog>` aktualisieren eingebundene Chat-Listen nach dem Speichern. Wenn Sie die Freigabe eines Chats auf anderem Weg ändern, rufen Sie `notifyChatThreadsUpdated()` auf, damit eingebundene Listen neu laden.
 
 ## Gleiches Modell, gleicher Agent und gleicher UI {#agent-and-ui}
 

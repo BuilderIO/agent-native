@@ -34,12 +34,12 @@ function randomNonce(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-interface SrcsetCandidate {
+export interface SrcsetCandidate {
   url: string;
   descriptor: string;
 }
 
-function parseSrcset(value: string): SrcsetCandidate[] {
+export function parseSrcset(value: string): SrcsetCandidate[] {
   const candidates: SrcsetCandidate[] = [];
   let position = 0;
 

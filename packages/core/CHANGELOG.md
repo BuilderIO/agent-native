@@ -51,6 +51,114 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.214.0
+
+### Minor Changes
+
+- 05d1481: Add app-scoped theme family preferences and shared chat presentation controls.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.214.0
+  - @agent-native/recap-cli@0.5.83
+
+## 0.213.1
+
+### Patch Changes
+
+- 513dc02: Recommend the GitHub connection for Content, which can link a collection to a GitHub folder.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.1
+  - @agent-native/recap-cli@0.5.82
+
+## 0.213.0
+
+### Minor Changes
+
+- b58658d: Allow organization owners to opt in to current-member A2A delegation with capped member permissions and durable audit provenance. Improve app discovery and Dispatch routing for connected analytics and customer credit questions.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.0
+  - @agent-native/recap-cli@0.5.81
+
+## 0.212.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- b697ec4: Use organization-scoped secrets for workspace app registry authentication and show which Dispatch query failed.
+- Updated dependencies
+  - @agent-native/agentkit@0.212.1
+  - @agent-native/recap-cli@0.5.80
+
+## 0.212.0
+
+### Minor Changes
+
+- 3b8788a: Add versioned action receipts, CloudEvents-compatible domain events, strict serialization, and an opt-in atomic transaction seam.
+- 9d61445: `executeAgentToolCall` accepts optional `automation` and `runId` and hands them to the action it runs, so an action called through the guarded executor sees its automation lineage and its audit event carries the run id. New `persistAgentTurnToThread` (exported from `@agent-native/core/server`) saves a finished turn's prompt, tool calls and reply into a chat thread, so a turn run directly through `runAgentLoop` can be opened afterwards.
+- 9d61445: New `getBuilderBranchStatus` and `sendBuilderBranchMessage` (exported from `@agent-native/core/server`) read the state of a Builder agent branch (agent state, last activity, archived or deleted, pull request status and URL) and send it a follow-up message. Both take an explicit `projectId`, never create a project, and fail with a typed `BuilderBranchError` whose `code` and `retryable` flag tell a missing branch, a rejected credential, a timeout, a rate limit, and an unreadable response apart.
+- 9d61445: Add `registerJobRunner(id, fn)` to `@agent-native/core/server` so an app can run a recurring job's tick in its own code instead of the agent loop. A job opts in with `runner: <id>` in its frontmatter; the scheduler hands each scheduled or manual run to the registered function with the run's context and abort signal, and settles the run history and failure streak itself. An unregistered runner id, a runner combined with an execution host, or an event or webhook trigger on a runner job fails with a typed error instead of running as a prompt. History retention now evicts skipped runs before successful or failed ones.
+- abdfc9d: Add a friendly trigger-first automation editor with on-demand automations, registered event and email selection, and reusable friendly schedule fields while retaining advanced cron support.
+- 9f7d0d4: Add `analytics.headScriptSrc` (`AGENT_NATIVE_HEAD_SCRIPT_SRC`) to load a deployment-specific HTTPS script with `defer` on every server-rendered page.
+- abdfc9d: Add dialect-portable automation sharing storage and transaction-scoped resource write primitives.
+
+### Patch Changes
+
+- fb0f136: Record `agent_connected` and take its one-time reconnect claim only when first-party Agent-Native analytics is enabled, so a deployment that tracks only through PostHog, Mixpanel, Amplitude or a webhook doesn't use up the claim before first-party analytics can receive the event.
+- ef5327d: Batched action reads now authenticate like their own GET in the desktop app's local development sign-in, instead of returning 401 per item and clearing the persisted query cache.
+- 71749d3: Add `ownership` (`all`, `mine`, `shared`) to chat history list and search, return `ownerEmail` and `accessBasis` on each thread summary, report `hasMore` from the thread list route, and add a `useChatThreadList` hook that pages each list independently.
+- 71749d3: Reset chat history rows, loading, errors, and paging synchronously when the list identity changes, and retire previous list handlers before passive effects. Preserve loaded rows and offsets when a refresh of the same list fails.
+- 71749d3: Recheck current organization membership before returning shared chats or applying organization share grants, while preserving ownership and direct access.
+- 71749d3: Reject empty or repeated `ownership`, `limit`, and `offset` query parameters and unsafe pagination integers before chat history list or search reads. Apply ownership and pagination defaults only when parameters are absent, while retaining the page-size cap for valid limits above 200.
+- 71749d3: Add `refreshOnThreadUpdates` to `useChatThreadList()` so callers can disable thread update event refreshes while retaining initial loading, manual refresh, and paging.
+- daa04e7: Add live copies to `@agent-native/core/collab`: a collab document whose Yjs state is the only writable copy of a body, with its text derived from that state on every commit. `defineLiveCopy` declares, under a `name` that a later definition replaces (work the replaced or released binding started commits nothing unless its transaction was already committing), which documents are live copies, the bounded task runner that does their Yjs work, and an optional `persist` hook that writes the app's own rows in the same transaction; `persist` may return `{ derived: false, reason }` to leave them alone. `applyUpdate` commits client updates through it, and once a binding is defined the update route's ack carries `liveCopy` (`derived`, `not_derived` or `unchanged`) and `liveCopyReason`. `mutateLiveCopy` applies a named edit, retries on version conflicts, and can write the caller's own rows in the same transaction through its `persist` option. On a changed edit, an attempt a peer overtook stops before that persist runs, exactly so when the binding's `persist` takes a lock every commit of the document shares; for an edit that changes nothing, the persist runs first, so it can compare the exported `loadYDocVersion` with `change.version` and return without writing to have the edit redone. Live-copy commits also require the row's stored bytes, not only its version, to be the ones the edit read. `seedLiveCopy` seeds an absent or empty copy, and `readLiveCopy` tells absent, empty and malformed state apart; all three throw `not_live_copy` for a document the binding does not cover or a binding that was released or replaced; an update or edit that would empty the field is refused, so a seed never refills what a user deleted. These writers, and `applyUpdate` on a live copy, refuse to run inside a caller's transaction, whether opened with `getDbExec().transaction()` or Drizzle's `transaction()`, with `write_refused` / `caller_transaction`. Failures are a typed `LiveCopyError`; other collab write paths refuse live copies with `write_refused`, and `getDoc`, `getText` and `getJson` refuse them with `read_refused`.
+
+  A live copy's Yjs merge, derive, seed and edits run only in `createBoundedTaskRunner`: worker threads with a terminable deadline, a heap limit, input and output size limits, and a bounded queue. Where worker threads do not exist, runs fail with `unavailable` instead of running inline. Writes waiting on one live copy are bounded by the binding's `maxWaitingWrites` (default 16); past it a write fails with `build_failed` / `queue_full` instead of holding its payload. Readers of a row an instance has not cached share one runner task, so a burst of editors opening a page does not fill the runner's queue, and the row's derived text is cached with its bytes, so `readLiveCopy` of a cached row runs no task. The runner's module exports `defineLiveCopyTasks(...)` from `@agent-native/core/collab/live-copy-tasks`; import it as `./tasks.ts?bounded-task` to bundle it at build time. The Vite, server and `@agent-native/core/vitest-config` builds all resolve that import, so app tests load modules that use it.
+
+  Passing `onContentSync` to `createCollabPlugin` now throws at startup. The option was declared but never called; use a `liveCopy` binding to derive a document's text instead. `createCollabPlugin` takes that binding and maps live-copy failures to HTTP 409, 413, 422, 500 or 503. The state route answers 400 only for a `stateVector` that does not read as a Yjs state vector; other read failures keep their own status instead of being reported as a bad vector.
+
+- 70e6f58: Stop a lone collab editor from polling every 2.5 s on serverless when its app posts updates under its own tab id instead of `getBrowserTabId()`.
+- 71749d3: Ask for confirmation before a resource becomes visible to the whole organization. `ShareButton` and `ShareDialog` now hold a private-to-Organization change until it is confirmed; Cancel leaves the saved access and cache untouched, and a failed save stays open to retry. Core adds `useShareVisibilityTransition` (request, confirm, cancel) and the toolkit adds `ShareVisibilityConfirmDialog` and `ShareGeneralAccessRow` for apps that compose their own sharing surface. `useShareButtonController.handleVisibilityChange` stays as a deprecated alias for `visibilityTransition.request`, so it also waits for confirmation; its promise resolves once the change is saved, rejects when a direct save fails, and for a held change stays pending through confirmation failures (retry is possible) until it saves or is cancelled or invalidated (`ShareVisibilityNotSavedError`). Visibility requests from a closed surface are ignored, and a pending visibility change never carries over to another resource. Saved share and visibility changes to chats also refresh the chat history lists.
+- 9d61445: An error from a Builder API call that Builder refused (`runBuilderAgent`, `createBuilderProject`, `findBuilderProjectForRepo` and `requestBuilderBrowserConnection`) now carries Builder's HTTP status as `builderStatus` for every status. Before, only a 401 was typed, and the status of any other refusal was lost whenever Builder's own error text did not name it. Messages and error types are unchanged: a 401 is still the reconnectable `ActionContractError`, and every other status is still a plain `Error`.
+- 9d61445: An agent's connection request card now stays in the chat. Saved chat history keeps `connection.requested` and `connection.updated`, so the card survives a thread reload or page refresh, and a chat that is waiting on an open connection request no longer shows the "server says this chat is no longer running" notice while the server's run has ended by design.
+- 9d61445: Fix self-dispatch from an agent turn or a CLI action forwarded to the dev server. With no inbound request to read a host from, the local fallback guessed `localhost:3000`, so a run started by the chat agent (for example a queued automation run) failed with an opaque `fetch failed` whenever the app was served on another port. The local fallback now uses the origin the current request was served on; configured deployment URLs are unchanged and hosted deployments still require one. A dispatch that gets no HTTP answer now throws the new `SelfDispatchNetworkError` (exported with `SelfDispatchHttpError` from `@agent-native/core/server`) carrying the `target` origin and the socket code such as `ECONNREFUSED`, and `SelfDispatchHttpError` carries the `target` too. The existing messages keep their text, with the target and code added to the network one.
+- 565a819: Persist compact action write receipts on completed run events and expose exact-turn run metadata.
+- 565a819: Keep duplicate submission abort markers from masking the accepted run in active status lookups.
+- f8d0086: Mark `extension-data-get` read-only, so data programs and `run-code` can read an extension's stored data through `appAction`, and MCP hosts see the read advertised with `readOnlyHint: true`.
+- 96e2cf6: Discover and rank authorized workspace apps across the organization directory, and add Lab-gated installs from reviewed, pinned community app templates.
+- d24c71c: Reloading a chat no longer shows a second copy of a reply when folded runs streamed into the same assistant message, and that message keeps streaming when an earlier folded run settles. A continuation that starts after its predecessor finished now appends to that reply, and one that fails or never writes no longer changes its status. Reloading while a continuation is still carrying an earlier run's reply no longer leaves that reply streaming after the continuation finishes.
+- a4f940a: Deploys on Netlify no longer treat the AI Gateway's injected provider keys and endpoints as a configured model provider. Netlify fills `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the matching `*_BASE_URL` vars at runtime on credit-based teams, so a fresh deploy skipped the Connect AI step and ran on the deployer's Netlify credits. These values are now ignored, so Builder and bring-your-own keys behave as on any other host. A key or endpoint the deployer sets themselves is still used.
+- Release all public npm packages with a patch version bump.
+- b45465b: `externalAgents.denyActions` now removes an action from every MCP catalog. Before, it applied only to the connector, directory and app catalogs, so a denied action could still be listed by the default compact catalog, found through `tool-search`, and called with the full-catalog opt-in. `tools/list` and `tools/call` also refuse a denied name, which covers tools built outside the action map, such as the full catalog's `ask-agent` and the directory widget's `create_embed_session`. Denying `ask_app` also removes `ask-agent`, which runs it. A directory profile that lists a denied action, in its catalog or in a widget grant, now fails validation, as it does for an action that isn't exposed to MCP.
+- 71749d3: Refuse different visibility targets while a resource save is in flight, while joining repeated targets and allowing retries after settlement. Preserve optional ownership metadata on legacy `ChatThreadSummary` producers and export `ChatThreadListRow` with required metadata for list and search results.
+- 565a819: Expose shared continuation and abort-reason checks to client integrations, and identify same-turn terminal successors in run status.
+- ec68a31: Make AgentKit replayed starts reuse the same submission without accepting a different turn that reuses its runtime run ID.
+- acbcb0b: Add PostgreSQL process-crash coverage for durable Agent-Native tool recovery.
+- 4c5ce0f: Remove the unexported `experiments/store` compatibility module; nothing imported it.
+- 71749d3: Keep optimistic sharing visibility updates owned by their resource cache entry. A failed save restores that resource's visibility after navigation without overwriting newer share data or affecting another resource's sharing controls.
+- 9d61445: Drop the retired Factory feedback-dispatch and PR babysit actions from the legacy MCP destructive-hint baseline.
+- 9d61445: Drop the retired Factory graph and rule actions from the legacy MCP destructive-hint baseline.
+- 565a819: Run-status reads now distinguish unavailable database results from idle threads and report when best-effort stale-run cleanup fails.
+- 71749d3: Keep visibility controls busy and locked across sharing-surface remounts until physical saves settle. Load organization details only for confirmation, preserve search-specific empty states in sectioned chat history, and document malformed history-pagination requests returning HTTP 400.
+- 86f60e5: Staged datasets now have a per-user quota (50 MB and 200,000 rows per app), so one user's writes evict only their own older datasets. A 500 MB, 2 million row app-wide backstop is the only limit that can evict other users' data. Every write removes datasets that have gone 14 days without an update, and querying a removed dataset fails with `staged_dataset_removed` instead of "not found".
+- 72e097a: Preserve repeated tool-call occurrences, pair results by execution-step identity, recover in-flight steps created with the prior provider-ID key, safely attach duplicate queued submissions to their live run, and drain discarded replay streams when the runtime cannot close them.
+- 71749d3: Reject invalid explicit pagination arguments in chat history client requests before fetching. List, search, and lifecycle requests share positive safe-integer limit and non-negative safe-integer offset validation; valid limits above 200 still reach the server for capping.
+- 1d3c941: `agent-native template status`, `diff` and `sync` no longer report every file as changed when git converts line endings (`core.autocrlf=true`, the Git for Windows default): the template baseline is written and read without `core.autocrlf`/`core.eol` conversion, and app files checked out with CRLF on paths where git normalizes line endings are compared and merged as the template's LF, and written back with CRLF when every line had it.
+- b36f7c5: Keep the bounded-task esbuild helper out of runtime collaboration imports.
+  Import `bundleBoundedTaskSource` from `@agent-native/core/collab/bounded-task-bundle`.
+- 70ad3e4: `agent-native upgrade` adds `"@agent-native/*"` to `minimumReleaseAgeExclude` in workspaces scaffolded before 0.197.0, so a same-day framework release no longer blocks `pnpm install`.
+- Updated dependencies [d24c71c]
+- Updated dependencies
+  - @agent-native/agentkit@0.212.0
+  - @agent-native/recap-cli@0.5.79
+
 ## 0.211.0
 
 ### Minor Changes
@@ -4216,56 +4324,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 81fa180: Show immediate tooltips for apps and navigation controls in the collapsed chat-first rail.
-
-## 0.168.7
-
-### Patch Changes
-
-- a1d24db: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
-- a1d24db: Cache 404 and 410 SSR shells with the same public CDN policy as 200 shells. They previously carried `no-cache`, so every dead link, stale bookmark, renamed slug and crawler miss re-invoked the render function — the same URL cost a full cold render on every request. Netlify runs one request per container, so those invocations drew from the account-wide concurrency pool other sites share. 5xx stays uncacheable, and 401/403 are deliberately excluded.
-- a1d24db: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
-
-  The callback returns an identical error page for a wrong client secret and a
-  stale authorization code, so a broken credential is invisible from outside
-  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
-  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
-  a transport failure is never reported as valid — plus whether the deploy
-  carries two credential pairs naming different Google clients.
-
-- a1d24db: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
-
-## 0.168.6
-
-### Patch Changes
-
-- 186d913: Allow encrypted public-upload fallback blobs to delete their backing Builder or S3 assets, and fail closed when an explicitly selected private blob provider is unavailable.
-
-## 0.168.5
-
-### Patch Changes
-
-- 60aaea8: Keep app surfaces mounted when a host temporarily disables the chat sidebar.
-
-## 0.168.4
-
-### Patch Changes
-
-- 4e1ce88: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
-- 4e1ce88: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
-
-  The callback returns an identical error page for a wrong client secret and a
-  stale authorization code, so a broken credential is invisible from outside
-  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
-  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
-  a transport failure is never reported as valid — plus whether the deploy
-  carries two credential pairs naming different Google clients.
-
-- 4e1ce88: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
-
-## 0.168.3
-
-### Patch Changes
-
-- 97e8cea: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

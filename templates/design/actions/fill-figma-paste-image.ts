@@ -8,6 +8,7 @@ import {
   loadHydratableFile,
 } from "../server/lib/figma-image-hydration.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 // data: URLs are rejected so image bytes never land in the screen HTML row.
 const RENDERABLE_URL_RE = /^(?:https?:\/\/|\/(?!\/))/i;
@@ -87,6 +88,7 @@ export default defineAction({
       hash: target,
       resolved: result.resolved,
       missing: result.missing,
+      _receipt: designOutputWriteReceipt(designId, result.resolved > 0 ? 1 : 0),
     };
   },
 });

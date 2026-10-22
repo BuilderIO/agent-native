@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DbExec } from "../db/client.js";
+import { runWithRequestContext } from "../server/request-context.js";
 
 const state = vi.hoisted(() => ({
   membership: vi.fn(),
@@ -136,6 +137,49 @@ describe("MCP credential issuance", () => {
     await expect(
       withMcpCredentialIssuance({ ...input, roles: ["owner", "admin"] }, mint),
     ).resolves.toBe("service-token");
+  });
+
+  it("caps a delegated owner at member when rechecking a manager-only credential", async () => {
+    memberRows = [{ role: "owner" }];
+    const mint = vi.fn(async () => "service-token");
+
+    await expect(
+      runWithRequestContext(
+        {
+          a2aIdentityAssurance: "org-member",
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+        },
+        () =>
+          withMcpCredentialIssuance(
+            { ...input, roles: ["owner", "admin"] },
+            mint,
+          ),
+      ),
+    ).rejects.toMatchObject({ reason: "not-member" });
+    expect(mint).not.toHaveBeenCalled();
+  });
+
+  it("refuses delegated issuance for a different email or organization before membership lookup", async () => {
+    const mint = vi.fn();
+
+    await expect(
+      runWithRequestContext(
+        {
+          a2aIdentityAssurance: "org-member",
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+        },
+        () =>
+          withMcpCredentialIssuance(
+            { ...input, email: "other@example.test" },
+            mint,
+          ),
+      ),
+    ).rejects.toMatchObject({ reason: "not-member" });
+    expect(state.membership).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+    expect(mint).not.toHaveBeenCalled();
   });
 
   it("keeps Personal issuance free of membership checks but behind the owner's address lock", async () => {

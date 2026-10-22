@@ -16,6 +16,12 @@ const LANES = Math.max(1, Number(process.env.LANES || 5));
 // Each lane pays ~100 s of checkout and install, so a shard smaller than this
 // spends more time on setup than it saves.
 const MIN_SHARD_FILES = 100;
+// Slides 2's full fast suite can exhaust a Vitest worker's heap on CI.
+const MIN_PACKAGE_SHARDS: Readonly<Record<string, number>> = { "slides-2": 64 };
+const MAX_PACKAGE_SHARDS: Readonly<Record<string, number>> = { "slides-2": 64 };
+const MIN_PACKAGE_SHARD_FILES: Readonly<Record<string, number>> = {
+  "slides-2": 7,
+};
 
 const PACKAGE_PARENTS = ["packages", "templates"];
 const COMMUNITY_TEMPLATES_PARENT = "community-templates";
@@ -379,9 +385,14 @@ export function splitLargePackages(
   return pkgs.flatMap((pkg) => {
     const count = pkg.shardable
       ? Math.min(
-          laneCount,
-          Math.ceil(pkg.files / fairShare),
-          Math.floor(pkg.files / MIN_SHARD_FILES),
+          MAX_PACKAGE_SHARDS[pkg.name] ?? laneCount,
+          Math.max(
+            MIN_PACKAGE_SHARDS[pkg.name] ?? 1,
+            Math.ceil(pkg.files / fairShare),
+          ),
+          Math.floor(
+            pkg.files / (MIN_PACKAGE_SHARD_FILES[pkg.name] ?? MIN_SHARD_FILES),
+          ),
         )
       : 1;
     if (count < 2) return [{ name: pkg.name, files: pkg.files }];

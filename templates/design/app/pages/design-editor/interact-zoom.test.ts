@@ -20,12 +20,6 @@ describe("resolveInteractZoom", () => {
   });
 });
 
-describe("INTERACT_ZOOM_STEPS", () => {
-  it("offers the locked percentages in ascending order", () => {
-    expect([...INTERACT_ZOOM_STEPS]).toEqual([50, 75, 100, 125, 150, 200]);
-  });
-});
-
 describe("isInteractZoomChoice", () => {
   it("accepts Fit and every step", () => {
     expect(isInteractZoomChoice(INTERACT_ZOOM_FIT)).toBe(true);

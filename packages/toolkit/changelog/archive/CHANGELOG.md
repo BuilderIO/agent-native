@@ -1,3 +1,41 @@
+## 0.13.3
+
+### Patch Changes
+
+- d3f8794: Allow hosts to configure the shared composer document attachment limit and label.
+
+## 0.13.2
+
+### Patch Changes
+
+- 277be3f: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
+- 277be3f: Keep the public app-config export available to browser-safe toolkit consumers.
+
+## 0.13.1
+
+### Patch Changes
+
+- c71d383: Include the shared creative-context and toolkit updates in the next package release.
+
+## 0.13.0
+
+### Minor Changes
+
+- 106af0e: Add dense horizontal variants to the design-tweak controls. `VisualColorPicker`
+  gains a `swatch` variant that drops the value text and caret, an optional
+  `glyph` rendered over the current color, and an app tooltip naming the property
+  it paints. `VisualScrubInput` gains a `steppers` option that replaces the
+  drag-scrub label with minus/plus buttons.
+
+## 0.12.2
+
+### Patch Changes
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+
 ## 0.12.1
 
 ### Patch Changes
