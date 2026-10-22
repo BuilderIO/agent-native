@@ -11,6 +11,127 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("blockFieldSaveController", () => {
+  it("keeps pending, in-flight and failed work distinguishable from an acknowledged unchanged value", async () => {
+    let finish!: () => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const controller = createBlockFieldSaveController({
+      initialContent: "Saved",
+      save,
+    });
+    expect(controller.isClean).toBe(true);
+    controller.change("Pending");
+    expect(controller.isClean).toBe(false);
+    const flush = controller.flush();
+    expect(controller.isClean).toBe(false);
+    finish();
+    await flush;
+    expect(controller.isClean).toBe(true);
+    const failure = new Error("unavailable");
+    save.mockRejectedValue(failure);
+    controller.change("Failed");
+    await controller.flush();
+    expect(controller.lastError).toBe(failure);
+    save.mockResolvedValue(undefined);
+    controller.change("Pending");
+    await controller.flush();
+    expect(controller.lastSaved).toBe("Pending");
+    expect(controller.lastError).toBeNull();
+    expect(controller.isClean).toBe(true);
+  });
+
+  it.each(["before", "after"])(
+    "requires an accepted undo when input reverts %s a committed write's response fails",
+    async (revert) => {
+      let stored = "Saved";
+      const read = () => stored;
+      const failure = new Error("response properties could not be read");
+      let rejectResponse!: (error: Error) => void;
+      let acceptUndo = false;
+      const save = vi.fn(async (value: string) => {
+        if (save.mock.calls.length === 1) {
+          // set-document-property commits before its response property read.
+          stored = value;
+          await new Promise<void>((_resolve, reject) => {
+            rejectResponse = reject;
+          });
+        } else {
+          if (!acceptUndo) throw failure;
+          stored = value;
+        }
+      });
+      const controller = createBlockFieldSaveController({
+        initialContent: read(),
+        save,
+      });
+      controller.change("Committed edit");
+      await vi.advanceTimersByTimeAsync(500);
+      expect(read()).toBe("Committed edit");
+      if (revert === "before") controller.change("Saved");
+      rejectResponse(failure);
+      await vi.advanceTimersByTimeAsync(0);
+      if (revert === "after") controller.change("Saved");
+      expect(controller.lastError).toBe(failure);
+      expect(controller.isClean).toBe(false);
+      await controller.flush();
+      expect(controller.lastError).toBe(failure);
+      expect(controller.isClean).toBe(false);
+      expect(read()).toBe("Committed edit");
+
+      acceptUndo = true;
+      await controller.flush();
+      expect(save).toHaveBeenLastCalledWith("Saved");
+      expect(read()).toBe("Saved");
+      expect(controller.lastError).toBeNull();
+      expect(controller.isClean).toBe(true);
+      const reloaded = createBlockFieldSaveController({
+        initialContent: read(),
+        save,
+      });
+      expect(reloaded.lastSaved).toBe("Saved");
+      expect(reloaded.isClean).toBe(true);
+    },
+  );
+
+  it("clears an uncertain failure when a fresh server read confirms the reverted value", async () => {
+    const stored = "Saved";
+    const save = vi.fn(async () => {
+      throw new Error("request did not reach the server");
+    });
+    const controller = createBlockFieldSaveController({
+      initialContent: stored,
+      save,
+    });
+    controller.change("Failed edit");
+    await controller.flush();
+    controller.change("Saved");
+    expect(controller.isClean).toBe(false);
+    controller.mark(stored);
+    expect(controller.lastError).toBeNull();
+    expect(controller.isClean).toBe(true);
+    await controller.flush();
+    expect(save).toHaveBeenCalledExactlyOnceWith("Failed edit");
+  });
+
+  it("does not invent a version for an already acknowledged unchanged serialization", async () => {
+    const save = vi.fn(async () => {});
+    const controller = createBlockFieldSaveController({
+      initialContent: "Initial",
+      save,
+    });
+    controller.change("Edited and saved");
+    await controller.flush();
+    const version = controller.version;
+    controller.change("Edited and saved");
+    await controller.flush();
+    expect(controller.version).toBe(version);
+    expect(save).toHaveBeenCalledExactlyOnceWith("Edited and saved");
+  });
+
   it("debounces a save and persists after the delay", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const c = createBlockFieldSaveController({ initialContent: "", save });

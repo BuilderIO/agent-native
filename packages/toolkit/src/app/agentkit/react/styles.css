@@ -669,11 +669,18 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 }
 
 .agentkit-transcript-content {
+  position: relative;
   box-sizing: border-box;
-  inline-size: min(100%, 47rem);
+  inline-size: min(100%, var(--agentkit-transcript-lane-width, 47rem));
   min-inline-size: 0;
   margin-inline: auto;
+  inset-inline-start: clamp(
+    calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / -2),
+    var(--agentkit-transcript-lane-offset-inline, 0px),
+    calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / 2)
+  );
   padding: 1.5rem 1rem;
+  padding-block-start: var(--agentkit-transcript-top-inset, 1.5rem);
 }
 
 .agentkit-scroll-to-bottom-control {
@@ -710,13 +717,18 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  margin-block: 0 1.25rem;
+  margin-block: 0 var(--agentkit-transcript-message-gap, 1.25rem);
   font-size: 0.875rem;
-  line-height: 1.52;
+  font-family: var(--font-sans, inherit);
+  line-height: var(--agentkit-transcript-message-line-height, 1.52);
 }
 
 .agentkit-message[data-role="user"] {
   align-items: flex-end;
+  line-height: var(
+    --agentkit-user-bubble-line-height,
+    var(--agentkit-transcript-message-line-height, 1.52)
+  );
 }
 
 .agentkit-message-content {
@@ -726,8 +738,9 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 }
 
 .agentkit-message[data-role="user"] .agentkit-message-content {
-  max-inline-size: min(88%, 38rem);
-  padding: 0.625rem 0.8125rem;
+  max-inline-size: min(88%, var(--agentkit-user-bubble-max-width, 38rem));
+  padding: var(--agentkit-user-bubble-padding-block, 0.625rem)
+    var(--agentkit-user-bubble-padding-inline, 0.8125rem);
   border-radius: var(--agentkit-radius-inner);
   background: var(--agentkit-subtle);
 }
@@ -2133,6 +2146,6 @@ button.agentkit-object {
   }
 
   .agentkit-message[data-role="user"] .agentkit-message-content {
-    max-inline-size: 94%;
+    max-inline-size: min(94%, var(--agentkit-user-bubble-max-width, 38rem));
   }
 }

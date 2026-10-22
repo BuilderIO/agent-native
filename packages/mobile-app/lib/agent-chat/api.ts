@@ -1,4 +1,7 @@
-import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
+import {
+  TEMPLATE_APPS,
+  visibleTemplates,
+} from "@agent-native/shared-app-config";
 import { fetch as expoFetch } from "expo/fetch";
 import { DeviceEventEmitter } from "react-native";
 
@@ -163,9 +166,14 @@ export interface ChatCapableApp {
   url: string;
 }
 
-/** Workspace apps that expose an agent chat surface at a known prod URL. */
+/** Visible workspace apps that expose an agent chat surface at a known prod URL. */
 export function chatCapableApps(): ChatCapableApp[] {
-  return TEMPLATE_APPS.filter((app) => Boolean(app.url)).map((app) => ({
+  const visibleTemplateNames = new Set(
+    visibleTemplates().map((template) => template.name),
+  );
+  return TEMPLATE_APPS.filter(
+    (app) => Boolean(app.url) && visibleTemplateNames.has(app.id),
+  ).map((app) => ({
     id: app.id,
     name: app.name,
     icon: app.icon,
