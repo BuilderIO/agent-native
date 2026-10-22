@@ -61,13 +61,21 @@ jobs:
                 ;;
               packages/dispatch/src/server/lib/community-apps.ts)
                 # Release prep repins the curated community templates' Git blob
-                # ids when it bumps their core range. Accept only those pin
-                # lines; any other edit to the catalog still needs a human.
-                if [ "$(jq -r '.patch == null' <<< "$entry")" = "true" ] \
-                  || jq -r '.patch' <<< "$entry" \
-                    | grep -E '^[+-]' \
-                    | grep -v -E '^[+-][[:space:]]*blobSha: "[0-9a-f]{40}",?$' \
-                    | grep -q .; then
+                # ids when it bumps their core range. Accept only one-for-one
+                # pin replacements; any other edit to the catalog needs a human.
+                # No early-exiting pipe here: under pipefail a SIGPIPE would
+                # turn a found violation into a passing check.
+                patch_file="$files_dir/catalog.patch"
+                if [ "$(jq -r '.patch == null' <<< "$entry")" = "true" ]; then
+                  echo "::error::Refusing admin-merge: $file has no reviewable patch" >&2
+                  exit 1
+                fi
+                jq -r '.patch' <<< "$entry" > "$patch_file"
+                pin='[[:space:]]*blobSha: "[0-9a-f]{40}",?$'
+                non_pin=$(grep -E '^[+-]' "$patch_file" | grep -v -E "^[+-]$pin" || true)
+                removed=$(grep -c -E "^-$pin" "$patch_file" || true)
+                added=$(grep -c -E "^\+$pin" "$patch_file" || true)
+                if [ -n "$non_pin" ] || [ "$added" -eq 0 ] || [ "$added" -ne "$removed" ]; then
                   echo "::error::Refusing admin-merge: $file changes more than community template blob pins" >&2
                   exit 1
                 fi
