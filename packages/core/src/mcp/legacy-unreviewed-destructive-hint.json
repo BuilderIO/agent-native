@@ -751,7 +751,6 @@
     "clone-creative-context-deck",
     "create-deck-from-template",
     "create-design-system",
-    "delete-deck",
     "delete-design-system",
     "delete-slide-comment",
     "delete-staged-dataset",
