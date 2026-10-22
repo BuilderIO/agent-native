@@ -19,15 +19,79 @@ function hasBigQueryRawStringPrefix(sql: string, quoteIndex: number): boolean {
 function sanitizeSqlForInspection(
   sql: string,
   dialect: "bigquery" | "standard",
+  validateTemplateVariables = false,
 ): string {
   let out = "";
   let state: "code" | "single" | "double" | "backtick" | "line" | "block" =
     "code";
   let quoteLength = 1;
   let rawString = false;
+  let quoteStart = 0;
+  const inspectTemplateLiteral = (end: number) => {
+    if (
+      validateTemplateVariables &&
+      /\{\{\w+(?::list)?\}\}/.test(sql.slice(quoteStart, end)) &&
+      (rawString ||
+        state === "backtick" ||
+        /\{\{\w+:list\}\}/.test(sql.slice(quoteStart, end)))
+    ) {
+      rejectSourceSql(
+        "Scalar SQL template variables require ordinary quoted strings; list variables require standalone SQL positions, not raw literals or identifiers.",
+      );
+    }
+  };
   for (let i = 0; i < sql.length; i += 1) {
     const ch = sql[i];
     const next = sql[i + 1];
+    if (validateTemplateVariables && ch === "{" && next === "{") {
+      const variable = sql.slice(i).match(/^\{\{\w+(:list)?\}\}/);
+      if (variable && (state === "line" || state === "block")) {
+        rejectSourceSql("SQL template variables must not occur in comments.");
+      }
+      if (variable && state === "code") {
+        const adjacent = `${sql[i - 1] ?? ""}${sql[i + variable[0].length] ?? ""}`;
+        if (!variable[1] || /[\p{ID_Continue}$'"`\\{}]/u.test(adjacent)) {
+          rejectSourceSql(
+            "Scalar SQL template variables require ordinary quoted strings; list variables require standalone SQL positions.",
+          );
+        }
+        out += " ".repeat(variable[0].length);
+        i += variable[0].length - 1;
+        continue;
+      }
+      // An empty value joins the quotes around a slot run, which can form a
+      // new delimiter (`'''x'{{v}}''` closes early), so only a triple-quoted
+      // string's own delimiters may touch the run.
+      if (
+        variable &&
+        (state === "single" || state === "double") &&
+        !rawString &&
+        quoteLength === 3
+      ) {
+        const quote = state === "single" ? "'" : '"';
+        let runStart = i;
+        let runEnd = i + variable[0].length;
+        let slot: RegExpMatchArray | null;
+        while (
+          (slot = sql.slice(0, runStart).match(/\{\{\w+(?::list)?\}\}$/))
+        ) {
+          runStart -= slot[0].length;
+        }
+        while ((slot = sql.slice(runEnd).match(/^\{\{\w+(?::list)?\}\}/))) {
+          runEnd += slot[0].length;
+        }
+        const opensString = runStart === quoteStart + quoteLength;
+        const closesString = sql.startsWith(quote.repeat(3), runEnd);
+        if (
+          (sql[runStart - 1] === quote && !opensString) ||
+          (sql[runEnd] === quote && !closesString)
+        ) {
+          rejectSourceSql(
+            "SQL template variables must not touch a quote inside a string.",
+          );
+        }
+      }
+    }
     if (state === "line") {
       out += ch === "\n" || ch === "\r" ? ch : " ";
       if (ch === "\n" || ch === "\r") state = "code";
@@ -52,6 +116,17 @@ function sanitizeSqlForInspection(
         ) {
           rejectSourceSql("Source SQL contains an incomplete string escape.");
         }
+        // A static backslash before a slot pairs with the interpolator's own
+        // escape backslash and leaves the value's quote unescaped.
+        if (
+          validateTemplateVariables &&
+          !rawString &&
+          /^\{\{\w+(?::list)?\}\}/.test(sql.slice(i + 1))
+        ) {
+          rejectSourceSql(
+            "SQL template variables must not follow a backslash escape.",
+          );
+        }
         // Raw literals preserve both characters, but still pair backslashes
         // with delimiters when finding the end of the literal.
         out += "  ";
@@ -60,6 +135,7 @@ function sanitizeSqlForInspection(
       }
       if (quoteLength === 3) {
         if (ch === quote && sql[i + 1] === quote && sql[i + 2] === quote) {
+          inspectTemplateLiteral(i);
           out += "   ";
           i += 2;
           state = "code";
@@ -71,15 +147,28 @@ function sanitizeSqlForInspection(
         continue;
       }
       if (ch === quote && next === quote) {
+        // GoogleSQL closes the literal here; reading `''` as an escape would
+        // place later slots inside a string GoogleSQL treats as code.
+        if (validateTemplateVariables) {
+          rejectSourceSql(
+            "BigQuery record templates must not use doubled quotes inside a string; use a backslash escape.",
+          );
+        }
         out += "  ";
         i += 1;
       } else if (ch === quote) {
+        inspectTemplateLiteral(i);
         out += " ";
         state = "code";
         rawString = false;
       } else {
         out += " ";
       }
+      continue;
+    }
+    if (dialect === "bigquery" && ch === "#") {
+      out += " ";
+      state = "line";
       continue;
     }
     if (ch === "-" && next === "-") {
@@ -95,6 +184,7 @@ function sanitizeSqlForInspection(
       continue;
     }
     if (ch === "'" || ch === '"' || ch === "`") {
+      quoteStart = i;
       const tripleQuoted =
         dialect === "bigquery" &&
         ch !== "`" &&
@@ -125,6 +215,15 @@ function sanitizeSqlForInspection(
     );
   }
   return out;
+}
+
+export function assertBigQueryTemplateLiteralContexts(sql: string): void {
+  if (/\{\{\?\w+\}\}/.test(sql)) {
+    rejectSourceSql(
+      "BigQuery record templates must not use conditional blocks. Use SQL CASE expressions with ordinary template variables.",
+    );
+  }
+  sanitizeSqlForInspection(sql, "bigquery", true);
 }
 
 export function assertReadOnlySql(

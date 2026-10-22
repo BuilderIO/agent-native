@@ -4,6 +4,17 @@ import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboar
 import { assertReadOnlySql } from "./read-only-sql";
 
 describe("assertReadOnlySql", () => {
+  it("recognizes hash comments only for BigQuery and checks statements after the newline", () => {
+    expect(() =>
+      assertReadOnlySql("SELECT 1 # ' DELETE FROM target", "bigquery"),
+    ).not.toThrow();
+    expect(() =>
+      assertReadOnlySql("SELECT 1 # ' DELETE FROM target", "standard"),
+    ).toThrow();
+    expect(() =>
+      assertReadOnlySql("SELECT 1 # '\n; DELETE FROM target", "bigquery"),
+    ).toThrow(/single statement/);
+  });
   it.each(
     ["r", "R", "br", "rB", "Br", "RB"].flatMap((prefix) =>
       ["'", '"', "'''", '"""'].map((quote) => ({ prefix, quote })),

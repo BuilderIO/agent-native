@@ -488,6 +488,17 @@ declare `config.drilldown: { sql: "…" }`
 to open records for a clicked point instead of aggregate rows. The template
 receives the dashboard filters plus `{{drillX}}` (raw x-axis value) and
 `{{drillSeries}}` (raw series key, or empty when absent), escaped for the source.
+In declared BigQuery templates, scalar variables must be inside ordinary quoted strings, and `:list` variables
+must be standalone SQL tokens, such as inside `IN ({{appFilter:list}})`.
+Lookup rejects variables in raw literals, identifiers or comments, variables
+right after a string's backslash escape, variables touching a quote other than
+a triple-quoted string's own delimiters (an empty value could join the quotes),
+and variables attached to SQL identifiers or literal prefixes. Doubled quotes
+(`''`) are refused too: GoogleSQL reads them as two literals, so escape quotes
+with a backslash. Static raw regex literals are allowed.
+Declared BigQuery record templates do not support `{{?variable}}…{{/variable}}`
+blocks, which could assemble new literal contexts after validation. Use SQL
+`CASE` expressions with ordinary variables for optional filters.
 Its SQL can return `COUNT(*) OVER () AS total_matching` alongside a bounded
 record list such as `LIMIT 500`; the dialog hides that count column and reports
 truncation. Without a valid count, the total and export completeness remain

@@ -24,6 +24,91 @@ describe("get-panel-drilldown", () => {
     expect(mocks.getFirstPartyDrilldown).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "SELECT r'{{drillX}}'",
+    'SELECT R"{{drillSeries}}"',
+    "SELECT br'''{{appFilter}}'''",
+    'SELECT rB"""{{apps:list}}"""',
+    "SELECT r'\\{{drillX}}'",
+    "SELECT # '\nr'{{drillX}}' # '",
+  ])(
+    "rejects a raw-literal template variable before querying: %s",
+    async (sql) => {
+      await expect(
+        getPanelDrilldown.run({ ...panel, drilldown: { sql } }),
+      ).rejects.toThrow(/require ordinary quoted strings/);
+      expect(mocks.getFirstPartyDrilldown).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "SELECT '{{drillX}}'",
+    "SELECT r'\\d+' WHERE app = '{{drillSeries}}'",
+    "SELECT 'r\"{{drillX}}\"'",
+    "SELECT '{{drillX}}' WHERE app IN ({{apps:list}})",
+    "SELECT '\\\\{{drillX}}'",
+    "SELECT '''{{drillX}}''' WHERE b = '''a {{drillX}} b'''",
+    "SELECT '{{drillX}}{{drillSeries}}'",
+  ])(
+    "preserves ordinary placeholders and static raw literals: %s",
+    async (sql) => {
+      await expect(
+        getPanelDrilldown.run({ ...panel, drilldown: { sql } }),
+      ).resolves.toEqual({ drilldown: { sql } });
+    },
+  );
+
+  it.each([
+    "SELECT r{{drillSeries}}'{{drillX}}'",
+    "SELECT r{{apps:list}}",
+    "SELECT {{apps:list}}'suffix'",
+    "SELECT `{{drillX}}`",
+    "SELECT '{{apps:list}}'",
+    "SELECT 1 # r'{{unused}}'",
+    "SELECT '{{drillX}}' /* {{unused}} */",
+    "SELECT '\\{{drillX}}' AND owner = 'expected'",
+    'SELECT "\\{{drillSeries}}"',
+    "SELECT '''\\{{drillX}}'''",
+    "SELECT 'a\\\\\\{{drillX}}'",
+    "SELECT '''x'{{drillX}}'' AND owner = 'expected' OR TRUE --'''",
+    'SELECT """x"{{drillX}}"" OR TRUE --"""',
+    "SELECT '''x'{{drillX}}{{drillSeries}}'' OR TRUE --'''",
+    "SELECT '''{{drillX}}'a'''",
+  ])(
+    "rejects variables outside supported template positions: %s",
+    async (sql) => {
+      await expect(
+        getPanelDrilldown.run({ ...panel, drilldown: { sql } }),
+      ).rejects.toThrow(/template variables/);
+    },
+  );
+
+  it.each([
+    "SELECT 'a''{{drillX}}'",
+    "SELECT '{{drillX}}''b'",
+    "SELECT 'a''''' b ''' {{drillX}} ''' c ' d '''",
+    'SELECT "a""" b """ {{drillX}} """ c " d """',
+  ])(
+    "rejects doubled quotes that GoogleSQL reads as adjacent literals: %s",
+    async (sql) => {
+      await expect(
+        getPanelDrilldown.run({ ...panel, drilldown: { sql } }),
+      ).rejects.toThrow(/must not use doubled quotes/);
+    },
+  );
+
+  it.each([
+    "SELECT r'{{drill{{?appFilter}}{{/appFilter}}X}}'",
+    "SELECT r{{?appFilter}}{{/appFilter}}'{{drillX}}'",
+  ])(
+    "rejects conditional preprocessing in BigQuery record templates: %s",
+    async (sql) => {
+      await expect(
+        getPanelDrilldown.run({ ...panel, drilldown: { sql } }),
+      ).rejects.toThrow(/must not use conditional blocks/);
+    },
+  );
+
   it("retains catalog lookup and an explicit aggregate-only result", async () => {
     const drilldown = { sql: "SELECT visitor FROM events LIMIT 500" };
     mocks.getFirstPartyDrilldown

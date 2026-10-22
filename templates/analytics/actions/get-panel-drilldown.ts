@@ -2,6 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { getFirstPartyDrilldown } from "../server/lib/first-party-metric-catalog";
+import { assertBigQueryTemplateLiteralContexts } from "../server/lib/read-only-sql";
 import { PANEL_DRILLDOWN_MAX_SQL_LENGTH } from "../shared/panel-drilldown";
 
 export default defineAction({
@@ -40,6 +41,9 @@ export default defineAction({
         "Declared record drill-down SQL requires a BigQuery or first-party panel.",
         { errorCode: "unsupported_drilldown_source", statusCode: 422 },
       );
+    }
+    if (drilldown && panelSource === "bigquery") {
+      assertBigQueryTemplateLiteralContexts(drilldown.sql);
     }
     return {
       drilldown:
