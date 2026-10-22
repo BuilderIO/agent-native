@@ -398,7 +398,7 @@ vi.mock("./credential-membership.js", async (importOriginal) => {
   };
 });
 
-const { handleMcpRequest } = await import("./server.js");
+const { handleMcpRequest, mountMCP } = await import("./server.js");
 const { handleMcpFetchRequest } = await import("./framework-fetch-handler.js");
 
 interface MakeEventOpts {
@@ -501,7 +501,7 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 vi.mock("../server/framework-request-handler.js", () => ({
-  getH3App: () => ({ use: () => {} }),
+  getH3App: (nitroApp: any) => nitroApp?.h3 ?? { use: () => {} },
 }));
 
 // Framework actions the runtime merges into every app that a directory
@@ -701,7 +701,10 @@ async function callWeb(
     opts.routePath,
   );
   expect(res).toBeInstanceOf(Response);
-  const response = res as Response;
+  return rpcResponse(res as Response);
+}
+
+async function rpcResponse(response: Response): Promise<any> {
   const ct = response.headers.get("content-type") || "";
   const text = await response.text();
   if (ct.includes("text/event-stream")) {
@@ -5718,6 +5721,43 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       actionName: "send-email",
       consumed: false,
     });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("links the review page on the route prefix the app mounts it under", async () => {
+    const run = vi.fn(async () => ({ sent: true }));
+    const use = vi.fn();
+    mountMCP({ h3: { use } }, sendEmailConfig(run), "/custom");
+    const mounted = new Map<string, any>(use.mock.calls);
+    expect([...mounted.keys()]).toEqual([
+      "/custom/mcp/approvals",
+      "/custom/mcp",
+    ]);
+
+    const response: Response = await mounted.get("/custom/mcp")(
+      makeWebEvent({
+        method: "POST",
+        body: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "send-email",
+            arguments: { to: ["ana@example.com"] },
+          },
+        },
+        headers: {
+          ...(await mcpAppsAuthHeaders()),
+          "x-agent-native-mcp-full-catalog": "1",
+          "mcp-protocol-version": "2025-06-18",
+        },
+      }),
+    );
+    const called = await rpcResponse(response);
+    const [grant] = [...approvalStoreMocks.grants.values()];
+    expect(called.result._meta["agent-native/approvalReview"].url).toBe(
+      `https://mail.agent-native.com/custom/mcp/approvals/${grant.nonce}`,
+    );
     expect(run).not.toHaveBeenCalled();
   });
 

@@ -64,6 +64,19 @@ describe("approval times", () => {
     ).toBe(Date.UTC(2026, 10, 1, 8, 0));
   });
 
+  it("reads no time from a wall time its zone skips, rather than showing another hour", () => {
+    // The US spring-forward change on 2026-03-08 skips 2:00 to 3:00 AM.
+    expect(
+      readApprovalTime("2026-03-08T02:30:00", "America/New_York"),
+    ).toBeUndefined();
+    expect(
+      readApprovalTime("2026-03-08T03:30:00", "America/New_York")?.at,
+    ).toBe(Date.UTC(2026, 2, 8, 7, 30));
+    expect(
+      readApprovalTime("2026-03-08T01:30:00", "America/New_York")?.at,
+    ).toBe(Date.UTC(2026, 2, 8, 6, 30));
+  });
+
   it("leaves a wall time with no zone, and anything that isn't a date-time, unconverted", () => {
     expect(readApprovalTime("2026-10-22T14:00:00", undefined)).toBeUndefined();
     expect(readApprovalTime("2026-10-22", "UTC")).toBeUndefined();
@@ -214,6 +227,23 @@ describe("summarizeMcpApproval", () => {
       value: "2026-10-22T14:00:00",
       wallTime: { ...wall, zone: "calendar" },
     });
+  });
+
+  it("shows a time its zone skips as written, not as a time with no zone", () => {
+    expect(
+      summarizeMcpApproval({
+        entry: entry({ zonelessTimes: "calendar" }),
+        actionName: "create-event",
+        argumentsJson: JSON.stringify({
+          start: "2026-03-08T02:30:00",
+          startTimeZone: "America/New_York",
+        }),
+        labels,
+      }).fields,
+    ).toEqual([
+      { label: "Start", value: "2026-03-08T02:30:00" },
+      { label: "Start time zone", value: "America/New_York" },
+    ]);
   });
 
   it("says when arguments weren't stored or can't be read, rather than showing none", () => {

@@ -49,6 +49,7 @@ import {
   summarizeMcpApproval,
   type McpApprovalSummary,
 } from "./approval-summary.js";
+import type { MCPRequestMeta } from "./build-server.js";
 import {
   findPriorApprovedRun,
   MCP_ACTION_APPROVAL_TTL_SECONDS,
@@ -69,7 +70,10 @@ import { getOAuthClientConnection } from "./oauth-store.js";
  * it.
  */
 
-export const MCP_APPROVAL_ROUTE = "/_agent-native/mcp/approvals";
+/** Where `mountMcpApprovalRoute` serves review pages for `routePrefix`. */
+export function mcpApprovalRoute(routePrefix = "/_agent-native"): string {
+  return `${routePrefix}/mcp/approvals`;
+}
 
 /** The app whose grants a mounted review page reads and decides. */
 export interface McpApprovalApp {
@@ -82,16 +86,18 @@ const GRANT_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * The review page for one grant, absolute when an origin is known: the
- * request's, if the app declares it or declares none.
+ * The review page for one grant, on the route the request's MCP mount
+ * serves it from, absolute when an origin is known: the request's, if the
+ * app declares it or declares none.
  */
 export function mcpApprovalReviewUrl(
   nonce: string,
-  requestOrigin: string | undefined,
+  requestMeta: Pick<MCPRequestMeta, "origin" | "approvalRoute"> | undefined,
 ): string {
+  const route = requestMeta?.approvalRoute ?? mcpApprovalRoute();
   return toAbsoluteOpenUrl(
-    publicFrameworkPath(`${MCP_APPROVAL_ROUTE}/${encodeURIComponent(nonce)}`),
-    declaredLinkOrigin(requestOrigin),
+    publicFrameworkPath(`${route}/${encodeURIComponent(nonce)}`),
+    declaredLinkOrigin(requestMeta?.origin),
   );
 }
 
@@ -634,7 +640,7 @@ export async function mcpApprovalPrompt(input: {
   review: McpApprovalReview;
   ownerEmail: string | undefined;
   mode: "form" | "url";
-  requestOrigin: string | undefined;
+  reviewUrl: string;
 }): Promise<{ message: string; decisionTitle: string; decisionHelp: string }> {
   const preference = await readerPreference(input.ownerEmail);
   const { locale } = resolveLocaleFromRequest({
@@ -656,7 +662,7 @@ export async function mcpApprovalPrompt(input: {
       locale,
       readerZone: readerTimeZone(preference),
       mode: input.mode,
-      reviewUrl: mcpApprovalReviewUrl(input.review.nonce, input.requestOrigin),
+      reviewUrl: input.reviewUrl,
     }),
     decisionTitle: messages.decisionTitle.replace("{action}", summary.title),
     decisionHelp: messages.decisionHelp,
@@ -686,7 +692,7 @@ export function mountMcpApprovalRoute(
   routePrefix = "/_agent-native",
 ): void {
   getH3App(nitroApp).use(
-    `${routePrefix}/mcp/approvals`,
+    mcpApprovalRoute(routePrefix),
     defineEventHandler((event) =>
       handleMcpApprovalRequest(event as H3Event, app),
     ),

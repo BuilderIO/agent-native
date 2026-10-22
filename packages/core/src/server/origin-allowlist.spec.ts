@@ -98,6 +98,17 @@ describe("declaredLinkOrigin", () => {
     expect(declaredLinkOrigin(undefined)).toBe("https://mail.example.com");
   });
 
+  it("keeps the request's origin when only the platform's hostnames are set", () => {
+    vi.stubEnv("URL", "https://mail-site.netlify.app");
+    vi.stubEnv("DEPLOY_URL", "https://abc123--mail-site.netlify.app");
+    vi.stubEnv("APP_URL", "http://localhost:8080");
+
+    expect(declaredLinkOrigin("https://mail.example.com")).toBe(
+      "https://mail.example.com",
+    );
+    expect(declaredLinkOrigin(undefined)).toBeUndefined();
+  });
+
   it("keeps a local server's own origin", () => {
     vi.stubEnv("APP_URL", "https://mail.example.com");
     expect(declaredLinkOrigin("http://localhost:8080")).toBe(

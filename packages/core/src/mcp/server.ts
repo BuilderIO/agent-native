@@ -18,7 +18,7 @@ import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
-import { mountMcpApprovalRoute } from "./approval-route.js";
+import { mcpApprovalRoute, mountMcpApprovalRoute } from "./approval-route.js";
 import { mcpApprovalAppId } from "./approval-store.js";
 import {
   verifyAuth,
@@ -343,7 +343,8 @@ function identityVerificationRefused(
 async function handleMcpRequestInternal(
   event: H3Event,
   config: MCPConfig,
-  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  routePath: string,
+  approvalRoute: string,
   onMcpMethod?: (method: string) => void,
 ): Promise<
   Response | string | { error: string } | Record<string, unknown> | undefined
@@ -450,6 +451,7 @@ async function handleMcpRequestInternal(
 
   const serverRequestMeta: MCPRequestMeta = {
     ...requestMeta,
+    approvalRoute,
     ...(requestConfig.createLocalAgentTaskClient
       ? {
           localAgentTaskClient: requestConfig.createLocalAgentTaskClient(event),
@@ -487,6 +489,7 @@ export async function handleMcpRequest(
   event: H3Event,
   config: MCPConfig,
   routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  approvalRoute = mcpApprovalRoute(),
 ): Promise<
   Response | string | { error: string } | Record<string, unknown> | undefined
 > {
@@ -503,6 +506,7 @@ export async function handleMcpRequest(
       event,
       config,
       routePath,
+      approvalRoute,
       (requestMethod) => {
         method = requestMethod;
       },
@@ -546,7 +550,12 @@ export function mountMCP(
     getH3App(nitroApp).use(
       routePath,
       defineEventHandler(async (event) => {
-        return handleMcpRequest(event as H3Event, config, routePath);
+        return handleMcpRequest(
+          event as H3Event,
+          config,
+          routePath,
+          mcpApprovalRoute(routePrefix),
+        );
       }),
     );
   }

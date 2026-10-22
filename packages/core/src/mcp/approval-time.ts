@@ -69,10 +69,16 @@ export function zoneOffsetMinutes(at: number, zone: string): number {
   return Math.round((wall - Math.floor(at / 1000) * 1000) / 60_000);
 }
 
-function wallTimeInZone(wall: number, zone: string): number {
+/**
+ * The instant a wall time names in `zone`, unless the zone skips it. A
+ * spring-forward gap has no 2:30 AM, and which side of the gap the action
+ * picks is up to it.
+ */
+function wallTimeInZone(wall: number, zone: string): number | undefined {
   // Twice, so a wall time beside a DST change lands on the right side of it.
   const guess = wall - zoneOffsetMinutes(wall, zone) * 60_000;
-  return wall - zoneOffsetMinutes(guess, zone) * 60_000;
+  const at = wall - zoneOffsetMinutes(guess, zone) * 60_000;
+  return at + zoneOffsetMinutes(at, zone) * 60_000 === wall ? at : undefined;
 }
 
 function normalizedOffset(offset: string): string | undefined {
@@ -123,7 +129,8 @@ export function readApprovalTime(
       zone: zone ?? offset,
     };
   }
-  return zone ? { at: wallTimeInZone(wall, zone), zone } : undefined;
+  const at = zone ? wallTimeInZone(wall, zone) : undefined;
+  return zone && at !== undefined ? { at, zone } : undefined;
 }
 
 /**

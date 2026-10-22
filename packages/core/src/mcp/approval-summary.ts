@@ -218,15 +218,15 @@ export function summarizeMcpApproval(input: {
       if (readable === undefined || readable === "") continue;
       const schemaTitle = (properties[key] as { title?: unknown } | undefined)
         ?.title;
+      const zone = zoneArgument(key, args as Record<string, unknown>);
       const time =
-        typeof value === "string"
-          ? readApprovalTime(
-              value,
-              zoneArgument(key, args as Record<string, unknown>),
-            )
-          : undefined;
+        typeof value === "string" ? readApprovalTime(value, zone) : undefined;
+      // A time its own zone can't place, such as one in a DST gap, is not a
+      // time with no zone: it stays as written.
       const wall =
-        typeof value === "string" && !time ? readWallTime(value) : undefined;
+        typeof value === "string" && !time && !zone
+          ? readWallTime(value)
+          : undefined;
       fields.push({
         label:
           typeof schemaTitle === "string" && schemaTitle.trim()

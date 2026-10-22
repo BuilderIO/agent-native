@@ -351,7 +351,7 @@ export function actionApprovalReviewResult(
   requestMeta: MCPRequestMeta | undefined,
 ): CallToolResult {
   const { actionName: name } = review;
-  const url = mcpApprovalReviewUrl(review.nonce, requestMeta?.origin);
+  const url = mcpApprovalReviewUrl(review.nonce, requestMeta);
   const status =
     reason === "unprompted"
       ? `${name} needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${url}`
@@ -383,6 +383,8 @@ After they approve, call ${name} again with exactly the same arguments before ${
 export interface MCPRequestMeta {
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   origin?: string;
+  /** Where this mount serves the approval review page; `mcpApprovalRoute()` by default. */
+  approvalRoute?: string;
   basePath?: string;
   target?: "browser" | "desktop" | "terminal";
   clientName?: string;
@@ -3243,12 +3245,13 @@ export async function createMCPServerForRequest(
     if (mode === undefined) {
       return actionApprovalReviewResult(review, "unprompted", requestMeta);
     }
+    const reviewUrl = mcpApprovalReviewUrl(review.nonce, requestMeta);
     const prompt = await mcpApprovalPrompt({
       entry: actions[name],
       review,
       ownerEmail: effectiveIdentity?.userEmail,
       mode,
-      requestOrigin: requestMeta?.origin,
+      reviewUrl,
     });
     if (mode === "url") {
       const requestState = await approvalCodec!.mint(
@@ -3259,7 +3262,7 @@ export async function createMCPServerForRequest(
         inputRequests: {
           [MCP_ACTION_APPROVAL_INPUT_KEY]: inputRequired.elicitUrl({
             message: prompt.message,
-            url: mcpApprovalReviewUrl(review.nonce, requestMeta?.origin),
+            url: reviewUrl,
           }),
         },
         requestState,
