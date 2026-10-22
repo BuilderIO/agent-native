@@ -378,6 +378,19 @@ describe("switching a page to its live copy", () => {
     expect(await collabVersion("off")).toBeUndefined();
   });
 
+  it("refuses to switch a page whose stored body the parser can't keep in full", async () => {
+    // The parser drops an unindented callout child, so both serializations
+    // of the built tree agree on the shortened body.
+    await insertPage("parse-loss", "Hello\n<callout>\nOnly text\n</callout>");
+    const before = await page("parse-loss");
+
+    await expect(
+      switching.switchPageToLiveCopy("parse-loss"),
+    ).rejects.toMatchObject({ name: "LiveCopyError", reason: "lossy" });
+    expect(await page("parse-loss")).toEqual(before);
+    expect(await collabVersion("parse-loss")).toBeUndefined();
+  });
+
   it("converts again after a legacy write, and the stored body wins over the stale copy", async () => {
     await switchedPage("reconvert", "Hello there");
     await expect(switching.switchPageToLegacy("reconvert")).resolves.toEqual({
@@ -710,6 +723,27 @@ describe("writes through a switched page's live copy", () => {
     ).rejects.toMatchObject({ errorCode: "DOCUMENT_NOT_FOUND" });
     expect((await page("trashed")).content).toBe("Hello there");
     expect(await collabVersion("trashed")).toBe(version);
+  });
+
+  it("refuses a server replacement the parser can't keep in full, and commits nothing", async () => {
+    await switchedPage("parse-loss-edit", "Hello there");
+    const before = await page("parse-loss-edit");
+    const version = await collabVersion("parse-loss-edit");
+
+    await expect(
+      cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
+        collab.mutateLiveCopy(binding.contentLiveCopy, "parse-loss-edit", {
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content: "Hello\n<callout>\nOnly text\n</callout>" },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "LiveCopyError",
+      code: "build_refused",
+      reason: "lossy",
+    });
+    expect(await page("parse-loss-edit")).toEqual(before);
+    expect(await collabVersion("parse-loss-edit")).toBe(version);
   });
 
   it("locks collections, then memberships, then the page, and trashes an inline collection the body dropped", async () => {
