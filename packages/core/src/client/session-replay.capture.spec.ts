@@ -418,6 +418,47 @@ describe("session replay console/network capture", () => {
     await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
   });
 
+  it.each([
+    ["while it waits for consent", false],
+    ["after recording, through a reject and an accept", true],
+  ])("keeps a stopped recording stopped %s", async (_label, acceptFirst) => {
+    const { windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    windowStub.sessionStorage = {
+      getItem: vi.fn((key: string) =>
+        key === "an_consent_region" ? "consent" : null,
+      ),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const cookies = new Map<string, string>();
+    Object.defineProperty(globalThis.document, "cookie", {
+      configurable: true,
+      get: () =>
+        [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
+      set: (assignment: string) => {
+        const [pair] = assignment.split(";", 1);
+        const eq = pair!.indexOf("=");
+        cookies.set(pair!.slice(0, eq), pair!.slice(eq + 1));
+      },
+    });
+    const mod = await freshSessionReplay();
+    activeModule = mod;
+    await mod.startSessionReplay({ ...START_OPTIONS });
+    const { setConsentChoice } = await import("./consent.js");
+    if (acceptFirst) {
+      setConsentChoice({ performance: true, targeting: false });
+      await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+    }
+
+    await mod.stopSessionReplay("manual");
+    if (acceptFirst) setConsentChoice({ performance: false, targeting: false });
+    setConsentChoice({ performance: true, targeting: false });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(mod.isSessionReplayActive()).toBe(false);
+  });
+
   it("starts a first-visit recording on accept after the region's first answer", async () => {
     const { windowStub, fetchMock } = installBrowser();
     recordMock.mockReturnValue(vi.fn());

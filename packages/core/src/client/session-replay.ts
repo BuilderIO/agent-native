@@ -3588,6 +3588,7 @@ function discardWithdrawnReplay(state: SessionReplayState): void {
   state.pendingFlushReason = null;
 }
 let replayAwaitingConsent: SessionReplayOptions | null = null;
+let replayCallerStops = 0;
 
 /**
  * Replay waits for analytics consent where the banner applies, without the
@@ -3609,8 +3610,14 @@ function replayConsentAllows(options: SessionReplayOptions): boolean {
         if (!waiting) return;
         // A reject during the last start cancels it, and an accept that
         // quickly gets that canceled start back; ask once more after it.
+        const stops = replayCallerStops;
         void startSessionReplay(waiting).then((result) => {
-          if (!result.started && replayConsentGranted && !getState().active) {
+          if (
+            !result.started &&
+            replayConsentGranted &&
+            !getState().active &&
+            replayCallerStops === stops
+          ) {
             void startSessionReplay(waiting);
           }
         });
@@ -3974,6 +3981,11 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
       state.replayId ?? readStoredReplaySession()?.replayId;
     discardWithdrawnReplay(state);
     if (storedReplayId) removeStoredReplaySession(storedReplayId);
+  } else if (reason !== "upload-timeout") {
+    // Any other stop is final: a later accept doesn't bring it back.
+    replayAwaitingConsent = null;
+    replayAllowedOptions = null;
+    replayCallerStops += 1;
   }
   if (!state.active) {
     if (authClearedReplayId) removeStoredReplaySession(authClearedReplayId);
