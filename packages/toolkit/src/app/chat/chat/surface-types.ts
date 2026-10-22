@@ -246,6 +246,8 @@ export interface AssistantChatProps {
   transcriptLayout?: AgentChatTranscriptLayout;
   /** Optional elapsed-work row geometry. Omitted values keep the shared defaults. */
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  /** Optional duration text for the shared completed-work row. */
+  formatWorkedForDuration?: (durationMs: number) => string;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */

@@ -1779,11 +1779,14 @@ describe("AgentChat lifecycle", () => {
       paddingBlock: 2,
       paddingInline: 4,
     };
+    const formatWorkedForDuration = (durationMs: number) =>
+      `${Math.round(durationMs / 1000)} seconds`;
     await tree.render(
       <AgentKitProvider
         controller={observable.controller}
         threadId={threadId}
         workedForRowLayout={workedForRowLayout}
+        formatWorkedForDuration={formatWorkedForDuration}
         registry={{
           activities: {
             reasoning: ({ value }) => (
@@ -1841,6 +1844,7 @@ describe("AgentChat lifecycle", () => {
         controller={observable.controller}
         threadId={threadId}
         workedForRowLayout={workedForRowLayout}
+        formatWorkedForDuration={formatWorkedForDuration}
         registry={{
           activities: {
             reasoning: ({ value }) => (
@@ -1903,7 +1907,9 @@ describe("AgentChat lifecycle", () => {
     await flush();
     expect(tree.container.querySelector(".agentkit-activities")).toBe(work);
     expect(work.open).toBe(false);
-    expect(work.querySelector("summary")?.textContent).toBe("Worked for 18s›");
+    expect(work.querySelector("summary")?.textContent).toBe(
+      "Worked for 18 seconds›",
+    );
     expect(work.querySelector("[data-agentkit-current-activity]")).toBeNull();
     expect(tree.container.querySelectorAll("article")).toHaveLength(1);
     const answer = tree.container.querySelector(

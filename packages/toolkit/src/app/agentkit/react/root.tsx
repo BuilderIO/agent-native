@@ -88,6 +88,7 @@ export interface AgentKitRootBaseProps {
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
     name: string;
@@ -119,6 +120,7 @@ export function AgentKitRoot({
   onRenderError,
   resolveMessageContentOrder,
   workedForRowLayout,
+  formatWorkedForDuration,
   onClientEffect,
   load = "auto",
   onLoadError,
@@ -298,6 +300,7 @@ export function AgentKitRoot({
       onRenderError={onRenderError}
       resolveMessageContentOrder={resolveMessageContentOrder}
       workedForRowLayout={workedForRowLayout}
+      formatWorkedForDuration={formatWorkedForDuration}
       onClientEffect={onClientEffect}
     >
       {children}

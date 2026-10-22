@@ -498,6 +498,7 @@ export interface AgentKitProviderProps {
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
     name: string;
@@ -529,6 +530,7 @@ export interface AgentKitContextValue {
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
   requestComposerFocus: (threadId: ThreadId) => void;
 }
@@ -551,6 +553,7 @@ export function AgentKitProvider({
   onRenderError,
   resolveMessageContentOrder,
   workedForRowLayout,
+  formatWorkedForDuration,
   onClientEffect,
   children,
 }: AgentKitProviderProps) {
@@ -619,6 +622,7 @@ export function AgentKitProvider({
       onRenderError,
       resolveMessageContentOrder,
       workedForRowLayout,
+      formatWorkedForDuration,
       registerComposerFocus,
       requestComposerFocus,
     }),
@@ -638,6 +642,7 @@ export function AgentKitProvider({
       onRenderError,
       resolveMessageContentOrder,
       workedForRowLayout,
+      formatWorkedForDuration,
       registerComposerFocus,
       requestComposerFocus,
     ],

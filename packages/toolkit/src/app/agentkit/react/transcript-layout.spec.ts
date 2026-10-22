@@ -11,9 +11,10 @@ import {
 } from "./transcript-layout.js";
 
 function WorkedForLayoutProbe() {
-  const { workedForRowLayout } = useAgentKit();
+  const { workedForRowLayout, formatWorkedForDuration } = useAgentKit();
   return createElement("span", {
     "data-icon-gap": workedForRowLayout?.iconGap,
+    "data-duration": formatWorkedForDuration?.(16_000),
   });
 }
 
@@ -50,6 +51,8 @@ describe("worked-for row layout", () => {
 
   it("carries the layout from the AgentKit root into shared context", () => {
     const layout = { iconGap: 8 };
+    const formatWorkedForDuration = (durationMs: number) =>
+      `${Math.round(durationMs / 1000)} seconds`;
     const markup = renderToStaticMarkup(
       createElement(
         AgentKitRoot,
@@ -57,11 +60,13 @@ describe("worked-for row layout", () => {
           controller: {} as AgentKitController,
           threadId: "thread",
           workedForRowLayout: layout,
+          formatWorkedForDuration,
         },
         createElement(WorkedForLayoutProbe),
       ),
     );
 
     expect(markup).toContain('data-icon-gap="8"');
+    expect(markup).toContain('data-duration="16 seconds"');
   });
 });

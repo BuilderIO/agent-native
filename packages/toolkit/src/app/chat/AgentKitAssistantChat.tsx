@@ -2108,6 +2108,7 @@ export const AgentKitAssistantChat = forwardRef<
           loadRunUsage={loadRunUsage}
           buildFeedbackReport={formatFeedbackReport}
           workedForRowLayout={props.workedForRowLayout}
+          formatWorkedForDuration={props.formatWorkedForDuration}
           onThreadForked={(thread) => props.onForkedThread?.(thread.id)}
           onCopyMessage={({ text }) => {
             const html = renderMarkdownToClipboardHtml(text);

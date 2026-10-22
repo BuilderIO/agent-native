@@ -1063,9 +1063,16 @@ describe("AgentKitAssistantChat host behavior", () => {
       paddingBlock: 2,
       paddingInline: 4,
     };
-    await mount(baseProps({ workedForRowLayout: layout }));
+    const formatWorkedForDuration = (durationMs: number) =>
+      `${Math.round(durationMs / 1000)} seconds`;
+    await mount(
+      baseProps({ workedForRowLayout: layout, formatWorkedForDuration }),
+    );
 
     expect(chatMocks.rootProps.workedForRowLayout).toEqual(layout);
+    expect(chatMocks.rootProps.formatWorkedForDuration).toBe(
+      formatWorkedForDuration,
+    );
   });
 
   it("reports whether a composer can hold a prefill with its current context", async () => {

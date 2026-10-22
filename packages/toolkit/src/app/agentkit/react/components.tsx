@@ -1471,7 +1471,8 @@ export function AgentActivityGroup({
   excludeAgentActivities?: boolean;
   isCurrentSegment?: boolean;
 }) {
-  const { threadId, slots, registry, labels } = useAgentKit();
+  const { threadId, slots, registry, labels, formatWorkedForDuration } =
+    useAgentKit();
   const thread = useAgentThread();
   const runEvents = runId
     ? thread.events.filter((event) => event.runId === runId)
@@ -1768,6 +1769,7 @@ export function AgentActivityGroup({
   }
   const hasExpandableActivity = displayGroups.length > 0;
   const formatDuration = (ms: number) =>
+    formatWorkedForDuration?.(ms) ??
     formatAgentKitDuration(ms, {
       hour: labels.durationHourShort,
       minute: labels.durationMinuteShort,
