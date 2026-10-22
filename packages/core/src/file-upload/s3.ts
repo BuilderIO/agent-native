@@ -1,6 +1,8 @@
 import {
+  assertCredentialStoreReadable,
   prefetchSecrets,
-  resolveSecret,
+  resolveSecretDetailed,
+  type ResolvedSecretDetail,
 } from "../server/credential-provider.js";
 import {
   listFileUploadProviders,
@@ -80,14 +82,6 @@ function readEnvConfig(): S3Config | null {
   });
 }
 
-async function resolveStorageSecret(
-  primary: string,
-  fallback: string,
-): Promise<string | undefined> {
-  const primaryValue = cleanValue(await resolveSecret(primary));
-  return primaryValue ?? cleanValue(await resolveSecret(fallback));
-}
-
 const STORAGE_SECRET_KEYS = [
   "S3_BUCKET",
   "R2_BUCKET",
@@ -103,26 +97,53 @@ const STORAGE_SECRET_KEYS = [
   "R2_PUBLIC_BASE_URL",
 ] as const;
 
+/**
+ * The storage a user, org or workspace saved for this request, read only
+ * from the place that saved the bucket. Mixing places field by field could
+ * send the deployment's keys to an endpoint a workspace saved, so a gap, or a
+ * setting saved anywhere else, leaves no saved config.
+ */
+async function readSavedConfig(): Promise<S3Config | null> {
+  const found = new Map<string, ResolvedSecretDetail>();
+  await Promise.all(
+    STORAGE_SECRET_KEYS.map(async (key) => {
+      const detail = await resolveSecretDetailed(key);
+      if (cleanValue(detail.value)) found.set(key, detail);
+      else assertCredentialStoreReadable(detail);
+    }),
+  );
+  const saved = (detail: ResolvedSecretDetail | undefined) =>
+    detail !== undefined && detail.source !== "env";
+  const bucket = [found.get("S3_BUCKET"), found.get("R2_BUCKET")].find(saved);
+  if (!bucket) return null;
+  const fromBucketPlace = (detail: ResolvedSecretDetail | undefined) =>
+    detail !== undefined &&
+    detail.source === bucket.source &&
+    detail.scopeId === bucket.scopeId;
+  if (
+    [...found.values()].some(
+      (detail) => saved(detail) && !fromBucketPlace(detail),
+    )
+  ) {
+    return null;
+  }
+  const value = (primary: string, fallback: string) =>
+    [found.get(primary), found.get(fallback)].find(fromBucketPlace)?.value ??
+    undefined;
+  return buildConfig({
+    bucket: value("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: value("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: value("S3_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
+    endpoint: value("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: value("S3_REGION", "R2_REGION"),
+    publicBaseUrl: value("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"),
+  });
+}
+
+/** Saved storage when complete, else the deployment's, never a mix. */
 async function readRequestConfig(): Promise<S3Config | null> {
   await prefetchSecrets(STORAGE_SECRET_KEYS);
-  const scopedConfig = buildConfig({
-    bucket: await resolveStorageSecret("S3_BUCKET", "R2_BUCKET"),
-    accessKeyId: await resolveStorageSecret(
-      "S3_ACCESS_KEY_ID",
-      "R2_ACCESS_KEY_ID",
-    ),
-    secretAccessKey: await resolveStorageSecret(
-      "S3_SECRET_ACCESS_KEY",
-      "R2_SECRET_ACCESS_KEY",
-    ),
-    endpoint: await resolveStorageSecret("S3_ENDPOINT", "R2_ENDPOINT"),
-    region: await resolveStorageSecret("S3_REGION", "R2_REGION"),
-    publicBaseUrl: await resolveStorageSecret(
-      "S3_PUBLIC_BASE_URL",
-      "R2_PUBLIC_BASE_URL",
-    ),
-  });
-  return scopedConfig ?? readEnvConfig();
+  return (await readSavedConfig()) ?? readEnvConfig();
 }
 
 const PUT_TIMEOUT_MS = 120_000;

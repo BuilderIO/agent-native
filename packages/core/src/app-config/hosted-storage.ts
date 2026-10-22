@@ -5,8 +5,9 @@ import { AppConfigurationError } from "./configuration-error.js";
 /**
  * A private S3-compatible bucket the deployment runs for every app's private
  * files, so private pages don't depend on each workspace connecting storage.
- * Credentials also read the older `CLIPS_HOSTED_STORAGE_*` names, which name
- * the same bucket Clips uses for hosted recordings.
+ * It is the bucket Clips uses for hosted recordings, so its settings read the
+ * older `CLIPS_HOSTED_STORAGE_*` names first: when both are set, they win, and
+ * recordings already stored there stay readable.
  */
 export const hostedStorageConfig = z.object({
   enabled: z.boolean().default(false).meta({
@@ -19,8 +20,8 @@ export const hostedStorageConfig = z.object({
     .optional()
     .meta({
       env: [
-        "AGENT_NATIVE_HOSTED_STORAGE_ENDPOINT",
         "CLIPS_HOSTED_STORAGE_ENDPOINT",
+        "AGENT_NATIVE_HOSTED_STORAGE_ENDPOINT",
       ],
       doc: "S3-compatible endpoint for the hosted private bucket.",
     }),
@@ -30,8 +31,8 @@ export const hostedStorageConfig = z.object({
     .optional()
     .meta({
       env: [
-        "AGENT_NATIVE_HOSTED_STORAGE_BUCKET",
         "CLIPS_HOSTED_STORAGE_BUCKET",
+        "AGENT_NATIVE_HOSTED_STORAGE_BUCKET",
       ],
       doc: "Hosted private bucket. It must not be publicly readable.",
     }),
@@ -41,8 +42,8 @@ export const hostedStorageConfig = z.object({
     .optional()
     .meta({
       env: [
-        "AGENT_NATIVE_HOSTED_STORAGE_ACCESS_KEY_ID",
         "CLIPS_HOSTED_STORAGE_ACCESS_KEY_ID",
+        "AGENT_NATIVE_HOSTED_STORAGE_ACCESS_KEY_ID",
       ],
       doc: "Access key for the hosted private bucket.",
     }),
@@ -52,8 +53,8 @@ export const hostedStorageConfig = z.object({
     .optional()
     .meta({
       env: [
-        "AGENT_NATIVE_HOSTED_STORAGE_SECRET_ACCESS_KEY",
         "CLIPS_HOSTED_STORAGE_SECRET_ACCESS_KEY",
+        "AGENT_NATIVE_HOSTED_STORAGE_SECRET_ACCESS_KEY",
       ],
       doc: "Secret access key for the hosted private bucket.",
     }),
@@ -63,8 +64,8 @@ export const hostedStorageConfig = z.object({
     .optional()
     .meta({
       env: [
-        "AGENT_NATIVE_HOSTED_STORAGE_REGION",
         "CLIPS_HOSTED_STORAGE_REGION",
+        "AGENT_NATIVE_HOSTED_STORAGE_REGION",
       ],
       doc: "Region of the hosted private bucket.",
     }),

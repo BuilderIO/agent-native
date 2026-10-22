@@ -12,6 +12,15 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
   prefetchSecrets: (...args: any[]) => mockPrefetchSecrets(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
+  // A value that matches the deployment's env came from env; any other value
+  // was saved by the workspace.
+  resolveSecretDetailed: async (key: string) => {
+    const value = await mockResolveSecret(key);
+    if (!value) return { value: null, lookupFailed: false };
+    return process.env[key] === value
+      ? { value, lookupFailed: false, source: "env" }
+      : { value, lookupFailed: false, source: "workspace", scopeId: "org-1" };
+  },
   getAppConfig: () => ({
     clips: {
       hostedStorage: {
@@ -111,6 +120,45 @@ describe("s3FileUploadProvider", () => {
     ]);
     expect(mockPrefetchSecrets.mock.invocationCallOrder[0]).toBeLessThan(
       mockResolveSecret.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("never mixes a workspace's saved storage with the deployment's", async () => {
+    const deployment: Record<string, string> = {
+      S3_BUCKET: "deploy-bucket",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+      S3_ENDPOINT: "https://deploy-s3.example.com",
+    };
+    Object.assign(process.env, deployment);
+    let saved: Record<string, string> = {};
+    mockResolveSecret.mockImplementation(
+      async (key: string) => saved[key] ?? deployment[key] ?? null,
+    );
+    mockSsrfSafeFetch.mockReset();
+    const upload = () =>
+      s3FileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "recording.webm",
+        mimeType: "video/webm",
+      });
+
+    // Only an endpoint saved: the deployment's keys must not go there.
+    saved = { S3_ENDPOINT: "https://workspace-s3.example.com" };
+    await expect(s3FileUploadProvider.isConfiguredForRequest?.()).resolves.toBe(
+      false,
+    );
+    await expect(upload()).rejects.toThrow();
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+
+    // Nothing saved: the deployment's own settings, all together.
+    saved = {};
+    mockSsrfSafeFetch.mockResolvedValue(new Response(null, { status: 200 }));
+    await upload();
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      expect.stringContaining("https://deploy-s3.example.com/deploy-bucket/"),
+      expect.objectContaining({ method: "PUT" }),
+      expect.anything(),
     );
   });
 
@@ -488,10 +536,6 @@ describe("s3FileUploadProvider", () => {
   });
 
   it("rejects bucket dot segments before using a trusted private endpoint", async () => {
-    // The deployment's own endpoint and keys, so plain HTTP is allowed.
-    process.env.S3_ENDPOINT = "http://10.0.0.12:9000/minio/";
-    process.env.S3_ACCESS_KEY_ID = "access";
-    process.env.S3_SECRET_ACCESS_KEY = "secret";
     const values: Record<string, string> = {
       S3_BUCKET: "..",
       S3_ACCESS_KEY_ID: "access",
@@ -499,6 +543,8 @@ describe("s3FileUploadProvider", () => {
       S3_ENDPOINT: "http://10.0.0.12:9000/minio/",
       S3_PUBLIC_BASE_URL: "https://clips.example.com/media",
     };
+    // The deployment's own settings, so plain HTTP is allowed.
+    Object.assign(process.env, values);
     mockResolveSecret.mockImplementation(async (key: string) => {
       return values[key] ?? null;
     });

@@ -15,7 +15,8 @@ import {
   getRequestOrgId,
   prefetchSecrets,
   resolveClipsHostedStorageConfig,
-  resolveSecret,
+  resolveSecretDetailed,
+  type ResolvedSecretDetail,
 } from "@agent-native/core/server";
 
 import {
@@ -105,13 +106,6 @@ function readS3EnvSecret(
   return cleanValue(process.env[primary]) ?? cleanValue(process.env[fallback]);
 }
 
-async function resolveS3Secret(primary: string, fallback: string) {
-  return (
-    cleanValue(await resolveSecret(primary)) ??
-    cleanValue(await resolveSecret(fallback))
-  );
-}
-
 const S3_SECRET_KEYS = [
   "S3_BUCKET",
   "R2_BUCKET",
@@ -127,21 +121,52 @@ const S3_SECRET_KEYS = [
   "R2_PUBLIC_BASE_URL",
 ] as const;
 
+/**
+ * Storage settings come from one place: the user, org or workspace that saved
+ * the bucket, else the deployment's env. Mixing places field by field could
+ * send the deployment's keys to an endpoint a workspace saved, so a setting
+ * saved anywhere else leaves storage unconfigured.
+ */
 async function readS3Config(): Promise<S3Config | null> {
   await prefetchSecrets(S3_SECRET_KEYS);
+  const found = new Map<string, ResolvedSecretDetail>();
+  await Promise.all(
+    S3_SECRET_KEYS.map(async (key) => {
+      const detail = await resolveSecretDetailed(key);
+      if (cleanValue(detail.value)) found.set(key, detail);
+      else if (detail.lookupFailed) {
+        throw detail.cause ?? new Error(`Unable to read configured ${key}`);
+      }
+    }),
+  );
+  const saved = (detail: ResolvedSecretDetail | undefined) =>
+    detail !== undefined && detail.source !== "env";
+  const bucket =
+    [found.get("S3_BUCKET"), found.get("R2_BUCKET")].find(saved) ??
+    found.get("S3_BUCKET") ??
+    found.get("R2_BUCKET");
+  if (!bucket) return null;
+  const fromBucketPlace = (detail: ResolvedSecretDetail | undefined) =>
+    detail !== undefined &&
+    detail.source === bucket.source &&
+    detail.scopeId === bucket.scopeId;
+  if (
+    [...found.values()].some(
+      (detail) => saved(detail) && !fromBucketPlace(detail),
+    )
+  ) {
+    return null;
+  }
+  const read = (primary: string, fallback: string) =>
+    [found.get(primary), found.get(fallback)].find(fromBucketPlace)?.value ??
+    undefined;
   return buildS3Config({
-    bucket: await resolveS3Secret("S3_BUCKET", "R2_BUCKET"),
-    accessKeyId: await resolveS3Secret("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
-    secretAccessKey: await resolveS3Secret(
-      "S3_SECRET_ACCESS_KEY",
-      "R2_SECRET_ACCESS_KEY",
-    ),
-    endpoint: await resolveS3Secret("S3_ENDPOINT", "R2_ENDPOINT"),
-    region: await resolveS3Secret("S3_REGION", "R2_REGION"),
-    publicBaseUrl: await resolveS3Secret(
-      "S3_PUBLIC_BASE_URL",
-      "R2_PUBLIC_BASE_URL",
-    ),
+    bucket: read("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: read("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: read("S3_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
+    endpoint: read("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: read("S3_REGION", "R2_REGION"),
+    publicBaseUrl: read("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"),
   });
 }
 
