@@ -34,8 +34,8 @@ import {
   contentDatabaseDateFilterCheck,
   contentDatabaseFilterComparesDates,
   contentDatabaseFilterHasTime,
+  contentDatabaseFilterIsActive,
   contentDatabaseFilterIsRelative,
-  contentDatabaseFilterOperatorNeedsValue,
   contentDatabaseFilterToday,
   contentDatabaseFilterTree,
   reduceContentDatabaseFilterTree,
@@ -124,13 +124,6 @@ function selectedFilterValues(value: string) {
   }
 }
 
-function activeNavigationFilter(filter: ContentDatabaseFilter) {
-  return (
-    !contentDatabaseFilterOperatorNeedsValue(filter.operator) ||
-    selectedFilterValues(filter.value).length > 0
-  );
-}
-
 // Every character String.prototype.trim() removes. Postgres' btrim() removes
 // only spaces unless it is given the characters to remove.
 const TRIMMED_CHARACTERS = String.fromCharCode(
@@ -212,7 +205,7 @@ async function navigationFilterDefinitions(
   const propertyIds = [
     ...new Set(
       filters
-        .filter(activeNavigationFilter)
+        .filter(contentDatabaseFilterIsActive)
         .map((filter) => filter.key)
         .filter((key) => key !== "name"),
     ),
@@ -251,7 +244,7 @@ function navigationFilterSql(args: {
     updatedAt: SQL<string>;
   };
 }) {
-  if (!args.filters.some(activeNavigationFilter)) return undefined;
+  if (!args.filters.some(contentDatabaseFilterIsActive)) return undefined;
   const definitionById = args.definitionById;
 
   const leaf = (filter: ContentDatabaseFilter): SQL => {
@@ -347,7 +340,7 @@ function navigationFilterSql(args: {
     contentDatabaseFilterTree(
       args.filters,
       args.filterMode,
-      activeNavigationFilter,
+      contentDatabaseFilterIsActive,
     ),
     leaf,
     (mode, values): SQL =>

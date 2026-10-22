@@ -198,7 +198,8 @@ time zone (the browser's, or the `x-user-timezone` request header on the
 server, falling back to the server's zone). `update-content-database-view`
 and `update-content-database-personal-view` reject an unknown `is_within`
 token and a date they cannot read, such as `2026-02-30`, in every form they
-accept; an empty value or an unfinished `between` end still saves. Only filters
+accept; an empty value or an unfinished `between` end still saves, and such a
+filter is skipped when rows are read until it's filled in. Only filters
 a save adds or changes are checked, so a view still holding an unreadable date
 from before these checks saves with other edits.
 

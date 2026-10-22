@@ -1981,6 +1981,7 @@ describe("Files navigation text and date filters", () => {
     vi.setSystemTime(new Date("2026-10-23T02:30:00.000Z"));
     const today = "2026-10-22";
     const october22 = ["oct-22-start", "oct-22-evening", "oct-22-end"];
+    const everyFile = files.map((file) => file.id.replace("date-filter-", ""));
     const expected: Array<[ContentDatabaseFilter, string[]]> = [
       [created("equals", "2026-10-22"), ids(...october22)],
       [
@@ -2038,6 +2039,12 @@ describe("Files navigation text and date filters", () => {
       ],
       [created("on_or_before", "2026-02-30"), []],
       [created("is_within", "next_fortnight"), []],
+      // A range with a blank end is still being filled in, so it's skipped.
+      [
+        created("between", JSON.stringify(["2026-10-22", ""])),
+        ids(...everyFile),
+      ],
+      [created("between", "2026-10-22"), ids(...everyFile)],
     ];
     for (const [filter, rows] of expected) {
       expect(await navigatedIds(filter, "America/New_York")).toEqual(rows);

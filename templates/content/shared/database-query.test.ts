@@ -703,6 +703,18 @@ describe("content database date filters", () => {
     ).toEqual(["day-before", "morning", "whole-day", "evening"]);
   });
 
+  it("skips a range with a blank end until it's filled in", () => {
+    const everyRow = datedItems.map((item) => item.document.id);
+    for (const value of [
+      JSON.stringify(["2026-10-21", ""]),
+      JSON.stringify(["", "2026-10-22"]),
+      // A single date carried over from another operator.
+      "2026-10-21",
+    ]) {
+      expect(dateMatches("between", value)).toEqual(everyRow);
+    }
+  });
+
   it("includes the whole boundary day for on or before and on or after", () => {
     expect(dateMatches("on_or_before", "2026-10-22")).toEqual([
       "day-before",

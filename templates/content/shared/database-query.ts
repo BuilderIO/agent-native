@@ -595,7 +595,7 @@ export function applyContentDatabaseTableQuery(
         itemSearchText(item, properties).toLowerCase().includes(search),
       )
     : items;
-  const filterTree = query.filters.some(isActiveFilter)
+  const filterTree = query.filters.some(contentDatabaseFilterIsActive)
     ? contentDatabaseFilterTree(query.filters, query.filterMode)
     : null;
   // Looked up on the first date comparison. A missing or unknown zone becomes
@@ -749,7 +749,7 @@ export interface ContentDatabaseFilterGroup<
 export function contentDatabaseFilterTree<T extends ContentDatabaseFilter>(
   filters: readonly T[],
   viewMode: ContentDatabaseFilterMode,
-  isActive: (filter: T) => boolean = isActiveFilter,
+  isActive: (filter: T) => boolean = contentDatabaseFilterIsActive,
 ): ContentDatabaseFilterGroup<T> {
   const group = (id: string): ContentDatabaseFilterGroup<T> => ({
     id,
@@ -832,7 +832,7 @@ export function reduceContentDatabaseFilterTree<
 export function contentDatabaseRequiredFilters<T extends ContentDatabaseFilter>(
   filters: readonly T[],
   viewMode: ContentDatabaseFilterMode,
-  isActive: (filter: T) => boolean = isActiveFilter,
+  isActive: (filter: T) => boolean = contentDatabaseFilterIsActive,
 ): Set<T> {
   const required = new Set<T>();
   const visit = (group: ContentDatabaseFilterGroup<T>) => {
@@ -853,7 +853,14 @@ function combineMatches(
   return filterMode === "or" ? matches.some(Boolean) : matches.every(Boolean);
 }
 
-function isActiveFilter(filter: ContentDatabaseFilter) {
+/**
+ * Whether a filter narrows the rows. One still being filled in doesn't: an
+ * empty value, or a range with either end blank, is skipped until it's done.
+ */
+export function contentDatabaseFilterIsActive(filter: ContentDatabaseFilter) {
+  if (filter.operator === "between") {
+    return contentDatabaseFilterDateRangeValues(filter.value).every(Boolean);
+  }
   if (contentDatabaseFilterOperatorNeedsValue(filter.operator)) {
     return selectedFilterValues(filter.value).length > 0;
   }

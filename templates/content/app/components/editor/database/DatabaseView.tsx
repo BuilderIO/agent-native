@@ -55,6 +55,7 @@ import {
   contentDatabaseFilterDateBound,
   contentDatabaseFilterDateRangeValues,
   contentDatabaseFilterGroupMode,
+  contentDatabaseFilterIsActive,
   contentDatabaseFilterOperatorNeedsValue,
   contentDatabaseFilterOperatorsForType,
   contentDatabaseFilterToday,
@@ -17642,11 +17643,7 @@ export function activeDatabaseConstraintCount(
 function isActiveFilter(
   filter: DatabaseFilter | null,
 ): filter is DatabaseFilter {
-  if (!filter) return false;
-  if (contentDatabaseFilterOperatorNeedsValue(filter.operator)) {
-    return databaseFilterSelectedValues(filter.value).length > 0;
-  }
-  return true;
+  return !!filter && contentDatabaseFilterIsActive(filter);
 }
 
 export function databasePropertyValuesForNewItem(
