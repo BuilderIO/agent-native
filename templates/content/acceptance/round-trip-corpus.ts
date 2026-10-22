@@ -590,6 +590,46 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
       "<callout>\n\t```\n\t<callout>\n\tx\n\t</callout>\n\t```\n</callout>",
   },
   {
+    id: "untabbed-nested-callout-code-block",
+    origin: "agent",
+    markdown:
+      "<callout>\n\t<callout>\n\t```\nx\n\t```\n\t</callout>\n</callout>",
+    canonical:
+      "<callout>\n\t<callout>\n\t\t```\n\t\tx\n\t\t```\n\t</callout>\n</callout>",
+    note: "A code block keeps the lines it reads shallower than itself, and its close.",
+  },
+  {
+    id: "untabbed-nested-callout-math-block",
+    origin: "agent",
+    markdown: "<callout>\n\t<callout>\n\t$$\nx\n\t$$\n\t</callout>\n</callout>",
+    canonical:
+      "<callout>\n\t<callout>\n\t\t$$\n\t\tx\n\t\t$$\n\t</callout>\n</callout>",
+  },
+  {
+    id: "untabbed-nested-callout-meeting-notes",
+    origin: "agent",
+    markdown:
+      "<callout>\n\t<callout>\n\t<meeting-notes>\nx\n\t</meeting-notes>\n\t</callout>\n</callout>",
+    canonical:
+      "<callout>\n\t<callout>\n\t\t<meeting-notes>\n\t\tx\n\t\t</meeting-notes>\n\t</callout>\n</callout>",
+  },
+  {
+    id: "untabbed-callout-three-deep",
+    origin: "agent",
+    markdown:
+      "<callout>\n\t<callout>\n\t<callout>\nx\n\t</callout>\n\t</callout>\n</callout>",
+    canonical:
+      "<callout>\n\t<callout>\n\t\t<callout>\n\t\t\tx\n\t\t</callout>\n\t</callout>\n</callout>",
+  },
+  {
+    id: "untabbed-column-list-code-block",
+    origin: "agent",
+    markdown:
+      "<columns>\n\t<column>\n\t- a\n\t\t```\nx\n\t\t```\n\t</column>\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\t- a\n\t\t\t```\n\t\t\tx\n\t\t\t```\n\t</column>\n</columns>",
+  },
+  {
     id: "math-block-open-at-callout-close",
     origin: "agent",
     markdown: "<callout>\n\t$$\n\tx = 1\n</callout>\nAfter\n$$",

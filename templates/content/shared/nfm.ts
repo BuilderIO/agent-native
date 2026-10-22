@@ -2120,9 +2120,10 @@ function parseDetailsBody(
 
 // A container's children sit one tab in from its tags, but agents also write
 // them at the tags' own indent. Where the read stops at such a line, it and
-// every later line at least as deep move in together, so what is nested under
-// it stays nested, and a block read as written, such as code or math, keeps
-// its lines.
+// every line after it move in together, so the rest reads as it would from
+// that line's indent. Moving only the lines at least as deep would split a
+// block that reads shallower lines as its own, such as code, math or a nested
+// container.
 function parseContainerChildren(
   lines: string[],
   start: number,
@@ -2137,11 +2138,9 @@ function parseContainerChildren(
     pushAll(nodes, res.nodes);
     if (res.end >= body.length) return nodes;
     i = res.end;
-    const anchor = leadingTabs(body[i]);
-    const shift = TAB.repeat(childIndent - anchor);
+    const shift = TAB.repeat(childIndent - leadingTabs(body[i]));
     const tabCounts = lineTabCounts.get(body);
     for (let j = i; j < body.length; j++) {
-      if (body[j].trim() && leadingTabs(body[j]) < anchor) break;
       body[j] = shift + body[j];
       if (tabCounts) tabCounts[j] += shift.length;
     }
