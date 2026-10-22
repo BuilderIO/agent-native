@@ -133,8 +133,8 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       const designId = id(args.designId, record(result).designId);
       return designId ? designWidgetTarget(designId) : null;
     },
-    "generate-screens": (args: Record<string, unknown>, result: unknown) => {
-      const designId = id(record(result).designId, args.designId);
+    "generate-screens": (_args: Record<string, unknown>, result: unknown) => {
+      const designId = id(record(result).designId);
       return designId
         ? designWidgetTarget(
             designId,
@@ -143,10 +143,10 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         : null;
     },
     "export-coding-handoff": (
-      args: Record<string, unknown>,
+      _args: Record<string, unknown>,
       result: unknown,
     ) => {
-      const designId = id(record(result).designId, args.id);
+      const designId = id(record(result).designId);
       return designId ? designWidgetTarget(designId) : null;
     },
   },
