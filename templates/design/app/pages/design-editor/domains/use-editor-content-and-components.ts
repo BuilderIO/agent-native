@@ -49,15 +49,15 @@ import type {
 import { motionPathTrackForTarget } from "@/components/design/design-canvas/motion-types";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import { type InspectCodeData } from "@/components/design/EditPanel";
-import {
-  waitForShaderWriteToSettle,
-  type ShaderSourceTransform,
-} from "@/components/design/inspector/GlslShaderPanel";
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
 import { type MotionDockTrack } from "@/components/design/MotionDock";
 import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
 import type { ScreenProjectionNodeIdentity } from "@/components/design/multi-screen/types";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
+import {
+  waitForShaderWriteToSettle,
+  type ShaderSourceTransform,
+} from "@/components/design/shader-source-coordination";
 import type { ElementInfo } from "@/components/design/types";
 import {
   acknowledgeClipboardContentMutation,
@@ -119,7 +119,6 @@ import {
   resolveSourceBaseForPublication,
   prepareCanonicalSourceContent,
 } from "../source-publication";
-import { postShaderFillPreviewClearToPreviewIframes } from "../text-edit-utils";
 import { type DesignFile } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
@@ -162,7 +161,6 @@ export function useEditorContentAndComponents({
   const {
     t,
     id,
-    location,
     queryClient,
     shellMode,
     setMode,
@@ -185,8 +183,6 @@ export function useEditorContentAndComponents({
     motionAutosaveTimerRef,
     motionAutosaveFlushRef,
     clearMotionAutosaveTimer,
-    setShaderFillPreview,
-    shaderFillPreviewActiveRef,
     activeBreakpointWidthState,
     undoManagerRef,
     linkedComponentMutationQueueRef,
@@ -440,10 +436,6 @@ export function useEditorContentAndComponents({
   const requestLocalhostWriteRef = useRef<RequestLocalhostWrite | null>(null);
   const [uiHidden, setUiHidden] = useState(false);
   const motionLivePlayheadRef = useRef<number | null>(null);
-  const clearShaderFillPreview = useCallback(() => {
-    if (shaderFillPreviewActiveRef.current) setShaderFillPreview(null);
-    postShaderFillPreviewClearToPreviewIframes();
-  }, []);
   const contentHistorySelectionAfterRef =
     useRef<ContentHistorySelectionAfterMap>(new WeakMap());
   const suppressContentHistoryRef = useRef(false);
@@ -493,26 +485,6 @@ export function useEditorContentAndComponents({
     );
     return Boolean(root && root.id !== selectedCodeLayerNode.id);
   }, [activeCodeLayerProjection, selectedCodeLayerNode]);
-
-  useEffect(() => {
-    clearShaderFillPreview();
-  }, [
-    activeFile?.id,
-    clearShaderFillPreview,
-    selectedElement?.selector,
-    selectedElement?.sourceId,
-  ]);
-  useEffect(() => {
-    clearShaderFillPreview();
-  }, [clearShaderFillPreview, location.pathname, location.search]);
-  useEffect(() => {
-    window.addEventListener("pagehide", clearShaderFillPreview);
-    window.addEventListener("beforeunload", clearShaderFillPreview);
-    return () => {
-      window.removeEventListener("pagehide", clearShaderFillPreview);
-      window.removeEventListener("beforeunload", clearShaderFillPreview);
-    };
-  }, [clearShaderFillPreview]);
 
   const defaultComponentName = useMemo(() => {
     if (selectedCodeLayerNode?.layerName)
@@ -2136,7 +2108,6 @@ export function useEditorContentAndComponents({
     uiHidden,
     setUiHidden,
     motionLivePlayheadRef,
-    clearShaderFillPreview,
     contentHistorySelectionAfterRef,
     suppressContentHistoryRef,
     componentSwapPickerRequest,

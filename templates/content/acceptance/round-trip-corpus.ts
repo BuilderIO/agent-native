@@ -30,6 +30,7 @@ export type RoundTripSample = {
       /** The bytes the stored form holds: what the editor's live copy saves. */
       canonical: string;
       unrepresentable?: never;
+      storedToday?: never;
     }
   | {
       /**
@@ -41,6 +42,20 @@ export type RoundTripSample = {
       /** The losses canonicalizing reports, which the refusal names. */
       losses: readonly NfmFidelityLossKind[];
       canonical?: never;
+      storedToday?: never;
+    }
+  | {
+      /**
+       * The bytes stored today with no loss reported. Every word survives,
+       * but not in the structure the author meant, so they are not canonical:
+       * the fix for `followUp` changes them and moves the sample to
+       * `canonical`.
+       */
+      storedToday: string;
+      /** The recorded follow-up that changes `storedToday`. */
+      followUp: string;
+      canonical?: never;
+      unrepresentable?: never;
     }
 );
 
@@ -500,6 +515,224 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     canonical: "<details>\n<summary>S</summary>\n\tBody\n</details>",
   },
   {
+    id: "untabbed-callout-body",
+    origin: "agent",
+    markdown: "Hello\n<callout>\nOnly text\n</callout>",
+    canonical: "Hello\n<callout>\n\tOnly text\n</callout>",
+    renders: [
+      { selector: "[data-notion-callout-content] p", text: "Only text" },
+    ],
+  },
+  {
+    id: "untabbed-callout-body-with-attributes",
+    origin: "agent",
+    markdown:
+      '<callout icon="💡" color="blue_bg">\nFirst line\n- one\n- two\n</callout>',
+    canonical:
+      '<callout icon="💡" color="blue_bg">\n\tFirst line\n\t- one\n\t- two\n</callout>',
+  },
+  {
+    id: "callout-body-partly-tabbed",
+    origin: "agent",
+    markdown: '<callout icon="i">\n\tkept\nalso kept\n</callout>',
+    canonical: '<callout icon="i">\n\tkept\n\talso kept\n</callout>',
+  },
+  {
+    id: "untabbed-callout-code-block",
+    origin: "agent",
+    markdown: "<callout>\n```js\nconst a = 1;\n```\n</callout>",
+    canonical: "<callout>\n\t```js\n\tconst a = 1;\n\t```\n</callout>",
+  },
+  {
+    id: "untabbed-nested-callouts",
+    origin: "agent",
+    markdown: "<callout>\n<callout>\nInner\n</callout>\nOuter\n</callout>",
+    canonical:
+      "<callout>\n\t<callout>\n\t\tInner\n\t</callout>\n\tOuter\n</callout>",
+  },
+  {
+    id: "untabbed-columns",
+    origin: "agent",
+    markdown:
+      "<columns>\n<column>\nLeft\n</column>\n<column>\nRight\n</column>\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\tLeft\n\t</column>\n\t<column>\n\t\tRight\n\t</column>\n</columns>",
+  },
+  {
+    id: "column-body-partly-tabbed",
+    origin: "agent",
+    markdown:
+      "<columns>\n\t<column>\n\t\tkept\n\talso kept\n\t</column>\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\tkept\n\t\talso kept\n\t</column>\n</columns>",
+  },
+  {
+    id: "untabbed-synced-block-body",
+    origin: "agent",
+    markdown:
+      '<synced_block url="https://www.notion.so/abc">\nShared text\n</synced_block>',
+    canonical:
+      '<synced_block url="https://www.notion.so/abc">\n\tShared text\n</synced_block>',
+  },
+  {
+    id: "untabbed-callout-nested-list",
+    origin: "agent",
+    markdown: "<callout>\n- parent\n\t- child\n</callout>",
+    canonical: "<callout>\n\t- parent\n\t\t- child\n</callout>",
+    note: "Lines nested under an untabbed child stay nested under it.",
+  },
+  {
+    id: "callout-math-block-with-container-tag",
+    origin: "agent",
+    markdown:
+      "<callout>\n\t$$\n\t<callout>\n\tx\n\t</callout>\n\t$$\n</callout>",
+    canonical:
+      "<callout>\n\t$$\n\t<callout>\n\tx\n\t</callout>\n\t$$\n</callout>",
+    note: "A container tag inside an equation is equation source.",
+  },
+  {
+    id: "untabbed-callout-math-block-with-container-tag",
+    origin: "agent",
+    markdown: "<callout>\n$$\n<callout>\n\tx\n</callout>\n$$\n</callout>",
+    canonical:
+      "<callout>\n\t$$\n\t<callout>\n\t\tx\n\t</callout>\n\t$$\n</callout>",
+  },
+  {
+    id: "untabbed-callout-code-block-with-container-tag",
+    origin: "agent",
+    markdown: "<callout>\n```\n<callout>\nx\n</callout>\n```\n</callout>",
+    canonical:
+      "<callout>\n\t```\n\t<callout>\n\tx\n\t</callout>\n\t```\n</callout>",
+  },
+  {
+    id: "untabbed-nested-callout-code-block",
+    origin: "agent",
+    markdown:
+      "<callout>\n\t<callout>\n\t```\nx\n\t```\n\t</callout>\n</callout>",
+    canonical:
+      "<callout>\n\t<callout>\n\t\t```\n\t\tx\n\t\t```\n\t</callout>\n</callout>",
+    note: "A code block keeps the lines it reads shallower than itself, and its close.",
+  },
+  {
+    id: "untabbed-nested-callout-math-block",
+    origin: "agent",
+    markdown: "<callout>\n\t<callout>\n\t$$\nx\n\t$$\n\t</callout>\n</callout>",
+    canonical:
+      "<callout>\n\t<callout>\n\t\t$$\n\t\tx\n\t\t$$\n\t</callout>\n</callout>",
+  },
+  {
+    id: "untabbed-nested-callout-meeting-notes",
+    origin: "agent",
+    markdown:
+      "<callout>\n\t<callout>\n\t<meeting-notes>\nx\n\t</meeting-notes>\n\t</callout>\n</callout>",
+    canonical:
+      "<callout>\n\t<callout>\n\t\t<meeting-notes>\n\t\tx\n\t\t</meeting-notes>\n\t</callout>\n</callout>",
+  },
+  {
+    id: "untabbed-callout-three-deep",
+    origin: "agent",
+    markdown:
+      "<callout>\n\t<callout>\n\t<callout>\nx\n\t</callout>\n\t</callout>\n</callout>",
+    canonical:
+      "<callout>\n\t<callout>\n\t\t<callout>\n\t\t\tx\n\t\t</callout>\n\t</callout>\n</callout>",
+  },
+  {
+    id: "untabbed-column-list-code-block",
+    origin: "agent",
+    markdown:
+      "<columns>\n\t<column>\n\t- a\n\t\t```\nx\n\t\t```\n\t</column>\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\t- a\n\t\t\t```\n\t\t\tx\n\t\t\t```\n\t</column>\n</columns>",
+  },
+  {
+    id: "untabbed-callout-fence-close-below-opener",
+    origin: "agent",
+    markdown: "<callout>\n- x\n\t```\ncode\n```\nafter\n</callout>",
+    storedToday:
+      "<callout>\n\t- x\n\t\t````\n\t\tcode\n\t\t```\n\t\tafter\n\t\t````\n</callout>",
+    followUp:
+      "A close shallower than its fence is code text, as in the same lines outside a callout, so `after` reads as code and the fence ends at `</callout>`.",
+  },
+  {
+    id: "untabbed-details-with-tabbed-summary-in-callout",
+    origin: "agent",
+    markdown:
+      "<callout>\n\tkept\n<details>\n\t<summary>S</summary>\n\tD\n</details>\n</callout>",
+    storedToday:
+      "<callout>\n\tkept\n\t<details>\n\t<summary></summary>\n\t\t\\<summary\\>S\\</summary\\>\n\t\tD\n\t</details>\n</callout>",
+    followUp:
+      "A summary one tab deeper than its opener is body text, as on main, so the toggle has no title.",
+  },
+  {
+    id: "untabbed-callout-ordered-list-continues",
+    origin: "agent",
+    markdown: "<callout>\n\t1. a\n1. b\n</callout>",
+    canonical: "<callout>\n\t1. a\n\t2. b\n</callout>",
+    note: "An untabbed item continues the list above it.",
+  },
+  {
+    id: "untabbed-column-task-list-continues",
+    origin: "agent",
+    markdown:
+      "<columns>\n\t<column>\n\t\t- [ ] a\n\t- [x] b\n\t</column>\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\t- [ ] a\n\t\t- [x] b\n\t</column>\n</columns>",
+  },
+  {
+    id: "columns-child-before-any-column",
+    origin: "agent",
+    markdown: "<columns>\n\tstray\n\t<column>\n\t\ta\n\t</column>\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\tstray\n\t</column>\n\t<column>\n\t\ta\n\t</column>\n</columns>",
+    note: "A child before any column gets a column of its own.",
+  },
+  {
+    id: "columns-child-after-a-column",
+    origin: "agent",
+    markdown: "<columns>\n\t<column>\n\t\ta\n\t</column>\n\tafter\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\ta\n\t\tafter\n\t</column>\n</columns>",
+    note: "A child after a column joins it.",
+  },
+  {
+    id: "columns-list-after-a-column-continues",
+    origin: "agent",
+    markdown: "<columns>\n\t<column>\n\t\t- a\n\t</column>\n\t- b\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\t- a\n\t\t- b\n\t</column>\n</columns>",
+  },
+  {
+    id: "math-block-open-at-column-close",
+    origin: "agent",
+    markdown: "<columns>\n\t<column>\n\t\t$$\n\t</column>\n\traw\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\t$$\n\t\t\n\t\t$$\n\t\traw\n\t</column>\n</columns>",
+    note: "The equation ends at its column's close; the line after it joins that column.",
+  },
+  {
+    id: "math-block-open-at-columns-close",
+    origin: "agent",
+    markdown: "<columns>\n\t$$\n</columns>\nAfter\n$$",
+    canonical:
+      "<columns>\n\t<column>\n\t\t$$\n\t\t\n\t\t$$\n\t</column>\n</columns>\nAfter\n$$\n\n$$",
+  },
+  {
+    id: "math-block-open-at-callout-close",
+    origin: "agent",
+    markdown: "<callout>\n\t$$\n\tx = 1\n</callout>\nAfter\n$$",
+    canonical: "<callout>\n\t$$\n\tx = 1\n\t$$\n</callout>\nAfter\n$$\n\n$$",
+    note: "A block inside a container ends at the container's closing tag.",
+  },
+  {
+    id: "table-open-at-callout-close",
+    origin: "agent",
+    markdown:
+      "<callout>\n\t<table>\n\t<tr>\n\t<td>a</td>\n\t</tr>\n</callout>\nAfter\n\t</table>",
+    canonical:
+      "<callout>\n\t\\<table\\>\n\t\\<tr\\>\n\t\\<td\\>a\\</td\\>\n\t\\</tr\\>\n</callout>\nAfter\n\t\\</table\\>",
+    note: "A table without its closing tag inside the container stays as text.",
+  },
+  {
     id: "unclosed-container",
     origin: "agent",
     markdown: '<callout icon="x">\nHello',
@@ -948,23 +1181,6 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     losses: ["dropped-attribute"],
   },
   {
-    id: "refuse-callout-unindented-line",
-    origin: "agent",
-    markdown: '<callout icon="i">\n\tkept\nlost\n</callout>',
-    unrepresentable:
-      "A callout holds the lines indented under it, so an unindented line inside it is skipped.",
-    losses: ["dropped-source"],
-  },
-  {
-    id: "refuse-column-unindented-line",
-    origin: "agent",
-    markdown:
-      "<columns>\n\t<column>\n\t\tkept\n\tlost\n\t</column>\n</columns>",
-    unrepresentable:
-      "A column holds the lines indented under it, so an unindented line inside it is skipped.",
-    losses: ["dropped-source"],
-  },
-  {
     id: "refuse-mention-unquoted-attribute",
     origin: "agent",
     markdown: "<mention-page url=abc>Page</mention-page>",
@@ -986,11 +1202,28 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     losses: ["dropped-attribute"],
   },
   {
-    id: "refuse-columns-stray-child",
+    id: "refuse-details-line-below-body-after-equation-fence-line",
     origin: "agent",
-    markdown: "<columns>\n\tstray\n\t<column>\n\t\ta\n\t</column>\n</columns>",
-    unrepresentable: "Columns hold only columns.",
-    losses: ["dropped-source"],
+    markdown: "\t\t<details>\n$$\n\t```\n\t$$\ncode\n```\n\t\t</details>",
+    unrepresentable:
+      "The details reader takes the fence line in the equation for a fence, so `code` stays below its body and is not read.",
+    losses: ["dropped-source", "reparse-mismatch"],
+  },
+  {
+    id: "refuse-table-line-after-math-block-open-at-callout-close",
+    origin: "agent",
+    markdown: "<callout>\n\t$$\n</callout>\n<table>\nx\n</table>",
+    unrepresentable:
+      "The equation ends at `</callout>`, and the table reader drops `x`, a line that isn't a row, as it does for the same three lines alone.",
+    losses: ["dropped-source", "invalid-structure"],
+  },
+  {
+    id: "refuse-untabbed-callout-paragraph-then-deeper-fence",
+    origin: "agent",
+    markdown: "<callout>\nx\n\t```\ncode\n```\nafter\n</callout>",
+    unrepresentable:
+      "The editor saves a code block one tab under a paragraph at the paragraph's depth, as on main; every line, `after` included, is kept.",
+    losses: ["editor-mismatch"],
   },
   {
     id: "refuse-columns-empty",

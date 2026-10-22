@@ -4,7 +4,7 @@ import type { RefObject } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
-import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
+import { isShaderWriteInFlight } from "@/components/design/shader-source-coordination";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   canWriteCollabText,

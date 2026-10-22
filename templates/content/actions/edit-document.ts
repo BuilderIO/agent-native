@@ -40,6 +40,7 @@ import {
 } from "./_document-edit-mutation.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
+import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 
 interface TextEdit {
   find: string;
@@ -103,12 +104,13 @@ const editDocumentSchema = z.object({
     .optional()
     .describe(
       'Replacement text in single-edit mode; omit to delete the matched text (default: ""). ' +
-        'NFM body: each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. Plain CommonMark blank lines are not preserved. No admonition/callout shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+        'NFM body: each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. Plain CommonMark blank lines are not preserved. No admonition/callout shorthand like "> [!TIP]" — use a <callout icon="💡"> block. ' +
+        NFM_CONTAINER_SYNTAX,
     ),
   edits: textEditsSchema
     .optional()
     .describe(
-      "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace.",
+      "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace. Each replace is NFM, written as for replace.",
     ),
   initializeContent: z
     .string()
@@ -118,7 +120,8 @@ const editDocumentSchema = z.object({
     })
     .optional()
     .describe(
-      "Exact NFM containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits. Each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs.",
+      "Exact NFM containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits. Each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. " +
+        NFM_CONTAINER_SYNTAX,
     ),
   contextPackId: z
     .string()

@@ -371,6 +371,27 @@
   min-height: max(320px, 50vh);
 }
 
+/* TipTap injects these for `.ProseMirror` only once an editor exists. The
+   static body that stands in for the editor needs them to wrap and space text
+   exactly as the editor that replaces it. */
+.content-editor[data-static-document-body] {
+  position: relative;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  -webkit-font-variant-ligatures: none;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
+}
+
+.content-editor[data-static-document-body] [contenteditable="false"] {
+  white-space: normal;
+}
+
+.content-editor[data-static-document-body] pre {
+  white-space: pre-wrap;
+}
+
 .content-reference-preview .visual-editor-wrapper,
 .content-reference-preview .visual-editor-wrapper .content-editor {
   min-height: 0;

@@ -43,7 +43,6 @@ import {
 } from "../derive/layer-model-coverage";
 import { NO_SELECTORS } from "../design-editor-shared";
 import { withMeasuredGeometry } from "../editor-helpers";
-import { getDesignEditorStateUrlSearch } from "../editor-state";
 import { layerStateIdsForScreen } from "../layer-state-scope";
 import {
   shouldPreferRuntimeLayerProjection,
@@ -97,18 +96,9 @@ export function useEditorLayerModels({
   editorSelectionAndStyles: EditorSelectionAndStyles;
   editorExportAndHandoff: EditorExportAndHandoff;
 }) {
+  const { t, initialSearchParams, viewMode, selectedElement, activeFileId } =
+    editorCore;
   const {
-    t,
-    location,
-    initialSearchParams,
-    mode,
-    activeTool,
-    viewMode,
-    selectedElement,
-    activeFileId,
-  } = editorCore;
-  const {
-    setActiveLeftPanel,
     expandedLayerIds,
     selectedLayerIdsState,
     renderedElementInfoByLayerKeyRef,
@@ -123,7 +113,6 @@ export function useEditorLayerModels({
   } = editorHistory;
   const { design } = editorGenerationAndAccess;
   const {
-    navigate,
     files,
     codeLayerSourceForScreen,
     runtimeLayerSnapshotsById,
@@ -140,7 +129,6 @@ export function useEditorLayerModels({
     getProjectionContentForScreen,
   } = editorCanvasAndScreens;
   const {
-    zoom,
     activeCodeLayerProjection,
     selectedElementLayerId,
     selectedCanvasSelectorCandidates,
@@ -898,46 +886,6 @@ export function useEditorLayerModels({
     [codeLayerOwnerByNodeId, selectedElementLayerId, selectedLayerIds],
   );
 
-  const handleShaderEditCode = useCallback(
-    (_shaderId: string) => {
-      const targetFileId = activeFile?.id ?? activeFileId;
-      if (!targetFileId) return;
-      setActiveLeftPanel("code");
-      const nextSearch = getDesignEditorStateUrlSearch({
-        currentSearch: location.search,
-        viewMode,
-        screenId: activeFile?.id ?? activeFileId ?? undefined,
-        leftPanel: "code",
-        codeFileId: targetFileId,
-        selectionId: selectedUrlSelectionId,
-        zoom,
-        tool: activeTool,
-        mode,
-      });
-      if (nextSearch === location.search) return;
-      void navigate(
-        {
-          pathname: location.pathname,
-          search: nextSearch,
-          hash: location.hash,
-        },
-        { replace: true, preventScrollReset: true },
-      );
-    },
-    [
-      activeFile?.id,
-      activeFileId,
-      activeTool,
-      location.hash,
-      location.pathname,
-      location.search,
-      navigate,
-      selectedUrlSelectionId,
-      mode,
-      viewMode,
-      zoom,
-    ],
-  );
   const selectedLayerIdsRef = useRef<string[]>(selectedLayerIds);
 
   const selectedElementScreenId = useMemo(() => {
@@ -1110,7 +1058,6 @@ export function useEditorLayerModels({
     canEditSelectedLiveLayer,
     canEditSingleSelectedLiveLayer,
     selectedUrlSelectionId,
-    handleShaderEditCode,
     selectedLayerIdsRef,
     selectedElementScreenId,
     selectedLayerTargets,

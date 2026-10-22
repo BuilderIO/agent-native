@@ -3,11 +3,42 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-21
+## 2026-10-22
+
+### Improved
+
+- Accept remaining and Reject remaining show the result for every suggested edit at once
+- Accepting a group of suggested edits saves faster and adds one page version
 
 ### Fixed
 
+- Changes made from a menu or popover, such as an image's alt text, are always saved.
+- Agents can read saved page titles and text after an unrelated icon change fails.
+- Text an agent writes inside a callout, column or synced block without indenting it now shows on the page and survives your edits.
+
+## 2026-10-21
+
+### Improved
+
+- Suggested edits show an agent's whole reason: open a group to read past the first two lines, and lone edits show the reason above the change
+
+### Fixed
+
+- Blocks fields keep unconfirmed saves visible, and agent reads handle changing collection fields and older editors reliably
+- Compact HTML table row groups keep their cells, and unsupported block colors are reported during Markdown checks.
+- Suggestions keep refusing unmatched emphasis in stored Markdown
 - Organization favorites include documents shared with the current member
+
+## 2026-10-20
+
+### Improved
+
+- The advanced filter and each filter group inside it have their own And/Or, so a view can match rows like "Status is Done and (Owner is me or Owner is empty)".
+
+### Fixed
+
+- HTML table cells preserve a trailing backslash when opening Markdown.
+- Preserve empty paragraph colors and refuse unsupported inline image and oversized math formatting before content is stored.
 
 ## 2026-10-19
 
@@ -22,6 +53,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Fresh document reads require confirmation from every open editor before returning saved content.
 - List views no longer run off the side of the screen on phones
 - Edits made from a block's menu or a table's row and column menus, such as deleting a table, adding a row or turning off the header row, are now saved instead of coming back after a reload
 - Starting a comment puts the cursor in the comment box, ready to type.
@@ -57,10 +89,24 @@ time from the command menu (Cmd+K → "What's new").
 
 - Connected AI assistants can read a page with the edits still open in your editor
 
+### Fixed
+
+- Agents reading a page you have open no longer wait or fail when your edits are already saved
+
 ## 2026-10-16
+
+### Improved
+
+- Opening a page you can edit no longer rebuilds its editor once the live copy connects, so the page holds still and keeps your scroll position.
 
 ### Fixed
 
+- A page open in a tab that shows it's in the trash reopens within seconds when someone restores it.
+- A page restored from Trash returns to its place in its collection, and edits to a page in Trash are refused
+- Agent-written Markdown keeps nested lists indented with spaces, underscore bold and italics, and escaped punctuation
+- Pages moved or imported at the same time can no longer end up under their own sub-pages, under a page in Trash, or with stale sharing
+- Re-importing a Markdown export of a page brings it back as it was, without reporting it as lost, and the import report names any other page fields it leaves out.
+- Saving a page or restoring one of its versions no longer fails when the page is restored or moved to Trash at the same moment, and a page in Trash can't be saved over
 - Opening a page in a new tab while another tab is still saving no longer sends a second save or files a copy to History.
 - Typing steadily in one tab no longer makes another open tab show "This page changed elsewhere" after its edits saved.
 - Reopening a page after someone else renamed it no longer adds a copy of your edits to Version History

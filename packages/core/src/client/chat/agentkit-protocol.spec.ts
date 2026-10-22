@@ -7,8 +7,10 @@ import {
   AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
   AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   createAgentKitProtocolVersionOffer,
+  fingerprintAgentSubmissionAttachment,
   parseAgentEvent,
   resumeEntryFromApproval,
+  submissionAttachmentsMatch,
 } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
@@ -4097,6 +4099,66 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("emits the promoted queue message ID on run events", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async () => ({
+      id: "turn-queued-message",
+      runId: "runtime-queued-run",
+      sessionId: "thread-1",
+      metadata: { custom: { agentNativeQueuedMessageId: "runtime-value" } },
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    try {
+      const { runId } = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Promote the queued turn")],
+        metadata: { custom: { agentNativeQueuedMessageId: "caller-value" } },
+        queuePromotion: {
+          messageId: "queued-message",
+          claimId: "claim-1",
+          turnId: "turn-queued-message",
+        },
+      });
+      const runEvents = await drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId }),
+      );
+
+      expect(startTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: {
+            custom: { agentNativeQueuedMessageId: "queued-message" },
+          },
+        }),
+      );
+      expect(runEvents[0]).toMatchObject({
+        type: "run.started",
+        metadata: {
+          custom: { agentNativeQueuedMessageId: "queued-message" },
+        },
+      });
+      for (const event of runEvents.slice(1)) {
+        expect(event.metadata).toMatchObject({
+          custom: { agentNativeQueuedMessageId: "queued-message" },
+        });
+      }
+    } finally {
+      await transport.dispose();
+    }
+  });
+
   it("reuses a replayed runtime run ID for the same submission and closes its stream", async () => {
     let startCount = 0;
     const discardedStreamClosed = vi.fn(async () => ({
@@ -5338,6 +5400,7 @@ describe("createAgentKitProtocolAdapter", () => {
         type: "file",
         name: "reference-original.png",
         contentType: "image/png",
+        mediaType: "image/png",
         url: originalUrl,
         referenceOnly: true,
       },
@@ -5347,10 +5410,133 @@ describe("createAgentKitProtocolAdapter", () => {
         contentType: "image/jpeg",
         data: "data:image/jpeg;base64,UkVTSVpFRA==",
         url: resizedUrl,
+        referenceUrl: originalUrl,
       },
     ]);
     await transport.dispose();
   });
+
+  it.each([
+    ["matching URL", (url: string) => ({ url, referenceUrl: url })],
+    ["reference URL only", (url: string) => ({ referenceUrl: url })],
+  ])(
+    "keeps an unchanged image's original file identity (%s)",
+    async (_label, urls) => {
+      async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      }
+      const startTurn = vi.fn(async (_input: AgentChatRuntimeTurnInput) => ({
+        id: "turn-same-image-url",
+        runId: "run-same-image-url",
+        sessionId: "thread-1",
+        events: events(),
+      }));
+      const runtime = createRuntime(events, {
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn,
+          };
+        },
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+      const originalUrl = "https://files.example.test/reference-original.png";
+
+      await transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            ...userMessage("Use this reference"),
+            parts: [
+              { type: "text", text: "Use this reference" },
+              {
+                type: "file",
+                name: "reference-original.png",
+                mediaType: "image/png",
+                url: originalUrl,
+              },
+            ],
+          },
+        ],
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference-original.png",
+            contentType: "image/png",
+            data: "data:image/png;base64,UkVQTEFDRUQ=",
+            ...urls(originalUrl),
+          },
+        ],
+      });
+
+      // The original stays as a reference so the file fingerprint the client
+      // submitted still matches; the image carries only the url the client sent.
+      expect(startTurn.mock.calls[0]?.[0].attachments).toEqual([
+        {
+          type: "file",
+          name: "reference-original.png",
+          contentType: "image/png",
+          mediaType: "image/png",
+          url: originalUrl,
+          referenceOnly: true,
+        },
+        {
+          type: "image",
+          name: "reference-original.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,UkVQTEFDRUQ=",
+          ...(urls(originalUrl).url ? { url: originalUrl } : {}),
+          referenceUrl: originalUrl,
+        },
+      ]);
+      // The server rejects a turn whose mapped attachments do not satisfy the
+      // fingerprints the client submitted for the same inputs.
+      const submittedFile = {
+        type: "file" as const,
+        name: "reference-original.png",
+        mediaType: "image/png",
+        url: originalUrl,
+      };
+      const submittedImage = {
+        type: "image" as const,
+        name: "reference-original.png",
+        contentType: "image/png",
+        data: "data:image/png;base64,UkVQTEFDRUQ=",
+        ...urls(originalUrl),
+      };
+      expect(
+        submissionAttachmentsMatch(
+          {
+            attachments: [
+              {
+                type: "file",
+                name: submittedFile.name,
+                mediaType: submittedFile.mediaType,
+                fingerprint: fingerprintAgentSubmissionAttachment(
+                  submittedFile,
+                  "file",
+                ),
+              },
+            ],
+            requestAttachments: [
+              {
+                type: "image",
+                name: submittedImage.name,
+                contentType: submittedImage.contentType,
+                fingerprint: fingerprintAgentSubmissionAttachment(
+                  submittedImage,
+                  "image",
+                ),
+              },
+            ],
+          },
+          startTurn.mock.calls[0]?.[0].attachments ?? [],
+        ),
+      ).toBe(true);
+      await transport.dispose();
+    },
+  );
 
   it("preserves turn context through client time-limit continuation", async () => {
     const sseResponse = (events: unknown[], runId: string) =>

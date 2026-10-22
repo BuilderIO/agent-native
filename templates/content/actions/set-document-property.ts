@@ -26,6 +26,7 @@ import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.j
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
+import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
   getDatabaseById,
   listPropertiesForDatabaseDocuments,
@@ -95,7 +96,8 @@ export default defineAction({
     value: z
       .unknown()
       .describe(
-        "Value for the property type; Blocks fields take an NFM string (one block per line, <br> for hard breaks, <empty-block/> for empty paragraphs)",
+        "Value for the property type; Blocks fields take an NFM string: one block per line, <br> for hard breaks, <empty-block/> for empty paragraphs. " +
+          NFM_CONTAINER_SYNTAX,
       ),
     expectedBlocksFieldRevision: z
       .number()

@@ -51,8 +51,12 @@ import { contentDatabaseItemLayoutField } from "@shared/database-item-layout";
 import {
   applyContentDatabaseTableQuery,
   contentDatabaseFilterDateRangeValues,
+  contentDatabaseFilterGroupMode,
   contentDatabaseFilterOperatorNeedsValue,
   contentDatabaseFilterOperatorsForType,
+  contentDatabaseRequiredFilters,
+  materializeContentDatabaseFilterGroupModes,
+  withContentDatabaseFilterGroupMode,
 } from "@shared/database-query";
 import {
   databaseTableColumnIds,
@@ -1228,6 +1232,18 @@ function DatabaseTable({
     if (panel !== "source") sourceHandoffActiveRef.current = false;
     setSettingsPanel(panel);
   };
+  // Opens Sources at one source's own page, as the GitHub status line's
+  // "From the … folder" does; each request has a new id so a repeat opens it.
+  const [sourceNavRequest, setSourceNavRequest] =
+    useState<SourceNavRequest | null>(null);
+  const openGitHubSource = () => {
+    changeDatabaseSettingsPanel("source");
+    setSourceNavRequest((request) => ({
+      id: (request?.id ?? 0) + 1,
+      stack: [{ kind: "github" }],
+    }));
+    setSettingsOpen(true);
+  };
   const [savedViewConfig, setSavedViewConfig] =
     useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
   const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
@@ -2285,7 +2301,15 @@ function DatabaseTable({
   }
 
   function setFilterMode(filterMode: DatabaseFilterMode) {
-    updatePersonalQueryView((view) => ({ ...view, filterMode }));
+    updatePersonalQueryView((view) =>
+      databaseViewWithFilterMode(view, filterMode),
+    );
+  }
+
+  function setFilterGroupMode(groupId: string, mode: DatabaseFilterMode) {
+    updatePersonalQueryView((view) =>
+      databaseViewWithFilterGroupMode(view, groupId, mode),
+    );
   }
 
   function updatePersonalQueryView(
@@ -3288,11 +3312,12 @@ function DatabaseTable({
               onAddAdvancedFilter={(key, label) => {
                 setActiveFilters([
                   ...filters,
-                  createDatabaseFilterForField(
+                  createDatabaseAdvancedFilterForField(
                     key,
                     label,
                     orderedProperties,
-                    true,
+                    filters,
+                    filterMode,
                   ),
                 ]);
                 setInlineFilterControlsOpen(true);
@@ -3455,6 +3480,7 @@ function DatabaseTable({
           onFiltersChange={setActiveFilters}
           onSortsChange={setActiveSorts}
           onFilterModeChange={setFilterMode}
+          onFilterGroupModeChange={setFilterGroupMode}
           onClearAll={() => {
             setSearchQuery("");
             setSearchOpen(false);
@@ -3518,6 +3544,7 @@ function DatabaseTable({
         documentId={document.id}
         canEdit={canEdit}
         pageCount={totalItemCount}
+        onOpenSource={canEditWidgetRows ? undefined : openGitHubSource}
       />
       {canEdit &&
       databaseId &&
@@ -4068,6 +4095,7 @@ function DatabaseTable({
         }
         sourcePendingOperations={sourcePendingOperations}
         preserveSourceNavigationOnClose={preserveSourceNavigationOnClose}
+        sourceNavRequest={sourceNavRequest}
         onViewTypeChange={(type) =>
           setViewConfig(updateDatabaseViewType(viewConfig, activeView.id, type))
         }
@@ -6564,7 +6592,7 @@ export function databaseConstraintsBarIsVisible(args: {
   );
 }
 
-function DatabaseActiveConstraintsBar({
+export function DatabaseActiveConstraintsBar({
   documentId,
   items,
   searchQuery,
@@ -6590,6 +6618,7 @@ function DatabaseActiveConstraintsBar({
   onSortsChange,
   onFiltersChange,
   onFilterModeChange,
+  onFilterGroupModeChange,
   onClearAll,
   onResetPersonalChanges,
   onSaveForEveryone,
@@ -6619,6 +6648,7 @@ function DatabaseActiveConstraintsBar({
   onSortsChange: (sorts: DatabaseSort[]) => void;
   onFiltersChange: (filters: DatabaseFilter[]) => void;
   onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
+  onFilterGroupModeChange: (groupId: string, mode: DatabaseFilterMode) => void;
   onClearAll: () => void;
   onResetPersonalChanges: () => void;
   onSaveForEveryone: () => void;
@@ -6642,6 +6672,10 @@ function DatabaseActiveConstraintsBar({
   const regularFilterEntries = filterEntries.filter(
     ({ filter }) => !isAdvancedDatabaseFilter(filter),
   );
+  // The view's All/Any combines the chips with the advanced filter as one more
+  // member; the advanced filter's own rules use its And/Or.
+  const viewFilterMemberCount =
+    regularFilterEntries.length + (advancedFilterEntries.length > 0 ? 1 : 0);
   const hasSortFilterDivider = sorts.length > 0 && filterEntries.length > 0;
   const showClearAll = hasSearchOrSortConstraints && !hasPersonalQueryChanges;
 
@@ -6733,7 +6767,7 @@ function DatabaseActiveConstraintsBar({
       {hasSortFilterDivider ? (
         <div aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-border" />
       ) : null}
-      {advancedFilterEntries.length === 0 && regularFilterEntries.length > 1 ? (
+      {viewFilterMemberCount > 1 ? (
         <DatabaseFilterModeButton
           filterMode={filterMode}
           onFilterModeChange={onFilterModeChange}
@@ -6751,7 +6785,7 @@ function DatabaseActiveConstraintsBar({
           showUnsavedIndicator={hasPersonalQueryChanges}
           onOpenChange={onAdvancedFilterOpenChange}
           onFiltersChange={onFiltersChange}
-          onFilterModeChange={onFilterModeChange}
+          onFilterGroupModeChange={onFilterGroupModeChange}
         />
       ) : null}
       {regularFilterEntries.map(({ filter, index }) => (
@@ -6786,7 +6820,13 @@ function DatabaseActiveConstraintsBar({
         onAddAdvancedFilter={(key, label) => {
           onFiltersChange([
             ...filters,
-            createDatabaseFilterForField(key, label, properties, true),
+            createDatabaseAdvancedFilterForField(
+              key,
+              label,
+              properties,
+              filters,
+              filterMode,
+            ),
           ]);
           onAddFilterOpenChange(false);
           onAdvancedFilterOpenChange(true);
@@ -7078,7 +7118,7 @@ function DatabaseAdvancedFilterGroupControl({
   showUnsavedIndicator,
   onOpenChange,
   onFiltersChange,
-  onFilterModeChange,
+  onFilterGroupModeChange,
 }: {
   documentId: string;
   items: ContentDatabaseItem[];
@@ -7090,7 +7130,7 @@ function DatabaseAdvancedFilterGroupControl({
   showUnsavedIndicator: boolean;
   onOpenChange: (open: boolean) => void;
   onFiltersChange: (filters: DatabaseFilter[]) => void;
-  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
+  onFilterGroupModeChange: (groupId: string, mode: DatabaseFilterMode) => void;
 }) {
   const advancedFilters = filterEntries.map((entry) => entry.filter);
   const rootFilterEntries = filterEntries.filter(
@@ -7101,6 +7141,13 @@ function DatabaseAdvancedFilterGroupControl({
     properties,
     advancedFilters,
   );
+  const advancedMode = contentDatabaseFilterGroupMode(
+    filters,
+    DATABASE_ADVANCED_FILTER_GROUP_ID,
+    filterMode,
+  );
+  const setAdvancedMode = (mode: DatabaseFilterMode) =>
+    onFilterGroupModeChange(DATABASE_ADVANCED_FILTER_GROUP_ID, mode);
 
   function updateFilterAt(index: number, next: Partial<DatabaseFilter>) {
     const nextFilters = [...filters];
@@ -7122,17 +7169,13 @@ function DatabaseAdvancedFilterGroupControl({
   function addAdvancedRule(key: "name" | (string & {}), label: string) {
     onFiltersChange([
       ...filters,
-      createDatabaseFilterForField(key, label, properties, true),
-    ]);
-  }
-
-  function addNestedFilterGroup(key: "name" | (string & {}), label: string) {
-    onFiltersChange([
-      ...filters,
-      createDatabaseFilterForField(key, label, properties, {
-        filterGroupId: createAdvancedNestedFilterGroupId(),
-        parentFilterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
-      }),
+      createDatabaseAdvancedFilterForField(
+        key,
+        label,
+        properties,
+        filters,
+        filterMode,
+      ),
     ]);
   }
 
@@ -7146,8 +7189,18 @@ function DatabaseAdvancedFilterGroupControl({
       createDatabaseFilterForField(key, label, properties, {
         filterGroupId: groupId,
         parentFilterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
+        filterGroupMode: databaseFilterGroupModeForNewRule(
+          filters,
+          groupId,
+          filterMode,
+        ),
+        parentFilterGroupMode: advancedMode,
       }),
     ]);
+  }
+
+  function addNestedFilterGroup(key: "name" | (string & {}), label: string) {
+    addNestedFilterRule(createAdvancedNestedFilterGroupId(), key, label);
   }
 
   function removeFilterAt(index: number) {
@@ -7200,10 +7253,10 @@ function DatabaseAdvancedFilterGroupControl({
               filters={filters}
               filterIndex={index}
               ruleIndex={ruleIndex}
-              filterMode={filterMode}
+              filterMode={advancedMode}
               items={items}
               properties={properties}
-              onFilterModeChange={onFilterModeChange}
+              onFilterModeChange={setAdvancedMode}
               onUpdateFilter={(next) => updateFilterAt(index, next)}
               onRemove={() => removeFilterAt(index)}
             />
@@ -7216,9 +7269,17 @@ function DatabaseAdvancedFilterGroupControl({
               filters={filters}
               group={group}
               ruleIndex={rootFilterEntries.length + groupIndex}
-              filterMode={filterMode}
+              filterMode={advancedMode}
+              groupFilterMode={contentDatabaseFilterGroupMode(
+                filters,
+                group.id,
+                filterMode,
+              )}
               properties={properties}
-              onFilterModeChange={onFilterModeChange}
+              onFilterModeChange={setAdvancedMode}
+              onGroupFilterModeChange={(mode) =>
+                onFilterGroupModeChange(group.id, mode)
+              }
               onUpdateFilter={updateFilterAt}
               onAddNestedFilterRule={addNestedFilterRule}
               onRemoveFilter={removeFilterAt}
@@ -7464,8 +7525,10 @@ function DatabaseAdvancedNestedFilterGroup({
   group,
   ruleIndex,
   filterMode,
+  groupFilterMode,
   properties,
   onFilterModeChange,
+  onGroupFilterModeChange,
   onUpdateFilter,
   onAddNestedFilterRule,
   onRemoveFilter,
@@ -7476,9 +7539,13 @@ function DatabaseAdvancedNestedFilterGroup({
   filters: DatabaseFilter[];
   group: DatabaseNestedFilterGroupEntry;
   ruleIndex: number;
+  /** How this group combines with the advanced filter's other members. */
   filterMode: DatabaseFilterMode;
+  /** How this group's own rules combine. */
+  groupFilterMode: DatabaseFilterMode;
   properties: DocumentProperty[];
   onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
+  onGroupFilterModeChange: (filterMode: DatabaseFilterMode) => void;
   onUpdateFilter: (index: number, next: Partial<DatabaseFilter>) => void;
   onAddNestedFilterRule: (
     groupId: string,
@@ -7495,37 +7562,43 @@ function DatabaseAdvancedNestedFilterGroup({
 
   return (
     <div className="flex items-start gap-2">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="flex h-9 w-16 items-center rounded px-2 text-xs hover:bg-muted data-[state=open]:bg-muted"
-          >
-            <span className="flex-1 text-left">
-              {databaseFilterModeConjunctionLabel(filterMode)}
-            </span>
-            <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-32">
-          {DATABASE_FILTER_MODES.map((mode) => (
-            <DropdownMenuItem
-              key={mode}
-              onSelect={(event) => {
-                event.preventDefault();
-                onFilterModeChange(mode);
-              }}
+      {ruleIndex === 0 ? (
+        <div className="flex h-9 w-16 shrink-0 items-center px-2 text-xs text-foreground">
+          {dbText("where")}
+        </div>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-9 w-16 items-center rounded px-2 text-xs hover:bg-muted data-[state=open]:bg-muted"
             >
-              <span className="flex-1">
-                {databaseFilterModeConjunctionLabel(mode)}
+              <span className="flex-1 text-left">
+                {databaseFilterModeConjunctionLabel(filterMode)}
               </span>
-              {filterMode === mode ? (
-                <IconCheck className="size-4 text-muted-foreground" />
-              ) : null}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+              <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-32">
+            {DATABASE_FILTER_MODES.map((mode) => (
+              <DropdownMenuItem
+                key={mode}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onFilterModeChange(mode);
+                }}
+              >
+                <span className="flex-1">
+                  {databaseFilterModeConjunctionLabel(mode)}
+                </span>
+                {filterMode === mode ? (
+                  <IconCheck className="size-4 text-muted-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       <div className="grid min-w-0 flex-1 gap-1 rounded border border-border/70 bg-muted/30 p-1.5">
         {group.entries.map(({ filter, index }, nestedRuleIndex) => (
@@ -7536,10 +7609,10 @@ function DatabaseAdvancedNestedFilterGroup({
             filters={filters}
             filterIndex={index}
             ruleIndex={nestedRuleIndex}
-            filterMode={filterMode}
+            filterMode={groupFilterMode}
             items={items}
             properties={properties}
-            onFilterModeChange={onFilterModeChange}
+            onFilterModeChange={onGroupFilterModeChange}
             onUpdateFilter={(next) =>
               onUpdateFilter(index, {
                 ...next,
@@ -7868,6 +7941,9 @@ type SourceNavStep =
   | { kind: "fieldPicker"; sourceId: string; sourceName: string }
   | { kind: "github" };
 
+/** A request to open Sources at a given page; a new id repeats it. */
+type SourceNavRequest = { id: number; stack: SourceNavStep[] };
+
 function sourceNavTitle(stack: SourceNavStep[]): string {
   const top = stack[stack.length - 1];
   if (!top) return dbText("sources");
@@ -7948,6 +8024,7 @@ function DatabaseSettingsPanelSheet({
   sourceActionPending,
   sourcePendingOperations,
   preserveSourceNavigationOnClose,
+  sourceNavRequest,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
@@ -8001,6 +8078,7 @@ function DatabaseSettingsPanelSheet({
   sourceActionPending: boolean;
   sourcePendingOperations: DatabaseSourcePendingOperations;
   preserveSourceNavigationOnClose: boolean;
+  sourceNavRequest: SourceNavRequest | null;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
@@ -8054,6 +8132,10 @@ function DatabaseSettingsPanelSheet({
       setSourceNavStack([]);
     }
   }, [open, panel, preserveSourceNavigationOnClose]);
+  // Runs after the reset above, so a request that opens the sheet keeps its page.
+  useEffect(() => {
+    if (sourceNavRequest) setSourceNavStack(sourceNavRequest.stack);
+  }, [sourceNavRequest]);
 
   const title =
     panel === "main"
@@ -17295,26 +17377,98 @@ function createDatabaseFilterForField(
   key: ColumnKey,
   label: string,
   properties: DocumentProperty[],
-  advanced:
-    | boolean
-    | { filterGroupId: string; parentFilterGroupId?: string } = false,
+  group?: Pick<
+    DatabaseFilter,
+    | "filterGroupId"
+    | "parentFilterGroupId"
+    | "filterGroupMode"
+    | "parentFilterGroupMode"
+  >,
 ): DatabaseFilter {
-  const group =
-    typeof advanced === "object"
-      ? advanced
-      : advanced
-        ? { filterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID }
-        : null;
   return {
     key,
     label,
     operator: defaultFilterOperatorForKey(key, properties),
     value: "",
-    ...(group ? { filterGroupId: group.filterGroupId } : {}),
+    ...(group?.filterGroupId ? { filterGroupId: group.filterGroupId } : {}),
     ...(group?.parentFilterGroupId
       ? { parentFilterGroupId: group.parentFilterGroupId }
       : {}),
+    ...(group?.filterGroupMode
+      ? { filterGroupMode: group.filterGroupMode }
+      : {}),
+    ...(group?.parentFilterGroupMode
+      ? { parentFilterGroupMode: group.parentFilterGroupMode }
+      : {}),
   };
+}
+
+// Any mode change first writes every group's current mode onto its rules, so
+// groups that were inheriting the view's mode keep it from then on.
+export function databaseViewWithFilterMode(
+  view: ContentDatabaseView,
+  filterMode: DatabaseFilterMode,
+): ContentDatabaseView {
+  return {
+    ...view,
+    filters: materializeContentDatabaseFilterGroupModes(
+      view.filters,
+      view.filterMode ?? "and",
+    ),
+    filterMode,
+  };
+}
+
+export function databaseViewWithFilterGroupMode(
+  view: ContentDatabaseView,
+  groupId: string,
+  mode: DatabaseFilterMode,
+): ContentDatabaseView {
+  return {
+    ...view,
+    filters: withContentDatabaseFilterGroupMode(
+      materializeContentDatabaseFilterGroupModes(
+        view.filters,
+        view.filterMode ?? "and",
+      ),
+      groupId,
+      mode,
+    ),
+  };
+}
+
+function createDatabaseAdvancedFilterForField(
+  key: ColumnKey,
+  label: string,
+  properties: DocumentProperty[],
+  filters: DatabaseFilter[],
+  filterMode: DatabaseFilterMode,
+): DatabaseFilter {
+  return createDatabaseFilterForField(key, label, properties, {
+    filterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
+    filterGroupMode: databaseFilterGroupModeForNewRule(
+      filters,
+      DATABASE_ADVANCED_FILTER_GROUP_ID,
+      filterMode,
+    ),
+  });
+}
+
+// A rule added to a group takes the group's current mode. A new group starts
+// with "and": the view's All/Any combines it with its neighbors, not its rules.
+export function databaseFilterGroupModeForNewRule(
+  filters: DatabaseFilter[],
+  groupId: string,
+  filterMode: DatabaseFilterMode,
+): DatabaseFilterMode {
+  const groupExists = filters.some(
+    (filter) =>
+      filter.filterGroupId === groupId ||
+      filter.parentFilterGroupId === groupId,
+  );
+  return groupExists
+    ? contentDatabaseFilterGroupMode(filters, groupId, filterMode)
+    : "and";
 }
 
 function isAdvancedDatabaseFilter(filter: DatabaseFilter) {
@@ -17522,13 +17676,16 @@ export function databasePropertyValuesForNewItem(
   filterMode: DatabaseFilterMode = "and",
 ): Record<string, DocumentPropertyValue> {
   const propertyValues: Record<string, DocumentPropertyValue> = {};
-  const activeFilters = filters.filter(isActiveFilter);
-  if (filterMode === "or" && activeFilters.length > 1) {
-    return propertyValues;
-  }
+  // A rule under an "or" with other members is optional, so seeding it would
+  // give the new row a value the view does not ask for.
+  const requiredFilters = contentDatabaseRequiredFilters(
+    filters,
+    filterMode,
+    isActiveFilter,
+  );
 
-  for (const filter of activeFilters) {
-    if (filter.key === "name") continue;
+  for (const filter of filters) {
+    if (!requiredFilters.has(filter) || filter.key === "name") continue;
 
     const property = properties.find(
       (candidate) => candidate.definition.id === filter.key,

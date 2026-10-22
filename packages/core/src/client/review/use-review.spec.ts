@@ -6,6 +6,7 @@ import type { ReviewComment } from "../../review/types.js";
 import {
   ReviewOptimisticCache,
   insertOptimisticComment,
+  proposalDecisionOverlay,
   reconcileSuggestionAmendment,
   replaceOptimisticSuggestion,
   type ListReviewCommentsResult,
@@ -413,6 +414,93 @@ describe("ReviewOptimisticCache", () => {
       queryClient.getQueryData<{ suggestions: ResourceSuggestion[] }>(queryKey)
         ?.suggestions[0]?.status,
     ).toBe("rejected");
+  });
+
+  it("shows every member of a proposal decision at once and restores them if it fails", () => {
+    const queryClient = createQueryClient();
+    const queryKey = ["action", "list-resource-suggestions", resource] as const;
+    const members = Array.from({ length: 50 }, (_, index) => ({
+      ...suggestion(`member-${index}`, "Proposal"),
+      proposalId: "proposal-1",
+    }));
+    const outsider = suggestion("outsider", "Other");
+    queryClient.setQueryData(queryKey, { suggestions: [...members, outsider] });
+    const cache = new ReviewOptimisticCache(queryClient);
+    const context = cache.begin(
+      proposalDecisionOverlay(
+        {
+          proposalId: "proposal-1",
+          decision: "accepted",
+          idempotencyKey: "key-1",
+          members: members.map((member) => ({
+            id: member.id,
+            observedRevision: member.revision,
+            observedBase: member.baseRevision,
+          })),
+        },
+        queryClient,
+      ),
+    );
+    const statuses = () =>
+      queryClient
+        .getQueryData<{ suggestions: ResourceSuggestion[] }>(queryKey)
+        ?.suggestions.map((item) => item.status);
+
+    expect(statuses()).toEqual([...members.map(() => "accepted"), "pending"]);
+    cache.fail(context);
+    cache.settle(context);
+    expect(statuses()).toEqual([...members.map(() => "pending"), "pending"]);
+  });
+
+  it("swaps a proposal decision's overlay for the server's records", () => {
+    const queryClient = createQueryClient();
+    const allKey = ["action", "list-resource-suggestions", resource] as const;
+    const pendingKey = [
+      "action",
+      "list-resource-suggestions",
+      { ...resource, statuses: ["pending"] },
+    ] as const;
+    const members = [
+      suggestion("member-1", "One"),
+      suggestion("member-2", "Two"),
+    ];
+    queryClient.setQueryData(allKey, { suggestions: members });
+    queryClient.setQueryData(pendingKey, { suggestions: members });
+    const cache = new ReviewOptimisticCache(queryClient);
+    const context = cache.begin(
+      proposalDecisionOverlay(
+        {
+          proposalId: "proposal-1",
+          decision: "rejected",
+          idempotencyKey: "key-2",
+          members: members.map((member) => ({
+            id: member.id,
+            observedRevision: member.revision,
+            observedBase: member.baseRevision,
+          })),
+        },
+        queryClient,
+      ),
+    );
+    const read = (key: typeof allKey | typeof pendingKey) =>
+      queryClient.getQueryData<{ suggestions: ResourceSuggestion[] }>(key)
+        ?.suggestions;
+    // A pending-only list drops decided members as soon as the decision starts.
+    expect(read(pendingKey)).toEqual([]);
+    expect(read(allKey)?.map((item) => item.status)).toEqual([
+      "rejected",
+      "rejected",
+    ]);
+
+    const saved = members.map((member) => ({
+      ...member,
+      status: "rejected" as const,
+      revision: 2,
+    }));
+    cache.succeed(context, { proposal: {}, suggestions: saved });
+    expect(read(allKey)).toEqual(saved);
+    expect(read(pendingKey)).toEqual([]);
+    cache.settle(context);
   });
 
   it("invalidates only the affected resource after its operation settles", () => {

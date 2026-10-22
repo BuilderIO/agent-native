@@ -43,6 +43,10 @@ A host counts as local when it has a real working directory, a terminal, and a w
 
 On a browser host the skill requires the Agent-Native Dispatch MCP connector (`https://dispatch.agent-native.com/mcp`, OAuth) and calls its `start-workspace-app-creation` action. The host cannot run or inspect the app, so the report stays pending or unverified until the branch Dispatch returns is built. The skill reports what Dispatch actually returned and never invents a branch URL. For a ChatGPT Project, or any host that only exposes MCP, put the skill instructions in the Project instructions or knowledge files.
 
+## Local prerequisites
+
+On a local host, install Node.js 22.22.0 or newer (which includes npm and npx) and pnpm before starting. Browser hosts use Dispatch and do not run these commands.
+
 ## Sources {#sources}
 
 - **Threads.** The last concrete, repeatable job is the product.
