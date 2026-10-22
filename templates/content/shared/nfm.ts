@@ -2024,9 +2024,7 @@ function parseBlockSequence(
   return { nodes: out, end: i };
 }
 
-// A container's children sit one tab in from its tags, but agents also write
-// them at the tags' own indent; every line up to the closing tag is a child.
-function parseContainerBody(
+function parseDetailsBody(
   lines: string[],
   start: number,
   end: number,
@@ -2118,6 +2116,38 @@ function parseContainerBody(
     return `${"\t".repeat(requiredIndent - indent)}${line}`;
   });
   return parseBlockSequence(bodyLines, 0, childIndent).nodes;
+}
+
+// A container's children sit one tab in from its tags, but agents also write
+// them at the tags' own indent. Where the read stops at such a line, it and
+// every later line at least as deep move in together, so what is nested under
+// it stays nested, and a block read as written, such as code or math, keeps
+// its lines.
+function parseContainerChildren(
+  lines: string[],
+  start: number,
+  end: number,
+  parentIndent: number,
+): PMNode[] {
+  const childIndent = parentIndent + 1;
+  const body = lines.slice(start, end);
+  const nodes: PMNode[] = [];
+  for (let i = 0; ; ) {
+    const res = parseBlockSequence(body, i, childIndent);
+    pushAll(nodes, res.nodes);
+    if (res.end >= body.length) return nodes;
+    i = res.end;
+    const anchor = leadingTabs(body[i]);
+    const shift = TAB.repeat(childIndent - anchor);
+    const tabCounts = lineTabCounts.get(body);
+    for (let j = i; j < body.length; j++) {
+      if (body[j].trim() && leadingTabs(body[j]) < anchor) break;
+      body[j] = shift + body[j];
+      if (tabCounts) tabCounts[j] += shift.length;
+    }
+    // Its closes were found at the old indents.
+    containerCloseIndexes.delete(body);
+  }
 }
 
 function endsWithUnescapedPipe(value: string): boolean {
@@ -3205,7 +3235,7 @@ function parseContainer(
         color: isColor(attrs.color) ? attrs.color : null,
         indent: 0,
       },
-      content: parseContainerBody(lines, bodyStart, closeIdx, indent),
+      content: parseDetailsBody(lines, bodyStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
@@ -3218,13 +3248,18 @@ function parseContainer(
         icon: attrs.icon ?? "",
         color: isColor(attrs.color) ? attrs.color : null,
       },
-      content: parseContainerBody(lines, childStart, closeIdx, indent),
+      content: parseContainerChildren(lines, childStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
   if (tagKey === "<columns>") {
-    const children = parseContainerBody(lines, childStart, closeIdx, indent);
+    const children = parseContainerChildren(
+      lines,
+      childStart,
+      closeIdx,
+      indent,
+    );
     const columns = children.filter((n) => {
       if (n.type === "notionColumn") return true;
       reportLoss(
@@ -3240,7 +3275,7 @@ function parseContainer(
   if (tagKey === "<column>") {
     const node: PMNode = {
       type: "notionColumn",
-      content: parseContainerBody(lines, childStart, closeIdx, indent),
+      content: parseContainerChildren(lines, childStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
@@ -3254,7 +3289,7 @@ function parseContainer(
         url: attrs.url || null,
         notice: attrs.notice || null,
       },
-      content: parseContainerBody(lines, childStart, closeIdx, indent),
+      content: parseContainerChildren(lines, childStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }

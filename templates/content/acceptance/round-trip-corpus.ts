@@ -560,6 +560,36 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
       '<synced_block url="https://www.notion.so/abc">\n\tShared text\n</synced_block>',
   },
   {
+    id: "untabbed-callout-nested-list",
+    origin: "agent",
+    markdown: "<callout>\n- parent\n\t- child\n</callout>",
+    canonical: "<callout>\n\t- parent\n\t\t- child\n</callout>",
+    note: "Lines nested under an untabbed child stay nested under it.",
+  },
+  {
+    id: "callout-math-block-with-container-tag",
+    origin: "agent",
+    markdown:
+      "<callout>\n\t$$\n\t<callout>\n\tx\n\t</callout>\n\t$$\n</callout>",
+    canonical:
+      "<callout>\n\t$$\n\t<callout>\n\tx\n\t</callout>\n\t$$\n</callout>",
+    note: "A container tag inside an equation is equation source.",
+  },
+  {
+    id: "untabbed-callout-math-block-with-container-tag",
+    origin: "agent",
+    markdown: "<callout>\n$$\n<callout>\n\tx\n</callout>\n$$\n</callout>",
+    canonical:
+      "<callout>\n\t$$\n\t<callout>\n\t\tx\n\t</callout>\n\t$$\n</callout>",
+  },
+  {
+    id: "untabbed-callout-code-block-with-container-tag",
+    origin: "agent",
+    markdown: "<callout>\n```\n<callout>\nx\n</callout>\n```\n</callout>",
+    canonical:
+      "<callout>\n\t```\n\t<callout>\n\tx\n\t</callout>\n\t```\n</callout>",
+  },
+  {
     id: "math-block-open-at-callout-close",
     origin: "agent",
     markdown: "<callout>\n\t$$\n\tx = 1\n</callout>\nAfter\n$$",
