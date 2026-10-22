@@ -2408,7 +2408,9 @@ const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
  * Allow framework routes with their own non-cookie authentication to reach
  * the handler. The handler remains responsible for verifying the credential.
  *
- * Registered paths are exact matches. This is registered separately from
+ * Registered paths are exact matches, where a `:name` segment stands for any
+ * one segment: `/x/:id` admits `/x/abc`, never `/x` or `/x/abc/more`. This is
+ * registered separately from
  * template auth options because framework routes can be mounted after the auth
  * plugin and must also work in custom workspace deployments that do not own a
  * template auth file.
@@ -4011,14 +4013,6 @@ function createAuthGuardFn(
       return;
     }
 
-    // MCP action review page. Like /open, it reads the browser session itself
-    // and serves the login form at the same URL when signed out, so signing in
-    // returns to the review. Its POST re-checks the session and the grant's
-    // owner and organization.
-    if (/^\/_agent-native\/mcp\/approvals\/[^/]+$/.test(p)) {
-      return;
-    }
-
     if (/^\/_agent-native\/integrations\/[^/]+\/webhook$/.test(p)) {
       return;
     }
@@ -5138,10 +5132,25 @@ function isPublicPath(
   exactPublicPaths: string[] = [],
 ): boolean {
   const p = url.split("?")[0];
-  if (exactPublicPaths.some((candidate) => normalizePath(candidate) === p)) {
+  if (exactPublicPaths.some((candidate) => matchesPathPattern(p, candidate))) {
     return true;
   }
   return matchesPathList(p, publicPaths);
+}
+
+/** `path` is `pattern`, where a `:name` segment stands for any one segment. */
+function matchesPathPattern(path: string, pattern: string): boolean {
+  const expectedSegments = normalizePath(pattern).split("/");
+  const actualSegments = path.split("/");
+  return (
+    expectedSegments.length === actualSegments.length &&
+    expectedSegments.every((segment, index) => {
+      if (/^:[A-Za-z][A-Za-z0-9_]*$/.test(segment)) {
+        return Boolean(actualSegments[index]);
+      }
+      return segment === actualSegments[index];
+    })
+  );
 }
 
 function normalizePath(path: string): string {
@@ -5151,19 +5160,7 @@ function normalizePath(path: string): string {
 function matchesPathList(path: string, paths: string[]): boolean {
   return paths.some((candidate) => {
     const normalized = normalizePath(candidate);
-    if (normalized.includes("/:")) {
-      const expectedSegments = normalized.split("/");
-      const actualSegments = path.split("/");
-      return (
-        expectedSegments.length === actualSegments.length &&
-        expectedSegments.every((segment, index) => {
-          if (/^:[A-Za-z][A-Za-z0-9_]*$/.test(segment)) {
-            return Boolean(actualSegments[index]);
-          }
-          return segment === actualSegments[index];
-        })
-      );
-    }
+    if (normalized.includes("/:")) return matchesPathPattern(path, normalized);
     return path === normalized || path.startsWith(normalized + "/");
   });
 }

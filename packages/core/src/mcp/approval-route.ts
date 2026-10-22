@@ -26,6 +26,7 @@ import {
 import {
   getBrowserCookieSession,
   getConfiguredLoginHtml,
+  registerAuthPublicPaths,
 } from "../server/auth.js";
 import { toAbsoluteOpenUrl } from "../server/deep-link.js";
 import { getH3App } from "../server/framework-request-handler.js";
@@ -707,8 +708,14 @@ export function mountMcpApprovalRoute(
   app: McpApprovalApp,
   routePrefix = "/_agent-native",
 ): void {
-  getH3App(nitroApp).use(
-    mcpApprovalRoute(routePrefix),
+  const route = mcpApprovalRoute(routePrefix);
+  const h3 = getH3App(nitroApp);
+  // Like /open, the page reads the browser session itself and serves the
+  // login form at its own URL when signed out, so signing in returns to the
+  // review. Its POST re-checks the session and the grant's owner and app.
+  registerAuthPublicPaths([`${route}/:id`], h3);
+  h3.use(
+    route,
     defineEventHandler((event) =>
       handleMcpApprovalRequest(event as H3Event, app),
     ),

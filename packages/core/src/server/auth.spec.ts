@@ -3836,6 +3836,41 @@ describe("server/auth", () => {
       ).resolves.toBeUndefined();
     });
 
+    it("admits a registered path's id segment, and only that one segment", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth, registerAuthPublicPaths } =
+        await import("./auth.js");
+      const app = createMockApp();
+
+      registerAuthPublicPaths(
+        ["/_agent-native/org/apps/mcp/approvals/:id"],
+        app,
+      );
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/org/apps/mcp/approvals/grant-1",
+          }),
+        ),
+      ).resolves.toBeUndefined();
+      // The review page is public only where an MCP mount registered it.
+      for (const path of [
+        "/_agent-native/org/apps/mcp/approvals",
+        "/_agent-native/org/apps/mcp/approvals/grant-1/more",
+        "/_agent-native/mcp/approvals/grant-1",
+      ]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toEqual({
+          error: "Unauthorized",
+        });
+      }
+    });
+
     it("allows framework-managed bearer routes to reach their own verifier", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

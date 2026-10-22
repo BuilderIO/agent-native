@@ -5,6 +5,7 @@ const mockServerState = vi.hoisted(() => ({
     readonly code = "MCP_DIRECTORY_PROFILE_INVALID";
   },
   McpIdentityVerificationUnavailableError: class extends Error {},
+  registerAuthPublicPaths: vi.fn(),
   setResponseHeader: vi.fn(),
   setResponseStatus: vi.fn(),
   validateMcpDirectoryProfile: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("../server/auth.js", () => ({
   getConfiguredLoginHtml: vi.fn(),
   getSession: vi.fn(),
   isLoopbackRequest: () => false,
+  registerAuthPublicPaths: mockServerState.registerAuthPublicPaths,
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
@@ -127,9 +129,13 @@ describe("mountMCP", () => {
       "/_agent-native/mcp",
       "/mcp",
     ]);
+    expect(mockServerState.registerAuthPublicPaths).toHaveBeenCalledWith(
+      ["/_agent-native/mcp/approvals/:id"],
+      { use },
+    );
   });
 
-  it("does not add the public alias to a custom route prefix", () => {
+  it("serves the review page on a custom route prefix, without the public alias", () => {
     const use = vi.fn();
     mountMCP({ h3: { use } }, { actions: {} } as any, "/custom");
 
@@ -137,6 +143,12 @@ describe("mountMCP", () => {
       "/custom/mcp/approvals",
       "/custom/mcp",
     ]);
+    // The review page serves its own sign-in, so the auth guard lets it
+    // through wherever it is mounted.
+    expect(mockServerState.registerAuthPublicPaths).toHaveBeenCalledWith(
+      ["/custom/mcp/approvals/:id"],
+      { use },
+    );
   });
 
   it("mounts the curated directory before the broader public MCP prefix", () => {
