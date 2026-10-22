@@ -1,5 +1,7 @@
 import { isBoardFile } from "@shared/board-file";
+import { parseCssColorExtended } from "@shared/color-utils";
 import { normalizedDesignFileType } from "@shared/design-files";
+import { cloneNativeEffectsForNodes } from "@shared/native-effect-cloning";
 import {
   isClosedPathData,
   serializePenNodes,
@@ -14,6 +16,7 @@ import {
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_START_ENDPOINT_PROPERTY,
 } from "@shared/vector-endpoints";
+import { compositeOver, contrastRatio, type Rgb } from "@shared/wcag-contrast";
 
 import {
   canvasPrimitiveVisual,
@@ -152,7 +155,7 @@ export function reassignDuplicatedNodeIds(content: string): string {
   }
   const rewriteReference = (id: string): string =>
     rewrittenReferences.get(id) ?? id;
-  return withNewNodeIds
+  const rewrittenContent = withNewNodeIds
     .replace(
       /\bid=(['"])([^'"]*)\1/g,
       (_match, quote: string, id: string) =>
@@ -162,6 +165,9 @@ export function reassignDuplicatedNodeIds(content: string): string {
       /url\(#([^)]*)\)/g,
       (_match, id: string) => `url(#${rewriteReference(id)})`,
     );
+  return cloneNativeEffectsForNodes(content, rewrittenContent, nodeIdMap, {
+    wholeDocument: true,
+  });
 }
 
 export function defaultTextLayerName(text: string | undefined): string {
@@ -336,6 +342,546 @@ function deepestFrameContaining(
     : null;
 }
 
+function elementsFromPointIncludingPointerTransparent(
+  liveDocument: Document,
+  x: number,
+  y: number,
+): Element[] {
+  const liveView = liveDocument.defaultView;
+  if (!liveView) return liveDocument.elementsFromPoint(x, y);
+
+  // elementsFromPoint skips pointer-events:none even when those elements paint over the point.
+  const pointerTransparentElements = Array.from(
+    liveDocument.querySelectorAll<HTMLElement | SVGElement>("*"),
+  ).filter((element) => {
+    if (liveView.getComputedStyle(element).pointerEvents !== "none") {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      x >= rect.left &&
+      y >= rect.top &&
+      x <= rect.right &&
+      y <= rect.bottom
+    );
+  });
+  if (!pointerTransparentElements.length) {
+    return liveDocument.elementsFromPoint(x, y);
+  }
+
+  const originalStyles = pointerTransparentElements.map((element) => ({
+    element,
+    style: element.getAttribute("style"),
+  }));
+  try {
+    pointerTransparentElements.forEach((element) => {
+      element.style.setProperty("pointer-events", "auto", "important");
+    });
+    return liveDocument.elementsFromPoint(x, y);
+  } finally {
+    originalStyles.forEach(({ element, style }) => {
+      if (style === null) element.removeAttribute("style");
+      else element.setAttribute("style", style);
+    });
+  }
+}
+
+function paintedSurfaceAtPoint(
+  root: Element,
+  x: number,
+  y: number,
+  liveDocument?: Document | null,
+  includeDocumentBackground = false,
+  fallbackBackground: string | null = null,
+  fallbackIsMeasured = false,
+  sampleElement?: Element | null,
+):
+  | { kind: "known"; color: Rgb }
+  | {
+      kind: "unknown";
+      reason:
+        | "background-image"
+        | "flow-overlap"
+        | "translucent"
+        | "unmeasured";
+    }
+  | null {
+  const isZeroOpacity = (style: CSSStyleDeclaration): boolean => {
+    const opacity = style.opacity?.trim();
+    return Boolean(opacity && Number.parseFloat(opacity) === 0);
+  };
+  const hasUnknownPaint = (
+    style: CSSStyleDeclaration,
+    includeBackgroundImage = true,
+  ): "background-image" | "translucent" | null => {
+    const opacity = style.opacity?.trim();
+    if (opacity && Number.parseFloat(opacity) === 0) return null;
+    const backgroundImage = style.backgroundImage?.trim().toLowerCase();
+    if (
+      includeBackgroundImage &&
+      backgroundImage &&
+      ![
+        "none",
+        "initial",
+        "unset",
+        "inherit",
+        "revert",
+        "revert-layer",
+      ].includes(backgroundImage)
+    ) {
+      return "background-image";
+    }
+    if (!opacity || opacity === "1") return null;
+    const parsedOpacity = Number.parseFloat(opacity);
+    return !Number.isFinite(parsedOpacity) || parsedOpacity !== 1
+      ? "translucent"
+      : null;
+  };
+  const svgPaintAtPoint = (
+    element: Element,
+    style: CSSStyleDeclaration,
+  ): string | "unmeasured" | null => {
+    if (element.namespaceURI !== "http://www.w3.org/2000/svg") return null;
+    const tagName = element.localName.toLowerCase();
+    if (["image", "use", "foreignobject"].includes(tagName)) {
+      return "unmeasured";
+    }
+    if (
+      ![
+        "circle",
+        "ellipse",
+        "line",
+        "path",
+        "polygon",
+        "polyline",
+        "rect",
+        "text",
+        "tspan",
+      ].includes(tagName)
+    ) {
+      return null;
+    }
+
+    const readProperty = (property: string, fallback: string): string => {
+      const computedValue = style.getPropertyValue(property).trim();
+      if (computedValue && !["inherit", "unset"].includes(computedValue)) {
+        return computedValue;
+      }
+      for (
+        let ancestor: Element | null = element;
+        ancestor?.namespaceURI === "http://www.w3.org/2000/svg";
+        ancestor = ancestor.parentElement
+      ) {
+        const inlineValue = (ancestor as SVGElement).style
+          .getPropertyValue(property)
+          .trim();
+        const authoredValue =
+          inlineValue || ancestor.getAttribute(property)?.trim() || "";
+        if (authoredValue && !["inherit", "unset"].includes(authoredValue)) {
+          return authoredValue;
+        }
+      }
+      return fallback;
+    };
+    const opacityFor = (property: string): number | null => {
+      const value = readProperty(property, "1").trim();
+      const parsed = value.endsWith("%")
+        ? Number(value.slice(0, -1)) / 100
+        : Number(value);
+      return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : null;
+    };
+    const paintFor = (
+      paint: string,
+      opacity: number | null,
+    ): { r: number; g: number; b: number; a: number } | "unmeasured" | null => {
+      if (paint.trim().toLowerCase() === "none") return null;
+      if (opacity === null) return "unmeasured";
+      if (opacity === 0) return null;
+      const normalizedPaint = paint.trim().toLowerCase();
+      if (
+        normalizedPaint.startsWith("url(") ||
+        normalizedPaint.startsWith("context-")
+      ) {
+        return "unmeasured";
+      }
+      const color =
+        normalizedPaint === "currentcolor"
+          ? readProperty("color", "black")
+          : paint;
+      const parsed = parseCssColorExtended(color);
+      return parsed ? { ...parsed, a: parsed.a * opacity } : "unmeasured";
+    };
+    const fill =
+      tagName === "line"
+        ? null
+        : paintFor(readProperty("fill", "black"), opacityFor("fill-opacity"));
+    const stroke = paintFor(
+      readProperty("stroke", "none"),
+      opacityFor("stroke-opacity"),
+    );
+    if (fill === "unmeasured" || stroke === "unmeasured") {
+      return "unmeasured";
+    }
+    if (!fill) {
+      return stroke
+        ? `rgb(${stroke.r} ${stroke.g} ${stroke.b} / ${stroke.a})` // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
+        : null;
+    }
+    if (!stroke) {
+      return `rgb(${fill.r} ${fill.g} ${fill.b} / ${fill.a})`; // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
+    }
+    if (
+      fill.a === 1 &&
+      stroke.a === 1 &&
+      fill.r === stroke.r &&
+      fill.g === stroke.g &&
+      fill.b === stroke.b
+    ) {
+      return `rgb(${fill.r} ${fill.g} ${fill.b})`; // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
+    }
+    return "unmeasured";
+  };
+  const compositePaintStack = (
+    colorsFromFrontToBack: ReadonlyArray<string | null>,
+  ):
+    | { kind: "known"; color: Rgb }
+    | { kind: "unknown"; reason: "translucent" | "unmeasured" }
+    | null => {
+    const fallback = fallbackBackground
+      ? parseCssColorExtended(fallbackBackground)
+      : null;
+    const hasMeasuredPaint = colorsFromFrontToBack.some((paint) => {
+      const foreground = paint ? parseCssColorExtended(paint) : null;
+      return foreground !== null && foreground.a > 0;
+    });
+    if (
+      !hasMeasuredPaint &&
+      (!fallbackIsMeasured || !fallback || fallback.a < 1)
+    ) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    let background: Rgb | null = fallback?.a === 1 ? fallback : null;
+    for (let index = colorsFromFrontToBack.length - 1; index >= 0; index -= 1) {
+      const paint = colorsFromFrontToBack[index];
+      const foreground = paint ? parseCssColorExtended(paint) : null;
+      if (!foreground || foreground.a <= 0) continue;
+      if (foreground.a >= 1) {
+        background = foreground;
+      } else if (background) {
+        background = compositeOver(foreground, background);
+      }
+    }
+    return background
+      ? { kind: "known", color: background }
+      : { kind: "unknown", reason: "translucent" };
+  };
+  const liveView = liveDocument?.defaultView;
+  const hasZeroOpacityAncestor = (element: Element): boolean => {
+    for (
+      let ancestor: Element | null = element;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      const inlineStyle = (ancestor as HTMLElement).style;
+      const computedStyle = liveView?.getComputedStyle(ancestor);
+      if (
+        isZeroOpacity(inlineStyle) ||
+        (computedStyle && isZeroOpacity(computedStyle))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  if (sampleElement) {
+    if (!liveDocument || !liveView) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    const nodeId = sampleElement.getAttribute("data-agent-native-node-id");
+    const liveSampleElement =
+      sampleElement === root.ownerDocument?.body
+        ? liveDocument.body
+        : sampleElement === root.ownerDocument?.documentElement
+          ? liveDocument.documentElement
+          : nodeId
+            ? liveDocument.querySelector(
+                `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+              )
+            : null;
+    if (!liveSampleElement) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    const hostRect = liveSampleElement.getBoundingClientRect();
+    const hasOverlappingPositionedDescendant = Array.from(
+      liveSampleElement.querySelectorAll("*"),
+    ).some((descendant) => {
+      const style = liveView.getComputedStyle(descendant);
+      if (
+        !["absolute", "fixed"].includes(style.position) ||
+        ["none", "hidden", "collapse"].includes(style.display) ||
+        ["hidden", "collapse"].includes(style.visibility) ||
+        hasZeroOpacityAncestor(descendant)
+      ) {
+        return false;
+      }
+      const rect = descendant.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      if (hostRect.width <= 0 || hostRect.height <= 0) return true;
+      if (rect.right <= hostRect.left) return false;
+      if (rect.left >= hostRect.right) return false;
+      if (rect.bottom <= hostRect.top) return false;
+      return rect.top < hostRect.bottom;
+    });
+    // A flow insertion appends after existing children, where positioned
+    // descendants can paint over it without inheriting the host's surface.
+    if (hasOverlappingPositionedDescendant) {
+      return { kind: "unknown", reason: "flow-overlap" };
+    }
+    const colors: string[] = [];
+    for (
+      let element: Element | null = liveSampleElement;
+      element;
+      element = element.parentElement
+    ) {
+      if (hasZeroOpacityAncestor(element)) continue;
+      const includesBackgroundImage =
+        includeDocumentBackground ||
+        (element !== liveDocument.body &&
+          element !== liveDocument.documentElement);
+      const style = liveView.getComputedStyle(element);
+      const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+      if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+      if (
+        includeDocumentBackground ||
+        (element !== liveDocument.body &&
+          element !== liveDocument.documentElement)
+      ) {
+        colors.push(style.backgroundColor);
+      }
+    }
+    return compositePaintStack(colors);
+  }
+  if (
+    liveDocument &&
+    liveView &&
+    typeof liveDocument.elementsFromPoint === "function"
+  ) {
+    const sampleX = x - liveView.scrollX;
+    const sampleY = y - liveView.scrollY;
+    const hits = elementsFromPointIncludingPointerTransparent(
+      liveDocument,
+      sampleX,
+      sampleY,
+    );
+    const hitSet = new Set(hits);
+    const colors: string[] = [];
+    let opaqueForeground = false;
+    const unseenAncestors: Element[] = [];
+    const seenAncestors = new Set<Element>();
+    for (const hit of hits) {
+      if (hasZeroOpacityAncestor(hit)) continue;
+      const includesBackgroundImage =
+        includeDocumentBackground ||
+        (hit !== liveDocument.body && hit !== liveDocument.documentElement);
+      const style = liveView.getComputedStyle(hit);
+      if (!opaqueForeground) {
+        const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+        if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+        if (["img", "video", "canvas"].includes(hit.localName.toLowerCase())) {
+          return { kind: "unknown", reason: "unmeasured" };
+        }
+      }
+      for (
+        let element: Element | null = hit;
+        !opaqueForeground && element;
+        element = element.parentElement
+      ) {
+        if (element === hit) continue;
+        const ancestorStyle = liveView.getComputedStyle(element);
+        const unknownOpacity = hasUnknownPaint(ancestorStyle, false);
+        if (unknownOpacity) {
+          return { kind: "unknown", reason: unknownOpacity };
+        }
+      }
+      if (
+        includeDocumentBackground ||
+        (hit !== liveDocument.body && hit !== liveDocument.documentElement)
+      ) {
+        colors.push(style.backgroundColor);
+        const foreground = parseCssColorExtended(style.backgroundColor);
+        if (foreground?.a === 1) opaqueForeground = true;
+      }
+      if (!opaqueForeground) {
+        const svgPaint = svgPaintAtPoint(hit, style);
+        if (svgPaint === "unmeasured") {
+          return { kind: "unknown", reason: "unmeasured" };
+        }
+        if (svgPaint) {
+          colors.push(svgPaint);
+          const foreground = parseCssColorExtended(svgPaint);
+          if (foreground?.a === 1) opaqueForeground = true;
+        }
+      }
+      for (
+        let element = hit.parentElement;
+        element;
+        element = element.parentElement
+      ) {
+        if (hitSet.has(element) || seenAncestors.has(element)) continue;
+        seenAncestors.add(element);
+        unseenAncestors.push(element);
+      }
+    }
+    if (!opaqueForeground) {
+      for (const element of unseenAncestors) {
+        if (hasZeroOpacityAncestor(element)) continue;
+        const includesBackgroundImage =
+          includeDocumentBackground ||
+          (element !== liveDocument.body &&
+            element !== liveDocument.documentElement);
+        const style = liveView.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        if (
+          style.visibility !== "visible" ||
+          sampleX < rect.left ||
+          sampleY < rect.top ||
+          sampleX > rect.right ||
+          sampleY > rect.bottom
+        ) {
+          continue;
+        }
+        const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+        if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+        if (includesBackgroundImage) {
+          colors.push(style.backgroundColor);
+          const foreground = parseCssColorExtended(style.backgroundColor);
+          if (foreground?.a === 1) break;
+        }
+      }
+    }
+    return compositePaintStack(colors);
+  }
+
+  const candidates: Array<{ color: string | null }> = [];
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+    if (hasZeroOpacityAncestor(element)) continue;
+    const rect = absoluteRect(element);
+    if (
+      !rect ||
+      x < rect.x ||
+      y < rect.y ||
+      x > rect.x + rect.w ||
+      y > rect.y + rect.h
+    ) {
+      continue;
+    }
+    const includesBackgroundImage =
+      includeDocumentBackground ||
+      (element !== root && element !== root.ownerDocument?.documentElement);
+    const unknownPaint = hasUnknownPaint(
+      element.style,
+      includesBackgroundImage,
+    );
+    if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+    const color =
+      element.style.backgroundColor || element.style.background || null;
+    if (color && parseCssColorExtended(color)) candidates.push({ color });
+  }
+  for (
+    let element: Element | null = root;
+    element;
+    element = element.parentElement
+  ) {
+    const style = (element as HTMLElement).style;
+    const includesBackgroundImage =
+      includeDocumentBackground ||
+      (element !== root && element !== root.ownerDocument?.documentElement);
+    const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+    if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+  }
+  const colors: (string | null)[] = candidates
+    .reverse()
+    .map((candidate) => candidate.color);
+  if (includeDocumentBackground) {
+    for (
+      let element: Element | null = root;
+      element;
+      element = element.parentElement
+    ) {
+      const style = (element as HTMLElement).style;
+      colors.push(style.backgroundColor || style.background || null);
+    }
+  }
+  return compositePaintStack(colors);
+}
+
+function textColorWithBestContrast(background: Rgb): string {
+  const whiteContrast = contrastRatio({ r: 255, g: 255, b: 255 }, background);
+  const blackContrast = contrastRatio({ r: 0, g: 0, b: 0 }, background);
+  const whiteHasMoreContrast = whiteContrast > blackContrast;
+  return defaultCanvasTextColor(whiteHasMoreContrast, !whiteHasMoreContrast);
+}
+
+/** Later siblings paint over earlier ones; z-index is ignored. */
+function topmostBoxContaining(
+  root: Element,
+  x: number,
+  y: number,
+): Element | null {
+  let topmost: Element | null = null;
+  for (const element of Array.from(root.querySelectorAll("*"))) {
+    const rect = absoluteRect(element);
+    if (
+      rect &&
+      x >= rect.x &&
+      y >= rect.y &&
+      x <= rect.x + rect.w &&
+      y <= rect.y + rect.h
+    ) {
+      topmost = element;
+    }
+  }
+  return topmost;
+}
+
+export interface LayerSize {
+  width: number;
+  height: number;
+}
+
+/** A drawn frame adopts the absolutely placed host children it fully encloses, keeping them in place. */
+function adoptEnclosedLayers(
+  host: Element,
+  frame: HTMLElement,
+  box: { left: number; top: number; width: number; height: number },
+  liveLayerSizes: ReadonlyMap<string, LayerSize> | undefined,
+) {
+  if (!liveLayerSizes?.size) return;
+  const border = inlineBorderInset(frame);
+  for (const child of Array.from(host.children)) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    const size = id ? liveLayerSizes.get(id) : undefined;
+    const style = (child as HTMLElement).style;
+    if (!size || style.position !== "absolute") continue;
+    if (!style.left.endsWith("px") || !style.top.endsWith("px")) continue;
+    const left = Number.parseFloat(style.left);
+    const top = Number.parseFloat(style.top);
+    if (
+      left < box.left ||
+      top < box.top ||
+      left + size.width > box.left + box.width ||
+      top + size.height > box.top + box.height
+    ) {
+      continue;
+    }
+    style.left = `${left - box.left - border.x}px`;
+    style.top = `${top - box.top - border.y}px`;
+    frame.appendChild(child);
+  }
+}
+
 export function canvasPrimitiveInsertionHostNodeId(
   content: string,
   primitive: CanvasPrimitiveInsert,
@@ -370,6 +916,8 @@ export function appendCanvasPrimitiveToHtml(
     isBoardTarget?: boolean;
     positioning?: "absolute" | "flow";
     boardBackground?: string | null;
+    liveDocument?: Document | null;
+    liveLayerSizes?: ReadonlyMap<string, LayerSize>;
   },
 ): string | null {
   if (typeof window === "undefined") return null;
@@ -626,6 +1174,12 @@ export function appendCanvasPrimitiveToHtml(
         element.style.border = `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`;
       }
       element.style.overflow = "hidden";
+      adoptEnclosedLayers(
+        hostOrBody,
+        element,
+        { left: hostLeft, top: hostTop, width, height },
+        options?.liveLayerSizes,
+      );
     } else if (primitive.kind === "text") {
       element.textContent = primitive.text ?? "";
       element.style.display = primitive.autoSize ? "inline-block" : "flex";
@@ -638,17 +1192,75 @@ export function appendCanvasPrimitiveToHtml(
               { color: options.boardBackground ?? null },
             ])
           : null;
-      const measuredIsLight =
-        options?.isBoardTarget === true && hostOrBody === doc.body
+      const usesFlowPositioning = options?.positioning === "flow";
+      const boxUnderText = usesFlowPositioning
+        ? hostOrBody
+        : topmostBoxContaining(hostOrBody, left, top);
+      const measuredIsLight = boxUnderText
+        ? destinationBackgroundLightness(boxUnderText, options?.liveDocument)
+        : options?.isBoardTarget === true && hostOrBody === doc.body
           ? null
-          : destinationBackgroundLightness(hostOrBody);
-      const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
+          : destinationBackgroundLightness(hostOrBody, options?.liveDocument);
+      const canSampleFlowHost = usesFlowPositioning && options?.liveDocument;
+      const paintedSurface =
+        usesFlowPositioning && !canSampleFlowHost
+          ? null
+          : paintedSurfaceAtPoint(
+              doc.body,
+              left,
+              top,
+              options?.liveDocument,
+              options?.isBoardTarget !== true,
+              options?.isBoardTarget === true
+                ? (options.boardBackground ?? null)
+                : defaultCanvasFrameFill(),
+              options?.isBoardTarget === true &&
+                options.boardBackground !== null &&
+                options.boardBackground !== undefined,
+              usesFlowPositioning ? boxUnderText : null,
+            );
+      const surfaceIsLight =
+        paintedSurface?.kind === "unknown" &&
+        paintedSurface.reason === "unmeasured" &&
+        options?.isBoardTarget === true
+          ? (boardSurfaceIsLight ?? measuredIsLight)
+          : (measuredIsLight ?? boardSurfaceIsLight);
       const autoTextNeedsLightFill =
         surfaceIsLight === null
           ? options?.isBoardTarget === true
           : !surfaceIsLight;
+      const sampledSurfaceIsLight =
+        paintedSurface?.kind === "known"
+          ? resolveDestinationBackgroundLightnessOrNull([
+              {
+                // guard:allow-raw-color — This RGB value feeds luminance parsing for arbitrary user-painted surfaces, not UI styling.
+                color: `rgb(${paintedSurface.color.r} ${paintedSurface.color.g} ${paintedSurface.color.b})`,
+              },
+            ])
+          : null;
+      const measuredSurfaceDisagreesWithSample =
+        !options?.liveDocument &&
+        surfaceIsLight !== null &&
+        sampledSurfaceIsLight !== null &&
+        sampledSurfaceIsLight !== surfaceIsLight;
+      const preserveInheritedTextColor =
+        paintedSurface?.kind === "unknown" &&
+        ((paintedSurface.reason === "translucent" &&
+          !(boardSurfaceIsLight === null && measuredIsLight !== null)) ||
+          (paintedSurface.reason === "background-image" &&
+            options?.isBoardTarget !== true) ||
+          paintedSurface.reason === "flow-overlap" ||
+          (surfaceIsLight === null && options?.isBoardTarget !== true));
       const resolvedTextColor =
-        primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
+        primitive.fill ??
+        (paintedSurface?.kind === "known" && !measuredSurfaceDisagreesWithSample
+          ? textColorWithBestContrast(paintedSurface.color)
+          : preserveInheritedTextColor
+            ? "currentColor"
+            : defaultCanvasTextColor(
+                autoTextNeedsLightFill,
+                measuredSurfaceDisagreesWithSample && surfaceIsLight === true,
+              ));
       element.style.color = resolvedTextColor;
       if (primitive.fill === undefined) {
         element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");

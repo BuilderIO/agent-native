@@ -7,6 +7,7 @@ import {
   assertAgentNativePackageManifest,
   type AgentNativePackageManifest,
 } from "../package-lifecycle/manifest.js";
+import { resolveTarExecutable } from "./tar-command.js";
 
 export interface PackageLifecycleIO {
   out(message: string): void;
@@ -184,7 +185,7 @@ export async function loadLifecyclePackage(
       );
     }
     const archive = path.join(stage, filename);
-    const listed = spawn("tar", ["-tzf", archive], {
+    const listed = spawn(resolveTarExecutable(), ["-tzf", archive], {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
@@ -208,7 +209,7 @@ export async function loadLifecyclePackage(
       throw new Error(`Package archive for '${name}' contains an unsafe path`);
     }
     const extracted = spawn(
-      "tar",
+      resolveTarExecutable(),
       [
         "-xzf",
         archive,

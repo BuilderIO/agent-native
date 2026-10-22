@@ -88,7 +88,7 @@ stable IDs identify edits. Sparse patches preserve omitted fields, and empty
 lists explicitly clear supported settings.
 
 Ordinary setup supports stored property types, additive options, metadata edits,
-the existing text natural key, and table presentation. It refuses destructive
+the existing text natural key, table presentation, and list row layouts. It refuses destructive
 type/option changes, source-managed schema edits, and relationship/computed-field
 authoring. Source status is readable, but this surface does not define joins,
 row unions, source bindings, or write-mode changes. Discovery of a source-backed
@@ -120,12 +120,37 @@ Each additional Blocks field stores its own content in
 `document_block_field_contents`, keyed by `(document_id, property_id)`, so no
 two Blocks fields ever share content — adding a second Blocks field creates a
 new, empty, independent field. On the page: one Blocks field renders
-chromeless (no header, just the body); two or more each show their name as a
-header and are collapsible and reorderable (the surviving lone field keeps
-its stored name). In table views a Blocks column shows a word count (e.g.
-"412 words"), not the body. A Blocks field can only be deleted from the
-collection view's column menu (not from the page body); deleting the last
-Blocks field warns that it removes the body for every object of the type.
+chromeless (no header, just the body); two or more show as a row of tabs that
+sticks to the top while scrolling.
+
+People rarely say "Blocks field". They say tabs, page tabs, document tabs, or
+sections, or name one by its field ("the Notes tab"). Each of those is a Blocks
+field: "add a tab" means adding a `blocks` property with
+`configure-document-property`, "rename the Notes tab" means renaming that
+property, and "what's in my Notes tab" means reading that field. Fields are
+defined on the collection, so adding, renaming, or deleting one changes it on
+every row. Say so before doing it for someone who asked about one page.
+
+Each tab shows the field's name and word count, tabs reorder by dragging, and a
+dot marks a tab that changed since this browser last showed it. People who can
+change the collection's properties also get "+" after the last tab, which adds
+a Blocks field and opens it with its name ready to type, and a menu with Rename
+and Delete on each tab (click the open tab, right-click any tab, or press F2 on
+one to rename it). Only one field shows at a time, but every field's editor
+stays open. `/page/<id>?field=<propertyId>`
+opens a given tab (no `field` means the first), so `navigate` with that path
+shows a person a specific field, and `navigation` reports the open tab as
+`fieldId`. Each tab has its own comments: text selected in a tab is commented
+there, the comment margin shows only the open tab's threads, and each tab shows
+its open-comment count. Opening a comment from the Comments panel or a link
+switches to its tab, and the panel groups and filters threads by tab when the
+page has two or more Blocks fields. Agents pass `fieldId` to `add-comment` (see
+Comments in SKILL.md). The surviving lone field
+keeps its stored name when fields are deleted back down to one. In table views a
+Blocks column shows a word count (e.g. "412 words"), not the body. A Blocks
+field is renamed or deleted from its tab's menu or the collection view's column
+menu. Deleting one can't be undone and removes its text from every row; the
+tab's confirmation warns when the field is the page body.
 
 For one-block agent edits, call `list-content-database-blocks` with the exact
 space, collection, backing document, membership row, row document, and property
@@ -204,6 +229,20 @@ view body. The collection Properties menu can search fields and show or hide
 all fields for the current view, and it includes a New property control for
 adding fields without returning to the table header. The New property picker
 supports searching property types by label or machine name.
+
+List views can save an item layout (`itemLayout`) that decides what each row
+shows: a start slot (page icon, a checkbox property, a status property, or
+nothing), the title weight, line 2 (a text, URL, or non-body Blocks property,
+clamped to 1-3 lines), and ordered property IDs for line 3 and the end of the
+row; end values move under the title on narrow screens and empty values take
+no space. Ticking a row's checkbox writes the property through
+`set-document-property` and strikes the title through without moving the row.
+A view without `itemLayout` keeps the default rows. Agents update it with an
+`update-content-database-view` `update` patch on the list view: pass
+`itemLayoutPreset` (`checklist`, `reminders`, `tracker`, `digest`, or
+`default`), sparse `itemLayout` slots (omitted slots keep their value), or
+`itemLayout: null` to restore the default rows. List views accept only name,
+icon, and these layout fields on this path.
 
 In unconstrained table views, row drag handles can reorder collection item
 pages through `move-database-item`; pass both `databaseId` and `itemId` so the

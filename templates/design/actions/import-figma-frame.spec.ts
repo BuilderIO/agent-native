@@ -227,6 +227,11 @@ describe("import-figma-frame", () => {
       nodeId: "1:2",
       nodeName: "Hero",
     });
+    expect(result._receipt).toMatchObject({
+      changed: true,
+      verified: true,
+      subject: "design-1",
+    });
     expect(mocks.saveImportedDesignFiles).toHaveBeenCalledTimes(1);
     const saveArgs = mocks.saveImportedDesignFiles.mock.calls[0]![0];
     expect(saveArgs.sourceType).toBe("figma-import");

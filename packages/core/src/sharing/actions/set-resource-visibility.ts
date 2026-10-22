@@ -44,6 +44,11 @@ export default defineAction({
     );
     return access.resource.visibility !== "public";
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   run: async (args, ctx) => {
     assertWidgetShareWriteGrant(ctx, "set-resource-visibility", args);
     const reg = requireShareableResource(args.resourceType);

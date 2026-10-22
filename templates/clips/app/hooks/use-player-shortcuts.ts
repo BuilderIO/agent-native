@@ -28,66 +28,58 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
       if (shouldIgnore(e.target)) return;
       const player = playerRef.current;
       if (!player) return;
-      const v = player.video;
-      if (!v) return;
+      const playback = player.readPlayback();
+      if (!playback) return;
 
       switch (e.key) {
         case " ":
         case "k":
         case "K":
           e.preventDefault();
-          if (v.paused) void player.play();
+          if (playback.paused) void player.play();
           else player.pause();
           break;
         case "j":
         case "J":
           e.preventDefault();
-          player.seek(Math.max(0, v.currentTime * 1000 - 6000));
+          player.seek(Math.max(0, playback.currentMs - 6000));
           break;
         case "l":
         case "L":
           e.preventDefault();
-          player.seek(
-            Math.min(
-              (v.duration || v.currentTime) * 1000,
-              v.currentTime * 1000 + 6000,
-            ),
-          );
+          player.seek(Math.min(playback.durationMs, playback.currentMs + 6000));
           break;
         case "ArrowLeft":
           e.preventDefault();
           if (e.shiftKey) {
-            const currentMs = v.currentTime * 1000;
+            const currentMs = playback.currentMs;
             const prev = [...chapters]
               .reverse()
               .find((c) => c.startMs < currentMs - 500);
             player.seek(prev ? prev.startMs : 0);
           } else {
-            player.seek(Math.max(0, v.currentTime * 1000 - 6000));
+            player.seek(Math.max(0, playback.currentMs - 6000));
           }
           break;
         case "ArrowRight":
           e.preventDefault();
           if (e.shiftKey) {
-            const currentMs = v.currentTime * 1000;
+            const currentMs = playback.currentMs;
             const next = chapters.find((c) => c.startMs > currentMs + 500);
             if (next) player.seek(next.startMs);
           } else {
             player.seek(
-              Math.min(
-                (v.duration || v.currentTime) * 1000,
-                v.currentTime * 1000 + 6000,
-              ),
+              Math.min(playback.durationMs, playback.currentMs + 6000),
             );
           }
           break;
         case "ArrowUp":
           e.preventDefault();
-          v.volume = Math.min(1, v.volume + 0.1);
+          player.setVolume(Math.min(1, playback.volume + 0.1));
           break;
         case "ArrowDown":
           e.preventDefault();
-          v.volume = Math.max(0, v.volume - 0.1);
+          player.setVolume(Math.max(0, playback.volume - 0.1));
           break;
         case "f":
         case "F":
@@ -114,7 +106,7 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
           break;
         case ">": {
           e.preventDefault();
-          const speed = parsePlaybackSpeed(v.playbackRate) ?? 1.2;
+          const speed = parsePlaybackSpeed(playback.speed) ?? 1.2;
           const idx = PLAYBACK_SPEED_OPTIONS.indexOf(speed);
           const next =
             idx === -1
@@ -127,7 +119,7 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
         }
         case "<": {
           e.preventDefault();
-          const speed = parsePlaybackSpeed(v.playbackRate) ?? 1.2;
+          const speed = parsePlaybackSpeed(playback.speed) ?? 1.2;
           const idx = PLAYBACK_SPEED_OPTIONS.indexOf(speed);
           const next =
             idx === -1

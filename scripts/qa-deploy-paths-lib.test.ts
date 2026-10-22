@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   assertDocContract,
+  captureDeployReadyBaseline,
   containerReachableDatabaseUrl,
   databaseUrlFor,
   DEPLOY_DATABASE_NAME_PATTERN,
@@ -22,8 +23,10 @@ import {
   findFileUrls,
   isVercelEnvVarAbsent,
   missingDocCommands,
+  observeDeployMarkerResponse,
   PRESET_SHAPES,
   redactSecrets,
+  schedulerCheckIsAfter,
   secretsInUrl,
   selectReapable,
   vendorDockerfile,
@@ -232,6 +235,55 @@ describe("reused host projects", () => {
   it("refuses a tag it has no project for, so a dispatch cannot start a new one", () => {
     assert.throws(() => deployProjectSlot("npm", "beta"), /not "beta"/);
     assert.throws(() => deployProjectSlot("npm", "local"), /not "local"/);
+  });
+});
+
+describe("scheduled wake observation", () => {
+  it("requires a scheduler check newer than the deployed app", () => {
+    const deployedAt = 1_791_933_600_000;
+    assert.equal(schedulerCheckIsAfter(null, deployedAt), false);
+    assert.equal(schedulerCheckIsAfter("1791933599999", deployedAt), false);
+    assert.equal(schedulerCheckIsAfter("1791933600001", deployedAt), true);
+  });
+
+  it("fails loudly if the scheduler timestamp is unreadable", () => {
+    assert.throws(
+      () => schedulerCheckIsAfter("not-a-timestamp", 0),
+      /invalid check timestamp/,
+    );
+  });
+});
+
+describe("deploy marker observation", () => {
+  it("counts only consecutive new-deploy marker responses", () => {
+    const first = observeDeployMarkerResponse({ consecutiveHits: 0 }, true);
+    const second = observeDeployMarkerResponse(first, true);
+    const reset = observeDeployMarkerResponse(second, false);
+    const afterReset = observeDeployMarkerResponse(reset, true);
+
+    assert.deepEqual(first, { consecutiveHits: 1 });
+    assert.deepEqual(second, { consecutiveHits: 2 });
+    assert.deepEqual(reset, { consecutiveHits: 0 });
+    assert.equal(afterReset.consecutiveHits, 1);
+  });
+
+  it("captures the scheduler baseline after deploy readiness", async () => {
+    const steps: string[] = [];
+    const deployedAt = await captureDeployReadyBaseline(
+      async () => {
+        steps.push("marker-settled");
+      },
+      async () => {
+        steps.push("ready");
+      },
+      () => {
+        steps.push("baseline");
+        return 400;
+      },
+    );
+
+    assert.deepEqual(steps, ["marker-settled", "ready", "baseline"]);
+    assert.equal(deployedAt, 400);
   });
 });
 

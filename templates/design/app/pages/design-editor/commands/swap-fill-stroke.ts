@@ -1,12 +1,14 @@
 import { parseCssColor, withCssColorAlpha } from "@shared/color-utils";
 
 import { isVectorShapeElement } from "@/components/design/edit-panel/element-classification";
+import { swapFillStrokePatch } from "@/components/design/edit-panel/swap-fill-stroke";
 import type { ElementInfo } from "@/components/design/types";
 
 export interface SwapFillStrokeArgs {
   canEditDesign: boolean;
   selectedElement: ElementInfo | null;
   handleStylesChange: (styles: Record<string, string>) => void;
+  onUnsupportedFillPaint: () => void;
 }
 
 function hasPaint(value: string): boolean {
@@ -34,6 +36,7 @@ export function runSwapFillStroke({
   canEditDesign,
   selectedElement,
   handleStylesChange,
+  onUnsupportedFillPaint,
 }: SwapFillStrokeArgs): void {
   if (!canEditDesign || !selectedElement) return;
   if (isVectorShapeElement(selectedElement)) {
@@ -80,10 +83,10 @@ export function runSwapFillStroke({
     });
     return;
   }
-  const currentFill = selectedElement.computedStyles.backgroundColor ?? "";
-  const currentStroke = selectedElement.computedStyles.borderColor ?? "";
-  handleStylesChange({
-    backgroundColor: currentStroke || "transparent",
-    borderColor: currentFill || "transparent",
-  });
+  const swap = swapFillStrokePatch(selectedElement);
+  if (swap.kind === "unsupported-fill-paint") {
+    onUnsupportedFillPaint();
+    return;
+  }
+  handleStylesChange(swap.patch);
 }

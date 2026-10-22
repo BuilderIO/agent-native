@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageItems } from "../server/db/schema.js";
-import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { DEFAULT_FACTORY_ID } from "../server/lib/factory-ids.js";
 import { factoryIdSchema } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,

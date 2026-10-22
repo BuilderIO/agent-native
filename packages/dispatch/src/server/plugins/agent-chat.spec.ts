@@ -45,4 +45,18 @@ describe("Dispatch agent chat plugin", () => {
       }),
     );
   });
+
+  it("routes customer credit questions to the owning workspace app", async () => {
+    await import("./agent-chat.js");
+
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      systemPrompt?: string;
+    };
+    expect(options.systemPrompt).toContain(
+      "External customer, account, or company usage, credits, activity, or product data belongs to the relevant app",
+    );
+    expect(options.systemPrompt).toContain(
+      "Do not use this action for external customer/account/company data.",
+    );
+  });
 });

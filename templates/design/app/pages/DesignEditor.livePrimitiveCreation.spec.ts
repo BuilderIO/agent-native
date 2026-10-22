@@ -42,7 +42,10 @@ describe("DesignEditor live primitive creation boundary", () => {
       /const handleSingleScreenCreatePrimitive[\s\S]*?handleCreatePrimitive\(activeFile\.id, primitive\)/,
     );
     expect(source).toMatch(
-      /creation=\{\{[\s\S]*?onCreatePrimitive: handleCreatePrimitive,/,
+      /const handleOverviewCreatePrimitive = useCallback\([\s\S]*?handleCreatePrimitive\(screenId, primitive, options\)/,
+    );
+    expect(source).toMatch(
+      /creation=\{\{[\s\S]*?onCreatePrimitive: handleOverviewCreatePrimitive,/,
     );
   });
 

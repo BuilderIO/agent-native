@@ -28,6 +28,46 @@ const STATE_PATH = path.join(AUTH_DIR, "state.json");
 const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const LOOPBACK_INSTANCE_HEADER = "x-agent-native-loopback-instance";
+const GLOBAL_SETUP_BUDGET_MS = 11 * 60_000;
+const SEED_BUDGET_MS = 2 * 60_000;
+const HOME_WARMUP_BUDGET_MS = 6 * 60_000;
+const HOME_RECOVERY_DETECTION_BUDGET_MS = 30_000;
+const HOME_RECOVERY_RETRY_BUDGET_MS = 2 * 60_000;
+const HOME_INITIAL_NAVIGATION_BUDGET_MS =
+  HOME_WARMUP_BUDGET_MS -
+  HOME_RECOVERY_DETECTION_BUDGET_MS -
+  HOME_RECOVERY_RETRY_BUDGET_MS;
+const EDITOR_WARMUP_BUDGET_MS = 3 * 60_000;
+
+async function withDeadline<T>(
+  label: string,
+  deadline: number,
+  action: () => Promise<T>,
+): Promise<T> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) throw new Error(`${label} budget expired`);
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      action(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`${label} budget expired`)),
+          remainingMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function timeoutBefore(deadline: number, requestedMs: number): number {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) throw new Error("the warmup budget expired");
+  return Math.min(requestedMs, remainingMs);
+}
 
 export async function startLoopbackProvider(port: number): Promise<void> {
   const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
@@ -331,6 +371,7 @@ async function seedMentionMember(
 }
 
 export default async function globalSetup(config: FullConfig) {
+  const globalSetupDeadline = Date.now() + GLOBAL_SETUP_BUDGET_MS;
   if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
     await startLoopbackProvider(config.metadata.sidebarLoopbackPort as number);
     await startHttpsAttachmentStorage(
@@ -348,79 +389,165 @@ export default async function globalSetup(config: FullConfig) {
   const context = await browser.newContext();
 
   try {
-    const registration = await context.request.post(
-      `${baseURL}/_agent-native/auth/register`,
-      {
-        data: {
-          email: E2E_EMAIL,
-          password: E2E_PASSWORD,
-        },
-        headers: { "Content-Type": "application/json" },
+    const seedDeadline = Math.min(
+      Date.now() + SEED_BUDGET_MS,
+      globalSetupDeadline - HOME_WARMUP_BUDGET_MS - EDITOR_WARMUP_BUDGET_MS,
+    );
+    const designId = await withDeadline(
+      "Design E2E seeding",
+      seedDeadline,
+      async () => {
+        const registration = await context.request.post(
+          `${baseURL}/_agent-native/auth/register`,
+          {
+            data: {
+              email: E2E_EMAIL,
+              password: E2E_PASSWORD,
+            },
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+        if (!registration.ok() && registration.status() !== 409) {
+          throw new Error(
+            `registration failed: ${registration.status()} ${await registration.text()}`,
+          );
+        }
+
+        const login = await context.request.post(
+          `${baseURL}/_agent-native/auth/login`,
+          {
+            data: {
+              email: E2E_EMAIL,
+              password: E2E_PASSWORD,
+            },
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+        if (!login.ok()) {
+          throw new Error(
+            `login failed: ${login.status()} ${await login.text()}`,
+          );
+        }
+
+        await context.storageState({ path: STATE_PATH });
+
+        const created = await postAction(
+          context.request,
+          baseURL,
+          "create-design",
+          {
+            title: SEED_TITLE,
+            projectType: "prototype",
+          },
+        );
+        const createdDesignId: string =
+          created?.id ?? created?.data?.id ?? created?.design?.id;
+        if (!createdDesignId) {
+          throw new Error(
+            `create-design did not return an id: ${JSON.stringify(created)}`,
+          );
+        }
+        await seedMentionMember(browser, context, baseURL);
+        await postAction(context.request, baseURL, "create-file", {
+          designId: createdDesignId,
+          filename: "index.html",
+          content: FIXTURE_HTML,
+          fileType: "html",
+        });
+        await postAction(context.request, baseURL, "index-components", {
+          designId: createdDesignId,
+        });
+
+        await writeFile(
+          SEED_PATH,
+          JSON.stringify({ designId: createdDesignId }, null, 2),
+        );
+        // eslint-disable-next-line no-console
+        console.log(`[e2e] seeded design ${createdDesignId} for ${E2E_EMAIL}`);
+        return createdDesignId;
       },
     );
-    if (!registration.ok() && registration.status() !== 409) {
-      throw new Error(
-        `registration failed: ${registration.status()} ${await registration.text()}`,
-      );
-    }
 
-    const login = await context.request.post(
-      `${baseURL}/_agent-native/auth/login`,
-      {
-        data: {
-          email: E2E_EMAIL,
-          password: E2E_PASSWORD,
-        },
-        headers: { "Content-Type": "application/json" },
-      },
+    const homeDeadline = Math.min(
+      Date.now() + HOME_WARMUP_BUDGET_MS,
+      globalSetupDeadline - EDITOR_WARMUP_BUDGET_MS,
     );
-    if (!login.ok()) {
-      throw new Error(`login failed: ${login.status()} ${await login.text()}`);
-    }
-
-    await context.storageState({ path: STATE_PATH });
-
-    const created = await postAction(
-      context.request,
-      baseURL,
-      "create-design",
-      {
-        title: SEED_TITLE,
-        projectType: "prototype",
-      },
-    );
-    const designId: string =
-      created?.id ?? created?.data?.id ?? created?.design?.id;
-    if (!designId) {
-      throw new Error(
-        `create-design did not return an id: ${JSON.stringify(created)}`,
-      );
-    }
-    await seedMentionMember(browser, context, baseURL);
-    await postAction(context.request, baseURL, "create-file", {
-      designId,
-      filename: "index.html",
-      content: FIXTURE_HTML,
-      fileType: "html",
-    });
-    await postAction(context.request, baseURL, "index-components", {
-      designId,
-    });
-
-    await writeFile(SEED_PATH, JSON.stringify({ designId }, null, 2));
-    // eslint-disable-next-line no-console
-    console.log(`[e2e] seeded design ${designId} for ${E2E_EMAIL}`);
-
+    const homeRecoveryDeadline = homeDeadline - HOME_RECOVERY_RETRY_BUDGET_MS;
+    const homeInitialNavigationDeadline =
+      homeRecoveryDeadline - HOME_RECOVERY_DETECTION_BUDGET_MS;
     const warmupPage = await context.newPage();
     try {
+      const homeURL = `${baseURL}/home`;
+      const homeComposer = warmupPage.locator("[data-design-home-composer]");
+      let homeComposerWarmed = false;
+      try {
+        await warmupPage.goto(homeURL, {
+          waitUntil: "domcontentloaded",
+          timeout: timeoutBefore(
+            homeInitialNavigationDeadline,
+            HOME_INITIAL_NAVIGATION_BUDGET_MS,
+          ),
+        });
+        const homeRecoveryDetectionDeadline = Math.min(
+          homeRecoveryDeadline,
+          Date.now() + HOME_RECOVERY_DETECTION_BUDGET_MS,
+        );
+        await homeComposer.waitFor({
+          state: "visible",
+          timeout: timeoutBefore(
+            homeRecoveryDetectionDeadline,
+            HOME_RECOVERY_DETECTION_BUDGET_MS,
+          ),
+        });
+        homeComposerWarmed = true;
+      } catch (error) {
+        const hasViteRecoveryMarker = new URL(
+          warmupPage.url(),
+        ).searchParams.has("__an_vite_dev_recovery");
+        if (hasViteRecoveryMarker) {
+          try {
+            await warmupPage.goto(homeURL, {
+              waitUntil: "domcontentloaded",
+              timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
+            });
+            await homeComposer.waitFor({
+              state: "visible",
+              timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
+            });
+            homeComposerWarmed = true;
+          } catch (recoveryError) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[e2e] home warmup did not finish after Vite recovery (${(recoveryError as Error).message.split("\n")[0]}); ` +
+                "the first test touching /home will pay the compile.",
+            );
+          }
+        } else {
+          // Home tests remain responsible for reporting any warmup failure.
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[e2e] home warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
+              "the first test touching /home will pay the compile.",
+          );
+        }
+      }
+      if (homeComposerWarmed) {
+        // eslint-disable-next-line no-console
+        console.log("[e2e] home composer warm");
+      }
+
+      const editorDeadline = Math.min(
+        Date.now() + EDITOR_WARMUP_BUDGET_MS,
+        globalSetupDeadline,
+      );
       try {
         await warmupPage.goto(`${baseURL}/design/${designId}`, {
           waitUntil: "domcontentloaded",
-          timeout: 180_000,
+          timeout: timeoutBefore(editorDeadline, 180_000),
         });
         await warmupPage
           .getByRole("button", { name: "Move", exact: true })
-          .waitFor({ timeout: 180_000 });
+          .waitFor({ timeout: timeoutBefore(editorDeadline, 180_000) });
         // eslint-disable-next-line no-console
         console.log("[e2e] editor warm");
       } catch (error) {
@@ -431,33 +558,6 @@ export default async function globalSetup(config: FullConfig) {
           `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
             "the first test will pay the compile.",
         );
-      }
-
-      if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
-        const homeURL = `${baseURL}/home`;
-        const homeComposer = warmupPage.locator("[data-design-home-composer]");
-        await warmupPage.goto(homeURL, {
-          waitUntil: "domcontentloaded",
-          timeout: 180_000,
-        });
-        try {
-          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
-        } catch (error) {
-          if (
-            !new URL(warmupPage.url()).searchParams.has(
-              "__an_vite_dev_recovery",
-            )
-          ) {
-            throw error;
-          }
-          await warmupPage.goto(homeURL, {
-            waitUntil: "domcontentloaded",
-            timeout: 180_000,
-          });
-          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
-        }
-        // eslint-disable-next-line no-console
-        console.log("[e2e] home composer warm");
       }
     } finally {
       await warmupPage.close();

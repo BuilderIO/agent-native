@@ -10,6 +10,7 @@ export type RecordingFailureCode =
   | "finalize_failed"
   | "upload_failed"
   | "multipart_start_failed"
+  | "streaming_upload_unavailable"
   | "chunk_html_error"
   | "upload_aborted"
   | "upload_interrupted"
@@ -28,6 +29,7 @@ const recordingFailureCodes = new Set<RecordingFailureCode>([
   "finalize_failed",
   "upload_failed",
   "multipart_start_failed",
+  "streaming_upload_unavailable",
   "chunk_html_error",
   "upload_aborted",
   "upload_interrupted",

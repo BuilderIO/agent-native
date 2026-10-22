@@ -1,0 +1,1063 @@
+{
+  "scenarios": {
+    "a-working-task-is-checked-once-for-its-reports-and-left-alone": {
+      "description": "Two reports of one task are checked with one call to Builder, and while Builder is working nothing is sent and nothing changes.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "working"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "working",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "still working",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-stuck-task-is-nudged-twice-then-escalated": {
+      "description": "A stuck task is nudged on two ticks, and on the third the triage owner is told and both reports go to a person; a fourth tick does nothing more.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "stuck"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "stuck: first nudge",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "stuck: second nudge",
+          "at": "+5m"
+        },
+        {
+          "kind": "tick",
+          "label": "stuck: escalated",
+          "at": "+10m"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "none"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing more happens",
+          "at": "+15m"
+        }
+      ]
+    },
+    "a-failing-pull-request-is-sent-back-once-per-head-commit": {
+      "description": "A failing pull request gets one follow-up per head commit, and none while Builder is working, even when its checks fail.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen",
+          "calls": 2
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "workingWithPr",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen",
+          "calls": 2
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "failingA",
+          "calls": 2
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "failingB"
+        },
+        {
+          "kind": "ai",
+          "node": "fix",
+          "recording": "headA",
+          "calls": 1
+        },
+        {
+          "kind": "ai",
+          "node": "fix",
+          "recording": "headB"
+        },
+        {
+          "kind": "tick",
+          "label": "head A fails: sent back",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "head A still fails: not sent again",
+          "at": "+5m"
+        },
+        {
+          "kind": "tick",
+          "label": "head B fails while Builder is working: not sent",
+          "at": "+10m"
+        },
+        {
+          "kind": "tick",
+          "label": "head B fails, Builder idle: sent back",
+          "at": "+15m"
+        },
+        {
+          "kind": "tick",
+          "label": "head B still fails: not sent again",
+          "at": "+20m"
+        }
+      ]
+    },
+    "pending-checks-wait-without-a-nudge-or-a-merge": {
+      "description": "Checks that are still running are waited for: no follow-up, no merge gate, no merge.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "pending"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "checks pending",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "still pending",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-green-pull-request-is-merged-and-every-thread-is-told-once": {
+      "description": "A green pull request that clears the merge gate is merged once, and each of the task's reports is told in its own thread once.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "green: merged and announced",
+          "at": "+0m"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "none"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing more happens",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-green-pull-request-that-fails-the-merge-gate-is-not-merged": {
+      "description": "When the merge gate says no, nothing is merged: the triage owner is told why and both reports go to a person.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "ineligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "green but not eligible",
+          "at": "+0m"
+        }
+      ]
+    },
+    "a-green-pull-request-without-a-current-approval-is-held-for-a-person": {
+      "description": "A green pull request whose only approval is on an earlier commit is not merged: the gate says approval_required, the triage owner is told, and both reports go to a person.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "approvalMissing"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "green, but nobody approved the head commit",
+          "at": "+0m"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "none"
+        },
+        {
+          "kind": "tick",
+          "label": "held for a person: nothing more is sent",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-pull-request-merged-by-someone-else-goes-straight-to-the-threads": {
+      "description": "A pull request a person merged is not merged again and its gate is not asked: the reports are told and finished.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "mergedBySomeone"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "already merged",
+          "at": "+0m"
+        }
+      ]
+    },
+    "a-closed-pull-request-goes-to-a-person": {
+      "description": "A pull request closed without merging goes to the triage owner, and the reports go to a person.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "closed"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "closed unmerged",
+          "at": "+0m"
+        }
+      ]
+    },
+    "a-pull-request-with-no-checks-goes-to-a-person": {
+      "description": "A pull request whose checks are neither passing, failing nor pending (there are none) is not guessed at: a person is told.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "noChecks"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "no checks at all",
+          "at": "+0m"
+        }
+      ]
+    },
+    "a-task-that-ended-without-a-pull-request-goes-to-a-person": {
+      "description": "A task whose branch was deleted, and one that completed with no pull request, each tell the triage owner and hand their reports to a person.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "endedTasks"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoTasks"
+        },
+        {
+          "kind": "tick",
+          "label": "two tasks ended",
+          "at": "+0m"
+        }
+      ]
+    },
+    "an-unreadable-task-is-never-read-as-working": {
+      "description": "When Builder cannot be read, and reading it again would fail the same way, the task is never taken for working or done: the reports go to a person at once and the ticks after do not look again.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "unreadable"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "none"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "Builder cannot be read, a person is told",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "not looked at again",
+          "at": "+5m"
+        },
+        {
+          "kind": "tick",
+          "label": "still not looked at again",
+          "at": "+10m"
+        }
+      ]
+    },
+    "a-failed-reply-is-retried-and-the-merge-is-not-repeated": {
+      "description": "The merge went through but one thread's reply failed because Slack is down: five minutes on, only that thread is told and nothing is merged again.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "failsOnce",
+          "calls": 3
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "mergedBySomeone"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports",
+          "calls": 1
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "onlyR2"
+        },
+        {
+          "kind": "tick",
+          "label": "merged, one reply fails",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "the unfinished report is taken again",
+          "at": "+6m"
+        }
+      ]
+    },
+    "a-merge-that-may-have-happened-is-never-repeated": {
+      "description": "A merge whose outcome is unknown goes to a person at once and is never sent again, even if the reports are offered again.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "timesOut"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "the merge times out",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "offered again",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-merged-fix-for-an-alert-is-announced-in-the-findings-channel": {
+      "description": "A task that did not start in Slack has no thread to reply in: its merge notice goes to the findings channel.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "alert"
+        },
+        {
+          "kind": "tick",
+          "label": "merged, announced in the findings channel",
+          "at": "+0m"
+        }
+      ]
+    },
+    "a-dry-run-merges-nothing": {
+      "description": "A dry run reads everything and says what it would send, but merges nothing and tells no one.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "dry run",
+          "at": "+0m",
+          "mode": "dry"
+        }
+      ]
+    },
+    "a-test-of-one-node-reads-but-writes-nothing": {
+      "description": "Testing the pull request read on a pinned sample runs only that node: a read is real, and nothing downstream runs.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "tick",
+          "label": "test the read",
+          "at": "+0m",
+          "mode": "test",
+          "node": "readPr",
+          "sample": [
+            {
+              "id": "sample-task",
+              "item": {
+                "id": "sample-task",
+                "extras": {
+                  "repository": "example-org/example-repo"
+                }
+              },
+              "nodes": {
+                "check": {
+                  "prNumber": 7
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "a-pull-request-that-fails-on-every-new-head-goes-to-a-person-after-six-rounds": {
+      "description": "Builder is idle and every head it pushes fails: five follow-ups are released for the next look, the sixth goes out and the triage owner is told, and both reports go to a person.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "failingEveryTime"
+        },
+        {
+          "kind": "ai",
+          "node": "fix",
+          "recording": "headA"
+        },
+        {
+          "kind": "tick",
+          "label": "round 1: a new head fails",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "round 2: a new head fails",
+          "at": "+5m"
+        },
+        {
+          "kind": "tick",
+          "label": "round 3: a new head fails",
+          "at": "+10m"
+        },
+        {
+          "kind": "tick",
+          "label": "round 4: a new head fails",
+          "at": "+15m"
+        },
+        {
+          "kind": "tick",
+          "label": "round 5: a new head fails",
+          "at": "+20m"
+        },
+        {
+          "kind": "tick",
+          "label": "round 6: a new head fails",
+          "at": "+25m"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "none"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing is left in automation_started",
+          "at": "+30m"
+        }
+      ]
+    }
+  }
+}

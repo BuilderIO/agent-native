@@ -145,8 +145,14 @@ describe("isUrlBackedScreen", () => {
   });
 
   it("follows the design's source type when the screen names none", () => {
-    expect(isUrlBackedScreen(screen(), "localhost")).toBe(true);
+    expect(isUrlBackedScreen(screen(), "fusion")).toBe(true);
     expect(isUrlBackedScreen(screen(), "inline")).toBe(false);
+  });
+
+  it("treats an unmarked markup screen in a localhost design as inline", () => {
+    expect(
+      isUrlBackedScreen(screen({ content: "<div></div>" }), "localhost"),
+    ).toBe(false);
   });
 
   it("is true for a screen with a URL, or whose content is one", () => {

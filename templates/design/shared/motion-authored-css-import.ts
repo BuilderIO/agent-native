@@ -156,6 +156,18 @@ export function importAuthoredCssAnimations(
     return { status: "absent", definedKeyframeNames };
   }
 
+  let hasImportedStylesheet = false;
+  root.walkAtRules((atRule) => {
+    if (atRule.name.toLowerCase() === "import") {
+      hasImportedStylesheet = true;
+    }
+  });
+  if (hasImportedStylesheet) {
+    return unsupported(
+      "CSS animations with unresolved @import stylesheets cannot be imported losslessly.",
+    );
+  }
+
   const declarationsByRule = new Map<postcss.Rule, postcss.Declaration[]>();
   for (const declaration of animationDeclarations) {
     const rule = declaration.parent;
@@ -344,20 +356,21 @@ export function importAuthoredCssAnimations(
     const keyframesRule = matches[0]!;
     const parsedKeyframes = parseKeyframes(keyframesRule);
     if (parsedKeyframes.status !== "valid") return parsedKeyframes;
-    const keyframeTrack: MotionTrack = {
-      targetNodeId: animation.targetNodeId,
-      property: parsedKeyframes.property,
-      durationMs: animation.durationMs,
-      ...(animation.delayMs > 0 ? { delayMs: animation.delayMs } : {}),
-      keyframes: parsedKeyframes.keyframes.map((keyframe, index, frames) => ({
-        t: keyframe.t,
-        value: keyframe.value,
-        ...(index < frames.length - 1 && animation.ease !== DEFAULT_EASE
-          ? { ease: animation.ease }
-          : {}),
-      })),
-    };
-    tracks.push(keyframeTrack);
+    for (const parsedTrack of parsedKeyframes.tracks) {
+      tracks.push({
+        targetNodeId: animation.targetNodeId,
+        property: parsedTrack.property,
+        durationMs: animation.durationMs,
+        ...(animation.delayMs > 0 ? { delayMs: animation.delayMs } : {}),
+        keyframes: parsedTrack.keyframes.map((keyframe, index, frames) => ({
+          t: keyframe.t,
+          value: keyframe.value,
+          ...(index < frames.length - 1 && animation.ease !== DEFAULT_EASE
+            ? { ease: animation.ease }
+            : {}),
+        })),
+      });
+    }
     usedKeyframeNames.add(animation.name);
   }
 
@@ -700,8 +713,7 @@ function isSupportedCssEase(value: string): boolean {
 }
 
 function parseKeyframes(atRule: postcss.AtRule): KeyframesParseResult {
-  const frames: ParsedKeyframe[] = [];
-  let property: string | null = null;
+  const framesByProperty = new Map<string, ParsedKeyframe[]>();
   const seenTimes = new Set<number>();
 
   for (const child of atRule.nodes ?? []) {
@@ -726,55 +738,70 @@ function parseKeyframes(atRule: postcss.AtRule): KeyframesParseResult {
       (node): node is postcss.Declaration => node.type === "decl",
     );
     if (
-      declarations.length !== 1 ||
+      declarations.length === 0 ||
       (child.nodes ?? []).some(
         (node) => node.type !== "decl" && node.type !== "comment",
       )
     ) {
       return unsupportedKeyframes(
-        "Each keyframe stop must declare exactly one static property.",
+        "Each keyframe stop must declare one or more static properties.",
       );
     }
-    const declaration = declarations[0]!;
-    const currentProperty = declaration.prop.toLowerCase();
-    if (
-      declaration.important ||
-      !SUPPORTED_PROPERTIES.has(currentProperty) ||
-      (property !== null && property !== currentProperty)
-    ) {
-      return unsupportedKeyframes(
-        `Keyframe property "${declaration.prop}" is not supported for lossless import.`,
-      );
-    }
-    property = currentProperty;
+    const seenProperties = new Set<string>();
+    for (const declaration of declarations) {
+      const property = declaration.prop.toLowerCase();
+      if (seenProperties.has(property)) {
+        return unsupportedKeyframes(
+          `Keyframe property "${declaration.prop}" is declared more than once at one stop.`,
+        );
+      }
+      seenProperties.add(property);
+      if (declaration.important || !SUPPORTED_PROPERTIES.has(property)) {
+        return unsupportedKeyframes(
+          `Keyframe property "${declaration.prop}" is not supported for lossless import.`,
+        );
+      }
 
-    const value = declaration.value.trim();
-    if (
-      value.length === 0 ||
-      /\b(?:var|env|attr|anchor|anchor-size)\s*\(/i.test(value)
-    ) {
-      return unsupportedKeyframes(
-        "Runtime CSS values such as var() are unsupported.",
-      );
+      const value = declaration.value.trim();
+      if (
+        value.length === 0 ||
+        /\b(?:var|env|attr|anchor|anchor-size)\s*\(/i.test(value)
+      ) {
+        return unsupportedKeyframes(
+          "Runtime CSS values such as var() are unsupported.",
+        );
+      }
+      const frames = framesByProperty.get(property) ?? [];
+      frames.push({ t: stop, value });
+      framesByProperty.set(property, frames);
     }
-    frames.push({ t: stop, value });
   }
 
-  frames.sort((a, b) => a.t - b.t);
-  if (
-    frames.length < 2 ||
-    frames[0]!.t !== 0 ||
-    frames[frames.length - 1]!.t !== 1
-  ) {
-    return unsupportedKeyframes(
-      "Keyframes must include both 0% and 100% endpoints.",
-    );
+  const tracks: Array<{ property: string; keyframes: ParsedKeyframe[] }> = [];
+  for (const [property, keyframes] of framesByProperty) {
+    keyframes.sort((a, b) => a.t - b.t);
+    if (
+      keyframes.length < 2 ||
+      keyframes[0]!.t !== 0 ||
+      keyframes[keyframes.length - 1]!.t !== 1
+    ) {
+      return unsupportedKeyframes(
+        `Keyframes for "${property}" must include both 0% and 100% endpoints.`,
+      );
+    }
+    tracks.push({ property, keyframes });
   }
-  return { status: "valid", property: property!, keyframes: frames };
+  if (tracks.length === 0) {
+    return unsupportedKeyframes("Keyframes must contain static properties.");
+  }
+  return { status: "valid", tracks };
 }
 
 type KeyframesParseResult =
-  | { status: "valid"; property: string; keyframes: ParsedKeyframe[] }
+  | {
+      status: "valid";
+      tracks: Array<{ property: string; keyframes: ParsedKeyframe[] }>;
+    }
   | { status: "unsupported"; reason: string };
 
 function unsupportedKeyframes(

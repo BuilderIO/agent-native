@@ -1,14 +1,19 @@
 import type { Document } from "@shared/api";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   PageDraftJournalEntry,
   PageDraftJournalSnapshot,
 } from "../editor/page-draft-journal";
 import {
+  holdPageDraftWriter,
+  writePageDraftJournal,
+} from "../editor/page-draft-journal";
+import {
   mergeCreatedDocumentWithDraft,
   prepareCreatedDraftReplay,
   readDocumentBeforeCreateDiscard,
+  readReplayableDraft,
   retryCreateAfterDraftRead,
   retryCreateAfterIntentWrite,
 } from "./DocumentSidebar";
@@ -226,5 +231,97 @@ describe("document sidebar create recovery", () => {
 
     expect(result).toEqual({ created: "created", draft: latestDraft });
     expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  describe("the draft it replays", () => {
+    const held = new Set<string>();
+    const values = new Map<string, string>();
+    const scope = {
+      accountId: "writer@example.test",
+      orgId: null,
+      documentId: "page-1",
+    };
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      held.clear();
+      values.clear();
+    });
+
+    function writeDrafts() {
+      vi.stubGlobal("window", {
+        localStorage: {
+          get length() {
+            return values.size;
+          },
+          getItem: (key: string) => values.get(key) ?? null,
+          key: (index: number) => Array.from(values.keys())[index] ?? null,
+          removeItem: (key: string) => values.delete(key),
+          setItem: (key: string, value: string) => values.set(key, value),
+        },
+      });
+      vi.stubGlobal("navigator", {
+        locks: {
+          request: async (name: string, callback: () => Promise<void>) => {
+            held.add(name);
+            await callback();
+          },
+          query: async () => ({ held: [...held].map((name) => ({ name })) }),
+        },
+      });
+      const snapshot = {
+        title: "",
+        content: "",
+        baseTitle: "",
+        baseContent: "",
+        baseUpdatedAt: null,
+        editGeneration: 1,
+      };
+      // The open tab's draft is the older one, so it is read first unless skipped.
+      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+      writePageDraftJournal({
+        scope: { ...scope, writerId: "open-tab" },
+        snapshot: { ...snapshot, content: "Open editor's draft" },
+      });
+      now.mockReturnValue(2_000);
+      writePageDraftJournal({
+        scope: { ...scope, writerId: "closed-tab" },
+        snapshot: { ...snapshot, content: "Orphaned draft" },
+      });
+      now.mockRestore();
+    }
+
+    it("skips a draft whose editor is open in another tab", async () => {
+      writeDrafts();
+      holdPageDraftWriter("open-tab");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const read = readReplayableDraft(scope);
+      expect((await read())?.snapshot.content).toBe("Orphaned draft");
+    });
+
+    it("asks again which editors are open on each read", async () => {
+      writeDrafts();
+      const read = readReplayableDraft(scope);
+      expect((await read())?.snapshot.content).toBe("Open editor's draft");
+
+      // The editor opens while the page is being created.
+      holdPageDraftWriter("open-tab");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect((await read())?.snapshot.content).toBe("Orphaned draft");
+    });
+
+    it("skips a draft whose editor opened between the lock query and the read", async () => {
+      writeDrafts();
+      const query = navigator.locks.query.bind(navigator.locks);
+      vi.spyOn(navigator.locks, "query").mockImplementationOnce(async () => {
+        const answer = await query();
+        holdPageDraftWriter("open-tab");
+        return answer;
+      });
+
+      const read = readReplayableDraft(scope);
+      expect((await read())?.snapshot.content).toBe("Orphaned draft");
+    });
   });
 });

@@ -1,0 +1,143 @@
+{
+  "inFlight": {
+    "none": { "items": [] },
+    "twoReports": {
+      "items": [
+        {
+          "id": "r1",
+          "externalId": "C0FEEDBACK:1760000000.000100",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Checkout button does nothing",
+          "author": "reporter-1@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "extras": {
+            "builderTaskId": "project-1:factory-m1",
+            "projectId": "project-1",
+            "branchName": "factory-m1",
+            "repository": "example-org/example-repo",
+            "status": "automation_started"
+          }
+        },
+        {
+          "id": "r2",
+          "externalId": "C0FEEDBACK:1760000000.000200",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Pay button dead on checkout",
+          "author": "reporter-2@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000200",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000200"
+          },
+          "extras": {
+            "builderTaskId": "project-1:factory-m1",
+            "projectId": "project-1",
+            "branchName": "factory-m1",
+            "repository": "example-org/example-repo",
+            "status": "automation_started"
+          }
+        }
+      ]
+    },
+    "onlyR2": {
+      "items": [
+        {
+          "id": "r2",
+          "externalId": "C0FEEDBACK:1760000000.000200",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Pay button dead on checkout",
+          "author": "reporter-2@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000200",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000200"
+          },
+          "extras": {
+            "builderTaskId": "project-1:factory-m1",
+            "projectId": "project-1",
+            "branchName": "factory-m1",
+            "repository": "example-org/example-repo",
+            "status": "automation_started"
+          }
+        }
+      ]
+    },
+    "twoTasks": {
+      "items": [
+        {
+          "id": "r1",
+          "externalId": "C0FEEDBACK:1760000000.000100",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Checkout button does nothing",
+          "author": "reporter-1@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000100"
+          },
+          "extras": {
+            "builderTaskId": "project-1:factory-m1",
+            "projectId": "project-1",
+            "branchName": "factory-m1",
+            "repository": "example-org/example-repo",
+            "status": "automation_started"
+          }
+        },
+        {
+          "id": "r3",
+          "externalId": "C0FEEDBACK:1760000000.000300",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Export to CSV downloads an empty file",
+          "author": "reporter-3@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000300",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000300"
+          },
+          "extras": {
+            "builderTaskId": "project-1:factory-m3",
+            "projectId": "project-1",
+            "branchName": "factory-m3",
+            "repository": "example-org/example-repo",
+            "status": "automation_started"
+          }
+        }
+      ]
+    },
+    "alert": {
+      "items": [
+        {
+          "id": "a1",
+          "externalId": "9001",
+          "kind": "alert",
+          "provider": "github",
+          "title": "Dependency alert: example-lib prototype pollution",
+          "url": "https://github.example.test/example-org/example-repo/security/dependabot/9001",
+          "occurredAt": "2026-10-19T09:00:00.000Z",
+          "extras": {
+            "builderTaskId": "project-1:factory-alert-9001",
+            "projectId": "project-1",
+            "branchName": "factory-alert-9001",
+            "repository": "example-org/example-repo",
+            "status": "automation_started",
+            "severity": "medium"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -6,6 +6,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { blocksFieldId } from "../shared/blocks-field-identity.js";
 import { reconcileDocuments } from "./_content-files.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   assertSubtreeCanChangeSpace,
@@ -17,6 +18,11 @@ import {
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
+import {
+  lockDocumentRows,
+  lockOwnerPageTree,
+  sortRowIds,
+} from "./_row-lock-order.js";
 
 type ContentDb = ReturnType<typeof getDb>;
 type ContentTx = Parameters<Parameters<ContentDb["transaction"]>[0]>[0];
@@ -85,6 +91,152 @@ async function rekeyPrimaryBlocksFields(args: {
   }
 }
 
+async function membershipIdsOf(tx: ContentDb, documentIds: string[]) {
+  const membershipIds: string[] = [];
+  for (const idGroup of groups(documentIds)) {
+    const memberships: Array<{ id: string }> = await tx
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(inArray(schema.contentDatabaseItems.documentId, idGroup));
+    membershipIds.push(...memberships.map((membership) => membership.id));
+  }
+  return membershipIds;
+}
+
+async function readLockedPages(tx: ContentDb, ids: string[]) {
+  const pages: PageSubtreeDocument[] = [];
+  for (const idGroup of groups(ids)) {
+    // guard:allow-unscoped — re-reads pages the move already access-checked and holds locked.
+    pages.push(
+      ...(await tx
+        .select()
+        .from(schema.documents)
+        .where(inArray(schema.documents.id, idGroup))),
+    );
+  }
+  return pages;
+}
+
+/** A page read under the root that has since left it would move with it. */
+function pagesLeftSubtree(
+  lockedPages: PageSubtreeDocument[],
+  rootId: string,
+  ids: string[],
+) {
+  const idSet = new Set(ids);
+  const pages = new Map(lockedPages.map((page) => [page.id, page]));
+  return ids.some((id) => {
+    if (id === rootId) return false;
+    const page = pages.get(id);
+    return (
+      !page ||
+      !(
+        (page.parentId && idSet.has(page.parentId)) ||
+        (page.trashParentId && idSet.has(page.trashParentId))
+      )
+    );
+  });
+}
+
+/**
+ * Locks a move between spaces in the global order and re-checks what the move
+ * read before it. The pages leave their owner's tree for the mover's, so a
+ * move the other way could close a cycle through either tree. Edits lock a
+ * page's Files membership before the page, and this move deletes it.
+ */
+async function lockMoveBetweenSpaces(args: {
+  tx: ContentDb;
+  root: PageSubtreeDocument;
+  ids: string[];
+  spaceId: string;
+  parentId: string | null;
+  userEmail: string;
+}) {
+  const { tx, root, ids, spaceId, parentId, userEmail } = args;
+  for (const ownerEmail of sortRowIds([root.ownerEmail as string, userEmail])) {
+    await lockOwnerPageTree(tx, ownerEmail);
+  }
+  const membershipIds = await membershipIdsOf(tx, ids);
+  await lockDatabaseMemberships(tx, membershipIds);
+  await lockDocumentRows(tx, parentId ? [...ids, parentId] : ids);
+  const lockedMembershipIds = new Set(membershipIds);
+  const lockedPages = await readLockedPages(tx, ids);
+  if (
+    (await membershipIdsOf(tx, ids)).some(
+      (id) => !lockedMembershipIds.has(id),
+    ) ||
+    pagesLeftSubtree(lockedPages, root.id, ids)
+  ) {
+    throw contractError(
+      "This page changed while it was being moved. Try again.",
+      "PAGE_SUBTREE_CHANGED",
+    );
+  }
+  // A page turned into a collection while the move waited would leave the
+  // collection behind in the old space.
+  await assertSubtreeCanChangeSpace(tx, lockedPages);
+
+  const [current] = await tx
+    .select({
+      spaceId: schema.documents.spaceId,
+      ownerEmail: schema.documents.ownerEmail,
+      trashedAt: schema.documents.trashedAt,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, root.id));
+  if (!current || current.trashedAt) {
+    throw contractError("Document not found.", "DOCUMENT_NOT_FOUND", 404);
+  }
+  if (
+    current.spaceId !== root.spaceId ||
+    current.ownerEmail !== root.ownerEmail
+  ) {
+    throw contractError(
+      "The document's move scope changed. Read it again and retry.",
+      "DOCUMENT_MOVE_SCOPE_CHANGED",
+    );
+  }
+  // The move gives every page to the mover and drops its shares, which a
+  // revoke's own access check reads, so access is read again under the locks.
+  // A page the mover owns skips it: the check returns owner before reading
+  // any share, and only a write that waits on this page's lock changes owner.
+  const moverEmail = getRequestUserEmail()?.trim().toLowerCase();
+  const pages = new Map(lockedPages.map((page) => [page.id, page]));
+  for (const id of ids) {
+    const ownerEmail = pages.get(id)?.ownerEmail?.trim().toLowerCase();
+    if (moverEmail && ownerEmail === moverEmail) continue;
+    await assertDocumentMutationAccess(id, "editor", "id");
+  }
+  if (!parentId) return null;
+  const [parent] = await tx
+    .select({
+      spaceId: schema.documents.spaceId,
+      ownerEmail: schema.documents.ownerEmail,
+      trashedAt: schema.documents.trashedAt,
+      orgId: schema.documents.orgId,
+      visibility: schema.documents.visibility,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, parentId));
+  if (!parent) {
+    throw contractError(
+      "Parent document not found.",
+      "DOCUMENT_NOT_FOUND",
+      404,
+    );
+  }
+  if (parent.trashedAt) {
+    throw contractError("Parent document is in Trash", "PARENT_TRASHED");
+  }
+  if (parent.spaceId !== spaceId || parent.ownerEmail !== userEmail) {
+    throw contractError(
+      "The document's move scope changed. Read it again and retry.",
+      "DOCUMENT_MOVE_SCOPE_CHANGED",
+    );
+  }
+  return parent;
+}
+
 export async function movePageToSpace(args: {
   root: PageSubtreeDocument;
   spaceId: string;
@@ -150,12 +302,6 @@ export async function movePageToSpace(args: {
     if (parent.trashedAt) {
       throw contractError("Parent document is in Trash", "PARENT_TRASHED");
     }
-    orgId = parent.orgId ?? null;
-    visibility = parent.visibility as typeof visibility;
-    parentShares = await db
-      .select()
-      .from(schema.documentShares)
-      .where(eq(schema.documentShares.resourceId, parentId));
   }
 
   const filesDatabases = await db
@@ -222,26 +368,44 @@ export async function movePageToSpace(args: {
   await withPositionLock(
     documentsPositionScope(userEmail, parentId),
     async () => {
-      const [maxPosition] = await db
-        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-        .from(schema.documents)
-        .where(
-          parentId
-            ? and(
-                eq(schema.documents.ownerEmail, userEmail),
-                eq(schema.documents.parentId, parentId),
-              )
-            : and(
-                eq(schema.documents.ownerEmail, userEmail),
-                eq(schema.documents.visibility, visibility),
-                orgId
-                  ? eq(schema.documents.orgId, orgId)
-                  : isNull(schema.documents.orgId),
-                isNull(schema.documents.parentId),
-              ),
-        );
-
       await db.transaction(async (tx) => {
+        const parent = await lockMoveBetweenSpaces({
+          tx: tx as unknown as ContentDb,
+          root,
+          ids,
+          spaceId,
+          parentId,
+          userEmail,
+        });
+        // Read under the parent's lock: the subtree takes the parent's access.
+        if (parent && parentId) {
+          orgId = parent.orgId ?? null;
+          visibility = parent.visibility as typeof visibility;
+          parentShares = await tx
+            .select()
+            .from(schema.documentShares)
+            .where(eq(schema.documentShares.resourceId, parentId));
+        }
+        // Under the mover's page-tree lock, which every move into the
+        // mover's pages takes, so two appends can't take one position.
+        const [maxPosition] = await tx
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+          .from(schema.documents)
+          .where(
+            parentId
+              ? and(
+                  eq(schema.documents.ownerEmail, userEmail),
+                  eq(schema.documents.parentId, parentId),
+                )
+              : and(
+                  eq(schema.documents.ownerEmail, userEmail),
+                  eq(schema.documents.visibility, visibility),
+                  orgId
+                    ? eq(schema.documents.orgId, orgId)
+                    : isNull(schema.documents.orgId),
+                  isNull(schema.documents.parentId),
+                ),
+          );
         const idSet = new Set(ids);
         for (const idGroup of groups(ids)) {
           const children: Array<{ id: string }> = await tx

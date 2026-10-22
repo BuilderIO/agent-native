@@ -1,5 +1,123 @@
 # @agent-native/scheduling
 
+## 0.2.39
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [05d1481]
+  - @agent-native/toolkit@0.214.0
+
+## 0.2.38
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.213.1
+
+## 0.2.37
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [b58658d]
+  - @agent-native/toolkit@0.213.0
+
+## 0.2.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.212.1
+
+## 0.2.35
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [71749d3]
+- Updated dependencies [9d61445]
+- Updated dependencies [96e2cf6]
+- Updated dependencies
+- Updated dependencies [ae5a212]
+- Updated dependencies [71749d3]
+- Updated dependencies [71749d3]
+- Updated dependencies [9fcbe67]
+- Updated dependencies [66ae94a]
+  - @agent-native/toolkit@0.212.0
+
+## 0.2.34
+
+### Patch Changes
+
+- f60152f: Require approval for `needsApproval` actions on every surface. HTTP action routes and generated Workers entries now run an approval-gated call only for the signed-in app UI (or its MCP directory widget); a bearer token, MCP OAuth token, org service token, A2A peer, or other HTTP caller gets `409 approval_required`, and an unproven browser call gets `403 ui_capability_required`. The app's client now presents its UI capability with every write from a signed-in session, so the 403 and one retry are only the fallback for an expired or rejected capability. `revoke-org-service-token` and the credential, membership, and app-access actions in core, Dispatch, and Scheduling now ask for approval on every call, with "always allow" off.
+- Release all public npm packages with a patch version bump.
+- 811b614: Build the full docs bundle with forward-slash paths on Windows too, so a Windows build writes the same `llms-full.txt`.
+- Updated dependencies [4fdf78c]
+- Updated dependencies [ab1a9e8]
+- Updated dependencies [67514ae]
+- Updated dependencies [b451cb2]
+- Updated dependencies
+  - @agent-native/toolkit@0.211.0
+
+## 0.2.33
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.210.2
+
+## 0.2.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [de17c2f]
+- Updated dependencies [3a73a99]
+- Updated dependencies
+  - @agent-native/toolkit@0.210.1
+
+## 0.2.31
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+- Updated dependencies [6c7c90e]
+- Updated dependencies [7028ea5]
+- Updated dependencies [7ade653]
+- Updated dependencies [4c34d33]
+- Updated dependencies
+- Updated dependencies [108b9d9]
+- Updated dependencies [ca67d21]
+- Updated dependencies [79545c9]
+- Updated dependencies [ff3a8dd]
+- Updated dependencies [0cfbd4d]
+- Updated dependencies [ed34578]
+- Updated dependencies [7337569]
+- Updated dependencies [7028ea5]
+- Updated dependencies [41e43db]
+  - @agent-native/toolkit@0.210.0
+
+## 0.2.30
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ce4eca0]
+- Updated dependencies
+- Updated dependencies [95aa388]
+- Updated dependencies [36fc751]
+- Updated dependencies [f99e655]
+- Updated dependencies [f99e655]
+- Updated dependencies [95aa388]
+  - @agent-native/toolkit@0.209.2
+
 ## 0.2.29
 
 ### Patch Changes
@@ -1017,91 +1135,5 @@
 - b24446e: Add `@agent-native/toolkit` for reusable app-building UI, move shared template primitives into it, and keep core UI shim imports working through compatibility re-exports.
 - Updated dependencies [b24446e]
   - @agent-native/toolkit@0.2.0
-
-## 0.1.15
-
-### Patch Changes
-
-- 6338989: Add Traditional Chinese copy for shared scheduling booking-link components.
-
-## 0.1.14
-
-### Patch Changes
-
-- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
-
-## 0.1.13
-
-### Patch Changes
-
-- fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
-
-## 0.1.12
-
-### Patch Changes
-
-- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
-
-## 0.1.11
-
-### Patch Changes
-
-- 3c1d3eb: Update dispatch provider APIs and scheduling internals for the runtime refresh.
-
-## 0.1.10
-
-### Patch Changes
-
-- 966838d: Update scheduling package docs after removing the legacy scheduling template.
-
-## 0.1.9
-
-### Patch Changes
-
-- a56d93d: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
-- a56d93d: Route outbound A2A, Dispatch vault, and scheduling webhook requests through
-  SSRF-safe URL fetch paths.
-
-## 0.1.8
-
-### Patch Changes
-
-- 853ab71: Internal cleanup: remove unused imports and variables (no behavior change).
-
-## 0.1.7
-
-### Patch Changes
-
-- d4013f0: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
-- d4013f0: Route outbound A2A, Dispatch vault, and scheduling webhook requests through
-  SSRF-safe URL fetch paths.
-
-## 0.1.6
-
-### Patch Changes
-
-- c3852e0: Beta-readiness best-practices audit fixes:
-  - **core / sharing:** `mergeCoreSharingActions` now preserves
-    `toolCallable`/`publicAgent`/`link`/`mcpApp` (via `preserveActionFlags`),
-    restoring the H5 tools-bridge `403` guard on share/unshare/set-visibility that
-    was silently dropped during registry merge.
-  - **core / HTTP actions:** stop echoing raw `error.message` on uncategorized 500s
-    (return a generic message, log detail server-side); validation and explicit
-    user-facing errors still pass through.
-  - **core / auth:** remove the legacy hardcoded fallback secret literal from the
-    production `BETTER_AUTH_SECRET` error message. (The `better-auth` security
-    version bump is deferred to a dedicated follow-up: `1.6.12` pulls
-    `kysely@0.29` which drops exports `better-auth` bundles, breaking the template
-    build — it needs a kysely-compatibility fix + an auth smoke-test.)
-  - **core / dev:** register `client/transcription/use-live-transcription` in the
-    Vite source-alias map so monorepo dev edits resolve from source, not stale
-    `dist`.
-  - **core:** add `engines.node >=22`; correct the `AuthSession.orgId` doc comment
-    (orgs are framework-managed, not the Better Auth organization plugin).
-  - **scheduling:** remove the leftover manual `release` script (publishing goes
-    through changesets/CI).
-  - **shared-app-config:** clarify that the template-catalog `icon` field is an
-    internal icon-alias key resolved by the desktop sidebar `ICON_MAP`, not a raw
-    `@tabler/icons-react` export name.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

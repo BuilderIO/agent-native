@@ -85,6 +85,25 @@ const rowButton = (label: string) =>
   paintRow().querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
 
 describe("paint row", () => {
+  it("limits a native paint to its declared stop count inside the normal picker", () => {
+    renderPicker({
+      value: `linear-gradient(90deg, ${Array.from({ length: 8 }, (_, index) => `#ff0000 ${(index * 100) / 7}%`).join(", ")})`,
+      supportedPaintTypes: ["solid", "linear", "radial", "angular", "diamond"],
+      maxGradientStops: 8,
+    });
+    expect(rowLabels()).toEqual(["Solid", "Gradient"]);
+    expect(
+      popover().querySelector('button[aria-label="Reverse stops"]'),
+    ).not.toBeNull();
+    expect(
+      popover().querySelector<HTMLButtonElement>(
+        'button[aria-label="Add stop"]',
+      )?.disabled,
+    ).toBe(true);
+    expect(
+      popover().querySelector('[role="combobox"][aria-label="Type"]'),
+    ).not.toBeNull();
+  });
   it("has Solid, Gradient, Image and Shader on the left, and no per-kind gradient icons", () => {
     renderPicker({
       supportedPaintTypes: ["solid", "linear", "radial", "image", "shader"],

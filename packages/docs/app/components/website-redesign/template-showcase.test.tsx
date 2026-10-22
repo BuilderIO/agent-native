@@ -97,9 +97,11 @@ describe("TemplateShowcase", () => {
     const buildOnline = within(card).getByRole("link", {
       name: "Build online",
     });
-    expect(buildOnline.getAttribute("href")).toBe(
-      "https://builder.io/signup?initialPrompt=true&useFusion=true",
+    const buildOnlineUrl = new URL(buildOnline.getAttribute("href") ?? "");
+    expect(buildOnlineUrl.searchParams.get("initialPrompt")).toBe(
+      "Create a new Agent-Native app.",
     );
+    expect(buildOnlineUrl.searchParams.get("useFusion")).toBe("true");
     expect(
       within(card).getByRole("link", { name: "Read the docs" }),
     ).toBeTruthy();

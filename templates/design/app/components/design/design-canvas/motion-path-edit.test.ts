@@ -1,3 +1,4 @@
+import type { MotionTrack } from "@shared/motion-timeline";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,7 +7,7 @@ import {
 } from "./motion-path-edit";
 import { motionPathTrackForTarget } from "./motion-types";
 
-const track = {
+const track: MotionTrack = {
   targetNodeId: "node-1",
   property: "translate",
   keyframes: [
@@ -38,6 +39,16 @@ describe("motionPathTrackForTarget", () => {
       nativePositionTrack,
     );
   });
+
+  it("resolves duplicate position tracks only by their selected id", () => {
+    const first = { ...track, id: "position-first" };
+    const second = { ...track, id: "position-second" };
+
+    expect(motionPathTrackForTarget([first, second], "node-1")).toBeUndefined();
+    expect(
+      motionPathTrackForTarget([first, second], "node-1", "position-second"),
+    ).toBe(second);
+  });
 });
 
 describe("applyMotionPathEdit", () => {
@@ -48,6 +59,48 @@ describe("applyMotionPathEdit", () => {
         edits: [{ keyframeT: 1, value: "80px 64px" }],
       })?.keyframes[1],
     ).toEqual({ t: 1, value: "80px 64px", ease: "ease" });
+  });
+
+  it("switches an additive Position row to replacement when it gains a cubic path", () => {
+    const updated = applyMotionPathEdit(
+      { ...track, id: "position-track", composition: "add" },
+      {
+        targetNodeId: "node-1",
+        trackId: "position-track",
+        edits: [
+          {
+            keyframeT: 0,
+            motionPath: {
+              version: 1,
+              type: "cubic",
+              control1: { x: 12, y: 0 },
+              control2: { x: -12, y: 0 },
+            },
+          },
+        ],
+      },
+    );
+
+    expect(updated?.composition).toBe("replace");
+    expect(updated?.keyframes[0]?.motionPath).toEqual({
+      version: 1,
+      type: "cubic",
+      control1: { x: 12, y: 0 },
+      control2: { x: -12, y: 0 },
+    });
+  });
+
+  it("rejects a path edit whose stable id does not match the selected track", () => {
+    expect(
+      applyMotionPathEdit(
+        { ...track, id: "position-first" },
+        {
+          targetNodeId: "node-1",
+          trackId: "position-second",
+          edits: [{ keyframeT: 1, value: "80px 64px" }],
+        },
+      ),
+    ).toBeNull();
   });
 
   it("accepts only scoped, well-formed bridge messages", () => {
@@ -72,6 +125,30 @@ describe("applyMotionPathEdit", () => {
           edits: [{ keyframeT: 1, value: "80px 64px" }],
         },
         "node-1",
+      ),
+    ).toBeNull();
+    expect(
+      parseMotionPathEditMessage(
+        {
+          type: "motion-path-edit",
+          targetNodeId: "node-1",
+          trackId: "position-second",
+          edits: [{ keyframeT: 1, value: "80px 64px" }],
+        },
+        "node-1",
+        "position-second",
+      ),
+    ).toMatchObject({ trackId: "position-second" });
+    expect(
+      parseMotionPathEditMessage(
+        {
+          type: "motion-path-edit",
+          targetNodeId: "node-1",
+          trackId: "position-first",
+          edits: [{ keyframeT: 1, value: "80px 64px" }],
+        },
+        "node-1",
+        "position-second",
       ),
     ).toBeNull();
     expect(

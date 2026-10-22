@@ -205,7 +205,7 @@ describe("workflow generation background sessions", () => {
     await vi.waitFor(() => expect(handle.open).toHaveBeenCalledOnce());
   });
 
-  it("releases the claim when the run manager rejects the session", async () => {
+  it("fails the workflow when the run manager rejects its session", async () => {
     mocks.startBackgroundAgentSession.mockImplementation(() => {
       const rejection = Object.assign(
         new Error("Background agent session was rejected (HTTP 403)"),
@@ -222,12 +222,17 @@ describe("workflow generation background sessions", () => {
       turnId: "turn-123",
       status: "unavailable",
     });
-    configureActions({ requests: [workflowRequest] });
+    const snapshot = { requests: [workflowRequest] };
+    configureActions(snapshot, {
+      stop: () => {
+        snapshot.requests = [];
+        return { reconciled: true };
+      },
+    });
     await renderBridge();
 
-    await vi.waitFor(() =>
-      expect(workflowOperations("release")).toHaveLength(1),
-    );
+    await vi.waitFor(() => expect(workflowOperations("stop")).toHaveLength(1));
+    expect(workflowOperations("release")).toHaveLength(0);
     expect(workflowOperations("mark-delivered")).toHaveLength(0);
     expect(workflowOperations("consume")).toHaveLength(0);
   });

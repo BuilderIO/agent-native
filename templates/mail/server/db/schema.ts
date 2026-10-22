@@ -161,6 +161,9 @@ export const mailSyncAccounts = table(
     ownerEmail: text("owner_email").notNull(),
     accountEmail: text("account_email").notNull(),
     historyId: text("history_id"),
+    // The archive and deletion stream's own cursor. Null means it has never
+    // moved apart from history_id.
+    archiveHistoryId: text("archive_history_id"),
     fullSyncPageToken: text("full_sync_page_token"),
     fullSyncHistoryId: text("full_sync_history_id"),
     fullSyncStartedAt: integer("full_sync_started_at"),
@@ -172,6 +175,21 @@ export const mailSyncAccounts = table(
     fullSyncReconcilePasses: integer("full_sync_reconcile_passes")
       .notNull()
       .default(0),
+    fullSyncListedCount: integer("full_sync_listed_count").notNull().default(0),
+    // Threads an archive or delete event touched that still await a Gmail read.
+    archivePendingIdsJson: text("archive_pending_ids_json"),
+    // Threads from history events that still await a metadata read.
+    hydratePendingIdsJson: text("hydrate_pending_ids_json"),
+    // Threads whose reads keep failing, held apart from the pending work so
+    // status can tell "will be attempted next step" from "retrying".
+    syncDegradedJson: text("sync_degraded_json"),
+    // 1 while the archive history stream has more pages than one step read.
+    archiveHistoryPending: integer("archive_history_pending"),
+    // Raw values of sync-state columns that failed to parse, kept for
+    // inspection until a resync; {column: first 2KB of the raw value}.
+    syncCorruptJson: text("sync_corrupt_json"),
+    // 1 when the cached inbox stops at the cap with more mail in Gmail.
+    inboxCapped: integer("inbox_capped"),
     status: text("status", {
       enum: ["idle", "syncing", "error", "needs_reauth"],
     })
@@ -182,6 +200,9 @@ export const mailSyncAccounts = table(
     lastPushGeneration: bigint("last_push_generation", { mode: "number" })
       .notNull()
       .default(0),
+    // Set while incremental history is not drained: a page was returned with
+    // more to read. Such an account is not steady, so polls keep the fast cadence.
+    historyPending: integer("history_pending"),
     syncClaimId: text("sync_claim_id"),
     syncClaimedAt: integer("sync_claimed_at"),
     lastWatchRenewedAt: bigint("last_watch_renewed_at", { mode: "number" }),

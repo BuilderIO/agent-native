@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getThemeFamilyInitScript } from "../appearance/theme-family.js";
 import {
   applyEmbeddedThemeUpdate,
   buildEmbeddedThemeUpdate,
@@ -28,12 +29,18 @@ function runThemeScript(script: string) {
 }
 
 describe("getThemeInitScript", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
     vi.unstubAllEnvs();
     window.localStorage.clear();
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.removeAttribute("data-theme");
     document.documentElement.removeAttribute("data-appearance");
+    document.documentElement.removeAttribute("data-theme-family");
+    document.documentElement.removeAttribute("data-theme-family-status");
     document.documentElement.style.colorScheme = "";
   });
 
@@ -45,6 +52,77 @@ describe("getThemeInitScript", () => {
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(document.documentElement.style.colorScheme).toBe("dark");
+  });
+
+  it("uses the compiled app id for the default theme-family boot script", () => {
+    const configDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "__AGENT_NATIVE_CONFIG__",
+    );
+    Object.defineProperty(window, "__AGENT_NATIVE_CONFIG__", {
+      configurable: true,
+      value: {},
+    });
+    vi.stubGlobal("__AGENT_NATIVE_WORKSPACE_APP_ID__", "");
+    vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "sample-app");
+    window.localStorage.setItem("theme-family:sample-app", "original");
+    setPrefersDark(true);
+
+    try {
+      runThemeScript(getThemeInitScript());
+
+      expect(document.documentElement.getAttribute("data-theme-family")).toBe(
+        "original",
+      );
+      expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    } finally {
+      if (configDescriptor) {
+        Object.defineProperty(
+          window,
+          "__AGENT_NATIVE_CONFIG__",
+          configDescriptor,
+        );
+      } else {
+        delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+          .__AGENT_NATIVE_CONFIG__;
+      }
+    }
+  });
+
+  it("keeps the default family until an app identity is available", () => {
+    const configDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "__AGENT_NATIVE_CONFIG__",
+    );
+    Object.defineProperty(window, "__AGENT_NATIVE_CONFIG__", {
+      configurable: true,
+      value: {},
+    });
+    vi.stubGlobal("__AGENT_NATIVE_WORKSPACE_APP_ID__", "");
+    vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "");
+    window.localStorage.setItem("theme-family:sample-app", "original");
+
+    try {
+      runThemeScript(getThemeInitScript());
+
+      expect(document.documentElement.getAttribute("data-theme-family")).toBe(
+        "original",
+      );
+      expect(
+        document.documentElement.getAttribute("data-theme-family-status"),
+      ).toBe("awaiting-app-setting");
+    } finally {
+      if (configDescriptor) {
+        Object.defineProperty(
+          window,
+          "__AGENT_NATIVE_CONFIG__",
+          configDescriptor,
+        );
+      } else {
+        delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+          .__AGENT_NATIVE_CONFIG__;
+      }
+    }
   });
 
   it("lets an explicit stored theme override the browser preference", () => {
@@ -137,6 +215,48 @@ describe("getThemeInitScript", () => {
     runThemeScript(getThemeInitScript());
 
     expect(document.documentElement.getAttribute("data-appearance")).toBe(null);
+  });
+
+  it("applies the theme family without changing color mode", () => {
+    document.documentElement.classList.add("dark");
+    document.documentElement.setAttribute("data-theme", "dark");
+    window.localStorage.setItem("theme-family:calendar", "original");
+
+    runThemeScript(getThemeFamilyInitScript("calendar"));
+
+    expect(document.documentElement.getAttribute("data-theme-family")).toBe(
+      "original",
+    );
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("light")).toBe(false);
+  });
+
+  it("does not apply another app's local cache before scoped settings load", () => {
+    window.localStorage.setItem("theme-family:calendar", "original");
+
+    runThemeScript(getThemeFamilyInitScript());
+
+    expect(document.documentElement.getAttribute("data-theme-family")).toBe(
+      "original",
+    );
+    expect(
+      document.documentElement.getAttribute("data-theme-family-status"),
+    ).toBe("awaiting-app-setting");
+  });
+
+  it("marks invalid local theme-family storage explicitly", () => {
+    window.localStorage.setItem("theme-family:calendar", "sepia");
+
+    runThemeScript(getThemeFamilyInitScript("calendar"));
+
+    expect(document.documentElement.getAttribute("data-theme-family")).toBe(
+      "original",
+    );
+    expect(
+      document.documentElement.getAttribute("data-theme-family-status"),
+    ).toBe("invalid");
+    expect(window.localStorage.getItem("theme-family:calendar")).toBe("sepia");
   });
 
   it("keeps Vite dev recovery deterministic in browsers without process", () => {

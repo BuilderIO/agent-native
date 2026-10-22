@@ -18,6 +18,7 @@
  */
 @import "./theme/resource-icons.css";
 @import "./app-shell/prompt-home.css";
+@import "./app/styles/theme-families.css";
 @import "./app/styles/agent-native.css";
 
 @source "./**/*.{js,ts,tsx}";

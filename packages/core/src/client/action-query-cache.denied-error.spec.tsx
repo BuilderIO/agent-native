@@ -147,7 +147,7 @@ function singleActionResponse(
     });
   }
   return new Response(
-    JSON.stringify({ designs: [{ title: "saved for Bob" }] }),
+    JSON.stringify({ designs: [{ title: "fresh for Bob" }] }),
     {
       status: 200,
       headers: {
@@ -255,7 +255,9 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
   const { records, storage } = memoryStorage();
   setActionQueryCacheStorage(storage);
   const nextBobFetch = deferred<Response>();
+  const nextBobHeldFetch = deferred<Response>();
   let privateRequestCount = 0;
+  let bobHeldRequestCount = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const action =
       new URL(String(input), "http://localhost").pathname.split("/").at(-1) ??
@@ -265,6 +267,10 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
       if (privateRequestCount === 1)
         return singleActionResponse(action, true, "Alice private data denied");
       return nextBobFetch.promise;
+    }
+    if (action === "list-designs") {
+      bobHeldRequestCount += 1;
+      return nextBobHeldFetch.promise;
     }
     return singleActionResponse(action, false, "");
   });
@@ -298,6 +304,7 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
   await expect
     .poll(() => snapshots.some((snapshot) => snapshot.userId === USER_B.userId))
     .toBe(true);
+  await expect.poll(() => bobHeldRequestCount).toBe(1);
   const bobBeforeFetch = snapshots
     .slice(bobStart)
     .filter((snapshot) => snapshot.userId === USER_B.userId);
@@ -308,6 +315,9 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
         "Action get-private-data failed: Alice private data denied",
     ),
   ).toBe(false);
+  await expect
+    .poll(() => client.getQueryState(HELD_KEY)?.fetchStatus)
+    .toBe("fetching");
   expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
     "pending",
   );
@@ -335,6 +345,18 @@ it("clears prior-scope denial UI and refetches after durable invalidation", asyn
   await expect
     .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
     .toBe("bob-private");
+  expect(records.has(SCOPE_B)).toBe(false);
+  await act(async () =>
+    nextBobHeldFetch.resolve(
+      new Response(JSON.stringify({ designs: [{ title: "fresh for Bob" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
+  );
+  await expect
+    .poll(() => container?.querySelector('[data-testid="held"]')?.textContent)
+    .toBe("fresh for Bob");
   expect(records.has(SCOPE_B)).toBe(false);
 });
 
@@ -428,7 +450,9 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   const { records, storage } = memoryStorage();
   setActionQueryCacheStorage(storage);
   const bobFetch = deferred<Response>();
+  const bobHeldFetch = deferred<Response>();
   let privateRequestCount = 0;
+  let bobHeldRequestCount = 0;
   const batchedActions: string[][] = [];
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -442,7 +466,10 @@ it("characterizes Gate scope changes separately from direct binding", async () =
         const results = await Promise.all(
           requestBody.requests.map(async ({ action: requestedAction }) => {
             let response: Response;
-            if (requestedAction === "get-private-data") {
+            if (requestedAction === "list-designs") {
+              bobHeldRequestCount += 1;
+              response = await bobHeldFetch.promise;
+            } else if (requestedAction === "get-private-data") {
               privateRequestCount += 1;
               response =
                 privateRequestCount === 1
@@ -452,6 +479,8 @@ it("characterizes Gate scope changes separately from direct binding", async () =
                       "Alice private data denied",
                     )
                   : await bobFetch.promise;
+            } else if (requestedAction === "list-designs") {
+              response = await bobHeldFetch.promise;
             } else {
               response = singleActionResponse(requestedAction, false, "");
             }
@@ -468,6 +497,10 @@ it("characterizes Gate scope changes separately from direct binding", async () =
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (action === "list-designs") {
+        bobHeldRequestCount += 1;
+        return bobHeldFetch.promise;
+      }
       const denied = action === "get-private-data";
       if (denied) {
         privateRequestCount += 1;
@@ -479,6 +512,7 @@ it("characterizes Gate scope changes separately from direct binding", async () =
           );
         return bobFetch.promise;
       }
+      if (action === "list-designs") return bobHeldFetch.promise;
       return singleActionResponse(action, false, "");
     },
   );
@@ -504,6 +538,7 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   await expect
     .poll(() => snapshots.some((snapshot) => snapshot.userId === USER_B.userId))
     .toBe(true);
+  await expect.poll(() => bobHeldRequestCount).toBe(1);
   const bobSnapshots = snapshots
     .slice(bobStart)
     .filter((snapshot) => snapshot.userId === USER_B.userId);
@@ -514,15 +549,31 @@ it("characterizes Gate scope changes separately from direct binding", async () =
         "Action get-private-data failed: Alice private data denied",
     ),
   ).toBe(false);
+  expect(client.getQueryData(HELD_KEY)).toBeUndefined();
+  await expect
+    .poll(() => client.getQueryState(HELD_KEY)?.fetchStatus)
+    .toBe("fetching");
   expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
     "pending",
   );
-  await act(async () =>
-    bobFetch.resolve(singleActionResponse("get-private-data", false, "")),
-  );
+  await act(async () => {
+    bobFetch.resolve(singleActionResponse("get-private-data", false, ""));
+  });
   await expect
     .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
     .toBe("bob-private");
+  await act(async () =>
+    bobHeldFetch.resolve(
+      new Response(JSON.stringify({ designs: [{ title: "fresh for Bob" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
+  );
+  await expect
+    .poll(() => container?.querySelector('[data-testid="held"]')?.textContent)
+    .toBe("fresh for Bob");
+  expect(records.has(SCOPE_B)).toBe(false);
   // The denial cleared the query's data, so Bob's read is a first fetch and
   // goes alone instead of joining a batch.
   expect(batchedActions.flat()).not.toContain("get-private-data");
