@@ -251,6 +251,10 @@ test.describe("block menu on a touch screen", () => {
     await expect(menu).toBeVisible();
     // The phone's keyboard stays down until the search is tapped.
     await expect(menu.getByRole("textbox")).not.toBeFocused();
+    await expect(menu.getByRole("menuitem", { name: /^Duplicate/ })).toHaveText(
+      "Duplicate",
+      { useInnerText: true },
+    );
     await menu.getByRole("menuitem", { name: "Turn into" }).tap();
     await page.getByRole("menuitemradio", { name: "Heading 2" }).tap();
     await expect(page.locator(`${EDITOR} h2`)).toHaveText("First line.");

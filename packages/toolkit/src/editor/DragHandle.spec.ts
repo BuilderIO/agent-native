@@ -1163,6 +1163,41 @@ describe("DragHandle app menu", () => {
     }
   });
 
+  it("keeps the app's menu open while a touch keyboard opens for its field", () => {
+    const close = vi.fn();
+    const { editor, handle } = mountEditor("<p>First</p>", {
+      openMenu: () => close,
+    });
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    const field = document.createElement("input");
+    menu.appendChild(field);
+    document.body.appendChild(menu);
+    let coarse = true;
+    const matchMedia = vi
+      .spyOn(window, "matchMedia")
+      .mockImplementation(
+        (query) => ({ matches: coarse, media: query }) as MediaQueryList,
+      );
+
+    try {
+      clickHandle(handle);
+      field.focus();
+      window.dispatchEvent(new Event("resize"));
+      window.dispatchEvent(new Event("scroll"));
+      expect(close).not.toHaveBeenCalled();
+
+      // A mouse user's resized window moves the block out from under it.
+      coarse = false;
+      window.dispatchEvent(new Event("resize"));
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      matchMedia.mockRestore();
+      menu.remove();
+      editor.destroy();
+    }
+  });
+
   it("closes the app's menu with the editor", () => {
     const close = vi.fn();
     const { editor, handle } = mountEditor("<p>First</p>", {

@@ -1305,6 +1305,17 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       ) {
         return;
       }
+      // A touch screen's keyboard, opening for a field in the menu, resizes
+      // the page and scrolls the field into view.
+      const active = document.activeElement;
+      if (
+        active instanceof Element &&
+        active.matches("input, textarea") &&
+        active.closest('[role="menu"]') &&
+        window.matchMedia?.("(pointer: coarse)").matches
+      ) {
+        return;
+      }
       closeMenu({ hideGrip: true });
     }
 

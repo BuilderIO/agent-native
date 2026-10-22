@@ -110,6 +110,9 @@ const isApplePlatform = () =>
 
 const ENABLED_ITEMS = '[role^="menuitem"]:not([data-disabled])';
 
+// A touch screen has no keys to press.
+const hintClass = "pointer-coarse:hidden";
+
 /**
  * The drag handle's `openMenu`: the editor's mounted BlockActionsMenu opens
  * in place of the handle's built-in menu.
@@ -527,7 +530,9 @@ export function BlockActionsMenu({
           >
             <IconCopy className={menuIconClass} />
             {t("editor.blockMenu.duplicate")}
-            <DropdownMenuShortcut>{hint("D")}</DropdownMenuShortcut>
+            <DropdownMenuShortcut className={hintClass}>
+              {hint("D")}
+            </DropdownMenuShortcut>
           </DropdownMenuItem>
         ) : null}
         {showRemove ? (
@@ -540,7 +545,7 @@ export function BlockActionsMenu({
           >
             <IconTrash className="size-4 shrink-0" />
             {t("editor.blockMenu.delete")}
-            <DropdownMenuShortcut>
+            <DropdownMenuShortcut className={hintClass}>
               {t("editor.blockMenu.keyDelete")}
             </DropdownMenuShortcut>
           </DropdownMenuItem>
@@ -573,7 +578,9 @@ export function BlockActionsMenu({
       >
         <IconMessageCircle className={menuIconClass} />
         {t("editor.comment")}
-        <DropdownMenuShortcut>{hint("M", true)}</DropdownMenuShortcut>
+        <DropdownMenuShortcut className={hintClass}>
+          {hint("M", true)}
+        </DropdownMenuShortcut>
       </DropdownMenuItem>,
     ]);
   }
