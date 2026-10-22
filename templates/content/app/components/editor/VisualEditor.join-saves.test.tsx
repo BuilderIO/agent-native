@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 
-import { nfmToDoc } from "@shared/nfm";
+import { createHash, webcrypto } from "node:crypto";
+
+import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema } from "@tiptap/core";
 import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
@@ -276,6 +278,76 @@ describe("a joining editor's saves", () => {
     expect(editor.getText()).toContain("agent");
     expect(editor.isEditable).toBe(true);
   });
+
+  it.each([false, true])(
+    "checks the real stored-body hash before taking over from a closed lower-id tab (unsaved word: %s)",
+    async (hasUnsavedWord) => {
+      vi.useFakeTimers();
+      vi.stubGlobal("crypto", webcrypto);
+      const digests: Promise<ArrayBuffer>[] = [];
+      const digest = webcrypto.subtle.digest.bind(webcrypto.subtle);
+      vi.spyOn(webcrypto.subtle, "digest").mockImplementation((...args) => {
+        const pending = digest(...args);
+        digests.push(pending);
+        return pending;
+      });
+      const saved = [
+        "Alpha paragraph edited from the first tab.",
+        "Bravo paragraph stays untouched.",
+        "Charlie paragraph edited from the second tab.",
+        "Delta paragraph stays untouched.",
+      ].join("\n");
+      const agentEdit = saved.replace(
+        "Alpha paragraph",
+        "Alpha agent paragraph",
+      );
+      const revision = `body:1:sha256:${createHash("sha256").update(agentEdit).digest("hex")}`;
+      ydoc.clientID = 100;
+      awareness.setLocalState({ user: { name: "Opener" } });
+      awareness.getStates().set(1, {
+        user: { name: "Closed seed" },
+        canFlushDocument: true,
+        visible: true,
+        unsaved: false,
+        reconciledRevision:
+          "body:0:sha256:50f57bdcdf122fc394474239490d56033c6d2b44857735f59ebdc5ce8e7fb284",
+      });
+      const { onSaveContent } = await mount(
+        "ready",
+        hasUnsavedWord ? `${saved} WORD` : saved,
+        [],
+        {
+          content: agentEdit,
+          contentRevision: revision,
+          contentUpdatedAt: "2026-10-22T12:12:40.173Z",
+        },
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      const editor = captured.editor!;
+      expect(editor.isEditable).toBe(false);
+      expect(editor.getText()).not.toContain("Alpha agent");
+      expect(docToNfm(editor.getJSON())).toBe(
+        hasUnsavedWord ? `${saved} WORD` : saved,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+        for (let i = 0; i < digests.length; i++) await digests[i];
+        await vi.advanceTimersByTimeAsync(4_000);
+      });
+
+      if (hasUnsavedWord) {
+        expect(editor.getText()).toContain("WORD");
+        expect(editor.getText()).not.toContain("Alpha agent");
+        expect(editor.isEditable).toBe(false);
+        expect(awareness.getLocalState()?.reconciledRevision).toBeUndefined();
+      } else {
+        expect(editor.getText()).toContain("Alpha agent paragraph");
+        expect(editor.isEditable).toBe(true);
+        expect(awareness.getLocalState()?.reconciledRevision).toBe(revision);
+      }
+      expect(onSaveContent).not.toHaveBeenCalled();
+    },
+  );
 
   it("saves nothing when the doc matches an older stored body than one it saw", async () => {
     vi.useFakeTimers();

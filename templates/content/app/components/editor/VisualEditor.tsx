@@ -194,6 +194,25 @@ function compareDocumentBodyRevisions(
   return Number(firstMatch[1]) - Number(secondMatch[1]);
 }
 
+async function documentBodyMatchesRevision(
+  revision: string,
+  markdown: string,
+): Promise<boolean | null> {
+  const match = /^body:(0|[1-9]\d*):sha256:([a-f0-9]{64})$/.exec(revision);
+  if (!match || !Number.isSafeInteger(Number(match[1]))) return null;
+  for (const candidate of new Set([markdown, canonicalizeNfm(markdown)])) {
+    const bytes = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(candidate),
+    );
+    const hash = Array.from(new Uint8Array(bytes), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    if (hash === match[2]) return true;
+  }
+  return false;
+}
+
 export const EmptyLineParagraph = TiptapNode.create({
   name: "paragraph",
 
@@ -4388,6 +4407,7 @@ export function VisualEditor({
       ? acknowledgedRestore!.contentRevision
       : contentRevision,
     compareContentRevisions: compareDocumentBodyRevisions,
+    contentMatchesRevision: documentBodyMatchesRevision,
     acknowledgedLocalSnapshot,
     collabContentRevision: propsPredateAcknowledgedRestore
       ? null

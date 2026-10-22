@@ -70,6 +70,14 @@ function compareRevisions(first: string, second: string): number {
   return Math.sign(counter(first) - counter(second));
 }
 
+/** The body each revision names, as Content's revisions name it by hash. */
+const BODIES = new Map(
+  [STORED, ACKNOWLEDGED, AGENT_EDIT].map(({ revision, value }) => [
+    revision,
+    value,
+  ]),
+);
+
 type DiscoveryStatus = "ready" | "failed" | "unavailable";
 type DiscoveryAnswer = { status: DiscoveryStatus; current?: () => boolean };
 type PeerState = {
@@ -133,6 +141,7 @@ function makeTabs({
   bRefusesStoredBody = false,
   bMergesAgainstBase = true,
   compare = compareRevisions,
+  matchesBody = false,
 }: {
   joinsOnPeers?: boolean;
   /** D, when it opens, defaults to the lowest id. */
@@ -143,6 +152,8 @@ function makeTabs({
   bMergesAgainstBase?: boolean;
   /** How the tabs order revisions; null passes no comparator. */
   compare?: ((first: string, second: string) => number | null) | null;
+  /** The tabs can tell whether a live doc is exactly the body a revision names. */
+  matchesBody?: boolean;
 } = {}) {
   const docs = {
     A: new Y.Doc(),
@@ -224,6 +235,10 @@ function makeTabs({
   const remoteReports = { B: vi.fn(), C: vi.fn(), D: vi.fn() };
   const baseAwareReconciles = { B: vi.fn(), C: vi.fn(), D: vi.fn() };
   const saves = { B: vi.fn(), C: vi.fn(), D: vi.fn() };
+  const matchBody = vi.fn(async (revision: string, markdown: string) => {
+    const body = BODIES.get(revision);
+    return body === undefined ? null : body === markdown;
+  });
   let settleDiscovery: ((status: DiscoveryStatus) => void) | null = null;
   // Presence answers C could not read, as its connection counts them.
   let refusedPresence = 0;
@@ -324,6 +339,7 @@ function makeTabs({
           ? undefined
           : baseAwareReconciles[name],
       onRemoteSnapshotChange: remoteReports[name],
+      ...(matchesBody ? { contentMatchesRevision: matchBody } : {}),
       editable: true,
     });
     return React.createElement("div");
@@ -387,6 +403,7 @@ function makeTabs({
     remoteReports,
     baseAwareReconciles,
     saves,
+    matchBody,
     typeAsA: () => author.commands.insertContentAt(17, ` ${WORD}`),
     editAsA: (edit: (author: CoreEditor) => void) => edit(author),
     /** A's later edits reach the server and B but not yet C. */
@@ -3428,6 +3445,276 @@ describe("useCollabReconcile: a failed join left alone", () => {
         tabs.dispose();
       }
     });
+  });
+});
+
+// The tab that wrote the live doc closed, and the presence it left still
+// reports the body it held. An agent then stored an edit that no tab holds,
+// and B opens on it.
+describe("useCollabReconcile: a stored edit made while no tab was open", () => {
+  const ids = { A: 1, B: 2, C: 3 };
+  const wait = (ms: number) => act(async () => vi.advanceTimersByTimeAsync(ms));
+  function open({
+    tabIds = ids,
+    matchesBody = true,
+    reported = STORED.revision as string | null,
+  } = {}) {
+    const tabs = makeTabs({ ids: tabIds, matchesBody });
+    if (reported)
+      tabs.awareness.B.getStates().set(tabIds.A, peer("A", reported));
+    else tabs.awareness.B.getStates().delete(tabIds.A);
+    vi.useFakeTimers();
+    act(() =>
+      root.render(
+        React.createElement(tabs.Tabs, { snapshot: AGENT_EDIT, withC: false }),
+      ),
+    );
+    return tabs;
+  }
+  function expectStoredEdit(tabs: Tabs) {
+    expect(tabs.markdown("B"), "B does not show the stored edit").toBe(
+      AGENT_EDIT.value,
+    );
+    expect(tabs.editors.B!.isEditable, "B is read-only").toBe(true);
+    expect(tabs.results.B!.isJoinPending()).toBe(false);
+    expect(tabs.joinFailed("B")).toBe(false);
+    expect(tabs.markdown("A")).toBe(AGENT_EDIT.value);
+    expect(heldRevision(tabs.awareness.B)).toBe(AGENT_EDIT.revision);
+  }
+  function expectWaiting(tabs: Tabs, markdown = ORIGINAL) {
+    expect(tabs.markdown("B")).toBe(markdown);
+    expect(tabs.markdown("A")).toBe(markdown);
+    expect(tabs.editors.B!.isEditable).toBe(false);
+    expect(tabs.results.B!.isJoinPending()).toBe(true);
+    expect(heldRevision(tabs.awareness.B)).toBeUndefined();
+  }
+
+  it.each([
+    ["has the lowest id, so B leaves the edit to it at first", ids],
+    ["has a higher id than B", { A: 5, B: 2, C: 3 }],
+  ])(
+    "applies the stored edit, and lets B edit, when the presence the closed tab left %s",
+    async (_, tabIds) => {
+      const tabs = open({ tabIds });
+      try {
+        await wait(10_000);
+        expectStoredEdit(tabs);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  it("applies the stored edit at once when that presence is gone", async () => {
+    const tabs = open({ reported: null });
+    try {
+      await wait(500);
+      expectStoredEdit(tabs);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("gives the lead it sees the time it gives a lead before it applies the stored edit itself", async () => {
+    const tabs = open();
+    try {
+      await wait(4_900);
+      expectWaiting(tabs);
+      await wait(5_100);
+      expectStoredEdit(tabs);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it.each([
+    ["cannot tell a live doc's body", { matchesBody: false }],
+    ["cannot tell which body the report names", { reported: "body:0:unknown" }],
+  ])("waits for the lead as before when B %s", async (_, options) => {
+    const tabs = open(options);
+    try {
+      await wait(15_000);
+      expectWaiting(tabs);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("keeps a word that reaches the doc while it checks the doc's body", async () => {
+    const tabs = open();
+    let answer: ((matches: boolean) => void) | null = null;
+    tabs.matchBody.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    try {
+      await wait(6_000);
+      expect(tabs.matchBody).toHaveBeenCalledWith(STORED.revision, ORIGINAL);
+      act(() => tabs.typeAsA());
+      await act(async () => answer!(true));
+      await wait(10_000);
+      expectWaiting(tabs, SAVED);
+      expect(occurrences(tabs.markdown("A"), CHARLIE)).toBe(0);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it.each<[string, (author: CoreEditor) => void, string]>([
+    [
+      "types a word",
+      (author) => author.commands.insertContentAt(17, ` ${WORD}`),
+      SAVED,
+    ],
+    ["clears it", (author) => author.commands.clearContent(), ""],
+    [
+      "leaves only a space",
+      (author) =>
+        author.commands.setContent({
+          type: "doc",
+          content: [
+            { type: "paragraph", content: [{ type: "text", text: " " }] },
+          ],
+        }),
+      " ",
+    ],
+  ])(
+    "keeps the doc as a collaborator changes it just before B applies the stored edit: it %s",
+    async (_, change, changed) => {
+      const tabs = open();
+      // The change lands once B has scheduled the apply, before it runs.
+      const schedule = globalThis.setTimeout;
+      let changeDue = false;
+      const scheduled = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+        handler: () => void,
+        ms?: number,
+      ) => {
+        if (changeDue && !ms) {
+          changeDue = false;
+          tabs.editAsA(change);
+        }
+        return schedule(handler, ms);
+      }) as unknown as typeof setTimeout);
+      try {
+        await wait(6_000);
+        expect(tabs.matchBody).toHaveBeenCalledWith(STORED.revision, ORIGINAL);
+        expect(tabs.markdown("B")).toBe(ORIGINAL);
+        changeDue = true;
+        await wait(10_000);
+        expect(changeDue, "B never scheduled the apply").toBe(false);
+        expectWaiting(tabs, changed);
+        expect(occurrences(tabs.markdown("A"), CHARLIE)).toBe(0);
+      } finally {
+        scheduled.mockRestore();
+        tabs.dispose();
+      }
+    },
+  );
+});
+
+// A tab still open holds a word its save has not stored yet, beside the body
+// it reported, when an agent stores an edit that no tab holds. C opens on the
+// edit, its lead the tab that holds the word or the presence a closed tab left.
+describe("useCollabReconcile: a stored edit made beside a word no save has stored", () => {
+  const LEFT: [number, PeerState] = [1, peer("Left", STORED.revision)];
+
+  it.each([
+    ["B, which holds the word", false],
+    ["the presence a closed tab left", true],
+  ])(
+    "keeps the word, and the edit merges beside it, when C's lead is %s",
+    async (_, leftLeads) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 }, matchesBody: true });
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
+        await act(async () =>
+          tabs.discoverPeers("ready", [
+            ...(leftLeads ? [LEFT] : []),
+            [5, peer("A")],
+            [2, tabs.awareness.B.getLocalState() as PeerState],
+          ]),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(10_000));
+        expect(tabs.markdown("C"), "C applied the edit over A's word").toBe(
+          SAVED,
+        );
+        expect(tabs.editors.C!.isEditable).toBe(false);
+        expect(heldRevision(tabs.awareness.C)).toBeUndefined();
+        expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+
+        // B, which never refetched, takes the edit and merges it.
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: AGENT_EDIT,
+              withC: true,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(6_000));
+        act(() =>
+          tabs.reportToC(2, tabs.awareness.B.getLocalState() as PeerState),
+        );
+        await act(async () => tabs.discoverPeers());
+        await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        for (const name of ["A", "B", "C"] as const)
+          expect(tabs.markdown(name)).toBe(`${SAVED}\n\n${CHARLIE}`);
+        expect(tabs.editors.C!.isEditable).toBe(true);
+        expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  it("keeps the word a hidden tab holds while the presence a closed tab left leads", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 }, matchesBody: true });
+    vi.useFakeTimers();
+    try {
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, { snapshot: STORED, withC: false }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      act(() => {
+        tabs.editors.B!.commands.insertContentAt(17, ` ${WORD}`);
+      });
+      act(() => tabs.awareness.B.setLocalStateField("visible", false));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: null });
+
+      tabs.syncC();
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: STORED,
+            snapshotC: AGENT_EDIT,
+            withC: true,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      await act(async () =>
+        tabs.discoverPeers("ready", [
+          LEFT,
+          [2, tabs.awareness.B.getLocalState() as PeerState],
+        ]),
+      );
+      for (const ms of [10_000, 15_000]) {
+        await act(async () => vi.advanceTimersByTimeAsync(ms));
+        expect(tabs.markdown("C"), "C applied the edit over B's word").toBe(
+          SAVED,
+        );
+        expect(tabs.editors.C!.isEditable).toBe(false);
+        expect(heldRevision(tabs.awareness.C)).toBeUndefined();
+        expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      }
+    } finally {
+      tabs.dispose();
+    }
   });
 });
 

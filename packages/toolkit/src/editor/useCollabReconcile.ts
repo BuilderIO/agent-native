@@ -247,6 +247,19 @@ export interface UseCollabReconcileOptions {
    * `lastAppliedSerialized` cannot stand in, because local emits update it.
    */
   isEditorClean?: (liveMarkdown: string) => boolean;
+  /**
+   * Whether `markdown`, the live doc as `getMarkdown` gives it, is exactly the
+   * body stored at `revision`; null when the revision cannot tell. Set it, and
+   * a joining client that is not the lead applies a stored body its lead has
+   * not applied in the time it gives a lead, when its doc is exactly the body
+   * of the newest revision its collaborators report holding: that doc holds
+   * nothing unsaved, as when the client that wrote it closed and its presence
+   * outlived it. Otherwise it waits for the lead.
+   */
+  contentMatchesRevision?: (
+    revision: string,
+    markdown: string,
+  ) => Promise<boolean | null>;
   setContent?: (
     editor: Editor,
     value: string,
@@ -355,6 +368,7 @@ export function useCollabReconcile({
   isEditorFocused = defaultIsEditorFocused,
   getMarkdown = getEditorMarkdown,
   isEditorClean,
+  contentMatchesRevision,
   setContent = defaultSetContent,
   parseValue,
   normalizeValue = (v) => v,
@@ -835,6 +849,7 @@ export function useCollabReconcile({
     normalizeValue,
     isEditorFocused,
     isEditorClean,
+    contentMatchesRevision,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
   });
@@ -845,8 +860,66 @@ export function useCollabReconcile({
     normalizeValue,
     isEditorFocused,
     isEditorClean,
+    contentMatchesRevision,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
+  };
+  // Whether a joining doc, as `markdown`, is exactly the body of the newest
+  // revision this evidence holds, every one older than the stored body; null
+  // until the host answers. Moved evidence or a moved doc is asked afresh.
+  const reportedBodyProofRef = useRef<{
+    evidence: JoinEvidence;
+    markdown: string;
+    proven: boolean | null;
+    answered: Promise<void>;
+  } | null>(null);
+  const proveReportedBody = (
+    evidence: Extract<JoinEvidence, { status: "ready" }>,
+    markdown: string,
+  ) => {
+    const asked = reportedBodyProofRef.current;
+    if (asked?.evidence === evidence && asked.markdown === markdown)
+      return asked;
+    const matches = reconcileCallbacksRef.current.contentMatchesRevision;
+    const precedes = (first: string, second: string, orEqual: boolean) => {
+      const order =
+        first === second ? 0 : compareContentRevisions?.(first, second);
+      return typeof order === "number" && (order < 0 || (orEqual && !order));
+    };
+    const claims = [...evidence.claims];
+    const newest = claims.filter((claim) =>
+      claims.every((other) => precedes(other, claim, true)),
+    );
+    const proof = {
+      evidence,
+      markdown,
+      proven: null as boolean | null,
+      answered: Promise.resolve(),
+    };
+    reportedBodyProofRef.current = proof;
+    if (
+      !matches ||
+      !newest.length ||
+      !claims.every((claim) => precedes(claim, evidence.revision, false))
+    ) {
+      proof.proven = false;
+      return proof;
+    }
+    proof.answered = Promise.all(
+      newest.map(async (claim) => matches(claim, markdown)),
+    ).then(
+      (answers) => {
+        proof.proven = answers.every((answer) => answer === true);
+      },
+      (error: unknown) => {
+        console.warn(
+          "Could not compare the document with the body a collaborator reported; waiting for the lead",
+          error,
+        );
+        proof.proven = false;
+      },
+    );
+    return proof;
   };
   // Until it knows whether a collaborator holds the stored body, a joining
   // client's doc has no stored body under it: a save would delete whatever the
@@ -1646,6 +1719,7 @@ export function useCollabReconcile({
       // to learn who else is open, and keeps the doc when one reports holding
       // this revision.
       let joinedOn: ReturnType<typeof currentJoinEvidence> = null;
+      let failoverOn: string | null = null;
       if (
         joinsOnPeerEvidence &&
         contentRevision &&
@@ -1712,9 +1786,22 @@ export function useCollabReconcile({
         // A live doc that moved on since the last snapshot holds typing the
         // snapshot predates (a peer's save lags the Yjs state); adopting it
         // would delete that text for every peer. SQL catches up on the next save.
+        // A joining doc has adopted no snapshot, but one that is exactly the
+        // body its collaborators last reported holding holds no such typing.
         if (!editorUnchangedSinceApply) {
-          peerWait.leadDeadline = null;
-          return;
+          const proof =
+            joinedOn && proveReportedBody(joinedOn, currentMarkdown);
+          if (proof && proof.proven === null) {
+            void proof.answered.then(() => {
+              if (!cancelled) apply(deferred);
+            });
+            return;
+          }
+          if (!proof?.proven) {
+            peerWait.leadDeadline = null;
+            return;
+          }
+          failoverOn = currentMarkdown;
         }
       }
 
@@ -1807,13 +1894,16 @@ export function useCollabReconcile({
         const beforeMarkdown = scheduledCallbacks.getMarkdown(editor);
         // A doc the gate let through can gain text, or its evidence a newer
         // report, before React cleans this timer up, so the gate runs again.
+        // One let through only as a reported body runs it on any change, even
+        // to an empty doc: clearing it is an unsaved edit too.
         const joining = joinsOnPeerEvidence && !holdsStoredBody();
         if (
-          joining &&
-          contentRevision &&
-          beforeMarkdown.trim() &&
-          (!joinedOn ||
-            currentJoinEvidence(ydoc!, contentRevision) !== joinedOn)
+          (failoverOn !== null && beforeMarkdown !== failoverOn) ||
+          (joining &&
+            contentRevision &&
+            beforeMarkdown.trim() &&
+            (!joinedOn ||
+              currentJoinEvidence(ydoc!, contentRevision) !== joinedOn))
         ) {
           apply(deferred);
           return;
