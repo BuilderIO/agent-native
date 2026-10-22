@@ -18,6 +18,7 @@ import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { getForwardedRequestOrigin } from "../server/request-origin.js";
 import {
   verifyAuth,
   McpIdentityVerificationUnavailableError,
@@ -63,14 +64,7 @@ export {
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
 
 function deriveRequestMeta(event: H3Event): MCPRequestMeta {
-  const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
-  const host =
-    getRequestHeader(event, "x-forwarded-host") ||
-    getRequestHeader(event, "host");
-  const proto =
-    forwardedProto?.split(",")[0]?.trim() ||
-    (host && /^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
-  const origin = host ? `${proto}://${host}` : undefined;
+  const origin = getForwardedRequestOrigin(event);
   const targetHeader = getRequestHeader(
     event,
     "x-agent-native-open-target",
@@ -155,14 +149,9 @@ function buildWebRequest(
     }
   }
 
-  const host =
-    headers.get("x-forwarded-host") || headers.get("host") || "localhost";
-  const forwardedProto = headers.get("x-forwarded-proto");
-  const proto =
-    forwardedProto?.split(",")[0]?.trim() ||
-    (/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
+  const origin = getForwardedRequestOrigin(event);
   const basePath = getConfiguredAppBasePath();
-  const url = `${proto}://${host}${basePath}${routePath}`;
+  const url = `${origin}${basePath}${routePath}`;
 
   return new Request(url, { method, headers });
 }

@@ -7,6 +7,7 @@ const { mockGetSession, mockGetBrowserCookieSession } = vi.hoisted(() => ({
 }));
 
 vi.mock("./auth.js", () => ({
+  getBrowserSessionConfigurationError: () => undefined,
   getSession: (...args: unknown[]) => mockGetSession(...args),
   getBrowserCookieSession: (...args: unknown[]) =>
     mockGetBrowserCookieSession(...args),
@@ -265,6 +266,7 @@ describe("UI action capability", () => {
         ownerEmail,
         targetPath: "/documents/doc-1",
         audienceHost: "example.test",
+        scope: "capability:visual-edit:design:design-1",
       });
       const app = createApp();
       mountUiActionCapabilityRoute(app);
@@ -293,25 +295,55 @@ describe("UI action capability", () => {
     },
   );
 
-  it("mints for a browser session with an invalid leftover embed cookie", async () => {
-    const app = createApp();
-    mountUiActionCapabilityRoute(app);
+  it.each([
+    "invalid",
+    "expired",
+    "other-target",
+    "other-host",
+    "other-mount",
+  ] as const)(
+    "mints for a browser session with an %s ambient embed cookie",
+    async (kind) => {
+      const app = createApp();
+      mountUiActionCapabilityRoute(app);
+      const issuedAt =
+        kind === "expired"
+          ? vi.spyOn(Date, "now").mockReturnValue(Date.now() - 120_000)
+          : undefined;
+      if (kind === "other-mount") vi.stubEnv("APP_BASE_PATH", "/other");
+      const token =
+        kind === "invalid"
+          ? "invalid"
+          : signEmbedSessionToken({
+              ownerEmail: "alice@example.com",
+              targetPath: "/documents/doc-1",
+              audienceHost:
+                kind === "other-host" ? "other.test" : "example.test",
+              ttlSeconds: 60,
+              scope:
+                kind === "other-target"
+                  ? "minimal"
+                  : "capability:visual-edit:design:design-1",
+            });
+      issuedAt?.mockRestore();
+      if (kind === "other-mount") vi.stubEnv("APP_BASE_PATH", "");
 
-    const response = await app.fetch(
-      new Request("https://example.test/_agent-native/ui-capability", {
-        headers: {
-          "sec-fetch-site": "same-origin",
-          cookie: "an_embed_session=invalid; an_session=browser-login",
-        },
-      }),
-    );
+      const response = await app.fetch(
+        new Request("https://example.test/_agent-native/ui-capability", {
+          headers: {
+            "sec-fetch-site": "same-origin",
+            cookie: `an_embed_session=${token}; an_session=browser-login`,
+          },
+        }),
+      );
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
-    expect(response.headers.get("set-cookie")).toContain(
-      "agent-native-ui-capability=",
-    );
-  });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true });
+      expect(response.headers.get("set-cookie")).toContain(
+        "agent-native-ui-capability=",
+      );
+    },
+  );
 
   it("does not mint a UI capability from an inline-enabled MCP embed session", async () => {
     const origin = "https://example.test";
@@ -391,6 +423,7 @@ describe("UI action capability", () => {
         headers: {
           origin,
           "sec-fetch-site": "same-origin",
+          "x-agent-native-embed-target": result.targetPath,
           cookie: `${EMBED_SESSION_COOKIE}=${token}; an_session=browser-login`,
         },
       }),

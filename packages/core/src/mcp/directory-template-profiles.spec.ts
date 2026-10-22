@@ -1522,7 +1522,9 @@ describe("ChatGPT directory template profiles", () => {
           widgetTargets: { "create-document": target, "get-document": target },
         },
       }),
-    ).toThrow(/widget target "get-document" must name a listed action/);
+    ).toThrow(
+      /widget target "get-document" must name an MCP action with an mcpApp resource/,
+    );
   });
 
   it("keeps a denied create_embed_session out of tools/list and tools/call", async () => {

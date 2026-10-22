@@ -2,6 +2,7 @@ import type { H3Event } from "h3";
 import {
   defineEventHandler,
   getCookie,
+  getHeader,
   getMethod,
   setCookie,
   setResponseHeader,
@@ -12,7 +13,10 @@ import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
 } from "./app-base-path.js";
-import { getBrowserCookieSession } from "./auth.js";
+import {
+  getBrowserCookieSession,
+  getBrowserSessionConfigurationError,
+} from "./auth.js";
 import { hasPresentedEmbedSessionCredential } from "./embed-session.js";
 import { getH3App } from "./framework-request-handler.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
@@ -67,11 +71,15 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
     return { error: "Browser cookie session required" };
   }
 
-  const session = await getBrowserCookieSession(event);
+  const session = getHeader(event, "authorization")
+    ? null
+    : await getBrowserCookieSession(event);
   const ownerEmail = normalizedEmail(session?.email);
   if (!ownerEmail) {
     setResponseStatus(event, 401);
-    return { error: "Authentication required" };
+    return {
+      error: getBrowserSessionConfigurationError() ?? "Authentication required",
+    };
   }
 
   if (!hasSameOriginBrowserEvidence(event)) {
