@@ -52,7 +52,7 @@ Find docs: `pnpm action docs-search --query "<topic>"`; read: `pnpm action docs-
 | `create-design` / `generate-design` | Start empty design / generate a fresh screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
-| `get-view-settings` / `update-view-settings` | Read/update view toggles (grid, snap, rulers, cursors, hidden comments) |
+| `get-view-settings` / `update-view-settings` | Read/update view toggles |
 | `get-shader` / `edit-native-shader` | Inspect curated native effects; CAS-edit one inline scene |
 | `get-native-shader-approvals` | Read viewer-scoped exact effect approvals for accessible Design previews |
 | `prepare-native-scene-export` | Pin scene for PNG |
@@ -67,7 +67,7 @@ Find docs: `pnpm action docs-search --query "<topic>"`; read: `pnpm action docs-
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use actions for design data and writes; never write design rows directly with SQL.
-- For external integrations, inspect workspace/provider connections first; reuse the scoped resolver.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - `[Reprompt selection]` is preview-only: only `propose-node-rewrite` may mutate. `[Selection question]` is read-only; answer without content-writing actions.
 - Generated files are complete standalone HTML (Alpine.js + Tailwind CDN), rendered without a build step. Follow `design-generation` for its quality/audit pass and `data-agent-native-locked="true"` for locked subtrees.
 - Source modes are `inline`, `localhost`, and `fusion` (`full-app-build`). `/design/:id` is read-only; `/visual-edit/:id` allows DOM-only localhost edits. Source writes and snapshot publishing require editor access.
@@ -84,6 +84,6 @@ Find docs: `pnpm action docs-search --query "<topic>"`; read: `pnpm action docs-
 
 ## Source Changes
 
-For workspace/agent UI, read `agent-native-toolkit`; for shared UI changes, read `customizing-agent-native`. Before editor changes, read `design-editor-architecture`; commands live in `app/pages/design-editor/commands/*.ts`.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor behavior lives in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before changing it.
 
 Search with `rg --hidden --follow`; read the exact linked guide before deeper work.
