@@ -1,27 +1,15 @@
-import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+
+import { fetchPullRequestFilePages } from "./github-pull-request-files.ts";
 
 export type ReleasePullRequestPackageFile = {
   filename: string;
   status: string;
 };
 
-export function releasePullRequestFilesArgs(
-  repo: string,
-  pullRequestNumber: string,
-): string[] {
-  return [
-    "api",
-    "--paginate",
-    "--slurp",
-    `repos/${repo}/pulls/${pullRequestNumber}/files`,
-  ];
-}
-
 export function parseReleasePullRequestPackageFiles(
-  response: string,
+  pages: unknown,
 ): ReleasePullRequestPackageFile[] {
-  const pages: unknown = JSON.parse(response);
   if (
     !Array.isArray(pages) ||
     pages.length === 0 ||
@@ -63,12 +51,8 @@ if (
     throw new Error("REPO and PR_NUMBER are required");
   }
 
-  const response = execFileSync(
-    "gh",
-    releasePullRequestFilesArgs(repo, pullRequestNumber),
-    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-  );
+  const pages = fetchPullRequestFilePages(repo, pullRequestNumber);
   process.stdout.write(
-    JSON.stringify(parseReleasePullRequestPackageFiles(response)),
+    JSON.stringify(parseReleasePullRequestPackageFiles(pages)),
   );
 }

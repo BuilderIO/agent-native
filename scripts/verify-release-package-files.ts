@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
 
+import { fetchPullRequestFilePages } from "./github-pull-request-files.ts";
+
 const pullRequestFilesLimit = 3_000;
 
 const allowedReleasePaths = [
@@ -98,14 +100,7 @@ function main(): void {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     }).trim();
-  const pages = JSON.parse(
-    gh([
-      "api",
-      "--paginate",
-      "--slurp",
-      `repos/${repo}/pulls/${prNumber}/files`,
-    ]),
-  ) as unknown;
+  const pages = fetchPullRequestFilePages(repo, prNumber, gh);
   const files = extractPullRequestFileNames(pages);
   const pullRequest = JSON.parse(
     gh(["api", `repos/${repo}/pulls/${prNumber}`]),

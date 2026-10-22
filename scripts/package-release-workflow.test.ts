@@ -16,9 +16,10 @@ import {
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
 import {
-  parseReleasePullRequestPackageFiles,
-  releasePullRequestFilesArgs,
-} from "./list-release-pr-package-files.ts";
+  fetchPullRequestFilePages,
+  pullRequestFilesApiArgs,
+} from "./github-pull-request-files.ts";
+import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
   gitBlobSha,
   syncCommunityQrBlobPins,
@@ -763,9 +764,27 @@ importers:
     );
   });
 
-  it("parses paginated package manifest files with the merge guard command", () => {
+  it("uses one tested paginated file request for both release verifiers", () => {
+    const calls: string[][] = [];
+    const pages = fetchPullRequestFilePages(
+      "BuilderIO/agent-native",
+      "8062",
+      (args) => {
+        calls.push(args);
+        return JSON.stringify([
+          [
+            { filename: "packages/core/package.json", status: "modified" },
+            { filename: "packages/core/README.md", status: "modified" },
+          ],
+          [{ filename: "package.json", status: "added" }],
+        ]);
+      },
+    );
+    assert.deepEqual(calls, [
+      pullRequestFilesApiArgs("BuilderIO/agent-native", "8062"),
+    ]);
     assert.deepEqual(
-      releasePullRequestFilesArgs("BuilderIO/agent-native", "8062"),
+      pullRequestFilesApiArgs("BuilderIO/agent-native", "8062"),
       [
         "api",
         "--paginate",
@@ -773,27 +792,16 @@ importers:
         "repos/BuilderIO/agent-native/pulls/8062/files",
       ],
     );
-    assert.deepEqual(
-      parseReleasePullRequestPackageFiles(
-        JSON.stringify([
-          [
-            { filename: "packages/core/package.json", status: "modified" },
-            { filename: "packages/core/README.md", status: "modified" },
-          ],
-          [{ filename: "package.json", status: "added" }],
-        ]),
-      ),
-      [
-        { filename: "packages/core/package.json", status: "modified" },
-        { filename: "package.json", status: "added" },
-      ],
-    );
+    assert.deepEqual(parseReleasePullRequestPackageFiles(pages), [
+      { filename: "packages/core/package.json", status: "modified" },
+      { filename: "package.json", status: "added" },
+    ]);
     assert.throws(
-      () => parseReleasePullRequestPackageFiles(JSON.stringify([[{}]])),
+      () => parseReleasePullRequestPackageFiles([[{}]]),
       /invalid release PR file list/,
     );
     assert.throws(
-      () => parseReleasePullRequestPackageFiles(JSON.stringify({ files: [] })),
+      () => parseReleasePullRequestPackageFiles({ files: [] }),
       /invalid release PR file list/,
     );
   });
