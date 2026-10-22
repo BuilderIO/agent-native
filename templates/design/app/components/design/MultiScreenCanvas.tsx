@@ -10798,12 +10798,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
   }, [handleWheelEvent]);
 
+  // A render may have moved or resized a screen (a nudge, a collaborator's
+  // edit), so the next wheel step measures its frame again. A gesture's own
+  // camera moves write the DOM directly and don't render.
+  useLayoutEffect(() => {
+    embeddedWheelFrameRef.current = null;
+  });
+
   useEffect(() => {
     const handleEmbeddedWheelMessage = (event: MessageEvent) => {
       if (!event.data || event.data.type !== "embedded-canvas-wheel") return;
+      if (!event.source) return;
+      // Free the screen to send its next step; it folds steps until this
+      // arrives, and waits for it once it has seen one.
+      try {
+        (event.source as Window).postMessage(
+          {
+            type: "embedded-canvas-wheel-read",
+            seq: Number(event.data.seq) || 0,
+          },
+          "*",
+        );
+      } catch {}
       if (focusedInteractRef.current) return;
       const surface = surfaceRef.current;
-      if (!surface || !event.source) return;
+      if (!surface) return;
 
       // Measure the frame once per gesture. Reading its box on every step
       // forced a layout per step, and Safari queued those steps behind it.
@@ -10845,11 +10864,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         embeddedWheelFrameRef.current = frame;
       }
       frame.usedAt = now;
-      // Free the frame to send its next step; it folds steps until this arrives.
-      frame.iframe.contentWindow?.postMessage(
-        { type: "embedded-canvas-wheel-read" },
-        "*",
-      );
 
       const scale = zoomRef.current / 100;
       const pan = panRef.current;

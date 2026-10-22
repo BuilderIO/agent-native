@@ -116,6 +116,52 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     return surface!;
   }
 
+  async function postScreenWheel(
+    iframe: HTMLIFrameElement,
+    data: Record<string, unknown>,
+  ) {
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "embedded-canvas-wheel",
+            deltaX: 0,
+            deltaMode: 0,
+            metaKey: false,
+            shiftKey: false,
+            ...data,
+          },
+          source: iframe.contentWindow,
+        }),
+      );
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+    });
+    return readView(container);
+  }
+
+  function addScreenFrame(surface: HTMLElement, at: { x: number; y: number }) {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    surface.append(iframe);
+    Object.defineProperty(iframe, "clientWidth", { value: 400 });
+    Object.defineProperty(iframe, "clientHeight", { value: 300 });
+    const frameRect = vi.fn(() => ({
+      x: at.x,
+      y: at.y,
+      left: at.x,
+      top: at.y,
+      right: at.x + 400,
+      bottom: at.y + 300,
+      width: 400,
+      height: 300,
+      toJSON: () => ({}),
+    }));
+    iframe.getBoundingClientRect = frameRect;
+    return { iframe, frameRect };
+  }
+
   async function applyTicks(surface: HTMLElement, ticks: WheelTick[]) {
     await act(async () => {
       for (const tick of ticks) surface.dispatchEvent(trustedWheel(tick));
@@ -408,82 +454,54 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
         surface.dispatchEvent(trustedWheel({ deltaY: -6, ctrlKey: true }));
         await new Promise<void>((resolve) => setTimeout(resolve, 160));
       });
+      // The step's frame was requested first; the commit's came due after the
+      // delay and runs while the step is still queued.
+      const [stepFrame, ...laterFrames] = heldFrames;
+      await act(async () => {
+        laterFrames.forEach((callback) => callback(performance.now()));
+      });
       expect(onZoomChange).not.toHaveBeenCalled();
       expect(
         container.querySelector<HTMLElement>(
           "[data-multi-screen-canvas-world]",
         )!.style.willChange,
       ).toBe("transform");
-    } finally {
-      requestFrame.mockRestore();
-    }
 
-    try {
+      requestFrame.mockRestore();
       await act(async () => {
-        heldFrames.forEach((callback) => callback(performance.now()));
+        stepFrame(performance.now());
       });
     } finally {
+      requestFrame.mockRestore();
       cancelFrame.mockRestore();
     }
     await act(async () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 200));
     });
     expect(onZoomChange).toHaveBeenCalledOnce();
-    expect(onZoomChange).toHaveBeenCalledWith(
-      readView(container).scale * 100,
-    );
+    expect(onZoomChange).toHaveBeenCalledWith(readView(container).scale * 100);
   });
 
   it("keeps a pinch over a screen anchored while measuring the frame once", async () => {
     const surface = await renderSurface();
-    const iframe = document.createElement("iframe");
-    iframe.setAttribute("data-design-preview-iframe", "");
-    surface.append(iframe);
-    Object.defineProperty(iframe, "clientWidth", { value: 400 });
-    Object.defineProperty(iframe, "clientHeight", { value: 300 });
     const start = readView(container);
-    const frameRect = vi.fn(() => ({
+    const { iframe, frameRect } = addScreenFrame(surface, {
       x: start.x + 100,
       y: start.y + 50,
-      left: start.x + 100,
-      top: start.y + 50,
-      right: start.x + 500,
-      bottom: start.y + 350,
-      width: 400,
-      height: 300,
-      toJSON: () => ({}),
-    }));
-    iframe.getBoundingClientRect = frameRect;
+    });
     const cursor = { x: start.x + 150, y: start.y + 90 };
     const worldUnderCursor = (view: ReturnType<typeof readView>) => ({
       x: (cursor.x - view.x) / view.scale,
       y: (cursor.y - view.y) / view.scale,
     });
 
-    async function pinchStep() {
-      await act(async () => {
-        window.dispatchEvent(
-          new MessageEvent("message", {
-            data: {
-              type: "embedded-canvas-wheel",
-              deltaX: 0,
-              deltaY: -6,
-              deltaMode: 0,
-              clientX: 50,
-              clientY: 40,
-              ctrlKey: true,
-              metaKey: false,
-              shiftKey: false,
-            },
-            source: iframe.contentWindow,
-          }),
-        );
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
+    const pinchStep = () =>
+      postScreenWheel(iframe, {
+        deltaY: -6,
+        clientX: 50,
+        clientY: 40,
+        ctrlKey: true,
       });
-      return readView(container);
-    }
 
     const first = await pinchStep();
     const second = await pinchStep();
@@ -507,39 +525,42 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     expect(frameRect).toHaveBeenCalledTimes(2);
   });
 
+  it("measures a screen again after a render that may have moved it", async () => {
+    const surface = await renderSurface();
+    const { iframe, frameRect } = addScreenFrame(surface, { x: 100, y: 50 });
+    const pinchStep = () =>
+      postScreenWheel(iframe, {
+        deltaY: -6,
+        clientX: 50,
+        clientY: 40,
+        ctrlKey: true,
+      });
+
+    await pinchStep();
+    expect(frameRect).toHaveBeenCalledOnce();
+    // A nudge or a collaborator's edit re-renders the board mid-gesture.
+    await renderSurface();
+    await pinchStep();
+    expect(frameRect).toHaveBeenCalledTimes(2);
+  });
+
   it("answers a screen's wheel and keeps the full travel of folded steps", async () => {
     const surface = await renderSurface();
-    const iframe = document.createElement("iframe");
-    iframe.setAttribute("data-design-preview-iframe", "");
-    surface.append(iframe);
+    const { iframe } = addScreenFrame(surface, { x: 100, y: 50 });
     const replies = vi.spyOn(iframe.contentWindow!, "postMessage");
     const before = readView(container);
 
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "embedded-canvas-wheel",
-            deltaX: 0,
-            deltaY: 600,
-            deltaMode: 0,
-            clientX: 10,
-            clientY: 10,
-            ctrlKey: false,
-            metaKey: false,
-            shiftKey: false,
-            steps: 3,
-          },
-          source: iframe.contentWindow,
-        }),
-      );
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => resolve()),
-      );
+    await postScreenWheel(iframe, {
+      deltaY: 600,
+      clientX: 10,
+      clientY: 10,
+      ctrlKey: false,
+      steps: 3,
+      seq: 7,
     });
 
     expect(replies).toHaveBeenCalledWith(
-      { type: "embedded-canvas-wheel-read" },
+      { type: "embedded-canvas-wheel-read", seq: 7 },
       "*",
     );
     expect(readView(container).y).toBeCloseTo(before.y - 600, 10);

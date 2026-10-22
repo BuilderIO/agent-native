@@ -1,5 +1,5 @@
 /**
- * Pinch-zoom bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
+ * Pinch-zoom bridge — injected into every Edit canvas iframe except an overview screen's srcdoc, whose wheels go through the embedded gesture bridge. Interact's document carries only the theme and links bridges.
  *
  * Forwards trackpad pinch / Cmd-Ctrl+scroll wheel events from inside the
  * iframe to the parent window. Wheel events don't naturally bubble out of an

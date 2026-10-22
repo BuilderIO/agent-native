@@ -9,6 +9,7 @@ type ForwardedWheel = {
   deltaY: number;
   ctrlKey: boolean;
   steps: number;
+  seq: number;
 };
 
 const bridge = embeddedWheelBridgeScript
@@ -21,6 +22,8 @@ async function withPage(run: (page: Page) => Promise<void>) {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
+    // The bridge's timers run only when a test moves this clock.
+    await page.clock.install();
     await page.setContent('<!doctype html><html><body style="margin:0">');
     await page.evaluate(() => {
       const posted: unknown[] = [];
@@ -59,23 +62,30 @@ function wheels(page: Page, ticks: { deltaY: number; ctrlKey?: boolean }[]) {
 }
 
 const posted = (page: Page) =>
-  page.evaluate(
-    () =>
-      (window as unknown as { __posted: ForwardedWheel[] }).__posted.map(
-        ({ type, deltaX, deltaY, ctrlKey, steps }) => ({
-          type,
-          deltaX,
-          deltaY,
-          ctrlKey,
-          steps,
-        }),
-      ),
+  page.evaluate(() =>
+    (window as unknown as { __posted: ForwardedWheel[] }).__posted.map(
+      ({ type, deltaX, deltaY, ctrlKey, steps }) => ({
+        type,
+        deltaX,
+        deltaY,
+        ctrlKey,
+        steps,
+      }),
+    ),
   );
 
-const read = (page: Page) =>
-  page.evaluate(() =>
-    window.postMessage({ type: "embedded-canvas-wheel-read" }, "*"),
-  );
+// Answers a posted step the way MultiScreenCanvas does, echoing its seq;
+// by default the latest one.
+const read = (page: Page, index = -1) =>
+  page.evaluate((index) => {
+    const posted = (window as unknown as { __posted: ForwardedWheel[] })
+      .__posted;
+    const step = posted[index < 0 ? posted.length + index : index];
+    window.postMessage(
+      { type: "embedded-canvas-wheel-read", seq: step.seq },
+      "*",
+    );
+  }, index);
 
 describe("the embedded wheel bridge", () => {
   it(
@@ -115,7 +125,7 @@ describe("the embedded wheel bridge", () => {
   );
 
   it(
-    "keeps a pinch and a scroll in separate steps",
+    "keeps a pinch and a scroll in separate steps, one unread at a time",
     { timeout: 30_000 },
     async () => {
       await withPage(async (page) => {
@@ -123,19 +133,80 @@ describe("the embedded wheel bridge", () => {
           { deltaY: -4, ctrlKey: true },
           { deltaY: -6, ctrlKey: true },
           { deltaY: 30 },
+          { deltaY: 10 },
         ]);
-        await read(page);
-        await page.waitForTimeout(20);
-        expect(
+        const kinds = async () =>
           (await posted(page)).map(({ deltaY, ctrlKey, steps }) => ({
             deltaY,
             ctrlKey,
             steps,
-          })),
-        ).toEqual([
+          }));
+        await read(page);
+        await page.waitForTimeout(20);
+        expect(await kinds()).toEqual([
           { deltaY: -4, ctrlKey: true, steps: 1 },
           { deltaY: -6, ctrlKey: true, steps: 1 },
-          { deltaY: 30, ctrlKey: false, steps: 1 },
+        ]);
+
+        await read(page);
+        await page.waitForTimeout(20);
+        expect((await kinds()).slice(2)).toEqual([
+          { deltaY: 40, ctrlKey: false, steps: 2 },
+        ]);
+      });
+    },
+  );
+
+  it(
+    "ignores a late answer to a step the timer already gave up on",
+    { timeout: 30_000 },
+    async () => {
+      await withPage(async (page) => {
+        await wheels(page, [{ deltaY: 20 }, { deltaY: 30 }]);
+        await page.clock.runFor(100);
+        await page.waitForTimeout(20);
+        await wheels(page, [{ deltaY: 10 }]);
+        expect(await posted(page)).toHaveLength(2);
+
+        // The first step's answer arrives after the timer sent the second.
+        await read(page, 0);
+        await page.waitForTimeout(20);
+        expect(await posted(page)).toHaveLength(2);
+
+        await read(page, 1);
+        await page.waitForTimeout(20);
+        expect(
+          (await posted(page)).map(({ deltaY, steps }) => ({ deltaY, steps })),
+        ).toEqual([
+          { deltaY: 20, steps: 1 },
+          { deltaY: 30, steps: 1 },
+          { deltaY: 10, steps: 1 },
+        ]);
+      });
+    },
+  );
+
+  it(
+    "waits for a host that has answered, however slow its frames",
+    { timeout: 30_000 },
+    async () => {
+      await withPage(async (page) => {
+        await wheels(page, [{ deltaY: 20 }]);
+        await read(page);
+        await page.waitForTimeout(20);
+        await wheels(page, [{ deltaY: 30 }, { deltaY: 10 }]);
+        await page.clock.runFor(400);
+        await page.waitForTimeout(20);
+        expect(await posted(page)).toHaveLength(2);
+
+        await read(page);
+        await page.waitForTimeout(20);
+        expect(
+          (await posted(page)).map(({ deltaY, steps }) => ({ deltaY, steps })),
+        ).toEqual([
+          { deltaY: 20, steps: 1 },
+          { deltaY: 30, steps: 1 },
+          { deltaY: 10, steps: 1 },
         ]);
       });
     },
@@ -147,7 +218,8 @@ describe("the embedded wheel bridge", () => {
     async () => {
       await withPage(async (page) => {
         await wheels(page, [{ deltaY: 20 }, { deltaY: 30 }, { deltaY: 10 }]);
-        await page.waitForTimeout(250);
+        await page.clock.runFor(250);
+        await page.waitForTimeout(20);
         expect(
           (await posted(page)).map(({ deltaY, steps }) => ({ deltaY, steps })),
         ).toEqual([

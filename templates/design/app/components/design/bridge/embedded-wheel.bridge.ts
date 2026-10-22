@@ -21,12 +21,12 @@
  * Protocol (iframe → parent, only when enabled):
  *
  *   { type: 'embedded-canvas-wheel', deltaX, deltaY, deltaZ, deltaMode,
- *     clientX, clientY, ctrlKey, metaKey, shiftKey, altKey, steps }
+ *     clientX, clientY, ctrlKey, metaKey, shiftKey, altKey, steps, seq }
  *
- *   Until the host answers the last one with 'embedded-canvas-wheel-read',
- *   later wheels fold into a single pending message whose deltas are summed
- *   over `steps` wheels, so a host that falls behind never works through a
- *   queue of stale steps after the fingers stop.
+ *   Until the host answers the last one with 'embedded-canvas-wheel-read'
+ *   and its `seq`, later wheels fold into one pending message per kind of
+ *   step, with deltas summed over `steps` wheels, so a host that falls behind
+ *   never works through a queue of stale steps after the fingers stop.
  *
  *   { type: 'embedded-canvas-pan', phase: 'start'|'move'|'end'|'cancel',
  *     pointerId, button, buttons, clientX, clientY, movementX, movementY,
@@ -35,7 +35,7 @@
  * Protocol (parent → iframe):
  *
  *   { type: 'embedded-canvas-pan-mode', leftButtonEnabled }
- *   { type: 'embedded-canvas-wheel-read' }
+ *   { type: 'embedded-canvas-wheel-read', seq }
  *   { type: 'embedded-canvas-gesture-mode', wheelEnabled,
  *     spaceKeyForwardingEnabled }
  *   { type: 'embedded-canvas-pan-cancel' }
@@ -84,9 +84,13 @@ declare var __INTERACTION_MODE__: boolean;
     altKey: boolean;
     steps: number;
   };
-  var pendingWheel: ForwardedWheel | null = null;
+  // Folded steps waiting for the host, one per kind of step in arrival order.
+  var pendingWheels: ForwardedWheel[] = [];
   var wheelAwaitingHost = false;
   var wheelReadTimer: number | null = null;
+  // The id of the last step sent; the host echoes it when it reads the step.
+  var wheelSeq = 0;
+  var hostAnswersWheels = false;
 
   function syncEditingSafetyStyle(): void {
     var currentStyle =
@@ -150,11 +154,17 @@ declare var __INTERACTION_MODE__: boolean;
   }
 
   function sendWheel(wheel: ForwardedWheel): void {
+    wheelSeq += 1;
     wheelAwaitingHost = true;
     if (wheelReadTimer !== null) window.clearTimeout(wheelReadTimer);
     // A host that never answers (the single-screen view reads pinches from the
     // zoom bridge instead) still gets the folded wheels, a few times a second.
-    wheelReadTimer = window.setTimeout(onWheelRead, 100);
+    // One that has answered keeps answering, however slow its frames, so its
+    // timer only covers an answer lost while the canvas remounts.
+    wheelReadTimer = window.setTimeout(
+      sendNextWheel,
+      hostAnswersWheels ? 1000 : 100,
+    );
     postToParent({
       type: "embedded-canvas-wheel",
       deltaX: wheel.deltaX,
@@ -168,18 +178,26 @@ declare var __INTERACTION_MODE__: boolean;
       shiftKey: wheel.shiftKey,
       altKey: wheel.altKey,
       steps: wheel.steps,
+      seq: wheelSeq,
     });
   }
 
-  function onWheelRead(): void {
+  function sendNextWheel(): void {
     if (wheelReadTimer !== null) {
       window.clearTimeout(wheelReadTimer);
       wheelReadTimer = null;
     }
     wheelAwaitingHost = false;
-    var next = pendingWheel;
-    pendingWheel = null;
+    var next = pendingWheels.shift();
     if (next) sendWheel(next);
+  }
+
+  function onWheelRead(seq: unknown): void {
+    // An answer to a step the timer already gave up on frees nothing: the
+    // step sent after it is still unread.
+    if (seq !== wheelSeq) return;
+    hostAnswersWheels = true;
+    sendNextWheel();
   }
 
   function resetWheelForwarding(): void {
@@ -188,7 +206,7 @@ declare var __INTERACTION_MODE__: boolean;
       wheelReadTimer = null;
     }
     wheelAwaitingHost = false;
-    pendingWheel = null;
+    pendingWheels = [];
   }
 
   function onWheel(e: WheelEvent): void {
@@ -213,7 +231,7 @@ declare var __INTERACTION_MODE__: boolean;
       sendWheel(wheel);
       return;
     }
-    var pending = pendingWheel;
+    var pending = pendingWheels[pendingWheels.length - 1];
     if (
       pending &&
       pending.deltaMode === wheel.deltaMode &&
@@ -230,10 +248,9 @@ declare var __INTERACTION_MODE__: boolean;
       pending.steps += 1;
       return;
     }
-    // A pinch turning into a scroll is a new kind of step: send the folded
-    // one as it is rather than mix the two.
-    if (pending) sendWheel(pending);
-    pendingWheel = wheel;
+    // A pinch turning into a scroll is a new kind of step: queue it behind
+    // the folded one rather than mix the two.
+    pendingWheels.push(wheel);
   }
 
   function shouldStartPan(e: PointerEvent): boolean {
@@ -414,7 +431,7 @@ declare var __INTERACTION_MODE__: boolean;
       return;
     }
     if (e.data.type === "embedded-canvas-wheel-read") {
-      onWheelRead();
+      onWheelRead(e.data.seq);
       return;
     }
     if (e.data.type === "embedded-canvas-pan-mode") {
