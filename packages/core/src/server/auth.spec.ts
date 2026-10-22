@@ -8940,6 +8940,282 @@ describe("server/auth", () => {
     });
   });
 
+  describe("getBrowserCookieSession", () => {
+    const cookieOwner = "cookie-owner@example.com";
+    const credentialOwner = "credential-owner@example.com";
+    let getSessionApi: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.AUTH_DISABLED;
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      getSessionApi = vi.fn(async ({ headers }: { headers: Headers }) =>
+        headers.get("authorization") === "Bearer bearer-login"
+          ? {
+              user: { id: "bearer-user", email: credentialOwner },
+              session: { token: "bearer-login" },
+            }
+          : null,
+      );
+      const betterAuth = { api: { getSession: getSessionApi } };
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: vi.fn(async () => betterAuth),
+        getBetterAuthSync: vi.fn(() => betterAuth),
+        resumeIdentityRekeysForEmail: vi.fn(async () => {}),
+      }));
+      const execute = vi.fn(
+        async (query: string | { sql: string; args?: unknown[] }) => {
+          const sql = typeof query === "string" ? query : query.sql;
+          const args = typeof query === "string" ? undefined : query.args;
+          const ledger = storeLedgerResult(sql);
+          if (ledger) return ledger;
+          if (
+            sql.includes("SELECT email, created_at FROM sessions") &&
+            ["legacy-login", "bearer-login", "query-login"].includes(
+              String(args?.[0]),
+            )
+          ) {
+            return {
+              rows: [
+                {
+                  email:
+                    args?.[0] === "legacy-login"
+                      ? cookieOwner
+                      : credentialOwner,
+                  created_at: Date.now(),
+                },
+              ],
+            };
+          }
+          return { rows: [] };
+        },
+      );
+      const db = { execute };
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => db,
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./legacy-auth-migration.js", () => ({
+        resolveCanonicalUserForLegacySession: vi.fn(async () => null),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => "org-cookie"),
+      }));
+      vi.doMock("./embed-session.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        resolveEmbedSessionFromRequest: vi.fn(async (event: any) =>
+          event.req.headers
+            .get("cookie")
+            ?.includes("an_embed_session=embed-login")
+            ? { email: credentialOwner, token: "embed-login", scope: "app" }
+            : null,
+        ),
+      }));
+    });
+
+    it.each([
+      {
+        name: "bearer",
+        headers: { authorization: "Bearer bearer-login" },
+        query: {},
+      },
+      {
+        name: "bearer with an unrelated cookie",
+        headers: { authorization: "Bearer bearer-login", cookie: "theme=dark" },
+        query: {},
+      },
+      {
+        name: "embed",
+        headers: { cookie: "an_embed_session=embed-login" },
+        query: {},
+      },
+      { name: "query", headers: {}, query: { _session: "query-login" } },
+    ])(
+      "does not reuse a general $name identity as a browser cookie session",
+      async ({ headers, query }) => {
+        const { getSession, getBrowserCookieSession } =
+          await import("./auth.js");
+        const event = createMockEvent({
+          headers: { ...headers, "sec-fetch-site": "same-origin" },
+          query,
+        });
+
+        await expect(getSession(event)).resolves.toMatchObject({
+          email: credentialOwner,
+        });
+        await expect(getBrowserCookieSession(event)).resolves.toBeNull();
+      },
+    );
+
+    it("does not resolve an identity from fetch metadata alone", async () => {
+      const { getBrowserCookieSession } = await import("./auth.js");
+      await expect(
+        getBrowserCookieSession(
+          createMockEvent({
+            headers: { "sec-fetch-site": "same-origin" },
+          }),
+        ),
+      ).resolves.toBeNull();
+    });
+
+    it("reads only the Better Auth cookie even when a bearer and embed identity are present", async () => {
+      getSessionApi.mockImplementation(
+        async ({ headers }: { headers: Headers }) => {
+          if (headers.get("authorization")) {
+            return {
+              user: { id: "bearer-user", email: credentialOwner },
+              session: { token: "bearer-login" },
+            };
+          }
+          return headers
+            .get("cookie")
+            ?.includes("__Secure-an.session_token=cookie/login")
+            ? {
+                user: {
+                  id: "cookie-user",
+                  email: cookieOwner,
+                  emailVerified: true,
+                },
+                session: { token: "cookie/login" },
+              }
+            : null;
+        },
+      );
+      const { getSession, getBrowserCookieSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie:
+            "__Secure-an.session_token=cookie%2Flogin; an_embed_session=embed-login",
+          authorization: "Bearer bearer-login",
+          "sec-fetch-site": "same-origin",
+        },
+      });
+      event.headers = new Headers();
+
+      await expect(getSession(event)).resolves.toMatchObject({
+        email: credentialOwner,
+      });
+      await expect(getBrowserCookieSession(event)).resolves.toMatchObject({
+        email: cookieOwner,
+        authUserId: "cookie-user",
+        token: "cookie/login",
+        emailVerified: true,
+        orgId: "org-cookie",
+      });
+    });
+
+    it("resolves a framework login cookie without using a bearer identity", async () => {
+      const { COOKIE_NAME, getBrowserCookieSession } =
+        await import("./auth.js");
+      await expect(
+        getBrowserCookieSession(
+          createMockEvent({
+            headers: {
+              cookie: `${COOKIE_NAME}=legacy-login`,
+              authorization: "Bearer bearer-login",
+            },
+          }),
+        ),
+      ).resolves.toMatchObject({
+        email: cookieOwner,
+        token: "legacy-login",
+        orgId: "org-cookie",
+      });
+    });
+
+    it.each([false, true])(
+      "does not trust a custom session resolver (AUTH_DISABLED=%s)",
+      async (authDisabled) => {
+        if (authDisabled) vi.stubEnv("AUTH_DISABLED", "1");
+        const {
+          autoMountAuth,
+          COOKIE_NAME,
+          getSession,
+          getBrowserCookieSession,
+        } = await import("./auth.js");
+        await autoMountAuth(createMockApp(), {
+          getSession: async () => ({ email: credentialOwner }),
+        });
+        const event = createMockEvent({
+          headers: { cookie: `${COOKIE_NAME}=legacy-login` },
+        });
+
+        await expect(getSession(event)).resolves.toMatchObject({
+          email: credentialOwner,
+        });
+        await expect(getBrowserCookieSession(event)).resolves.toBeNull();
+      },
+    );
+
+    it("does not use the desktop SSO fallback as a browser cookie session", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK", "0");
+      vi.doMock("./desktop-sso.js", () => ({
+        readDesktopSso: vi.fn(async () => ({
+          email: credentialOwner,
+          token: "desktop-login",
+        })),
+        writeDesktopSso: vi.fn(),
+        clearDesktopSso: vi.fn(),
+      }));
+      try {
+        const { getSession, getBrowserCookieSession } =
+          await import("./auth.js");
+        const event = createMockEvent({
+          headers: {
+            "user-agent":
+              "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.215",
+          },
+        });
+        event.req.context = { clientAddress: "127.0.0.1" };
+        event.req.ip = "127.0.0.1";
+        event.node.req.socket = { remoteAddress: "127.0.0.1" };
+        event.node.req.connection = event.node.req.socket;
+
+        await expect(getSession(event)).resolves.toMatchObject({
+          email: credentialOwner,
+          token: "desktop-login",
+        });
+        await expect(getBrowserCookieSession(event)).resolves.toBeNull();
+      } finally {
+        vi.doUnmock("./desktop-sso.js");
+      }
+    });
+
+    it.each(["1", "true"])(
+      "preserves AUTH_DISABLED=%s and its browser logout opt-out",
+      async (value) => {
+        vi.stubEnv("AUTH_DISABLED", value);
+        const { COOKIE_NAME, getBrowserCookieSession } =
+          await import("./auth.js");
+
+        await expect(
+          getBrowserCookieSession(createMockEvent()),
+        ).resolves.toMatchObject({ email: "dev@local.test" });
+        await expect(
+          getBrowserCookieSession(
+            createMockEvent({
+              headers: { cookie: `${COOKIE_NAME}_auth_disabled_opt_out=1` },
+            }),
+          ),
+        ).resolves.toBeNull();
+        await expect(
+          getBrowserCookieSession(
+            createMockEvent({
+              headers: {
+                cookie: `${COOKIE_NAME}_auth_disabled_opt_out=1; ${COOKIE_NAME}=legacy-login`,
+              },
+            }),
+          ),
+        ).resolves.toMatchObject({ email: cookieOwner, token: "legacy-login" });
+      },
+    );
+  });
+
   describe("getSession", () => {
     it("rechecks the database after a legacy session is revoked", async () => {
       vi.stubEnv("NODE_ENV", "production");

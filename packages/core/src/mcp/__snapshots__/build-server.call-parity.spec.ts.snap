@@ -1424,13 +1424,6 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
       },
     },
     {
-      "embedTicket": {
-        "ownerEmail": "oauth@example.com",
-        "scope": null,
-        "targetPath": "/inbox/thread-1?__an_mcp_chat_bridge=1",
-      },
-    },
-    {
       "mcpToolCall": {
         "durationMs": "<duration>",
         "isError": false,
@@ -1448,16 +1441,6 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
         "jsonrpc": "2.0",
         "result": {
           "_meta": {
-            "agent-native/embedStart": {
-              "expiresAt": 1735689600000,
-              "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-ticket&__an_mcp_chat_bridge=1",
-            },
-            "agent-native/openLink": {
-              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-1&agentSidebar=closed",
-              "label": "Open mail",
-              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-1",
-              "webUrl": "https://mail.agent-native.com/inbox/thread-1",
-            },
             "io.modelcontextprotocol/serverInfo": {
               "description": "Mail app",
               "name": "agent-native-mail",
@@ -1478,12 +1461,6 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
           "structuredContent": {
             "app": "mail",
             "embed": true,
-            "openLink": {
-              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-1&agentSidebar=closed",
-              "label": "Open mail",
-              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-1",
-              "webUrl": "https://mail.agent-native.com/inbox/thread-1",
-            },
             "title": "Thread",
             "url": "/inbox/thread-1",
           },
@@ -1984,14 +1961,6 @@ exports[`direct tools/call wire output > directory catalog: projected results, e
       "projectResult": {
         "result": "Upstream failed",
         "toolName": "dir-proxy-error",
-      },
-    },
-    {
-      "embedTicket": {
-        "ownerEmail": "oauth@example.com",
-        "revocationAnchorCreatedAtMs": 1767225600000,
-        "scope": "capability:mcp-directory-widget-read:eyJ2ZXJzaW9uIjoxLCJhcHBJZCI6Im1haWwiLCJyZXNvdXJjZVVyaSI6InVpOi8vbWFpbC9zaGVsbC12NjkiLCJyZXNvdXJjZUlkcyI6eyJ0aHJlYWQiOiJ0aHJlYWQtMSJ9LCJhY3Rpb25Bcmd1bWVudHMiOnsiZGlyLXJlYWQiOnsiaWQiOiJ0aHJlYWQtMSJ9fX0",
-        "targetPath": "/inbox?__an_mcp_chat_bridge=1",
       },
     },
     {
@@ -3057,13 +3026,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget 
       },
     },
     {
-      "embedTicket": {
-        "ownerEmail": "oauth@example.com",
-        "scope": null,
-        "targetPath": "/inbox/thread-1?__an_mcp_chat_bridge=1",
-      },
-    },
-    {
       "mcpToolCall": {
         "durationMs": "<duration>",
         "isError": false,
@@ -3081,16 +3043,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget 
         "jsonrpc": "2.0",
         "result": {
           "_meta": {
-            "agent-native/embedStart": {
-              "expiresAt": 1735689600000,
-              "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-ticket&__an_mcp_chat_bridge=1",
-            },
-            "agent-native/openLink": {
-              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-1&agentSidebar=closed",
-              "label": "Open mail",
-              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-1",
-              "webUrl": "https://mail.agent-native.com/inbox/thread-1",
-            },
             "io.modelcontextprotocol/serverInfo": {
               "description": "Mail app",
               "name": "agent-native-mail",
@@ -3111,12 +3063,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget 
           "structuredContent": {
             "app": "mail",
             "embed": true,
-            "openLink": {
-              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-1&agentSidebar=closed",
-              "label": "Open mail",
-              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-1",
-              "webUrl": "https://mail.agent-native.com/inbox/thread-1",
-            },
             "title": "Thread",
             "url": "/inbox/thread-1",
           },
@@ -3229,15 +3175,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget-
         "jsonrpc": "2.0",
         "result": {
           "_meta": {
-            "agent-native/embedStart": {
-              "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=leaked-ticket&__an_mcp_chat_bridge=1",
-            },
-            "agent-native/openLink": {
-              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-2&agentSidebar=closed",
-              "label": "Open mail",
-              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-2",
-              "webUrl": "https://mail.agent-native.com/inbox/thread-2",
-            },
             "io.modelcontextprotocol/serverInfo": {
               "description": "Mail app",
               "name": "agent-native-mail",
@@ -3259,13 +3196,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget-
             "app": "mail",
             "deepLinkUrl": "/inbox/thread-2",
             "message": "Draft ready",
-            "openLink": {
-              "desktopUrl": "agentnative://open?app=mail&view=&to=%2Finbox%2Fthread-2&agentSidebar=closed",
-              "label": "Open mail",
-              "vscodeUrl": "vscode://builder.agent-native/open?url=https%3A%2F%2Fmail.agent-native.com%2Finbox%2Fthread-2",
-              "webUrl": "https://mail.agent-native.com/inbox/thread-2",
-            },
-            "url": "https://mail.agent-native.com/inbox/thread-2",
           },
         },
       },

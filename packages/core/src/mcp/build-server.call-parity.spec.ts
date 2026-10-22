@@ -1325,7 +1325,40 @@ describe("direct tools/call embed credential redaction", () => {
   };
   const leakConfig = {
     ...config,
-    actions: { ...leakActions, ...contextActions, ...unreadableActions },
+    actions: {
+      ...leakActions,
+      ...contextActions,
+      ...unreadableActions,
+      "fixture-widget-read": act({
+        description: "Read the scoped widget fixture.",
+        readOnly: true,
+        requiresAuth: true,
+        http: { method: "GET" },
+        parameters: {
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+        run: async (args: Record<string, unknown>) => ({ id: args.id }),
+      }),
+    },
+    directoryProfile: {
+      connectorCatalog: [
+        "leak-in-widget",
+        "over-cap-widget-write",
+        "fixture-widget-read",
+      ],
+      widgetTargets: Object.fromEntries(
+        ["leak-in-widget", "over-cap-widget-write"].map((name) => [
+          name,
+          () => ({
+            targetPath: "/inbox/thread-1",
+            resourceIds: { threadId: "thread-1" },
+          }),
+        ]),
+      ),
+      widgetReadActionArguments: { "fixture-widget-read": { id: "threadId" } },
+    },
   };
 
   async function call(name: string) {

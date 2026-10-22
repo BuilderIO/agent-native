@@ -134,7 +134,10 @@ describe("createEmbedStartRouteHandler", () => {
 
     expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
       "ticket-123",
-      expect.objectContaining({ expectedOwnerEmail: null }),
+      expect.objectContaining({
+        audienceHost: "beta.calendar.agent-native.com",
+        expectedOwnerEmail: null,
+      }),
     );
     expect(setEmbedSessionCookie).toHaveBeenCalledTimes(1);
     expect(signEmbedSessionToken).toHaveBeenCalledWith({

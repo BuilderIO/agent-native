@@ -58,6 +58,7 @@ export function embedApp(
 
   return {
     title,
+    requiresEmbedSession: true,
     ...(options.description ? { description: options.description } : {}),
     html: (ctx) => {
       const remoteBridgeFallbackEnabled = ctx.catalogMode !== "directory";
@@ -609,7 +610,10 @@ export function embedApp(
       renewInPlace = false,
       renewalSourceTicket = "",
     ) {
-      if (body.dataset.catalogMode === "directory") {
+      if (
+        body.dataset.catalogMode === "directory" ||
+        typeof objectValue(toolResponseMetadata["agent-native/widgetSource"]).sourceTicket === "string"
+      ) {
         const widgetSource = objectValue(
           toolResponseMetadata["agent-native/widgetSource"],
         );
@@ -1614,10 +1618,11 @@ export function embedApp(
       frame,
       frameLoadGeneration,
     ) {
-      const directoryMode = body.dataset.catalogMode === "directory";
+      const scopedMode = body.dataset.catalogMode === "directory" ||
+        typeof objectValue(toolResponseMetadata["agent-native/widgetSource"]).sourceTicket === "string";
       const canDeliverRenewal = () =>
         frame === appFrame &&
-        (!directoryMode ||
+        (!scopedMode ||
           appFrameDocumentState.loadGeneration === frameLoadGeneration);
       const sendRenewalResult = (message) => {
         if (!canDeliverRenewal()) return;
@@ -1643,13 +1648,13 @@ export function embedApp(
       try {
         const result = await callEmbedSessionTool(
           embedSessionArgsFor(
-            directoryMode ? openStartUrl || openUrl : openUrl,
-            directoryMode,
+            scopedMode ? openStartUrl || openUrl : openUrl,
+            scopedMode,
             activeEmbedSessionTicket,
           ),
         );
         const data = parseToolResult(result);
-        if (directoryMode) {
+        if (scopedMode) {
           if (data.renewed !== true) {
             sendRenewalResult({
               type: "agentNative.embedSessionRenewed",

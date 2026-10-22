@@ -66,6 +66,7 @@ class AskAppInlineDeadlineError extends Error {
 type AskAppRequestMeta = {
   origin?: string;
   basePath?: string;
+  inlineMcpApps?: boolean;
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
 };
 
@@ -770,10 +771,7 @@ function listAppsTool(
   };
 }
 
-function openAppTool(
-  config: MCPConfig,
-  requestMeta?: { origin?: string },
-): ActionEntry {
+function openAppTool(config: MCPConfig): ActionEntry {
   return {
     tool: {
       ...tool(
@@ -860,7 +858,7 @@ function openAppTool(
       }
 
       const chrome =
-        typeof args.chrome === "string"
+        args.chrome === "full" || args.chrome === "minimal"
           ? args.chrome
           : chromeParam === "full" || chromeParam === "minimal"
             ? chromeParam
@@ -889,14 +887,14 @@ function openAppTool(
           await import("../server/request-context.js");
         const ctx = getRequestContext();
         const ownerEmail = ctx?.userEmail?.trim();
-        if (ownerEmail) {
+        if (ownerEmail && ctx?.requestOrigin) {
           const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
             await import("../server/embed-session.js");
           const { buildEmbedStartPath } =
             await import("../server/embed-route.js");
           const targetPath = normalizeEmbedTargetPath(
             withMcpChatBridgeParam(url),
-            requestMeta?.origin,
+            ctx.requestOrigin,
           );
           if (targetPath) {
             const ticket = await createEmbedSessionTicket({
@@ -906,9 +904,7 @@ function openAppTool(
               scope: chrome ?? null,
             });
             const startPath = buildEmbedStartPath(ticket.ticket);
-            embedStartUrl = requestMeta?.origin
-              ? new URL(startPath, requestMeta.origin).toString()
-              : startPath;
+            embedStartUrl = new URL(startPath, ctx.requestOrigin).toString();
             embedTargetPath = targetPath;
             embedExpiresAt = ticket.expiresAt;
           }
@@ -953,9 +949,7 @@ function openAppTool(
   };
 }
 
-function createEmbedSessionTool(requestMeta?: {
-  origin?: string;
-}): ActionEntry {
+function createEmbedSessionTool(): ActionEntry {
   return {
     tool: {
       ...tool(
@@ -982,6 +976,13 @@ function createEmbedSessionTool(requestMeta?: {
     readOnly: false,
     parallelSafe: true,
     run: async (args: Record<string, any>) => {
+      if (
+        args.chrome !== undefined &&
+        args.chrome !== "full" &&
+        args.chrome !== "minimal"
+      ) {
+        throw new Error("Embed chrome must be full or minimal.");
+      }
       const { getRequestContext } =
         await import("../server/request-context.js");
       const ctx = getRequestContext();
@@ -1003,12 +1004,15 @@ function createEmbedSessionTool(requestMeta?: {
             : "";
       const targetPath = normalizeEmbedTargetPath(
         rawTarget,
-        requestMeta?.origin,
+        ctx?.requestOrigin,
       );
       if (!targetPath) {
         throw new Error(
           "create_embed_session can only embed same-origin app-relative URLs.",
         );
+      }
+      if (!ctx?.requestOrigin) {
+        return { url: targetPath, targetPath, embed: false };
       }
 
       const ticket = await createEmbedSessionTicket({
@@ -1018,14 +1022,18 @@ function createEmbedSessionTool(requestMeta?: {
         scope: typeof args.chrome === "string" ? args.chrome : null,
       });
       const startPath = buildEmbedStartPath(ticket.ticket);
-      const startUrl = requestMeta?.origin
-        ? new URL(startPath, requestMeta.origin).toString()
-        : startPath;
+      const startUrl = new URL(startPath, ctx.requestOrigin).toString();
       return {
         startUrl,
         targetPath,
         expiresAt: ticket.expiresAt,
       };
+    },
+    link: ({ result }) => {
+      const value = result as { url?: string } | null;
+      return typeof value?.url === "string"
+        ? { url: value.url, label: "Open app" }
+        : null;
     },
   };
 }
@@ -1509,8 +1517,10 @@ export function getBuiltinCrossAppTools(
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(config, requestMeta),
-    open_app: openAppTool(config, requestMeta),
-    create_embed_session: createEmbedSessionTool(requestMeta),
+    open_app: openAppTool(config),
+    ...(requestMeta?.inlineMcpApps === true
+      ? { create_embed_session: createEmbedSessionTool() }
+      : {}),
     ask_app: askAppTool(config, requestMeta),
     ask_app_status: askAppStatusTool(config, requestMeta),
     create_workspace_app: createWorkspaceAppTool(),
