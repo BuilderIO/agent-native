@@ -3,7 +3,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import type { ClipsActionError } from "../lib/clips-action";
+import { ClipsActionError } from "../lib/clips-action";
 import { withMeetingActionTimeout } from "../lib/meeting-action-timeout";
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
 import {
@@ -1611,7 +1611,9 @@ export function useMeetingTranscription({
     let disposed = false;
     let inFlight = false;
     let unlistenStart: (() => void) | undefined;
-    const checkEnded = async () => {
+    let legacy = false;
+    const checkEnded = async (legacyTick = false) => {
+      if (legacy !== legacyTick) return;
       const session = sessionRef.current;
       if (
         disposed ||
@@ -1633,7 +1635,7 @@ export function useMeetingTranscription({
               } | null;
               reason?: "unavailable";
             }>(
-              "get-meeting-capture-state",
+              legacyTick ? "get-meeting" : "get-meeting-capture-state",
               { id: session.meetingId },
               { method: "GET", signal },
             ),
@@ -1654,16 +1656,29 @@ export function useMeetingTranscription({
         const initial = session.captureStopState;
         // A revision catches repeated Ends; the timestamp also catches
         // server recovery paths that close a meeting without a stop request.
-        const ended =
-          (initial.revision !== null &&
-            revision !== undefined &&
-            revision > initial.revision) ||
-          Boolean(
-            data.meeting.actualEnd &&
-            data.meeting.actualEnd !== initial.actualEnd,
-          );
+        const ended = legacyTick
+          ? Boolean(data.meeting.actualEnd)
+          : (initial.revision !== null &&
+              revision !== undefined &&
+              revision > initial.revision) ||
+            Boolean(
+              data.meeting.actualEnd &&
+              data.meeting.actualEnd !== initial.actualEnd,
+            );
         if (ended) await stopTranscription("server-ended");
       } catch (error) {
+        if (
+          !disposed &&
+          sessionRef.current === session &&
+          !legacyTick &&
+          ((error instanceof ClipsActionError &&
+            (error.status === 404 ||
+              error.code === "unknown_action" ||
+              error.code === "action_not_found")) ||
+            (error instanceof Error &&
+              /unknown action|action(?: .*?)? not found/i.test(error.message)))
+        )
+          legacy = true;
         if (!disposed)
           console.warn("[clips-popover] meeting end check failed:", error);
       } finally {
@@ -1675,6 +1690,10 @@ export function useMeetingTranscription({
       if (document.visibilityState === "visible") check();
     };
     const timer = window.setInterval(check, MEETING_ENDED_POLL_MS);
+    const legacyTimer = window.setInterval(
+      () => void checkEnded(true),
+      MEETING_RECOVERY_POLL_MS,
+    );
     window.addEventListener("focus", check);
     document.addEventListener("visibilitychange", onVisibilityChange);
     listen("meetings:transcription-started", check)
@@ -1689,6 +1708,7 @@ export function useMeetingTranscription({
     return () => {
       disposed = true;
       window.clearInterval(timer);
+      window.clearInterval(legacyTimer);
       window.removeEventListener("focus", check);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       unlistenStart?.();

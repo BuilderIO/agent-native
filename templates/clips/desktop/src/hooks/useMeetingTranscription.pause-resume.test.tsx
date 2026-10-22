@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   stopTranscriptionEngine: vi.fn(),
   restartTranscriptionEngine: vi.fn(),
   getMeeting: vi.fn(),
+  legacyMeeting: vi.fn(),
   captureStopRevision: 0,
   initialActualEnd: null as string | null,
   pendingStart: null as Promise<unknown> | null,
@@ -58,6 +59,7 @@ vi.mock("../lib/transcription-engine", async () => {
   };
 });
 
+import { ClipsActionError } from "../lib/clips-action";
 import { useMeetingTranscription } from "./useMeetingTranscription";
 
 function Harness() {
@@ -79,6 +81,7 @@ function Harness() {
       if (name === "get-meeting-capture-state") {
         return (await mocks.getMeeting()) as T;
       }
+      if (name === "get-meeting") return (await mocks.legacyMeeting()) as T;
       if (name === "stop-meeting-recording") {
         return { actualEnd: "2026-10-17T03:00:00.000Z" } as T;
       }
@@ -144,6 +147,9 @@ describe("meeting transcription pause and resume", () => {
     mocks.getMeeting
       .mockReset()
       .mockResolvedValue({ meeting: {}, transcript: null });
+    mocks.legacyMeeting
+      .mockReset()
+      .mockResolvedValue({ meeting: { actualEnd: null } });
     mocks.captureStopRevision = 0;
     mocks.initialActualEnd = null;
     mocks.pendingStart = null;
@@ -280,6 +286,128 @@ describe("meeting transcription pause and resume", () => {
       "whisper",
       mocks.startTranscriptionEngine.mock.calls[0][0].runId,
     );
+  });
+
+  it.each([
+    new ClipsActionError("Not Found", 404),
+    new ClipsActionError("Unknown action", 400, "unknown_action"),
+  ])(
+    "uses legacy end detection every thirty seconds when the action is missing: %s",
+    async (failure) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        mocks.getMeeting.mockRejectedValue(failure);
+        await act(async () => {
+          root.render(createElement(Harness));
+          await settle();
+        });
+        await dispatch("meetings:start-transcription", {
+          meetingId: "meeting-1",
+        });
+        const initialReads = mocks.legacyMeeting.mock.calls.length;
+        mocks.legacyMeeting.mockResolvedValue({
+          meeting: { actualEnd: "2026-10-22T12:00:00Z" },
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(29_999);
+          await settle();
+        });
+        expect(mocks.legacyMeeting).toHaveBeenCalledTimes(initialReads);
+        expect(mocks.stopTranscriptionEngine).not.toHaveBeenCalled();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1);
+          await settle();
+        });
+        expect(mocks.legacyMeeting).toHaveBeenCalledTimes(initialReads + 1);
+        expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
+      } finally {
+        warning.mockRestore();
+      }
+    },
+  );
+
+  it("preserves legacy reopened-note end semantics without stopping on an unavailable row", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      mocks.initialActualEnd = "2026-10-21T12:00:00Z";
+      mocks.getMeeting.mockRejectedValue(
+        new Error("Unknown action get-meeting-capture-state"),
+      );
+      await act(async () => {
+        root.render(createElement(Harness));
+        await settle();
+      });
+      await dispatch("meetings:start-transcription", {
+        meetingId: "meeting-1",
+      });
+      mocks.legacyMeeting.mockResolvedValue({
+        meeting: null,
+        reason: "unavailable",
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+        await settle();
+      });
+      expect(mocks.stopTranscriptionEngine).not.toHaveBeenCalled();
+      mocks.legacyMeeting.mockResolvedValue({
+        meeting: { actualEnd: mocks.initialActualEnd },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+        await settle();
+      });
+      expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("uses the new path without legacy polling when the action responds", async () => {
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+    const initialReads = mocks.legacyMeeting.mock.calls.length;
+    const initialChecks = mocks.getMeeting.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+      await settle();
+    });
+    expect(mocks.getMeeting.mock.calls.length).toBeGreaterThan(initialChecks);
+    expect(mocks.legacyMeeting).toHaveBeenCalledTimes(initialReads);
+  });
+
+  it("retries the new path after a transient failure without downgrading", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await act(async () => {
+        root.render(createElement(Harness));
+        await settle();
+      });
+      await dispatch("meetings:start-transcription", {
+        meetingId: "meeting-1",
+      });
+      const initialReads = mocks.legacyMeeting.mock.calls.length;
+      mocks.getMeeting.mockRejectedValueOnce(
+        new ClipsActionError("Service unavailable", 503),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+        await settle();
+      });
+      mocks.getMeeting.mockResolvedValue({
+        meeting: { actualEnd: "2026-10-22T12:00:00Z", captureStopRevision: 1 },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+        await settle();
+      });
+      expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
+      expect(mocks.legacyMeeting).toHaveBeenCalledTimes(initialReads);
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("logs unavailable capture state and retries without treating it as a meeting end", async () => {
