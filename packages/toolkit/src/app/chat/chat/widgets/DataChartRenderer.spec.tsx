@@ -134,7 +134,7 @@ describe("DataChartRenderer theme colors", () => {
     expect(plotRightEdge).toBeLessThanOrEqual(632);
     expect(markup).toContain('fill="hsl(var(--muted-foreground))"');
     const maximumBarValueLabel = markup.match(
-      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">3<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">3<\/text>/,
     );
     expect(maximumBarValueLabel).not.toBeNull();
     expect(Number(maximumBarValueLabel?.[1]) + 8).toBeLessThanOrEqual(
@@ -180,7 +180,7 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const finalCategory = markup.match(
-      /<text x="([\d.]+)" y="348"[^>]*text-anchor="end">Last category\.\.\.<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="348"[^>]*text-anchor="end">Last category\.\.\.<\/text>/,
     );
 
     expect(finalCategory).not.toBeNull();
@@ -203,7 +203,7 @@ describe("DataChartRenderer theme colors", () => {
     );
 
     expect(markup).toMatch(
-      /<text x="46" y="348"[^>]*text-anchor="start">First categor\.\.\.<\/text>/,
+      /<text[^>]*x="46" y="348"[^>]*text-anchor="start">First categor\.\.\.<\/text>/,
     );
   });
 
@@ -221,7 +221,7 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const valueLabel = markup.match(
-      /<text x="[\d.]+" y="([\d.]+)"[^>]*font-weight="400" text-anchor="middle">1\.0<\/text>/,
+      /<text(?=[^>]*data-value-label="true")(?=[^>]*>1<\/text>)[^>]*y="([\d.]+)"[^>]*>/,
     );
 
     expect(valueLabel).not.toBeNull();
@@ -245,7 +245,7 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const topTick = markup.match(
-      /<text x="[\d.]+" y="([\d.]+)"[^>]*>1<\/text>/,
+      /<text(?=[^>]*data-value-axis-tick="true")[^>]*y="([\d.]+)"[^>]*>1<\/text>/,
     );
 
     expect(topTick).not.toBeNull();
@@ -268,7 +268,9 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const finalTick = Array.from(
-      markup.matchAll(/<text x="([\d.]+)" y="([\d.]+)"[^>]*>([^<]+)<\/text>/g),
+      markup.matchAll(
+        /<text[^>]*x="([\d.]+)" y="([\d.]+)"[^>]*>([^<]+)<\/text>/g,
+      ),
     )
       .filter((match) => match[3] === "3")
       .slice(-1)[0];
@@ -437,7 +439,7 @@ describe("DataChartRenderer theme colors", () => {
     expect(numericLabels.at(-1)).toBe("99");
     const tickLabelPositions = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)"[^>]*text-anchor="middle">\d+<\/text>/g,
+        /<text[^>]*x="([\d.]+)"[^>]*text-anchor="middle">\d+<\/text>/g,
       ),
       (match) => Number(match[1]),
     );
@@ -510,7 +512,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const valueTickLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
       ),
       (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
     );
@@ -541,7 +543,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const valueTickLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
       ),
       (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
     );
@@ -564,7 +566,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const valueTickLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
       ),
       (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
     );
@@ -599,7 +601,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const valueLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.-]+)" y="([\d.]+)"[^>]*font-size="24"[^>]*text-anchor="(start|end)">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.-]+)" y="([\d.]+)"[^>]*font-size="24"[^>]*text-anchor="(start|end)">([^<]+)<\/text>/g,
       ),
       (match) => ({
         x: Number(match[1]),
@@ -742,7 +744,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const tickLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)" y="([\d.]+)"[^>]*text-anchor="end">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.]+)" y="([\d.]+)"[^>]*text-anchor="end">([^<]+)<\/text>/g,
       ),
       (match) => ({
         x: Number(match[1]),
@@ -761,7 +763,7 @@ describe("DataChartRenderer theme colors", () => {
       Number(plotBounds?.[2]) - Number(plotBounds?.[1]),
     ).toBeGreaterThanOrEqual(32);
     const title = markup.match(
-      /<text x="([\d.]+)" y="[\d.]+" transform="rotate\(-90 [\d.]+ [\d.]+\)"[^>]*font-size="([\d.]+)"[^>]*>Revenue<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[\d.]+" transform="rotate\(-90 [\d.]+ [\d.]+\)"[^>]*font-size="([\d.]+)"[^>]*>Revenue<\/text>/,
     );
     expect(title).not.toBeNull();
     const titleRight = Number(title?.[1]) + Number(title?.[2]) / 2;
@@ -821,7 +823,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const horizontalLabels = Array.from(
       horizontalMarkup.matchAll(
-        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+        /<text[^>]*x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
       ),
       (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
     );
@@ -860,7 +862,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const verticalLabels = Array.from(
       verticalMarkup.matchAll(
-        /<text x="[\d.]+" y="([\d.]+)"[^>]*text-anchor="end">([^<]+)<\/text>/g,
+        /<text[^>]*x="[\d.]+" y="([\d.]+)"[^>]*text-anchor="end">([^<]+)<\/text>/g,
       ),
       (match) => ({ y: Number(match[1]), label: match[2] ?? "" }),
     ).sort((first, second) => first.y - second.y);
@@ -894,7 +896,9 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const minimumValueLabelY = Array.from(
-      markup.matchAll(/<text[^>]*y="([\d.]+)"[^>]*>0\.0<\/text>/g),
+      markup.matchAll(
+        /<text(?=[^>]*data-value-label="true")(?=[^>]*>0<\/text>)[^>]*y="([\d.]+)"[^>]*>/g,
+      ),
       (match) => Number(match[1]),
     ).filter((y) => y < 360);
 
@@ -914,7 +918,7 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const tickLabels = Array.from(
-      markup.matchAll(/<text x="([\d.]+)"[^>]*>(0\.000[123])<\/text>/g),
+      markup.matchAll(/<text[^>]*x="([\d.]+)"[^>]*>(0\.000[123])<\/text>/g),
       (match) => ({ x: Number(match[1]), label: match[2] }),
     );
 
@@ -975,7 +979,7 @@ describe("DataChartRenderer theme colors", () => {
       (match) => match[1],
     ).filter((label) => /^\d+(?:\.\d)?$/.test(label ?? ""));
 
-    expect(numericLabels).toEqual(["0.0", "1.0", "2.0", "3.0"]);
+    expect(numericLabels).toEqual(["0", "1", "2", "3"]);
   });
 
   it("rejects intervals that would create an excessive number of ticks", () => {
@@ -1034,10 +1038,10 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const categoryLabel = markup.match(
-      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="10" text-anchor="end">A very long c\.\.\.<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="10" text-anchor="end">A very long c\.\.\.<\/text>/,
     );
     const largestValueLabel = markup.match(
-      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">123,456<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">123,456<\/text>/,
     );
 
     expect(categoryLabel).not.toBeNull();
@@ -1061,10 +1065,10 @@ describe("DataChartRenderer theme colors", () => {
     );
     const negativeBarX = markup.match(/<rect x="([\d.]+)"/);
     const negativeBarLabel = markup.match(
-      /<text x="([\d.]+)"[^>]*text-anchor="end">-123,456<\/text>/,
+      /<text[^>]*x="([\d.]+)"[^>]*text-anchor="end">-123,456<\/text>/,
     );
     const categoryLabel = markup.match(
-      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" text-anchor="end">Monday<\/text>/,
+      /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" text-anchor="end">Monday<\/text>/,
     );
 
     expect(negativeBarX).not.toBeNull();
@@ -1121,7 +1125,7 @@ describe("DataChartRenderer theme colors", () => {
         />,
       );
       const finalValueLabel = markup.match(
-        /<text x="([\d.]+)" y="[\d.]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="end">123,456,789<\/text>/,
+        /<text[^>]*x="([\d.]+)" y="[\d.]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="end">123,456,789<\/text>/,
       );
 
       expect(finalValueLabel).not.toBeNull();

@@ -39,6 +39,9 @@ function numericValue(
 }
 
 function formatTick(value: number): string {
+  if (Number.isInteger(value)) {
+    return Math.abs(value) >= 1000 ? value.toLocaleString() : String(value);
+  }
   if (Math.abs(value) >= 1000) return value.toLocaleString();
   return value.toFixed(1);
 }
