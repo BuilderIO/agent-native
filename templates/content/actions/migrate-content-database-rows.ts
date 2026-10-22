@@ -709,7 +709,11 @@ export async function runMigration(args: MigrationInput) {
           const priorDocument = current.rows.find(
             (row: any) => row.document.id === prior.documentId,
           )?.document;
-          if (!priorDocument) throw new Error("Rollback snapshot is missing.");
+          if (!priorDocument)
+            fail("Rollback snapshot is missing.", {
+              errorCode: "MIGRATION_ROLLBACK_SNAPSHOT_MISSING",
+              statusCode: 409,
+            });
           await syncPrivateCalloutReferences(tx, {
             documentId: prior.documentId,
             before: priorDocument.content,
