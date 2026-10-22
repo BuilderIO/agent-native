@@ -79,17 +79,37 @@ describe("Brain source sync scheduling", () => {
     expect(isBrainSourceDue(failedSource, Date.parse(retryAt))).toBe(true);
   });
 
-  it("retries a timed-out Zoom source after five minutes instead of one hour", () => {
-    const retryAt = "2026-07-29T16:05:00.000Z";
+  it.each([5, 10, 20, 40])(
+    "retries a timed-out Zoom source after %s minutes instead of one hour",
+    (minutes) => {
+      const retryAt = new Date(
+        Date.parse(FAILED_AT) + minutes * 60 * 1000,
+      ).toISOString();
+      const zoomSource = source({
+        provider: "zoom",
+        status: "error",
+        cursorJson: JSON.stringify({ transientRetryAt: retryAt }),
+      });
+
+      expect(nextBrainSourceSyncAt(zoomSource)).toBe(retryAt);
+      expect(isBrainSourceDue(zoomSource, Date.parse(retryAt) - 1)).toBe(false);
+      expect(isBrainSourceDue(zoomSource, Date.parse(retryAt))).toBe(true);
+    },
+  );
+
+  it("returns to normal polling after Zoom exhausts its fast timeout retries", () => {
     const zoomSource = source({
       provider: "zoom",
       status: "error",
-      cursorJson: JSON.stringify({ transientRetryAt: retryAt }),
+      cursorJson: JSON.stringify({ consecutiveTimeouts: 5 }),
     });
+    const dueAt = Date.parse(FAILED_AT) + POLL_INTERVAL_MS;
 
-    expect(nextBrainSourceSyncAt(zoomSource)).toBe(retryAt);
-    expect(isBrainSourceDue(zoomSource, Date.parse(retryAt) - 1)).toBe(false);
-    expect(isBrainSourceDue(zoomSource, Date.parse(retryAt))).toBe(true);
+    expect(nextBrainSourceSyncAt(zoomSource)).toBe(
+      new Date(dueAt).toISOString(),
+    );
+    expect(isBrainSourceDue(zoomSource, dueAt - 1)).toBe(false);
+    expect(isBrainSourceDue(zoomSource, dueAt)).toBe(true);
   });
 
   it("keeps Zoom Retry-After later than a transient timeout retry", () => {

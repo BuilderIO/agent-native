@@ -4448,6 +4448,76 @@ describe("Brain connector smoke coverage", () => {
     },
   );
 
+  it.each([
+    { previous: 0, delayMinutes: 5, expectedCount: 1 },
+    { previous: 1, delayMinutes: 10, expectedCount: 2 },
+    { previous: 2, delayMinutes: 20, expectedCount: 3 },
+    { previous: 3, delayMinutes: 40, expectedCount: 4 },
+    { previous: 4, delayMinutes: undefined, expectedCount: 5 },
+    { previous: 5, delayMinutes: undefined, expectedCount: 5 },
+  ])(
+    "backs off Zoom timeouts after $previous consecutive failures",
+    async ({ previous, delayMinutes, expectedCount }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockRejectedValue(
+            new DOMException("request timed out", "TimeoutError"),
+          ),
+      );
+      const source = seedSource({
+        id: "zoom-backoff-source",
+        provider: "zoom",
+        configJson: JSON.stringify({ zoom: approvedZoom }),
+        cursorJson: JSON.stringify({
+          from: "2026-10-19",
+          consecutiveTimeouts: previous,
+          transientRetryAt: "2026-10-19T00:00:00.000Z",
+        }),
+      });
+      const before = Date.now();
+
+      const result = await runConnectorSync(source as never);
+
+      expect(result.status).toBe("error");
+      const updated = mocks.rows.sources.find((row) => row.id === source.id)!;
+      const cursor = JSON.parse(updated.cursorJson as string);
+      expect(cursor).toMatchObject({
+        from: "2026-10-19",
+        consecutiveTimeouts: expectedCount,
+      });
+      if (delayMinutes === undefined) {
+        expect(cursor.transientRetryAt).toBeUndefined();
+      } else {
+        const retryDelay = Date.parse(cursor.transientRetryAt) - before;
+        expect(retryDelay).toBeGreaterThanOrEqual(delayMinutes * 60 * 1000);
+        expect(retryDelay).toBeLessThan((delayMinutes + 1) * 60 * 1000);
+      }
+    },
+  );
+
+  it("resets the Zoom timeout sequence after a non-timeout failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 401 })),
+    );
+    const source = seedSource({
+      id: "zoom-auth-failure-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+      cursorJson: JSON.stringify({ consecutiveTimeouts: 3 }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    const updated = mocks.rows.sources.find((row) => row.id === source.id)!;
+    const cursor = JSON.parse(updated.cursorJson as string);
+    expect(cursor.consecutiveTimeouts).toBeUndefined();
+    expect(cursor.transientRetryAt).toBeUndefined();
+  });
+
   it("recovers a Zoom recording-list timeout without failing the sync", async () => {
     let listAttempts = 0;
     vi.stubGlobal(
@@ -4471,6 +4541,7 @@ describe("Brain connector smoke coverage", () => {
       lastError: "Previous Zoom timeout",
       configJson: JSON.stringify({ zoom: approvedZoom }),
       cursorJson: JSON.stringify({
+        consecutiveTimeouts: 4,
         transientRetryAt: "2026-10-19T00:00:00.000Z",
       }),
     });
@@ -4484,9 +4555,30 @@ describe("Brain connector smoke coverage", () => {
     });
     const updated = mocks.rows.sources.find((row) => row.id === source.id)!;
     expect(updated).toMatchObject({ status: "active", lastError: null });
-    expect(
-      JSON.parse(updated.cursorJson as string).transientRetryAt,
-    ).toBeUndefined();
+    const recoveredCursor = JSON.parse(updated.cursorJson as string);
+    expect(recoveredCursor.transientRetryAt).toBeUndefined();
+    expect(recoveredCursor.consecutiveTimeouts).toBeUndefined();
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValue(
+          new DOMException("request timed out", "TimeoutError"),
+        ),
+    );
+    const before = Date.now();
+    const failed = await runConnectorSync(updated as never);
+
+    expect(failed.status).toBe("error");
+    const failedSource = mocks.rows.sources.find(
+      (row) => row.id === source.id,
+    )!;
+    const failedCursor = JSON.parse(failedSource.cursorJson as string);
+    expect(failedCursor.consecutiveTimeouts).toBe(1);
+    const retryDelay = Date.parse(failedCursor.transientRetryAt) - before;
+    expect(retryDelay).toBeGreaterThanOrEqual(5 * 60 * 1000);
+    expect(retryDelay).toBeLessThan(6 * 60 * 1000);
   });
 
   it("imports Zoom transcripts from the account-wide recording list", async () => {
