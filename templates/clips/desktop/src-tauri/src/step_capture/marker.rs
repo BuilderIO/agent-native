@@ -12,8 +12,6 @@
 
 use std::io::Cursor;
 
-use super::StepCaptureStep;
-
 /// `MARK_COLORS[0]` in `app/lib/tokens/screenshot-colors.ts`.
 const MARK_COLOR_HEX: &str = "#ef4444";
 const MARK_COLOR_RGB: [u8; 3] = [0xef, 0x44, 0x44];
@@ -43,17 +41,11 @@ fn marker_side(width: u32, height: u32) -> u32 {
     (((longest_edge(width, height) as f64) / 18.0).round() as u32).max(40)
 }
 
-/// Where the click landed in the step's own image, or `None` when the
-/// display is unknown or the point falls outside the picture. A drag is
-/// marked where it started.
-pub fn click_marker(step: &StepCaptureStep, width: u32, height: u32) -> Option<ClickMarker> {
-    let display = step.display.as_ref()?;
-    if width == 0 || height == 0 || !(display.scale.is_finite() && display.scale > 0.0) {
-        return None;
-    }
-    let x = (step.location.x - display.frame.x) * display.scale;
-    let y = (step.location.y - display.frame.y) * display.scale;
-    if !(x.is_finite() && y.is_finite()) || x < 0.0 || y < 0.0 {
+/// The box around the click at pixel `(x, y)` of a `width` by `height`
+/// picture, or `None` when the click falls outside it. A drag is marked where
+/// it started.
+pub fn marker_at(x: f64, y: f64, width: u32, height: u32) -> Option<ClickMarker> {
+    if width == 0 || height == 0 || !(x.is_finite() && y.is_finite()) || x < 0.0 || y < 0.0 {
         return None;
     }
     let (x, y) = (x.floor() as u32, y.floor() as u32);
@@ -204,54 +196,10 @@ pub fn mark_png(png_bytes: &[u8], marker: &ClickMarker) -> Result<Vec<u8>, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::step_capture::{
-        StepClickType, StepDisplay, StepImage, StepPoint, StepRect, StepTarget,
-        StepTargetUnavailableReason, StepWindow,
-    };
-
-    fn step(location: StepPoint, display: Option<StepDisplay>) -> StepCaptureStep {
-        StepCaptureStep {
-            step: 1,
-            captured_at: "2026-10-18T09:00:00.000Z".to_string(),
-            click_type: StepClickType::Left,
-            location,
-            drag_to: None,
-            cursor: None,
-            display,
-            image: StepImage::Captured {
-                file_name: "step-001.png".to_string(),
-                width: 3024,
-                height: 1964,
-            },
-            window: StepWindow::None,
-            target: StepTarget::Unavailable {
-                reason: StepTargetUnavailableReason::NoElement,
-                code: None,
-            },
-        }
-    }
-
-    fn display(x: f64, y: f64, scale: f64) -> Option<StepDisplay> {
-        Some(StepDisplay {
-            id: 1,
-            frame: StepRect {
-                x,
-                y,
-                width: 1512.0,
-                height: 982.0,
-            },
-            scale,
-        })
-    }
 
     #[test]
-    fn marks_the_click_in_image_pixels_on_a_retina_display() {
-        let marker = click_marker(
-            &step(StepPoint { x: 700.0, y: 400.0 }, display(0.0, 0.0, 2.0)),
-            3024,
-            1964,
-        )
-        .unwrap();
+    fn marks_the_click_in_image_pixels() {
+        let marker = marker_at(1400.0, 800.0, 3024, 1964).unwrap();
         // 3024 / 18 = 168px, centred on (1400, 800).
         assert_eq!(
             marker,
@@ -266,56 +214,18 @@ mod tests {
     }
 
     #[test]
-    fn measures_from_the_clicked_display_not_the_primary_one() {
-        let marker = click_marker(
-            &step(
-                StepPoint {
-                    x: -1000.0,
-                    y: 120.0,
-                },
-                display(-1512.0, 100.0, 1.0),
-            ),
-            1512,
-            982,
-        )
-        .unwrap();
-        assert_eq!((marker.x + marker.width / 2, marker.y), (512, 0));
-    }
-
-    #[test]
     fn keeps_a_click_on_the_edge_inside_the_picture() {
-        let marker = click_marker(
-            &step(
-                StepPoint {
-                    x: 1511.0,
-                    y: 981.0,
-                },
-                display(0.0, 0.0, 1.0),
-            ),
-            1512,
-            982,
-        )
-        .unwrap();
+        let marker = marker_at(1511.0, 981.0, 1512, 982).unwrap();
         assert_eq!(marker.x + marker.width, 1512);
         assert_eq!(marker.y + marker.height, 982);
     }
 
     #[test]
     fn leaves_a_step_unmarked_when_the_click_cannot_be_placed() {
-        let location = StepPoint { x: 10.0, y: 10.0 };
-        assert_eq!(click_marker(&step(location, None), 100, 100), None);
-        assert_eq!(
-            click_marker(&step(location, display(50.0, 50.0, 1.0)), 100, 100),
-            None
-        );
-        assert_eq!(
-            click_marker(
-                &step(StepPoint { x: 500.0, y: 10.0 }, display(0.0, 0.0, 1.0)),
-                100,
-                100
-            ),
-            None
-        );
+        assert_eq!(marker_at(-40.0, 10.0, 100, 100), None);
+        assert_eq!(marker_at(500.0, 10.0, 100, 100), None);
+        assert_eq!(marker_at(f64::NAN, 10.0, 100, 100), None);
+        assert_eq!(marker_at(10.0, 10.0, 0, 100), None);
     }
 
     #[test]

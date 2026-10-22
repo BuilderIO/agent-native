@@ -48,26 +48,31 @@ pub struct Placed {
     pub number: Option<usize>,
     pub top: f64,
     pub height: f64,
+    /// How far a step's instruction runs past one line; its screenshot moves
+    /// down by as much.
+    pub text_overflow: f64,
 }
 
-/// Where every item goes: pages of placed items. `note_height` measures a
-/// note's wrapped text, so layout stays testable without fonts.
-pub fn paginate(guide: &StepGuide, note_height: impl Fn(&str) -> f64) -> Vec<Vec<Placed>> {
+/// Where every item goes: pages of placed items. `text_height` measures
+/// wrapped step and note text, so layout stays testable without fonts.
+pub fn paginate(guide: &StepGuide, text_height: impl Fn(&str) -> f64) -> Vec<Vec<Placed>> {
+    let one_line = text_height("X");
     let mut pages: Vec<Vec<Placed>> = vec![Vec::new()];
     let mut top = HEADER_HEIGHT;
     let mut number = 0;
     for (index, item) in guide.items.iter().enumerate() {
-        let (height, step_number) = match item {
-            GuideItem::Step { image, .. } => {
+        let (height, step_number, text_overflow) = match item {
+            GuideItem::Step { text, image, .. } => {
                 number += 1;
+                let overflow = (text_height(text) - one_line).max(0.0);
                 let height = if image.is_some() {
                     STEP_HEIGHT
                 } else {
                     TEXT_STEP_HEIGHT
                 };
-                (height, Some(number))
+                (height + overflow, Some(number), overflow)
             }
-            GuideItem::Note { text, .. } => (note_height(text) + NOTE_PADDING, None),
+            GuideItem::Note { text, .. } => (text_height(text) + NOTE_PADDING, None, 0.0),
         };
         let page_has_items = !pages.last().is_some_and(Vec::is_empty);
         if page_has_items && top + height - ITEM_GAP > PAGE_HEIGHT - PAGE_BOTTOM {
@@ -79,6 +84,7 @@ pub fn paginate(guide: &StepGuide, note_height: impl Fn(&str) -> f64) -> Vec<Vec
             number: step_number,
             top,
             height,
+            text_overflow,
         });
         top += height;
     }
@@ -523,8 +529,9 @@ mod macos {
                         let label = attributed(text, &step_font, &text_color(), true);
                         draw_text(&label, TEXT_LEFT, placed.top + 23.5, TEXT_WIDTH, &step_font);
                         if let Some(image) = image {
-                            if let Err(error) = prepare_image(directory, image, placed.top)
-                                .and_then(|prepared| draw_image(&prepared))
+                            if let Err(error) =
+                                prepare_image(directory, image, placed.top + placed.text_overflow)
+                                    .and_then(|prepared| draw_image(&prepared))
                             {
                                 result = Err(error);
                             }
@@ -608,6 +615,22 @@ mod tests {
             .collect();
         assert_eq!(tops, vec![vec![96.0, 444.0], vec![48.0, 396.0], vec![48.0]]);
         assert_eq!(pages[2][0].number, Some(5));
+    }
+
+    #[test]
+    fn a_long_instruction_pushes_its_screenshot_and_the_next_step_down() {
+        let mut items = vec![step("a", true), step("b", false)];
+        if let GuideItem::Step { text, .. } = &mut items[0] {
+            *text = "A long instruction that wraps onto three lines".into();
+        }
+        let pages = paginate(
+            &guide(items),
+            |text| if text.len() > 20 { 52.0 } else { 16.0 },
+        );
+        assert_eq!(pages[0][0].text_overflow, 36.0);
+        assert_eq!(pages[0][0].height, STEP_HEIGHT + 36.0);
+        assert_eq!(pages[0][1].top, 96.0 + STEP_HEIGHT + 36.0);
+        assert_eq!(pages[0][1].text_overflow, 0.0);
     }
 
     #[test]

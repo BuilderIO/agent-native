@@ -152,8 +152,19 @@ impl StepGuide {
 /// cover the frame, zoomed, centred on the click and kept inside the area.
 pub fn visible_rect(image: &GuideImage) -> PxRect {
     let crop = image.crop;
+    let finite = [crop.x, crop.y, crop.width, crop.height]
+        .iter()
+        .all(|value| value.is_finite());
+    if !finite || crop.width <= 0.0 || crop.height <= 0.0 {
+        return crop;
+    }
     let aspect = FRAME_WIDTH / FRAME_HEIGHT;
-    let zoom = image.zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+    let zoom = if image.zoom.is_finite() {
+        image.zoom
+    } else {
+        DEFAULT_ZOOM
+    }
+    .clamp(MIN_ZOOM, MAX_ZOOM);
     // Covering the frame at zoom 1 shows the full width or the full height.
     let (base_width, _) = if crop.width / crop.height > aspect {
         (crop.height * aspect, crop.height)
@@ -165,9 +176,14 @@ pub fn visible_rect(image: &GuideImage) -> PxRect {
     if width < floor {
         width = floor;
     }
-    let height = width / aspect;
-    let x = (image.click.x - width / 2.0).clamp(crop.x, crop.x + crop.width - width);
-    let y = (image.click.y - height / 2.0).clamp(crop.y, crop.y + crop.height - height);
+    // Rounding can leave the derived side, or the far bound, a hair past the
+    // area; `clamp` panics when its bounds cross, so keep them in order.
+    let width = width.min(crop.width);
+    let height = (width / aspect).min(crop.height);
+    let max_x = (crop.x + crop.width - width).max(crop.x);
+    let max_y = (crop.y + crop.height - height).max(crop.y);
+    let x = (image.click.x - width / 2.0).clamp(crop.x, max_x);
+    let y = (image.click.y - height / 2.0).clamp(crop.y, max_y);
     PxRect {
         x,
         y,
@@ -505,6 +521,27 @@ fn guide_image(step: &StepCaptureStep, in_menu: bool) -> Option<GuideImage> {
     })
 }
 
+/// Whether a step may be named from the text under its click. Never for a
+/// redacted control or a field the user types into: the text there is what
+/// they typed, and a password or message must not become a step title.
+fn reads_text_under(target: &StepTarget) -> bool {
+    match target {
+        StepTarget::Redacted { .. } => false,
+        StepTarget::Labeled { role, .. } | StepTarget::Unlabeled { role } => {
+            !TEXT_ENTRY_ROLES.contains(&role.as_str())
+        }
+        _ => true,
+    }
+}
+
+const TEXT_ENTRY_ROLES: [&str; 5] = [
+    "AXTextField",
+    "AXTextArea",
+    "AXSearchField",
+    "AXSecureTextField",
+    "AXComboBox",
+];
+
 pub fn author_name() -> String {
     std::process::Command::new("id")
         .arg("-F")
@@ -549,7 +586,7 @@ pub fn build_guide(
                 (StepTarget::Labeled { label, .. }, _, _) if !label.trim().is_empty() => {
                     Some(label.trim().to_string())
                 }
-                (_, Some(image), Some(directory)) => {
+                (target, Some(image), Some(directory)) if reads_text_under(target) => {
                     std::fs::read(directory.join(&image.file_name))
                         .ok()
                         .and_then(|png| {
@@ -1041,6 +1078,72 @@ mod tests {
         // Zoom 1 covers the frame with the whole width of a taller area.
         image.zoom = 1.0;
         assert_eq!(visible_rect(&image).width, 3024.0);
+    }
+
+    #[test]
+    fn the_visible_rect_stays_inside_any_capture_area() {
+        // A wide area at zoom 1 derives its height from the width, which can
+        // land a hair past the area and used to panic the clamp.
+        for height in 1..2000 {
+            let height = f64::from(height) * 0.37;
+            let image = GuideImage {
+                file_name: "step-001.png".into(),
+                width: 3024,
+                height: 1964,
+                crop: PxRect {
+                    x: 12.5,
+                    y: 40.25,
+                    width: 3000.0,
+                    height,
+                },
+                click: PxPoint { x: 900.0, y: 60.0 },
+                drag_to: None,
+                cursor: None,
+                zoom: 1.0,
+            };
+            let rect = visible_rect(&image);
+            assert!(rect.height <= height && rect.width <= 3000.0);
+            assert!(rect.y >= 40.25 && rect.y + rect.height <= 40.25 + height + 1e-9);
+        }
+
+        let mut image = GuideImage {
+            file_name: "step-001.png".into(),
+            width: 10,
+            height: 10,
+            crop: PxRect {
+                x: 0.0,
+                y: 0.0,
+                width: 0.0,
+                height: 10.0,
+            },
+            click: PxPoint { x: 5.0, y: 5.0 },
+            drag_to: None,
+            cursor: None,
+            zoom: f64::NAN,
+        };
+        assert_eq!(visible_rect(&image), image.crop);
+        image.crop.width = 10.0;
+        let rect = visible_rect(&image);
+        assert!(rect.width <= 10.0 && rect.height <= 10.0);
+    }
+
+    #[test]
+    fn typed_text_never_names_a_step() {
+        let role = |role: &str| StepTarget::Unlabeled {
+            role: role.to_string(),
+        };
+        for field in TEXT_ENTRY_ROLES {
+            assert!(!reads_text_under(&role(field)));
+            assert!(!reads_text_under(&labeled(field, "")));
+        }
+        assert!(!reads_text_under(&StepTarget::Redacted {
+            role: "AXSecureTextField".to_string()
+        }));
+        assert!(reads_text_under(&role("AXButton")));
+        assert!(reads_text_under(&StepTarget::Unavailable {
+            reason: StepTargetUnavailableReason::NotTrusted,
+            code: None,
+        }));
     }
 
     #[test]

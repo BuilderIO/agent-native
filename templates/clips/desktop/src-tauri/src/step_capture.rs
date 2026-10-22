@@ -562,6 +562,11 @@ pub async fn step_capture_start(app: AppHandle) -> Result<StepCaptureStatus, Str
     if !platform::SUPPORTED {
         return Err("Step capture is only available on macOS.".to_string());
     }
+    // Without it every screenshot fails or shows only the wallpaper, so stop
+    // here instead of recording a guide of empty steps.
+    if !platform::screen_recording_allowed() {
+        return Err("Clips needs Screen Recording permission to capture steps. Allow it in System Settings → Privacy & Security → Screen & System Audio Recording, then try again.".to_string());
+    }
 
     let started = chrono::Utc::now();
     let session_id = format!("steps-{}", started.format("%Y%m%d-%H%M%S-%3f"));
@@ -851,15 +856,28 @@ pub async fn step_guide_export_pdf(app: AppHandle, session_id: String) -> Result
 
 /// Upload the steps into a new Clips library folder and open it.
 #[tauri::command]
-pub async fn step_guide_share(app: AppHandle, session_id: String) -> Result<String, String> {
+pub async fn step_guide_share(
+    app: AppHandle,
+    session_id: String,
+) -> Result<upload::ShareSummary, String> {
     let directory = session_directory(&app, &session_id)?;
     let manifest = std::fs::read(directory.join(MANIFEST_FILE))
         .map_err(|error| format!("could not read the step capture: {error}"))?;
     let session: StepCaptureSession = serde_json::from_slice(&manifest)
         .map_err(|error| format!("could not parse the step capture: {error}"))?;
-    let upload = upload::upload_session(&app, &directory, &session).await?;
+    // Share what the editor shows: the saved guide, else the one it starts from.
+    let guide = match guide::read_guide(&directory)? {
+        Some(guide) => guide,
+        None => guide::build_guide(&session, guide::author_name(), Some(&directory)),
+    };
+    let upload = upload::upload_guide(&app, &directory, &guide, &session).await?;
+    let summary = upload.summary();
+    if summary.uploaded == 0 && summary.total > 0 {
+        let problem = upload.first_problem().unwrap_or("unknown error");
+        return Err(format!("No steps could be uploaded: {problem}"));
+    }
     platform::open(upload.folder_url.as_ref())?;
-    Ok(upload.folder_url)
+    Ok(summary)
 }
 
 /// Open a file with its default app, or reveal a session folder in Finder.
@@ -1063,6 +1081,17 @@ mod platform {
         })
     }
 
+    extern "C" {
+        fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGRequestScreenCaptureAccess() -> bool;
+    }
+
+    /// Whether screenshots can be taken. When not, asks macOS to show its
+    /// prompt (once per app) so the user has somewhere to grant it.
+    pub fn screen_recording_allowed() -> bool {
+        unsafe { CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() }
+    }
+
     /// Open a folder in Finder or a URL in the default browser.
     pub fn open(target: &OsStr) -> Result<(), String> {
         std::process::Command::new("open")
@@ -1108,6 +1137,10 @@ mod platform {
 
     pub fn remove_monitor(_app: &AppHandle) -> Result<(), String> {
         Ok(())
+    }
+
+    pub fn screen_recording_allowed() -> bool {
+        false
     }
 
     pub fn open(_target: &OsStr) -> Result<(), String> {

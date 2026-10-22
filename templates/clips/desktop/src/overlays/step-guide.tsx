@@ -212,6 +212,13 @@ function GrowingText({
   );
 }
 
+/** What `step_guide_share` reports, so a partial upload never reads as done. */
+interface ShareSummary {
+  folderUrl: string;
+  uploaded: number;
+  total: number;
+}
+
 type Status =
   | { kind: "idle" }
   | { kind: "busy"; text: string }
@@ -291,8 +298,13 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
 
   const share = () =>
     run("Uploading to Clips…", async () => {
-      await invoke<string>("step_guide_share", { sessionId });
-      return "Uploaded to your Clips library";
+      const { uploaded, total } = await invoke<ShareSummary>(
+        "step_guide_share",
+        { sessionId },
+      );
+      return uploaded === total
+        ? "Uploaded to your Clips library"
+        : `Uploaded ${uploaded} of ${total} steps to your Clips library`;
     });
 
   const reveal = () =>

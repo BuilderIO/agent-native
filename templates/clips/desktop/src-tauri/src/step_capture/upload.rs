@@ -1,9 +1,12 @@
-//! Upload a finished step capture to Clips.
+//! Upload a finished step guide to Clips.
 //!
-//! A session becomes a library folder with one screenshot per step, through
-//! the same `create-folder` and `create-screenshot` actions the web app uses,
-//! so each step inherits sharing, editing and annotations as an ordinary
-//! image recording. The outcome is written to `upload.json` next to the
+//! The guide as the user left it in the editor becomes a library folder with
+//! one screenshot per step, through the same `create-folder` and
+//! `create-screenshot` actions the web app uses, so each step inherits
+//! sharing, editing and annotations as an ordinary image recording. Each
+//! screenshot is the part the guide shows (see `guide::visible_rect`), never
+//! the whole display, and is titled with the step's edited text. Notes stay
+//! in the guide. The outcome is written to `upload.json` next to the
 //! manifest: which step became which recording, and which were skipped or
 //! failed, so a partial upload is visible rather than silently short.
 //!
@@ -21,10 +24,10 @@ use std::path::Path;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
+use super::guide::{self, GuideImage, GuideItem, StepGuide};
 use super::marker::{self, ClickMarker};
-use super::{
-    StepCaptureSession, StepCaptureStep, StepClickType, StepImage, StepTarget, StepWindow,
-};
+use super::pdf;
+use super::{StepCaptureSession, StepCaptureStep, StepClickType, StepTarget, StepWindow};
 use crate::meetings_watcher::{MeetingsSessionSnapshot, MeetingsWatcherState};
 
 const UPLOAD_FILE: &str = "upload.json";
@@ -44,7 +47,8 @@ pub enum StepUpload {
         #[serde(skip_serializing_if = "Option::is_none")]
         marker_error: Option<String>,
     },
-    /// The step has no screenshot to upload; its capture had already failed.
+    /// The step has no screenshot to upload: its capture failed, or it was
+    /// written as text only.
     Skipped {
         step: u32,
         reason: String,
@@ -63,6 +67,38 @@ pub struct StepCaptureUpload {
     pub folder_url: String,
     pub uploaded_at: String,
     pub steps: Vec<StepUpload>,
+}
+
+/// What Share reports to the editor, so a partial upload never reads as done.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareSummary {
+    pub folder_url: String,
+    pub uploaded: usize,
+    pub total: usize,
+}
+
+impl StepCaptureUpload {
+    pub fn summary(&self) -> ShareSummary {
+        ShareSummary {
+            folder_url: self.folder_url.clone(),
+            uploaded: self
+                .steps
+                .iter()
+                .filter(|step| matches!(step, StepUpload::Uploaded { .. }))
+                .count(),
+            total: self.steps.len(),
+        }
+    }
+
+    /// The first reason a step did not go up, for the error shown when none did.
+    pub fn first_problem(&self) -> Option<&str> {
+        self.steps.iter().find_map(|step| match step {
+            StepUpload::Skipped { reason, .. } => Some(reason.as_str()),
+            StepUpload::Failed { error, .. } => Some(error.as_str()),
+            StepUpload::Uploaded { .. } => None,
+        })
+    }
 }
 
 const ROLE_NOUNS: &[(&str, &str)] = &[
@@ -124,8 +160,13 @@ pub fn default_step_title(step: &StepCaptureStep) -> String {
     verb.to_string()
 }
 
-/// The library folder name, in local time so it matches the user's clock.
-fn folder_name(started_at: &str) -> String {
+/// The library folder name: the guide's title, else the capture time in
+/// local time so it matches the user's clock.
+fn folder_name(title: &str, started_at: &str) -> String {
+    let title = title.trim();
+    if !title.is_empty() {
+        return title.to_string();
+    }
     match chrono::DateTime::parse_from_rfc3339(started_at) {
         Ok(at) => format!(
             "Step capture {}",
@@ -234,44 +275,74 @@ async fn mark_click(
         .map(|_| ())
 }
 
+fn png_size(bytes: &[u8]) -> Result<(u32, u32), String> {
+    let reader = png::Decoder::new(std::io::Cursor::new(bytes))
+        .read_info()
+        .map_err(|error| format!("could not read the cropped screenshot: {error}"))?;
+    let info = reader.info();
+    Ok((info.width, info.height))
+}
+
+/// The step's title in the library: its text as edited in the guide, else
+/// the default title of the click it came from.
+fn step_title(number: u32, text: &str, captured: Option<&StepCaptureStep>) -> String {
+    let text = text.trim();
+    let text = if text.is_empty() {
+        captured
+            .map(default_step_title)
+            .unwrap_or_else(|| "Step".to_string())
+    } else {
+        text.to_string()
+    };
+    format!("{number}. {text}")
+}
+
 async fn upload_step(
     target: &Target,
     directory: &Path,
     folder_id: &str,
-    step: &StepCaptureStep,
+    number: u32,
+    text: &str,
+    image: Option<&GuideImage>,
+    captured: Option<&StepCaptureStep>,
 ) -> StepUpload {
-    let (file_name, width, height) = match &step.image {
-        StepImage::Captured {
-            file_name,
-            width,
-            height,
-        } => (file_name, *width, *height),
-        StepImage::Failed { error } => {
-            return StepUpload::Skipped {
-                step: step.step,
-                reason: format!("screenshot failed: {error}"),
-            }
-        }
+    let Some(image) = image else {
+        return StepUpload::Skipped {
+            step: number,
+            reason: "the step has no screenshot".to_string(),
+        };
     };
-    let path = directory.join(file_name);
-    let bytes = match std::fs::read(&path) {
+    let path = directory.join(&image.file_name);
+    let full = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) => {
             return StepUpload::Failed {
-                step: step.step,
+                step: number,
                 error: format!("could not read {}: {error}", path.display()),
             }
         }
     };
-    let (source_app, source_title) = match &step.window {
-        StepWindow::Found {
+    let visible = guide::visible_rect(image);
+    let cropped = pdf::crop_png(&full, visible)
+        .and_then(|png| png_size(&png).map(|(width, height)| (png, width, height)));
+    let (bytes, width, height) = match cropped {
+        Ok(cropped) => cropped,
+        Err(error) => {
+            return StepUpload::Failed {
+                step: number,
+                error,
+            }
+        }
+    };
+    let (source_app, source_title) = match captured.map(|step| &step.window) {
+        Some(StepWindow::Found {
             owner_name, title, ..
-        } => (owner_name.clone(), title.clone()),
-        StepWindow::None => (None, None),
+        }) => (owner_name.clone(), title.clone()),
+        _ => (None, None),
     };
     let body = serde_json::json!({
         "dataUrl": png_data_url(&bytes),
-        "title": format!("{}. {}", step.step, default_step_title(step)),
+        "title": step_title(number, text, captured),
         "width": width,
         "height": height,
         "sourceAppName": source_app,
@@ -282,7 +353,7 @@ async fn upload_step(
         Ok(created) => created,
         Err(error) => {
             return StepUpload::Failed {
-                step: step.step,
+                step: number,
                 error,
             }
         }
@@ -291,14 +362,15 @@ async fn upload_step(
         Ok(id) => id,
         Err(error) => {
             return StepUpload::Failed {
-                step: step.step,
+                step: number,
                 error,
             }
         }
     };
-    // No box when the click cannot be placed on the picture; that is not an
-    // error, just a step without a mark.
-    let marker_error = match marker::click_marker(step, width, height) {
+    // No box when the click falls outside the crop; that is not an error,
+    // just a step without a mark.
+    let click = (image.click.x - visible.x, image.click.y - visible.y);
+    let marker_error = match marker::marker_at(click.0, click.1, width, height) {
         Some(marker) => mark_click(
             target,
             &recording_id,
@@ -313,7 +385,7 @@ async fn upload_step(
         None => None,
     };
     StepUpload::Uploaded {
-        step: step.step,
+        step: number,
         recording_id,
         marker_error,
     }
@@ -330,12 +402,14 @@ fn write_upload(directory: &Path, upload: &StepCaptureUpload) -> Result<(), Stri
         .map_err(|error| format!("could not replace {}: {error}", path.display()))
 }
 
-/// Upload every captured step into a new library folder. Errors only when
+/// Upload the guide's steps, in its order, into a new library folder. The
+/// session supplies each step's source app and window. Errors only when
 /// nothing could be uploaded at all (no session, no folder); a step that fails
 /// on its own is recorded in `upload.json` and the rest still go up.
-pub async fn upload_session(
+pub async fn upload_guide(
     app: &AppHandle,
     directory: &Path,
+    guide: &StepGuide,
     session: &StepCaptureSession,
 ) -> Result<StepCaptureUpload, String> {
     let snapshot = app
@@ -360,17 +434,37 @@ pub async fn upload_session(
     let folder = target
         .call(
             "create-folder",
-            serde_json::json!({ "name": folder_name(&session.started_at) }),
+            serde_json::json!({ "name": folder_name(&guide.title, &session.started_at) }),
         )
         .await?;
     let folder_id = response_id("create-folder", &folder)?;
 
-    let mut steps = Vec::with_capacity(session.steps.len());
-    for step in &session.steps {
-        steps.push(upload_step(&target, directory, &folder_id, step).await);
+    let mut steps = Vec::with_capacity(guide.step_count());
+    let mut number = 0;
+    for item in &guide.items {
+        let GuideItem::Step { id, text, image } = item else {
+            continue;
+        };
+        number += 1;
+        let captured = session
+            .steps
+            .iter()
+            .find(|step| format!("step-{}", step.step) == *id);
+        steps.push(
+            upload_step(
+                &target,
+                directory,
+                &folder_id,
+                number,
+                text,
+                image.as_ref(),
+                captured,
+            )
+            .await,
+        );
     }
     let upload = StepCaptureUpload {
-        session_id: session.session_id.clone(),
+        session_id: guide.session_id.clone(),
         folder_url: folder_url(&server_url, &folder_id),
         folder_id,
         uploaded_at: chrono::Utc::now().to_rfc3339(),
@@ -383,7 +477,7 @@ pub async fn upload_session(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::step_capture::{StepPoint, StepRect, StepTargetUnavailableReason};
+    use crate::step_capture::{StepImage, StepPoint, StepRect, StepTargetUnavailableReason};
 
     fn step(click_type: StepClickType, target: StepTarget) -> StepCaptureStep {
         StepCaptureStep {
