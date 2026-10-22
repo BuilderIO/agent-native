@@ -630,6 +630,30 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
       "<columns>\n\t<column>\n\t\t- a\n\t\t\t```\n\t\t\tx\n\t\t\t```\n\t</column>\n</columns>",
   },
   {
+    id: "untabbed-details-with-tabbed-summary-in-callout",
+    origin: "agent",
+    markdown:
+      "<callout>\n\tkept\n<details>\n\t<summary>S</summary>\n\tD\n</details>\n</callout>",
+    canonical:
+      "<callout>\n\tkept\n\t<details>\n\t<summary></summary>\n\t\t\\<summary\\>S\\</summary\\>\n\t\tD\n\t</details>\n</callout>",
+    note: "A summary one tab deeper than its opener is body text, as on main; the title is a follow-up.",
+  },
+  {
+    id: "untabbed-callout-ordered-list-continues",
+    origin: "agent",
+    markdown: "<callout>\n\t1. a\n1. b\n</callout>",
+    canonical: "<callout>\n\t1. a\n\t2. b\n</callout>",
+    note: "An untabbed item continues the list above it.",
+  },
+  {
+    id: "untabbed-column-task-list-continues",
+    origin: "agent",
+    markdown:
+      "<columns>\n\t<column>\n\t\t- [ ] a\n\t- [x] b\n\t</column>\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\t- [ ] a\n\t\t- [x] b\n\t</column>\n</columns>",
+  },
+  {
     id: "math-block-open-at-callout-close",
     origin: "agent",
     markdown: "<callout>\n\t$$\n\tx = 1\n</callout>\nAfter\n$$",

@@ -2135,7 +2135,16 @@ function parseContainerChildren(
   const nodes: PMNode[] = [];
   for (let i = 0; ; ) {
     const res = parseBlockSequence(body, i, childIndent);
-    pushAll(nodes, res.nodes);
+    const last = nodes[nodes.length - 1];
+    const first = res.nodes[0];
+    // A list that goes on past the stop is still one list. Written as two
+    // lists of the same kind, it would read back as one and renumber.
+    if (last && first && last.type === first.type && isListNode(first)) {
+      pushAll(last.content!, first.content ?? []);
+      pushAll(nodes, res.nodes.slice(1));
+    } else {
+      pushAll(nodes, res.nodes);
+    }
     if (res.end >= body.length) return nodes;
     i = res.end;
     const shift = TAB.repeat(childIndent - leadingTabs(body[i]));
@@ -2147,6 +2156,14 @@ function parseContainerChildren(
     // Its closes were found at the old indents.
     containerCloseIndexes.delete(body);
   }
+}
+
+function isListNode(node: PMNode): boolean {
+  return (
+    node.type === "bulletList" ||
+    node.type === "orderedList" ||
+    node.type === "taskList"
+  );
 }
 
 function endsWithUnescapedPipe(value: string): boolean {
