@@ -923,6 +923,30 @@ describe("DragHandle app menu", () => {
     }
   });
 
+  it("finds no block once the menu's own edit deletes it", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      request.dispatch(
+        editor.state.tr.delete(0, editor.state.doc.child(0).nodeSize),
+      );
+
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      expect(childText(editor, 0)).toBe("Second");
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("keeps its block through the menu's own edits, even one that wraps it", () => {
     const requests: DragHandleMenuRequest[] = [];
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {

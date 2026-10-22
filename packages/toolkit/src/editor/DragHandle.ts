@@ -234,7 +234,11 @@ function trackMenuBlock(
   }
   if (!tracked || !tr.docChanged) return tracked;
   if (meta?.menuEdit) {
-    // The menu's own edit can wrap the block, as a list or a quote.
+    // The menu's own edit can wrap the block, as a list or a quote, or
+    // delete it, which leaves the next block where it began.
+    const from = tr.mapping.map(tracked.pos, 1);
+    const to = tr.mapping.map(tracked.pos + tracked.node.nodeSize, -1);
+    if (from >= to) return null;
     const $pos = tr.doc.resolve(tr.mapping.map(tracked.pos, -1));
     const node = tr.doc.maybeChild($pos.index(0));
     return node
