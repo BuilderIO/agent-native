@@ -62,7 +62,7 @@ import {
   type TurnIntoTarget,
 } from "./block-actions";
 import { startCommentOnRange, type BubbleToolbarProps } from "./BubbleToolbar";
-import { ColorSubmenu } from "./ColorSubmenu";
+import { blockColorChoices, ColorChoices, ColorSubmenu } from "./ColorSubmenu";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { takesBlockColor } from "./extensions/NotionFidelity";
 import { instantCloseMenuClass, menuIconClass } from "./menu-classes";
@@ -457,6 +457,14 @@ export function BlockActionsMenu({
       : [];
 
   const showColor = colorable && matches(t("editor.color.label"));
+  const colorChoices = blockColorChoices(t);
+  const foundColor =
+    colorable &&
+    !!needle &&
+    !showColor &&
+    [...colorChoices.text, ...colorChoices.background].some(({ label }) =>
+      matches(label),
+    );
   const showComment = !!commentRange && matches(t("editor.comment"));
   const showDuplicate = !!block && matches(t("editor.blockMenu.duplicate"));
   const showRemove = !!block && matches(t("editor.blockMenu.delete"));
@@ -495,6 +503,16 @@ export function BlockActionsMenu({
         <DropdownMenuLabel>{turnIntoLabel}</DropdownMenuLabel>
         {foundTargets.map(turnIntoItem)}
       </>,
+    ]);
+  }
+  if (foundColor) {
+    sections.push([
+      "color",
+      <ColorChoices
+        value={node?.attrs.color ?? null}
+        onChange={setColor}
+        shows={matches}
+      />,
     ]);
   }
   if ((!needle && turnTargets.length > 0) || showColor) {

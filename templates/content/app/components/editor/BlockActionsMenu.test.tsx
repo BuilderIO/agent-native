@@ -371,6 +371,21 @@ describe("BlockActionsMenu", () => {
     expect(menus()).toEqual([]);
   });
 
+  it("finds a colour by its name", () => {
+    const target = mount();
+    open(target, 0);
+
+    search("blue");
+    expect(items()).toEqual([
+      "editor.color.textChoice(editor.color.blue)=false",
+      "editor.color.backgroundChoice(editor.color.blue)=false",
+    ]);
+
+    press(searchBox(), "Enter");
+    expect(target.state.doc.child(0).attrs.color).toBe("blue");
+    expect(menus()).toEqual([]);
+  });
+
   it("moves between the search and the items with the arrow keys", () => {
     open(mount(), 0);
 

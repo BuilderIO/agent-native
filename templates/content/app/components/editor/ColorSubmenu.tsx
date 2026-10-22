@@ -18,23 +18,51 @@ import { instantCloseMenuClass, menuIconClass } from "./menu-classes";
 const DEFAULT_TEXT = "default";
 const DEFAULT_BACKGROUND = "default_bg";
 
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+type ColorChoice = { color: string; label: string };
+
+/** Each colour a block can take, by group, with its label. */
+export function blockColorChoices(t: Translate): {
+  text: ColorChoice[];
+  background: ColorChoice[];
+} {
+  const named = (key: string, suffix: string) =>
+    NFM_BASE_COLORS.map((name) => ({
+      color: `${name}${suffix}`,
+      label: t(key, { color: t(`editor.color.${name}`) }),
+    }));
+  return {
+    text: [
+      { color: DEFAULT_TEXT, label: t("editor.color.defaultText") },
+      ...named("editor.color.textChoice", ""),
+    ],
+    background: [
+      { color: DEFAULT_BACKGROUND, label: t("editor.color.defaultBackground") },
+      ...named("editor.color.backgroundChoice", "_bg"),
+    ],
+  };
+}
+
 /**
- * A Color submenu for something that takes one block colour: `blue` for blue
- * text, `blue_bg` for a blue background, or null for neither.
+ * The block colours as radio items under their group labels, leaving out any
+ * whose label `shows` refuses.
  */
-export function ColorSubmenu({
+export function ColorChoices({
   value,
   onChange,
-  onEscapeKeyDown,
+  shows = () => true,
 }: {
   value: string | null;
   onChange: (color: string | null) => void;
-  onEscapeKeyDown?: () => void;
+  shows?: (label: string) => boolean;
 }) {
   const t = useT();
-  const choice = (color: string, label: string) => {
+  const choices = blockColorChoices(t);
+  const text = choices.text.filter(({ label }) => shows(label));
+  const background = choices.background.filter(({ label }) => shows(label));
+  const choice = ({ color, label }: ColorChoice) => {
     const name = color.replace(/_bg$/, "");
-    const background = color.endsWith("_bg");
+    const isBackground = color.endsWith("_bg");
     const isDefault = name === DEFAULT_TEXT;
     return (
       <DropdownMenuRadioItem
@@ -45,7 +73,7 @@ export function ColorSubmenu({
         textValue={label}
         value={color}
       >
-        {background ? (
+        {isBackground ? (
           <span
             aria-hidden="true"
             className={cn(
@@ -70,6 +98,48 @@ export function ColorSubmenu({
   };
 
   return (
+    <DropdownMenuRadioGroup
+      value={value ?? DEFAULT_TEXT}
+      onValueChange={(next) =>
+        onChange(
+          next === DEFAULT_TEXT || next === DEFAULT_BACKGROUND ? null : next,
+        )
+      }
+    >
+      {text.length > 0 ? (
+        <>
+          <DropdownMenuLabel>{t("editor.textColor")}</DropdownMenuLabel>
+          {text.map(choice)}
+        </>
+      ) : null}
+      {text.length > 0 && background.length > 0 ? (
+        <DropdownMenuSeparator />
+      ) : null}
+      {background.length > 0 ? (
+        <>
+          <DropdownMenuLabel>{t("editor.backgroundColor")}</DropdownMenuLabel>
+          {background.map(choice)}
+        </>
+      ) : null}
+    </DropdownMenuRadioGroup>
+  );
+}
+
+/**
+ * A Color submenu for something that takes one block colour: `blue` for blue
+ * text, `blue_bg` for a blue background, or null for neither.
+ */
+export function ColorSubmenu({
+  value,
+  onChange,
+  onEscapeKeyDown,
+}: {
+  value: string | null;
+  onChange: (color: string | null) => void;
+  onEscapeKeyDown?: () => void;
+}) {
+  const t = useT();
+  return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger className="gap-2">
         <IconPalette className={menuIconClass} />
@@ -83,38 +153,7 @@ export function ColorSubmenu({
         collisionPadding={8}
         onEscapeKeyDown={onEscapeKeyDown}
       >
-        <DropdownMenuRadioGroup
-          value={value ?? DEFAULT_TEXT}
-          onValueChange={(next) =>
-            onChange(
-              next === DEFAULT_TEXT || next === DEFAULT_BACKGROUND
-                ? null
-                : next,
-            )
-          }
-        >
-          <DropdownMenuLabel>{t("editor.textColor")}</DropdownMenuLabel>
-          {choice(DEFAULT_TEXT, t("editor.color.defaultText"))}
-          {NFM_BASE_COLORS.map((name) =>
-            choice(
-              name,
-              t("editor.color.textChoice", {
-                color: t(`editor.color.${name}`),
-              }),
-            ),
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>{t("editor.backgroundColor")}</DropdownMenuLabel>
-          {choice(DEFAULT_BACKGROUND, t("editor.color.defaultBackground"))}
-          {NFM_BASE_COLORS.map((name) =>
-            choice(
-              `${name}_bg`,
-              t("editor.color.backgroundChoice", {
-                color: t(`editor.color.${name}`),
-              }),
-            ),
-          )}
-        </DropdownMenuRadioGroup>
+        <ColorChoices value={value} onChange={onChange} />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );
