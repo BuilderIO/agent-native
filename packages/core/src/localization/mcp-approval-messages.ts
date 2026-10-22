@@ -30,6 +30,8 @@ export interface McpApprovalMessages {
   otherOrganization: string;
   saving: string;
   saveFailed: string;
+  signInToReview: string;
+  pageOutOfDate: string;
   yes: string;
   no: string;
   requestedThrough: string;
@@ -82,6 +84,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "This request belongs to {email} in another organization. Switch to the organization this request came from, then open the link again.",
     saving: "Saving…",
     saveFailed: "Your decision wasn't saved. Try again.",
+    signInToReview: "Sign in to review this request.",
+    pageOutOfDate: "This page is out of date. Reload it and decide again.",
     yes: "Yes",
     no: "No",
     requestedThrough: "Requested through",
@@ -128,6 +132,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "此请求属于另一个组织中的 {email}。请切换到发起此请求的组织，然后再次打开链接。",
     saving: "正在保存…",
     saveFailed: "你的决定未能保存。请重试。",
+    signInToReview: "请登录以审核此请求。",
+    pageOutOfDate: "此页面已过期。请重新加载后再做决定。",
     yes: "是",
     no: "否",
     requestedThrough: "请求来源",
@@ -173,6 +179,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "此請求屬於另一個組織中的 {email}。請切換到發出此請求的組織，然後再次開啟連結。",
     saving: "正在儲存…",
     saveFailed: "你的決定未能儲存。請再試一次。",
+    signInToReview: "請登入以審核此請求。",
+    pageOutOfDate: "此頁面已過期。請重新載入後再做決定。",
     yes: "是",
     no: "否",
     requestedThrough: "請求來源",
@@ -223,6 +231,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Esta solicitud pertenece a {email} en otra organización. Cambia a la organización de la que procede esta solicitud y vuelve a abrir el enlace.",
     saving: "Guardando…",
     saveFailed: "No se guardó tu decisión. Inténtalo de nuevo.",
+    signInToReview: "Inicia sesión para revisar esta solicitud.",
+    pageOutOfDate:
+      "Esta página está desactualizada. Vuelve a cargarla y decide de nuevo.",
     yes: "Sí",
     no: "No",
     requestedThrough: "Solicitado a través de",
@@ -275,6 +286,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Cette demande appartient à {email} dans une autre organisation. Basculez vers l’organisation d’où vient cette demande, puis rouvrez le lien.",
     saving: "Enregistrement…",
     saveFailed: "Votre décision n’a pas été enregistrée. Réessayez.",
+    signInToReview: "Connectez-vous pour examiner cette demande.",
+    pageOutOfDate:
+      "Cette page n’est plus à jour. Rechargez-la et décidez à nouveau.",
     yes: "Oui",
     no: "Non",
     requestedThrough: "Demandé via",
@@ -329,6 +343,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "Wird gespeichert…",
     saveFailed:
       "Deine Entscheidung wurde nicht gespeichert. Versuche es erneut.",
+    signInToReview: "Melde dich an, um diese Anfrage zu prüfen.",
+    pageOutOfDate:
+      "Diese Seite ist nicht mehr aktuell. Lade sie neu und entscheide erneut.",
     yes: "Ja",
     no: "Nein",
     requestedThrough: "Angefragt über",
@@ -380,6 +397,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "このリクエストは、別の組織の {email} のものです。このリクエストの送信元の組織に切り替えてから、リンクを開き直してください。",
     saving: "保存しています…",
     saveFailed: "決定を保存できませんでした。もう一度お試しください。",
+    signInToReview: "このリクエストを確認するにはサインインしてください。",
+    pageOutOfDate:
+      "このページは古くなっています。再読み込みしてから、もう一度決定してください。",
     yes: "はい",
     no: "いいえ",
     requestedThrough: "リクエスト元",
@@ -430,6 +450,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "이 요청은 다른 조직의 {email} 요청입니다. 이 요청을 보낸 조직으로 전환한 후 링크를 다시 여세요.",
     saving: "저장 중…",
     saveFailed: "결정이 저장되지 않았습니다. 다시 시도하세요.",
+    signInToReview: "이 요청을 검토하려면 로그인하세요.",
+    pageOutOfDate:
+      "이 페이지는 최신 상태가 아닙니다. 새로고침한 후 다시 결정하세요.",
     yes: "예",
     no: "아니요",
     requestedThrough: "요청 경로",
@@ -481,6 +504,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Esta solicitação pertence a {email} em outra organização. Mude para a organização de onde veio esta solicitação e abra o link novamente.",
     saving: "Salvando…",
     saveFailed: "Sua decisão não foi salva. Tente novamente.",
+    signInToReview: "Entre para revisar esta solicitação.",
+    pageOutOfDate:
+      "Esta página está desatualizada. Recarregue-a e decida novamente.",
     yes: "Sim",
     no: "Não",
     requestedThrough: "Solicitado por meio de",
@@ -532,6 +558,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "यह अनुरोध किसी दूसरे संगठन में {email} का है। जिस संगठन से यह अनुरोध आया है, उस पर स्विच करें और लिंक फिर से खोलें।",
     saving: "सहेजा जा रहा है…",
     saveFailed: "आपका फ़ैसला सहेजा नहीं गया। फिर से कोशिश करें।",
+    signInToReview: "इस अनुरोध की समीक्षा करने के लिए साइन इन करें।",
+    pageOutOfDate: "यह पेज पुराना हो गया है। इसे फिर से लोड करें और दोबारा फ़ैसला करें।",
     yes: "हां",
     no: "नहीं",
     requestedThrough: "इसके ज़रिए अनुरोध किया गया",
@@ -582,6 +610,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "ينتمي هذا الطلب إلى {email} في مؤسسة أخرى. انتقل إلى المؤسسة التي جاء منها هذا الطلب، ثم افتح الرابط مرة أخرى.",
     saving: "جارٍ الحفظ…",
     saveFailed: "لم يتم حفظ قرارك. حاول مرة أخرى.",
+    signInToReview: "سجّل الدخول لمراجعة هذا الطلب.",
+    pageOutOfDate: "هذه الصفحة قديمة. أعد تحميلها واتخذ قرارك مرة أخرى.",
     yes: "نعم",
     no: "لا",
     requestedThrough: "مطلوب عبر",

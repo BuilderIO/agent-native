@@ -340,6 +340,15 @@ button[disabled]{opacity:.5;cursor:default}
 #result{margin-top:20px;font-weight:600}
 `;
 
+function pageHead(locale: LocaleCode, title?: string): string {
+  return `<!doctype html><html lang="${escapeHtml(locale)}" dir="${localeDirection(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer">${title === undefined ? "" : `<title>${escapeHtml(title)}</title>`}<style>${PAGE_STYLE}</style></head>`;
+}
+
+/** A page that only says why there's nothing to review. */
+function renderNotice(locale: LocaleCode, message: string): string {
+  return `${pageHead(locale)}<body><main><p>${escapeHtml(message)}</p></main></body></html>`;
+}
+
 function renderPage(input: {
   view: McpApprovalView | undefined;
   /** Why there's no view: the grant is the reader's, from another organization. */
@@ -351,13 +360,11 @@ function renderPage(input: {
 }): string {
   const { view, otherOrganization, email, locale, messages, scriptNonce } =
     input;
-  const head = (title?: string) =>
-    `<!doctype html><html lang="${escapeHtml(locale)}" dir="${localeDirection(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer">${title === undefined ? "" : `<title>${escapeHtml(title)}</title>`}<style>${PAGE_STYLE}</style></head>`;
   if (!view) {
     const message = otherOrganization
       ? messages.otherOrganization
       : messages.notFound;
-    return `${head()}<body><main><p>${escapeHtml(message.replace("{email}", email))}</p></main></body></html>`;
+    return renderNotice(locale, message.replace("{email}", email));
   }
   const { summary } = view;
   const pending = view.state === "pending";
@@ -437,9 +444,11 @@ function renderPage(input: {
       expired: messages.expired,
       saving: messages.saving,
       saveFailed: messages.saveFailed,
+      signInToReview: messages.signInToReview,
+      pageOutOfDate: messages.pageOutOfDate,
     },
   }).replace(/</g, "\\u003c");
-  return `${head(messages.documentTitle.replace("{action}", summary.title))}<body><main><h1>${escapeHtml(summary.title)}</h1>${prior}${cut}${recipients}${fields}${details}${decision}<p id="result" role="status">${stateMessage(view, messages)}</p></main><script type="application/json" id="approval-data">${data}</script><script nonce="${scriptNonce}">${PAGE_SCRIPT}</script></body></html>`;
+  return `${pageHead(locale, messages.documentTitle.replace("{action}", summary.title))}<body><main><h1>${escapeHtml(summary.title)}</h1>${prior}${cut}${recipients}${fields}${details}${decision}<p id="result" role="status">${stateMessage(view, messages)}</p></main><script type="application/json" id="approval-data">${data}</script><script nonce="${scriptNonce}">${PAGE_SCRIPT}</script></body></html>`;
 }
 
 const PAGE_SCRIPT = `(function(){
@@ -470,8 +479,8 @@ function decide(decision){
 setBusy(true);
 result.textContent=data.messages.saving;
 fetch(location.pathname,{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({decision:decision,csrfToken:data.csrfToken})})
-.then(function(r){return r.json();})
-.then(function(body){if(!(body&&show(body.state,body.expiresAt))){result.textContent=data.messages.saveFailed;setBusy(false);}})
+.then(function(r){return r.json().then(function(body){return {status:r.status,body:body};});})
+.then(function(res){if(res.body&&show(res.body.state,res.body.expiresAt))return;result.textContent=res.status===401?data.messages.signInToReview:res.status===403?data.messages.pageOutOfDate:data.messages.saveFailed;setBusy(false);})
 .catch(function(){result.textContent=data.messages.saveFailed;setBusy(false);});
 }
 var approve=document.getElementById("approve");
@@ -531,18 +540,25 @@ export async function handleMcpApprovalRequest(
   const id = grantIdFrom(event);
   const session = await getBrowserCookieSession(event);
   if (!session?.email) {
+    const { locale } = resolveLocaleFromRequest({
+      acceptLanguage: getRequestHeader(event, "accept-language"),
+    });
+    const messages = mcpApprovalMessagesForLocale(locale);
     if (method === "GET" && !wantsJson(event)) {
+      setPageHeaders(event);
       const loginPage = getConfiguredLoginHtml(event);
       if (loginPage) {
-        setPageHeaders(event);
         return new Response(loginPage.html, {
           status: loginPage.status,
           headers: { "content-type": "text/html; charset=utf-8" },
         });
       }
+      setResponseStatus(event, 401);
+      setResponseHeader(event, "content-type", "text/html; charset=utf-8");
+      return renderNotice(locale, messages.signInToReview);
     }
     setResponseStatus(event, 401);
-    return { error: "Sign in to review this request" };
+    return { error: messages.signInToReview };
   }
   const owner: McpApprovalReader = {
     appId: app.appId,
@@ -611,7 +627,7 @@ export async function handleMcpApprovalRequest(
   const csrfToken = body?.csrfToken;
   if (typeof csrfToken !== "string" || !sameToken(csrfToken, expected)) {
     setResponseStatus(event, 403);
-    return { error: "This page is out of date. Reload it and decide again." };
+    return { error: messages.pageOutOfDate };
   }
   const approvedUntil = Date.now() + TTL_MS;
   const decided = await decideMcpApproval(id, owner, decision, approvedUntil);

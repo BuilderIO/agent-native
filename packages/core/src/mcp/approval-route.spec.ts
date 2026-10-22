@@ -287,16 +287,28 @@ describe("signed out", () => {
     await expect((body as Response).text()).resolves.toBe("<p>Sign in</p>");
   });
 
-  it("answers 401 without a sign-in page, to JSON, and to a decision", async () => {
+  it("answers 401 without a sign-in page, to JSON, and to a decision, in the reader's language", async () => {
     const grant = await createdGrant();
     signedIn.session = null;
+    const french = { "accept-language": "fr-FR,fr;q=0.9" };
+    const signIn = "Connectez-vous pour examiner cette demande.";
 
-    expect((await getHtml(grant.nonce)).status).toBe(401);
+    const page = await getHtml(grant.nonce, french);
+    expect(page.status).toBe(401);
+    expect(page.body).toContain('<html lang="fr-FR" dir="ltr">');
+    expect(page.body).toContain(signIn);
+    expect(page.body).not.toContain(grant.nonce);
     signedIn.loginPage = { html: "<p>Sign in</p>", status: 200 };
-    expect((await getJson(grant.nonce)).status).toBe(401);
     expect(
-      (await post(grant.nonce, { decision: "approve", csrfToken: "x" })).status,
-    ).toBe(401);
+      await getJson(grant.nonce, {
+        "sec-fetch-site": "same-origin",
+        ...french,
+      }),
+    ).toMatchObject({ status: 401, body: { error: signIn } });
+    expect(
+      (await post(grant.nonce, { decision: "approve", csrfToken: "x" }, french))
+        .body,
+    ).toEqual({ error: signIn });
     expect((await storedRow(grant.nonce)).status).toBe("pending");
   });
 });
@@ -575,11 +587,14 @@ describe("deciding", () => {
     signedIn.session = { email: OWNER, orgId: ORG };
 
     for (const csrfToken of [undefined, "", otherGrantToken, otherUsersToken]) {
-      const { status } = await post(grant.nonce, {
+      const { status, body } = await post(grant.nonce, {
         decision: "approve",
         csrfToken,
       });
       expect(status).toBe(403);
+      expect(body).toEqual({
+        error: "This page is out of date. Reload it and decide again.",
+      });
     }
     expect((await storedRow(grant.nonce)).status).toBe("pending");
   });
