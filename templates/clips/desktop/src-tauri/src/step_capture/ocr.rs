@@ -163,7 +163,11 @@ pub fn read_area(click: PxPoint, width: f64, height: f64) -> PxRect {
 /// What kind of place a click is read in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadAt {
-    /// A window: words join into labels.
+    /// A control in an app window: only the words the click lands on, so
+    /// text typed into a field beside it never names the step.
+    Control,
+    /// The Dock: words join into labels, and the nearest beside the click
+    /// counts.
     Window,
     /// The menu bar: every word is its own menu title.
     MenuBar,
@@ -181,6 +185,11 @@ pub fn is_icon(word: &TextLine) -> bool {
 /// The line the click landed on, or the nearest one beside it on its row.
 pub fn label_at(lines: &[TextLine], click: PxPoint) -> Option<String> {
     label_within(lines, click, MAX_GAP)
+}
+
+/// Only the line the click landed on.
+pub fn clicked_label(lines: &[TextLine], click: PxPoint) -> Option<String> {
+    label_within(lines, click, 0.0)
 }
 
 /// A menu item's label: on the clicked row and starting left of the click,
@@ -275,8 +284,9 @@ pub fn read_label(
         })
         .collect::<Vec<_>>();
     match at {
+        ReadAt::Control => clicked_label(&lines, click),
         ReadAt::MenuItem => menu_item_at(&lines, click),
-        _ => label_at(&lines, click),
+        ReadAt::Window | ReadAt::MenuBar => label_at(&lines, click),
     }
 }
 
@@ -410,6 +420,19 @@ mod tests {
             Some("Downloads")
         );
         assert_eq!(label_at(&lines, PxPoint { x: 900.0, y: 114.0 }), None);
+    }
+
+    #[test]
+    fn a_control_is_named_only_by_the_text_clicked() {
+        let lines = [
+            line("Send", 100.0, 100.0, 60.0),
+            line("my private draft", 200.0, 100.0, 300.0),
+        ];
+        assert_eq!(
+            clicked_label(&lines, PxPoint { x: 120.0, y: 114.0 }).as_deref(),
+            Some("Send")
+        );
+        assert_eq!(clicked_label(&lines, PxPoint { x: 180.0, y: 114.0 }), None);
     }
 
     #[test]

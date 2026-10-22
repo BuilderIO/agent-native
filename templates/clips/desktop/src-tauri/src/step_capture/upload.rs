@@ -405,9 +405,10 @@ fn write_upload(directory: &Path, upload: &StepCaptureUpload) -> Result<(), Stri
 }
 
 /// Upload the guide's steps, in its order, into a new library folder. The
-/// session supplies each step's source app and window. Errors only when
-/// nothing could be uploaded at all (no session, no folder); a step that fails
-/// on its own is recorded in `upload.json` and the rest still go up.
+/// session supplies each step's source app and window. Errors when nothing
+/// could be uploaded at all (no session, no folder, no step), and then removes
+/// the folder it made; a step that fails on its own is recorded in
+/// `upload.json` and the rest still go up.
 pub async fn upload_guide(
     app: &AppHandle,
     directory: &Path,
@@ -472,6 +473,23 @@ pub async fn upload_guide(
         uploaded_at: chrono::Utc::now().to_rfc3339(),
         steps,
     };
+    if upload.summary().uploaded == 0 {
+        let problem = upload
+            .first_problem()
+            .unwrap_or("the guide has no steps")
+            .to_string();
+        // Best effort: an empty folder left behind is only clutter.
+        if let Err(error) = target
+            .call(
+                "delete-folder",
+                serde_json::json!({ "id": upload.folder_id }),
+            )
+            .await
+        {
+            eprintln!("[clips-tray] step capture: could not remove the empty folder: {error}");
+        }
+        return Err(format!("No steps could be uploaded: {problem}"));
+    }
     write_upload(directory, &upload)?;
     Ok(upload)
 }

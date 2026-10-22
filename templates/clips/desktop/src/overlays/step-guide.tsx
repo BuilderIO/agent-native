@@ -231,6 +231,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const saveTimer = useRef<number | undefined>(undefined);
   const pending = useRef<StepGuide | null>(null);
+  const discardOnClose = useRef(false);
 
   useEffect(() => {
     if (!sessionId) {
@@ -246,20 +247,27 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
     window.clearTimeout(saveTimer.current);
     const guide = pending.current;
     if (!guide || !sessionId) return;
-    pending.current = null;
     await invoke("step_guide_save", { sessionId, guide });
+    // Kept until it is saved, so a failed save is retried by the next one;
+    // an edit made while this one ran stays pending.
+    if (pending.current === guide) pending.current = null;
   }, [sessionId]);
 
   // Tauri waits for this handler before it closes the window, so the last
-  // edit is saved. If that save fails the window stays open to show why; a
-  // second close goes through.
+  // edit is saved. If that save fails the window stays open to say so, and
+  // only a second close with no new edit in between discards it.
   useEffect(() => {
     const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
+      if (discardOnClose.current) return;
       try {
         await flush();
       } catch (error) {
         event.preventDefault();
-        setStatus({ kind: "error", text: errorText(error) });
+        discardOnClose.current = true;
+        setStatus({
+          kind: "error",
+          text: `${errorText(error)} Close again to discard the unsaved edits.`,
+        });
       }
     });
     return () => void unlisten.then((stop) => stop());
@@ -270,6 +278,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
       if (!current) return current;
       const guide = change(current.guide);
       pending.current = guide;
+      discardOnClose.current = false;
       window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
         flush().catch((error) =>

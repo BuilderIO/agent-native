@@ -550,18 +550,41 @@ pub fn session_file(directory: &Path, name: &str) -> Result<PathBuf, String> {
 
 /// Whether a step may be named from the text under its click. Never for a
 /// redacted control or a field the user types into: the text there is what
-/// they typed, and a password or message must not become a step title.
-/// Without Accessibility a window click could be in such a field, so only
-/// the menu bar, menus and the Dock, which hold no typed text, are read.
+/// they typed, and a password or message must not become a step title. In a
+/// window only known controls are read, and only the text clicked (see
+/// `ReadAt::Control`), since a group or unknown element may hold a field;
+/// without Accessibility nothing in a window is read. The menu bar, menus
+/// and the Dock hold no typed text.
 fn reads_text_under(target: &StepTarget, place: Place) -> bool {
     match target {
         StepTarget::Redacted { .. } => false,
         StepTarget::Labeled { role, .. } | StepTarget::Unlabeled { role } => {
-            !TEXT_ENTRY_ROLES.contains(&role.as_str())
+            if place == Place::Window {
+                CONTROL_ROLES.contains(&role.as_str())
+            } else {
+                !TEXT_ENTRY_ROLES.contains(&role.as_str())
+            }
         }
         StepTarget::Unavailable { .. } => place != Place::Window,
     }
 }
+
+/// Window elements whose own text is a label, never typed content.
+const CONTROL_ROLES: [&str; 13] = [
+    "AXButton",
+    "AXCheckBox",
+    "AXDisclosureTriangle",
+    "AXImage",
+    "AXLink",
+    "AXMenuBarItem",
+    "AXMenuButton",
+    "AXMenuItem",
+    "AXPopUpButton",
+    "AXRadioButton",
+    "AXStaticText",
+    "AXTab",
+    "AXTabButton",
+];
 
 const TEXT_ENTRY_ROLES: [&str; 5] = [
     "AXTextField",
@@ -625,9 +648,10 @@ pub fn build_guide(
                                 f64::from(image.height),
                                 image.click,
                                 match place {
+                                    Place::Window => super::ocr::ReadAt::Control,
                                     Place::MenuBar => super::ocr::ReadAt::MenuBar,
                                     Place::Menu => super::ocr::ReadAt::MenuItem,
-                                    _ => super::ocr::ReadAt::Window,
+                                    Place::Dock => super::ocr::ReadAt::Window,
                                 },
                             )
                         })
@@ -1172,6 +1196,9 @@ mod tests {
             Place::Window
         ));
         assert!(reads_text_under(&role("AXButton"), Place::Window));
+        // A group may hold a field, so its text is not read.
+        assert!(!reads_text_under(&role("AXGroup"), Place::Window));
+        assert!(reads_text_under(&role("AXGroup"), Place::Dock));
         // Without Accessibility, a window click may be in a text field.
         let unknown = StepTarget::Unavailable {
             reason: StepTargetUnavailableReason::NotTrusted,

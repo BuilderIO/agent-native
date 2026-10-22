@@ -355,6 +355,17 @@ struct ActiveCapture {
 }
 
 static ACTIVE: Mutex<Option<ActiveCapture>> = Mutex::new(None);
+/// Held while `step_capture_start` sets a session up, so a second start
+/// waits its turn without `ACTIVE` being locked across the main-thread call.
+static STARTING: AtomicBool = AtomicBool::new(false);
+
+struct StartingGuard;
+
+impl Drop for StartingGuard {
+    fn drop(&mut self) {
+        STARTING.store(false, Ordering::SeqCst);
+    }
+}
 /// Clicks while paused are not steps. Read by the monitor on every event.
 static PAUSED: AtomicBool = AtomicBool::new(false);
 
@@ -553,10 +564,15 @@ pub async fn step_capture_status() -> Result<StepCaptureStatus, String> {
 
 #[tauri::command]
 pub async fn step_capture_start(app: AppHandle) -> Result<StepCaptureStatus, String> {
-    let mut active = ACTIVE
+    if STARTING.swap(true, Ordering::SeqCst) {
+        return Err("A step capture is already starting.".to_string());
+    }
+    let _starting = StartingGuard;
+    let recording = ACTIVE
         .lock()
-        .map_err(|_| "step capture state is poisoned")?;
-    if active.is_some() {
+        .map_err(|_| "step capture state is poisoned")?
+        .is_some();
+    if recording {
         return Err("A step capture is already recording.".to_string());
     }
     if !platform::SUPPORTED {
@@ -598,11 +614,19 @@ pub async fn step_capture_start(app: AppHandle) -> Result<StepCaptureStatus, Str
             .map_err(|error| format!("could not start the step capture worker: {error}"))?
     };
 
+    // The status lock is not held here: the tray and status calls read it
+    // while this waits for the main thread.
     if let Err(error) = platform::install_monitor(&app, sender.clone()) {
         let _ = sender.send(WorkerMessage::Finish);
         let _ = worker.join();
         return Err(error);
     }
+    let Ok(mut active) = ACTIVE.lock() else {
+        let _ = platform::remove_monitor(&app);
+        let _ = sender.send(WorkerMessage::Finish);
+        let _ = worker.join();
+        return Err("step capture state is poisoned".to_string());
+    };
 
     PAUSED.store(false, Ordering::SeqCst);
     *active = Some(ActiveCapture {
@@ -877,10 +901,6 @@ pub async fn step_guide_share(
     }
     let upload = upload::upload_guide(&app, &directory, &guide, &session).await?;
     let summary = upload.summary();
-    if summary.uploaded == 0 && summary.total > 0 {
-        let problem = upload.first_problem().unwrap_or("unknown error");
-        return Err(format!("No steps could be uploaded: {problem}"));
-    }
     platform::open(upload.folder_url.as_ref())?;
     Ok(summary)
 }
@@ -1091,14 +1111,18 @@ mod platform {
         })?
     }
 
+    /// Queued without waiting: a busy main thread must not hold up stopping.
+    /// Main-thread work runs in order, so a later `install_monitor` still
+    /// comes after it.
     pub fn remove_monitor(app: &AppHandle) -> Result<(), String> {
-        run_on_main(app, || {
+        app.run_on_main_thread(|| {
             MONITOR.with(|slot| {
                 if let Some(monitor) = slot.borrow_mut().take() {
                     unsafe { NSEvent::removeMonitor(&monitor) };
                 }
             });
         })
+        .map_err(|error| format!("run_on_main_thread failed: {error}"))
     }
 
     extern "C" {
