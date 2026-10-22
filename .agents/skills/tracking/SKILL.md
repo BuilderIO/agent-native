@@ -199,7 +199,8 @@ providers build it.
 - **Browser outcomes are bounded, too.** `agent_run_outcome` is one event per
   run (`outcome`, legacy `code`, `terminal_source`,
   `verified_after_pipe_closed`, `resume_attempts`, `run_id`, `thread_id`, and
-  `turn_id` when the page sent the turn):
+  `turn_id` when the page started the turn, except a replay whose turn the
+  server did not name):
   every `interrupted` / `failed` / `unverified` run up to 30 per page, every
   `stopped` run up to its own 30 (so stops never crowd out failures), and
   `succeeded` sampled at 10% with `sample_weight`. A turn the server refuses

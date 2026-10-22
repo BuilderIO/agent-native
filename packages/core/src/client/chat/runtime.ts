@@ -774,9 +774,9 @@ export interface AgentChatRuntimeTurn<
   readonly id?: AgentChatRuntimeTurnId;
   /**
    * The turn the server stored the run under (its `X-Turn-Id`), else the one
-   * the request carried. A continuation sends the turn it continues, and an
-   * approval resume runs under its pending approval's turn, so this is not
-   * always `id`.
+   * the request carried; absent for a replay the server did not name the turn
+   * of. A continuation sends the turn it continues, and an approval resume
+   * runs under its pending approval's turn, so this is not always `id`.
    */
   readonly requestTurnId?: AgentChatRuntimeTurnId;
   readonly sessionId: AgentChatRuntimeSessionId;
@@ -1622,18 +1622,22 @@ export function createHttpAgentChatRuntime<
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
+      const replay = response.headers.get("X-Dispatch-Mode") === "replay";
       // The server can store the run under another turn than the one asked
-      // for: an approval resume runs under its pending approval's turn.
-      const runTurnId = response.headers.get("X-Turn-Id") || requestTurnId;
+      // for: an approval resume runs under its pending approval's turn. A
+      // replay streams a run an earlier request started, so without the
+      // server's turn its turn is unknown, not this request's.
+      const storedTurnId = response.headers.get("X-Turn-Id") || undefined;
+      const runTurnId = storedTurnId ?? (replay ? undefined : requestTurnId);
       try {
         // A replay streams a turn the server already finished, and a stream
         // with no run id is a refusal (no model connected), not new work.
-        if (runId && response.headers.get("X-Dispatch-Mode") !== "replay") {
+        if (runId && !replay) {
           options.onTurnAccepted?.({
             session: summary,
             turn,
             turnId,
-            requestTurnId: runTurnId,
+            requestTurnId: storedTurnId ?? requestTurnId,
             runId,
           });
         }

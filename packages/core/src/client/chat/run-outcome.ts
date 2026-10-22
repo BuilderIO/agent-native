@@ -183,7 +183,10 @@ export type RunTerminalSource = "stream" | "authority" | "pipe" | "local";
 export interface RunOutcomeReport {
   readonly runId: string;
   readonly threadId: string;
-  /** The turn the server stored the run under; absent when this page did not start it. */
+  /**
+   * The turn the server stored the run under; absent when this page did not
+   * start it, or for a replay whose turn the server did not name.
+   */
   readonly turnId?: string;
   readonly outcome: RunOutcome;
   /** The legacy code that named this outcome one incident at a time. */

@@ -610,6 +610,47 @@ describe("agent_run_outcome turn id", () => {
     await transport.dispose();
   });
 
+  it.each([
+    [
+      "leaves the turn id out of a replay the server did not name",
+      {},
+      undefined,
+    ],
+    [
+      "carries the turn a replay names",
+      { "X-Turn-Id": "turn-stored" },
+      "turn-stored",
+    ],
+  ] as const)("%s", async (_name, headers, expectedTurnId) => {
+    const { fetcher } = chatServer((url, init) =>
+      url === API_URL && String(init?.method).toUpperCase() === "POST"
+        ? sseResponse(
+            [
+              { type: "text", text: "Done." },
+              { type: "done", reason: "complete" },
+            ],
+            "run-earlier",
+            { "X-Dispatch-Mode": "replay", ...headers },
+          )
+        : undefined,
+    );
+    const reports: RunOutcomeReport[] = [];
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: API_URL,
+      fetch: fetcher,
+      adapter: { onRunOutcome: (report) => reports.push(report) },
+    });
+    const client = new AgentKitClient({ transport });
+
+    await (
+      await client.sendMessage({ threadId: "thread-replay", text: "Hi" })
+    ).completed;
+
+    expect(reports).toHaveLength(1);
+    expect(reports[0]!.turnId).toBe(expectedTurnId);
+    await transport.dispose();
+  });
+
   it("carries the turn id of a turn refused at its start", async () => {
     const { fetcher, turnBodies } = chatServer((url, init) => {
       if (url !== API_URL) return undefined;
