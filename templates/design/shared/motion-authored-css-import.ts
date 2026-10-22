@@ -142,6 +142,21 @@ export function importAuthoredCssAnimations(
   });
 
   const reducedMotionOverrides = findReducedMotionOverrideDeclarations(root);
+  let hasTransitionDeclaration = false;
+  root.walkDecls((declaration) => {
+    if (
+      isTransitionProperty(declaration.prop) &&
+      !reducedMotionOverrides.has(declaration)
+    ) {
+      hasTransitionDeclaration = true;
+    }
+  });
+  if (hasTransitionDeclaration) {
+    return unsupported(
+      "CSS transitions cannot be synchronized with the Motion timeline.",
+    );
+  }
+
   const animationDeclarations: postcss.Declaration[] = [];
   root.walkDecls((declaration) => {
     if (
@@ -543,6 +558,15 @@ function isAnimationProperty(property: string): boolean {
   );
 }
 
+function isTransitionProperty(property: string): boolean {
+  const normalized = decodeMotionCssIdentifier(property).toLowerCase();
+  return (
+    normalized === "transition" ||
+    normalized.startsWith("transition-") ||
+    /^-(?:webkit|moz|ms|o)-transition(?:-|$)/.test(normalized)
+  );
+}
+
 function findReducedMotionOverrideDeclarations(
   root: postcss.Root,
 ): Set<postcss.Declaration> {
@@ -567,26 +591,40 @@ function findReducedMotionOverrideDeclarations(
 
     const declarations = rule.nodes.filter(
       (node): node is postcss.Declaration =>
-        node.type === "decl" && isAnimationProperty(node.prop),
+        node.type === "decl" &&
+        (isAnimationProperty(node.prop) || isTransitionProperty(node.prop)),
     );
-    const durations = declarations.filter(
+    const animationDeclarations = declarations.filter((declaration) =>
+      isAnimationProperty(declaration.prop),
+    );
+    const durations = animationDeclarations.filter(
       (declaration) =>
         decodeMotionCssIdentifier(declaration.prop).toLowerCase() ===
         "animation-duration",
     );
-    const iterations = declarations.filter(
+    const iterations = animationDeclarations.filter(
       (declaration) =>
         decodeMotionCssIdentifier(declaration.prop).toLowerCase() ===
         "animation-iteration-count",
     );
+    const transitionDurations = declarations.filter(
+      (declaration) =>
+        decodeMotionCssIdentifier(declaration.prop).toLowerCase() ===
+        "transition-duration",
+    );
     if (
-      declarations.length !== 2 ||
+      animationDeclarations.length !== 2 ||
       durations.length !== 1 ||
       iterations.length !== 1 ||
+      transitionDurations.length > 1 ||
+      declarations.length !== 2 + transitionDurations.length ||
       durations[0]!.important !== true ||
       !isReducedMotionDuration(durations[0]!.value) ||
       iterations[0]!.important !== true ||
-      iterations[0]!.value.trim() !== "1"
+      iterations[0]!.value.trim() !== "1" ||
+      (transitionDurations.length === 1 &&
+        (!transitionDurations[0]!.important ||
+          !isReducedMotionDuration(transitionDurations[0]!.value)))
     ) {
       return;
     }

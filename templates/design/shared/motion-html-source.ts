@@ -617,6 +617,24 @@ function assertTargetsExist(
         `Motion target "${nodeId}" uses ${conflictingMotionBinding.name}, which cannot be synchronized with CSS Motion yet.`,
       );
     }
+    const runtimeStyleMutation = target.attrs?.find(({ name }) => {
+      const normalized = name.toLowerCase();
+      return (
+        normalized === "x-init" ||
+        normalized === "x-effect" ||
+        normalized === "x-on" ||
+        normalized.startsWith("x-on:") ||
+        normalized === "v-on" ||
+        normalized.startsWith("v-on:") ||
+        normalized.startsWith("@")
+      );
+    });
+    if (runtimeStyleMutation) {
+      sourceError(
+        "unsupported-target",
+        `Motion target "${nodeId}" uses ${runtimeStyleMutation.name}, whose runtime expression cannot be proven free of style mutations.`,
+      );
+    }
     const inlineStyle = target.attrs?.find(({ name }) => name === "style");
     if (inlineStyle && hasInlineMotionDeclarations(inlineStyle.value)) {
       sourceError(
@@ -817,7 +835,11 @@ function readAuthoredHtmlMotion(
 }
 
 function hasUnresolvedStylesheet(nodes: readonly HtmlNode[]): boolean {
-  return hasLinkedStylesheet(nodes) || hasImportedStylesheet(nodes);
+  return (
+    hasLinkedStylesheet(nodes) ||
+    hasImportedStylesheet(nodes) ||
+    hasDynamicStyleContent(nodes)
+  );
 }
 
 function dynamicBoundAttributeName(attributeName: string): string | null {
@@ -834,6 +856,9 @@ function hasLinkedStylesheet(nodes: readonly HtmlNode[]): boolean {
     if (node.tagName !== "link" || node.insideTemplate) return false;
     const relAttributes = attributes(node, "rel");
     const hrefAttributes = attributes(node, "href");
+    const relTokens = relAttributes.flatMap((attribute) =>
+      attribute.value.split(/[\t\n\f\r ]+/).map((value) => value.toLowerCase()),
+    );
     const objectBinding = (node.attrs ?? []).some((attribute) =>
       ["x-bind", "v-bind"].includes(attribute.name.toLowerCase()),
     );
@@ -849,14 +874,59 @@ function hasLinkedStylesheet(nodes: readonly HtmlNode[]): boolean {
       hrefAttributes.some((attribute) => attribute.value.trim()) ||
       hasBoundAttribute("href") ||
       objectBinding;
-    const stylesheetRel = relAttributes.some((attribute) =>
-      attribute.value
-        .split(/[\t\n\f\r ]+/)
-        .some((value) => value.toLowerCase() === "stylesheet"),
-    );
+    const stylesheetRel = relTokens.includes("stylesheet");
+    const stylePreload =
+      relTokens.includes("preload") &&
+      (attributes(node, "as").some(
+        (attribute) => attribute.value.toLowerCase() === "style",
+      ) ||
+        hasBoundAttribute("as") ||
+        objectBinding) &&
+      (attributes(node, "onload").length > 0 ||
+        hasBoundAttribute("onload") ||
+        objectBinding);
     return (
-      hasHref && (stylesheetRel || hasBoundAttribute("rel") || objectBinding)
+      hasHref &&
+      (stylesheetRel ||
+        hasBoundAttribute("rel") ||
+        stylePreload ||
+        objectBinding)
     );
+  });
+}
+
+function hasDynamicStyleContent(nodes: readonly HtmlNode[]): boolean {
+  return nodes.some((node) => {
+    if (
+      node.tagName !== "style" ||
+      node.insideTemplate ||
+      !isPotentialCssStyle(node)
+    ) {
+      return false;
+    }
+    if (
+      /(?:\{\{[\s\S]*?\}\}|\$\{[\s\S]*?\}|<%[\s\S]*?%>)/u.test(
+        textContent(node),
+      )
+    ) {
+      return true;
+    }
+    return (node.attrs ?? []).some((attribute) => {
+      const name = attribute.name.toLowerCase();
+      return (
+        [
+          "x-text",
+          "x-html",
+          "v-text",
+          "v-html",
+          "ng-bind",
+          "ng-bind-html",
+        ].includes(name) ||
+        ["innerhtml", "textcontent"].includes(
+          dynamicBoundAttributeName(name) ?? "",
+        )
+      );
+    });
   });
 }
 
@@ -907,6 +977,21 @@ function isPotentialCssStyle(node: HtmlNode): boolean {
 function isSupportedAuthoredHtmlStyle(node: HtmlNode): boolean {
   for (const attribute of node.attrs ?? []) {
     const name = attribute.name.toLowerCase();
+    if (
+      [
+        "x-text",
+        "x-html",
+        "v-text",
+        "v-html",
+        "ng-bind",
+        "ng-bind-html",
+      ].includes(name) ||
+      ["innerhtml", "textcontent"].includes(
+        dynamicBoundAttributeName(name) ?? "",
+      )
+    ) {
+      return false;
+    }
     if (
       /^(?::|x-bind:|v-bind:)(?:media|disabled|title|scoped|type)$/.test(name)
     ) {

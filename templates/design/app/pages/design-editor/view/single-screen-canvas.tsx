@@ -28,6 +28,7 @@ import type { EditorScreenInspector } from "../domains/use-editor-screen-inspect
 import type { EditorScreenRendering } from "../domains/use-editor-screen-rendering";
 import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-and-styles";
 import type { EditorToolsAndVectors } from "../domains/use-editor-tools-and-vectors";
+import { runPrototypeNavigationTransition } from "../prototype-navigation-transition";
 import type { DesignData } from "../types";
 
 export function renderSingleScreenCanvas({
@@ -550,7 +551,7 @@ export function renderSingleScreenCanvas({
         }
         nodeRewriteCanvasTarget
         onRepromptDraftConsumed={handleRepromptDraftConsumed}
-        onPrototypeNavigate={(screen) => {
+        onPrototypeNavigate={(screen, _href, transition) => {
           if (!screen) return;
           const norm = (s: string) =>
             s
@@ -561,14 +562,16 @@ export function renderSingleScreenCanvas({
           if (!target) return;
           const match = files.find((f) => norm(f.filename) === target);
           if (match) {
-            if (mode === "interact") {
-              handleModeChange("interact", {
-                targetFileId: match.id,
-                keepInteractDevice: true,
-              });
-            } else {
-              handleSidebarScreenSelect(match.id);
-            }
+            runPrototypeNavigationTransition(transition, () => {
+              if (mode === "interact") {
+                handleModeChange("interact", {
+                  targetFileId: match.id,
+                  keepInteractDevice: true,
+                });
+              } else {
+                handleSidebarScreenSelect(match.id);
+              }
+            });
           }
         }}
       />

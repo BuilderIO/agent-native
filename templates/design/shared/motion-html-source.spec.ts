@@ -222,6 +222,61 @@ describe("HTML Motion source adapter", () => {
     }
   });
 
+  it.each([
+    ["Alpine initialization", "x-init=\"$el.style.transition = 'opacity 1s'\""],
+    ["Alpine effect", "x-effect=\"$el.style.animation = 'pulse 1s'\""],
+    [
+      "Alpine shorthand event",
+      "@click=\"$el.style.transitionDuration = '1s'\"",
+    ],
+    [
+      "Alpine event directive",
+      "x-on:click=\"$el.style.setProperty('transition', 'opacity 1s')\"",
+    ],
+    ["Vue event directive", "v-on:click=\"$el.style.animationName = 'pulse'\""],
+  ])(
+    "rejects %s on a Motion target and preserves the HTML source",
+    (_label, attribute) => {
+      const source = html.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        `<h1 data-agent-native-node-id="hero-title" ${attribute}>Hello</h1>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining(attribute.split("=")[0]!),
+      });
+      let writeError: unknown;
+      try {
+        apply(source);
+      } catch (error) {
+        writeError = error;
+      }
+      expect(writeError).toMatchObject({ code: "unsupported-target" });
+      expect(source).toContain(attribute);
+    },
+  );
+
+  it("rejects runtime style directives when reading an existing Motion target", () => {
+    const generated = apply(html).source;
+    const source = generated.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" x-init="$el.style.transition = \'opacity 1s\'">Hello</h1>',
+    );
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+    expect(source).toContain("x-init=");
+  });
+
   it("refuses authored inline animation and transition declarations on a target", () => {
     for (const style of [
       "animation: pulse 1s infinite",
@@ -609,6 +664,91 @@ describe("HTML Motion source adapter", () => {
       expect(() => apply(managedSource)).toThrow(MotionHtmlSourceError);
     },
   );
+
+  it.each([
+    ["Alpine text binding", 'x-text="runtimeCss"'],
+    ["Alpine HTML binding", 'x-html="runtimeCss"'],
+    ["bound innerHTML", ':innerHTML="runtimeCss"'],
+    ["Alpine bound innerHTML", 'x-bind:innerHTML="runtimeCss"'],
+  ])("rejects %s on a CSS style element", (_label, binding) => {
+    const source = apply(html).source.replace(
+      "</head>",
+      `<style ${binding}></style>\n</head>`,
+    );
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unresolved-stylesheet" },
+    });
+    expect(() => apply(source)).toThrow(MotionHtmlSourceError);
+    expect(source).toContain(`<style ${binding}></style>`);
+  });
+
+  it.each([
+    ["Mustache", "{{ runtimeCss }}"],
+    ["template literal", "${runtimeCss}"],
+    ["server template", "<%= runtimeCss %>"],
+  ])("rejects dynamic %s content inside a style element", (_kind, value) => {
+    const source = apply(html).source.replace(
+      "</head>",
+      `<style>/* ${value} */ .hero { color: red; }</style>\n</head>`,
+    );
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unresolved-stylesheet" },
+    });
+    expect(() => apply(source)).toThrow(MotionHtmlSourceError);
+    expect(source).toContain(value);
+  });
+
+  it.each([
+    ".hero { transition: transform 1s ease; }",
+    ".hero { transition-delay: 1s; }",
+    ".hero { transition-behavior: allow-discrete; }",
+    ".hero { -webkit-transition: opacity 1s; }",
+    ".hero { transitio\\6e: opacity 1s; }",
+  ])(
+    "rejects transitions in authored CSS without changing the source",
+    (transition) => {
+      const source = apply(html).source.replace(
+        "</head>",
+        `<style>${transition}</style>\n</head>`,
+      );
+
+      expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+      expect(() => apply(source)).toThrow(MotionHtmlSourceError);
+      expect(source).toContain(transition);
+    },
+  );
+
+  it("rejects a stylesheet preload promoted on load", () => {
+    const source = apply(html).source.replace(
+      "</head>",
+      '<link rel="preload" as="style" href="./theme.css" onload="this.rel=\'stylesheet\'">\n</head>',
+    );
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unresolved-stylesheet" },
+    });
+    expect(() => apply(source)).toThrow(MotionHtmlSourceError);
+    expect(source).toContain('rel="preload" as="style"');
+  });
+
+  it("does not treat an unpromoted style preload as a stylesheet", () => {
+    const source = html.replace(
+      "</head>",
+      '<link rel="preload" as="style" href="./theme.css">\n</head>',
+    );
+
+    expect(readMotionHtmlSource(source, "index.html")).toEqual({
+      status: "absent",
+    });
+  });
 
   it("fails closed when an imported stylesheet precedes malformed CSS", () => {
     const managedSource = apply(html).source.replace(

@@ -58,6 +58,14 @@ describe("importAuthoredCssAnimations", () => {
     expect(remainder).toContain("@keyframes pulse");
   });
 
+  +it("rejects escaped CSS transition property names", () => {
+    const css = ".hero { transitio\\6e: opacity 1s; }";
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("CSS transitions"),
+    });
+  });
+
   it("preserves global keyframes and removes only adopted animation declarations", () => {
     const css = `/* before */
 .hero {
@@ -262,6 +270,21 @@ describe("importAuthoredCssAnimations", () => {
     for (const declaration of reducedMotionDeclarations) {
       expect(remainder).toContain(declaration);
     }
+  });
+
+  it.each([
+    ["transition shorthand", ".hero { transition: opacity 2s ease; }"],
+    [
+      "transition longhands",
+      ".hero { transition-property: transform; transition-duration: 1s; }",
+    ],
+    ["vendor-prefixed transition", ".hero { -webkit-transition: opacity 1s; }"],
+    ["escaped transition property", ".hero { \\74 ransition: opacity 1s; }"],
+  ])("fails closed on %s", (_label, css) => {
+    const result = importAuthoredCssAnimations(css, resolveHero);
+
+    expect(result).toMatchObject({ status: "unsupported" });
+    expect(result).not.toHaveProperty("rangesToRemove");
   });
 
   it.each([

@@ -599,6 +599,12 @@ export function inspectMotionReactSourceWriteCapability(args: {
   try {
     if (read.status === "invalid") throw read.error;
     const sourceFile = parseTsx(args.source);
+    if (targetNodeIds.length > 0 && hasUnresolvedReactStylesheet(sourceFile)) {
+      throw new MotionReactSourceError(
+        "unsupported-authored-motion",
+        "Resolve external stylesheets before editing or adding Motion.",
+      );
+    }
     if (targetNodeIds.length === 0) {
       const canEditMetadata =
         read.status === "valid" &&
@@ -629,6 +635,11 @@ export function inspectMotionReactSourceWriteCapability(args: {
       }
     } else {
       const targets = findTargets(sourceFile, targetNodeIds, args.modulePath);
+      assertNoUnsupportedReactStylePropAnimations(
+        sourceFile,
+        targetNodeIds,
+        args.modulePath,
+      );
       const targetRoots = new Set(
         targets.map((target) => target.componentRoot),
       );
@@ -757,6 +768,16 @@ function readAuthoredReactMotion(
   managedStyles: readonly ManagedStyle[],
   managedTargetNodeIds: readonly string[] = [],
 ): AuthoredReactMotion {
+  if (
+    managedTargetNodeIds.length > 0 &&
+    hasUnresolvedReactStylesheet(sourceFile)
+  ) {
+    throw new MotionReactSourceError(
+      "unsupported-authored-motion",
+      "Resolve external stylesheets before editing or adding Motion.",
+    );
+  }
+
   const managedElements = new Set(managedStyles.map((style) => style.element));
   const authoredStyles: TypeScript.JsxElement[] = [];
   const visit = (node: TypeScript.Node): void => {
@@ -828,10 +849,10 @@ function readAuthoredReactMotion(
         result.reason,
       );
     }
-    if (hasImportedStylesheet(sourceFile)) {
+    if (hasUnresolvedReactStylesheet(sourceFile)) {
       throw new MotionReactSourceError(
         "unsupported-authored-motion",
-        "Inline CSS animations cannot be imported while CSS module dependencies remain unresolved.",
+        "Inline CSS animations cannot be imported while stylesheet dependencies remain unresolved.",
       );
     }
     for (const name of result.definedKeyframeNames) {
@@ -917,10 +938,21 @@ function hasImportedStylesheet(sourceFile: TypeScript.SourceFile): boolean {
         ts.isIdentifier(node.expression) && node.expression.text === "require";
       const isDynamicImport =
         node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isImportMetaGlob =
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isMetaProperty(node.expression.expression) &&
+        node.expression.expression.keywordToken ===
+          ts.SyntaxKind.ImportKeyword &&
+        node.expression.expression.name.text === "meta" &&
+        ["glob", "globEager"].includes(node.expression.name.text);
       if (
         (isRequire || isDynamicImport) &&
-        isCssModuleSpecifier(node.arguments[0]!)
+        isPotentialCssModuleSpecifier(node.arguments[0]!)
       ) {
+        found = true;
+        return;
+      }
+      if (isImportMetaGlob && isPotentialCssGlobPattern(node.arguments[0]!)) {
         found = true;
         return;
       }
@@ -929,6 +961,106 @@ function hasImportedStylesheet(sourceFile: TypeScript.SourceFile): boolean {
   };
   visit(sourceFile);
   return found;
+}
+
+function hasUnresolvedReactStylesheet(
+  sourceFile: TypeScript.SourceFile,
+): boolean {
+  return (
+    hasImportedStylesheet(sourceFile) || hasLinkedReactStylesheet(sourceFile)
+  );
+}
+
+function isPotentialCssGlobPattern(node: TypeScript.Expression): boolean {
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.some(isPotentialCssGlobPattern);
+  }
+  if (!ts.isStringLiteral(node) && !ts.isNoSubstitutionTemplateLiteral(node)) {
+    return true;
+  }
+
+  const pattern = node.text;
+  if (/\.(?:css|scss|sass|less|styl)(?:$|[?#*{}])/i.test(pattern)) {
+    return true;
+  }
+  const extensionList = pattern.match(/\.\{([^}]+)\}(?:[?#].*)?$/);
+  if (extensionList) {
+    return extensionList[1]!
+      .split(",")
+      .some((extension) => /^(?:css|scss|sass|less|styl)$/i.test(extension));
+  }
+  return !/\.[a-z0-9]+(?:[?#].*)?$/i.test(pattern);
+}
+
+function hasLinkedReactStylesheet(sourceFile: TypeScript.SourceFile): boolean {
+  let found = false;
+  const visit = (node: TypeScript.Node): void => {
+    if (found) return;
+    const opening = ts.isJsxElement(node)
+      ? node.openingElement
+      : ts.isJsxSelfClosingElement(node)
+        ? node
+        : null;
+    if (
+      opening &&
+      ts.isIdentifier(opening.tagName) &&
+      opening.tagName.text === "link"
+    ) {
+      const properties = opening.attributes.properties;
+      const attributes = new Map<string, TypeScript.JsxAttribute>();
+      let hasSpread = false;
+      for (const property of properties) {
+        if (ts.isJsxSpreadAttribute(property)) {
+          hasSpread = true;
+        } else {
+          attributes.set(
+            property.name.getText(sourceFile).toLowerCase(),
+            property,
+          );
+        }
+      }
+      const relAttribute = attributes.get("rel");
+      const hrefAttribute = attributes.get("href");
+      const rel = relAttribute
+        ? readStaticJsxAttributeValue(relAttribute)
+        : null;
+      const relationTokens =
+        rel?.status === "static"
+          ? rel.value.split(/[\t\n\f\r ]+/).map((value) => value.toLowerCase())
+          : [];
+      const href = hrefAttribute
+        ? readStaticJsxAttributeValue(hrefAttribute)
+        : null;
+      const asAttribute = attributes.get("as");
+      const as = asAttribute ? readStaticJsxAttributeValue(asAttribute) : null;
+      const hasHref =
+        href?.status === "dynamic" ||
+        (href?.status === "static" && href.value.trim().length > 0);
+      const relMayBeStylesheet =
+        rel?.status === "dynamic" && hrefAttribute !== undefined;
+      const preloadMayBecomeStylesheet =
+        relationTokens.includes("preload") &&
+        (as?.status === "dynamic" ||
+          (as?.status === "static" && as.value.toLowerCase() === "style")) &&
+        attributes.has("onload");
+      found =
+        hasSpread ||
+        (hasHref &&
+          (relationTokens.includes("stylesheet") ||
+            relMayBeStylesheet ||
+            preloadMayBecomeStylesheet));
+    }
+    if (!found) ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
+function isPotentialCssModuleSpecifier(node: TypeScript.Expression): boolean {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return isCssModuleSpecifier(node);
+  }
+  return true;
 }
 
 function isCssModuleSpecifier(node: TypeScript.Expression): boolean {
@@ -943,34 +1075,75 @@ function assertNoUnsupportedReactStylePropAnimations(
   targetNodeIds: readonly string[],
   modulePath: string | undefined,
 ): void {
-  const targetElements = new Set(
+  const targets =
     targetNodeIds.length > 0
-      ? findStaticTargets(
-          sourceFile,
-          [...new Set(targetNodeIds)],
-          modulePath,
-        ).map((target) => target.element)
-      : [],
+      ? findStaticTargets(sourceFile, [...new Set(targetNodeIds)], modulePath)
+      : [];
+  const targetElements = new Set(targets.map((target) => target.element));
+  const targetRoots = new Set(
+    targets.map((target) => findComponentRoot(sourceFile, target.element)),
   );
+  const isWithinTargetRoot = (node: TypeScript.Node): boolean => {
+    for (
+      let current: TypeScript.Node | undefined = node;
+      current;
+      current = current.parent
+    ) {
+      if (
+        targetRoots.has(
+          current as TypeScript.JsxElement | TypeScript.JsxFragment,
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  for (const root of targetRoots) {
+    const visitRoot = (node: TypeScript.Node): void => {
+      if (
+        ts.isJsxAttribute(node) &&
+        node.name.getText(sourceFile) === "dangerouslySetInnerHTML"
+      ) {
+        throw new MotionReactSourceError(
+          "unsupported-authored-motion",
+          "React dangerouslySetInnerHTML in a Motion component can hide CSS from source inspection.",
+        );
+      }
+      ts.forEachChild(node, visitRoot);
+    };
+    visitRoot(root);
+  }
   const visit = (node: TypeScript.Node): void => {
-    if (ts.isJsxAttribute(node) && node.name.getText(sourceFile) === "style") {
+    if (ts.isJsxAttribute(node)) {
+      const attributeName = node.name.getText(sourceFile);
+      if (!["style", "css", "sx"].includes(attributeName)) {
+        ts.forEachChild(node, visit);
+        return;
+      }
       const initializer = node.initializer;
-      if (!initializer || !ts.isJsxExpression(initializer)) return;
-      if (!initializer.expression) return;
-      const inspection = inspectReactStyleExpression(
-        initializer.expression,
-        sourceFile,
-        new Set(),
-      );
       const attributes = node.parent;
       const opening = attributes.parent;
       const host = ts.isJsxOpeningElement(opening) ? opening.parent : opening;
-      if (targetElements.has(host) && inspection !== "safe") {
+      const isRelevantTargetProp =
+        targetElements.has(host) ||
+        (attributeName !== "style" && isWithinTargetRoot(host));
+      if (!isRelevantTargetProp) return;
+      const expression =
+        initializer && ts.isJsxExpression(initializer) && initializer.expression
+          ? initializer.expression
+          : null;
+      const inspection = expression
+        ? attributeName === "style"
+          ? inspectReactStyleExpression(expression, sourceFile, new Set())
+          : inspectReactCssExpression(expression, sourceFile, new Set())
+        : "unknown";
+      if (inspection !== "safe") {
         throw new MotionReactSourceError(
           "unsupported-authored-motion",
           inspection === "motion"
-            ? "React inline style-prop animations and transitions cannot be imported losslessly; use a supported static JSX <style> animation rule."
-            : "A React dynamic style prop on a Motion target cannot be proven free of animation or transition declarations.",
+            ? `React ${attributeName} prop animations and transitions cannot be imported losslessly; use a supported static JSX <style> animation rule.`
+            : `A React dynamic ${attributeName} prop on a Motion target cannot be proven free of animation or transition declarations.`,
         );
       }
     }
@@ -1021,6 +1194,64 @@ function inspectReactStyleExpression(
   if (resolving.has(declarationKey)) return "unknown";
   resolving.add(declarationKey);
   const result = inspectReactStyleExpression(
+    resolved.expression,
+    sourceFile,
+    resolving,
+  );
+  resolving.delete(declarationKey);
+  return result;
+}
+
+function inspectReactCssExpression(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  resolving: Set<string>,
+): ReactStyleInspection {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+
+  if (expression.kind === ts.SyntaxKind.NullKeyword) return "safe";
+  if (ts.isObjectLiteralExpression(expression)) {
+    for (const property of expression.properties) {
+      if (ts.isSpreadAssignment(property)) return "unknown";
+      if (
+        !ts.isPropertyAssignment(property) &&
+        !ts.isShorthandPropertyAssignment(property)
+      ) {
+        return "unknown";
+      }
+      const name = property.name;
+      const text =
+        ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : null;
+      if (!text) return "unknown";
+      if (isReactMotionStylePropName(text)) return "motion";
+      if (
+        ts.isPropertyAssignment(property) &&
+        ts.isObjectLiteralExpression(property.initializer)
+      ) {
+        const nested = inspectReactCssExpression(
+          property.initializer,
+          sourceFile,
+          resolving,
+        );
+        if (nested !== "safe") return nested;
+      }
+    }
+    return "safe";
+  }
+
+  const resolved = resolveReactStyleExpression(expression, sourceFile);
+  if (!resolved) return "unknown";
+  const declarationKey = `${resolved.start}:${resolved.end}`;
+  if (resolving.has(declarationKey)) return "unknown";
+  resolving.add(declarationKey);
+  const result = inspectReactCssExpression(
     resolved.expression,
     sourceFile,
     resolving,
@@ -1172,7 +1403,7 @@ function isReactMotionStylePropName(name: string): boolean {
     /^(?:webkit|moz|ms|o)?animation(?:name|duration|delay|timingfunction|fillmode|iterationcount|direction|playstate|composition|timeline|range(?:start|end)?)?$/.test(
       normalized,
     ) ||
-    /^(?:webkit|moz|ms|o)?transition(?:property|duration|delay|timingfunction)?$/.test(
+    /^(?:webkit|moz|ms|o)?transition(?:property|duration|delay|timingfunction|behavior)?$/.test(
       normalized,
     )
   );

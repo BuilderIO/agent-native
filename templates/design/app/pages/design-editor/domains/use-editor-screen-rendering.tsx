@@ -43,6 +43,7 @@ import {
   resolveOverviewScreenSourceType,
   shouldUseRuntimeLayerProjection,
 } from "../pending-edits";
+import { runPrototypeNavigationTransition } from "../prototype-navigation-transition";
 import { findInteractLinkTarget } from "../screen-command-utils";
 import {
   getContentSignature,
@@ -451,16 +452,22 @@ export function useEditorScreenRendering({
   // A link to another screen in the Interact preview switches the previewed
   // screen, keeping Interact and its device, the same hop the screen picker makes.
   const handleInteractLinkNavigate = useCallback(
-    (screen: string) => {
+    (
+      screen: string,
+      _href: string,
+      transition?: Parameters<typeof runPrototypeNavigationTransition>[0],
+    ) => {
       const target = findInteractLinkTarget(
         files,
         screen,
         activeFileIdRef.current,
       );
       if (!target) return;
-      handleModeChange("interact", {
-        targetFileId: target.id,
-        keepInteractDevice: true,
+      runPrototypeNavigationTransition(transition, () => {
+        handleModeChange("interact", {
+          targetFileId: target.id,
+          keepInteractDevice: true,
+        });
       });
     },
     [files, handleModeChange],
