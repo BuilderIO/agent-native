@@ -802,6 +802,7 @@ pub async fn step_guide_save(
     if guide.session_id != session_id {
         return Err("the guide belongs to another session".to_string());
     }
+    guide.check_files(&directory)?;
     guide::write_guide(&directory, &guide)
 }
 
@@ -870,6 +871,10 @@ pub async fn step_guide_share(
         Some(guide) => guide,
         None => guide::build_guide(&session, guide::author_name(), Some(&directory)),
     };
+    // Checked before the upload creates an empty library folder.
+    if guide.step_count() == 0 {
+        return Err("The guide has no steps to share.".to_string());
+    }
     let upload = upload::upload_guide(&app, &directory, &guide, &session).await?;
     let summary = upload.summary();
     if summary.uploaded == 0 && summary.total > 0 {
@@ -944,6 +949,7 @@ mod platform {
     use std::ptr::NonNull;
     use std::sync::atomic::Ordering;
     use std::sync::mpsc::{self, Sender};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tauri::AppHandle;
 
@@ -1029,13 +1035,27 @@ mod platform {
         work: impl FnOnce() -> T + Send + 'static,
     ) -> Result<T, String> {
         let (reply, result) = mpsc::channel();
+        // Set once the caller stops waiting, so late work never runs: a
+        // monitor installed after `start` gave up would be left behind. The
+        // work holds the lock while it runs, so the two cannot interleave.
+        let abandoned = Arc::new(Mutex::new(false));
+        let gate = Arc::clone(&abandoned);
         app.run_on_main_thread(move || {
-            let _ = reply.send(work());
+            let abandoned = gate.lock().unwrap_or_else(|error| error.into_inner());
+            if !*abandoned {
+                let _ = reply.send(work());
+            }
         })
         .map_err(|error| format!("run_on_main_thread failed: {error}"))?;
-        result
-            .recv_timeout(Duration::from_secs(5))
-            .map_err(|_| "the main thread did not answer in time".to_string())
+        if let Ok(value) = result.recv_timeout(Duration::from_secs(5)) {
+            return Ok(value);
+        }
+        let mut abandoned = abandoned.lock().unwrap_or_else(|error| error.into_inner());
+        // The work may have finished while the lock was being taken.
+        result.try_recv().map_err(|_| {
+            *abandoned = true;
+            "the main thread did not answer in time".to_string()
+        })
     }
 
     pub fn install_monitor(app: &AppHandle, sender: Sender<WorkerMessage>) -> Result<(), String> {

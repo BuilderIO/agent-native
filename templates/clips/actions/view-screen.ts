@@ -34,6 +34,7 @@ import {
   isEmbedBackedRecording,
   recordingEmbedProvider,
 } from "../shared/embed-provider.js";
+import { buildStepGuide } from "../shared/step-guide.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
 interface NavigationState {
@@ -180,14 +181,23 @@ async function fetchBugReportSummary(recordingId: string) {
   };
 }
 
+/** Guide steps the agent sees; `truncated` says when a folder has more. */
+const GUIDE_CONTEXT_LIMIT = 500;
+
 async function fetchLibrary({
   folderId,
   shared = false,
   organizationId,
+  kind,
+  oldestFirst = false,
+  limit = 50,
 }: {
   folderId?: string;
   shared?: boolean;
   organizationId?: string | null;
+  kind?: "image" | "video";
+  oldestFirst?: boolean;
+  limit?: number;
 }) {
   const db = getDb();
   const ownerEmail = getRequestUserEmail();
@@ -223,12 +233,19 @@ async function fetchLibrary({
   if (folderId) {
     conditions.push(eq(schema.recordings.folderId, folderId));
   }
+  if (kind) {
+    conditions.push(eq(schema.recordings.kind, kind));
+  }
   const rows = await db
     .select()
     .from(schema.recordings)
     .where(and(...conditions))
-    .orderBy(desc(schema.recordings.updatedAt))
-    .limit(50);
+    .orderBy(
+      oldestFirst
+        ? asc(schema.recordings.createdAt)
+        : desc(schema.recordings.updatedAt),
+    )
+    .limit(limit);
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
@@ -586,16 +603,27 @@ export default defineAction({
       }
       case "guide": {
         if (nav.folderId) {
-          // The guide lists the folder's screenshots as numbered steps; the
-          // step order and Markdown come from shared/step-guide.ts.
+          // The same steps as the guide page: the folder's screenshots,
+          // oldest first, numbered by shared/step-guide.ts.
           const recordings = await fetchLibrary({
             folderId: nav.folderId,
             organizationId,
+            kind: "image",
+            oldestFirst: true,
+            limit: GUIDE_CONTEXT_LIMIT + 1,
           });
+          const steps = buildStepGuide(
+            recordings.slice(0, GUIDE_CONTEXT_LIMIT),
+          );
           screen.guide = {
             folderId: nav.folderId,
-            count: recordings.length,
-            recordings,
+            count: steps.length,
+            truncated: recordings.length > GUIDE_CONTEXT_LIMIT,
+            steps: steps.map((step) => ({
+              number: step.number,
+              title: step.title,
+              recording: step.recording,
+            })),
           };
         }
         break;

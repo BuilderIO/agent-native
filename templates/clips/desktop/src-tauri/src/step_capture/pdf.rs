@@ -9,7 +9,7 @@ use std::io::Cursor;
 use std::path::Path;
 
 use super::guide::{
-    visible_rect, GuideImage, GuideItem, PxRect, StepGuide, FRAME_HEIGHT, FRAME_WIDTH,
+    session_file, visible_rect, GuideImage, GuideItem, PxRect, StepGuide, FRAME_HEIGHT, FRAME_WIDTH,
 };
 
 pub const PAGE_WIDTH: f64 = 612.0;
@@ -172,7 +172,7 @@ struct PreparedImage {
 }
 
 fn prepare_image(directory: &Path, image: &GuideImage, top: f64) -> Result<PreparedImage, String> {
-    let path = directory.join(&image.file_name);
+    let path = session_file(directory, &image.file_name)?;
     let bytes = std::fs::read(&path)
         .map_err(|error| format!("could not read {}: {error}", path.display()))?;
     let visible = visible_rect(image);
@@ -186,7 +186,7 @@ fn prepare_image(directory: &Path, image: &GuideImage, top: f64) -> Result<Prepa
     };
     let click = place(image.click.x, image.click.y);
     let cursor = image.cursor.as_ref().and_then(|cursor| {
-        let bytes = std::fs::read(directory.join(&cursor.file_name)).ok()?;
+        let bytes = std::fs::read(session_file(directory, &cursor.file_name).ok()?).ok()?;
         Some((
             bytes,
             PxRect {

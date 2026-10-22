@@ -10,6 +10,7 @@ import {
   IconZoomOut,
 } from "@tabler/icons-react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -249,10 +250,19 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
     await invoke("step_guide_save", { sessionId, guide });
   }, [sessionId]);
 
+  // Tauri waits for this handler before it closes the window, so the last
+  // edit is saved. If that save fails the window stays open to show why; a
+  // second close goes through.
   useEffect(() => {
-    const onUnload = () => void flush();
-    window.addEventListener("beforeunload", onUnload);
-    return () => window.removeEventListener("beforeunload", onUnload);
+    const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
+      try {
+        await flush();
+      } catch (error) {
+        event.preventDefault();
+        setStatus({ kind: "error", text: errorText(error) });
+      }
+    });
+    return () => void unlisten.then((stop) => stop());
   }, [flush]);
 
   const update = (change: (guide: StepGuide) => StepGuide) => {

@@ -312,13 +312,15 @@ async fn upload_step(
             reason: "the step has no screenshot".to_string(),
         };
     };
-    let path = directory.join(&image.file_name);
-    let full = match std::fs::read(&path) {
+    let read = guide::session_file(directory, &image.file_name).and_then(|path| {
+        std::fs::read(&path).map_err(|error| format!("could not read {}: {error}", path.display()))
+    });
+    let full = match read {
         Ok(bytes) => bytes,
         Err(error) => {
             return StepUpload::Failed {
                 step: number,
-                error: format!("could not read {}: {error}", path.display()),
+                error,
             }
         }
     };

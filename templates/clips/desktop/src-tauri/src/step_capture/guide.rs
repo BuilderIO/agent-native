@@ -12,7 +12,8 @@
 //! renderer agree on every crop without knowing about displays.
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 use super::{
     StepCaptureSession, StepCaptureStep, StepClickType, StepImage, StepTarget, StepWindow,
@@ -124,6 +125,23 @@ pub struct StepGuide {
 }
 
 impl StepGuide {
+    /// Every file the guide names must sit in its session folder; the guide
+    /// comes from the editor, so it is checked before it is saved.
+    pub fn check_files(&self, directory: &Path) -> Result<(), String> {
+        for item in &self.items {
+            if let GuideItem::Step {
+                image: Some(image), ..
+            } = item
+            {
+                session_file(directory, &image.file_name)?;
+                if let Some(cursor) = &image.cursor {
+                    session_file(directory, &cursor.file_name)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn step_count(&self) -> usize {
         self.items
             .iter()
@@ -521,16 +539,27 @@ fn guide_image(step: &StepCaptureStep, in_menu: bool) -> Option<GuideImage> {
     })
 }
 
+/// A file the guide names, inside the session `directory`. A bare file name
+/// only: a path that could leave the folder is refused.
+pub fn session_file(directory: &Path, name: &str) -> Result<PathBuf, String> {
+    if Path::new(name).file_name() != Some(OsStr::new(name)) {
+        return Err(format!("{name:?} is not a file of this step capture"));
+    }
+    Ok(directory.join(name))
+}
+
 /// Whether a step may be named from the text under its click. Never for a
 /// redacted control or a field the user types into: the text there is what
 /// they typed, and a password or message must not become a step title.
-fn reads_text_under(target: &StepTarget) -> bool {
+/// Without Accessibility a window click could be in such a field, so only
+/// the menu bar, menus and the Dock, which hold no typed text, are read.
+fn reads_text_under(target: &StepTarget, place: Place) -> bool {
     match target {
         StepTarget::Redacted { .. } => false,
         StepTarget::Labeled { role, .. } | StepTarget::Unlabeled { role } => {
             !TEXT_ENTRY_ROLES.contains(&role.as_str())
         }
-        _ => true,
+        StepTarget::Unavailable { .. } => place != Place::Window,
     }
 }
 
@@ -586,7 +615,7 @@ pub fn build_guide(
                 (StepTarget::Labeled { label, .. }, _, _) if !label.trim().is_empty() => {
                     Some(label.trim().to_string())
                 }
-                (target, Some(image), Some(directory)) if reads_text_under(target) => {
+                (target, Some(image), Some(directory)) if reads_text_under(target, *place) => {
                     std::fs::read(directory.join(&image.file_name))
                         .ok()
                         .and_then(|png| {
@@ -1133,17 +1162,65 @@ mod tests {
             role: role.to_string(),
         };
         for field in TEXT_ENTRY_ROLES {
-            assert!(!reads_text_under(&role(field)));
-            assert!(!reads_text_under(&labeled(field, "")));
+            assert!(!reads_text_under(&role(field), Place::Window));
+            assert!(!reads_text_under(&labeled(field, ""), Place::Window));
         }
-        assert!(!reads_text_under(&StepTarget::Redacted {
-            role: "AXSecureTextField".to_string()
-        }));
-        assert!(reads_text_under(&role("AXButton")));
-        assert!(reads_text_under(&StepTarget::Unavailable {
+        assert!(!reads_text_under(
+            &StepTarget::Redacted {
+                role: "AXSecureTextField".to_string()
+            },
+            Place::Window
+        ));
+        assert!(reads_text_under(&role("AXButton"), Place::Window));
+        // Without Accessibility, a window click may be in a text field.
+        let unknown = StepTarget::Unavailable {
             reason: StepTargetUnavailableReason::NotTrusted,
             code: None,
-        }));
+        };
+        assert!(!reads_text_under(&unknown, Place::Window));
+        for place in [Place::MenuBar, Place::Menu, Place::Dock] {
+            assert!(reads_text_under(&unknown, place));
+        }
+    }
+
+    #[test]
+    fn guide_files_stay_in_the_session_folder() {
+        let directory = Path::new("/sessions/s");
+        assert_eq!(
+            session_file(directory, "step-001.png").unwrap(),
+            directory.join("step-001.png")
+        );
+        for name in ["", ".", "..", "../manifest.json", "/etc/hosts", "a/b.png"] {
+            assert!(session_file(directory, name).is_err(), "{name:?}");
+        }
+        let session = StepCaptureSession {
+            schema_version: STEP_CAPTURE_SCHEMA_VERSION,
+            session_id: "s".into(),
+            started_at: "2026-10-18T09:00:00.000Z".into(),
+            ended_at: None,
+            steps: vec![step(labeled("AXButton", "Save"), StepWindow::None)],
+        };
+        let mut guide = build_guide(&session, "Dimo Uzunov".into(), None);
+        guide.items = vec![GuideItem::Step {
+            id: "step-1".into(),
+            text: "Click Save".into(),
+            image: Some(GuideImage {
+                file_name: "../../secret.png".into(),
+                width: 10,
+                height: 10,
+                crop: PxRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 10.0,
+                    height: 10.0,
+                },
+                click: PxPoint { x: 5.0, y: 5.0 },
+                drag_to: None,
+                cursor: None,
+                zoom: DEFAULT_ZOOM,
+            }),
+        }];
+        assert!(guide.check_files(directory).is_err());
     }
 
     #[test]

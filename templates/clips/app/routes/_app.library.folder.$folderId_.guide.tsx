@@ -2,7 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { buildStepGuide, stepGuideMarkdown } from "@shared/step-guide";
 import { IconAlertTriangle, IconMarkdown } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 
@@ -16,8 +16,8 @@ import { Button } from "@/components/ui/button";
 import {
   getFolderAncestorPath,
   useFolders,
+  useInfiniteRecordings,
   useOrganizations,
-  useRecordings,
 } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 import { recordingShareUrl } from "@/lib/recording-link";
@@ -26,8 +26,8 @@ export function meta() {
   return [{ title: enMessages.stepGuide.pageTitle }];
 }
 
-/** The most screenshots one guide reads; a step capture is far shorter. */
-const GUIDE_LIMIT = 500;
+/** Screenshots fetched per page; the guide reads every page. */
+const GUIDE_PAGE_SIZE = 500;
 
 export default function LibraryFolderGuideRoute() {
   const t = useT();
@@ -46,16 +46,30 @@ export default function LibraryFolderGuideRoute() {
   const folder = folderPath[folderPath.length - 1];
   const folderName = folder?.name ?? t("navigation.folder");
 
-  const { data, isLoading, isError, refetch, isRefetching } = useRecordings({
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch,
+    isRefetching,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useInfiniteRecordings({
     view: "library",
     kind: "image",
     folderId,
     sort: "oldest",
-    limit: GUIDE_LIMIT,
+    limit: GUIDE_PAGE_SIZE,
   });
+  // A guide is only right with every step, so later pages load on their own.
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, isError, fetchNextPage]);
+  const loadingSteps = isLoading || Boolean(hasNextPage);
   const steps = useMemo(
-    () => buildStepGuide(data?.recordings ?? []),
-    [data?.recordings],
+    () => buildStepGuide(data?.pages.flatMap((page) => page.recordings) ?? []),
+    [data?.pages],
   );
 
   async function copyMarkdown() {
@@ -93,7 +107,7 @@ export default function LibraryFolderGuideRoute() {
               ]}
             />
           </div>
-          {steps.length > 0 && (
+          {steps.length > 0 && !loadingSteps && (
             <PageHeaderActionGroup>
               <PageHeaderPrimaryAction onClick={() => void copyMarkdown()}>
                 <IconMarkdown />
@@ -104,16 +118,16 @@ export default function LibraryFolderGuideRoute() {
         </div>
       </PageHeader>
 
-      <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={isLoading}>
+      <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={loadingSteps}>
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-5 py-8">
-          {isLoading ? (
+          {loadingSteps && !isError ? (
             Array.from({ length: 3 }).map((_, index) => (
               <div key={index} className="animate-pulse space-y-3">
                 <div className="h-5 w-1/2 rounded bg-muted" />
                 <div className="aspect-video rounded-lg bg-muted" />
               </div>
             ))
-          ) : isError && steps.length === 0 ? (
+          ) : isError ? (
             <div className="flex flex-col items-center py-20 text-center">
               <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
                 <IconAlertTriangle className="h-10 w-10 text-destructive" />

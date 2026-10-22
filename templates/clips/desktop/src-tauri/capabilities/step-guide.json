@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "step-guide",
+  "description": "The step guide editor closes its own window once its last edit is saved.",
+  "windows": ["step-guide-*"],
+  "permissions": ["core:window:allow-destroy"]
+}
