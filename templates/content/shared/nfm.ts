@@ -3744,8 +3744,19 @@ function parseLeafTag(
   return null;
 }
 
+// Suggestion presentation canonicalizes the same few Pages once per suggestion
+// on every render, so recent results are kept.
+const recentCanonicalNfm = new Map<string, string>();
+
 export function canonicalizeNfm(nfm: string | null | undefined): string {
-  return docToNfm(nfmToDoc(nfm ?? ""));
+  const source = nfm ?? "";
+  const known = recentCanonicalNfm.get(source);
+  if (known !== undefined) return known;
+  const canonical = docToNfm(nfmToDoc(source));
+  if (recentCanonicalNfm.size >= 8)
+    recentCanonicalNfm.delete(recentCanonicalNfm.keys().next().value!);
+  recentCanonicalNfm.set(source, canonical);
+  return canonical;
 }
 
 /**

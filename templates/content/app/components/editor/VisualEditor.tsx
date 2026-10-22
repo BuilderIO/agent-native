@@ -145,6 +145,7 @@ import {
 import {
   SuggestionHighlight,
   acceptedSuggestionAtRange,
+  editorDocumentSource,
   setSuggestionHighlights,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
@@ -1286,7 +1287,7 @@ function suggestionAnchorRange(
   doc: ProseMirrorNode,
   suggestion: VisualEditorSuggestion,
 ): { from: number; to: number } | null {
-  const source = docToNfm(doc.toJSON());
+  const source = editorDocumentSource(doc);
   const rawQuote =
     suggestion.presentation === "draft"
       ? suggestion.afterText
@@ -4758,7 +4759,9 @@ export function VisualEditor({
       // While suggesting, the draft reaches the parent a tick after the doc
       // changes, so these are the previous draft's suggestions; reporting
       // their anchors would mark text the author is typing as unplaced.
-      if (transaction.docChanged)
+      // Collaboration redraws an identical Page when the editor's plugins
+      // change, and the highlight plugin keeps its highlights for that.
+      if (transaction.docChanged && !transaction.before.eq(transaction.doc))
         applySuggestionsRef.current?.(!suggestingRef.current);
     };
     editor.on("transaction", onTransaction);

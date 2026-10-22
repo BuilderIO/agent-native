@@ -67,16 +67,36 @@ function longestBacktickRun(text: string): number {
   return longestRun(text, /`+/g);
 }
 
-function formattingRuns(
-  source: string,
-  anchorEmptyCells = false,
-): {
+type FormattingRuns = {
   runs: TextRun[];
   nonTextAfter: boolean;
   restored: string;
   spans: Array<Record<SourceSide, SourceSpan>>;
   emptyCells: Array<{ sourceOffset: number; textOffset: number }>;
-} | null {
+};
+
+// Every suggestion on a Page maps its range through the same Page source, so
+// recent results are kept rather than reparsing the Page per suggestion.
+const recentFormattingRuns = new Map<string, FormattingRuns | null>();
+
+function formattingRuns(
+  source: string,
+  anchorEmptyCells = false,
+): FormattingRuns | null {
+  const key = `${anchorEmptyCells ? 1 : 0}${source}`;
+  if (recentFormattingRuns.has(key))
+    return recentFormattingRuns.get(key) as FormattingRuns | null;
+  const mapped = computeFormattingRuns(source, anchorEmptyCells);
+  if (recentFormattingRuns.size >= 8)
+    recentFormattingRuns.delete(recentFormattingRuns.keys().next().value!);
+  recentFormattingRuns.set(key, mapped);
+  return mapped;
+}
+
+function computeFormattingRuns(
+  source: string,
+  anchorEmptyCells: boolean,
+): FormattingRuns | null {
   const doc = nfmToDoc(source);
   const spellings = nfmContextualSpellings(doc);
   let markerPrefix = "suggestiontextboundary";
