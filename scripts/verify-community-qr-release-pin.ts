@@ -11,6 +11,30 @@ const communityQrPackagePath = "templates/community/qr/package.json";
 const communityQrTemplatePath = "templates/community/qr";
 const pullRequestFilesLimit = 3_000;
 
+export function assertCompletePullRequestFiles(
+  files: string[],
+  changedFilesCount: unknown,
+): string[] {
+  if (
+    typeof changedFilesCount !== "number" ||
+    !Number.isSafeInteger(changedFilesCount) ||
+    changedFilesCount < 0
+  ) {
+    throw new Error("GitHub returned an invalid pull request file count.");
+  }
+  if (changedFilesCount >= pullRequestFilesLimit) {
+    throw new Error(
+      `Cannot verify pull requests with ${changedFilesCount} changed files: GitHub's pull request files endpoint is capped at ${pullRequestFilesLimit}.`,
+    );
+  }
+  if (files.length !== changedFilesCount) {
+    throw new Error(
+      `GitHub returned ${files.length} of ${changedFilesCount} changed pull request files.`,
+    );
+  }
+  return files;
+}
+
 export function assertCommunityQrPackagePinOnlyChange(
   baseSource: string,
   headSource: string,
@@ -39,7 +63,7 @@ export function assertCommunityQrPackagePinOnlyChange(
   );
   if (headSource !== expectedHeadSource) {
     throw new Error(
-      "Community app catalog changes must update only the QR package.json blob pin.",
+      "Community app catalog does not match the QR package.json blob pin update.",
     );
   }
 }
@@ -170,8 +194,18 @@ function main(): void {
       ".[].filename",
     ]),
   );
+  const pullRequest = JSON.parse(
+    gh(["api", `repos/${repo}/pulls/${prNumber}`]),
+  ) as { changed_files?: unknown };
+  const completeChangedFiles = assertCompletePullRequestFiles(
+    changedFiles,
+    pullRequest.changed_files,
+  );
 
-  if (!changedFiles.includes(communityAppsPath)) {
+  if (
+    !completeChangedFiles.includes(communityAppsPath) &&
+    !completeChangedFiles.includes(communityQrPackagePath)
+  ) {
     console.log("Community app catalog is unchanged.");
     return;
   }

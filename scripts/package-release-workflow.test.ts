@@ -21,6 +21,7 @@ import {
   syncCommunityQrCoreLock,
 } from "./sync-community-qr-core-lock.ts";
 import {
+  assertCompletePullRequestFiles,
   assertCommunityQrPackagePinOnlyChange,
   decodeGitHubContentResponse,
   parseCompletePullRequestFiles,
@@ -600,7 +601,49 @@ importers:
           basePackage,
           headPackage,
         ),
-      /Community app catalog changes must update only the QR package.json blob pin/,
+      /Community app catalog does not match the QR package.json blob pin update/,
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrPackagePinOnlyChange(
+          baseSource,
+          baseSource,
+          basePackage,
+          headPackage,
+        ),
+      /Head QR package.json blob pin does not match its manifest/,
+    );
+  });
+
+  it("rejects incomplete or capped pull request file listings", () => {
+    assert.deepEqual(assertCompletePullRequestFiles(["one", "two"], 2), [
+      "one",
+      "two",
+    ]);
+    assert.throws(
+      () => assertCompletePullRequestFiles(["one"], 2),
+      /GitHub returned 1 of 2 changed pull request files/,
+    );
+    assert.throws(
+      () => assertCompletePullRequestFiles([], 3_000),
+      /endpoint is capped at 3000/,
+    );
+  });
+
+  it("rejects pull request file lists at GitHub's 3,000-file cap", () => {
+    const belowLimit = Array.from(
+      { length: 2_999 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+    const atLimit = Array.from(
+      { length: 3_000 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+
+    assert.equal(parseCompletePullRequestFiles(belowLimit).length, 2_999);
+    assert.throws(
+      () => parseCompletePullRequestFiles(atLimit),
+      /pull request files API reached its 3,000-file limit/,
     );
   });
 
@@ -666,6 +709,9 @@ importers:
   });
 
   it("runs the community QR pin guard from the base commit before auto-merge", () => {
+    const autoMergeTriggers = autoMergeWorkflow.on as Workflow;
+    const workflowDispatch = autoMergeTriggers.workflow_dispatch as Workflow;
+    const workflowDispatchInputs = workflowDispatch.inputs as Workflow;
     const autoMergeJobs = autoMergeWorkflow.jobs as Workflow;
     const autoMergeJob = autoMergeJobs["auto-merge"] as Workflow;
     const autoMergeSteps = autoMergeJob.steps as Workflow[];
@@ -680,6 +726,24 @@ importers:
     const qrPinGuard = autoMergeSteps.find(
       (step) => step.name === "Verify community QR package pin",
     );
+    const releasePrContext = autoMergeSteps.find(
+      (step) => step.name === "Verify release PR identity and event-bound SHAs",
+    );
+    const requiredChecks = autoMergeSteps.find(
+      (step) => step.name === "Wait for required release PR checks",
+    );
+    const releasePrRecheck = autoMergeSteps.find(
+      (step) => step.name === "Revalidate release PR before merge",
+    );
+
+    for (const input of ["pull_request_number", "base_sha", "head_sha"]) {
+      assert.equal((workflowDispatchInputs[input] as Workflow).required, true);
+    }
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(String(autoMergeJob.if), /github\.ref == 'refs\/heads\/main'/);
 
     assert.match(
       String(autoMergeJob.if),
@@ -701,8 +765,19 @@ importers:
     assert(checkout);
     assert.equal(
       (checkout.with as Workflow).ref,
-      "${{ github.event.pull_request.base.sha }}",
+      "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.base.sha }}",
     );
+    assert(releasePrContext);
+    assert.match(String(releasePrContext.run), /\.user\.login/);
+    assert.match(
+      String(releasePrContext.run),
+      /\.head\.repo\.full_name == \$repo/,
+    );
+    assert.match(String(releasePrContext.run), /\.head\.sha == \$head/);
+    assert.match(String(releasePrContext.run), /\.base\.sha == \$base/);
+    assert(requiredChecks);
+    assert.match(String(requiredChecks.run), /--required --watch/);
+    assert.match(String(requiredChecks.run), /all\(\.\[\]; \.bucket == "pass"/);
     assert(releaseDiff);
     assert.match(
       String(releaseDiff.run),
@@ -713,6 +788,16 @@ importers:
       qrPinGuard.run,
       "node --experimental-strip-types scripts/verify-community-qr-release-pin.ts",
     );
+    assert(releasePrRecheck);
+    assert.match(String(releasePrRecheck.run), /\.state == "open"/);
+    assert.match(String(releasePrRecheck.run), /\.user\.login/);
+    assert.match(
+      String(releasePrRecheck.run),
+      /\.head\.repo\.full_name == \$repo/,
+    );
+    assert.match(String(releasePrRecheck.run), /\.head\.sha == \$head/);
+    assert.match(String(releasePrRecheck.run), /\.base\.sha == \$base/);
+    assert.match(String(releasePrRecheck.run), /--required --json name,bucket/);
   });
 
   it("waits until local runtime packages are fetchable before publishing dependents", async () => {

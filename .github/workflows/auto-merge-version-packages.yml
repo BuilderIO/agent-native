@@ -4,21 +4,41 @@ on:
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Bot-generated release PR number
+        required: true
+        type: number
+      base_sha:
+        description: Current base commit SHA for the release PR
+        required: true
+        type: string
+      head_sha:
+        description: Current head commit SHA for the release PR
+        required: true
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: auto-merge-version-packages-${{ github.event.pull_request.number }}
+  group: auto-merge-version-packages-${{ github.event.pull_request.number || inputs.pull_request_number }}
   cancel-in-progress: true
 
 jobs:
   auto-merge:
     name: Force-merge changeset-release/main
     if: |
-      github.event.pull_request.head.ref == 'changeset-release/main' &&
-      github.event.pull_request.user.login == 'builder-io-integration[bot]' &&
-      github.event.sender.login == 'builder-io-integration[bot]' &&
-      !github.event.pull_request.draft
+      (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.ref == 'changeset-release/main' &&
+        github.event.pull_request.user.login == 'builder-io-integration[bot]' &&
+        github.event.sender.login == 'builder-io-integration[bot]' &&
+        !github.event.pull_request.draft) ||
+      (github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/main' &&
+        inputs.pull_request_number != '' &&
+        inputs.base_sha != '' &&
+        inputs.head_sha != '')
     runs-on: ubuntu-latest
     steps:
       - name: Generate app token
@@ -30,7 +50,7 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.base.sha }}
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
@@ -38,24 +58,49 @@ jobs:
         with:
           node-version: "22.22.0"
 
-      - name: Verify event-bound head
+      - name: Verify release PR identity and event-bound SHAs
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
         run: |
-          actual_head=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
-          if [ "$actual_head" != "$HEAD_SHA" ]; then
-            echo "::error::PR head moved from verified event SHA $HEAD_SHA to $actual_head — refusing admin-merge." >&2
+          set -euo pipefail
+          if ! gh api "repos/$REPO/pulls/$PR_NUMBER" | jq -e \
+            --arg repo "$REPO" \
+            --arg base "$BASE_SHA" \
+            --arg head "$HEAD_SHA" \
+            '.state == "open" and .draft == false and
+              .user.login == "builder-io-integration[bot]" and
+              .head.ref == "changeset-release/main" and
+              .head.repo.full_name == $repo and
+              .head.sha == $head and
+              .base.ref == "main" and .base.repo.full_name == $repo and
+              .base.sha == $base' >/dev/null; then
+            echo "::error::Release PR is not the expected open bot PR at the verified base and head SHAs; refusing admin-merge." >&2
+            exit 1
+          fi
+
+      - name: Wait for required release PR checks
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh pr checks "$PR_NUMBER" --repo "$REPO" --required --watch --fail-fast --interval 15
+          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
+          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
+            echo "::error::Required release PR checks are missing or not green; refusing admin-merge." >&2
             exit 1
           fi
 
       - name: Verify release-only diff
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -75,9 +120,9 @@ jobs:
       - name: Verify community QR package pin
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: node --experimental-strip-types scripts/verify-community-qr-release-pin.ts
 
@@ -157,10 +202,40 @@ jobs:
           );
           NODE
 
+      - name: Revalidate release PR before merge
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! gh api "repos/$REPO/pulls/$PR_NUMBER" | jq -e \
+            --arg repo "$REPO" \
+            --arg base "$BASE_SHA" \
+            --arg head "$HEAD_SHA" \
+            '.state == "open" and .draft == false and
+              .user.login == "builder-io-integration[bot]" and
+              .head.ref == "changeset-release/main" and
+              .head.repo.full_name == $repo and
+              .head.sha == $head and
+              .base.ref == "main" and .base.repo.full_name == $repo and
+              .base.sha == $base' >/dev/null; then
+            echo "::error::Release PR changed during validation; refusing admin-merge." >&2
+            exit 1
+          fi
+          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
+          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
+            echo "::error::Required release PR checks are no longer green; refusing admin-merge." >&2
+            exit 1
+          fi
+
       - name: Force-merge with admin bypass
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"
