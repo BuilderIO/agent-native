@@ -51,6 +51,41 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.215.0
+
+### Minor Changes
+
+- 4fd6b35: Add chart tick intervals, horizontal-bar spacing controls, and direct icon actions.
+- df1b3df: Expose an opt-in archived-thread filter in paginated chat history lists and searches.
+- 34d2fdc: Expose a bounded application-state maintenance scan scoped to the current app
+  namespace that returns only session and key metadata.
+
+### Patch Changes
+
+- 6448b38: Keep run status and terminal history consistent when an abort wins, and require terminal checkpoint writes to persist before publication.
+- 9f4d2e7: Add `getFeatureFlagRulesStrict` to `@agent-native/core/feature-flags` for flags that route data. An unconfigured flag reads as off, as it does with `getFeatureFlagRules`. An unregistered key or malformed stored rules throw `FeatureFlagRulesError` instead of quietly reading as off.
+- 47d2072: Keep first-touch attribution for a year. The browser now sends its first touch to `POST /_agent-native/auth/attribution`, which keeps it in an `an_fts` cookie that our server sets, expiring 365 days after the first visit. That copy survives Safari's seven-day limit on cookies written by page JavaScript, restores the browser's own copies when they are cleared, and is the first touch signup reads unless the browser holds a better one. Last touch still lasts 30 days, and the server now writes `an_ft` and `an_lt` again so Safari keeps them for those 30 days. Visitors in the EU, the rest of the EEA and a few nearby territories (the countries builder.io asks for consent) get no attribution stored until they opt in to targeting cookies. The opt-in lives in an `an_consent` cookie, written by the new `@agent-native/core/client/consent` module and again by our server (`POST /_agent-native/auth/consent`) so Safari keeps it for its full year, which also tells the app whether this visitor is in that region (`GET /_agent-native/auth/consent-region`, from the request's country, with the time zone as fallback). A later reject clears stored attribution. Everyone else is tracked as before.
+- f43eec1: Show every edit of a suggestion proposal as accepted or rejected as soon as Accept remaining or Reject remaining is clicked, and restore them if the decision fails.
+- Release all public npm packages with a patch version bump.
+- 34d2fdc: Declare reviewed MCP mutation hints on shared core actions.
+- f872004: Load the edits of a suggestion proposal in two queries when deciding it, and report a stale edit found while saving the decision as a conflict.
+- 6448b38: Persist timeout continuations only after their run is admissible as truncated, and keep missing run rows distinct from terminal runs.
+- 34d2fdc: Enforce per-image and aggregate expanded image byte limits while parsing PPTX files.
+- 6448b38: Only advertise a run continuation after its checkpoint is durable, and keep failed chat projections retryable.
+- c3d5580: Recover a stopped worker's stale automation history under the owner the run was recorded with. Legacy shared automations store their history under the resolved execution identity — the organization for org-bound runs, the creator otherwise — so querying the resource owner left those runs open until the 25-hour reaper.
+- 465d097: Remove the obsolete shader package from the Vite optimization catalog.
+- 34d2fdc: Allow Slides 2 to discover AgentKit capabilities and use its workspace connection catalog under its own app identity.
+- 32ecc17: Document local prerequisites for turn-into-app and keep bundled community skills in sync.
+- 9205a78: Clarify concise Slack replies after a feedback PR merges, including the PR link, beta expectation, and follow-up ownership.
+- 7ba1d99: Watch generated bridge modules during development so recompiling an iframe or worker runtime refreshes Vite's cached module without restarting the server.
+- a1af4d8: The resource access screen checks a trashed resource's status every 12 seconds, so a restore made in another tab or by an agent reopens the resource without a reload.
+- 32ecc17: Tell agents to override generated app instructions that forbid setting `AUTH_DISABLED` for the local first screenshot, while keeping the flag loopback-only and removing it before the production build.
+- 44a85ea: Actions report a transaction PostgreSQL rolled back to break a deadlock (`40P01`) or a serialization conflict (`40001`) as a typed `transaction_conflict` (409) error instead of an untyped "Failed query". The message tells the caller to read the current state and redo only what is missing, since anything the action saved outside that transaction stays saved.
+- 4b0bb1e: Usage metrics tools now say they only cover this organization's members and return a typed error pointing to the owning app when asked about an external customer's usage.
+- Updated dependencies
+  - @agent-native/agentkit@0.215.0
+  - @agent-native/recap-cli@0.5.84
+
 ## 0.214.0
 
 ### Minor Changes
@@ -4318,11 +4353,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - 127606d: Sync localized overview documentation with the current English guides.
 - e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
 - e5e6934: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
-
-## 0.168.8
-
-### Patch Changes
-
-- 81fa180: Show immediate tooltips for apps and navigation controls in the collapsed chat-first rail.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
