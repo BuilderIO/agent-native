@@ -378,15 +378,16 @@ async function resolveHostedWorkspaceAppAuth(
     if (orgId && !normalizedOrgDomain) {
       return workspaceAppAccessUnavailable("org-domain-missing", { audience });
     }
-    if (delegatedMember && orgId) {
+    stage = "token-signing-failed";
+    const deploymentSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+    if (orgId && (delegatedMember || deploymentSecret)) {
       stage = "org-a2a-secret-lookup-failed";
     }
     const orgSecret =
-      delegatedMember && orgId
+      orgId && (delegatedMember || deploymentSecret)
         ? (await cachedOrgA2ASecret(orgId))?.trim() || undefined
         : undefined;
     stage = "token-signing-failed";
-    const deploymentSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
     const signingSecret = delegatedMember ? orgSecret : deploymentSecret;
     if (!signingSecret) {
       return workspaceAppAccessUnavailable("a2a-secret-missing", { audience });
@@ -423,6 +424,13 @@ async function resolveHostedWorkspaceAppAuth(
         audience,
       );
     } else {
+      if (orgSecret && orgSecret === deploymentSecret) {
+        return workspaceAppAccessUnavailable("token-signing-failed", {
+          audience,
+          detail:
+            "Organization and deployment A2A secrets must differ for user identity.",
+        });
+      }
       token = await signA2AToken(email, normalizedOrgDomain, undefined, {
         expiresIn: "1m",
         preferGlobalSecret: true,
