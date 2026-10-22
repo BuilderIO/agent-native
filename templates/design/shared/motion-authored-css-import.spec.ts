@@ -24,6 +24,125 @@ describe("importAuthoredCssAnimations", () => {
     });
   });
 
+  it("does not treat a transition without an authored animation as Motion", () => {
+    expect(
+      importAuthoredCssAnimations(
+        ".hero:hover { transition: opacity 2s ease; }",
+        resolveHero,
+      ),
+    ).toEqual({ status: "absent", definedKeyframeNames: [] });
+  });
+
+  it("allows unrelated selector transitions beside an imported animation", () => {
+    const css = `.button:hover { transition: all 1s; }
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "valid",
+      tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
+    });
+  });
+
+  it("rejects a transition on the Motion target when it overlaps an imported track", () => {
+    const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+.hero:hover { transition: opacity 1s ease; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
+  it("allows a target transition when it does not overlap the imported track", () => {
+    const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+.hero:hover { transition-property: color; transition-duration: 1s; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "valid",
+      tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
+    });
+  });
+
+  it("respects a later transition-property override", () => {
+    const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+.hero:hover { transition: opacity 1s; transition-property: none; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "valid",
+      tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
+    });
+  });
+
+  it("allows a non-overlapping shorthand transition on the imported target", () => {
+    const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+.hero:hover { transition: color 1s ease-in-out; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "valid",
+      tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
+    });
+  });
+
+  it("does not confuse a longer selector name with the imported target", () => {
+    const css = `.heroine:hover { transition: all 1s; }
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "valid",
+      tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
+    });
+  });
+
+  it("matches the Motion target at the end of a compound selector", () => {
+    const css = `button.hero:hover { transition: opacity 1s; }
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
+  it("matches the Motion target at the end of a descendant selector", () => {
+    const css = `.page .hero:hover { transition: opacity 1s; }
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
+  it("normalizes vendor-prefixed transition property values", () => {
+    const css = `.hero { animation-name: move; animation-duration: 1s; animation-fill-mode: both; }
+.hero:hover { transition-property: -webkit-transform; transition-duration: 1s; }
+@keyframes move { from { transform: translateX(0); } to { transform: translateX(10px); } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
+  it("checks each selector in a transition selector list", () => {
+    const css = `.button:hover, .hero:hover { transition: opacity 1s; }
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
   it("reports nested keyframe definitions when there are no animation declarations", () => {
     expect(
       importAuthoredCssAnimations(
@@ -58,11 +177,12 @@ describe("importAuthoredCssAnimations", () => {
     expect(remainder).toContain("@keyframes pulse");
   });
 
-  +it("rejects escaped CSS transition property names", () => {
-    const css = ".hero { transitio\\6e: opacity 1s; }";
+  it("rejects an escaped CSS transition property that overlaps the target track", () => {
+    const css =
+      ".hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; transitio\\6e: opacity 1s; } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }";
     expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
       status: "unsupported",
-      reason: expect.stringContaining("CSS transitions"),
+      reason: expect.stringContaining("overlap a Motion target property"),
     });
   });
 
@@ -276,12 +396,15 @@ describe("importAuthoredCssAnimations", () => {
     ["transition shorthand", ".hero { transition: opacity 2s ease; }"],
     [
       "transition longhands",
-      ".hero { transition-property: transform; transition-duration: 1s; }",
+      ".hero:hover { transition-property: opacity; transition-duration: 1s; }",
     ],
     ["vendor-prefixed transition", ".hero { -webkit-transition: opacity 1s; }"],
     ["escaped transition property", ".hero { \\74 ransition: opacity 1s; }"],
   ])("fails closed on %s", (_label, css) => {
-    const result = importAuthoredCssAnimations(css, resolveHero);
+    const result = importAuthoredCssAnimations(
+      `${css} .hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`,
+      resolveHero,
+    );
 
     expect(result).toMatchObject({ status: "unsupported" });
     expect(result).not.toHaveProperty("rangesToRemove");

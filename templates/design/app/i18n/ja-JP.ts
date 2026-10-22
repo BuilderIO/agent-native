@@ -1392,7 +1392,7 @@ export default {
       sourceWriteUnavailable:
         "現在、Motion のコードを書き込めるのはインライン HTML デザインのみです。",
       unresolvedStylesheets:
-        "Motion を編集または追加する前に、外部スタイルシートを解決してください。",
+        "Motion を編集または追加する前に、外部または実行時に生成されるスタイルを解決してください。",
       sourceConflict:
         "タイムラインに未保存の変更がある間に Motion のソースが変更されました。コードを再読み込みすると、これらの変更を破棄して最新のソースを使用します。",
       reloadFromSource: "コードを再読み込み",

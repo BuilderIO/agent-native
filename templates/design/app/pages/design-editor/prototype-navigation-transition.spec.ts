@@ -3,7 +3,10 @@
 import type { MotionPrototypeNavigationTransition } from "@shared/motion-prototype-transition";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { runPrototypeNavigationTransition } from "./prototype-navigation-transition";
+import {
+  cancelPrototypeNavigationTransition,
+  runPrototypeNavigationTransition,
+} from "./prototype-navigation-transition";
 
 const instant: MotionPrototypeNavigationTransition = {
   version: 1,
@@ -51,6 +54,10 @@ describe("runPrototypeNavigationTransition", () => {
     Object.defineProperty(frame, "animate", {
       configurable: true,
       value: animate,
+    });
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: { readyState: "complete" },
     });
     document.body.append(frame);
   });
@@ -114,6 +121,81 @@ describe("runPrototypeNavigationTransition", () => {
     animations[0]!.finish();
     await Promise.resolve();
     expect(animations[0]!.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("waits for the destination preview frame to load before animating its entrance", () => {
+    const entrance: MotionPrototypeNavigationTransition = {
+      ...instant,
+      transition: "move-in",
+      direction: "left",
+      durationMs: 420,
+      ease: dissolve.ease,
+    };
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: { readyState: "loading" },
+    });
+    const update = vi.fn();
+
+    expect(runPrototypeNavigationTransition(entrance, update)).toBe("animated");
+    expect(update).toHaveBeenCalledOnce();
+    expect(animate).not.toHaveBeenCalled();
+
+    frame.dispatchEvent(new Event("load"));
+    expect(animate).toHaveBeenCalledWith(
+      [
+        { transform: "translate(-100%, 0%)" },
+        { transform: "translate(0%, 0%)" },
+      ],
+      { duration: 420, easing: "ease-in-out", fill: "both" },
+    );
+  });
+
+  it("does not animate a still-loaded iframe document after its source changes", () => {
+    const entrance: MotionPrototypeNavigationTransition = {
+      ...instant,
+      transition: "move-in",
+      direction: "left",
+      durationMs: 420,
+      ease: dissolve.ease,
+    };
+    frame.setAttribute("srcdoc", "<p>old destination</p>");
+    const previousDocument = { readyState: "complete", URL: "about:srcdoc" };
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: previousDocument,
+    });
+    const update = vi.fn(() =>
+      frame.setAttribute("srcdoc", "<p>new destination</p>"),
+    );
+
+    expect(runPrototypeNavigationTransition(entrance, update)).toBe("animated");
+    expect(animate).not.toHaveBeenCalled();
+
+    frame.dispatchEvent(new Event("load"));
+    expect(animate).toHaveBeenCalledOnce();
+  });
+
+  it("removes a pending entrance load listener when a manual action cancels it", () => {
+    const entrance: MotionPrototypeNavigationTransition = {
+      ...instant,
+      transition: "move-in",
+      direction: "left",
+      durationMs: 420,
+      ease: dissolve.ease,
+    };
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: { readyState: "loading" },
+    });
+    const update = vi.fn();
+
+    expect(runPrototypeNavigationTransition(entrance, update)).toBe("animated");
+    cancelPrototypeNavigationTransition();
+    frame.dispatchEvent(new Event("load"));
+
+    expect(update).toHaveBeenCalledOnce();
+    expect(animate).not.toHaveBeenCalled();
   });
 
   it("fades the current screen out before fading the next screen in", async () => {

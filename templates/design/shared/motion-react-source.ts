@@ -1233,7 +1233,9 @@ function inspectReactCssExpression(
       if (isReactMotionStylePropName(text)) return "motion";
       if (
         ts.isPropertyAssignment(property) &&
-        ts.isObjectLiteralExpression(property.initializer)
+        (ts.isObjectLiteralExpression(property.initializer) ||
+          (isReactCssNestedRuleName(text) &&
+            !isStaticReactCssValueExpression(property.initializer)))
       ) {
         const nested = inspectReactCssExpression(
           property.initializer,
@@ -1406,6 +1408,31 @@ function isReactMotionStylePropName(name: string): boolean {
     /^(?:webkit|moz|ms|o)?transition(?:property|duration|delay|timingfunction|behavior)?$/.test(
       normalized,
     )
+  );
+}
+
+function isReactCssNestedRuleName(name: string): boolean {
+  return /[&@:#.,>+~\s]/.test(name) || name.includes("[");
+}
+
+function isStaticReactCssValueExpression(
+  expression: TypeScript.Expression,
+): boolean {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+  return (
+    ts.isStringLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression) ||
+    ts.isNumericLiteral(expression) ||
+    expression.kind === ts.SyntaxKind.TrueKeyword ||
+    expression.kind === ts.SyntaxKind.FalseKeyword ||
+    expression.kind === ts.SyntaxKind.NullKeyword
   );
 }
 

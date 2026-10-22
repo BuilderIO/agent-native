@@ -388,6 +388,28 @@ function assertSafeTargetId(targetNodeId: string): void {
   }
 }
 
+function isRuntimeStyleMutationHandler(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    normalized === "x-init" ||
+    normalized.startsWith("x-init.") ||
+    normalized === "x-effect" ||
+    normalized.startsWith("x-effect.") ||
+    normalized === "x-on" ||
+    normalized.startsWith("x-on:") ||
+    normalized === "v-on" ||
+    normalized.startsWith("v-on:") ||
+    normalized.startsWith("@") ||
+    /^on[a-z]/.test(normalized)
+  );
+}
+
+function hasRuntimeStyleMutationHandler(
+  attrs: readonly { name: string }[] | undefined,
+): boolean {
+  return (attrs ?? []).some(({ name }) => isRuntimeStyleMutationHandler(name));
+}
+
 function assertSafeSourceFilePath(sourceFilePath: string): string {
   const normalized = sourceFilePath.trim();
   if (
@@ -617,18 +639,9 @@ function assertTargetsExist(
         `Motion target "${nodeId}" uses ${conflictingMotionBinding.name}, which cannot be synchronized with CSS Motion yet.`,
       );
     }
-    const runtimeStyleMutation = target.attrs?.find(({ name }) => {
-      const normalized = name.toLowerCase();
-      return (
-        normalized === "x-init" ||
-        normalized === "x-effect" ||
-        normalized === "x-on" ||
-        normalized.startsWith("x-on:") ||
-        normalized === "v-on" ||
-        normalized.startsWith("v-on:") ||
-        normalized.startsWith("@")
-      );
-    });
+    const runtimeStyleMutation = target.attrs?.find(({ name }) =>
+      isRuntimeStyleMutationHandler(name),
+    );
     if (runtimeStyleMutation) {
       sourceError(
         "unsupported-target",
@@ -769,7 +782,7 @@ function readAuthoredHtmlMotion(
     if (hasUnresolvedStylesheet(nodes)) {
       sourceError(
         "unresolved-stylesheet",
-        "Resolve external stylesheets before editing or adding Motion.",
+        "Resolve external or runtime-generated styles before editing or adding Motion.",
       );
     }
     for (const name of result.definedKeyframeNames) {
@@ -897,13 +910,22 @@ function hasLinkedStylesheet(nodes: readonly HtmlNode[]): boolean {
 
 function hasDynamicStyleContent(nodes: readonly HtmlNode[]): boolean {
   return nodes.some((node) => {
+    if (node.tagName !== "style" || node.insideTemplate) return false;
     if (
-      node.tagName !== "style" ||
-      node.insideTemplate ||
-      !isPotentialCssStyle(node)
+      hasRuntimeStyleMutationHandler(node.attrs) ||
+      (node.attrs ?? []).some(({ name }) => {
+        const normalized = name.toLowerCase();
+        return (
+          (normalized.startsWith("x-") && normalized !== "x-cloak") ||
+          (normalized.startsWith("v-") && normalized !== "v-cloak") ||
+          (normalized.startsWith("ng-") && normalized !== "ng-cloak") ||
+          normalized.startsWith(":")
+        );
+      })
     ) {
-      return false;
+      return true;
     }
+    if (!isPotentialCssStyle(node)) return false;
     if (
       /(?:\{\{[\s\S]*?\}\}|\$\{[\s\S]*?\}|<%[\s\S]*?%>)/u.test(
         textContent(node),
@@ -1167,7 +1189,7 @@ function readSource(
   if ((document || textDocument) && hasUnresolvedStylesheet(nodes)) {
     sourceError(
       "unresolved-stylesheet",
-      "Resolve external stylesheets before editing or adding Motion.",
+      "Resolve external or runtime-generated styles before editing or adding Motion.",
     );
   }
   const targetNodeIds = targetsFromDocuments(document, textDocument);
@@ -1186,7 +1208,7 @@ function readSource(
     if (hasUnresolvedStylesheet(nodes)) {
       sourceError(
         "unresolved-stylesheet",
-        "Resolve external stylesheets before editing or adding Motion.",
+        "Resolve external or runtime-generated styles before editing or adding Motion.",
       );
     }
     return { status: "absent" };

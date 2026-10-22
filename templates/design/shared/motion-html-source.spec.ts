@@ -234,6 +234,11 @@ describe("HTML Motion source adapter", () => {
       "x-on:click=\"$el.style.setProperty('transition', 'opacity 1s')\"",
     ],
     ["Vue event directive", "v-on:click=\"$el.style.animationName = 'pulse'\""],
+    [
+      "native click handler",
+      "onclick=\"this.style.transition = 'opacity 1s'\"",
+    ],
+    ["native load handler", "onload=\"this.style.animation = 'pulse 1s'\""],
   ])(
     "rejects %s on a Motion target and preserves the HTML source",
     (_label, attribute) => {
@@ -263,19 +268,29 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
-  it("rejects runtime style directives when reading an existing Motion target", () => {
-    const generated = apply(html).source;
-    const source = generated.replace(
-      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
-      '<h1 data-agent-native-node-id="hero-title" x-init="$el.style.transition = \'opacity 1s\'">Hello</h1>',
-    );
+  it.each([
+    ["Alpine initialization", "x-init=\"$el.style.transition = 'opacity 1s'\""],
+    [
+      "native click handler",
+      "onclick=\"this.style.transition = 'opacity 1s'\"",
+    ],
+    ["native load handler", "onload=\"this.style.animation = 'pulse 1s'\""],
+  ])(
+    "rejects %s when reading an existing Motion target",
+    (_label, attribute) => {
+      const generated = apply(html).source;
+      const source = generated.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        `<h1 data-agent-native-node-id="hero-title" ${attribute}>Hello</h1>`,
+      );
 
-    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
-      status: "invalid",
-      error: { code: "unsupported-target" },
-    });
-    expect(source).toContain("x-init=");
-  });
+      expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-target" },
+      });
+      expect(source).toContain(attribute);
+    },
+  );
 
   it("refuses authored inline animation and transition declarations on a target", () => {
     for (const style of [
@@ -333,7 +348,7 @@ describe("HTML Motion source adapter", () => {
   it("allows a target when dynamic style bindings belong to another element", () => {
     const source = html.replace(
       "  </main>",
-      '    <aside style="animation: pulse 1s infinite" x-transition.opacity x-bind:style="style">Other animation</aside>\n  </main>',
+      '    <aside style="animation: pulse 1s infinite" x-transition.opacity x-bind:style="style" @click="active = !active">Other animation</aside>\n  </main>',
     );
 
     expect(
@@ -342,7 +357,27 @@ describe("HTML Motion source adapter", () => {
         targetNodeIds: ["hero-title"],
       }),
     ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
-    expect(apply(source).source).toContain("data-agent-native-motion");
+    const first = apply(source);
+    expect(first.source).toContain("data-agent-native-motion");
+    expect(first.source).toContain('@click="active = !active"');
+    expect(readMotionHtmlSource(first.source)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+
+    const rewritten = applyMotionHtmlSourceEdit({
+      currentSource: first.source,
+      expectedSource: first.source,
+      preview: previewFor(first.source),
+      timeline: makeTimeline("hero-title", "0.75"),
+    });
+    expect(rewritten.source).toContain(
+      'x-bind:style="style" @click="active = !active"',
+    );
+    expect(readMotionHtmlSource(rewritten.source)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
   });
 
   it("allows unrelated static inline styles on a Motion target", () => {
@@ -685,6 +720,27 @@ describe("HTML Motion source adapter", () => {
   });
 
   it.each([
+    ["Alpine initialization", 'x-init="$el.textContent = runtimeCss"'],
+    ["Alpine effect", 'x-effect="$el.textContent = runtimeCss"'],
+    ["Alpine event", '@click="$el.textContent = runtimeCss"'],
+    ["Alpine event directive", 'x-on:click="$el.textContent = runtimeCss"'],
+    ["Vue event", 'v-on:click="$el.textContent = runtimeCss"'],
+    ["native load handler", 'onload="this.textContent = runtimeCss"'],
+  ])("rejects %s on a CSS style element", (_label, directive) => {
+    const source = apply(html).source.replace(
+      "</head>",
+      `<style ${directive}>.hero { color: red; }</style>\n</head>`,
+    );
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unresolved-stylesheet" },
+    });
+    expect(() => apply(source)).toThrow(MotionHtmlSourceError);
+    expect(source).toContain(`<style ${directive}>`);
+  });
+
+  it.each([
     ["Mustache", "{{ runtimeCss }}"],
     ["template literal", "${runtimeCss}"],
     ["server template", "<%= runtimeCss %>"],
@@ -709,7 +765,7 @@ describe("HTML Motion source adapter", () => {
     ".hero { -webkit-transition: opacity 1s; }",
     ".hero { transitio\\6e: opacity 1s; }",
   ])(
-    "rejects transitions in authored CSS without changing the source",
+    "preserves authored transitions when no animation is being imported",
     (transition) => {
       const source = apply(html).source.replace(
         "</head>",
@@ -717,10 +773,9 @@ describe("HTML Motion source adapter", () => {
       );
 
       expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
-        status: "invalid",
-        error: { code: "unsupported-authored-motion" },
+        status: "valid",
       });
-      expect(() => apply(source)).toThrow(MotionHtmlSourceError);
+      expect(apply(source).source).toContain(transition);
       expect(source).toContain(transition);
     },
   );

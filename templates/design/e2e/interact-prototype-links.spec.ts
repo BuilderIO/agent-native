@@ -17,6 +17,7 @@ const HOME = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>
   <h1 id="title">Home screen</h1>
   <a id="to-pricing" href="/pricing">Pricing</a>
   <a id="to-pricing-dissolve" href="/pricing" data-an-prototype-transition='{"version":1,"trigger":"click","action":"navigate","transition":"dissolve","durationMs":420,"ease":{"kind":"preset","preset":"ease-out"}}'>Pricing with dissolve</a>
+  <a id="to-pricing-delayed" href="/pricing" data-an-prototype-transition='{"version":1,"trigger":"click","action":"navigate","transition":"move-out","direction":"left","durationMs":800,"ease":{"kind":"preset","preset":"linear"}}'>Pricing with delayed navigation</a>
   <a id="to-docs" href="docs.html">Docs</a>
   <a id="to-docs-invalid-transition" href="docs.html" data-an-prototype-transition="{">Docs with invalid transition</a>
   <a id="to-section" href="#bottom">Jump to the bottom</a>
@@ -203,13 +204,29 @@ test("a code-authored dissolve animates the outgoing and incoming preview frames
   ).toHaveText("Pricing screen");
 });
 
-test("an invalid code-authored transition keeps the existing immediate navigation", async ({
+test("a manual screen selection cancels a pending prototype transition", async ({
+  page,
+}) => {
+  const { screen, inner } = await enterInteractOnHome(page);
+
+  await inner.locator("#to-pricing-delayed").click();
+  await screen.click();
+  await page.getByRole("option", { name: "Docs", exact: true }).click();
+  await expect(screen).toHaveText("Docs");
+  await page.waitForTimeout(900);
+  await expect(screen).toHaveText("Docs");
+  await expect(
+    page.locator(INTERACT_FRAME).contentFrame().locator("#title"),
+  ).toHaveText("Docs screen");
+});
+
+test("an invalid code-authored transition does not navigate", async ({
   page,
 }) => {
   const { screen, inner } = await enterInteractOnHome(page);
   await recordPreviewAnimations(page);
   await inner.locator("#to-docs-invalid-transition").click();
-  await expect(screen).toHaveText("Docs");
+  await expect(screen).toHaveText("Home");
   expect(
     await page.evaluate(
       () =>
@@ -217,4 +234,7 @@ test("an invalid code-authored transition keeps the existing immediate navigatio
           .__prototypeAnimations,
     ),
   ).toEqual([]);
+  await expect(
+    page.locator(INTERACT_FRAME).contentFrame().locator("#title"),
+  ).toHaveText("Home screen");
 });

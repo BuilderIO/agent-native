@@ -1399,7 +1399,7 @@ export default {
       sourceWriteUnavailable:
         "Motion-Code kann derzeit nur in eingebettete HTML-Designs geschrieben werden.",
       unresolvedStylesheets:
-        "Löse externe Stylesheets auf, bevor du Motion bearbeitest oder hinzufügst.",
+        "Löse externe oder zur Laufzeit erzeugte Styles auf, bevor du Motion bearbeitest oder hinzufügst.",
       sourceConflict:
         "Der Motion-Quellcode wurde geändert, während diese Zeitleiste ungespeicherte Änderungen hatte. Lade den Code neu, um diese Änderungen zu verwerfen und die aktuelle Quelle zu verwenden.",
       reloadFromSource: "Code neu laden",

@@ -559,21 +559,27 @@ describe("React Motion source adapter", () => {
     ],
     ["transition behavior", "#hero { transition-behavior: allow-discrete; }"],
     ["vendor transition", "#hero { -webkit-transition: opacity 1s; }"],
-  ])("rejects authored CSS %s without modifying the source", (_label, css) => {
-    const authored = `function Card() {
+  ])(
+    "preserves authored CSS %s without blocking Motion reads or writes",
+    (_label, css) => {
+      const authored = `function Card() {
   return <main>
     <style>{\`${css}\`}</style>
-    <h1 id="hero">Hello</h1>
+    <h1 id="hero" data-agent-native-node-id="hero-title">Hello</h1>
   </main>;
 }`;
 
-    expect(readMotionReactSource(authored, "src/Card.tsx")).toMatchObject({
-      status: "invalid",
-      error: { code: "unsupported-authored-motion" },
-    });
-    expect(() => apply(authored)).toThrow(MotionReactSourceError);
-    expect(authored).toContain(css);
-  });
+      expect(readMotionReactSource(authored, "src/Card.tsx")).toEqual({
+        status: "absent",
+      });
+      const edit = apply(authored);
+      expect(edit.source).toContain(css);
+      expect(readMotionReactSource(edit.source, "src/Card.tsx")).toMatchObject({
+        status: "valid",
+        targetNodeIds: ["hero-title"],
+      });
+    },
+  );
 
   it.each([
     ["side-effect CSS import", 'import "./motion.css";'],
@@ -914,6 +920,94 @@ function Card(style = { animationName: "fade" }) {
     expect(apply(authored).source).toContain(
       'css={{ color: "red", "&:hover": { color: "blue" } }} sx={{ fontSize: 24 }}',
     );
+  });
+
+  it("fails closed when a nested CSS rule references an unresolved style object", () => {
+    const prop = 'css={{ "&:hover": hoverStyles }}';
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${prop}>Hello</h1>`,
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+    expect(authored).toContain(prop);
+
+    const existingMotion = apply(source).source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${prop}>Hello</h1>`,
+    );
+    expect(
+      readMotionReactSource(existingMotion, "src/components/Card.tsx"),
+    ).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("resolves nested CSS style aliases and preserves them through a Motion round trip", () => {
+    const prop = 'css={{ "&:hover": hoverStyles }}';
+    const authored = source
+      .replace(
+        'import React from "react";',
+        'import React from "react";\n\nconst hoverStyles = { color: "blue" };',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        `<h1 data-agent-native-node-id="hero-title" ${prop}>Hello</h1>`,
+      );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+
+    const edit = apply(authored);
+    expect(edit.source).toContain('const hoverStyles = { color: "blue" };');
+    expect(edit.source).toContain(prop);
+    expect(
+      readMotionReactSource(edit.source, "src/components/Card.tsx"),
+    ).toMatchObject({ status: "valid", targetNodeIds: ["hero-title"] });
+  });
+
+  it("rejects a nested CSS style alias that contains Motion declarations", () => {
+    const authored = source
+      .replace(
+        'import React from "react";',
+        'import React from "react";\n\nconst hoverStyles = { animationName: "pulse" };',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" css={{ "&:hover": hoverStyles }}>Hello</h1>',
+      );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+    expect(authored).toContain('animationName: "pulse"');
   });
 
   it.each([

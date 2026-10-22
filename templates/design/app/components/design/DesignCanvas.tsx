@@ -29,7 +29,7 @@ import type { InteractionState } from "@shared/interaction-states";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import {
   decodeMotionPrototypeTransitionAttribute,
-  type MotionPrototypeNavigationTransition,
+  type MotionPrototypeTransitionDecodeResult,
 } from "@shared/motion-prototype-transition";
 import {
   appendPenNode,
@@ -957,7 +957,7 @@ interface DesignCanvasProps {
   onPrototypeNavigate?: (
     screen: string,
     href: string,
-    transition?: MotionPrototypeNavigationTransition,
+    transition: MotionPrototypeTransitionDecodeResult,
   ) => void;
   motionTracks?: MotionTrackWire[];
   motionEasingVariables?: MotionEasingVariable[];
@@ -5780,7 +5780,7 @@ export function DesignCanvas({
         onPrototypeNavigate?.(
           String(e.data.screen || ""),
           String(e.data.href || ""),
-          transition.status === "valid" ? transition.transition : undefined,
+          transition,
         );
         return;
       }

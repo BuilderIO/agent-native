@@ -7,7 +7,11 @@ import { validateMotionPrototypeNavigationTransition } from "@shared/motion-prot
 import { flushSync } from "react-dom";
 
 type PrototypeTransitionDocument = Pick<Document, "querySelector">;
-type TransitionRun = { generation: number; animation?: Animation };
+type TransitionRun = {
+  generation: number;
+  animation?: Animation;
+  cleanup?: () => void;
+};
 
 export type PrototypeNavigationTransitionResult =
   | "instant"
@@ -33,11 +37,22 @@ function beginTransitionRun(documentRef: PrototypeTransitionDocument): number {
     previous.generation += 1;
     previous.animation?.cancel();
     previous.animation = undefined;
+    previous.cleanup?.();
+    previous.cleanup = undefined;
     return previous.generation;
   }
 
   transitionRuns.set(documentRef, { generation: 1 });
   return 1;
+}
+
+export function cancelPrototypeNavigationTransition(
+  documentRef: PrototypeTransitionDocument | undefined = typeof document ===
+  "undefined"
+    ? undefined
+    : document,
+): void {
+  if (documentRef) beginTransitionRun(documentRef);
 }
 
 function isCurrentTransitionRun(
@@ -54,6 +69,15 @@ function setRunAnimation(
 ): void {
   const run = transitionRuns.get(documentRef);
   if (run?.generation === generation) run.animation = animation;
+}
+
+function setRunCleanup(
+  documentRef: PrototypeTransitionDocument,
+  generation: number,
+  cleanup: (() => void) | undefined,
+): void {
+  const run = transitionRuns.get(documentRef);
+  if (run?.generation === generation) run.cleanup = cleanup;
 }
 
 function easeToCss(ease: MotionPrototypeEase): string {
@@ -106,6 +130,30 @@ function startFrameAnimation(
   });
 }
 
+function isFrameDocumentLoaded(
+  frame: HTMLIFrameElement,
+  previousDocument: Document | null,
+  sourceChanged: boolean,
+): boolean {
+  const current = frame.contentDocument;
+  if (
+    current?.readyState !== "complete" ||
+    (sourceChanged && current === previousDocument)
+  ) {
+    return false;
+  }
+  if (frame.hasAttribute("srcdoc")) return current.URL === "about:srcdoc";
+  if (!frame.hasAttribute("src")) return true;
+  try {
+    return (
+      current.URL ===
+      new URL(frame.getAttribute("src")!, frame.ownerDocument.baseURI).href
+    );
+  } catch {
+    return false;
+  }
+}
+
 function animateEntry(
   transition: MotionPrototypeNavigationTransition,
   update: () => void,
@@ -113,6 +161,16 @@ function animateEntry(
   durationMs: number,
   generation: number,
 ): PrototypeNavigationTransitionResult {
+  const previousFrame = documentRef.querySelector<HTMLIFrameElement>(
+    PREVIEW_FRAME_SELECTOR,
+  );
+  const previousSource = previousFrame
+    ? [
+        previousFrame.getAttribute("src"),
+        previousFrame.getAttribute("srcdoc"),
+      ].join("\u0000")
+    : null;
+  const previousDocument = previousFrame?.contentDocument ?? null;
   flushSync(update);
   const frame = documentRef.querySelector<HTMLIFrameElement>(
     PREVIEW_FRAME_SELECTOR,
@@ -120,26 +178,46 @@ function animateEntry(
   if (!frame || typeof frame.animate !== "function") {
     return "browser-fallback";
   }
+  const sourceChanged =
+    frame !== previousFrame ||
+    [frame.getAttribute("src"), frame.getAttribute("srcdoc")].join("\u0000") !==
+      previousSource;
 
-  try {
-    const animation = startFrameAnimation(
-      frame,
-      transition,
-      "enter",
-      durationMs,
-    );
-    setRunAnimation(documentRef, generation, animation);
-    void animation.finished.then(
-      () => {
-        animation.cancel();
-        setRunAnimation(documentRef, generation, undefined);
-      },
-      () => {},
-    );
-    return "animated";
-  } catch {
-    return "browser-fallback";
+  const start = (): boolean => {
+    if (!isCurrentTransitionRun(documentRef, generation)) return false;
+    setRunCleanup(documentRef, generation, undefined);
+    try {
+      const animation = startFrameAnimation(
+        frame,
+        transition,
+        "enter",
+        durationMs,
+      );
+      setRunAnimation(documentRef, generation, animation);
+      void animation.finished.then(
+        () => {
+          animation.cancel();
+          setRunAnimation(documentRef, generation, undefined);
+        },
+        () => {},
+      );
+      return true;
+    } catch {
+      setRunAnimation(documentRef, generation, undefined);
+      return false;
+    }
+  };
+
+  if (isFrameDocumentLoaded(frame, previousDocument, sourceChanged)) {
+    return start() ? "animated" : "browser-fallback";
   }
+
+  const onLoad = () => start();
+  frame.addEventListener("load", onLoad, { once: true });
+  setRunCleanup(documentRef, generation, () =>
+    frame.removeEventListener("load", onLoad),
+  );
+  return "animated";
 }
 
 function animateExit(

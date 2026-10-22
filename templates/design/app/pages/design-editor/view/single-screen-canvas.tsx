@@ -3,6 +3,7 @@ import {
   RecentEditHighlights,
   LiveCursorOverlay,
 } from "@agent-native/toolkit/collab-ui";
+import type { MotionPrototypeTransitionDecodeResult } from "@shared/motion-prototype-transition";
 
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { prettyScreenName } from "@/lib/screen-names";
@@ -551,7 +552,12 @@ export function renderSingleScreenCanvas({
         }
         nodeRewriteCanvasTarget
         onRepromptDraftConsumed={handleRepromptDraftConsumed}
-        onPrototypeNavigate={(screen, _href, transition) => {
+        onPrototypeNavigate={(
+          screen,
+          _href,
+          transition: MotionPrototypeTransitionDecodeResult,
+        ) => {
+          if (transition.status === "invalid") return;
           if (!screen) return;
           const norm = (s: string) =>
             s
@@ -562,16 +568,22 @@ export function renderSingleScreenCanvas({
           if (!target) return;
           const match = files.find((f) => norm(f.filename) === target);
           if (match) {
-            runPrototypeNavigationTransition(transition, () => {
-              if (mode === "interact") {
-                handleModeChange("interact", {
-                  targetFileId: match.id,
-                  keepInteractDevice: true,
-                });
-              } else {
-                handleSidebarScreenSelect(match.id);
-              }
-            });
+            runPrototypeNavigationTransition(
+              transition.status === "valid" ? transition.transition : undefined,
+              () => {
+                if (mode === "interact") {
+                  handleModeChange("interact", {
+                    targetFileId: match.id,
+                    keepInteractDevice: true,
+                    fromPrototypeNavigation: true,
+                  });
+                } else {
+                  handleSidebarScreenSelect(match.id, {
+                    fromPrototypeNavigation: true,
+                  });
+                }
+              },
+            );
           }
         }}
       />

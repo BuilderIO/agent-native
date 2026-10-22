@@ -1,5 +1,6 @@
 import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { isBoardFile } from "@shared/board-file";
+import type { MotionPrototypeTransitionDecodeResult } from "@shared/motion-prototype-transition";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
@@ -455,20 +456,25 @@ export function useEditorScreenRendering({
     (
       screen: string,
       _href: string,
-      transition?: Parameters<typeof runPrototypeNavigationTransition>[0],
+      transition: MotionPrototypeTransitionDecodeResult,
     ) => {
+      if (transition.status === "invalid") return;
       const target = findInteractLinkTarget(
         files,
         screen,
         activeFileIdRef.current,
       );
       if (!target) return;
-      runPrototypeNavigationTransition(transition, () => {
-        handleModeChange("interact", {
-          targetFileId: target.id,
-          keepInteractDevice: true,
-        });
-      });
+      runPrototypeNavigationTransition(
+        transition.status === "valid" ? transition.transition : undefined,
+        () => {
+          handleModeChange("interact", {
+            targetFileId: target.id,
+            keepInteractDevice: true,
+            fromPrototypeNavigation: true,
+          });
+        },
+      );
     },
     [files, handleModeChange],
   );
