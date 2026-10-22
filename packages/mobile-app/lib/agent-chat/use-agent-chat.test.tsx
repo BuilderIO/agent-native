@@ -507,6 +507,85 @@ describe("useAgentChat stopping a send before its handle arrives", () => {
   });
 });
 
+describe("useAgentChat queued acknowledgement retry", () => {
+  let mounted: ReturnType<typeof mountAgentChat> | undefined;
+
+  afterEach(() => {
+    mounted?.cleanup();
+    mounted = undefined;
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    {
+      receipt: "admitted",
+      status: "queued",
+      sendsAgain: false,
+      error: "already received",
+    },
+    { receipt: "missing", status: "missing", sendsAgain: true, error: "" },
+    {
+      receipt: "unavailable",
+      status: "unavailable",
+      sendsAgain: false,
+      error: "Could not confirm whether this queued message will run",
+    },
+  ] as const)(
+    "does not submit a second copy after an unreadable 202 ($receipt receipt)",
+    async ({ status, sendsAgain, error }) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const client = createSendClient();
+      client.sendMessage.mockRejectedValueOnce(
+        Object.assign(
+          new Error("Invalid queued submission response: unreadable body."),
+          { code: "invalid_queued_submission_response", retryable: true },
+        ),
+      );
+      client.getQueuedSubmissionStatus.mockImplementation(async () => {
+        if (status === "unavailable") throw new Error("Receipt lookup failed.");
+        return status === "queued" ? { state: "queued" as const } : null;
+      });
+      createSessionMock.mockReturnValue({
+        client,
+        dispose: vi.fn(async () => {}),
+      });
+      mounted = mountAgentChat();
+      await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+      await act(async () => {
+        void mounted?.chat?.send("Queue this prompt");
+        await Promise.resolve();
+      });
+      await vi.waitFor(() =>
+        expect(mounted?.chat?.error).toContain("unreadable body"),
+      );
+      const first = client.sendMessage.mock.calls[0]![0];
+
+      act(() => mounted?.chat?.retry());
+      await vi.waitFor(() =>
+        expect(client.getQueuedSubmissionStatus).toHaveBeenCalledWith({
+          threadId: first.threadId,
+          messageId: first.queuedMessageReservationId,
+        }),
+      );
+
+      if (sendsAgain) {
+        await vi.waitFor(() =>
+          expect(client.sendMessage).toHaveBeenCalledTimes(2),
+        );
+        expect(
+          client.sendMessage.mock.calls[1]![0].queuedMessageReservationId,
+        ).not.toBe(first.queuedMessageReservationId);
+      } else {
+        await vi.waitFor(() => expect(mounted?.chat?.error).toContain(error));
+        expect(client.sendMessage).toHaveBeenCalledOnce();
+        expect(mounted?.chat?.isStreaming).toBe(false);
+      }
+    },
+  );
+});
+
 describe("useAgentChat file uploads", () => {
   let root: Root | undefined;
   let container: HTMLDivElement | undefined;

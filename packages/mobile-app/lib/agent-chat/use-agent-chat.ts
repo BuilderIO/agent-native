@@ -1,5 +1,8 @@
 import type { AgentRunHandle, AgentThreadState } from "@agent-native/agentkit";
-import type { AgentEvent } from "@agent-native/agentkit/protocol";
+import type {
+  AgentEvent,
+  AgentQueuedSubmissionStatus,
+} from "@agent-native/agentkit/protocol";
 import {
   ensureAgentEngineReadiness,
   getAgentEngineReadiness,
@@ -214,6 +217,22 @@ interface ActiveTurnBuffer {
   acceptEvents: boolean;
 }
 
+/**
+ * An HTTP 202 whose receipt could not be read. The server may already hold
+ * that submission under its reservation id, so it must not be sent again
+ * without checking the receipt first.
+ */
+function isUnreadableQueuedAcknowledgement(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "invalid_queued_submission_response" &&
+    "retryable" in error &&
+    error.retryable === true
+  );
+}
+
 function queuedMessageIdFromEvent(event: AgentEvent): string | null {
   const custom = event.metadata?.custom;
   if (!custom || typeof custom !== "object" || Array.isArray(custom)) {
@@ -366,6 +385,12 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     ((pending: { messageId: string; text?: string }) => Promise<void>) | null
   >(null);
   const pendingForkRetryInFlightRef = useRef(false);
+  const pendingQueuedAckRef = useRef<{
+    threadId: string;
+    baseUrl: string;
+    client: MobileAgentKitSession["client"];
+    messageId: string;
+  } | null>(null);
   const runIdsRef = useRef(new Map<string, string>());
   const assistantIdsByRunRef = useRef(new Map<string, string>());
   const processedEventIdsRef = useRef(new Map<string, Set<string>>());
@@ -1441,6 +1466,17 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         if (activeGenerationRef.current !== currentGeneration) {
           return;
         }
+        if (
+          queuedMessageReservationId &&
+          isUnreadableQueuedAcknowledgement(error)
+        ) {
+          pendingQueuedAckRef.current = {
+            threadId: activeThreadId,
+            baseUrl: targetBaseUrl,
+            client: currentAgentKit,
+            messageId: queuedMessageReservationId,
+          };
+        }
         const aborted = error instanceof Error && error.name === "AbortError";
         if (error instanceof AgentChatError && error.authRequired) {
           if (mountedRef.current) setAuthRequired(true);
@@ -1512,6 +1548,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         return Promise.resolve(false);
       }
       pendingForkRetryRef.current = null;
+      pendingQueuedAckRef.current = null;
       lastPromptRef.current = trimmed;
       lastExtraRef.current = {
         ...(attachments?.length ? { attachments } : {}),
@@ -1825,6 +1862,47 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     ) {
       return;
     }
+    const pendingAck = pendingQueuedAckRef.current;
+    if (pendingAck) {
+      // The unreadable 202 may already be durable under this reservation id.
+      // Only a receipt that is definitively absent allows a fresh submission.
+      void (async () => {
+        let receipt: AgentQueuedSubmissionStatus | null | undefined;
+        try {
+          receipt = await pendingAck.client.getQueuedSubmissionStatus?.({
+            threadId: pendingAck.threadId,
+            messageId: pendingAck.messageId,
+          });
+        } catch {
+          receipt = undefined;
+        }
+        if (
+          pendingQueuedAckRef.current !== pendingAck ||
+          threadIdRef.current !== pendingAck.threadId ||
+          baseUrlRef.current !== pendingAck.baseUrl
+        ) {
+          return;
+        }
+        if (receipt === null) {
+          pendingQueuedAckRef.current = null;
+          void runTurn(prompt, extra, undefined, {
+            forceReadiness: true,
+            replaceFailedAttempt: true,
+          });
+          return;
+        }
+        const nextState = {
+          ...stateRef.current,
+          error: receipt
+            ? "This message was already received, so it was not sent again."
+            : "Could not confirm whether this queued message will run. Check the queue before retrying.",
+          errorCode: receipt ? null : "queued_submission_status_unavailable",
+        };
+        stateRef.current = nextState;
+        setState(nextState);
+      })();
+      return;
+    }
     void runTurn(prompt, extra, undefined, {
       forceReadiness: true,
       replaceFailedAttempt: true,
@@ -1840,6 +1918,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       threadIdRef.current = nextThreadId;
       baseUrlRef.current = nextBaseUrl;
       pendingForkRetryRef.current = null;
+      pendingQueuedAckRef.current = null;
       void refreshChatEligibility();
       setThreadId(nextThreadId);
       setBaseUrl(nextBaseUrl);
@@ -1994,6 +2073,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       baseUrlRef.current = resolvedBaseUrl;
       threadIdRef.current = nextThreadId;
       pendingForkRetryRef.current = null;
+      pendingQueuedAckRef.current = null;
       void refreshChatEligibility();
       setBaseUrl(resolvedBaseUrl);
       setThreadId(nextThreadId);
@@ -2176,6 +2256,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       );
       openThread(forkedThread.id, targetBaseUrl);
       pendingForkRetryRef.current = null;
+      pendingQueuedAckRef.current = null;
       lastPromptRef.current = prompt;
       lastExtraRef.current = {};
     },
