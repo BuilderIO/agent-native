@@ -208,6 +208,27 @@ describe("the Discussion panel", () => {
   const filterOption = (group: string, option: string) =>
     `[data-discussion-filter-group="${group}"] [data-discussion-filter-option="${option}"]`;
   const storedFilters = () => window.localStorage.getItem(FILTERS_KEY);
+  const nextFrame = () =>
+    act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+  const unavailable = (id: string) =>
+    container.querySelector(
+      `[data-thread-card="${id}"] [data-comment-anchor-unavailable]`,
+    );
+  // A page whose only paragraph is a quote across formatting, so its text alone
+  // can't place it: only its highlight can.
+  function pageWithFormattedQuote(marked: boolean) {
+    page.current = document.createElement("div");
+    page.current.innerHTML = `<div class="ProseMirror"><p>${formattedQuote(marked)}</p></div>`;
+    document.body.append(page.current);
+    return page.current.querySelector("p")!;
+  }
+  const formattedQuote = (marked: boolean) =>
+    marked
+      ? '<span data-comment-thread="text-1"><strong>Quoted</strong> line</span>'
+      : "<strong>Quoted</strong> line";
 
   it("leaves a comment on the whole page out of the margin rail but lists it in the panel", () => {
     render("inline");
@@ -468,17 +489,6 @@ describe("the Discussion panel", () => {
   });
 
   it("doesn't call a highlight unavailable before it has been looked for", async () => {
-    const nextFrame = () =>
-      act(
-        () =>
-          new Promise<void>((resolve) =>
-            requestAnimationFrame(() => resolve()),
-          ),
-      );
-    const unavailable = (id: string) =>
-      container.querySelector(
-        `[data-thread-card="${id}"] [data-comment-anchor-unavailable]`,
-      );
     page.current = document.createElement("div");
     page.current.innerHTML =
       '<div class="ProseMirror"><p><span data-comment-thread="text-1">Quoted line</span></p></div>';
@@ -506,5 +516,47 @@ describe("the Discussion panel", () => {
     await nextFrame();
     expect(unavailable("text-1")).toBeNull();
     expect(unavailable("text-2")).not.toBeNull();
+  });
+
+  it("waits for highlights shown again to be drawn before calling one unavailable", async () => {
+    const paragraph = pageWithFormattedQuote(true);
+    render();
+    await nextFrame();
+    expect(unavailable("text-1")).toBeNull();
+
+    highlights = { visible: false };
+    render();
+    paragraph.innerHTML = formattedQuote(false);
+    await nextFrame();
+
+    // The editor draws the highlights a moment after they're shown again.
+    highlights = { visible: true };
+    render();
+    expect(unavailable("text-1")).toBeNull();
+    await nextFrame();
+    expect(unavailable("text-1")).toBeNull();
+
+    act(() => {
+      paragraph.innerHTML = formattedQuote(true);
+    });
+    await nextFrame();
+    expect(unavailable("text-1")).toBeNull();
+  });
+
+  it("calls a highlight unavailable once it's clear it won't come back", async () => {
+    const paragraph = pageWithFormattedQuote(true);
+    render();
+    await nextFrame();
+
+    // Someone rewrites the quote while highlights are hidden.
+    highlights = { visible: false };
+    render();
+    paragraph.innerHTML = "Rewritten line";
+    await nextFrame();
+
+    highlights = { visible: true };
+    render();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    expect(unavailable("text-1")).not.toBeNull();
   });
 });

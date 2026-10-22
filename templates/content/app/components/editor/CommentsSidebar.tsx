@@ -1434,6 +1434,8 @@ export function CommentsSidebar({
   const [hiddenTabThreadIds, setHiddenTabThreadIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  // Highlights shown again that the editor hasn't drawn yet.
+  const highlightsReturningRef = useRef(false);
   const propertyOrder = useMemo(
     () =>
       new Map(
@@ -1869,6 +1871,11 @@ export function CommentsSidebar({
     // With highlights hidden there are no marks to measure, and guessing from
     // the text would reshuffle page order, so the last places measured stay.
     if (presentation === "history" && !highlightsVisible) return;
+    if (highlightsReturningRef.current) {
+      if (!container.querySelector(".ProseMirror [data-comment-thread]"))
+        return;
+      highlightsReturningRef.current = false;
+    }
     const positions = new Map<string, CommentThreadPosition>();
     const hiddenTabIds = new Set<string>();
     for (const thread of measuredThreads) {
@@ -1916,6 +1923,29 @@ export function CommentsSidebar({
     presentation,
     scrollContainerRef,
   ]);
+  const recomputeOffsetsRef = useRef(recomputeOffsets);
+  recomputeOffsetsRef.current = recomputeOffsets;
+
+  // Shown again, highlights come back a moment after the panel hears of it.
+  // Measured before then, each one would read "Highlight unavailable", so the
+  // last places measured stay until the editor draws one, or until it's clear
+  // none will come back.
+  const highlightsWereVisibleRef = useRef(highlightsVisible);
+  useLayoutEffect(() => {
+    const shownAgain = highlightsVisible && !highlightsWereVisibleRef.current;
+    highlightsWereVisibleRef.current = highlightsVisible;
+    if (!shownAgain || presentation !== "history") return;
+    highlightsReturningRef.current = true;
+    const timer = setTimeout(() => {
+      if (!highlightsReturningRef.current) return;
+      highlightsReturningRef.current = false;
+      recomputeOffsetsRef.current();
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      highlightsReturningRef.current = false;
+    };
+  }, [highlightsVisible, presentation]);
 
   // Measured before paint, so a card under a new id never paints unplaced.
   useLayoutEffect(() => {
