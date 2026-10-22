@@ -122,6 +122,75 @@ describe("DataChartRenderer theme colors", () => {
     );
   });
 
+  it("rejects inset combinations that leave no positive plot area", () => {
+    const renderWithInsets = (plotInsets: { right?: number; top?: number }) =>
+      renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type: "line",
+            xKey: "day",
+            series: [{ key: "value", label: "Value" }],
+            data: [{ day: "Monday", value: 1 }],
+          }}
+          layout={{ plotInsets }}
+        />,
+      );
+
+    expect(() => renderWithInsets({ right: 600 })).toThrow(
+      "positive chart plot area",
+    );
+    expect(() => renderWithInsets({ top: 400 })).toThrow(
+      "positive chart plot area",
+    );
+  });
+
+  it("keeps a vertical bar chart's final category label inside the SVG", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: Array.from({ length: 10 }, (_, index) => ({
+            day: index === 9 ? "Last category label" : `Day ${index}`,
+            value: index,
+          })),
+        }}
+        layout={{ plotInsets: { right: 8 } }}
+      />,
+    );
+    const finalCategory = markup.match(
+      /<text x="([\d.]+)" y="348"[^>]*text-anchor="end">Last category\.\.\.<\/text>/,
+    );
+
+    expect(finalCategory).not.toBeNull();
+    expect(Number(finalCategory?.[1])).toBeLessThanOrEqual(632);
+  });
+
+  it("preserves the top value-axis label when the configured top inset is zero", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Monday", value: 0 },
+            { day: "Tuesday", value: 1 },
+          ],
+          valueAxisTickInterval: 0.5,
+        }}
+        layout={{ labelFontSize: 12, plotInsets: { top: 0 } }}
+      />,
+    );
+    const topTick = markup.match(
+      /<text x="[\d.]+" y="([\d.]+)"[^>]*>1<\/text>/,
+    );
+
+    expect(topTick).not.toBeNull();
+    expect(Number(topTick?.[1])).toBeGreaterThanOrEqual(12);
+  });
+
   it("keeps horizontal axis tick labels inside the chart at zero edge insets", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer

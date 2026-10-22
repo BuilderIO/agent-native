@@ -272,6 +272,7 @@ function ChartBody({
       (chart.xAxisTitle ? axisTitleFontSize * 0.8 + 6 : 0)
     : 0;
   const axisTitleBottomInset = chart.xAxisTitle ? 16 : 0;
+  const configuredTopInset = inset(layout?.plotInsets?.top, "top", MARGIN.top);
   const configuredBottomInset = inset(
     layout?.plotInsets?.bottom,
     "bottom",
@@ -322,7 +323,7 @@ function ChartBody({
       : 0;
   const margin = {
     ...MARGIN,
-    top: inset(layout?.plotInsets?.top, "top", MARGIN.top),
+    top: configuredTopInset,
     left:
       Math.max(
         categoryMargin,
@@ -351,6 +352,11 @@ function ChartBody({
   };
   const plotWidth = WIDTH - margin.left - margin.right;
   const plotHeight = HEIGHT - margin.top - margin.bottom;
+  if (plotWidth <= 0 || plotHeight <= 0) {
+    throw new RangeError(
+      "dataChartLayout.plotInsets must leave a positive chart plot area",
+    );
+  }
   const labelColor =
     layout?.labelTone === "foreground"
       ? "hsl(var(--foreground))"
@@ -494,7 +500,7 @@ function ChartBody({
             {axisLabelIndexes.has(tick.index) ? (
               <text
                 x={margin.left - VALUE_AXIS_TICK_LABEL_INSET}
-                y={tick.y + 4}
+                y={Math.max(tick.y + 4, labelFontSize)}
                 fill={labelColor}
                 fontSize={labelFontSize}
                 textAnchor="end"
@@ -512,35 +518,48 @@ function ChartBody({
         y2={isHorizontalBar ? HEIGHT - margin.bottom : zeroY}
         stroke="hsl(var(--chart-grid, var(--border)))"
       />
-      {chart.data.map((row, index) =>
-        isHorizontalBar ? (
+      {chart.data.map((row, index) => {
+        if (isHorizontalBar) {
+          const label = labelFor(row[chart.xKey]);
+          return (
+            <text
+              key={`${index}-${String(row[chart.xKey] ?? "")}`}
+              x={categoryLabelX}
+              y={yForRow(index) + labelFontSize * 0.35}
+              fill={labelColor}
+              fontSize={labelFontSize}
+              textAnchor="end"
+            >
+              {label}
+            </text>
+          );
+        }
+        if (index % xTickEvery !== 0 && index !== chart.data.length - 1) {
+          return null;
+        }
+
+        const label = labelFor(row[chart.xKey]);
+        const x =
+          chart.type === "bar"
+            ? margin.left + (index + 0.5) * (plotWidth / chart.data.length)
+            : xForPoint(index);
+        const rightEndpointOverflows =
+          index === chart.data.length - 1 &&
+          x + estimateTextWidth(label, labelFontSize) / 2 > WIDTH;
+
+        return (
           <text
             key={`${index}-${String(row[chart.xKey] ?? "")}`}
-            x={categoryLabelX}
-            y={yForRow(index) + labelFontSize * 0.35}
-            fill={labelColor}
-            fontSize={labelFontSize}
-            textAnchor="end"
-          >
-            {labelFor(row[chart.xKey])}
-          </text>
-        ) : index % xTickEvery === 0 || index === chart.data.length - 1 ? (
-          <text
-            key={`${index}-${String(row[chart.xKey] ?? "")}`}
-            x={
-              chart.type === "bar"
-                ? margin.left + (index + 0.5) * (plotWidth / chart.data.length)
-                : xForPoint(index)
-            }
+            x={x}
             y={HEIGHT - 12}
             fill={labelColor}
             fontSize={labelFontSize}
-            textAnchor="middle"
+            textAnchor={rightEndpointOverflows ? "end" : "middle"}
           >
-            {labelFor(row[chart.xKey])}
+            {label}
           </text>
-        ) : null,
-      )}
+        );
+      })}
       {chart.xAxisTitle ? (
         <text
           x={margin.left + plotWidth / 2}
