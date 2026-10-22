@@ -240,9 +240,9 @@ export default defineAction({
     if (sendUpdates === "none") return false;
     if (sendUpdates === undefined) return namesGuests(addAttendees);
 
-    if (attendees !== undefined) return namesGuests(attendees);
-    if (namesGuests(addAttendees)) return true;
+    if (namesGuests(attendees) || namesGuests(addAttendees)) return true;
 
+    // An empty replacement can still send cancellation notices to removed guests.
     const ownerEmail = requireActionUserEmail();
     const accountEmail = await resolveOwnedAccountEmail(
       resolveGoogleEventAccountEmail(id, requestedAccountEmail),

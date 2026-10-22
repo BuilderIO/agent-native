@@ -760,13 +760,13 @@ describe("update-event approval gate", () => {
     },
   );
 
-  it("uses replacement attendees instead of the saved guest list", async () => {
+  it("gates both removing and replacing saved guests", async () => {
     getEventMock.mockResolvedValue({
       attendees: [{ email: "old@example.com" }],
     });
     expect(
       await gate({ id: "google-a", attendees: [], sendUpdates: "all" }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       await gate({
         id: "google-a",
@@ -832,6 +832,14 @@ describe("update-event approval gate", () => {
         await gate({
           id: "google-exception",
           scope: "all",
+          sendUpdates: "all",
+        }),
+      ).toBe(hasGuests);
+      expect(
+        await gate({
+          id: "google-exception",
+          scope: "all",
+          attendees: [],
           sendUpdates: "all",
         }),
       ).toBe(hasGuests);

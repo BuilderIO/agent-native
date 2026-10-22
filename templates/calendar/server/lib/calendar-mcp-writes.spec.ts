@@ -350,32 +350,35 @@ describe("Calendar direct MCP writes", () => {
     },
   );
 
-  it("retains update-event approval for attendee notifications", async () => {
-    const client = await clientFor();
-    const result = await client.callTool({
-      name: "update-event",
-      arguments: { ...writeInputs[1][1], sendUpdates: "all" },
-    });
-    expect(result.isError).toBe(true);
-    expect(result.content).toEqual([
-      expect.objectContaining({
-        type: "text",
-        text: expect.stringContaining("update-event was not approved"),
-      }),
-    ]);
-    expect(mocks.approval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "elicitation/create",
-        params: expect.objectContaining({
-          message: expect.stringContaining(
-            'Action "update-event" requires your approval',
-          ),
+  it.each([{}, { attendees: [] }])(
+    "retains update-event approval for existing guest notifications: %j",
+    async (patch) => {
+      const client = await clientFor();
+      const result = await client.callTool({
+        name: "update-event",
+        arguments: { ...writeInputs[1][1], ...patch, sendUpdates: "all" },
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("update-event was not approved"),
         }),
-      }),
-      expect.anything(),
-    );
-    expectNoWrites();
-  });
+      ]);
+      expect(mocks.approval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "elicitation/create",
+          params: expect.objectContaining({
+            message: expect.stringContaining(
+              'Action "update-event" requires your approval',
+            ),
+          }),
+        }),
+        expect.anything(),
+      );
+      expectNoWrites();
+    },
+  );
 
   it.each([
     { attendees: "guest@example.com" },
@@ -451,6 +454,7 @@ describe("Calendar direct MCP writes", () => {
   });
 
   it("updates an event with no remaining attendees without asking for approval", async () => {
+    mocks.getEvent.mockResolvedValue({ attendees: [] });
     const client = await clientFor();
     const result = await client.callTool({
       name: "update-event",
