@@ -138,7 +138,7 @@ export function NativeShaderColorControls({
     };
     return (
       <>
-        <div className={cn(FIELD, "gap-2 px-1.5")}>
+        <div className={cn(FIELD, "w-44 gap-2 px-1.5")}>
           <button
             type="button"
             aria-label={t("editPanel.colorPicker.editStopColor")}
@@ -221,7 +221,7 @@ export function NativeShaderColorControls({
             (a, b) => a.position - b.position,
           );
           const ids: string[] = [];
-          const updated = ordered.map((stop, index) => {
+          const updated = ordered.map((stop) => {
             ids.push(stop.id);
             const previous = originalColorsById.get(stop.id);
             if (previous && stop.color === nativeEffectColorToCss(previous)) {
@@ -261,11 +261,7 @@ export function NativeShaderColorControls({
     selectedStopIdState && stopIds.includes(selectedStopIdState)
       ? selectedStopIdState
       : (stopIds[0] ?? "palette-empty");
-  const gradientValue: GradientValue = {
-    kind: "linear",
-    angle: 0,
-    stops,
-  };
+  const gradientValue: GradientValue = { kind: "linear", angle: 0, stops };
 
   return (
     <GradientEditor

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -126,4 +127,8 @@ function Host() {
   );
 }
 
-createRoot(document.getElementById("root") as HTMLElement).render(<Host />);
+createRoot(document.getElementById("root") as HTMLElement).render(
+  <QueryClientProvider client={new QueryClient()}>
+    <Host />
+  </QueryClientProvider>,
+);

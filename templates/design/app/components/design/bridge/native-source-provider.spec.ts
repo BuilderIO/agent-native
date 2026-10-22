@@ -52,6 +52,63 @@ afterEach(() => {
 });
 
 describe("native raster style snapshots", () => {
+  it("omits computed auto radii while retaining the other rectangle radius", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 120 80");
+    svg.innerHTML =
+      '<rect id="default" width="30" height="20"/><rect id="ry-only" x="40" width="30" height="20" ry="8"/><rect id="rx-only" x="80" width="30" height="20" rx="12"/>';
+    document.body.append(svg);
+    const style = {
+      backgroundColor: "rgba(0, 0, 0, 0)",
+      backgroundImage: "none",
+      boxShadow: "none",
+      outlineStyle: "none",
+      borderTopWidth: "0px",
+      borderRightWidth: "0px",
+      borderBottomWidth: "0px",
+      borderLeftWidth: "0px",
+      borderTopLeftRadius: "0px",
+      borderTopRightRadius: "0px",
+      borderBottomRightRadius: "0px",
+      borderBottomLeftRadius: "0px",
+      overflowX: "hidden",
+      overflowY: "hidden",
+      paddingTop: "0px",
+      paddingRight: "0px",
+      paddingBottom: "0px",
+      paddingLeft: "0px",
+      colorInterpolation: "sRGB",
+      opacity: "1",
+      transform: "none",
+      fill: "rgb(20, 40, 60)",
+      stroke: "none",
+      getPropertyValue: () => "",
+    };
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element) =>
+        ({
+          ...style,
+          rx: element.id === "rx-only" ? "12px" : "auto",
+          ry: element.id === "ry-only" ? "8px" : "auto",
+        }) as unknown as CSSStyleDeclaration,
+    );
+
+    const markup = svgSource.serializeNativeSvgSource(svg, {
+      width: 120,
+      height: 80,
+    });
+    const captured = new DOMParser().parseFromString(markup, "image/svg+xml");
+    expect(captured.querySelector("parsererror")).toBeNull();
+    const radius = (id: string) => {
+      const rect = captured.getElementById(id);
+      if (!rect) throw new Error(`Missing ${id} rectangle`);
+      return [rect.getAttribute("rx"), rect.getAttribute("ry")];
+    };
+    expect(radius("default")).toEqual([null, null]);
+    expect(radius("ry-only")).toEqual([null, "8px"]);
+    expect(radius("rx-only")).toEqual(["12px", null]);
+  });
+
   it("maps an SVG source through a translated overview frame in logical coordinates", async () => {
     globalThis.ResizeObserver = class {
       observe() {}
@@ -300,6 +357,7 @@ describe("native raster style snapshots", () => {
       const provider = createNativeSceneProvider(svg, "fill")!;
       provider.setDensity(density);
       try {
+        const authoredEpoch = provider.authoredSourceEpoch?.();
         for (const phase of [
           "background",
           "border",
@@ -331,6 +389,16 @@ describe("native raster style snapshots", () => {
           "stroke",
           "coverage",
         ]);
+        const captured = raster.mock.calls.length;
+        for (const phase of [
+          "background",
+          "border",
+          "coverage",
+          "inner-coverage",
+        ] as const)
+          await provider.readFillBoxPhase({} as never, phase);
+        expect(raster.mock.calls.length).toBe(captured);
+        expect(provider.authoredSourceEpoch?.()).toBe(authoredEpoch);
         await expect(provider.readFillForeground()).resolves.toEqual([]);
         expect(provider.hasFillGlyph()).toBe(false);
         expect(svg.querySelector("path")!.getAttribute("d")).toBe(

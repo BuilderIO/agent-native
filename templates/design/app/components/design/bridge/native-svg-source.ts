@@ -826,6 +826,13 @@ export function serializeNativeSvgSource(
                 ? authoredSvgOpacity(original, style)
                 : style[key];
       if (
+        SVG_CSS_GEOMETRY.has(name) &&
+        value?.trim().toLowerCase() === "auto"
+      ) {
+        clone.removeAttribute(name);
+        continue;
+      }
+      if (
         name === "transform" &&
         ["linearGradient", "radialGradient"].includes(original.localName)
       ) {

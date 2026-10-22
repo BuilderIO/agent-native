@@ -107,7 +107,6 @@ export function renderSingleScreenCanvas({
   const {
     pendingVisualStyleEdits,
     activeBreakpointWidthState,
-    shaderFillPreview,
     explicitOverviewScreenSelectionRef,
     setSelectedLayerIdsState,
   } = editorHistory;
@@ -436,7 +435,6 @@ export function renderSingleScreenCanvas({
         previewHeightPx={
           responsiveInteractActive ? interactDeviceSize.height : undefined
         }
-        shaderFillPreview={shaderFillPreview}
         onComponentSourceJump={handleComponentSourceJump}
         motionTracks={motionTracksWire}
         motionDefaultEase={motionDefaultEase}

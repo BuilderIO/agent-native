@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildShaderRuntimeScriptTag } from "../../../../shared/shader-fills";
 import { buildInteractPreviewDocument } from "./interact-document";
+import { prepareNativePreviewSurface } from "./native-preview-surface";
 
 // Every script the editor injects into a canvas iframe in Edit, named by the
 // attribute that marks it. None of these belongs in an Interact preview.
@@ -109,14 +110,23 @@ describe("buildInteractPreviewDocument", () => {
     expect(doc.match(/data-agent-native-shader-runtime/g)).toHaveLength(1);
   });
 
-  it("loads the native renderer for an authored native effect in Interact", () => {
+  it("leaves native renderer startup to the shared preview surface", () => {
     const document = build(
       PAGE.replace(
         "</body>",
         '<script type="application/x-agent-native-effects">{"schemaVersion":2,"definitions":[],"instances":[]}</script></body>',
       ),
     );
-    expect(document).toContain(
+    expect(document).not.toContain(
+      'data-agent-native-native-shader-runtime data-runtime-version="2"',
+    );
+    expect(
+      prepareNativePreviewSurface({
+        html: document,
+        sandbox: "allow-scripts",
+        profile: "interactive",
+      }).html,
+    ).toContain(
       'data-agent-native-native-shader-runtime data-runtime-version="2"',
     );
   });

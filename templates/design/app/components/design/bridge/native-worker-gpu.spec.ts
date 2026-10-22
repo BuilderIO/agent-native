@@ -398,6 +398,27 @@ describe("worker GPU resource lifetime", () => {
     expect(second.destroy).toHaveBeenCalledTimes(1);
   });
 
+  it("uploads linear data without an sRGB texture view", async () => {
+    const { gpu: pending, device } = harness();
+    const gpu = await pending;
+    const bitmap = { width: 2, height: 2, close: vi.fn() };
+    gpu.uploadAsset({
+      kind: "bitmap",
+      sceneId: "scene-a",
+      generation: 1,
+      assetId: "noise",
+      revision: 1,
+      bitmap: bitmap as unknown as ImageBitmap,
+      sampleEncoding: "linear-data",
+    });
+    expect(device.createTexture).toHaveBeenCalledWith(
+      expect.objectContaining({ format: "rgba8unorm" }),
+    );
+    expect(gpu.asset("noise", 1, 1)).toBeDefined();
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
+    gpu.dispose();
+  });
+
   it("closes transferred bitmaps after upload, duplicate, and rejected assets", async () => {
     const { gpu: pending, device, textures } = harness();
     const gpu = await pending;

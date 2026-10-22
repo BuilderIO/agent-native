@@ -1001,6 +1001,27 @@ describe("agent chat thread list route", () => {
     );
   });
 
+  it("passes archived-thread inclusion to both list and search", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([]);
+    threadStoreMocks.searchThreads.mockResolvedValue([]);
+
+    const listResponse = await getThreads("?includeArchived=1");
+    expect(listResponse.status).toBe(200);
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({ includeArchived: true }),
+    );
+
+    const searchResponse = await getThreads("?includeArchived=1&q=plan");
+    expect(searchResponse.status).toBe(200);
+    expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      "plan",
+      51,
+      expect.objectContaining({ includeArchived: true }),
+    );
+  });
+
   it("reports no more rows when the page is not over-full", async () => {
     threadStoreMocks.listThreads.mockResolvedValue([summary("a")]);
     const response = await getThreads("?ownership=mine&limit=2");
@@ -1117,14 +1138,23 @@ describe("agent chat thread list route", () => {
       if (mode === "list") {
         expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
           "user@example.test",
-          expect.objectContaining({ ownership: "all", limit: 51, offset: 0 }),
+          expect.objectContaining({
+            ownership: "all",
+            limit: 51,
+            offset: 0,
+            includeArchived: false,
+          }),
         );
       } else {
         expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
           "user@example.test",
           "plan",
           51,
-          expect.objectContaining({ ownership: "all", offset: 0 }),
+          expect.objectContaining({
+            ownership: "all",
+            offset: 0,
+            includeArchived: false,
+          }),
         );
       }
     });

@@ -1170,7 +1170,7 @@ jobs:
 
       # Main still fails these. They report every run without failing the PR
       # until the fix that drops their known-loss tag lands.
-      - name: Run Content DB tests main still fails
+      - name: Report Content DB and acceptance tests main still fails
         if: ${{ !cancelled() }}
         continue-on-error: true
         run: pnpm test:content-db:known-loss
