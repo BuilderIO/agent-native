@@ -21,6 +21,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { AgentRunFailure } from "../../agentkit/react/components.js";
 import { AgentKitProvider } from "../../agentkit/react/context.js";
 import { createToolkitI18nCatalog } from "../../i18n.js";
 import {
@@ -32,6 +33,117 @@ import { AgentKitActionWidget } from "./action-widget.js";
 const catalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("AgentKitActionWidget", () => {
+  it.each(["running", "completed", "failed", "cancelled"] as const)(
+    "passes the %s tool status to registered renderers",
+    async (status) => {
+      const toolCall: AgentToolCall = {
+        id: `tool-${status}`,
+        name: "sample-task",
+        input: {},
+        ...(status === "completed" ? { output: { count: 3 } } : {}),
+        status,
+      };
+      const widget: AgentWidget = {
+        id: `${toolCall.id}:chat-ui`,
+        kind: `custom.preview-${status}`,
+        data: { toolCallId: toolCall.id, toolName: toolCall.name },
+      };
+      const client = new AgentKitClient({
+        transport: {
+          async startRun() {
+            return { runId: `run-${status}` };
+          },
+          async *subscribeToRun() {},
+          async cancelRun() {},
+          async getThreadSnapshot() {
+            return {
+              id: `thread-${status}`,
+              createdAt: "2026-09-26T00:00:00.000Z",
+              updatedAt: "2026-09-26T00:00:00.000Z",
+              messages: [],
+              toolCalls: [toolCall],
+            };
+          },
+        },
+      });
+      await client.loadThread(`thread-${status}`);
+      const unregister = registerActionChatRenderer({
+        id: `test.tool-renderer-${status}`,
+        renderer: widget.kind,
+        Component: ({ context }: ToolRendererProps) => (
+          <output>{context.status}</output>
+        ),
+      });
+
+      try {
+        const html = renderToStaticMarkup(
+          <AgentKitProvider controller={client} threadId={`thread-${status}`}>
+            <AgentKitActionWidget
+              value={widget}
+              threadId={`thread-${status}`}
+            />
+          </AgentKitProvider>,
+        );
+
+        expect(html).toContain(`<output>${status}</output>`);
+      } finally {
+        unregister();
+      }
+    },
+  );
+
+  it("leaves an unhandled failed widget to the shared run error view", async () => {
+    const toolCall: AgentToolCall = {
+      id: "tool-failed",
+      name: "sample-report",
+      input: {},
+      status: "failed",
+      error: { code: "tool_failed", message: "Synthetic query failure" },
+    };
+    const widget: AgentWidget = {
+      id: "tool-failed:chat-ui",
+      kind: "report.query-result",
+      title: "Query results",
+      data: { toolCallId: toolCall.id, toolName: toolCall.name },
+    };
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-failed" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        async getThreadSnapshot() {
+          return {
+            id: "thread-failed",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:00:00.000Z",
+            messages: [],
+            toolCalls: [toolCall],
+          };
+        },
+      },
+    });
+    await client.loadThread("thread-failed");
+
+    const html = renderToStaticMarkup(
+      <AgentKitProvider controller={client} threadId="thread-failed">
+        <>
+          <AgentKitActionWidget value={widget} threadId="thread-failed" />
+          <AgentRunFailure
+            error={toolCall.error!}
+            runId="run-failed"
+            threadId="thread-failed"
+          />
+        </>
+      </AgentKitProvider>,
+    );
+
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Synthetic query failure");
+    expect(html).not.toContain("Query results");
+  });
+
   it("resolves the renderer with stored action args and structured result", async () => {
     const toolCall: AgentToolCall = {
       id: "tool-1",
@@ -42,7 +154,7 @@ describe("AgentKitActionWidget", () => {
     };
     const widget: AgentWidget = {
       id: "tool-1:chat-ui",
-      kind: "mail.inbox-preview",
+      kind: "custom.inbox-preview",
       title: "Inbox preview",
       data: { toolCallId: toolCall.id, toolName: toolCall.name },
     };

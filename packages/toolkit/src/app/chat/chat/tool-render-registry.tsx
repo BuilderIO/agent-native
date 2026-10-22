@@ -13,9 +13,16 @@ export interface ToolRendererContext {
   }>;
   widgetId?: string;
   isRunning: boolean;
+  status?: ToolRendererStatus;
   isActiveTail?: boolean;
   chatUI?: ActionChatUIConfig;
 }
+
+export type ToolRendererStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface ToolRendererProps {
   context: ToolRendererContext;

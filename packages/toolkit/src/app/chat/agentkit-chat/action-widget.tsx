@@ -93,6 +93,7 @@ export function AgentKitActionWidget({
     ...(relatedResults.length > 1 ? { relatedResults } : {}),
     widgetId: widget.id,
     isRunning: tool.status === "running",
+    status: tool.status,
     chatUI: {
       renderer: widget.kind,
       ...(widget.title ? { title: widget.title } : {}),
@@ -106,7 +107,10 @@ export function AgentKitActionWidget({
     resolveToolRenderer(context) ??
     resolveBuiltinFallbackToolRenderer(context);
 
-  if (!Renderer) return <AgentWidgetView value={widget} threadId={threadId} />;
+  if (!Renderer) {
+    if (tool.status === "failed") return null;
+    return <AgentWidgetView value={widget} threadId={threadId} />;
+  }
 
   return (
     <ActionChatUiSurface

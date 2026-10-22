@@ -161,6 +161,7 @@ export {
   type ToolRendererMatch,
   type ToolRendererProps,
   type ToolRendererRegistration,
+  type ToolRendererStatus,
 } from "./tool-render-registry.js";
 export {
   ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
