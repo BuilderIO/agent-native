@@ -85,6 +85,7 @@ import {
   trackMcpToolsList,
 } from "./analytics.js";
 import { mcpApprovalPrompt, mcpApprovalReviewUrl } from "./approval-route.js";
+import { mcpApprovalAppId } from "./approval-store.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
@@ -303,12 +304,14 @@ const MCP_APPROVAL_PROMPT_PREFERENCE: "form" | "url" = "form";
 const MCP_DIRECTORY_WIDGET_ARGUMENT = /^[A-Za-z0-9_.-]{1,128}$/;
 
 function mcpApprovalPrincipal(
+  appId: string,
   identity: MCPCallerIdentity | undefined,
   orgId: string | undefined,
   requestMeta: MCPRequestMeta | undefined,
 ): string {
   return canonicalJson({
     caller: "mcp",
+    appId,
     userEmail: identity?.userEmail?.trim().toLowerCase() ?? "",
     orgId: orgId ?? identity?.orgId ?? "",
     orgDomain: identity?.orgDomain?.trim().toLowerCase() ?? "",
@@ -3078,8 +3081,14 @@ export async function createMCPServerForRequest(
     (entry) => entry.needsApproval !== undefined,
   );
   const approvalOrgId = hasApprovalActions ? await orgIdPromise : undefined;
+  const approvalAppId = mcpApprovalAppId(config);
   const approvalPrincipal = hasApprovalActions
-    ? mcpApprovalPrincipal(effectiveIdentity, approvalOrgId, requestMeta)
+    ? mcpApprovalPrincipal(
+        approvalAppId,
+        effectiveIdentity,
+        approvalOrgId,
+        requestMeta,
+      )
     : undefined;
   const approvalCallerKey = approvalPrincipal
     ? await sha256Base64Url(approvalPrincipal)
@@ -3192,6 +3201,7 @@ export async function createMCPServerForRequest(
 
   const actionCallContext: McpActionCallContext = {
     appId: config.appId,
+    approvalAppId,
     identity: effectiveIdentity,
     approvalCallerKey,
     canRequestApproval:

@@ -32,6 +32,7 @@ vi.mock("./approval-store.js", async () => {
     "./approval-store.js",
   );
   return {
+    mcpApprovalAppId: actual.mcpApprovalAppId,
     storedApprovalArguments: actual.storedApprovalArguments,
     normalizeApprovalEmail: actual.normalizeApprovalEmail,
     createMcpApprovalGrant: vi.fn(async (grant: any) => {
@@ -74,6 +75,7 @@ const EMBED_START =
 
 const context: McpActionCallContext = {
   appId: "mail",
+  approvalAppId: "mail",
   identity: {
     userEmail: "user@example.com",
     identityAssurance: "user",
@@ -1266,6 +1268,7 @@ describe("MCP action approval grants", () => {
       result: { sent: true },
     });
     expect(store.consumeReviewedMcpApprovalGrant).toHaveBeenLastCalledWith({
+      appId: "mail",
       callerKey: "caller-key",
       actionName: "send",
       argumentsHash: grant.argumentsHash,

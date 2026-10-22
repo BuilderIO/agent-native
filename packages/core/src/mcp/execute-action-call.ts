@@ -487,6 +487,8 @@ export function returnedResult(value: unknown): {
 export interface McpActionCallContext {
   appId: string | undefined;
   identity: MCPCallerIdentity | undefined;
+  /** The app this server belongs to, which its approval grants are bound to. */
+  approvalAppId: string;
   /** Binds approval grants to this caller; unset when no action needs approval. */
   approvalCallerKey: string | undefined;
   /** Whether this server can mint signed approval state for an elicitation. */
@@ -937,6 +939,7 @@ async function authorizeApproval(
 
     const grant = {
       nonce: verifiedState.nonce,
+      appId: context.approvalAppId,
       callerKey: approvalCallerKey,
       actionName: name,
       argumentsHash,
@@ -1029,6 +1032,7 @@ async function authorizeApproval(
     );
   }
   const exactCall = {
+    appId: context.approvalAppId,
     callerKey: approvalCallerKey,
     actionName: name,
     argumentsHash,
@@ -1071,11 +1075,11 @@ async function createApprovalGrant(
   const priorRun = await findPriorApprovedRun(call, retrySafe);
   await createMcpApprovalGrant({
     ...approval,
+    appId: call.appId,
     callerKey: call.callerKey,
     // Only a verified user identity reaches a grant.
     ownerEmail: context.identity!.userEmail!,
     orgId: getRequestOrgId() ?? null,
-    appId: context.appId,
     argumentsJson,
     oauthClientId: context.identity?.oauthClientId,
     retrySafe,

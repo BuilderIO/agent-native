@@ -27,6 +27,7 @@ export interface McpApprovalMessages {
   closed: string;
   expired: string;
   notFound: string;
+  otherOrganization: string;
   saving: string;
   saveFailed: string;
   yes: string;
@@ -72,6 +73,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "This request expired, and nothing ran. Ask your agent to try again to get a new link.",
     notFound:
       "No request at this link belongs to {email} in this organization. If your agent is connected as another account or organization, switch to it and open the link again.",
+    otherOrganization:
+      "This request belongs to {email} in another organization. Switch to the organization this request came from, then open the link again.",
     saving: "Saving…",
     saveFailed: "Your decision wasn't saved. Try again.",
     yes: "Yes",
@@ -110,6 +113,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     expired: "此请求已过期，没有运行任何操作。请让你的智能体重试以获取新链接。",
     notFound:
       "此链接中没有属于 {email}（当前组织）的请求。如果你的智能体使用的是其他账户或组织，请切换过去后再次打开链接。",
+    otherOrganization:
+      "此请求属于另一个组织中的 {email}。请切换到发起此请求的组织，然后再次打开链接。",
     saving: "正在保存…",
     saveFailed: "你的决定未能保存。请重试。",
     yes: "是",
@@ -147,6 +152,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     expired: "此請求已過期，沒有執行任何動作。請讓你的代理重試以取得新連結。",
     notFound:
       "此連結中沒有屬於 {email}（目前組織）的請求。如果你的代理使用其他帳戶或組織，請切換後再次開啟連結。",
+    otherOrganization:
+      "此請求屬於另一個組織中的 {email}。請切換到發出此請求的組織，然後再次開啟連結。",
     saving: "正在儲存…",
     saveFailed: "你的決定未能儲存。請再試一次。",
     yes: "是",
@@ -189,6 +196,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Esta solicitud caducó y no se ejecutó nada. Pide a tu agente que lo intente de nuevo para obtener un enlace nuevo.",
     notFound:
       "En este enlace no hay ninguna solicitud de {email} en esta organización. Si tu agente está conectado con otra cuenta u organización, cambia a ella y vuelve a abrir el enlace.",
+    otherOrganization:
+      "Esta solicitud pertenece a {email} en otra organización. Cambia a la organización de la que procede esta solicitud y vuelve a abrir el enlace.",
     saving: "Guardando…",
     saveFailed: "No se guardó tu decisión. Inténtalo de nuevo.",
     yes: "Sí",
@@ -232,6 +241,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Cette demande a expiré et rien n’a été exécuté. Demandez à votre agent de réessayer pour obtenir un nouveau lien.",
     notFound:
       "Aucune demande de {email} dans cette organisation ne correspond à ce lien. Si votre agent est connecté avec un autre compte ou une autre organisation, basculez dessus et rouvrez le lien.",
+    otherOrganization:
+      "Cette demande appartient à {email} dans une autre organisation. Basculez vers l’organisation d’où vient cette demande, puis rouvrez le lien.",
     saving: "Enregistrement…",
     saveFailed: "Votre décision n’a pas été enregistrée. Réessayez.",
     yes: "Oui",
@@ -276,6 +287,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Diese Anfrage ist abgelaufen, und es wurde nichts ausgeführt. Bitte deinen Agent, es erneut zu versuchen, um einen neuen Link zu erhalten.",
     notFound:
       "Unter diesem Link gibt es keine Anfrage von {email} in dieser Organisation. Wenn dein Agent mit einem anderen Konto oder einer anderen Organisation verbunden ist, wechsle dorthin und öffne den Link erneut.",
+    otherOrganization:
+      "Diese Anfrage gehört zu {email} in einer anderen Organisation. Wechsle zu der Organisation, aus der diese Anfrage stammt, und öffne den Link erneut.",
     saving: "Wird gespeichert…",
     saveFailed:
       "Deine Entscheidung wurde nicht gespeichert. Versuche es erneut.",
@@ -320,6 +333,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "このリクエストは期限切れで、何も実行されていません。新しいリンクを取得するには、エージェントにもう一度実行するよう依頼してください。",
     notFound:
       "このリンクには、この組織の {email} のリクエストはありません。エージェントが別のアカウントまたは組織で接続している場合は、そちらに切り替えてからリンクを開き直してください。",
+    otherOrganization:
+      "このリクエストは、別の組織の {email} のものです。このリクエストの送信元の組織に切り替えてから、リンクを開き直してください。",
     saving: "保存しています…",
     saveFailed: "決定を保存できませんでした。もう一度お試しください。",
     yes: "はい",
@@ -362,6 +377,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "이 요청은 만료되었으며 아무것도 실행되지 않았습니다. 새 링크를 받으려면 에이전트에게 다시 시도하도록 요청하세요.",
     notFound:
       "이 링크에는 이 조직의 {email} 요청이 없습니다. 에이전트가 다른 계정이나 조직으로 연결되어 있다면 해당 계정이나 조직으로 전환한 후 링크를 다시 여세요.",
+    otherOrganization:
+      "이 요청은 다른 조직의 {email} 요청입니다. 이 요청을 보낸 조직으로 전환한 후 링크를 다시 여세요.",
     saving: "저장 중…",
     saveFailed: "결정이 저장되지 않았습니다. 다시 시도하세요.",
     yes: "예",
@@ -405,6 +422,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Esta solicitação expirou e nada foi executado. Peça ao seu agente para tentar de novo e receber um novo link.",
     notFound:
       "Não há nenhuma solicitação de {email} nesta organização neste link. Se o seu agente estiver conectado com outra conta ou organização, mude para ela e abra o link novamente.",
+    otherOrganization:
+      "Esta solicitação pertence a {email} em outra organização. Mude para a organização de onde veio esta solicitação e abra o link novamente.",
     saving: "Salvando…",
     saveFailed: "Sua decisão não foi salva. Tente novamente.",
     yes: "Sim",
@@ -448,6 +467,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "यह अनुरोध समाप्त हो चुका है और कुछ भी नहीं चला। नया लिंक पाने के लिए अपने एजेंट से फिर से कोशिश करने को कहें।",
     notFound:
       "इस लिंक पर इस संगठन में {email} का कोई अनुरोध नहीं है। अगर आपका एजेंट किसी दूसरे खाते या संगठन से जुड़ा है, तो उस पर स्विच करें और लिंक फिर से खोलें।",
+    otherOrganization:
+      "यह अनुरोध किसी दूसरे संगठन में {email} का है। जिस संगठन से यह अनुरोध आया है, उस पर स्विच करें और लिंक फिर से खोलें।",
     saving: "सहेजा जा रहा है…",
     saveFailed: "आपका फ़ैसला सहेजा नहीं गया। फिर से कोशिश करें।",
     yes: "हां",
@@ -490,6 +511,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "انتهت صلاحية هذا الطلب ولم يُشغَّل أي شيء. اطلب من وكيلك إعادة المحاولة للحصول على رابط جديد.",
     notFound:
       "لا يوجد في هذا الرابط طلب يخص {email} في هذه المؤسسة. إذا كان وكيلك متصلاً بحساب أو مؤسسة أخرى، فانتقل إليها وافتح الرابط مرة أخرى.",
+    otherOrganization:
+      "ينتمي هذا الطلب إلى {email} في مؤسسة أخرى. انتقل إلى المؤسسة التي جاء منها هذا الطلب، ثم افتح الرابط مرة أخرى.",
     saving: "جارٍ الحفظ…",
     saveFailed: "لم يتم حفظ قرارك. حاول مرة أخرى.",
     yes: "نعم",

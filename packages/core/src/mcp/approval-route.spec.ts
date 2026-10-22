@@ -56,9 +56,13 @@ const signedIn = vi.hoisted(() => ({
   session: null as { email: string; orgId?: string | null } | null,
   loginPage: null as { html: string; status: number } | null,
 }));
+// The page reads only the browser's sign-in cookie, never `getSession`.
 vi.mock("../server/auth.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/auth.js")>()),
-  getSession: async () => signedIn.session,
+  getBrowserCookieSession: async () => signedIn.session,
+  getSession: async () => {
+    throw new Error("The review page must not resolve getSession.");
+  },
   getConfiguredLoginHtml: () => signedIn.loginPage,
 }));
 
@@ -166,6 +170,7 @@ async function createdGrant(
 
 function callOf(grant: NewMcpApprovalGrant) {
   return {
+    appId: grant.appId,
     callerKey: grant.callerKey,
     actionName: grant.actionName,
     argumentsHash: grant.argumentsHash,
@@ -185,14 +190,21 @@ async function storedRow(nonce: string): Promise<Record<string, unknown>> {
 async function send(
   method: string,
   id: string,
-  init: { headers?: Record<string, string>; body?: string } = {},
+  init: {
+    headers?: Record<string, string>;
+    body?: string;
+    appId?: string;
+  } = {},
 ) {
   const event = mockEvent(`${ORIGIN}/${id}`, {
     method,
     headers: { host: "localhost:3000", ...init.headers },
     ...(init.body !== undefined ? { body: init.body } : {}),
   });
-  const body = await handleMcpApprovalRequest(event, actions);
+  const body = await handleMcpApprovalRequest(event, {
+    appId: init.appId ?? "calendar",
+    actions,
+  });
   return {
     status: event.res.status ?? 200,
     headers: event.res.headers,
@@ -200,23 +212,37 @@ async function send(
   };
 }
 
-const getJson = (id: string) =>
-  send("GET", id, { headers: { accept: "application/json" } });
+const getJson = (
+  id: string,
+  headers: Record<string, string> = { "sec-fetch-site": "same-origin" },
+  appId?: string,
+) =>
+  send("GET", id, {
+    headers: { accept: "application/json", ...headers },
+    ...(appId ? { appId } : {}),
+  });
 
 const getHtml = (id: string, headers: Record<string, string> = {}) =>
   send("GET", id, {
     headers: { accept: "text/html,application/xhtml+xml", ...headers },
   });
 
-function post(id: string, body: unknown, headers: Record<string, string> = {}) {
+function post(
+  id: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+  appId?: string,
+) {
   return send("POST", id, {
     headers: {
       accept: "application/json",
       "content-type": "application/json",
       origin: ORIGIN,
+      "sec-fetch-site": "same-origin",
       ...headers,
     },
     body: typeof body === "string" ? body : JSON.stringify(body),
+    ...(appId ? { appId } : {}),
   });
 }
 
@@ -256,22 +282,32 @@ describe("signed out", () => {
 
 describe("someone other than the owner", () => {
   it.each([
-    ["another user", { email: "other@example.com", orgId: ORG }],
-    ["the owner in another organization", { email: OWNER, orgId: "org-2" }],
-    ["the owner outside any organization", { email: OWNER, orgId: null }],
-  ])("%s finds nothing and changes nothing", async (_label, session) => {
+    ["another user", { email: "other@example.com", orgId: ORG }, false],
+    [
+      "the owner in another organization",
+      { email: OWNER, orgId: "org-2" },
+      true,
+    ],
+    ["the owner outside any organization", { email: OWNER, orgId: null }, true],
+  ])("%s finds nothing and changes nothing", async (_label, session, own) => {
     const grant = await createdGrant();
     const ownerToken = await pageToken(grant.nonce);
     signedIn.session = session;
 
     const json = await getJson(grant.nonce);
     expect(json.status).toBe(404);
-    expect(json.body).toEqual({ error: "Approval not found" });
+    expect(json.body).toEqual(
+      own
+        ? { error: "Approval not found", reason: "other-organization" }
+        : { error: "Approval not found" },
+    );
 
     const html = await getHtml(grant.nonce);
     expect(html.status).toBe(404);
     expect(html.body).toContain(
-      `No request at this link belongs to ${session.email}`,
+      own
+        ? `This request belongs to ${session.email} in another organization. Switch to the organization this request came from`
+        : `No request at this link belongs to ${session.email}`,
     );
     expect(html.body).not.toContain("Team sync");
 
@@ -434,14 +470,21 @@ describe("the review page", () => {
 });
 
 describe("deciding", () => {
-  it("refuses a cross-origin decision", async () => {
+  it.each([
+    [
+      "from another app on the same site",
+      { origin: "https://mail.example.com", "sec-fetch-site": "same-site" },
+    ],
+    ["from another site", { "sec-fetch-site": "cross-site" }],
+    ["without the browser's fetch metadata", { "sec-fetch-site": "" }],
+  ])("refuses a decision %s", async (_label, headers) => {
     const grant = await createdGrant();
     const csrfToken = await pageToken(grant.nonce);
 
     const { status } = await post(
       grant.nonce,
       { decision: "approve", csrfToken },
-      { origin: "https://attacker.example" },
+      headers,
     );
 
     expect(status).toBe(403);
@@ -590,4 +633,100 @@ it("allows only GET and POST", async () => {
   expect(status).toBe(405);
   expect(headers.get("allow")).toBe("GET, POST");
   expect((await storedRow(grant.nonce)).status).toBe("pending");
+});
+
+describe("another app on the same database", () => {
+  // Calendar's grant, opened on Mail's page: both apps have a same-named
+  // action, and share the database and the user.
+  it("finds nothing, decides nothing, and can't use the grant", async () => {
+    const grant = await createdGrant();
+    const csrfToken = await pageToken(grant.nonce);
+
+    const json = await getJson(
+      grant.nonce,
+      { "sec-fetch-site": "same-origin" },
+      "mail",
+    );
+    expect(json.status).toBe(404);
+    expect(json.body).toEqual({ error: "Approval not found" });
+    const html = await send("GET", grant.nonce, {
+      headers: { accept: "text/html" },
+      appId: "mail",
+    });
+    expect(html.status).toBe(404);
+    expect(html.body).toContain(`No request at this link belongs to ${OWNER}`);
+    expect(html.body).not.toContain("Team sync");
+    const decision = await post(
+      grant.nonce,
+      { decision: "approve", csrfToken },
+      {},
+      "mail",
+    );
+    expect(decision.status).toBe(404);
+    expect((await storedRow(grant.nonce)).status).toBe("pending");
+
+    await post(grant.nonce, { decision: "approve", csrfToken });
+    await expect(
+      consumeReviewedMcpApprovalGrant({ ...callOf(grant), appId: "mail" }),
+    ).resolves.toBeNull();
+    await expect(
+      consumeReviewedMcpApprovalGrant(callOf(grant)),
+    ).resolves.toMatchObject({ nonce: grant.nonce });
+  });
+});
+
+describe("the page's own data", () => {
+  it.each([
+    ["without the browser's fetch metadata", {}],
+    ["for another site", { "sec-fetch-site": "cross-site" }],
+  ])("is refused %s", async (_label, headers) => {
+    const grant = await createdGrant();
+
+    const { status, body } = await getJson(grant.nonce, headers);
+
+    expect(status).toBe(403);
+    expect(JSON.stringify(body)).not.toContain(grant.nonce);
+  });
+
+  it("still opens from a link on another site", async () => {
+    const grant = await createdGrant();
+
+    const { status, body } = await getHtml(grant.nonce, {
+      "sec-fetch-site": "cross-site",
+    });
+
+    expect(status).toBe(200);
+    expect(body).toContain("Team sync");
+  });
+});
+
+describe("a grant that can no longer be decided", () => {
+  it.each([
+    [
+      "used",
+      async (grant: NewMcpApprovalGrant) => {
+        await consumeMcpApprovalGrant(grant);
+      },
+    ],
+    [
+      "expired",
+      async (grant: NewMcpApprovalGrant) => {
+        vi.setSystemTime(grant.expiresAt + 1);
+      },
+    ],
+  ])("shows none of its arguments once %s", async (state, end) => {
+    const grant = await createdGrant();
+    await end(grant);
+
+    const json = await getJson(grant.nonce);
+    expect(json.body.state).toBe(state);
+    expect(json.body.summary).toMatchObject({
+      recipients: [],
+      fields: [],
+      arguments: "not-stored",
+    });
+    const html = await getHtml(grant.nonce);
+    expect(html.body).not.toContain("Team sync");
+    expect(html.body).not.toContain("<details>");
+  });
 });

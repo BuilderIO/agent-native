@@ -82,6 +82,7 @@ const approvalStoreMocks = vi.hoisted(() => {
       !existing.consumed &&
       existing.answer === undefined &&
       existing.expiresAt >= Date.now() &&
+      existing.appId === grant.appId &&
       existing.callerKey === grant.callerKey &&
       existing.actionName === grant.actionName &&
       existing.argumentsHash === grant.argumentsHash
@@ -114,6 +115,7 @@ const approvalStoreMocks = vi.hoisted(() => {
           existing.reviewed === "approved" &&
           !existing.consumed &&
           existing.expiresAt >= Date.now() &&
+          existing.appId === call.appId &&
           existing.callerKey === call.callerKey &&
           existing.actionName === call.actionName &&
           existing.argumentsHash === call.argumentsHash &&
@@ -143,6 +145,7 @@ vi.mock("./approval-store.js", async () => {
     "./approval-store.js",
   );
   return {
+    mcpApprovalAppId: actual.mcpApprovalAppId,
     storedApprovalArguments: actual.storedApprovalArguments,
     normalizeApprovalEmail: actual.normalizeApprovalEmail,
     createMcpApprovalGrant: approvalStoreMocks.create,
@@ -5643,6 +5646,48 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(run).toHaveBeenCalledTimes(1);
     } finally {
       await client.close();
+    }
+  });
+
+  it("uses a review page approval only in the app that asked for it, when apps share a database", async () => {
+    const mailRun = vi.fn(async () => ({ sent: true }));
+    const crmRun = vi.fn(async () => ({ sent: true }));
+    const requestHeaders = await mcpAppsAuthHeaders();
+    const { client: mail } = await createModernClient(
+      sendEmailConfig(mailRun),
+      {
+        requestHeaders,
+      },
+    );
+    const { client: crm } = await createModernClient(
+      { ...sendEmailConfig(crmRun), name: "agent-native-crm", appId: "crm" },
+      { requestHeaders },
+    );
+    const sendFrom = (client: typeof mail) =>
+      client.callTool({
+        name: "send-email",
+        arguments: { to: ["ana@example.com"] },
+      });
+    try {
+      const asked = approvalReviewLink(await sendFrom(mail));
+      expect(approvalStoreMocks.grants.get(asked.nonce)).toMatchObject({
+        appId: "mail",
+      });
+      approvalStoreMocks.grants.get(asked.nonce).reviewed = "approved";
+
+      const elsewhere = approvalReviewLink(await sendFrom(crm));
+      expect(elsewhere.nonce).not.toBe(asked.nonce);
+      expect(approvalStoreMocks.grants.get(elsewhere.nonce)).toMatchObject({
+        appId: "crm",
+      });
+      expect(crmRun).not.toHaveBeenCalled();
+
+      expect((await sendFrom(mail)).isError).not.toBe(true);
+      expect(mailRun).toHaveBeenCalledTimes(1);
+      expect(crmRun).not.toHaveBeenCalled();
+    } finally {
+      await mail.close();
+      await crm.close();
     }
   });
 

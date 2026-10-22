@@ -49,12 +49,28 @@ export function ensureApprovalTable(): Promise<void> {
   return mcpApprovalsStore.ready();
 }
 
-/** What a grant binds: one caller, one action, one exact call, until it expires. */
-export interface McpApprovalGrant {
-  nonce: string;
+/**
+ * The app a grant belongs to. Apps can share a database and an origin, and
+ * have actions with the same name, so only the app that asked uses a grant.
+ */
+export function mcpApprovalAppId(config: {
+  appId?: string;
+  name: string;
+}): string {
+  return config.appId ?? config.name;
+}
+
+/** The identity of one exact call, as a grant binds it. */
+export interface McpApprovalCall {
+  appId: string;
   callerKey: string;
   actionName: string;
   argumentsHash: string;
+}
+
+/** What a grant binds: one caller, one action, one exact call, until it expires. */
+export interface McpApprovalGrant extends McpApprovalCall {
+  nonce: string;
   expiresAt: number;
 }
 
@@ -66,7 +82,6 @@ export interface McpApprovalGrant {
 export interface NewMcpApprovalGrant extends McpApprovalGrant {
   ownerEmail: string;
   orgId: string | null;
-  appId: string | undefined;
   /** From `storedApprovalArguments`; null when they could not be stored. */
   argumentsJson: string | null;
   /** The OAuth client whose connection made the call, if it used one. */
@@ -99,8 +114,10 @@ export type McpApprovalRunStatus =
 export interface McpApprovalRecord extends McpApprovalGrant {
   ownerEmail: string | null;
   orgId: string | null;
-  appId: string | null;
-  /** The redacted arguments as JSON; null when none were stored. */
+  /**
+   * The redacted arguments as JSON while the grant can still be approved or
+   * used; null once it is final or expired, or when none were stored.
+   */
   argumentsJson: string | null;
   oauthClientId: string | null;
   retrySafe: boolean;
@@ -113,13 +130,6 @@ export interface McpApprovalRecord extends McpApprovalGrant {
   consumedAt: number | null;
   runStatus: McpApprovalRunStatus | null;
   runSettledAt: number | null;
-}
-
-/** The identity of one exact call, as a grant binds it. */
-export interface McpApprovalCall {
-  callerKey: string;
-  actionName: string;
-  argumentsHash: string;
 }
 
 const RECORD_COLUMNS = `nonce, caller_key, action_name, arguments_hash, expires_at, consumed_at, owner_email, org_id, app_id, call_arguments, oauth_client_id, retry_safe, status, approver_email, approved_at, denied_at, created_at, run_status, run_settled_at`;
@@ -145,20 +155,27 @@ function stringOrNull(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
+// Every read matches `app_id`, so a row read here always has one.
 function recordFromRow(row: Record<string, unknown>): McpApprovalRecord {
   const status = String(row.status ?? "pending");
   const runStatus = stringOrNull(row.run_status);
+  const expiresAt = Number(row.expires_at);
+  const consumedAt = numberOrNull(row.consumed_at);
+  const live =
+    (status === "pending" || status === "approved") &&
+    consumedAt === null &&
+    expiresAt >= Date.now();
   return {
     nonce: String(row.nonce),
+    appId: String(row.app_id),
     callerKey: String(row.caller_key),
     actionName: String(row.action_name),
     argumentsHash: String(row.arguments_hash),
-    expiresAt: Number(row.expires_at),
-    consumedAt: numberOrNull(row.consumed_at),
+    expiresAt,
+    consumedAt,
     ownerEmail: stringOrNull(row.owner_email),
     orgId: stringOrNull(row.org_id),
-    appId: stringOrNull(row.app_id),
-    argumentsJson: stringOrNull(row.call_arguments),
+    argumentsJson: live ? stringOrNull(row.call_arguments) : null,
     oauthClientId: stringOrNull(row.oauth_client_id),
     retrySafe: row.retry_safe === true,
     status:
@@ -196,22 +213,37 @@ export async function createMcpApprovalGrant(
       grant.expiresAt,
       normalizeApprovalEmail(grant.ownerEmail),
       grant.orgId,
-      grant.appId ?? null,
+      grant.appId,
       grant.argumentsJson,
       grant.oauthClientId ?? null,
       grant.retrySafe,
       now,
     ],
   });
+}
 
-  try {
-    await client.execute({
-      sql: `DELETE FROM mcp_action_approvals WHERE expires_at < ?`,
-      args: [now - 24 * 60 * 60_000],
-    });
-  } catch (error) {
-    console.warn("[mcp] Could not clean expired action approval grants", error);
-  }
+// Far past the prior-run window; a row this old is deleted.
+const GRANT_RETENTION_MS = 24 * 60 * 60_000;
+
+/**
+ * Clears the stored arguments of every grant that can no longer be approved
+ * or used, and deletes grants a day past their expiry. Runs on the recurring
+ * sweep, so it doesn't wait for a new grant; a failure throws for the sweep
+ * to report.
+ */
+export async function pruneMcpApprovalGrants(now = Date.now()): Promise<void> {
+  await ensureApprovalTable();
+  const client = getDbExec();
+  await client.execute({
+    sql: `UPDATE mcp_action_approvals SET call_arguments = NULL
+      WHERE call_arguments IS NOT NULL
+        AND (expires_at < ? OR consumed_at IS NOT NULL OR status IN ('denied', 'declined'))`,
+    args: [now],
+  });
+  await client.execute({
+    sql: `DELETE FROM mcp_action_approvals WHERE expires_at < ?`,
+    args: [now - GRANT_RETENTION_MS],
+  });
 }
 
 /**
@@ -230,8 +262,10 @@ export async function consumeMcpApprovalGrant(
         prompt_answered_at = ?,
         status = 'approved',
         approved_at = COALESCE(approved_at, ?),
-        run_status = 'running'
+        run_status = 'running',
+        call_arguments = NULL
       WHERE nonce = ?
+        AND app_id = ?
         AND caller_key = ?
         AND action_name = ?
         AND arguments_hash = ?
@@ -244,6 +278,7 @@ export async function consumeMcpApprovalGrant(
       now,
       now,
       grant.nonce,
+      grant.appId,
       grant.callerKey,
       grant.actionName,
       grant.argumentsHash,
@@ -267,14 +302,15 @@ export async function answerMcpApprovalPrompt(
   const now = Date.now();
   const status =
     answer === "denied"
-      ? `, status = 'denied', denied_at = ?`
+      ? `, status = 'denied', denied_at = ?, call_arguments = NULL`
       : answer === "declined"
-        ? `, status = 'declined'`
+        ? `, status = 'declined', call_arguments = NULL`
         : "";
   const result = await getDbExec().execute({
     sql: `UPDATE mcp_action_approvals
       SET prompt_answered_at = ?${status}
       WHERE nonce = ?
+        AND app_id = ?
         AND caller_key = ?
         AND action_name = ?
         AND arguments_hash = ?
@@ -286,6 +322,7 @@ export async function answerMcpApprovalPrompt(
       now,
       ...(answer === "denied" ? [now] : []),
       grant.nonce,
+      grant.appId,
       grant.callerKey,
       grant.actionName,
       grant.argumentsHash,
@@ -309,7 +346,8 @@ export async function consumeReviewedMcpApprovalGrant(
   const now = Date.now();
   const { rows } = await client.execute({
     sql: `SELECT ${RECORD_COLUMNS} FROM mcp_action_approvals
-      WHERE caller_key = ?
+      WHERE app_id = ?
+        AND caller_key = ?
         AND action_name = ?
         AND arguments_hash = ?
         AND status = 'approved'
@@ -318,6 +356,7 @@ export async function consumeReviewedMcpApprovalGrant(
       ORDER BY approved_at ASC
       LIMIT 5`,
     args: [
+      call.appId,
       call.callerKey,
       call.actionName,
       call.argumentsHash,
@@ -329,7 +368,7 @@ export async function consumeReviewedMcpApprovalGrant(
     const record = recordFromRow(row);
     const result = await client.execute({
       sql: `UPDATE mcp_action_approvals
-        SET consumed_at = ?, run_status = 'running'
+        SET consumed_at = ?, run_status = 'running', call_arguments = NULL
         WHERE nonce = ?
           AND status = 'approved'
           AND consumed_at IS NULL
@@ -337,7 +376,12 @@ export async function consumeReviewedMcpApprovalGrant(
       args: [now, record.nonce, now],
     });
     if (result.rowsAffected === 1) {
-      return { ...record, consumedAt: now, runStatus: "running" };
+      return {
+        ...record,
+        consumedAt: now,
+        runStatus: "running",
+        argumentsJson: null,
+      };
     }
   }
   return null;
@@ -369,33 +413,74 @@ export async function findRecentMcpApprovalRun(
   await ensureApprovalTable();
   const { rows } = await getDbExec().execute({
     sql: `SELECT ${RECORD_COLUMNS} FROM mcp_action_approvals
-      WHERE caller_key = ?
+      WHERE app_id = ?
+        AND caller_key = ?
         AND action_name = ?
         AND arguments_hash = ?
         AND consumed_at >= ?
         AND run_status IN ('running', 'completed', 'unknown')
       ORDER BY consumed_at DESC
       LIMIT 1`,
-    args: [call.callerKey, call.actionName, call.argumentsHash, since],
+    args: [
+      call.appId,
+      call.callerKey,
+      call.actionName,
+      call.argumentsHash,
+      since,
+    ],
   });
   const row = (rows as Record<string, unknown>[])[0];
   return row ? recordFromRow(row) : null;
 }
 
-/** A grant as its owner may see it: same user, same organization. */
+/** Who reads or decides a grant on the review page, and in which app. */
+export interface McpApprovalReader {
+  appId: string;
+  email: string;
+  orgId: string | null;
+}
+
+/** A grant as its owner may see it: same app, same user, same organization. */
 export async function getMcpApprovalForOwner(
   nonce: string,
-  ownerEmail: string,
-  orgId: string | null,
+  reader: McpApprovalReader,
 ): Promise<McpApprovalRecord | null> {
   await ensureApprovalTable();
   const { rows } = await getDbExec().execute({
     sql: `SELECT ${RECORD_COLUMNS} FROM mcp_action_approvals
-      WHERE nonce = ? AND owner_email = ? AND COALESCE(org_id, '') = ?`,
-    args: [nonce, normalizeApprovalEmail(ownerEmail), orgId ?? ""],
+      WHERE nonce = ? AND app_id = ? AND owner_email = ? AND COALESCE(org_id, '') = ?`,
+    args: [
+      nonce,
+      reader.appId,
+      normalizeApprovalEmail(reader.email),
+      reader.orgId ?? "",
+    ],
   });
   const row = (rows as Record<string, unknown>[])[0];
   return row ? recordFromRow(row) : null;
+}
+
+/**
+ * Whether the grant is the reader's own in this app, but from another of
+ * their organizations, so the page can tell them to switch. Says nothing
+ * about anyone else's grants.
+ */
+export async function isMcpApprovalInOtherOrganization(
+  nonce: string,
+  reader: McpApprovalReader,
+): Promise<boolean> {
+  await ensureApprovalTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 FROM mcp_action_approvals
+      WHERE nonce = ? AND app_id = ? AND owner_email = ? AND COALESCE(org_id, '') <> ?`,
+    args: [
+      nonce,
+      reader.appId,
+      normalizeApprovalEmail(reader.email),
+      reader.orgId ?? "",
+    ],
+  });
+  return rows.length > 0;
 }
 
 /**
@@ -406,29 +491,29 @@ export async function getMcpApprovalForOwner(
  */
 export async function decideMcpApproval(
   nonce: string,
-  ownerEmail: string,
-  orgId: string | null,
+  reader: McpApprovalReader,
   decision: "approve" | "deny",
   approvedUntil: number,
 ): Promise<boolean> {
   await ensureApprovalTable();
   const now = Date.now();
-  const owner = normalizeApprovalEmail(ownerEmail);
+  const owner = normalizeApprovalEmail(reader.email);
+  const orgId = reader.orgId ?? "";
   const result = await getDbExec().execute({
     sql:
       decision === "approve"
         ? `UPDATE mcp_action_approvals
           SET status = 'approved', approver_email = ?, approved_at = ?, expires_at = ?
-          WHERE nonce = ? AND owner_email = ? AND COALESCE(org_id, '') = ?
+          WHERE nonce = ? AND app_id = ? AND owner_email = ? AND COALESCE(org_id, '') = ?
             AND status = 'pending' AND consumed_at IS NULL AND expires_at >= ?`
         : `UPDATE mcp_action_approvals
-          SET status = 'denied', approver_email = ?, denied_at = ?
-          WHERE nonce = ? AND owner_email = ? AND COALESCE(org_id, '') = ?
+          SET status = 'denied', approver_email = ?, denied_at = ?, call_arguments = NULL
+          WHERE nonce = ? AND app_id = ? AND owner_email = ? AND COALESCE(org_id, '') = ?
             AND status = 'pending' AND consumed_at IS NULL AND expires_at >= ?`,
     args:
       decision === "approve"
-        ? [owner, now, approvedUntil, nonce, owner, orgId ?? "", now]
-        : [owner, now, nonce, owner, orgId ?? "", now],
+        ? [owner, now, approvedUntil, nonce, reader.appId, owner, orgId, now]
+        : [owner, now, nonce, reader.appId, owner, orgId, now],
   });
   return result.rowsAffected === 1;
 }

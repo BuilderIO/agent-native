@@ -8,6 +8,7 @@ import {
 } from "h3";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import {
   mcpApprovalMessagesForLocale,
   type McpApprovalMessages,
@@ -21,17 +22,22 @@ import {
   type LocaleCode,
   type ResolvedLocalizationPreference,
 } from "../localization/shared.js";
-import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
+import {
+  getBrowserCookieSession,
+  getConfiguredLoginHtml,
+} from "../server/auth.js";
 import { toAbsoluteOpenUrl } from "../server/deep-link.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
-import { isSameOriginRequest } from "../server/request-origin.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import {
   decideMcpApproval,
   getMcpApprovalForOwner,
+  isMcpApprovalInOtherOrganization,
   normalizeApprovalEmail,
+  pruneMcpApprovalGrants,
+  type McpApprovalReader,
   type McpApprovalRecord,
 } from "./approval-store.js";
 import {
@@ -53,13 +59,20 @@ import { getOAuthClientConnection } from "./oauth-store.js";
  * The page where a person approves or denies an MCP action call their agent
  * could not get approved in its own client. The id in the URL is a lookup
  * handle, not a credential: every read and decision requires the browser
- * session of the user the call would run as, in the same organization, and a
- * decision also requires a same-origin JSON POST carrying a token minted for
- * that session. Approving never runs anything; it lets the identical call,
- * from the same MCP caller, run once when the agent retries it.
+ * session cookie of the user the call would run as, in the same app and
+ * organization, and a decision also requires a same-origin JSON POST carrying
+ * a token minted for that session. Approving never runs anything; it lets the
+ * identical call, from the same MCP caller, run once when the agent retries
+ * it.
  */
 
 export const MCP_APPROVAL_ROUTE = "/_agent-native/mcp/approvals";
+
+/** The app whose grants a mounted review page reads and decides. */
+export interface McpApprovalApp {
+  appId: string;
+  actions: Record<string, ActionEntry>;
+}
 
 const TTL_MS = MCP_ACTION_APPROVAL_TTL_SECONDS * 1000;
 const GRANT_ID =
@@ -132,8 +145,7 @@ function base64Url(bytes: ArrayBuffer): string {
 
 async function decisionToken(
   nonce: string,
-  email: string,
-  orgId: string | null,
+  reader: McpApprovalReader,
 ): Promise<string> {
   const { getAuthSecret } = await import("../server/better-auth-instance.js");
   const key = await globalThis.crypto.subtle.importKey(
@@ -147,7 +159,7 @@ async function decisionToken(
     "HMAC",
     key,
     new TextEncoder().encode(
-      `mcp-approval-decision\0${nonce}\0${normalizeApprovalEmail(email)}\0${orgId ?? ""}`,
+      `mcp-approval-decision\0${reader.appId}\0${nonce}\0${normalizeApprovalEmail(reader.email)}\0${reader.orgId ?? ""}`,
     ),
   );
   return base64Url(signature);
@@ -199,7 +211,7 @@ async function requesterFor(
 
 async function buildView(
   record: McpApprovalRecord,
-  session: { email: string; orgId: string | null },
+  reader: McpApprovalReader,
   entry: ActionEntry | undefined,
   messages: McpApprovalMessages,
   preference: ResolvedLocalizationPreference | undefined,
@@ -216,7 +228,7 @@ async function buildView(
       argumentsJson: record.argumentsJson,
       labels: messages,
     }),
-    requester: await requesterFor(record, session.email),
+    requester: await requesterFor(record, reader.email),
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
     priorRun:
@@ -225,13 +237,7 @@ async function buildView(
         : undefined,
     readerTimeZone: readerTimeZone(preference) ?? null,
     ...(state === "pending"
-      ? {
-          csrfToken: await decisionToken(
-            record.nonce,
-            session.email,
-            session.orgId,
-          ),
-        }
+      ? { csrfToken: await decisionToken(record.nonce, reader) }
       : {}),
   };
 }
@@ -324,19 +330,27 @@ button[disabled]{opacity:.5;cursor:default}
 
 function renderPage(input: {
   view: McpApprovalView | undefined;
+  /** Why there's no view: the grant is the reader's, from another organization. */
+  otherOrganization: boolean;
   email: string;
   locale: LocaleCode;
   messages: McpApprovalMessages;
   scriptNonce: string;
 }): string {
-  const { view, email, locale, messages, scriptNonce } = input;
+  const { view, otherOrganization, email, locale, messages, scriptNonce } =
+    input;
   const head = (title?: string) =>
     `<!doctype html><html lang="${escapeHtml(locale)}" dir="${localeDirection(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer">${title === undefined ? "" : `<title>${escapeHtml(title)}</title>`}<style>${PAGE_STYLE}</style></head>`;
   if (!view) {
-    return `${head()}<body><main><p>${escapeHtml(messages.notFound.replace("{email}", email))}</p></main></body></html>`;
+    const message = otherOrganization
+      ? messages.otherOrganization
+      : messages.notFound;
+    return `${head()}<body><main><p>${escapeHtml(message.replace("{email}", email))}</p></main></body></html>`;
   }
   const { summary } = view;
   const pending = view.state === "pending";
+  // A final or expired grant keeps no arguments, so there are none to show.
+  const live = pending || view.state === "approved";
   const prior = view.priorRun
     ? `<p class="warn" role="alert">${messageHtml(
         view.priorRun.status === "completed"
@@ -381,8 +395,9 @@ function renderPage(input: {
     )
     .join("");
   const fields = requester || rows ? `<dl>${requester}${rows}</dl>` : "";
-  const details =
-    summary.arguments === "stored"
+  const details = !live
+    ? ""
+    : summary.arguments === "stored"
       ? `<details><summary>${escapeHtml(messages.details)}</summary><pre>${escapeHtml(summary.details ?? "")}</pre></details>`
       : `<p class="muted">${escapeHtml(
           summary.arguments === "not-stored"
@@ -463,6 +478,12 @@ function setPageHeaders(event: H3Event, scriptNonce?: string) {
   );
 }
 
+// CSRF protection for the page's own requests. Any client can send this
+// header; it only shows a browser didn't send the request for another site.
+function isSameOriginFetch(event: H3Event): boolean {
+  return getRequestHeader(event, "sec-fetch-site") === "same-origin";
+}
+
 function wantsJson(event: H3Event): boolean {
   const accept = getRequestHeader(event, "accept") ?? "";
   return accept.includes("application/json") && !accept.includes("text/html");
@@ -476,7 +497,7 @@ function grantIdFrom(event: H3Event): string | undefined {
 
 export async function handleMcpApprovalRequest(
   event: H3Event,
-  actions: Record<string, ActionEntry>,
+  app: McpApprovalApp,
 ): Promise<unknown> {
   const method = getMethod(event);
   if (method !== "GET" && method !== "POST") {
@@ -484,8 +505,15 @@ export async function handleMcpApprovalRequest(
     setResponseHeader(event, "allow", "GET, POST");
     return { error: "Method not allowed" };
   }
+  // The HTML page opens from a link in another app; its data and decisions
+  // only go to the page itself.
+  if ((method === "POST" || wantsJson(event)) && !isSameOriginFetch(event)) {
+    setPageHeaders(event);
+    setResponseStatus(event, 403);
+    return { error: "Cross-origin request denied" };
+  }
   const id = grantIdFrom(event);
-  const session = await getSession(event);
+  const session = await getBrowserCookieSession(event);
   if (!session?.email) {
     if (method === "GET" && !wantsJson(event)) {
       const loginPage = getConfiguredLoginHtml(event);
@@ -500,27 +528,34 @@ export async function handleMcpApprovalRequest(
     setResponseStatus(event, 401);
     return { error: "Sign in to review this request" };
   }
-  const owner = { email: session.email, orgId: session.orgId ?? null };
-  const record = id
-    ? await getMcpApprovalForOwner(id, owner.email, owner.orgId)
-    : null;
+  const owner: McpApprovalReader = {
+    appId: app.appId,
+    email: session.email,
+    orgId: session.orgId ?? null,
+  };
+  const record = id ? await getMcpApprovalForOwner(id, owner) : null;
   const preference = await readerPreference(owner.email);
   const { locale } = resolveLocaleFromRequest({
     preference,
     acceptLanguage: getRequestHeader(event, "accept-language"),
   });
   const messages = mcpApprovalMessagesForLocale(locale);
-  const entry = record ? actions[record.actionName] : undefined;
+  const entry = record ? app.actions[record.actionName] : undefined;
 
   if (method === "GET") {
     const view = record
       ? await buildView(record, owner, entry, messages, preference)
       : undefined;
+    const otherOrganization =
+      !view && id ? await isMcpApprovalInOtherOrganization(id, owner) : false;
     if (wantsJson(event)) {
       setPageHeaders(event);
       if (!view) {
         setResponseStatus(event, 404);
-        return { error: "Approval not found" };
+        return {
+          error: "Approval not found",
+          ...(otherOrganization ? { reason: "other-organization" } : {}),
+        };
       }
       return view;
     }
@@ -532,6 +567,7 @@ export async function handleMcpApprovalRequest(
     if (!view) setResponseStatus(event, 404);
     return renderPage({
       view,
+      otherOrganization,
       email: owner.email,
       locale,
       messages,
@@ -540,10 +576,6 @@ export async function handleMcpApprovalRequest(
   }
 
   setPageHeaders(event);
-  if (!isSameOriginRequest(event)) {
-    setResponseStatus(event, 403);
-    return { error: "Cross-origin approval denied" };
-  }
   const contentType = getRequestHeader(event, "content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
     setResponseStatus(event, 415);
@@ -559,22 +591,16 @@ export async function handleMcpApprovalRequest(
     setResponseStatus(event, 404);
     return { error: "Approval not found" };
   }
-  const expected = await decisionToken(id, owner.email, owner.orgId);
+  const expected = await decisionToken(id, owner);
   const csrfToken = body?.csrfToken;
   if (typeof csrfToken !== "string" || !sameToken(csrfToken, expected)) {
     setResponseStatus(event, 403);
     return { error: "This page is out of date. Reload it and decide again." };
   }
   const approvedUntil = Date.now() + TTL_MS;
-  const decided = await decideMcpApproval(
-    id,
-    owner.email,
-    owner.orgId,
-    decision,
-    approvedUntil,
-  );
+  const decided = await decideMcpApproval(id, owner, decision, approvedUntil);
   if (!decided) {
-    const current = await getMcpApprovalForOwner(id, owner.email, owner.orgId);
+    const current = await getMcpApprovalForOwner(id, owner);
     setResponseStatus(event, current ? 409 : 404);
     return current
       ? {
@@ -625,15 +651,20 @@ export async function mcpApprovalPrompt(input: {
   };
 }
 
+export const MCP_APPROVAL_PRUNE_SWEEP_ID = "mcp-approval-grants";
+
 export function mountMcpApprovalRoute(
   nitroApp: any,
-  actions: Record<string, ActionEntry>,
+  app: McpApprovalApp,
   routePrefix = "/_agent-native",
 ): void {
   getH3App(nitroApp).use(
     `${routePrefix}/mcp/approvals`,
     defineEventHandler((event) =>
-      handleMcpApprovalRequest(event as H3Event, actions),
+      handleMcpApprovalRequest(event as H3Event, app),
     ),
+  );
+  registerRecurringSweepHandler(MCP_APPROVAL_PRUNE_SWEEP_ID, () =>
+    pruneMcpApprovalGrants(),
   );
 }

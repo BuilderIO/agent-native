@@ -69,6 +69,7 @@ vi.mock("./approval-store.js", async () => {
       !existing.consumed &&
       existing.answer === undefined &&
       existing.expiresAt >= Date.now() &&
+      existing.appId === grant.appId &&
       existing.callerKey === grant.callerKey &&
       existing.actionName === grant.actionName &&
       existing.argumentsHash === grant.argumentsHash
@@ -76,6 +77,7 @@ vi.mock("./approval-store.js", async () => {
       : undefined;
   };
   return {
+    mcpApprovalAppId: actual.mcpApprovalAppId,
     storedApprovalArguments: actual.storedApprovalArguments,
     normalizeApprovalEmail: actual.normalizeApprovalEmail,
     createMcpApprovalGrant: vi.fn(async (grant: any) => {
