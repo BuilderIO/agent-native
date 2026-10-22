@@ -2064,6 +2064,51 @@ describe("Files navigation text and date filters", () => {
     }
   });
 
+  it("reads a row's time to the millisecond in both readers", async () => {
+    // The database's own timestamps keep microseconds; JavaScript dates don't.
+    const evening = "date-filter-oct-22-evening";
+    const precise = "2026-10-22 18:00:00.0004+00";
+    const setCreated = (createdAt: string) =>
+      getDb()
+        .update(schema.documents)
+        .set({ createdAt })
+        .where(eq(schema.documents.id, evening));
+    const items = evaluatorItems.map((item) =>
+      item.document.id === evening
+        ? {
+            ...item,
+            document: { ...item.document, createdAt: precise },
+            properties: [{ ...item.properties[0]!, value: precise }],
+          }
+        : item,
+    );
+    await setCreated(precise);
+    try {
+      for (const [operator, rows] of [
+        [
+          "on_or_before",
+          ids("oct-14", "oct-21", "oct-22-start", "oct-22-evening"),
+        ],
+        ["after", ids("oct-22-end", "oct-23", "oct-29", "oct-30")],
+      ] as const) {
+        const filter = created(operator, "2026-10-22T18:00:00.000Z");
+        expect(await navigatedIds(filter, "UTC")).toEqual(rows);
+        expect(
+          applyContentDatabaseTableQuery(
+            items,
+            [items[0]!.properties[0]!],
+            { search: "", filters: [filter], sorts: [] },
+            { today: "2026-10-22", timeZone: "UTC" },
+          )
+            .map((item) => item.document.id)
+            .sort(),
+        ).toEqual(rows);
+      }
+    } finally {
+      await setCreated("2026-10-22T18:00:00.000Z");
+    }
+  });
+
   it("ties a cursor under a time without an offset to the caller's time zone", async () => {
     await navigatedIds(created("on_or_after", "2026-10-22T13:00"), "UTC");
     const page = (timezone: string, cursor?: string) =>

@@ -18435,7 +18435,8 @@ function isDateFilterPropertyType(type: DocumentPropertyType) {
 
 // Only "is within" holds a relative range, so a value never carries across
 // that operator in either direction. Leaving "between" keeps the range's start;
-// a single date already reads as the start of a range.
+// a single date already reads as the start of a range. The range's inputs take
+// only dates, so a relative day becomes the date it means today.
 function databaseFilterNextValue(
   current: DatabaseFilter,
   next: Partial<DatabaseFilter>,
@@ -18449,7 +18450,20 @@ function databaseFilterNextValue(
   if (current.operator === "between" && operator !== "between") {
     return contentDatabaseFilterDateRangeValues(current.value)[0];
   }
+  const value = current.value.trim();
+  if (operator === "between" && isContentDatabaseRelativeDate(value)) {
+    return databaseFilterExactDay(value);
+  }
   return current.value;
+}
+
+/** The date a relative day means today. */
+function databaseFilterExactDay(relative: ContentDatabaseRelativeDate) {
+  const bound = contentDatabaseFilterDateBound(
+    relative,
+    contentDatabaseFilterToday(),
+  );
+  return bound && "day" in bound ? bound.day : "";
 }
 
 // Day words sit mid-phrase in a chip ("on or before today"); ranges stand
@@ -18594,11 +18608,7 @@ function DatabaseDateFilterValueControl({
                   onValueChange(choice);
                 } else if (relative) {
                   // An exact date starts from the day the relative one means now.
-                  const bound = contentDatabaseFilterDateBound(
-                    relative,
-                    contentDatabaseFilterToday(),
-                  );
-                  onValueChange(bound && "day" in bound ? bound.day : "");
+                  onValueChange(databaseFilterExactDay(relative));
                 }
               }}
             >

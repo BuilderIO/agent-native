@@ -181,14 +181,16 @@ function dateFilterSql(
   // Stored times start with their day, in both the app's ISO strings and the
   // database's default timestamps. A moment is compared as a timestamp, since
   // those two formats and offset-bearing bounds don't sort as text. The bound
-  // is read the way the shared evaluator reads it.
+  // is read the way the shared evaluator reads it, and the row's time is cut
+  // to the millisecond, as a JavaScript date holds it; the database's own
+  // timestamps keep microseconds.
   const compare = (
     op: "=" | "<>" | "<" | "<=" | ">" | ">=",
     bound: ContentDatabaseDateFilterBound,
   ) =>
     "day" in bound
       ? sql`left(${value}, 10) ${sql.raw(op)} ${bound.day}`
-      : sql`nullif(${value}, '')::timestamptz ${sql.raw(op)} ${new Date(bound.instant).toISOString()}::timestamptz`;
+      : sql`date_trunc('milliseconds', nullif(${value}, '')::timestamptz) ${sql.raw(op)} ${new Date(bound.instant).toISOString()}::timestamptz`;
   if (check.op === "between") {
     return and(
       sql`${value} <> ''`,

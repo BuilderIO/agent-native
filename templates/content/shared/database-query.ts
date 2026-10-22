@@ -374,10 +374,14 @@ export function contentDatabaseFilterInstant(value: string, timeZone?: string) {
   const clock = timeZone && zoneFormatters(timeZone)?.clock;
   if (!clock) return new Date(...fields).getTime();
   // The zone's offsets a day either side; a real zone changes at most once
-  // between them. A candidate is right when the zone's clock reads the wall
-  // time at that moment.
-  const before = asUtc - timeZoneOffset(asUtc - DAY_MS, clock);
-  const after = asUtc - timeZoneOffset(asUtc + DAY_MS, clock);
+  // between them, so the same offset on both sides holds throughout.
+  // Otherwise a candidate is right when the zone's clock reads the wall time
+  // at that moment.
+  const offsetBefore = timeZoneOffset(asUtc - DAY_MS, clock);
+  const offsetAfter = timeZoneOffset(asUtc + DAY_MS, clock);
+  if (offsetBefore === offsetAfter) return asUtc - offsetBefore;
+  const before = asUtc - offsetBefore;
+  const after = asUtc - offsetAfter;
   const valid = [before, after].filter(
     (time) => time + timeZoneOffset(time, clock) === asUtc,
   );

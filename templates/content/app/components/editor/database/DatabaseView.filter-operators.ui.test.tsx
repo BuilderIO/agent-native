@@ -270,6 +270,29 @@ describe("date filter values", () => {
     button("Due: on or before 2026-10-01");
   });
 
+  it("turns a relative day into its date when switching to between", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 22, 9));
+      const latest = renderBar(
+        [filter("due", "Due", "on_or_before", "tomorrow")],
+        0,
+      );
+
+      await click(button("on or before"));
+      await chooseMenuItem("Between");
+      expect(latest.filters[0]).toMatchObject({
+        operator: "between",
+        value: "2026-10-23",
+      });
+      expect(byLabel<HTMLInputElement>("Start Due filter date").value).toBe(
+        "2026-10-23",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("turns a relative day into the exact day it means today", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
