@@ -3637,22 +3637,14 @@ describe("local edit persistence", () => {
     ).toBe(true);
   });
 
-  it("flushes only an editable editor with local user intent", () => {
+  it("flushes local user intent through the permission-checked save callback", () => {
     expect(
       shouldFlushVisualEditorDraft({
-        editable: true,
         hasUserEditIntent: true,
       }),
     ).toBe(true);
     expect(
       shouldFlushVisualEditorDraft({
-        editable: false,
-        hasUserEditIntent: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldFlushVisualEditorDraft({
-        editable: true,
         hasUserEditIntent: false,
       }),
     ).toBe(false);
