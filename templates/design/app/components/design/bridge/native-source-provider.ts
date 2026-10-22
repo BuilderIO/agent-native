@@ -5814,7 +5814,7 @@ class SceneProvider implements NativeSceneProvider {
               hasVisibleBoxDecoration(style) ||
               (overflow.outset > 0 && hasVisibleBoxPaint(style))
             )
-              throw new NativeSourceError(
+              throw new NativeSourceCapabilityError(
                 "source-empty-own-paint-unsupported",
                 "A zero-size clipped source has own paint that cannot be captured faithfully.",
               );

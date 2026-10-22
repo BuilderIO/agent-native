@@ -11922,7 +11922,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
               );
             if (overflow.edge !== "none") {
               if (hasDirectText(element) || hasVisibleBoxDecoration(style) || overflow.outset > 0 && hasVisibleBoxPaint(style))
-                throw new NativeSourceError(
+                throw new NativeSourceCapabilityError(
                   "source-empty-own-paint-unsupported",
                   "A zero-size clipped source has own paint that cannot be captured faithfully."
                 );

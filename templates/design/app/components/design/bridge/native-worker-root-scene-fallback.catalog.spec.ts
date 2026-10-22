@@ -111,10 +111,13 @@ async function captureRootCapabilityFailure(
   targetReads: ReturnType<typeof vi.fn>;
   receiverReads: ReturnType<typeof vi.fn>;
 }> {
-  const capability = new NativeSourceCapabilityError(
-    "source-webfont-style",
-    "The full root text scene needs browser-shaped glyph capture.",
-  );
+  const capability =
+    rootFailure instanceof NativeSourceCapabilityError
+      ? rootFailure
+      : new NativeSourceCapabilityError(
+          "source-webfont-style",
+          "The full root text scene needs browser-shaped glyph capture.",
+        );
   const rootReads = vi.fn(async (_target?: unknown, scope?: string) => {
     if (scope === "scene-presentation") throw rootFailure ?? capability;
     return [];
@@ -316,6 +319,41 @@ describe("root-scene capability fallback eligibility", () => {
       );
     },
   );
+
+  it("routes unsupported collapsed paint only at the optional root boundary", async () => {
+    const definition = NATIVE_EFFECT_LATEST_DEFINITIONS.find((item) =>
+      item.placements.includes("fill"),
+    )!;
+    const doc = validatedDocument(definition, "fill", "collapsed-root");
+    const failure = new NativeSourceCapabilityError(
+      "source-empty-own-paint-unsupported",
+      "A collapsed source has unsupported visible paint.",
+    );
+    const entries = [
+      { definition: doc.definitions[0]!, instance: doc.instances[0]! },
+    ];
+    const result = await captureRootCapabilityFailure(
+      entries,
+      undefined,
+      failure,
+    );
+    expect(result.error.captureFailure).toBe(failure);
+    const processor = NATIVE_EFFECT_LATEST_DEFINITIONS.find((item) =>
+      item.placements.includes("layer"),
+    )!;
+    const targetDoc = validatedDocument(processor, "layer", "collapsed-target");
+    await expect(
+      captureRootCapabilityFailure(
+        [
+          {
+            definition: targetDoc.definitions[0]!,
+            instance: targetDoc.instances[0]!,
+          },
+        ],
+        failure,
+      ),
+    ).rejects.toBe(failure);
+  });
 
   it("does not reclassify a target-local capability failure as a root fallback", async () => {
     const targetFailure = new NativeSourceCapabilityError(

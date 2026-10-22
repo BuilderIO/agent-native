@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { createNativeSceneProvider } from "./native-source-provider";
+import {
+  createNativeSceneProvider,
+  NativeSourceCapabilityError,
+} from "./native-source-provider";
 import { serializeNativeSvgSource } from "./native-svg-source";
 
 afterEach(() => {
@@ -290,7 +293,9 @@ it("suspends a zero-area clipped native background and resumes its composition a
     ).toEqual(["final-layer"]);
     width = 0;
     shadow = "rgb(0, 0, 0) 0px 0px 10px 0px";
-    await expect(provider.readScene()).rejects.toMatchObject({
+    const failure = provider.readScene();
+    await expect(failure).rejects.toBeInstanceOf(NativeSourceCapabilityError);
+    await expect(failure).rejects.toMatchObject({
       code: "source-empty-own-paint-unsupported",
     });
   } finally {
