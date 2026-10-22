@@ -3475,6 +3475,14 @@ test("selects deploy alert regression when the canary workflow changes", () => {
   ]);
 });
 
+test("selects the release workflow test when the publish workflow changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/auto-publish.yml"]);
+
+  assert.deepEqual(scope.scriptTests, [
+    "scripts/package-release-workflow.test.ts",
+  ]);
+});
+
 test("runs the change-scope test when the selector or its test changes", () => {
   for (const path of [
     "scripts/ci-change-scope.ts",

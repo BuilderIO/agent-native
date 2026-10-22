@@ -62,6 +62,10 @@ const RELATED_SCRIPT_TESTS = new Map([
     ".github/workflows/deploy-canary.yml",
     "scripts/deploy-alerts-workflow.test.ts",
   ],
+  [
+    ".github/workflows/auto-publish.yml",
+    "scripts/package-release-workflow.test.ts",
+  ],
 ]);
 const GUARD_SCOPE_FILES = new Set([
   "scripts/serverless-function-baseline.json",
