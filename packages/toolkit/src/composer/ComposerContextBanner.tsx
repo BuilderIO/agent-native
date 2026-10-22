@@ -49,7 +49,7 @@ export function ComposerContextBanner({
       </span>
       <span className="min-w-0 flex-1">{children}</span>
       <Button
-        className="shrink-0 has-[>span>svg]:px-1.5"
+        className="shrink-0 px-1.5"
         onClick={onAddContext}
         size="xs"
         type="button"

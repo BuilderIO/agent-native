@@ -55,11 +55,12 @@ describe("ComposerContextBanner", () => {
       "Improve answers by adding data definitions.",
     );
 
-    await act(async () =>
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent?.includes("Add context"))!
-        .click(),
-    );
+    const addContextButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Add context"))!;
+    expect(addContextButton.classList).toContain("px-1.5");
+
+    await act(async () => addContextButton.click());
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>(
@@ -92,7 +93,7 @@ describe("ComposerContextBanner", () => {
     )!;
 
     expect(button.textContent).toBe("Add context");
-    expect(button.classList).toContain("has-[>span>svg]:px-1.5");
+    expect(button.classList).toContain("px-1.5");
     expect(Array.from(button.querySelectorAll("svg"))).toEqual([actionIcon]);
     expect(actionIcon.parentElement?.getAttribute("aria-hidden")).toBe("true");
   });
