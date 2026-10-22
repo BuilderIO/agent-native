@@ -888,7 +888,7 @@ function handlerElementSelectorMayMutateMotionTarget(
   const selectorNames = String.raw`querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName)`;
   const scope = String.raw`(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))`;
   const selectorCall = new RegExp(
-    String.raw`\b${scope}\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
+    String.raw`(?:^|[^\w$])${scope}\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
     "gi",
   );
   const hasMutation = MUTATION_MEMBER_ACCESS_PATTERN.test(value);
@@ -964,7 +964,7 @@ function mayMutateThroughAlternateDomRoot(
   const root = String.raw`(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))`;
   const selectorNames = String.raw`querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName)`;
   const selectorCalls = new RegExp(
-    String.raw`\b${root}\s*(?:\.\s*(?:ownerDocument)|\.\s*getRootNode\s*\(\s*\)|\[\s*["'](?:ownerDocument|getRootNode)["']\s*\](?:\s*\(\s*\))?)\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
+    String.raw`(?<![\w$])${root}\s*(?:\.\s*(?:ownerDocument)|\.\s*getRootNode\s*\(\s*\)|\[\s*["'](?:ownerDocument|getRootNode)["']\s*\](?:\s*\(\s*\))?)\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
     "gi",
   );
   let match: RegExpExecArray | null;
@@ -1022,11 +1022,15 @@ function alternateRootSelectorCallFeedsMutationSink(
     return true;
   }
 
-  if (
-    method.toLowerCase() === "queryselectorall" &&
-    querySelectorAllActualCallbackMayMutate(afterCall)
-  ) {
-    return true;
+  if (method.toLowerCase() === "queryselectorall") {
+    const callbackStatus = querySelectorAllCallbackMutationStatus(afterCall);
+    const forOfStatus = querySelectorAllForOfMutationStatus(
+      source,
+      callStartIndex,
+      callEndIndex,
+    );
+    if (callbackStatus === true || forOfStatus === true) return true;
+    if (callbackStatus === false || forOfStatus === false) return false;
   }
 
   return destructuredSelectorCallHasActualMutationSink(
@@ -1061,15 +1065,84 @@ function identifierHasActualMutationSink(
   );
 }
 
-function querySelectorAllActualCallbackMayMutate(source: string): boolean {
+function identifierAliasHasActualMutationSink(
+  source: string,
+  identifier: string,
+): boolean {
+  return identifierAliases(source, identifier).some((alias) =>
+    identifierHasActualMutationSink(source, alias),
+  );
+}
+
+function styleAliasHasActualMutationSink(
+  source: string,
+  identifier: string,
+): boolean {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    new RegExp(
+      `\\b${escaped}\\s*(?:(?:\\.\\s*[A-Za-z_$][\\w$]*|\\[\\s*[^\\]]+\\s*\\])\\s*(?:=(?!=)|\\+=|-=|\\+\\+|--)|(?:\\?\\.|\\.)\\s*(?:setProperty|removeProperty)\\s*\\()`,
+      "i",
+    ).test(source) ||
+    new RegExp(
+      `\\bObject\\s*\\.\\s*assign\\s*\\(\\s*${escaped}(?:\\s*[,\\)])`,
+      "i",
+    ).test(source)
+  );
+}
+
+function destructuredBindingsMayMutate(
+  bindings: string,
+  source: string,
+): boolean {
+  return bindings.split(",").some((binding) => {
+    const [property, alias] = binding.split(/\s*:\s*/);
+    const name = alias?.trim() || property?.trim();
+    if (!name) return false;
+    if (property?.trim() === "classList") {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(
+        `\\b${escaped}\\s*(?:\\?\\.|\\.)\\s*(?:add|remove|toggle|replace)\\s*\\(`,
+        "i",
+      ).test(source);
+    }
+    return (
+      property?.trim() === "style" &&
+      styleAliasHasActualMutationSink(source, name)
+    );
+  });
+}
+
+function querySelectorAllCallbackMutationStatus(
+  source: string,
+): boolean | null {
+  const methodCall =
+    /^\s*[\])]*\s*\.\s*(?:forEach|map|filter|some|every)\s*\(/i.exec(source);
   const callback =
-    /^\s*\)?\s*\.\s*(?:forEach|map|filter|some|every)\s*\(\s*(?:async\s+)?(?:\(\s*([\w$]+)\s*\)|([\w$]+))\s*=>/i.exec(
+    /^\s*[\])]*\s*\.\s*(?:forEach|map|filter|some|every)\s*\(\s*(?:async\s+)?(?:\(\s*([\w$]+)\s*\)|([\w$]+)|\(\s*\{\s*([^}]+)\s*\}\s*\))\s*=>/i.exec(
       source,
     );
-  const callbackParameter = callback?.[1] ?? callback?.[2];
+  if (!methodCall) return null;
+  if (!callback) return true;
+
+  const methodOpenIndex = methodCall[0].lastIndexOf("(");
+  const callEnd = findSelectorCallEnd(
+    source,
+    methodCall.index + methodOpenIndex,
+  );
+  if (callEnd === null) return true;
+
+  const callbackBody = source.slice(callback[0].length, callEnd - 1);
+  const callbackParameter = callback[1] ?? callback[2];
+  if (callbackParameter) {
+    return identifierAliasHasActualMutationSink(
+      callbackBody,
+      callbackParameter,
+    );
+  }
   return (
-    callbackParameter !== undefined &&
-    identifierHasActualMutationSink(source, callbackParameter)
+    callback[3] !== undefined &&
+    destructuredBindingsMayMutate(callback[3], callbackBody)
   );
 }
 
@@ -1082,25 +1155,7 @@ function destructuredSelectorCallHasActualMutationSink(
   );
   if (!assignment) return false;
 
-  return assignment[1]!.split(",").some((binding) => {
-    const [property, alias] = binding.split(/\s*:\s*/);
-    const name = alias?.trim() || property?.trim();
-    if (!name) return false;
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (property?.trim() === "classList") {
-      return new RegExp(
-        `\\b${escaped}\\s*(?:\\?\\.|\\.)\\s*(?:add|remove|toggle|replace)\\s*\\(`,
-        "i",
-      ).test(suffix);
-    }
-    if (property?.trim() !== "style") return false;
-    return (
-      new RegExp(
-        `\\bObject\\s*\\.\\s*assign\\s*\\(\\s*${escaped}\\b`,
-        "i",
-      ).test(suffix) || identifierHasActualMutationSink(suffix, name)
-    );
-  });
+  return destructuredBindingsMayMutate(assignment[1]!, suffix);
 }
 
 function assignedAliases(
@@ -1212,7 +1267,15 @@ function handlerSelectsAndMutatesMotionTarget(
     /\b(?:querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName))\b/i.test(
       value,
     );
-  if (!usesDocumentSelector || !MUTATION_MEMBER_ACCESS_PATTERN.test(value))
+  const destructuredMutationCandidate =
+    /\b(?:const|let|var)\s*\{[^}]*\b(?:style|classList)\b[^}]*\}\s*=|\(\s*\{[^}]*\b(?:style|classList)\b[^}]*\}\s*\)\s*=>/i.test(
+      value,
+    );
+  if (
+    !usesDocumentSelector ||
+    (!MUTATION_MEMBER_ACCESS_PATTERN.test(value) &&
+      !destructuredMutationCandidate)
+  )
     return false;
 
   const selectorCalls =
@@ -1312,29 +1375,29 @@ function selectorCallFeedsMutationSink(
 ): boolean {
   const afterCall = source.slice(callEndIndex);
   if (SELECTED_ELEMENT_MUTATION_SINK.test(afterCall)) return true;
+  if (
+    destructuredSelectorCallHasActualMutationSink(
+      source.slice(0, callStartIndex),
+      afterCall,
+    )
+  ) {
+    return true;
+  }
 
   if (method.toLowerCase() === "queryselectorall") {
-    const callback =
-      /^\s*\)?\s*\.\s*(?:forEach|map|filter|some|every)\s*\(\s*(?:async\s+)?(?:\(\s*([\w$]+)\s*\)|([\w$]+))\s*=>/i.exec(
-        afterCall,
-      );
-    const callbackParameter = callback?.[1] ?? callback?.[2];
+    const callbackStatus = querySelectorAllCallbackMutationStatus(afterCall);
+    if (callbackStatus !== null) return callbackStatus;
     if (
-      callbackParameter &&
-      elementMutationSinkForIdentifier(callbackParameter).test(afterCall)
+      arrayFromSelectorCallbackMayMutate(source, callStartIndex, callEndIndex)
     ) {
       return true;
     }
-    if (
-      arrayFromSelectorCallbackMayMutate(
-        source,
-        callStartIndex,
-        callEndIndex,
-      ) ||
-      querySelectorAllForOfMayMutate(source, callStartIndex, callEndIndex)
-    ) {
-      return true;
-    }
+    const forOfStatus = querySelectorAllForOfMutationStatus(
+      source,
+      callStartIndex,
+      callEndIndex,
+    );
+    if (forOfStatus !== null) return forOfStatus;
   }
 
   const assignment =
@@ -1366,18 +1429,23 @@ function arrayFromSelectorCallbackMayMutate(
   const callbackParameter = callback?.[1] ?? callback?.[2];
   return (
     callbackParameter !== undefined &&
-    identifierMayFeedMutationSink(source.slice(callEndIndex), callbackParameter)
+    identifierAliasHasActualMutationSink(
+      source.slice(callEndIndex),
+      callbackParameter,
+    )
   );
 }
 
-function querySelectorAllForOfMayMutate(
+function querySelectorAllForOfMutationStatus(
   source: string,
   callStartIndex: number,
   callEndIndex: number,
-): boolean {
+): boolean | null {
   const prefix = source.slice(0, callStartIndex);
-  const forOfHeader = /\bfor\s*\(([^)]*\bof)\s*$/i.exec(prefix);
-  if (!forOfHeader) return false;
+  const forOfHeader = /\bfor\s*\(([^)]*)\bof\s*(?:\[\s*\.\.\.\s*)?$/i.exec(
+    prefix,
+  );
+  if (!forOfHeader) return null;
 
   const binding = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*$/.exec(
     forOfHeader[1]!,
@@ -1385,14 +1453,14 @@ function querySelectorAllForOfMayMutate(
   if (!binding) return true;
 
   const afterCall = source.slice(callEndIndex);
-  const loopHeaderEnd = /^\s*\)\s*/.exec(afterCall);
+  const loopHeaderEnd = /^\s*\]?\s*\)\s*/.exec(afterCall);
   if (!loopHeaderEnd) return true;
 
   const loopBody = afterCall.slice(loopHeaderEnd[0].length);
   if (loopBody.startsWith("{")) {
     const bodyEnd = findMatchingBlockEnd(loopBody, 0);
     if (bodyEnd === null) return true;
-    return identifierMayFeedMutationSink(
+    return identifierAliasHasActualMutationSink(
       loopBody.slice(1, bodyEnd),
       binding[1]!,
     );
@@ -1401,7 +1469,7 @@ function querySelectorAllForOfMayMutate(
   const statementEnd = loopBody.indexOf(";");
   const statement =
     statementEnd < 0 ? loopBody : loopBody.slice(0, statementEnd);
-  return identifierMayFeedMutationSink(statement, binding[1]!);
+  return identifierAliasHasActualMutationSink(statement, binding[1]!);
 }
 
 function findMatchingBlockEnd(

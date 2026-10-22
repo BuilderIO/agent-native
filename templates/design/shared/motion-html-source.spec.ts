@@ -847,6 +847,32 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
+  it("allows read-only destructured selector results and iterations", () => {
+    const handlers = [
+      `onclick="const { style } = document.querySelector('#hero-title'); document.title = style.opacity"`,
+      `onclick="document.querySelectorAll('#hero-title').forEach(({ style }) => { const opacity = style.opacity })"`,
+      `onclick="[...this.ownerDocument.querySelectorAll('#hero-title')].forEach(target => { const opacity = target.style.opacity })"`,
+      `onclick="for (const target of [...this.ownerDocument.querySelectorAll('#hero-title')]) { const opacity = target.style.opacity }"`,
+    ];
+
+    const source = html
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+      )
+      .replace(
+        "</main>",
+        `${handlers.map((handler) => `<button ${handler}>Read</button>`).join("\n")}\n  </main>`,
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+  });
+
   it.each([
     [
       "an event target alias traversing to a sibling with bracket access",
@@ -998,6 +1024,65 @@ describe("HTML Motion source adapter", () => {
         status: "invalid",
         error: { code: "unsupported-target" },
       });
+    },
+  );
+
+  it.each([
+    [
+      "$el alternate root",
+      `@click="$el.ownerDocument.querySelector('#hero-title').style.opacity = '0'"`,
+    ],
+    [
+      "a destructured style binding",
+      `onclick="const { style } = this.ownerDocument.querySelector('#hero-title'); style.opacity = '0'"`,
+    ],
+    [
+      "a directly selected destructured style binding",
+      `onclick="const { style } = document.querySelector('#hero-title'); style.color = 'red'"`,
+    ],
+    [
+      "an aliased destructured style binding",
+      `onclick="const { style: targetStyle } = this.ownerDocument.querySelector('#hero-title'); targetStyle.setProperty('opacity', '0')"`,
+    ],
+    [
+      "an aliased destructured style binding from a document selector",
+      `onclick="const { style: targetStyle } = document.querySelector('#hero-title'); targetStyle.removeProperty('opacity')"`,
+    ],
+    [
+      "a destructured querySelectorAll callback",
+      `onclick="document.querySelectorAll('#hero-title').forEach(({ style }) => { style.opacity = '0' })"`,
+    ],
+    [
+      "a spread querySelectorAll result",
+      `onclick="[...this.ownerDocument.querySelectorAll('#hero-title')].forEach(target => { target.style.opacity = '0' })"`,
+    ],
+    [
+      "a querySelectorAll for-of loop",
+      `onclick="for (const target of this.ownerDocument.querySelectorAll('#hero-title')) { target.style.opacity = '0' }"`,
+    ],
+    [
+      "a spread querySelectorAll for-of loop",
+      `onclick="for (const target of [...this.ownerDocument.querySelectorAll('#hero-title')]) { target.style.opacity = '0' }"`,
+    ],
+  ])(
+    "rejects sibling handlers that mutate a Motion target through %s",
+    (_label, handler) => {
+      const source = html
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">',
+          '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+        )
+        .replace("</main>", `<button ${handler}>Toggle</button>\n  </main>`);
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
     },
   );
 
