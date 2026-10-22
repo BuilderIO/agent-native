@@ -31,13 +31,18 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - id: image
-        run: echo "name=ghcr.io/builderio/agent-native-ci-slides-authoring:trial-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+        run: echo "name=ghcr.io/builderio/agent-native-ci-slides-authoring:trial-${{ hashFiles('docker/ci-slides-authoring/Dockerfile') }}" >> "$GITHUB_OUTPUT"
 
+      # The tag is the Dockerfile hash, so the image is rebuilt only when it changes.
       - name: Build and push the trial image
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if docker manifest inspect "${{ steps.image.outputs.name }}" >/dev/null 2>&1; then
+            echo "Image already published; skipping the build."
+            exit 0
+          fi
           docker build -t "${{ steps.image.outputs.name }}" docker/ci-slides-authoring
           docker push "${{ steps.image.outputs.name }}"
 
@@ -72,6 +77,9 @@ jobs:
     container:
       image: ${{ needs.build-image.outputs.image }}
       options: --ipc=host
+      # Firefox refuses to start as root when $HOME belongs to another user.
+      env:
+        HOME: /root
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
