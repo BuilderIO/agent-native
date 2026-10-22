@@ -323,7 +323,11 @@ describe("resolveBuilderRequestAuthorization", () => {
 
     await expect(
       resolveBuilderRequestAuthorization({ oauthResource: "publish" }),
-    ).rejects.toThrow(/Publish access expired/);
+    ).rejects.toMatchObject({
+      errorCode: "builder_oauth_reauthorization_required",
+      message:
+        "Builder.io Publish access expired. An owner or admin can remove it in Settings → Integrations, then connect it again in Settings → Integrations → Builder.io.",
+    });
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
@@ -333,7 +337,11 @@ describe("resolveBuilderRequestAuthorization", () => {
 
     await expect(
       resolveBuilderRequestAuthorization({ oauthResource: "publish" }),
-    ).rejects.toThrow(/Publish access is not connected/);
+    ).rejects.toMatchObject({
+      errorCode: "builder_oauth_reauthorization_required",
+      message:
+        "Builder.io Publish access is not connected for this workspace. An owner or admin can connect it in Settings → Integrations → Builder.io to grant mcp:publish:read.",
+    });
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 

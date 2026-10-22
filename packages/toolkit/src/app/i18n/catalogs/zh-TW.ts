@@ -2021,6 +2021,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.backToApp": "返回 {{app}}",
   "settingsShell.breadcrumbLabel": "階層式導覽",
   "settingsShell.builder.connect": "使用 Builder.io",
+  "settingsShell.builder.connectPublish": "連結 Builder.io Publish",
+  "settingsShell.builder.connectPublishAdminOnly":
+    "擁有者或管理員可以為所有人連結 Builder.io Publish。",
   "settingsShell.builder.connected": "已連結",
   "settingsShell.builder.connectedTo": "已連結 · {{space}}",
   "settingsShell.builder.connection": "連結",

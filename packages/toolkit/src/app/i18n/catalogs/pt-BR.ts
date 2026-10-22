@@ -2310,6 +2310,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.backToApp": "Voltar para {{app}}",
   "settingsShell.breadcrumbLabel": "Trilha de navegação",
   "settingsShell.builder.connect": "Usar Builder.io",
+  "settingsShell.builder.connectPublish": "Conectar Builder.io Publish",
+  "settingsShell.builder.connectPublishAdminOnly":
+    "Um proprietário ou administrador pode conectar o Builder.io Publish para todos.",
   "settingsShell.builder.connected": "Conectado",
   "settingsShell.builder.connectedTo": "Conectado · {{space}}",
   "settingsShell.builder.connection": "Conexão",

@@ -2178,6 +2178,9 @@ const messages = {
   "settingsShell.backToApp": "Back to {{app}}",
   "settingsShell.breadcrumbLabel": "Breadcrumb",
   "settingsShell.builder.connect": "Use Builder.io",
+  "settingsShell.builder.connectPublish": "Connect Builder.io Publish",
+  "settingsShell.builder.connectPublishAdminOnly":
+    "An owner or admin can connect Builder.io Publish for everyone.",
   "settingsShell.builder.connected": "Connected",
   "settingsShell.builder.connectedTo": "Connected · {{space}}",
   "settingsShell.builder.connection": "Connection",

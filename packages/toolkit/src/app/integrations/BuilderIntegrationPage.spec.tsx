@@ -22,10 +22,25 @@ const actionMocks = vi.hoisted(() => ({
     (error as { actionMessage?: string } | undefined)?.actionMessage,
 }));
 
+const mcpMocks = vi.hoisted(() => ({ useMcpServers: vi.fn() }));
+const oauth = vi.hoisted(() => ({
+  navigateToMcpOAuthStart: vi.fn((_url: string) => true),
+}));
+
 vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: () => flowMock.current,
 }));
 vi.mock("@agent-native/core/client/use-action", () => actionMocks);
+vi.mock("@agent-native/core/client/resources/use-mcp-servers", () => mcpMocks);
+vi.mock(
+  "@agent-native/core/client/resources/mcp-integration-catalog",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/resources/mcp-integration-catalog")
+    >()),
+    navigateToMcpOAuthStart: oauth.navigateToMcpOAuthStart,
+  }),
+);
 vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: { orgName: "Acme" } }),
 }));
@@ -194,12 +209,22 @@ describe("BuilderIntegrationPage", () => {
     });
   }
 
+  function mcpServers(org: unknown[] = []) {
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: { user: [], org, orgId: "acme", role: "admin" },
+      isSuccess: true,
+      isError: false,
+    });
+  }
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     window.history.replaceState({}, "", "/settings/integrations/builder");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    mcpServers();
+    oauth.navigateToMcpOAuthStart.mockClear();
     disconnectMock.mockReset();
     disconnectMock.mockResolvedValue({ disconnected: "org" });
     actionMocks.useActionMutation.mockReturnValue({
@@ -580,6 +605,101 @@ describe("BuilderIntegrationPage", () => {
     expect(disconnectMock).toHaveBeenCalledWith({ disconnect: "personal" });
     // Members don't get the Infrastructure footnote.
     expect(container.textContent).not.toContain("Choose what runs on");
+  });
+
+  it("lets an admin connect Builder.io Publish for the organization while it's missing", async () => {
+    flowMock.current = orgConnected();
+    await render(admin);
+
+    const connect = button(
+      "Connect Builder.io Publish",
+      row("builder-organization")!,
+    );
+    expect(connect?.disabled).toBe(false);
+    await act(async () => connect!.click());
+
+    expect(oauth.navigateToMcpOAuthStart).toHaveBeenCalledTimes(1);
+    const start = new URL(
+      oauth.navigateToMcpOAuthStart.mock.calls[0]![0],
+      "https://app.example",
+    );
+    expect(start.pathname).toBe("/_agent-native/mcp/servers/oauth/start");
+    expect(start.searchParams.get("url")).toBe(
+      "https://mcp.builder.io/mcp/publish",
+    );
+    expect(start.searchParams.get("name")).toBe("Builder.io Publish");
+    expect(start.searchParams.get("scope")).toBe("org");
+    expect(start.searchParams.get("return")).toBe(
+      "/settings/integrations/builder",
+    );
+  });
+
+  it("drops the Publish connect once the organization has Builder.io Publish", async () => {
+    mcpServers([
+      {
+        id: "builder-publish",
+        scope: "org",
+        name: "Builder.io Publish",
+        url: "https://mcp.builder.io/mcp/publish",
+        authMode: "oauth",
+        createdAt: 1,
+        mergedId: "org:builder-publish",
+        status: { state: "connected", toolCount: 4 },
+      },
+    ]);
+    flowMock.current = orgConnected();
+    await render(admin);
+
+    expect(row("builder-organization")?.textContent).not.toContain(
+      "Builder.io Publish",
+    );
+    expect(
+      container.querySelector('[data-builder-manage="org"]'),
+    ).not.toBeNull();
+  });
+
+  it("holds the Publish connect until Builder is connected and the server list is read", async () => {
+    flowMock.current = flow({ canConnect: { org: true, personal: false } });
+    await render(admin);
+    expect(container.textContent).not.toContain("Builder.io Publish");
+
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: undefined,
+      isSuccess: false,
+      isError: true,
+    });
+    flowMock.current = orgConnected();
+    await render(admin);
+    expect(container.textContent).not.toContain("Builder.io Publish");
+  });
+
+  it("tells a member an owner or admin connects Builder.io Publish", async () => {
+    flowMock.current = flow({
+      configured: true,
+      effective: "org",
+      grants: { org: { connectedAt: 1, needsReconnect: false } },
+      canConnect: { org: false, personal: false },
+    });
+    await render(member);
+
+    const connect = button(
+      "Connect Builder.io Publish",
+      row("builder-organization")!,
+    );
+    expect(connect?.disabled).toBe(true);
+    await act(async () => {
+      connect!.parentElement!.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          pointerType: "mouse",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+    expect(document.body.textContent).toContain(
+      "An owner or admin can connect Builder.io Publish for everyone.",
+    );
+    expect(oauth.navigateToMcpOAuthStart).not.toHaveBeenCalled();
   });
 
   it("says the connections couldn't be read instead of showing Not connected", async () => {

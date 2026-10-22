@@ -2011,6 +2011,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.backToApp": "返回 {{app}}",
   "settingsShell.breadcrumbLabel": "面包屑导航",
   "settingsShell.builder.connect": "使用 Builder.io",
+  "settingsShell.builder.connectPublish": "连接 Builder.io Publish",
+  "settingsShell.builder.connectPublishAdminOnly":
+    "所有者或管理员可以为所有人连接 Builder.io Publish。",
   "settingsShell.builder.connected": "已连接",
   "settingsShell.builder.connectedTo": "已连接 · {{space}}",
   "settingsShell.builder.connection": "连接",
