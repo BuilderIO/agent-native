@@ -108,13 +108,45 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
 
-    expect(markup).toContain('x1="632" x2="632" y1="14" y2="326"');
+    const plotRightEdge = Number(
+      markup.match(/<line x1="[\d.]+" x2="([\d.]+)" y1="14" y2="326"/)?.[1],
+    );
+    expect(plotRightEdge).toBeLessThanOrEqual(632);
     expect(markup).toContain('fill="hsl(var(--muted-foreground))"');
     const maximumBarValueLabel = markup.match(
       /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">3<\/text>/,
     );
     expect(maximumBarValueLabel).not.toBeNull();
-    expect(Number(maximumBarValueLabel?.[1]) + 8).toBeLessThanOrEqual(632);
+    expect(Number(maximumBarValueLabel?.[1]) + 8).toBeLessThanOrEqual(
+      plotRightEdge,
+    );
+  });
+
+  it("keeps horizontal axis tick labels inside the chart at zero edge insets", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: 3 }],
+          valueAxisTickInterval: 1,
+          xAxisTitle: "Value",
+        }}
+        layout={{ plotInsets: { right: 0, bottom: 0 } }}
+      />,
+    );
+    const finalTick = Array.from(
+      markup.matchAll(/<text x="([\d.]+)" y="([\d.]+)"[^>]*>([^<]+)<\/text>/g),
+    )
+      .filter((match) => match[3] === "3")
+      .slice(-1)[0];
+
+    expect(finalTick).toBeDefined();
+    expect(Number(finalTick?.[1])).toBeLessThan(640);
+    expect(Number(finalTick?.[1]) + 4).toBeLessThanOrEqual(640);
+    expect(Number(finalTick?.[2])).toBeLessThan(340);
   });
 
   it("uses the requested chart content height", () => {

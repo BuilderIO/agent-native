@@ -265,6 +265,18 @@ function ChartBody({
   const horizontalValueTickLabelInset = isHorizontalBar
     ? Math.ceil(valueTickLabelWidth / 2) + 2
     : 0;
+  const minimumHorizontalTickBottom = isHorizontalBar
+    ? 14 +
+      labelFontSize * 0.25 +
+      4 +
+      (chart.xAxisTitle ? axisTitleFontSize * 0.8 + 6 : 0)
+    : 0;
+  const axisTitleBottomInset = chart.xAxisTitle ? 16 : 0;
+  const configuredBottomInset = inset(
+    layout?.plotInsets?.bottom,
+    "bottom",
+    MARGIN.bottom,
+  );
   const customValueTickWidth = isHorizontalBar ? 0 : customValueTickLabelWidth;
   const horizontalPositiveValueWidth =
     isHorizontalBar && chart.showValueLabels
@@ -327,10 +339,15 @@ function ChartBody({
             horizontalPositiveValueWidth + 13,
             horizontalValueTickLabelInset,
           )
-        : inset(layout.plotInsets.right, "right", MARGIN.right),
+        : Math.max(
+            inset(layout.plotInsets.right, "right", MARGIN.right),
+            horizontalValueTickLabelInset,
+          ),
     bottom:
-      inset(layout?.plotInsets?.bottom, "bottom", MARGIN.bottom) +
-      (chart.xAxisTitle ? 16 : 0),
+      Math.max(
+        configuredBottomInset,
+        minimumHorizontalTickBottom - axisTitleBottomInset,
+      ) + axisTitleBottomInset,
   };
   const plotWidth = WIDTH - margin.left - margin.right;
   const plotHeight = HEIGHT - margin.top - margin.bottom;
