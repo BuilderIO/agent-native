@@ -36,6 +36,8 @@ const github = vi.hoisted(() => {
     noStorage: false,
     /** Storage is set up but every upload throws, as a bucket that's down does. */
     storageDown: false,
+    /** Uploads of a file with this name throw, as storage rejecting one file does. */
+    rejectFilename: null as string | null,
     uploadFailures: 0,
     /** Runs once, during the next blob read, to race something against a sync. */
     duringBlobRead: null as null | (() => Promise<void>),
@@ -61,6 +63,7 @@ const github = vi.hoisted(() => {
       state.uploads = 0;
       state.noStorage = false;
       state.storageDown = false;
+      state.rejectFilename = null;
       state.uploadFailures = 0;
       state.duringBlobRead = null;
       state.hangAfterBlobReads = null;
@@ -228,6 +231,10 @@ vi.mock("@agent-native/core/file-upload", () => ({
     if (github.state.storageDown) {
       github.state.uploadFailures += 1;
       throw new Error("S3 PutObject failed (503): Service Unavailable");
+    }
+    if (input.filename === github.state.rejectFilename) {
+      github.state.uploadFailures += 1;
+      throw new Error("S3 PutObject failed (400): EntityTooLarge");
     }
     github.state.uploads += 1;
     return {
@@ -1629,6 +1636,12 @@ describe("GitHub folder source", () => {
       ...BASE_FILES,
       "docs/chart.md": "# Chart\n\n![Chart](images/chart.png)\n",
       "docs/images/chart.png": "PNGCHART",
+      "docs/gallery.md":
+        "# Gallery\n\n![One](images/one.png)\n\n![Two](images/two.png)\n",
+      "docs/images/one.png": "PNGONE",
+      "docs/images/two.png": "PNGTWO",
+      "docs/zebra.md": "# Zebra\n\n![Zebra](images/zebra.png)\n",
+      "docs/images/zebra.png": "PNGZEBRA",
     });
     const database = await newCollection();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1638,21 +1651,22 @@ describe("GitHub folder source", () => {
       );
       expect(linked.sync).toMatchObject({
         state: "synced",
-        created: 4,
-        imagesWaiting: 2,
+        created: 6,
+        imagesWaiting: 5,
         problem: { code: "storage_failed" },
       });
       expect(linked.sync.problem?.message).toBe(
-        "2 images aren't shown because file storage couldn't save images. The next sync tries again.",
+        "5 images aren't shown because file storage couldn't save images. The next sync tries again.",
       );
-      // The first failure ends the run's uploads, so the other image isn't tried.
-      expect(github.state.uploadFailures).toBe(1);
+      // Chart's image and both of Gallery's fail. Three failures in a row end
+      // the run's uploads, so the guide's and Zebra's images aren't tried.
+      expect(github.state.uploadFailures).toBe(3);
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("couldn't save an image to file storage"),
         "S3 PutObject failed (503): Service Unavailable",
       );
       const before = await liveRows(database.id);
-      expect(before).toHaveLength(4);
+      expect(before).toHaveLength(6);
       for (const row of before) {
         expect(row.content).not.toContain("files.example.test");
       }
@@ -1660,23 +1674,26 @@ describe("GitHub folder source", () => {
         getSource.run({ databaseId: database.id }),
       );
       expect(waiting.source?.metadata.github).toMatchObject({
-        imagesWaiting: 2,
+        imagesWaiting: 5,
         problem: { code: "storage_failed" },
       });
 
-      // Still down: a sync tries one image again, and leaves the other page
-      // unread, since rebuilding it without its image changes nothing.
+      // Still down: the images that weren't tried go first, then the ones
+      // that failed, so three failures in a row come at the guide, Zebra and
+      // Chart. Gallery is left unread, since rebuilding it without its images
+      // changes nothing.
       const readsBefore = github.state.blobReads;
       const still = await as(() => syncFolder.run({ databaseId: database.id }));
       expect(still.sync).toMatchObject({
         state: "synced",
         updated: 0,
-        unchanged: 4,
-        imagesWaiting: 2,
+        unchanged: 6,
+        imagesWaiting: 5,
         problem: { code: "storage_failed" },
       });
-      expect(github.state.uploadFailures).toBe(2);
-      expect(github.state.blobReads - readsBefore).toBe(2);
+      expect(github.state.uploadFailures).toBe(6);
+      // Each tried page reads its file and its image.
+      expect(github.state.blobReads - readsBefore).toBe(6);
 
       github.state.storageDown = false;
       const filled = await as(() =>
@@ -1684,7 +1701,7 @@ describe("GitHub folder source", () => {
       );
       expect(filled.sync).toMatchObject({
         state: "synced",
-        updated: 2,
+        updated: 4,
         unchanged: 2,
         imagesWaiting: 0,
         problem: null,
@@ -1707,6 +1724,66 @@ describe("GitHub folder source", () => {
         imagesWaiting: 0,
         problem: null,
       });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps saving other images when file storage rejects one", async () => {
+    github.state.rejectFilename = "poster.png";
+    github.commit({
+      ...BASE_FILES,
+      // First in the folder, so its image is the first upload each time.
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+      "docs/chart.md": "# Chart\n\n![Chart](images/chart.png)\n",
+      "docs/images/chart.png": "PNGCHART",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const linked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      expect(linked.sync).toMatchObject({
+        state: "synced",
+        created: 5,
+        imagesWaiting: 1,
+        problem: { code: "storage_failed" },
+      });
+      expect(github.state.uploadFailures).toBe(1);
+      expect(github.state.uploads).toBe(2);
+      const rows = await liveRows(database.id);
+      const page = (path: string) =>
+        rows.find((row) => row.sourcePath === path)!.content;
+      expect(page("docs/chart.md")).toContain("files.example.test");
+      expect(page("docs/getting-started.md")).toContain("files.example.test");
+      expect(page("docs/a-poster.md")).not.toContain("files.example.test");
+
+      // Storage still rejects it: the next sync tries that page alone again.
+      const still = await as(() => syncFolder.run({ databaseId: database.id }));
+      expect(still.sync).toMatchObject({
+        imagesWaiting: 1,
+        problem: { code: "storage_failed" },
+      });
+      expect(github.state.uploadFailures).toBe(2);
+      expect(github.state.uploads).toBe(2);
+
+      github.state.rejectFilename = null;
+      const filled = await as(() =>
+        syncFolder.run({ databaseId: database.id }),
+      );
+      expect(filled.sync).toMatchObject({
+        updated: 1,
+        imagesWaiting: 0,
+        problem: null,
+      });
+      const poster = (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/a-poster.md",
+      )!;
+      expect(poster.content).toMatch(
+        /https:\/\/files\.example\.test\/\d+\/poster\.png/,
+      );
     } finally {
       warn.mockRestore();
     }
