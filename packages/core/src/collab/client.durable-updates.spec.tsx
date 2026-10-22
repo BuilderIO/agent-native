@@ -344,7 +344,10 @@ describe("collab durable updates", () => {
     "delivers a held acknowledgment after changing transport options %j",
     async (options) => {
       const ack = vi.fn();
-      const result = await mountReady({ onUpdateAcknowledged: ack });
+      const result = await mountReady({
+        requireLiveCopyOutcome: true,
+        onUpdateAcknowledged: ack,
+      });
       updateResponses = [
         { ok: true, liveCopy: "not_derived", liveCopyReason: "flag_off" },
       ];
@@ -355,7 +358,11 @@ describe("collab durable updates", () => {
         await vi.advanceTimersByTimeAsync(0);
       });
       expect(sentUpdates).toHaveLength(1);
-      await mountReady({ ...options, onUpdateAcknowledged: ack });
+      await mountReady({
+        ...options,
+        requireLiveCopyOutcome: true,
+        onUpdateAcknowledged: ack,
+      });
       await act(async () => {
         release();
         await flushing;
@@ -490,5 +497,124 @@ describe("collab durable updates", () => {
 
     expect(sentUpdates).toHaveLength(2);
     expect(acks).toEqual([{ liveCopy: "derived" }]);
+  });
+
+  it("keeps a strict update durable until a known live-copy outcome arrives", async () => {
+    const ack = vi.fn();
+    const result = await mountReady({
+      durableUpdates: true,
+      requireLiveCopyOutcome: true,
+      onUpdateAcknowledged: ack,
+    });
+    updateResponses = [{ ok: true }, { ok: true, liveCopy: "derived" }];
+    result().ydoc!.getText("t").insert(0, "unconfirmed");
+    await expect(result().flushUpdates()).resolves.toBe(false);
+    expect(outboxKeys()).toHaveLength(1);
+    expect(ack).not.toHaveBeenCalled();
+
+    await expect(result().flushUpdates()).resolves.toBe(true);
+    expect(sentUpdates).toHaveLength(2);
+    expect(outboxKeys()).toEqual([]);
+    expect(ack).toHaveBeenCalledExactlyOnceWith({ liveCopy: "derived" });
+  });
+
+  it("keeps an unknown final keepalive outcome across a closed tab", async () => {
+    const first = await mountReady({
+      durableUpdates: true,
+      requireLiveCopyOutcome: true,
+    });
+    first().ydoc!.getText("t").insert(0, "survives closing");
+    act(() => root.unmount());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(sentUpdates.length).toBeGreaterThan(0);
+    expect(outboxKeys()).toHaveLength(1);
+    _resetCollabDocRegistryForTests();
+    root = createRoot(container);
+    sentUpdates = [];
+    updateResponses = [{ ok: true, liveCopy: "derived" }];
+    const reopened = await mountReady({
+      durableUpdates: true,
+      requireLiveCopyOutcome: true,
+    });
+    await expect(reopened().flushUpdates()).resolves.toBe(true);
+    const server = new Y.Doc();
+    for (const update of sentUpdates) Y.applyUpdate(server, update);
+    expect(server.getText("t").toString()).toBe("survives closing");
+    expect(outboxKeys()).toEqual([]);
+  });
+
+  it("retries a receipt when strict delivery acquires a new subscriber mid-request", async () => {
+    const first = await mountReady({ durableUpdates: true });
+    updateResponses = [
+      { ok: true, liveCopy: "not_derived", liveCopyReason: "flag_off" },
+      { ok: true, liveCopy: "not_derived", liveCopyReason: "flag_off" },
+    ];
+    const release = holdUpdateResponse();
+    first().ydoc!.getText("t").insert(0, "needs fallback");
+    const flushing = first().flushUpdates();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const ack = vi.fn();
+    const strict = await mountReady({
+      durableUpdates: true,
+      requireLiveCopyOutcome: true,
+      onUpdateAcknowledged: ack,
+    });
+    await act(async () => {
+      release();
+      await expect(flushing).resolves.toBe(false);
+    });
+    expect(outboxKeys()).toHaveLength(1);
+    expect(ack).not.toHaveBeenCalled();
+    await expect(strict().flushUpdates()).resolves.toBe(true);
+    expect(ack).toHaveBeenCalledExactlyOnceWith({
+      liveCopy: "not_derived",
+      liveCopyReason: "flag_off",
+    });
+    expect(outboxKeys()).toEqual([]);
+  });
+
+  it("applies strict delivery enabled while an acknowledgment body is pending", async () => {
+    const ack = vi.fn();
+    const first = await mountReady({
+      durableUpdates: true,
+      onUpdateAcknowledged: ack,
+    });
+    const originalFetch = fetch;
+    let release!: () => void;
+    const bodyGate = new Promise<void>((resolve) => (release = resolve));
+    vi.stubGlobal(
+      "fetch",
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const response = await originalFetch(input, init);
+        if (/\/collab\/[^/]+\/update/.test(String(input))) {
+          const readBody = response.json.bind(response);
+          response.json = async () => {
+            await bodyGate;
+            return readBody();
+          };
+        }
+        return response;
+      },
+    );
+    first().ydoc!.getText("t").insert(0, "held body");
+    const flushing = first().flushUpdates();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await mountReady({
+      durableUpdates: true,
+      requireLiveCopyOutcome: true,
+      onUpdateAcknowledged: ack,
+    });
+    await act(async () => {
+      release();
+      await expect(flushing).resolves.toBe(false);
+    });
+    expect(outboxKeys()).toHaveLength(1);
+    expect(ack).not.toHaveBeenCalled();
   });
 });

@@ -3651,6 +3651,7 @@ function PageEditorSessionBody({
     requestSource: TAB_ID,
     user: currentUser,
     durableUpdates: bodyWritesThroughLiveCopy,
+    requireLiveCopyOutcome: bodyWritesThroughLiveCopy,
     ...(bodyWritesThroughLiveCopy
       ? { onUpdateAcknowledged: handleUpdateAcknowledged }
       : {}),
@@ -5860,6 +5861,17 @@ function PageEditorSessionBody({
         !(await flushCollabUpdatesRef.current())
       )
         throw new Error(t("editor.liveDocumentSaveBeforeSyncFailed"));
+      // No save result names the revision the server wrote from the live
+      // copy, and its writes send no refresh event: only a read after
+      // delivery lets the saved watermark reach this tab's body.
+      if (
+        bodyWritesThroughLiveCopyRef.current &&
+        readEditorSaveState().unsavedEdits
+      )
+        await queryClient.refetchQueries(
+          { ...documentQueryFilter(documentId), type: "active" },
+          { throwOnError: true },
+        );
       const error = readPrimaryPersistenceError();
       if (error !== undefined) throw error.error;
     },

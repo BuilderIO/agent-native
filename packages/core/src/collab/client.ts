@@ -43,6 +43,8 @@ export interface UseCollaborativeDocOptions {
    * email scopes what is kept.
    */
   durableUpdates?: boolean;
+  /** Keeps updates pending until the server reports a known live-copy outcome. */
+  requireLiveCopyOutcome?: boolean;
   /**
    * Called for each update the server acknowledged, with the live-copy
    * outcome it reported. With it, an acknowledgment whose body cannot be read
@@ -275,6 +277,7 @@ interface CollabDocSubscription {
   pauseWhenHidden: boolean;
   requestSource?: string;
   durableUpdates?: boolean;
+  requireLiveCopyOutcome?: boolean;
   onUpdateAcknowledged?: (ack: CollabUpdateAck) => void;
   acknowledgementScope: object;
   onSnapshot: (snapshot: CollabDocSnapshot) => void;
@@ -359,6 +362,7 @@ class CollabDocConnection {
   private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
   private keepsUnsentUpdates = false;
+  private requiresLiveCopyOutcome = false;
   private unsentUpdatesRestored = false;
   private onlineDuringUpdate = false;
   private readonly outboxOwnerId = `${Date.now().toString(36)}-${Math.random()
@@ -424,6 +428,8 @@ class CollabDocConnection {
 
   add(id: symbol, sub: CollabDocSubscription): void {
     this.subscribers.set(id, sub);
+    // Keep delivery requirements through unsubscribe and the final keepalive.
+    if (sub.requireLiveCopyOutcome) this.requiresLiveCopyOutcome = true;
     if (this.disposeTimer) {
       clearTimeout(this.disposeTimer);
       this.disposeTimer = null;
@@ -1001,6 +1007,7 @@ class CollabDocConnection {
       STATE_VECTOR_FETCH_TIMEOUT_MS,
     );
     const userGeneration = this.userGeneration;
+    const requireLiveCopyOutcome = this.requiresLiveCopyOutcome;
     const acknowledgementScopes = new Set(
       Array.from(this.subscribers.values())
         .filter((sub) => sub.onUpdateAcknowledged !== undefined)
@@ -1030,8 +1037,40 @@ class CollabDocConnection {
         return;
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      if (acknowledgementScopes.size)
-        ack = readUpdateAck(await response.json());
+      const parsedAck =
+        acknowledgementScopes.size ||
+        requireLiveCopyOutcome ||
+        this.requiresLiveCopyOutcome
+          ? readUpdateAck(await response.json())
+          : null;
+      const requiresOutcome =
+        requireLiveCopyOutcome || this.requiresLiveCopyOutcome;
+      if (requiresOutcome) {
+        if (userGeneration !== this.userGeneration) return;
+        if (!parsedAck?.liveCopy)
+          throw new Error(
+            "The collab update response omitted its live-copy outcome.",
+          );
+        const listeners = Array.from(this.subscribers.values()).filter(
+          (sub) => sub.onUpdateAcknowledged !== undefined,
+        );
+        if (
+          listeners.some(
+            (sub) =>
+              sub.requireLiveCopyOutcome &&
+              !acknowledgementScopes.has(sub.acknowledgementScope),
+          ) ||
+          (requireLiveCopyOutcome &&
+            acknowledgementScopes.size > 0 &&
+            !listeners.some((sub) =>
+              acknowledgementScopes.has(sub.acknowledgementScope),
+            ))
+        )
+          throw new Error(
+            "The live-copy acknowledgment no longer has its subscriber.",
+          );
+      }
+      ack = parsedAck;
       const previous = this.pendingUpdates;
       const acknowledged = new Set(toSend);
       this.pendingUpdates = previous.filter(
@@ -1052,7 +1091,7 @@ class CollabDocConnection {
       this.updateErrors = 0;
       if (this.pendingUpdates.length === 0) this.updateBatchLimit = Infinity;
     } catch {
-      this.updateErrors++;
+      if (userGeneration === this.userGeneration) this.updateErrors++;
     } finally {
       clearTimeout(timeout);
       let online = false;
@@ -1617,6 +1656,7 @@ export function useCollaborativeDoc(
     user,
     activityResource,
     durableUpdates = false,
+    requireLiveCopyOutcome = false,
     onUpdateAcknowledged,
     onEvent,
   } = options;
@@ -1678,6 +1718,7 @@ export function useCollaborativeDoc(
       pauseWhenHidden,
       requestSource,
       durableUpdates,
+      requireLiveCopyOutcome,
       acknowledgementScope,
       ...(wantsAcks
         ? {
@@ -1701,6 +1742,7 @@ export function useCollaborativeDoc(
     pauseWhenHidden,
     requestSource,
     durableUpdates,
+    requireLiveCopyOutcome,
     wantsAcks,
     acknowledgementScope,
   ]);
