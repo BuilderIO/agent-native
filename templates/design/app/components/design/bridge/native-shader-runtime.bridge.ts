@@ -1205,6 +1205,8 @@ class NativeShaderRuntime {
   private workerPreviewBase: EffectInstance | null = null;
   private legacyDraftSession = false;
   private workerCapabilityBlocked = false;
+  private workerRootSourceBlocked = false;
+  private workerSourceRetryTimer = 0;
   private workerRecoveryAttempts = 0;
   private workerRecoveryQueued = false;
   private cameraReportedState = "idle";
@@ -5237,7 +5239,11 @@ class NativeShaderRuntime {
         "canvas-unavailable",
       ].includes(code)
     ) {
-      this.workerCapabilityBlocked = true;
+      if (error instanceof NativeWorkerSceneSourceError) {
+        this.workerRootSourceBlocked = true;
+        clearTimeout(this.workerSourceRetryTimer);
+        this.workerSourceRetryTimer = 0;
+      } else this.workerCapabilityBlocked = true;
       queueMicrotask(() => this.requestScan());
     }
     if (
@@ -5628,6 +5634,7 @@ class NativeShaderRuntime {
       this.dynamicRangeRequested === "sdr" &&
       !this.legacyDraftSession &&
       !this.workerCapabilityBlocked &&
+      !this.workerRootSourceBlocked &&
       !window.frameElement?.hasAttribute(
         "data-native-catalog-preview-renderer",
       ) &&
@@ -22679,6 +22686,15 @@ class NativeShaderRuntime {
         record.target !== this.runtimeScript &&
         !isNativeSourceOmittedMutation(record),
     );
+    if (this.workerRootSourceBlocked && authoredRecords.length) {
+      clearTimeout(this.workerSourceRetryTimer);
+      this.workerSourceRetryTimer = window.setTimeout(() => {
+        this.workerSourceRetryTimer = 0;
+        if (this.disposed || !this.workerRootSourceBlocked) return;
+        this.workerRootSourceBlocked = false;
+        this.requestScan();
+      }, 100);
+    }
     if (this.compositionAbort && authoredRecords.length)
       this.compositionAbort.abort(
         new NativeSourceError(
@@ -22907,6 +22923,7 @@ class NativeShaderRuntime {
       this.previewHostParent = null;
       window.removeEventListener("message", this.onMessage);
       clearTimeout(this.rescanTimer);
+      clearTimeout(this.workerSourceRetryTimer);
       clearTimeout(this.deviceRetryTimer);
       if (
         this.scenePresentation &&

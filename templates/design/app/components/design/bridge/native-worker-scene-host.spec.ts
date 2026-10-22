@@ -752,7 +752,20 @@ describe("native worker camera coverage", () => {
     target.setAttribute("data-an-native-status", "error");
     target.setAttribute("data-an-native-backend", "webgpu-worker");
     target.setAttribute("data-an-native-error", "worker-failed");
-    const instance = { id: "fill" } as EffectInstance;
+    target.setAttribute("data-an-native-fill-instance", "fill");
+    const instance = {
+      id: "fill",
+      nodeId: "fill",
+      placement: "fill",
+    } as EffectInstance;
+    const entry = {
+      instance,
+      definition: {} as EffectDefinition,
+      definitionHash: "definition-1",
+      target,
+    };
+    const marker = document.createElement("canvas");
+    marker.style.visibility = "hidden";
     const previousPayload = JSON.stringify({
       ...instance,
       params: { amount: 0.5 },
@@ -801,6 +814,8 @@ describe("native worker camera coverage", () => {
       document.documentElement.removeAttribute("data-an-native-scene-managed");
       target.removeAttribute("data-an-native-status");
       target.removeAttribute("data-an-native-backend");
+      target.removeAttribute("data-an-native-fill-instance");
+      marker.style.visibility = "hidden";
     });
     const hasPresentationToRetire = vi.fn().mockReturnValue(true);
     const onFailure = vi.fn();
@@ -817,8 +832,9 @@ describe("native worker camera coverage", () => {
         sourceEpoch: () => 7,
         authoredSourceEpoch: () => 3,
       },
-      entries: [{ target }],
-      targets: new Map(),
+      entries: [entry],
+      targets: new Map([["fill", { entry, marker }]]),
+      markedTargets: new Set([target]),
       suppressed: new Set([root]),
       staged: new Map([[5, changed]]),
       scenes: new Map([
@@ -926,6 +942,8 @@ describe("native worker camera coverage", () => {
       expect(target.getAttribute("data-an-native-backend")).toBe(
         "webgpu-worker",
       );
+      expect(target.getAttribute("data-an-native-fill-instance")).toBe("fill");
+      expect(marker.style.visibility).toBe("visible");
       expect(root.hasAttribute("data-an-native-scene-suppressed")).toBe(true);
       expect(root.getAttribute("data-an-native-authored-opacity")).toBe("1");
       expect(

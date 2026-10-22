@@ -475,26 +475,36 @@ export class NativeWorkerSceneHost {
       this.targets.delete(id);
     }
     this.entries = [...entries];
-    for (const target of this.markedTargets) {
-      target.removeAttribute("data-an-native-fill-instance");
-      target.removeAttribute("data-an-native-layer-instance");
-    }
-    this.markedTargets.clear();
     for (const entry of entries) {
       const existing = this.targets.get(entry.instance.id);
       if (existing) existing.entry = entry;
       else this.targets.set(entry.instance.id, this.createTarget(entry));
     }
+    this.restoreEntryMarkersAndVisibility();
+    this.requestUpdate();
+  }
+
+  private restoreEntryMarkersAndVisibility(): void {
+    for (const target of this.markedTargets) {
+      target.removeAttribute("data-an-native-fill-instance");
+      target.removeAttribute("data-an-native-layer-instance");
+    }
+    this.markedTargets.clear();
     const topFill = new Map<Element, string>();
     const topLayer = new Map<Element, string>();
-    for (const entry of entries) {
+    for (const entry of this.entries) {
       if (entry.instance.placement === "fill")
         topFill.set(entry.target, entry.instance.id);
       if (entry.instance.placement === "layer")
         topLayer.set(entry.target, entry.instance.id);
     }
-    for (const entry of entries) {
-      const state = this.targets.get(entry.instance.id)!;
+    for (const entry of this.entries) {
+      const state = this.targets.get(entry.instance.id);
+      if (!state)
+        throw new NativeWorkerHostError(
+          "worker-instance-state-missing",
+          "A native worker instance is unavailable.",
+        );
       this.markedTargets.add(entry.target);
       if (topFill.get(entry.target) === entry.instance.id)
         entry.target.setAttribute(
@@ -514,7 +524,6 @@ export class NativeWorkerSceneHost {
           ? "visible"
           : "hidden";
     }
-    this.requestUpdate();
   }
 
   setEntriesAndWait(
@@ -1808,6 +1817,7 @@ export class NativeWorkerSceneHost {
       }
     }
     this.beforeCommit?.();
+    if (replacedPresentation) this.restoreEntryMarkersAndVisibility();
     if (!cameraOnly) {
       for (const old of this.suppressed) {
         if (paintedChildren.has(old)) continue;

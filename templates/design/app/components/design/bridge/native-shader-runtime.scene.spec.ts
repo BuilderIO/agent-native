@@ -23,7 +23,10 @@ import * as sourceProvider from "./native-source-provider";
 import { NativeStatelessFrameTransaction } from "./native-stateless-frame-transaction";
 import { nativeSvgViewportToClient } from "./native-svg-geometry";
 import { serializeNativeSvgSource } from "./native-svg-source";
-import { NativeWorkerSceneSourceError } from "./native-worker-scene-host";
+import {
+  NativeWorkerSceneHost,
+  NativeWorkerSceneSourceError,
+} from "./native-worker-scene-host";
 
 describe("persistent generated fill frames", () => {
   it("draws the indexed mesh with a private depth attachment on the legacy GPU path", async () => {
@@ -1393,11 +1396,24 @@ describe("native scene viewport composition", () => {
     const previousWorkerScene = runtime.workerScene;
     const setEntries = vi.fn();
     runtime.workerScene = { setEntries } as never;
-    const unmount = vi.spyOn(runtime, "unmount").mockImplementation(() => {
-      frame.removeAttribute("data-an-native-status");
-      frame.removeAttribute("data-an-native-backend");
-      frame.removeAttribute("data-an-native-scene-suppressed");
+    Object.assign(mount, {
+      renderWallSamples: [],
+      authoredInputs: new Map(),
+      graphPipelinePins: new Map(),
+      assetAbort: new AbortController(),
+      assetTextures: new Map(),
+      assetPending: new Map(),
+      assetFailures: new Map(),
+      context: { unconfigure: vi.fn() },
+      outputTexture: null,
+      maskTexture: null,
+      resourceTextures: new Map(),
+      drawBindings: new Map(),
+      sourceTextures: new Map(),
+      isolationTextures: new Map(),
     });
+    frame.setAttribute("data-an-native-fill-instance", "worker-fill");
+    const unmount = vi.spyOn(runtime, "unmount");
     runtime.releaseScenePresentation.mockImplementation(() => {
       runtime.scenePresentation = null;
       document.documentElement.removeAttribute("data-an-native-scene-managed");
@@ -1410,11 +1426,31 @@ describe("native scene viewport composition", () => {
       expect(unmount).toHaveBeenCalledWith(mount);
       expect(runtime.scenePresentation).toBeNull();
       expect(frame.hasAttribute("data-an-native-status")).toBe(false);
+      expect(frame.hasAttribute("data-an-native-fill-instance")).toBe(false);
       expect(
         document.documentElement.hasAttribute("data-an-native-scene-managed"),
       ).toBe(false);
       expect(setEntries).not.toHaveBeenCalled();
 
+      const marker = document.createElement("canvas");
+      const workerHost = Object.assign(
+        Object.create(NativeWorkerSceneHost.prototype),
+        {
+          entries: [
+            {
+              instance: { id: "worker-fill", placement: "fill" },
+              target: frame,
+            },
+          ],
+          markedTargets: new Set([frame]),
+          targets: new Map([["worker-fill", { marker }]]),
+        },
+      ) as { restoreEntryMarkersAndVisibility(): void };
+      workerHost.restoreEntryMarkersAndVisibility();
+      expect(frame.getAttribute("data-an-native-fill-instance")).toBe(
+        "worker-fill",
+      );
+      expect(marker.style.visibility).toBe("visible");
       frame.setAttribute("data-an-native-scene-suppressed", "");
       frame.setAttribute("data-an-native-status", "ready");
       frame.setAttribute("data-an-native-backend", "webgpu-worker");
@@ -3781,6 +3817,10 @@ describe("independent native Fill source dependencies", () => {
     type Subject = {
       onWorkerSceneFailure(error: Error): void;
       workerCapabilityBlocked: boolean;
+      workerRootSourceBlocked: boolean;
+      workerSourceRetryTimer: number;
+      onAuthoredStyleMutations(records: MutationRecord[]): void;
+      requestScan(): void;
       workerEntries: unknown[];
       workerScene: unknown;
       playing: boolean;
@@ -3859,6 +3899,7 @@ describe("independent native Fill source dependencies", () => {
     subject.workerEntries = [entry];
     subject.playing = false;
     subject.disposed = false;
+    const observer = new MutationObserver(() => {});
     try {
       subject.onWorkerSceneFailure(
         new NativeWorkerSceneSourceError(
@@ -3868,7 +3909,8 @@ describe("independent native Fill source dependencies", () => {
           ),
         ),
       );
-      expect(subject.workerCapabilityBlocked).toBe(true);
+      expect(subject.workerCapabilityBlocked).toBe(false);
+      expect(subject.workerRootSourceBlocked).toBe(true);
       await vi.waitFor(() => expect(render).toHaveBeenCalledOnce());
       expect(worker.dispose).toHaveBeenCalledOnce();
       expect(subject.workerScene).toBeNull();
@@ -3879,7 +3921,49 @@ describe("independent native Fill source dependencies", () => {
         "Browser-shaped text required",
       );
       expect(Worker).not.toHaveBeenCalled();
+      vi.useFakeTimers();
+      const rescan = vi
+        .spyOn(subject, "requestScan")
+        .mockImplementation(() => {});
+      const chrome = document.createElement("div");
+      chrome.setAttribute("data-agent-native-editor-chrome", "");
+      const text = document.createTextNode("Unsupported source");
+      document.body.append(chrome, text);
+      observer.observe(document.body, {
+        attributes: true,
+        characterData: true,
+        subtree: true,
+      });
+      chrome.style.opacity = "0.5";
+      subject.onAuthoredStyleMutations(observer.takeRecords());
+      await vi.advanceTimersByTimeAsync(100);
+      expect(subject.workerRootSourceBlocked).toBe(true);
+      expect(rescan).not.toHaveBeenCalled();
+
+      text.data = "Corrected source";
+      subject.onAuthoredStyleMutations(observer.takeRecords());
+      await vi.advanceTimersByTimeAsync(50);
+      text.data = "Final correction";
+      subject.onAuthoredStyleMutations(observer.takeRecords());
+      await vi.advanceTimersByTimeAsync(99);
+      expect(subject.workerRootSourceBlocked).toBe(true);
+      expect(rescan).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(subject.workerRootSourceBlocked).toBe(false);
+      expect(subject.workerCapabilityBlocked).toBe(false);
+      expect(rescan).toHaveBeenCalledOnce();
+
+      subject.workerRootSourceBlocked = true;
+      subject.workerCapabilityBlocked = true;
+      text.data = "Another correction";
+      subject.onAuthoredStyleMutations(observer.takeRecords());
+      await vi.advanceTimersByTimeAsync(100);
+      expect(subject.workerRootSourceBlocked).toBe(false);
+      expect(subject.workerCapabilityBlocked).toBe(true);
     } finally {
+      observer.disconnect();
+      clearTimeout(subject.workerSourceRetryTimer);
+      vi.useRealTimers();
       if (offscreen)
         Object.defineProperty(
           HTMLCanvasElement.prototype,

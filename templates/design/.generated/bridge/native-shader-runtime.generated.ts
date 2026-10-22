@@ -21297,26 +21297,35 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.targets.delete(id);
       }
       this.entries = [...entries];
-      for (const target of this.markedTargets) {
-        target.removeAttribute("data-an-native-fill-instance");
-        target.removeAttribute("data-an-native-layer-instance");
-      }
-      this.markedTargets.clear();
       for (const entry of entries) {
         const existing = this.targets.get(entry.instance.id);
         if (existing) existing.entry = entry;
         else this.targets.set(entry.instance.id, this.createTarget(entry));
       }
+      this.restoreEntryMarkersAndVisibility();
+      this.requestUpdate();
+    }
+    restoreEntryMarkersAndVisibility() {
+      for (const target of this.markedTargets) {
+        target.removeAttribute("data-an-native-fill-instance");
+        target.removeAttribute("data-an-native-layer-instance");
+      }
+      this.markedTargets.clear();
       const topFill = /* @__PURE__ */ new Map();
       const topLayer = /* @__PURE__ */ new Map();
-      for (const entry of entries) {
+      for (const entry of this.entries) {
         if (entry.instance.placement === "fill")
           topFill.set(entry.target, entry.instance.id);
         if (entry.instance.placement === "layer")
           topLayer.set(entry.target, entry.instance.id);
       }
-      for (const entry of entries) {
+      for (const entry of this.entries) {
         const state = this.targets.get(entry.instance.id);
+        if (!state)
+          throw new NativeWorkerHostError(
+            "worker-instance-state-missing",
+            "A native worker instance is unavailable."
+          );
         this.markedTargets.add(entry.target);
         if (topFill.get(entry.target) === entry.instance.id)
           entry.target.setAttribute(
@@ -21330,7 +21339,6 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         state.marker.style.visibility = topLayer.get(entry.target) === entry.instance.id || topFill.get(entry.target) === entry.instance.id && !topLayer.has(entry.target) || entry.instance.placement === "backdrop" ? "visible" : "hidden";
       }
-      this.requestUpdate();
     }
     setEntriesAndWait(entries, instanceId, timeoutMs = 15e3) {
       const entry = entries.find(
@@ -22317,6 +22325,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
       }
       this.beforeCommit?.();
+      if (replacedPresentation) this.restoreEntryMarkersAndVisibility();
       if (!cameraOnly) {
         for (const old of this.suppressed) {
           if (paintedChildren.has(old)) continue;
@@ -22796,6 +22805,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.workerPreviewBase = null;
       this.legacyDraftSession = false;
       this.workerCapabilityBlocked = false;
+      this.workerRootSourceBlocked = false;
+      this.workerSourceRetryTimer = 0;
       this.workerRecoveryAttempts = 0;
       this.workerRecoveryQueued = false;
       this.cameraReportedState = "idle";
@@ -23345,7 +23356,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "gpu-unavailable",
           "canvas-unavailable"
         ].includes(code)) {
-          this.workerCapabilityBlocked = true;
+          if (error instanceof NativeWorkerSceneSourceError) {
+            this.workerRootSourceBlocked = true;
+            clearTimeout(this.workerSourceRetryTimer);
+            this.workerSourceRetryTimer = 0;
+          } else this.workerCapabilityBlocked = true;
           queueMicrotask(() => this.requestScan());
         }
         if ([
@@ -23665,7 +23680,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           definitionHash: entry.hash,
           target: entry.target
         }));
-        const workerCapable = workerEntries.length > 0 && rejectedIds.size === 0 && this.colorRequested === "srgb" && this.dynamicRangeRequested === "sdr" && !this.legacyDraftSession && !this.workerCapabilityBlocked && !window.frameElement?.hasAttribute(
+        const workerCapable = workerEntries.length > 0 && rejectedIds.size === 0 && this.colorRequested === "srgb" && this.dynamicRangeRequested === "sdr" && !this.legacyDraftSession && !this.workerCapabilityBlocked && !this.workerRootSourceBlocked && !window.frameElement?.hasAttribute(
           "data-native-catalog-preview-renderer"
         ) && typeof Worker !== "undefined" && typeof HTMLCanvasElement.prototype.transferControlToOffscreen === "function" && workerEntries.every(
           ({ definition, instance, target }) => !definition.simulation && !definition.feedback && !definition.statelessCompute && !definition.resourceGraph && !definition.interaction && definition.passes.every(
@@ -26297,6 +26312,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const authoredRecords = records.filter(
           (record5) => record5.target !== this.runtimeScript && !isNativeSourceOmittedMutation(record5)
         );
+        if (this.workerRootSourceBlocked && authoredRecords.length) {
+          clearTimeout(this.workerSourceRetryTimer);
+          this.workerSourceRetryTimer = window.setTimeout(() => {
+            this.workerSourceRetryTimer = 0;
+            if (this.disposed || !this.workerRootSourceBlocked) return;
+            this.workerRootSourceBlocked = false;
+            this.requestScan();
+          }, 100);
+        }
         if (this.compositionAbort && authoredRecords.length)
           this.compositionAbort.abort(
             new NativeSourceError(
@@ -39822,6 +39846,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.previewHostParent = null;
         window.removeEventListener("message", this.onMessage);
         clearTimeout(this.rescanTimer);
+        clearTimeout(this.workerSourceRetryTimer);
         clearTimeout(this.deviceRetryTimer);
         if (this.scenePresentation && !this.hasCurrentScenePresentation(this.scenePresentation))
           this.unpublishScenePresentation(this.scenePresentation);
