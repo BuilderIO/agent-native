@@ -320,7 +320,18 @@ describe("legacy settings links", () => {
         [],
         new Map([["drafting", "app-drafting"]]),
       ),
-    ).toMatchObject({ page: "drafting", legacy: false });
+    ).toMatchObject({ page: "app-drafting", legacy: true });
+    expect(
+      resolveSettingsRoute(
+        {
+          pathname: "/settings",
+          hash: "",
+          search: "?section=drafting",
+        },
+        pages,
+        { templateTabPageIds: new Map([["drafting", "app-drafting"]]) },
+      ),
+    ).toMatchObject({ page: "app-drafting", legacy: true });
   });
 
   it("preserves nested routes for app-owned page ids that match legacy patterns", () => {

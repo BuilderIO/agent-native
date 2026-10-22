@@ -172,15 +172,15 @@ export function resolveSettingsTabValue(
 ): ResolvedSettingsRoute {
   const tab = value.trim();
   if (!tab) return NO_ROUTE;
+  const templatePage = templateTabPageIds?.get(tab);
+  if (templatePage && pages.some((page) => page.id === templatePage)) {
+    return { page: templatePage, sub: null, anchor: null, legacy: true };
+  }
   const directAppPage = pages.find(
     (page) => isAppPage(page) && page.id === tab,
   );
   if (directAppPage) {
     return { page: directAppPage.id, sub: null, anchor: null, legacy: false };
-  }
-  const templatePage = templateTabPageIds?.get(tab);
-  if (templatePage && pages.some((page) => page.id === templatePage)) {
-    return { page: templatePage, sub: null, anchor: null, legacy: true };
   }
   if (appAreaIds.includes(tab)) {
     return { page: "app", sub: tab, anchor: null, legacy: true };
