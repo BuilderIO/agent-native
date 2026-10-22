@@ -31,6 +31,25 @@ function caretCell(page: Page) {
   });
 }
 
+/**
+ * Texts of the table's cells that match `selector`, without a remote caret's
+ * label. A reloaded page still shows the previous tab's caret, whose label
+ * sits inside the cell it was in, until the server lets that tab go.
+ */
+function cellTexts(page: Page, selector: string) {
+  return page.locator(`${EDITOR} ${selector}`).evaluateAll((cells) =>
+    cells.map((cell) => {
+      const copy = cell.cloneNode(true) as Element;
+      copy
+        .querySelectorAll(
+          ".collaboration-carets__caret,.collaboration-carets__label,.ProseMirror-yjs-cursor",
+        )
+        .forEach((node) => node.remove());
+      return copy.textContent ?? "";
+    }),
+  );
+}
+
 /** Whether keyboard focus is still inside the open menu. */
 function focusIsInMenu(page: Page) {
   return page.evaluate(
@@ -212,10 +231,9 @@ test.describe("inline table controls", () => {
     await expect.poll(savedContent).toContain('<table header-column="true">');
 
     await page.reload();
-    await expect(cell(page, "Item")).toBeVisible();
-    await expect(
-      page.locator(`${EDITOR} .content-table-header-cell`),
-    ).toHaveText(["Item", "Alpha", "Beta"]);
+    await expect
+      .poll(() => cellTexts(page, ".content-table-header-cell"))
+      .toEqual(["Item", "Alpha", "Beta"]);
   });
 
   test("the table's block menu sets its headers and width, and they are saved", async ({
@@ -253,16 +271,12 @@ test.describe("inline table controls", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toHaveCount(0);
     await page.reload();
-    await expect(cell(page, "Alpha")).toBeVisible();
-    await expect(page.locator(`${EDITOR} th[scope="col"]`)).toHaveText([
-      "Item",
-      "State",
-      "Notes",
-    ]);
-    await expect(page.locator(`${EDITOR} th[scope="row"]`)).toHaveText([
-      "Alpha",
-      "Beta",
-    ]);
+    await expect
+      .poll(() => cellTexts(page, 'th[scope="col"]'))
+      .toEqual(["Item", "State", "Notes"]);
+    await expect
+      .poll(() => cellTexts(page, 'th[scope="row"]'))
+      .toEqual(["Alpha", "Beta"]);
     const tableBox = (await page.locator(`${EDITOR} table`).boundingBox())!;
     const textBox = (await page.getByText("Before the table.").boundingBox())!;
     expect(Math.abs(tableBox.width - textBox.width)).toBeLessThanOrEqual(1);
@@ -343,11 +357,14 @@ test.describe("inline table controls", () => {
     await expect(
       page.locator(`${EDITOR} tr.content-block-bg--blue`),
     ).toHaveText(/Beta/);
+    const notesCell = (row: string) =>
+      page
+        .locator(`${EDITOR} tr`, { hasText: row })
+        .locator(":is(td, th)")
+        .last();
     // A row's own colour covers its column's.
-    await expect(cell(page, "First")).toHaveClass(/content-block-color--red/);
-    await expect(cell(page, "Second")).not.toHaveClass(
-      /content-block-color--red/,
-    );
+    await expect(notesCell("Alpha")).toHaveClass(/content-block-color--red/);
+    await expect(notesCell("Beta")).not.toHaveClass(/content-block-color--red/);
   });
 
   test("a colour can be chosen from the keyboard", async ({ page }) => {
