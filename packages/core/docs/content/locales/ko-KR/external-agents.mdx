@@ -273,7 +273,7 @@ npx skills@latest add BuilderIO/agent-native --skill assets
 | -------- | ------------------ | ------------------ |
 | `assets` | `image-generation` | 이미지/비디오 생성 |
 
-기본 클라이언트 선택은 지원되는 모든 로컬 클라이언트입니다. 설정 범위를 좁히려면 `--client codex`, `--client claude-code` 또는 다른 특정 대상을 추가하세요. 인라인 호스트(ChatGPT, Claude.ai, Claude 데스크톱 기본 채팅)는 채팅에서 선택기/변형 그리드를 렌더링합니다. CLI/링크 전용 호스트(Codex CLI, Claude 코드, Claude 데스크톱 "코드" 탭)는 사용자가 브라우저에서 선택하고 핸드오프 요약을 다시 붙여넣는 "다음에서 열기 →" 링크를 반환합니다.
+기본 클라이언트 선택은 지원되는 모든 로컬 클라이언트입니다. 설정 범위를 좁히려면 `--client codex`, `--client claude-code` 또는 다른 특정 대상을 추가하세요. 인라인 호스트(ChatGPT, 웹·데스크톱·모바일의 Claude 채팅, Claude Desktop의 Code 탭)는 채팅에서 선택기/변형 그리드를 렌더링합니다. CLI/링크 전용 호스트(Codex CLI, Claude Code 터미널, Cowork, claude.ai 웹의 Code)는 "…에서 열기 →" 링크를 반환합니다. 사용자는 브라우저에서 선택한 다음 핸드오프 요약을 채팅에 붙여넣습니다. [Cowork는 아직 MCP Apps 지원을 선언하지 않으며, 같은 커넥터에서 사용하면 커넥터를 다시 연결할 때까지 Chat의 인라인 앱이 사라질 수 있습니다.](https://github.com/anthropics/claude-code/issues/103924)
 
 Dispatch의 워크스페이스 게이트웨이 대신 격리된 앱이 꼭 필요한 경우
 해당 앱의 호스트에 동일한 명령을 실행하세요:

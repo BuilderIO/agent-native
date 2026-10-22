@@ -52,8 +52,9 @@ copies a handoff summary and shows a copyable context block; paste that summary
 back into the chat so the external agent can use the selected media URL and
 asset metadata.
 
-Codex CLI and Claude Code (the terminal and the desktop Code tab) use the
-link-out flow. For rendering hosts, including Codex Desktop, see
+Codex CLI, the Claude Code terminal, Cowork, and Code on claude.ai web use the
+link-out flow. For rendering hosts, including the Claude Desktop Code tab and
+Codex Desktop, see
 [MCP Apps → Host support](/docs/mcp-apps#client-support). Remote CDN markdown
 images may not display reliably in the chat transcript. Agents should keep the
 asset link as the source of truth; when a visible inline preview is needed in a
@@ -212,7 +213,7 @@ Generate and pick brand media without leaving Codex, Claude Code, Claude, or Cha
    the one-command setup.
 
 2. **Ask for images.** In your agent's chat: "Generate three blog hero options from the Acme product shots." The agent opens the picker with candidate images you can regenerate, retune (prompt, aspect, count), and choose from.
-3. **Pick.** In inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) the picker renders right in the chat — click a candidate and the choice flows back automatically. On CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) you get an **"Open in Assets →"** link; open it, pick in the browser, then paste the copied handoff summary back into your chat — or just say "use image A".
+3. **Pick.** In inline hosts (ChatGPT, Claude chat on web, desktop, and mobile, plus the Claude Desktop Code tab) the picker renders right in the chat — click a candidate and the choice flows back automatically. On CLI/link-only hosts (Codex CLI, Claude Code terminal, Cowork, Code on claude.ai web) you get an **"Open in Assets →"** link; open it, pick in the browser, then paste the copied handoff summary back into your chat — or just say "use image A". [Cowork doesn't declare MCP Apps yet](https://github.com/anthropics/claude-code/issues/103924), and using it on the same connector can make inline apps disappear in Chat until you reconnect the connector.
 4. **Apply to code.** The chosen Media URL and `assetId` come back to the agent, which uses the URL directly in the code it writes (an `<img>` src, a download) or calls `export-asset`.
 
 ### Distributing the app skill

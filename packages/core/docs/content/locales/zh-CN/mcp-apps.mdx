@@ -258,9 +258,9 @@ Claude默认使用单帧移植路径。在调试主机模块加载行为时，�
 
 ## 客户端支持和缓存 {#client-support}
 
-支持内联渲染 MCP Apps 的主机包括 Claude（网页、桌面、移动端、Cowork）；ChatGPT; VS Code GitHub Copilot (1.109+); Microsoft 365 Copilot; Cursor (2.6+); Goose; Postman; MCPJam; Codex Desktop (26.616+); T3 Code (Codex). 支持情况因套餐、发布渠道和客户端版本而异，请参阅 [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix)。 ChatGPT 自定义 MCP 应用程序可通过 ChatGPT Web 上的商业和企业/教育工作区的开发人员模式使用；请参阅 OpenAI 的 [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) 注释。
+支持内联渲染 MCP Apps 的主机包括网页版、桌面版和移动版 Claude 聊天，以及 Claude Desktop 的 [Code](https://github.com/anthropics/claude-code/issues/103809) 选项卡； ChatGPT; VS Code GitHub Copilot (1.109+); Microsoft 365 Copilot; Cursor (2.6+); Goose; Postman; MCPJam; Codex Desktop (26.616+); T3 Code (Codex). 支持情况因套餐、发布渠道和客户端版本而异，请参阅 [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix)。 ChatGPT 自定义 MCP 应用程序可通过 ChatGPT Web 上的商业和企业/教育工作区的开发人员模式使用；请参阅 OpenAI 的 [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) 注释。
 
-Claude Code（终端及桌面应用的 Code 选项卡）不渲染 MCP Apps。请使用深层链接后备方案。 当主机选择不渲染 iframe 时，深层链接仍然是可靠的后备方案。实际上，每个代理本机应用程序都应使用以下两种方式编写：用于在有能力的主机中进行内联审核/编辑的 MCP 应用程序，以及用于通用往返返回完整应用程序的 `link` 应用程序。
+在 Claude Code 终端、Cowork、claude.ai 网页版 Code 和 Codex CLI 中，请使用深层链接后备方案。[Cowork 尚未声明支持 MCP Apps，在同一连接器上使用它可能会导致 Chat 中的内联应用消失，直到您重新连接该连接器。](https://github.com/anthropics/claude-code/issues/103924) 当主机选择不渲染 iframe 时，深层链接仍然是可靠的后备方案。实际上，每个代理本机应用程序都应使用以下两种方式编写：用于在有能力的主机中进行内联审核/编辑的 MCP 应用程序，以及用于通用往返返回完整应用程序的 `link` 应用程序。
 
 Claude 和 ChatGPT 可以缓存现有自定义连接器的工具和资源元数据。更改MCP App元数据后，使用新的工具调用进行验证；如果主机仍使用旧描述符，请重新连接 Claude 连接器或重新扫描/检查 ChatGPT 连接器，以便刷新目录。如果部署后 Claude 在工具描述符上记录了有关 `_meta.ui.csp` 或 `_meta.ui.permissions` 的警告，则该连接器正在使用过时的元数据：删除/重新连接 Claude 连接器并开始新的聊天。
 

@@ -257,9 +257,9 @@ ngrok を通じて Claude をテストする場合は、実稼働ビルド (`pnp
 
 ## クライアントのサポートとキャッシュ {#client-support}
 
-MCP Apps をインライン表示するホストには、Claude（ウェブ、デスクトップ、モバイル、Cowork）と次のクライアントがあります：ChatGPT; VS Code GitHub Copilot (1.109+); Microsoft 365 Copilot; Cursor (2.6+); Goose; Postman; MCPJam; Codex Desktop (26.616+); T3 Code (Codex). 対応状況はプラン、リリースチャネル、クライアントのバージョンによって異なります。参照：[MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix) を確認してください。 ChatGPT カスタム MCP アプリは、ChatGPT Web 上の Business および Enterprise/Edu ワークスペースの開発者モードを通じて利用できます。 OpenAI の [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) メモを参照してください。
+MCP Apps をインライン表示するホストには、Web・デスクトップ・モバイルの Claude チャットと Claude Desktop の [Code](https://github.com/anthropics/claude-code/issues/103809) タブが含まれます。その他の対応ホスト: ChatGPT; VS Code GitHub Copilot (1.109+); Microsoft 365 Copilot; Cursor (2.6+); Goose; Postman; MCPJam; Codex Desktop (26.616+); T3 Code (Codex). 対応状況はプラン、リリースチャネル、クライアントのバージョンによって異なります。参照：[MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix) を確認してください。 ChatGPT カスタム MCP アプリは、ChatGPT Web 上の Business および Enterprise/Edu ワークスペースの開発者モードを通じて利用できます。 OpenAI の [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) メモを参照してください。
 
-Claude Code（ターミナルとデスクトップアプリの Code タブ）は MCP Apps を表示しません。代わりにディープリンクを使用してください。 ホストが iframe をレンダリングしないことを選択した場合でも、ディープ リンクは信頼性の高いフォールバックとして残ります。実際には、すべてのエージェント ネイティブ アプリは、対応ホストでのインライン レビュー/編集用の MCP アプリと、完全なアプリへのユニバーサル ラウンドトリップ用の `link` の両方を使用して作成する必要があります。
+Claude Code のターミナル、Cowork、claude.ai の Web 版 Code、Codex CLI では、代わりにディープリンクを使用してください。[Cowork はまだ MCP Apps への対応を宣言しておらず、同じコネクタで使用すると、コネクタを再接続するまで Chat のインラインアプリが表示されなくなることがあります。](https://github.com/anthropics/claude-code/issues/103924) ホストが iframe をレンダリングしないことを選択した場合でも、ディープ リンクは信頼性の高いフォールバックとして残ります。実際には、すべてのエージェント ネイティブ アプリは、対応ホストでのインライン レビュー/編集用の MCP アプリと、完全なアプリへのユニバーサル ラウンドトリップ用の `link` の両方を使用して作成する必要があります。
 
 Claude および ChatGPT は、既存のカスタム コネクタのツールとリソースのメタデータをキャッシュできます。 MCP アプリのメタデータを変更した後、新しいツール呼び出しで検証します。ホストがまだ古い記述子を使用している場合は、Claude コネクタを再接続するか、ChatGPT コネクタを再スキャン/レビューして、カタログを更新します。デプロイ後に Claude がツール記述子に存在する `_meta.ui.csp` または `_meta.ui.permissions` に関する警告をログに記録する場合、そのコネクタは古いメタデータを使用しています。Claude コネクタを削除または再接続し、新しいチャットを開始してください。
 

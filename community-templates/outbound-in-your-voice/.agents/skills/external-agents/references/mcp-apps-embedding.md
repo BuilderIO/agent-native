@@ -163,10 +163,14 @@ concise structured content plus the link; it should not dump large catalogs or
 HTML.
 
 Compatibility target: build to the standard once, not per-client shims.
-Hosts that render MCP Apps inline today include Claude on web, desktop, mobile,
-and Cowork; ChatGPT; VS Code GitHub Copilot (1.109+); Microsoft 365 Copilot; Cursor (2.6+); Goose;
-Postman; MCPJam; Codex Desktop (26.616+); and T3 Code (in Codex threads). Claude Code (the
-terminal and the desktop Code tab) does not render them, so treat it as a
-link-out host. Host support varies by plan, release channel, and client version,
+Hosts that render MCP Apps inline today include Claude chat on web, desktop, and
+mobile, plus the Claude Desktop Code tab; ChatGPT; VS Code GitHub Copilot (1.109+);
+Microsoft 365 Copilot; Cursor (2.6+); Goose; Postman; MCPJam; Codex Desktop (26.616+);
+and T3 Code (in Codex threads). Desktop Code rendering is observed in
+[widget bug reports](https://github.com/anthropics/claude-code/issues/103809).
+Treat the Claude Code terminal, Cowork, and Code on claude.ai web as link-out hosts.
+[Cowork doesn't declare MCP Apps yet](https://github.com/anthropics/claude-code/issues/103924),
+and using it on the same connector can make inline apps disappear in Chat until
+you reconnect the connector. Host support varies by plan, release channel, and client version,
 so keep the deep link fallback. See the community-maintained
 [MCP client matrix](https://modelcontextprotocol.io/extensions/client-matrix).
