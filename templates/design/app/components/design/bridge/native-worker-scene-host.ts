@@ -8,6 +8,7 @@ import {
   planNativeInputResources,
 } from "../../../../shared/native-input-resources";
 import { readNativeAuthoredPaint } from "./native-authored-paint";
+import { isNativeHtmlElement, isNativeSvgRoot } from "./native-dom";
 import {
   planNativeChainedEffectExtent,
   planNativeFillPresentationExtent,
@@ -24,6 +25,7 @@ import {
   attachNativeScenePresentationCanvas,
   supportsNativeSceneBodyTransform,
 } from "./native-scene-body-transform";
+import { isNativeScenePresentationElement } from "./native-scene-presentation-element";
 import {
   createNativeSceneProvider,
   cloneNativeTextFlow,
@@ -859,8 +861,7 @@ export class NativeWorkerSceneHost {
           node.nodeType === Node.TEXT_NODE && !!node.textContent?.trim(),
       ) ||
       [...body.children].some(
-        (child) =>
-          !(child instanceof HTMLElement || child instanceof SVGSVGElement),
+        (child) => !isNativeScenePresentationElement(child),
       )
     )
       throw new NativeSourceError(
@@ -1057,12 +1058,12 @@ export class NativeWorkerSceneHost {
           `${options ? `export:${generation}:` : ""}${entry.instance.id}:provider:${state.captureScope}:epoch:${targetSourceEpoch}`,
           receiver,
           needsGeometry,
-          needsInterior && entry.target instanceof SVGSVGElement,
+          needsInterior && isNativeSvgRoot(entry.target),
         );
         let cornerRadii: NativeWorkerEffectTarget["cornerRadii"];
         if (
           entry.instance.clip === "bounds" &&
-          entry.target instanceof HTMLElement
+          isNativeHtmlElement(entry.target)
         ) {
           const radius = resolveNativeClipRadii({
             width: outputExtent.sourceWidth,
@@ -1255,7 +1256,7 @@ export class NativeWorkerSceneHost {
           );
         if (nearest) child.groupLocalOwnerId = nearest.instance.id;
         if (!nearest || nearest.instance.placement !== "fill") continue;
-        if (!(nearest.target instanceof HTMLElement))
+        if (!isNativeHtmlElement(nearest.target))
           throw new NativeSourceError(
             "source-inline-svg",
             "An SVG Fill cannot contain a nested HTML Backdrop.",
@@ -1607,7 +1608,7 @@ export class NativeWorkerSceneHost {
     generation: number,
     isExport: boolean,
   ): Promise<string> {
-    if (!(entry.target instanceof HTMLElement))
+    if (!isNativeHtmlElement(entry.target))
       throw new NativeSourceError(
         "source-inline-svg",
         "An SVG Fill uses vector coverage rather than a text mask.",
