@@ -154,6 +154,18 @@ describe("session replay iframe recording", () => {
   let browser: Browser;
 
   beforeAll(async () => {
+    execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        resolve(
+          REPO_ROOT,
+          "templates/design/app/components/design/bridge/codegen.ts",
+        ),
+      ],
+      { cwd: resolve(REPO_ROOT, "templates/design"), encoding: "utf8" },
+    );
     server = await startHostServer();
     browser = await launchBrowser();
   }, 60_000);
