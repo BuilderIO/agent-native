@@ -24,6 +24,7 @@ import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
+import { getUserSetting } from "../settings/user-settings.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
@@ -74,6 +75,19 @@ vi.mock("../audit/record.js", async (importOriginal) => {
 
 const approvalStoreMocks = vi.hoisted(() => {
   const grants = new Map<string, any>();
+  // A grant the client has not answered and nobody has used, before it expires.
+  const open = (grant: any) => {
+    const existing = grants.get(grant.nonce);
+    return existing &&
+      !existing.consumed &&
+      existing.answer === undefined &&
+      existing.expiresAt >= Date.now() &&
+      existing.callerKey === grant.callerKey &&
+      existing.actionName === grant.actionName &&
+      existing.argumentsHash === grant.argumentsHash
+      ? existing
+      : undefined;
+  };
   return {
     grants,
     create: vi.fn(async (grant: any) => {
@@ -81,20 +95,37 @@ const approvalStoreMocks = vi.hoisted(() => {
       grants.set(grant.nonce, { ...grant, consumed: false });
     }),
     consume: vi.fn(async (grant: any) => {
-      const existing = grants.get(grant.nonce);
-      if (
-        !existing ||
-        existing.consumed ||
-        existing.expiresAt < Date.now() ||
-        existing.callerKey !== grant.callerKey ||
-        existing.actionName !== grant.actionName ||
-        existing.argumentsHash !== grant.argumentsHash
-      ) {
-        return false;
-      }
+      const existing = open(grant);
+      if (!existing) return false;
       existing.consumed = true;
       return true;
     }),
+    answer: vi.fn(async (grant: any, answer: string) => {
+      const existing = open(grant);
+      if (!existing) return false;
+      existing.answer = answer;
+      return true;
+    }),
+    // A grant its owner approved on the review page (`reviewed`), used once
+    // by the identical call.
+    consumeReviewed: vi.fn(async (call: any, nonce?: string) => {
+      for (const existing of grants.values()) {
+        if (
+          existing.reviewed === "approved" &&
+          !existing.consumed &&
+          existing.expiresAt >= Date.now() &&
+          existing.callerKey === call.callerKey &&
+          existing.actionName === call.actionName &&
+          existing.argumentsHash === call.argumentsHash &&
+          (nonce === undefined || existing.nonce === nonce)
+        ) {
+          existing.consumed = true;
+          return { ...existing, status: "approved" };
+        }
+      }
+      return null;
+    }),
+    recordRun: vi.fn(async () => {}),
   };
 });
 
@@ -107,9 +138,26 @@ vi.mock("../audit/store.js", async (importOriginal) => ({
   },
 }));
 
-vi.mock("./approval-store.js", () => ({
-  createMcpApprovalGrant: approvalStoreMocks.create,
-  consumeMcpApprovalGrant: approvalStoreMocks.consume,
+vi.mock("./approval-store.js", async () => {
+  const actual = await vi.importActual<typeof import("./approval-store.js")>(
+    "./approval-store.js",
+  );
+  return {
+    storedApprovalArguments: actual.storedApprovalArguments,
+    normalizeApprovalEmail: actual.normalizeApprovalEmail,
+    createMcpApprovalGrant: approvalStoreMocks.create,
+    consumeMcpApprovalGrant: approvalStoreMocks.consume,
+    answerMcpApprovalPrompt: approvalStoreMocks.answer,
+    consumeReviewedMcpApprovalGrant: approvalStoreMocks.consumeReviewed,
+    findRecentMcpApprovalRun: vi.fn(async () => null),
+    recordMcpApprovalRun: approvalStoreMocks.recordRun,
+  };
+});
+
+// No saved localization: approval prompts are in the default locale.
+vi.mock("../settings/user-settings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
+  getUserSetting: vi.fn(async () => null),
 }));
 
 vi.mock("./builtin-tools.js", () => ({
@@ -671,6 +719,8 @@ async function createModernClient(
     declineApproval?: boolean;
     manualInputRequired?: boolean;
     supportsElicitation?: boolean;
+    /** Declares exactly these elicitation modes instead of form. */
+    elicitation?: { form?: object; url?: object };
     requestHeaders?: Record<string, string>;
     routePath?: string;
   } = {},
@@ -729,7 +779,9 @@ async function createModernClient(
         : {}),
     },
   );
-  if (
+  if (options.elicitation) {
+    client.registerCapabilities({ elicitation: options.elicitation } as any);
+  } else if (
     options.supportsElicitation ||
     options.approvalDecision ||
     options.declineApproval
@@ -749,6 +801,52 @@ async function createModernClient(
   await client.connect(transport);
   return { client, wireResponses, wireContentTypes };
 }
+
+const APPROVAL_REVIEW_URL =
+  /^https:\/\/mail\.agent-native\.com\/_agent-native\/mcp\/approvals\/([0-9a-f-]{36})$/;
+
+/**
+ * The review page link an approval result carries: its URL, the grant it
+ * names, and the result's first line, which says why the page has to decide.
+ */
+function approvalReviewLink(result: any): {
+  url: string;
+  nonce: string;
+  status: string;
+} {
+  expect(result.isError).toBe(true);
+  const review = result._meta?.["agent-native/approvalReview"];
+  expect(review).toEqual({
+    url: expect.stringMatching(APPROVAL_REVIEW_URL),
+    actionName: expect.any(String),
+    expiresAt: expect.any(Number),
+  });
+  return {
+    url: review.url,
+    nonce: APPROVAL_REVIEW_URL.exec(review.url)![1],
+    status: result.content[0].text.split("\n")[0],
+  };
+}
+
+const sendEmailConfig = (run: (...args: any[]) => Promise<unknown>) => ({
+  ...config,
+  actions: {
+    "send-email": {
+      tool: {
+        description: "Send an email",
+        parameters: {
+          type: "object" as const,
+          properties: {
+            to: { type: "array", items: { type: "string" } },
+            subject: { type: "string" },
+          },
+        },
+      },
+      needsApproval: true,
+      run,
+    },
+  },
+});
 
 async function mcpAppsAuthHeaders(
   options: {
@@ -5457,9 +5555,20 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         }),
       );
 
-      await expect(
-        client.callTool({ name: "throwing", arguments: {} }),
-      ).rejects.toMatchObject({ code: -32021 });
+      // Failing closed asks for approval, which this client cannot show, so
+      // it gets the review page's link to a pending grant.
+      const throwing = await client.callTool({
+        name: "throwing",
+        arguments: {},
+      });
+      const link = approvalReviewLink(throwing);
+      expect(link.status).toBe(
+        `throwing needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${link.url}`,
+      );
+      expect(approvalStoreMocks.grants.get(link.nonce)).toMatchObject({
+        actionName: "throwing",
+        consumed: false,
+      });
       expect(throwingRun).not.toHaveBeenCalled();
       expect(client.getDiscoverResult()?.capabilities).not.toHaveProperty(
         "elicitation",
@@ -5470,6 +5579,233 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ],
       ).toBeUndefined();
     } finally {
+      await client.close();
+    }
+  });
+
+  it("links a client that cannot show a prompt to the review page, and runs the identical call once after its owner approves there", async () => {
+    auditInserts.length = 0;
+    const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");
+    const { auditAttribution } = await import("../audit/attribution.js");
+    const run = vi.fn(async (_args: unknown, ctx: any) => {
+      await recordOrgAdminAuditEvent({
+        action: "send-email",
+        targetType: "setting",
+        summary: "Sent an email",
+        userEmail: ctx.userEmail,
+        orgId: ctx.orgId,
+        attribution: auditAttribution(ctx),
+      });
+      return { sent: true };
+    });
+    const { client } = await createModernClient(sendEmailConfig(run), {
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    const send = (to: string) =>
+      client.callTool({ name: "send-email", arguments: { to: [to] } });
+    try {
+      const first = approvalReviewLink(await send("ana@example.com"));
+      expect(first.status).toBe(
+        `send-email needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${first.url}`,
+      );
+      expect(approvalStoreMocks.grants.get(first.nonce)).toMatchObject({
+        ownerEmail: "oauth@example.com",
+        oauthClientId: "client-123",
+        argumentsJson: JSON.stringify({ to: ["ana@example.com"] }),
+        consumed: false,
+      });
+
+      // The owner approves on the review page. Only the identical call uses it.
+      approvalStoreMocks.grants.get(first.nonce).reviewed = "approved";
+      const other = approvalReviewLink(await send("bo@example.com"));
+      expect(other.nonce).not.toBe(first.nonce);
+      expect(run).not.toHaveBeenCalled();
+
+      const approved = await send("ana@example.com");
+      expect(approved.isError).not.toBe(true);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(approvalStoreMocks.recordRun).toHaveBeenCalledWith(
+        first.nonce,
+        "completed",
+      );
+      expect(auditInserts.filter((row) => row.action === "send-email")).toEqual(
+        [
+          expect.objectContaining({
+            actorEmail: "oauth@example.com",
+            oauthClientId: "client-123",
+            approval: "mcp-review",
+          }),
+        ],
+      );
+
+      const replay = approvalReviewLink(await send("ana@example.com"));
+      expect(replay.nonce).not.toBe(first.nonce);
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("links a stateless legacy HTTP call to the review page", async () => {
+    const run = vi.fn(async () => ({ sent: true }));
+    const called = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "send-email", arguments: { to: ["ana@example.com"] } },
+      },
+      {
+        headers: {
+          ...(await mcpAppsAuthHeaders()),
+          "x-agent-native-mcp-full-catalog": "1",
+          "mcp-protocol-version": "2025-06-18",
+        },
+        config: sendEmailConfig(run),
+      },
+    );
+    expect(called.error).toBeUndefined();
+    const link = approvalReviewLink(called.result);
+    expect(link.status).toBe(
+      `send-email needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${link.url}`,
+    );
+    expect(approvalStoreMocks.grants.get(link.nonce)).toMatchObject({
+      actionName: "send-email",
+      consumed: false,
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("links a declined approval prompt to a new grant's review page without running", async () => {
+    const run = vi.fn(async () => ({ sent: true }));
+    const { client } = await createModernClient(sendEmailConfig(run), {
+      declineApproval: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    try {
+      const link = approvalReviewLink(
+        await client.callTool({
+          name: "send-email",
+          arguments: { to: ["ana@example.com"] },
+        }),
+      );
+      const [prompted, replacement] = [...approvalStoreMocks.grants.values()];
+      expect(prompted).toMatchObject({ answer: "declined", consumed: false });
+      expect(link.nonce).toBe(replacement.nonce);
+      expect(replacement).toMatchObject({
+        argumentsHash: prompted.argumentsHash,
+        consumed: false,
+      });
+      expect(replacement).not.toHaveProperty("answer");
+      expect(link.status).toBe(
+        `send-email was not approved. If the user did not see an approval prompt, they can review it here: ${link.url}`,
+      );
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("asks a client that can only open links to approve on the review page, and never runs on its answer", async () => {
+    const run = vi.fn(async () => ({ sent: true }));
+    const { client } = await createModernClient(sendEmailConfig(run), {
+      manualInputRequired: true,
+      elicitation: { url: {} },
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    const args = { to: ["ana@example.com"] };
+    try {
+      const first = (await client.callTool(
+        { name: "send-email", arguments: args },
+        { allowInputRequired: true } as any,
+      )) as any;
+      const [grant] = [...approvalStoreMocks.grants.values()];
+      const url = `https://mail.agent-native.com/_agent-native/mcp/approvals/${grant.nonce}`;
+      expect(first).toMatchObject({
+        resultType: "input_required",
+        inputRequests: {
+          actionApproval: {
+            method: "elicitation/create",
+            params: {
+              mode: "url",
+              url,
+              message:
+                "Send email needs your approval before it runs. Open the review page, check what it will do, then choose Approve or Deny.",
+            },
+          },
+        },
+      });
+
+      // Opening the page decides nothing, whatever the client sends with it.
+      const opened = approvalReviewLink(
+        await client.callTool({
+          name: "send-email",
+          arguments: args,
+          requestState: first.requestState,
+          inputResponses: {
+            actionApproval: {
+              action: "accept",
+              content: { decision: "approve" },
+            },
+          },
+        } as any),
+      );
+      expect(opened).toEqual({
+        url,
+        nonce: grant.nonce,
+        status: `send-email is waiting for the user's decision on its review page: ${url}`,
+      });
+      expect(grant).toMatchObject({ answer: "opened", consumed: false });
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("asks for approval in the owner's saved language, summarizing the call's own arguments", async () => {
+    vi.mocked(getUserSetting).mockImplementation(async (email, key) =>
+      email === "oauth@example.com" && key === "localization"
+        ? { locale: "fr-FR" }
+        : null,
+    );
+    const run = vi.fn(async () => ({ sent: true }));
+    const { client } = await createModernClient(sendEmailConfig(run), {
+      manualInputRequired: true,
+      supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    try {
+      const first = (await client.callTool(
+        {
+          name: "send-email",
+          arguments: {
+            to: ["ana@example.com", "bo@example.com"],
+            subject: "Hi",
+          },
+        },
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first.inputRequests.actionApproval.params).toMatchObject({
+        mode: "form",
+        message: [
+          "Send email a besoin de votre approbation pour s'exécuter. Vérifiez ce qu'elle va faire, puis choisissez Approuver ou Refuser.",
+          "Destinataires: ana@example.com, bo@example.com",
+          "To: ana@example.com, bo@example.com",
+          "Subject: Hi",
+        ].join("\n"),
+        requestedSchema: {
+          properties: {
+            decision: {
+              title: "Exécuter Send email ?",
+              description:
+                "Approuver exécute cette demande exacte une seule fois. Refuser empêche son exécution.",
+            },
+          },
+        },
+      });
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(getUserSetting).mockImplementation(async () => null);
       await client.close();
     }
   });

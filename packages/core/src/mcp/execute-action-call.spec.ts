@@ -14,6 +14,7 @@ import {
   servicePrincipalActionDeniedError,
 } from "../org/service-principal-guard.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import * as approvalStore from "./approval-store.js";
 import {
   type McpActionCallContext,
   type McpActionCallOutcome,
@@ -26,17 +27,37 @@ import {
 
 const grants = vi.hoisted(() => new Map<string, any>());
 
-vi.mock("./approval-store.js", () => ({
-  createMcpApprovalGrant: vi.fn(async (grant: any) => {
-    grants.set(grant.nonce, { ...grant, consumed: false });
-  }),
-  consumeMcpApprovalGrant: vi.fn(async (grant: any) => {
-    const existing = grants.get(grant.nonce);
-    if (!existing || existing.consumed) return false;
-    existing.consumed = true;
-    return true;
-  }),
-}));
+vi.mock("./approval-store.js", async () => {
+  const actual = await vi.importActual<typeof import("./approval-store.js")>(
+    "./approval-store.js",
+  );
+  return {
+    storedApprovalArguments: actual.storedApprovalArguments,
+    normalizeApprovalEmail: actual.normalizeApprovalEmail,
+    createMcpApprovalGrant: vi.fn(async (grant: any) => {
+      grants.set(grant.nonce, { ...grant, consumed: false });
+    }),
+    consumeMcpApprovalGrant: vi.fn(async (grant: any) => {
+      const existing = grants.get(grant.nonce);
+      if (!existing || existing.consumed) return false;
+      existing.consumed = true;
+      return true;
+    }),
+    consumeReviewedMcpApprovalGrant: vi.fn(async () => null),
+    answerMcpApprovalPrompt: vi.fn(async () => true),
+    findRecentMcpApprovalRun: vi.fn(async () => null),
+    recordMcpApprovalRun: vi.fn(async () => undefined),
+  };
+});
+
+const store = vi.mocked(approvalStore);
+
+function resetApprovalStore() {
+  grants.clear();
+  for (const fn of Object.values(store)) {
+    if (vi.isMockFunction(fn)) fn.mockClear();
+  }
+}
 
 vi.mock("../org/service-principal-guard.js", async (importOriginal) => {
   const actual =
@@ -71,6 +92,28 @@ function entry(overrides: Partial<ActionEntry>): ActionEntry {
 }
 
 type Call = Parameters<typeof executeMcpActionCall>[1];
+
+/**
+ * The client's answer to a form prompt, with the signed state the host hands
+ * back beside it. No decision is a decline or a cancel.
+ */
+function formAnswer(
+  grant: any,
+  decision?: "approve" | "deny",
+): NonNullable<Call["approval"]> {
+  const state = {
+    version: grant.version,
+    nonce: grant.nonce,
+    actionName: grant.actionName,
+    argumentsHash: grant.argumentsHash,
+    expiresAt: grant.expiresAt,
+  };
+  return {
+    state: () => state,
+    decision: () => decision,
+    accepted: () => decision !== undefined,
+  };
+}
 
 function inRequest<T>(fn: () => Promise<T>): Promise<T> {
   return runWithRequestContext(
@@ -109,7 +152,7 @@ const embedResult = () => ({
 });
 
 describe("executeMcpActionCall", () => {
-  beforeEach(() => grants.clear());
+  beforeEach(resetApprovalStore);
 
   it("returns plain, frozen, detached JSON with embed credentials removed", async () => {
     const raw = embedResult();
@@ -361,13 +404,12 @@ describe("executeMcpActionCall", () => {
     });
     expect(ran).toEqual([]);
     const [grant] = [...grants.values()];
-    const { callerKey: _callerKey, consumed: _consumed, ...state } = grant;
     await expect(
       execute(
         { publish },
         "publish",
         {},
-        { approval: { state: () => state, decision: () => "approve" } },
+        { approval: formAnswer(grant, "approve") },
       ),
     ).resolves.toMatchObject({ status: "completed" });
     expect(ran).toEqual([1000]);
@@ -395,8 +437,7 @@ describe("executeMcpActionCall", () => {
     expect(run).not.toHaveBeenCalled();
 
     // The signed state travels through the trusted host channel only.
-    const { callerKey: _callerKey, consumed: _consumed, ...state } = grant;
-    const resume = { state: () => state, decision: () => "approve" };
+    const resume = formAnswer(grant, "approve");
     const actionRunContext = { mcpClient: { name: "spec-client" } };
     await expect(
       execute(callable, "publish", { draftId: "d-2" }, { approval: resume }),
@@ -425,6 +466,10 @@ describe("executeMcpActionCall", () => {
     // action hands its context to records none.
     expect(run.mock.calls[0]?.[1]).not.toHaveProperty("mcpClientAccepted");
     expect(evidence).toEqual([{ mcpClientAccepted: true }]);
+    expect(store.recordMcpApprovalRun).toHaveBeenCalledWith(
+      grant.nonce,
+      "completed",
+    );
     await expect(
       execute(callable, "publish", { draftId: "d-1" }, { approval: resume }),
     ).resolves.toEqual({
@@ -452,14 +497,13 @@ describe("executeMcpActionCall", () => {
     const first = await execute(callable, "schedule");
     expect(first.status).toBe("approval-required");
     const [grant] = [...grants.values()];
-    const { callerKey: _callerKey, consumed: _consumed, ...state } = grant;
     // Resumed, the same call as sent prepares a different Date.
     await expect(
       execute(
         callable,
         "schedule",
         {},
-        { approval: { state: () => state, decision: () => "approve" } },
+        { approval: formAnswer(grant, "approve") },
       ),
     ).resolves.toEqual({
       status: "approval-denied",
@@ -612,7 +656,7 @@ describe("executeMcpActionCall", () => {
 });
 
 describe("executeMcpActionCall sanitizing", () => {
-  beforeEach(() => grants.clear());
+  beforeEach(resetApprovalStore);
 
   it("redacts embed URLs from refusal messages and error codes", async () => {
     await expect(execute({}, `open ${EMBED_START}`)).resolves.toEqual({
@@ -1145,5 +1189,211 @@ describe("runMcpActionCallUnredacted", () => {
     const threw = await run("fail");
     expect(threw).toMatchObject({ status: "threw", stage: "action" });
     if (threw.status === "threw") expect(threw.error).toBe(failure);
+  });
+});
+
+describe("MCP action approval grants", () => {
+  beforeEach(resetApprovalStore);
+
+  const runUnredacted = (
+    callable: Record<string, ActionEntry>,
+    name: string,
+    args: Record<string, unknown>,
+    approval?: Call["approval"],
+  ) =>
+    inRequest(() =>
+      runMcpActionCallUnredacted(context, { name, args, callable, approval }),
+    );
+
+  it("hands the review page the stored arguments, and warns of an earlier run only when a repeat could duplicate it", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const callable = {
+      send: entry({ needsApproval: true, run }),
+      upsert: entry({ needsApproval: true, retrySafe: true, run }),
+    };
+    const args = { to: "ana@example.com", subject: "Hi", apiKey: "fake-key" };
+    const argumentsJson = JSON.stringify({ ...args, apiKey: "[redacted]" });
+    // The same call already ran within the approval window.
+    store.findRecentMcpApprovalRun.mockResolvedValueOnce({
+      consumedAt: 5_000,
+      runStatus: "completed",
+    } as approvalStore.McpApprovalRecord);
+
+    const retrySafe = await runUnredacted(callable, "upsert", args);
+    expect(retrySafe).toMatchObject({
+      status: "approval-required",
+      review: { actionName: "upsert", priorRun: undefined, argumentsJson },
+    });
+    expect(store.findRecentMcpApprovalRun).not.toHaveBeenCalled();
+    if (retrySafe.status !== "approval-required") return;
+    expect(grants.get(retrySafe.review.nonce)).toMatchObject({
+      nonce: retrySafe.approval.nonce,
+      ownerEmail: "user@example.com",
+      argumentsJson,
+      retrySafe: true,
+    });
+
+    await expect(runUnredacted(callable, "send", args)).resolves.toMatchObject({
+      status: "approval-required",
+      review: {
+        actionName: "send",
+        priorRun: { at: 5_000, status: "completed" },
+        argumentsJson,
+      },
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("runs an identical call a person approved on the review page once, recorded as the page's approval", async () => {
+    const evidence: unknown[] = [];
+    const run = vi.fn(async () => {
+      evidence.push(currentInvocationEvidence());
+      return { sent: true };
+    });
+    const callable = { send: entry({ needsApproval: true, run }) };
+    const args = { to: "ana@example.com" };
+    await runUnredacted(callable, "send", args);
+    const [grant] = [...grants.values()];
+
+    // The agent retries the identical call, with no prompt answer, after the
+    // owner approved it on the review page.
+    store.consumeReviewedMcpApprovalGrant.mockResolvedValueOnce({
+      nonce: grant.nonce,
+      status: "approved",
+    } as approvalStore.McpApprovalRecord);
+    await expect(runUnredacted(callable, "send", args)).resolves.toMatchObject({
+      status: "ran",
+      result: { sent: true },
+    });
+    expect(store.consumeReviewedMcpApprovalGrant).toHaveBeenLastCalledWith({
+      callerKey: "caller-key",
+      actionName: "send",
+      argumentsHash: grant.argumentsHash,
+    });
+    expect(evidence).toEqual([{ auditOverride: { approval: "mcp-review" } }]);
+    expect(store.recordMcpApprovalRun).toHaveBeenCalledWith(
+      grant.nonce,
+      "completed",
+    );
+    expect(store.consumeMcpApprovalGrant).not.toHaveBeenCalled();
+    expect(grants.size).toBe(1);
+  });
+
+  it("records whether an approved run that failed may have written", async () => {
+    const fail = async () => {
+      throw new Error("Mail server unavailable.");
+    };
+    const callable = {
+      send: entry({ needsApproval: true, run: fail }),
+      upsert: entry({ needsApproval: true, retrySafe: true, run: fail }),
+    };
+    for (const [name, settled] of [
+      ["send", "unknown"],
+      ["upsert", "failed"],
+    ] as const) {
+      await runUnredacted(callable, name, {});
+      const grant = [...grants.values()].find((g) => g.actionName === name);
+      await expect(
+        runUnredacted(callable, name, {}, formAnswer(grant, "approve")),
+      ).resolves.toMatchObject({ status: "threw", stage: "action" });
+      expect(store.recordMcpApprovalRun).toHaveBeenLastCalledWith(
+        grant.nonce,
+        settled,
+      );
+    }
+  });
+
+  it("ends a denied grant for good without running the call", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const callable = { send: entry({ needsApproval: true, run }) };
+    await runUnredacted(callable, "send", {});
+    const [grant] = [...grants.values()];
+
+    await expect(
+      runUnredacted(callable, "send", {}, formAnswer(grant, "deny")),
+    ).resolves.toEqual({
+      status: "approval-denied",
+      message: "send was not approved.",
+    });
+    expect(store.answerMcpApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ nonce: grant.nonce }),
+      "denied",
+    );
+    expect(grants.size).toBe(1);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("answers a declined or cancelled prompt with a new grant for the review page, never running the call", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const callable = { send: entry({ needsApproval: true, run }) };
+    const args = { to: "ana@example.com" };
+    await runUnredacted(callable, "send", args);
+    const [declined] = [...grants.values()];
+
+    const outcome = await runUnredacted(
+      callable,
+      "send",
+      args,
+      formAnswer(declined),
+    );
+    expect(outcome).toMatchObject({
+      status: "approval-pending",
+      reason: "declined",
+      review: { actionName: "send", argumentsJson: JSON.stringify(args) },
+    });
+    if (outcome.status !== "approval-pending") return;
+    expect(outcome.review.nonce).not.toBe(declined.nonce);
+    expect(grants.get(outcome.review.nonce)).toMatchObject({
+      callerKey: "caller-key",
+      argumentsHash: declined.argumentsHash,
+    });
+    expect(store.answerMcpApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ nonce: declined.nonce }),
+      "declined",
+    );
+
+    // The model-visible outcome names the action, not the new grant.
+    const replacement = grants.get(outcome.review.nonce);
+    const redacted = await execute(callable, "send", args, {
+      approval: formAnswer(replacement),
+    });
+    expect(redacted).toEqual({
+      status: "approval-pending",
+      approval: { actionName: "send", expiresAt: expect.any(Number) },
+    });
+    expect(JSON.stringify(redacted)).not.toContain(replacement.nonce);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("leaves an opened review page to decide, whatever the URL prompt's answer says", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const callable = { send: entry({ needsApproval: true, run }) };
+    await runUnredacted(callable, "send", {});
+    const [grant] = [...grants.values()];
+    const state = { ...formAnswer(grant).state()!, mode: "url" as const };
+
+    await expect(
+      runUnredacted(
+        callable,
+        "send",
+        {},
+        {
+          state: () => state,
+          decision: () => "approve",
+          accepted: () => true,
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: "approval-pending",
+      reason: "opened",
+      review: { nonce: grant.nonce },
+    });
+    expect(store.answerMcpApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ nonce: grant.nonce }),
+      "opened",
+    );
+    expect(store.consumeMcpApprovalGrant).not.toHaveBeenCalled();
+    expect(grants.size).toBe(1);
+    expect(run).not.toHaveBeenCalled();
   });
 });

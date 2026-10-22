@@ -1,22 +1,36 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`direct tools/call wire output > approval: a client without elicitation cannot be asked 1`] = `
+exports[`direct tools/call wire output > approval: a client without elicitation gets the review page link 1`] = `
 {
   "trace": [
     {
-      "grantCreate": {
+      "grantReviewedConsume": {
         "actionName": "publish",
         "argumentsHash": "isyUgt3i5WrrClTXEV-Y9jKdTk15sUfsNK5eR73_LgY",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "found": false,
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "appId": "mail",
+        "argumentsHash": "isyUgt3i5WrrClTXEV-Y9jKdTk15sUfsNK5eR73_LgY",
+        "argumentsJson": "{"draftId":"d-6"}",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
+        "oauthClientId": "client-123",
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "retrySafe": false,
         "version": 1,
       },
     },
     {
       "mcpToolCall": {
         "durationMs": "<duration>",
-        "isError": false,
+        "isError": true,
         "parameters": {
           "draftId": "d-6",
         },
@@ -25,32 +39,38 @@ exports[`direct tools/call wire output > approval: a client without elicitation 
         "toolName": "publish",
       },
     },
-    {
-      "clientError": {
-        "code": -32021,
-        "message": "Cannot request input 'actionApproval' (elicitation/create): the request's client capabilities do not declare the required capability",
-        "name": "ProtocolError",
-      },
-    },
   ],
   "wire": [
     {
       "body": {
-        "error": {
-          "code": -32021,
-          "data": {
-            "requiredCapabilities": {
-              "elicitation": {
-                "form": {},
-              },
-            },
-          },
-          "message": "Cannot request input 'actionApproval' (elicitation/create): the request's client capabilities do not declare the required capability",
-        },
         "id": 0,
         "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "agent-native/approvalReview": {
+              "actionName": "publish",
+              "expiresAt": 1767226200000,
+              "url": "https://mail.agent-native.com/_agent-native/mcp/approvals/<nonce #1>",
+            },
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "publish needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: https://mail.agent-native.com/_agent-native/mcp/approvals/<nonce #1>
+
+After they approve, call publish again with exactly the same arguments before 2026-01-01T00:10:00.000Z. It runs once; different arguments need a new approval.",
+              "type": "text",
+            },
+          ],
+          "isError": true,
+          "resultType": "complete",
+        },
       },
-      "status": 400,
+      "status": 200,
     },
   ],
 }
@@ -60,12 +80,26 @@ exports[`direct tools/call wire output > approval: a grant that expired in the s
 {
   "trace": [
     {
-      "grantCreate": {
+      "grantReviewedConsume": {
         "actionName": "publish",
         "argumentsHash": "OLFmTV-fYpcufrsC_Px0ZDolADlEdK3QzP9sX5aMykc",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "found": false,
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "appId": "mail",
+        "argumentsHash": "OLFmTV-fYpcufrsC_Px0ZDolADlEdK3QzP9sX5aMykc",
+        "argumentsJson": "{"draftId":"d-8"}",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
+        "oauthClientId": "client-123",
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "retrySafe": false,
         "version": 1,
       },
     },
@@ -121,17 +155,18 @@ exports[`direct tools/call wire output > approval: a grant that expired in the s
             "actionApproval": {
               "method": "elicitation/create",
               "params": {
-                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "message": "Publish needs your approval before it runs. Check what it will do, then choose Approve or Deny.
+Draft id: d-8",
                 "mode": "form",
                 "requestedSchema": {
                   "properties": {
                     "decision": {
-                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "description": "Approve runs this exact request once. Deny means it won't run.",
                       "enum": [
                         "approve",
                         "deny",
                       ],
-                      "title": "Run publish?",
+                      "title": "Run Publish?",
                       "type": "string",
                     },
                   },
@@ -181,12 +216,26 @@ exports[`direct tools/call wire output > approval: a resume after the approval w
 {
   "trace": [
     {
-      "grantCreate": {
+      "grantReviewedConsume": {
         "actionName": "publish",
         "argumentsHash": "9ag6kJz4LMAoYjg-U55tPt-98FTzTbFyk2UfbJwjxsA",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "found": false,
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "appId": "mail",
+        "argumentsHash": "9ag6kJz4LMAoYjg-U55tPt-98FTzTbFyk2UfbJwjxsA",
+        "argumentsJson": "{"draftId":"d-9"}",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
+        "oauthClientId": "client-123",
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "retrySafe": false,
         "version": 1,
       },
     },
@@ -227,17 +276,18 @@ exports[`direct tools/call wire output > approval: a resume after the approval w
             "actionApproval": {
               "method": "elicitation/create",
               "params": {
-                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "message": "Publish needs your approval before it runs. Check what it will do, then choose Approve or Deny.
+Draft id: d-9",
                 "mode": "form",
                 "requestedSchema": {
                   "properties": {
                     "decision": {
-                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "description": "Approve runs this exact request once. Deny means it won't run.",
                       "enum": [
                         "approve",
                         "deny",
                       ],
-                      "title": "Run publish?",
+                      "title": "Run Publish?",
                       "type": "string",
                     },
                   },
@@ -322,12 +372,26 @@ exports[`direct tools/call wire output > approval: client-fulfilled elicitation 
 {
   "trace": [
     {
-      "grantCreate": {
+      "grantReviewedConsume": {
         "actionName": "publish",
         "argumentsHash": "VtYB92j6xq42PC_PEnqN3rPsRJet4UTyDJgmhLWNwcI",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "found": false,
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "appId": "mail",
+        "argumentsHash": "VtYB92j6xq42PC_PEnqN3rPsRJet4UTyDJgmhLWNwcI",
+        "argumentsJson": "{"draftId":"d-4"}",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
+        "oauthClientId": "client-123",
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "retrySafe": false,
         "version": 1,
       },
     },
@@ -431,6 +495,12 @@ exports[`direct tools/call wire output > approval: client-fulfilled elicitation 
       },
     },
     {
+      "grantRun": {
+        "nonce": "<nonce #1>",
+        "status": "completed",
+      },
+    },
+    {
       "marker": {
         "actionName": "publish",
         "owner": "oauth@example.com",
@@ -466,17 +536,18 @@ exports[`direct tools/call wire output > approval: client-fulfilled elicitation 
             "actionApproval": {
               "method": "elicitation/create",
               "params": {
-                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "message": "Publish needs your approval before it runs. Check what it will do, then choose Approve or Deny.
+Draft id: d-4",
                 "mode": "form",
                 "requestedSchema": {
                   "properties": {
                     "decision": {
-                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "description": "Approve runs this exact request once. Deny means it won't run.",
                       "enum": [
                         "approve",
                         "deny",
                       ],
-                      "title": "Run publish?",
+                      "title": "Run Publish?",
                       "type": "string",
                     },
                   },
@@ -525,12 +596,26 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
 {
   "trace": [
     {
-      "grantCreate": {
+      "grantReviewedConsume": {
         "actionName": "publish",
         "argumentsHash": "lCM0wJxTetoSrDYKdVthQLV0p6r41CtJ_WpsfgbfbqQ",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "found": false,
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "appId": "mail",
+        "argumentsHash": "lCM0wJxTetoSrDYKdVthQLV0p6r41CtJ_WpsfgbfbqQ",
+        "argumentsJson": "{"draftId":"d-3"}",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
+        "oauthClientId": "client-123",
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "retrySafe": false,
         "version": 1,
       },
     },
@@ -547,11 +632,12 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
       },
     },
     {
-      "grantConsume": {
+      "grantAnswer": {
         "actionName": "publish",
+        "answer": "denied",
+        "answered": true,
         "argumentsHash": "lCM0wJxTetoSrDYKdVthQLV0p6r41CtJ_WpsfgbfbqQ",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
-        "consumed": true,
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
       },
@@ -577,12 +663,26 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
       },
     },
     {
-      "grantCreate": {
+      "grantReviewedConsume": {
         "actionName": "maybe-approve",
         "argumentsHash": "wQIipzw-u2wg5aJ99UZhBsSvsjPH_ngeDSoecq9Iik4",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "found": false,
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "maybe-approve",
+        "appId": "mail",
+        "argumentsHash": "wQIipzw-u2wg5aJ99UZhBsSvsjPH_ngeDSoecq9Iik4",
+        "argumentsJson": "{"big":true}",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #2>",
+        "oauthClientId": "client-123",
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "retrySafe": false,
         "version": 1,
       },
     },
@@ -605,12 +705,26 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
       },
     },
     {
-      "grantCreate": {
+      "grantReviewedConsume": {
         "actionName": "approval-throws",
         "argumentsHash": "1T8tM4sUlZGg-KGsC4aXhXeSqVjXWN-RAuHI0k1INoA",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "found": false,
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "approval-throws",
+        "appId": "mail",
+        "argumentsHash": "1T8tM4sUlZGg-KGsC4aXhXeSqVjXWN-RAuHI0k1INoA",
+        "argumentsJson": "{}",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #3>",
+        "oauthClientId": "client-123",
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "retrySafe": false,
         "version": 1,
       },
     },
@@ -642,17 +756,18 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
             "actionApproval": {
               "method": "elicitation/create",
               "params": {
-                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "message": "Publish needs your approval before it runs. Check what it will do, then choose Approve or Deny.
+Draft id: d-3",
                 "mode": "form",
                 "requestedSchema": {
                   "properties": {
                     "decision": {
-                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "description": "Approve runs this exact request once. Deny means it won't run.",
                       "enum": [
                         "approve",
                         "deny",
                       ],
-                      "title": "Run publish?",
+                      "title": "Run Publish?",
                       "type": "string",
                     },
                   },
@@ -710,17 +825,18 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
             "actionApproval": {
               "method": "elicitation/create",
               "params": {
-                "message": "Action "maybe-approve" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "message": "Maybe approve needs your approval before it runs. Check what it will do, then choose Approve or Deny.
+Big: Yes",
                 "mode": "form",
                 "requestedSchema": {
                   "properties": {
                     "decision": {
-                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "description": "Approve runs this exact request once. Deny means it won't run.",
                       "enum": [
                         "approve",
                         "deny",
                       ],
-                      "title": "Run maybe-approve?",
+                      "title": "Run Maybe approve?",
                       "type": "string",
                     },
                   },
@@ -754,17 +870,17 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
             "actionApproval": {
               "method": "elicitation/create",
               "params": {
-                "message": "Action "approval-throws" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "message": "Approval throws needs your approval before it runs. Check what it will do, then choose Approve or Deny.",
                 "mode": "form",
                 "requestedSchema": {
                   "properties": {
                     "decision": {
-                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "description": "Approve runs this exact request once. Deny means it won't run.",
                       "enum": [
                         "approve",
                         "deny",
                       ],
-                      "title": "Run approval-throws?",
+                      "title": "Run Approval throws?",
                       "type": "string",
                     },
                   },
@@ -790,12 +906,26 @@ exports[`direct tools/call wire output > approval: elicitation, approved retry, 
 {
   "trace": [
     {
-      "grantCreate": {
+      "grantReviewedConsume": {
         "actionName": "publish",
         "argumentsHash": "aBTjEk7xEhnUaZfmrq20toxRMslEAZI6lh2Ha5GRo6U",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "found": false,
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "appId": "mail",
+        "argumentsHash": "aBTjEk7xEhnUaZfmrq20toxRMslEAZI6lh2Ha5GRo6U",
+        "argumentsJson": "{"draftId":"d-1"}",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
+        "oauthClientId": "client-123",
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "retrySafe": false,
         "version": 1,
       },
     },
@@ -899,6 +1029,12 @@ exports[`direct tools/call wire output > approval: elicitation, approved retry, 
       },
     },
     {
+      "grantRun": {
+        "nonce": "<nonce #1>",
+        "status": "completed",
+      },
+    },
+    {
       "marker": {
         "actionName": "publish",
         "owner": "oauth@example.com",
@@ -968,17 +1104,18 @@ exports[`direct tools/call wire output > approval: elicitation, approved retry, 
             "actionApproval": {
               "method": "elicitation/create",
               "params": {
-                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "message": "Publish needs your approval before it runs. Check what it will do, then choose Approve or Deny.
+Draft id: d-1",
                 "mode": "form",
                 "requestedSchema": {
                   "properties": {
                     "decision": {
-                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "description": "Approve runs this exact request once. Deny means it won't run.",
                       "enum": [
                         "approve",
                         "deny",
                       ],
-                      "title": "Run publish?",
+                      "title": "Run Publish?",
                       "type": "string",
                     },
                   },
@@ -1075,12 +1212,26 @@ exports[`direct tools/call wire output > approval: the client gives up when its 
 {
   "trace": [
     {
-      "grantCreate": {
+      "grantReviewedConsume": {
         "actionName": "publish",
         "argumentsHash": "wZ6UHwnzv60QYtWowe7sJPBFY1UD2HlEOXnmj-AnbJI",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+        "found": false,
+      },
+    },
+    {
+      "grantCreate": {
+        "actionName": "publish",
+        "appId": "mail",
+        "argumentsHash": "wZ6UHwnzv60QYtWowe7sJPBFY1UD2HlEOXnmj-AnbJI",
+        "argumentsJson": "{"draftId":"d-7"}",
+        "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
+        "oauthClientId": "client-123",
+        "orgId": null,
+        "ownerEmail": "oauth@example.com",
+        "retrySafe": false,
         "version": 1,
       },
     },
@@ -1121,17 +1272,18 @@ exports[`direct tools/call wire output > approval: the client gives up when its 
             "actionApproval": {
               "method": "elicitation/create",
               "params": {
-                "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                "message": "Publish needs your approval before it runs. Check what it will do, then choose Approve or Deny.
+Draft id: d-7",
                 "mode": "form",
                 "requestedSchema": {
                   "properties": {
                     "decision": {
-                      "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                      "description": "Approve runs this exact request once. Deny means it won't run.",
                       "enum": [
                         "approve",
                         "deny",
                       ],
-                      "title": "Run publish?",
+                      "title": "Run Publish?",
                       "type": "string",
                     },
                   },
@@ -1158,12 +1310,26 @@ exports[`direct tools/call wire output > approval: two concurrent resumes of one
   "firstLeg": {
     "trace": [
       {
-        "grantCreate": {
+        "grantReviewedConsume": {
           "actionName": "publish",
           "argumentsHash": "VnWG-E14e0ngcBopIOsjHvCHq9LHoSGafH_OKk1Ymu0",
           "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
+          "found": false,
+        },
+      },
+      {
+        "grantCreate": {
+          "actionName": "publish",
+          "appId": "mail",
+          "argumentsHash": "VnWG-E14e0ngcBopIOsjHvCHq9LHoSGafH_OKk1Ymu0",
+          "argumentsJson": "{"draftId":"d-10"}",
+          "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
           "expiresAt": 1767226200000,
           "nonce": "<nonce #1>",
+          "oauthClientId": "client-123",
+          "orgId": null,
+          "ownerEmail": "oauth@example.com",
+          "retrySafe": false,
           "version": 1,
         },
       },
@@ -1197,17 +1363,18 @@ exports[`direct tools/call wire output > approval: two concurrent resumes of one
               "actionApproval": {
                 "method": "elicitation/create",
                 "params": {
-                  "message": "Action "publish" requires your approval before it can run. Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+                  "message": "Publish needs your approval before it runs. Check what it will do, then choose Approve or Deny.
+Draft id: d-10",
                   "mode": "form",
                   "requestedSchema": {
                     "properties": {
                       "decision": {
-                        "description": "Approve runs this exact call once. Deny leaves it unexecuted.",
+                        "description": "Approve runs this exact request once. Deny means it won't run.",
                         "enum": [
                           "approve",
                           "deny",
                         ],
-                        "title": "Run publish?",
+                        "title": "Run Publish?",
                         "type": "string",
                       },
                     },
@@ -1278,6 +1445,12 @@ exports[`direct tools/call wire output > approval: two concurrent resumes of one
           "consumed": true,
           "expiresAt": 1767226200000,
           "nonce": "<nonce #1>",
+        },
+      },
+      {
+        "grantRun": {
+          "nonce": "<nonce #1>",
+          "status": "completed",
         },
       },
       {

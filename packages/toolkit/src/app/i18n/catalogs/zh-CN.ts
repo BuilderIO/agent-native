@@ -1793,6 +1793,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalAgentChat": "已在智能体聊天中批准",
   "settings.audit.approvalA2AReview": "已在智能体操作审核页面批准",
   "settings.audit.approvalMcpClient": "由 MCP 客户端接受（未验证）",
+  "settings.audit.approvalMcpReview": "在 MCP 操作审核页面上批准",
   "settings.audit.changedBy": "更改者",
   "settings.audit.close": "关闭",
   "settings.audit.empty": "此期间没有更改。",

@@ -1,4 +1,5 @@
 import type {
+  CallToolResult,
   InputRequiredResult,
   ServerContext,
 } from "@modelcontextprotocol/server";
@@ -27,6 +28,7 @@ import {
 import { describeMcpError } from "./analytics.js";
 import {
   actionApprovalError,
+  actionApprovalReviewResult,
   buildLinkArtifacts,
   conciseMcpAppToolText,
   conciseToolResultText,
@@ -69,6 +71,7 @@ import {
   UnreadableResultError,
   type McpActionApprovalState,
   type McpActionCallContext,
+  type McpApprovalReview,
 } from "./execute-action-call.js";
 import { mcpResponseOutputCheck } from "./output-contract.js";
 
@@ -96,11 +99,12 @@ export interface DirectActionCallScope {
   effectiveIdentity: MCPCallerIdentity | undefined;
   actionCallContext: McpActionCallContext;
   acceptedContent: (typeof import("@modelcontextprotocol/server"))["acceptedContent"];
+  inputResponse: (typeof import("@modelcontextprotocol/server"))["inputResponse"];
   requestMcpActionApproval: (
     approvalState: McpActionApprovalState,
-    name: string,
+    review: McpApprovalReview,
     ctx: ServerContext,
-  ) => Promise<InputRequiredResult>;
+  ) => Promise<InputRequiredResult | CallToolResult>;
 }
 
 /** The analytics record of a call that failed. */
@@ -122,6 +126,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     effectiveIdentity,
     actionCallContext,
     acceptedContent,
+    inputResponse,
     requestMcpActionApproval,
   } = scope;
 
@@ -269,6 +274,17 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
               MCP_ACTION_APPROVAL_INPUT_KEY,
             ) as Record<string, unknown> | undefined
           )?.decision,
+        accepted: () =>
+          inputResponse(
+            ctx.mcpReq.inputResponses,
+            MCP_ACTION_APPROVAL_INPUT_KEY,
+          ).kind === "elicit" &&
+          (
+            inputResponse(
+              ctx.mcpReq.inputResponses,
+              MCP_ACTION_APPROVAL_INPUT_KEY,
+            ) as { action?: unknown }
+          ).action === "accept",
       },
     });
     if (outcome.status === "unknown-tool") {
@@ -313,10 +329,21 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     }
     if (outcome.status === "approval-required") {
       try {
-        return await requestMcpActionApproval(outcome.approval, name, ctx);
+        return await requestMcpActionApproval(
+          outcome.approval,
+          outcome.review,
+          ctx,
+        );
       } catch (err: any) {
         return actionError(err);
       }
+    }
+    if (outcome.status === "approval-pending") {
+      return actionApprovalReviewResult(
+        outcome.review,
+        outcome.reason,
+        requestMeta,
+      );
     }
 
     // The action has run, so from here on a write reports its success even

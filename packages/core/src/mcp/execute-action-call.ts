@@ -1,9 +1,14 @@
-import { isMcpReadOnlyTool } from "../action-call-classification.js";
+import {
+  actionCallIsRetrySafe,
+  isMcpReadOnlyTool,
+} from "../action-call-classification.js";
 import { vouchedOutcome } from "../action-frame.js";
 import {
   actionCallIntent,
+  invocationEffect,
   isActionContractError,
   recordInvalidActionCall,
+  preparedCallArguments,
   preparedCallNeedsApproval,
   runPreparedActionCall,
   type ActionExecutionOutcome,
@@ -29,8 +34,14 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import {
+  answerMcpApprovalPrompt,
   consumeMcpApprovalGrant,
+  consumeReviewedMcpApprovalGrant,
   createMcpApprovalGrant,
+  findRecentMcpApprovalRun,
+  storedApprovalArguments,
+  recordMcpApprovalRun,
+  type McpApprovalCall,
 } from "./approval-store.js";
 import type { MCPCallerIdentity } from "./build-server.js";
 import {
@@ -60,6 +71,28 @@ export interface McpActionApprovalState {
   actionName: string;
   argumentsHash: string;
   expiresAt: number;
+  /** The prompt asked the person to open the review page; absent for a form. */
+  mode?: "url";
+}
+
+/**
+ * An earlier run of this exact call that a person should know about before
+ * approving it again: it `completed`, or it started and whether it finished
+ * is `unknown`.
+ */
+export interface McpApprovalPriorRun {
+  at: number;
+  status: "completed" | "unknown";
+}
+
+/** A grant waiting on its review page, as the direct adapter links to it. */
+export interface McpApprovalReview {
+  nonce: string;
+  actionName: string;
+  expiresAt: number;
+  priorRun: McpApprovalPriorRun | undefined;
+  /** The arguments as the grant stored them, for the prompt's summary. */
+  argumentsJson: string | null;
 }
 
 export function canonicalJson(value: unknown): string {
@@ -466,6 +499,8 @@ export interface McpActionApprovalResponse {
   state(): McpActionApprovalState | undefined;
   /** The caller's answer to the approval elicitation. */
   decision(): unknown;
+  /** The client accepted the elicitation, whatever it sent with it. */
+  accepted(): boolean;
 }
 
 export interface McpActionCall {
@@ -478,11 +513,22 @@ export interface McpActionCall {
   approval?: McpActionApprovalResponse;
 }
 
-type McpActionCallRefusal<Approval> =
+type McpActionCallRefusal<Approval, Review> =
   | { status: "unknown-tool"; message: string }
   | { status: "forbidden-scope"; message: string }
   | { status: "approval-denied"; message: string }
-  | { status: "approval-required"; approval: Approval };
+  /** A new grant: ask for approval, or link to its review page. */
+  | { status: "approval-required"; approval: Approval; review: Review }
+  /**
+   * The client answered without approving, so the review page decides:
+   * `declined` (or cancelled) ended its grant and `review` is a new one;
+   * `opened` is a URL prompt the person accepted, still waiting there.
+   */
+  | {
+      status: "approval-pending";
+      review: Review;
+      reason: "declined" | "opened";
+    };
 
 /**
  * A pending approval as an untrusted caller may see it. The signed state and
@@ -514,7 +560,14 @@ export type McpActionCallFailureStage =
  * model-authored code still serializes its own allowlisted DTO from this.
  */
 export type McpActionCallOutcome =
-  | McpActionCallRefusal<McpActionApprovalRequest>
+  | Exclude<
+      McpActionCallRefusal<never, never>,
+      { status: "approval-required" | "approval-pending" }
+    >
+  | {
+      status: "approval-required" | "approval-pending";
+      approval: McpActionApprovalRequest;
+    }
   | {
       status: "completed";
       /** The action's value as JSON; an MCP proxy result contributes `raw`. */
@@ -547,11 +600,12 @@ export async function executeMcpActionCall(
     case "threw":
       return failedOutcome(outcome.stage, outcome.error);
     case "approval-required":
+    case "approval-pending":
       return Object.freeze({
         status: outcome.status,
         approval: Object.freeze({
-          actionName: redactEmbedText(outcome.approval.actionName),
-          expiresAt: outcome.approval.expiresAt,
+          actionName: redactEmbedText(outcome.review.actionName),
+          expiresAt: outcome.review.expiresAt,
         }),
       });
     default:
@@ -576,7 +630,10 @@ export async function runMcpActionCallUnredacted(
   context: McpActionCallContext,
   call: McpActionCall,
 ): Promise<
-  | McpActionCallRefusal<Readonly<McpActionApprovalState>>
+  | McpActionCallRefusal<
+      Readonly<McpActionApprovalState>,
+      Readonly<McpApprovalReview>
+    >
   | {
       status: "ran";
       entry: ActionEntry;
@@ -645,6 +702,7 @@ export async function runMcpActionCallUnredacted(
     );
     if (authorization.status !== "authorized") return authorization;
 
+    const { approval } = authorization;
     const execution: ActionExecutionOutcome = { refused: false };
     try {
       const result = await runPreparedActionCall(
@@ -653,13 +711,29 @@ export async function runMcpActionCallUnredacted(
         runContext,
         vouchedOutcome(
           execution,
-          authorization.clientAccepted
+          approval?.by === "client"
             ? { mcpClientAccepted: true }
-            : undefined,
+            : approval?.by === "review-page"
+              ? { auditOverride: { approval: "mcp-review" } }
+              : undefined,
         ),
       );
+      if (approval) await settleApprovedRun(approval.nonce, "completed");
       return { status: "ran", entry, result, execution };
     } catch (error) {
+      if (approval) {
+        const { effect } = invocationEffect(entry, execution, {
+          failed: { error },
+          retrySafe: actionCallIsRetrySafe(
+            entry,
+            preparedCallArguments(prepared),
+          ),
+        });
+        await settleApprovedRun(
+          approval.nonce,
+          effect === "none" ? "failed" : "unknown",
+        );
+      }
       return { status: "threw", stage: "action", error, entry, execution };
     }
   } catch (error) {
@@ -797,10 +871,28 @@ function failedOutcome(
   });
 }
 
+/** What approved a call, and the grant it used. */
+interface McpCallApproval {
+  /** `client` answered its form prompt; a person approved on the `review-page`. */
+  by: "client" | "review-page";
+  nonce: string;
+}
+
+type McpApprovalRefusal = McpActionCallRefusal<
+  Readonly<McpActionApprovalState>,
+  Readonly<McpApprovalReview>
+>;
+
 /**
  * `args` are the call as the client sent it; `prepared`, the call as it runs,
  * defaults applied. The approval decision reads, and its grant binds, the
  * arguments that run.
+ *
+ * Nothing the client says approves a call except an approve in the form
+ * prompt this server asked for. Declining, cancelling, opening the review
+ * page or having no prompt at all leaves the decision to the person on the
+ * review page, signed in as the grant's owner, and the identical call comes
+ * back to use their approval.
  */
 async function authorizeApproval(
   context: McpActionCallContext,
@@ -809,8 +901,7 @@ async function authorizeApproval(
   args: Record<string, unknown>,
   prepared: PreparedActionCall,
 ): Promise<
-  | McpActionCallRefusal<Readonly<McpActionApprovalState>>
-  | { status: "authorized"; clientAccepted: boolean }
+  McpApprovalRefusal | { status: "authorized"; approval?: McpCallApproval }
 > {
   const { name } = call;
   const { identity, approvalCallerKey } = context;
@@ -844,27 +935,78 @@ async function authorizeApproval(
       );
     }
 
-    const consumed = await consumeMcpApprovalGrant({
+    const grant = {
       nonce: verifiedState.nonce,
       callerKey: approvalCallerKey,
       actionName: name,
       argumentsHash,
       expiresAt: verifiedState.expiresAt,
-    });
-    if (!consumed) {
-      return approvalDenied(
-        `Approval for ${name} is invalid, expired, or already used.`,
-      );
+    };
+    const spent = `Approval for ${name} is invalid, expired, or already used.`;
+    if (verifiedState.mode !== "url") {
+      const decision = call.approval?.decision();
+      if (decision === "approve") {
+        if (!(await consumeMcpApprovalGrant(grant))) {
+          return approvalDenied(spent);
+        }
+        return {
+          status: "authorized",
+          approval: { by: "client", nonce: grant.nonce },
+        };
+      }
+      if (decision === "deny") {
+        if (!(await answerMcpApprovalPrompt(grant, "denied"))) {
+          return approvalDenied(spent);
+        }
+        return approvalDenied(`${name} was not approved.`);
+      }
     }
 
-    if (call.approval?.decision() !== "approve") {
-      return approvalDenied(`${name} was not approved.`);
+    // The person may have approved on the review page while the prompt was open.
+    const reviewed = await consumeReviewedMcpApprovalGrant(grant, grant.nonce);
+    if (reviewed) {
+      return {
+        status: "authorized",
+        approval: { by: "review-page", nonce: reviewed.nonce },
+      };
     }
-    return { status: "authorized", clientAccepted: true };
+    const opened =
+      verifiedState.mode === "url" && call.approval?.accepted() === true;
+    if (
+      !(await answerMcpApprovalPrompt(grant, opened ? "opened" : "declined"))
+    ) {
+      return approvalDenied(spent);
+    }
+    if (opened) {
+      const callArguments = preparedCallArguments(prepared);
+      return {
+        status: "approval-pending",
+        reason: "opened",
+        review: Object.freeze({
+          nonce: grant.nonce,
+          actionName: name,
+          expiresAt: grant.expiresAt,
+          priorRun: await findPriorApprovedRun(
+            grant,
+            actionCallIsRetrySafe(entry, callArguments),
+          ),
+          argumentsJson: storedApprovalArguments(callArguments),
+        }),
+      };
+    }
+    // A client can decline without showing anyone a prompt, so a decline
+    // ends this grant and the person reviews a new one on the page.
+    const { review } = await createApprovalGrant(
+      context,
+      entry,
+      prepared,
+      grant,
+    );
+    return { status: "approval-pending", reason: "declined", review };
   }
 
   if (entry.needsApproval === undefined) {
-    return { status: "authorized", clientAccepted: false };
+    return { status: "authorized" };
   }
   const mustApprove = await preparedCallNeedsApproval(entry, prepared, {
     userEmail: getRequestUserEmail(),
@@ -873,7 +1015,7 @@ async function authorizeApproval(
     caller: "mcp",
     actionName: name,
   });
-  if (!mustApprove) return { status: "authorized", clientAccepted: false };
+  if (!mustApprove) return { status: "authorized" };
 
   if (!hasVerifiedUserIdentity) {
     return approvalDenied(
@@ -886,20 +1028,110 @@ async function authorizeApproval(
       `${name} requires approval, but secure MCP approval is not configured on this server.`,
     );
   }
-  const now = Date.now();
+  const exactCall = {
+    callerKey: approvalCallerKey,
+    actionName: name,
+    argumentsHash,
+  };
+  const reviewed = await consumeReviewedMcpApprovalGrant(exactCall);
+  if (reviewed) {
+    return {
+      status: "authorized",
+      approval: { by: "review-page", nonce: reviewed.nonce },
+    };
+  }
+  const { approval, review } = await createApprovalGrant(
+    context,
+    entry,
+    prepared,
+    exactCall,
+  );
+  return { status: "approval-required", approval, review };
+}
+
+async function createApprovalGrant(
+  context: McpActionCallContext,
+  entry: ActionEntry,
+  prepared: PreparedActionCall,
+  call: McpApprovalCall,
+): Promise<{
+  approval: Readonly<McpActionApprovalState>;
+  review: Readonly<McpApprovalReview>;
+}> {
   const approval: McpActionApprovalState = {
     version: 1,
     nonce: globalThis.crypto.randomUUID(),
-    actionName: name,
-    argumentsHash,
-    expiresAt: now + MCP_ACTION_APPROVAL_TTL_SECONDS * 1000,
+    actionName: call.actionName,
+    argumentsHash: call.argumentsHash,
+    expiresAt: Date.now() + MCP_ACTION_APPROVAL_TTL_SECONDS * 1000,
   };
-  await createMcpApprovalGrant({ ...approval, callerKey: approvalCallerKey });
-  return { status: "approval-required", approval: Object.freeze(approval) };
+  const callArguments = preparedCallArguments(prepared);
+  const retrySafe = actionCallIsRetrySafe(entry, callArguments);
+  const argumentsJson = storedApprovalArguments(callArguments);
+  const priorRun = await findPriorApprovedRun(call, retrySafe);
+  await createMcpApprovalGrant({
+    ...approval,
+    callerKey: call.callerKey,
+    // Only a verified user identity reaches a grant.
+    ownerEmail: context.identity!.userEmail!,
+    orgId: getRequestOrgId() ?? null,
+    appId: context.appId,
+    argumentsJson,
+    oauthClientId: context.identity?.oauthClientId,
+    retrySafe,
+  });
+  return {
+    approval: Object.freeze(approval),
+    review: Object.freeze({
+      nonce: approval.nonce,
+      actionName: approval.actionName,
+      expiresAt: approval.expiresAt,
+      priorRun,
+      argumentsJson,
+    }),
+  };
 }
 
-function approvalDenied(
-  message: string,
-): McpActionCallRefusal<Readonly<McpActionApprovalState>> {
+/**
+ * The same call, approved and run within the approval window, which a person
+ * must know about before approving it again: a client that lost the response
+ * retries, and a second approval would run it twice. A call its action
+ * declares `retrySafe` (an action that answers a repeated idempotency key
+ * with its first result declares it for those inputs) can't be duplicated,
+ * so there is nothing to warn about. The prompt, the link and the review
+ * page all read this, so they say the same thing.
+ */
+export async function findPriorApprovedRun(
+  call: McpApprovalCall,
+  retrySafe: boolean,
+): Promise<McpApprovalPriorRun | undefined> {
+  if (retrySafe) return undefined;
+  const run = await findRecentMcpApprovalRun(
+    call,
+    Date.now() - MCP_ACTION_APPROVAL_TTL_SECONDS * 1000,
+  );
+  if (!run || run.consumedAt === null) return undefined;
+  return {
+    at: run.consumedAt,
+    status: run.runStatus === "completed" ? "completed" : "unknown",
+  };
+}
+
+/**
+ * A grant whose run cannot be recorded stays `running`, which later reads as
+ * an unknown outcome: the conservative answer for a retry.
+ */
+async function settleApprovedRun(
+  nonce: string,
+  status: "completed" | "failed" | "unknown",
+): Promise<void> {
+  try {
+    await recordMcpApprovalRun(nonce, status);
+  } catch (error) {
+    console.error("[mcp] Could not record an approved call's outcome", error);
+  }
+}
+
+function approvalDenied(message: string): McpApprovalRefusal {
   return { status: "approval-denied", message };
 }

@@ -25,6 +25,8 @@ vi.mock("../server/framework-request-handler.js", () => ({
 }));
 
 vi.mock("../server/auth.js", () => ({
+  getConfiguredLoginHtml: vi.fn(),
+  getSession: vi.fn(),
   isLoopbackRequest: () => false,
 }));
 
@@ -73,10 +75,12 @@ describe("mountMCP", () => {
       } as any),
     ).not.toThrow();
 
-    const [directoryPath, directoryHandler] = use.mock.calls[0]!;
+    const directoryHandler = use.mock.calls.find(
+      ([path]) => path === "/mcp/directory",
+    )?.[1];
+    expect(directoryHandler).toBeTypeOf("function");
     const event = {};
     const directoryResult = await directoryHandler(event);
-    expect(directoryPath).toBe("/mcp/directory");
     expect(directoryResult).toMatchObject({ error: "Unauthorized" });
     expect(mockServerState.setResponseStatus).toHaveBeenCalledWith(event, 401);
     expect(mockServerState.validateMcpDirectoryProfile).not.toHaveBeenCalled();
@@ -112,11 +116,14 @@ describe("mountMCP", () => {
     expect(mockServerState.setResponseStatus).toHaveBeenCalledWith(event, 503);
   });
 
-  it("mounts the public and legacy protocol paths by default", () => {
+  // A prefix mount also matches every path under it, so the approval review
+  // page must be mounted before the MCP endpoint that contains its path.
+  it("mounts the approval review page, then the public and legacy protocol paths by default", () => {
     const use = vi.fn();
     mountMCP({ h3: { use } }, { actions: {} } as any);
 
     expect(use.mock.calls.map(([path]) => path)).toEqual([
+      "/_agent-native/mcp/approvals",
       "/_agent-native/mcp",
       "/mcp",
     ]);
@@ -126,7 +133,10 @@ describe("mountMCP", () => {
     const use = vi.fn();
     mountMCP({ h3: { use } }, { actions: {} } as any, "/custom");
 
-    expect(use.mock.calls.map(([path]) => path)).toEqual(["/custom/mcp"]);
+    expect(use.mock.calls.map(([path]) => path)).toEqual([
+      "/custom/mcp/approvals",
+      "/custom/mcp",
+    ]);
   });
 
   it("mounts the curated directory before the broader public MCP prefix", () => {
@@ -134,6 +144,7 @@ describe("mountMCP", () => {
     mountMCP({ h3: { use } }, { actions: {}, directoryProfile: {} } as any);
 
     expect(use.mock.calls.map(([path]) => path)).toEqual([
+      "/_agent-native/mcp/approvals",
       "/mcp/directory",
       "/_agent-native/mcp",
       "/mcp",

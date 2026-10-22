@@ -7,8 +7,14 @@ export type AuditActorKind = "agent" | "human" | "service" | "system";
  * person's approval in agent chat. `a2a-review` records the owner's approval
  * of a paused A2A call on its review page. `mcp-client-accepted` records an
  * accepted MCP elicitation response; the server cannot verify who responded.
+ * `mcp-review` records the owner's approval of an MCP call on its review page,
+ * signed in as the user the call ran for.
  */
-export type AuditApproval = "agent-chat" | "a2a-review" | "mcp-client-accepted";
+export type AuditApproval =
+  | "agent-chat"
+  | "a2a-review"
+  | "mcp-client-accepted"
+  | "mcp-review";
 
 /** Verified identity provenance for a request authenticated through A2A. */
 export type AuditIdentityAssurance = "user" | "organization" | "org-member";

@@ -18,6 +18,7 @@ import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { mountMcpApprovalRoute } from "./approval-route.js";
 import {
   verifyAuth,
   McpIdentityVerificationUnavailableError,
@@ -535,6 +536,7 @@ export function mountMCP(
       : [joinMcpRoute(routePrefix, "/mcp")];
   if (config.directoryProfile) routePaths.unshift(MCP_DIRECTORY_ROUTE_PREFIX);
 
+  mountMcpApprovalRoute(nitroApp, config.actions, routePrefix);
   for (const routePath of routePaths) {
     getH3App(nitroApp).use(
       routePath,
