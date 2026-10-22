@@ -20,6 +20,7 @@ import {
   syncCommunityQrBlobPins,
   syncCommunityQrCoreLock,
 } from "./sync-community-qr-core-lock.ts";
+import { assertCommunityQrPackagePinOnlyChange } from "./verify-community-qr-release-pin.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -47,6 +48,9 @@ const trigger = workflow.on as Workflow;
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
 const jobs = workflow.jobs as Workflow;
+const autoMergeWorkflow = parse(
+  readFileSync(".github/workflows/auto-merge-version-packages.yml", "utf8"),
+) as Workflow;
 
 describe("npm package release workflow", () => {
   it("offers an explicit stable bump with patch as the default", () => {
@@ -531,6 +535,101 @@ importers:
     assert.equal(
       gitBlobSha(Buffer.from("hello\n")),
       "ce013625030ba8dba906f756967f9e9ca394464a",
+    );
+  });
+
+  it("accepts only the community QR package pin when it matches both manifest blobs", () => {
+    const basePackage = Buffer.from('{"name":"qr","version":"0.40.35"}\n');
+    const headPackage = Buffer.from('{"name":"qr","version":"0.40.36"}\n');
+    const source = (packagePin: string) => `
+      templatePath: "templates/community/qr",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${packagePin}",
+        },
+        {
+          path: "README.md",
+          blobSha: "${"b".repeat(40)}",
+        },
+      ],
+    },`;
+    const baseSource = source(gitBlobSha(basePackage));
+    const headSource = source(gitBlobSha(headPackage));
+
+    assert.doesNotThrow(() =>
+      assertCommunityQrPackagePinOnlyChange(
+        baseSource,
+        headSource,
+        basePackage,
+        headPackage,
+      ),
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrPackagePinOnlyChange(
+          baseSource,
+          source("c".repeat(40)),
+          basePackage,
+          headPackage,
+        ),
+      /Head QR package.json blob pin does not match its manifest/,
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrPackagePinOnlyChange(
+          baseSource.replace(gitBlobSha(basePackage), "a".repeat(40)),
+          headSource,
+          basePackage,
+          headPackage,
+        ),
+      /Base QR package.json blob pin does not match its manifest/,
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrPackagePinOnlyChange(
+          baseSource,
+          headSource.replace(
+            'path: "README.md"',
+            'path: "README.md",\n          description: "unexpected"',
+          ),
+          basePackage,
+          headPackage,
+        ),
+      /Community app catalog changes must update only the QR package.json blob pin/,
+    );
+  });
+
+  it("runs the community QR pin guard from the base commit before auto-merge", () => {
+    const autoMergeJobs = autoMergeWorkflow.jobs as Workflow;
+    const autoMergeSteps = (autoMergeJobs["auto-merge"] as Workflow)
+      .steps as Workflow[];
+    const checkout = autoMergeSteps.find(
+      (step) =>
+        step.uses ===
+        "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+    );
+    const releaseDiff = autoMergeSteps.find(
+      (step) => step.name === "Verify release-only diff",
+    );
+    const qrPinGuard = autoMergeSteps.find(
+      (step) => step.name === "Verify community QR package pin",
+    );
+
+    assert(checkout);
+    assert.equal(
+      (checkout.with as Workflow).ref,
+      "${{ github.event.pull_request.base.sha }}",
+    );
+    assert(releaseDiff);
+    assert.match(
+      String(releaseDiff.run),
+      /packages\/dispatch\/src\/server\/lib\/community-apps\.ts/,
+    );
+    assert(qrPinGuard);
+    assert.equal(
+      qrPinGuard.run,
+      "node --experimental-strip-types scripts/verify-community-qr-release-pin.ts",
     );
   });
 

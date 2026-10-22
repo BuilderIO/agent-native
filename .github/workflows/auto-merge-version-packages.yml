@@ -28,6 +28,16 @@ jobs:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.22.0"
+
       - name: Verify event-bound head
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -53,7 +63,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              .changeset/*.md|package.json|pnpm-lock.yaml|*/package.json|*/CHANGELOG.md|*/changelog/*)
+              .changeset/*.md|package.json|pnpm-lock.yaml|*/package.json|*/CHANGELOG.md|*/changelog/*|packages/dispatch/src/server/lib/community-apps.ts)
                 ;;
               *)
                 echo "::error::Refusing admin-merge for unexpected release PR path: $file" >&2
@@ -61,6 +71,15 @@ jobs:
                 ;;
             esac
           done <<< "$files"
+
+      - name: Verify community QR package pin
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: node --experimental-strip-types scripts/verify-community-qr-release-pin.ts
 
       - name: Refuse unattended major promotions
         env:

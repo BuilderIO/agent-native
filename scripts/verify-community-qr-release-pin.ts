@@ -1,0 +1,151 @@
+import { execFileSync } from "node:child_process";
+
+import { gitBlobSha } from "./sync-community-qr-core-lock.ts";
+
+const repo = process.env.REPO;
+const baseSha = process.env.BASE_SHA;
+const headSha = process.env.HEAD_SHA;
+const prNumber = process.env.PR_NUMBER;
+const communityAppsPath = "packages/dispatch/src/server/lib/community-apps.ts";
+const communityQrPackagePath = "templates/community/qr/package.json";
+const communityQrTemplatePath = "templates/community/qr";
+
+export function assertCommunityQrPackagePinOnlyChange(
+  baseSource: string,
+  headSource: string,
+  basePackage: Buffer,
+  headPackage: Buffer,
+): void {
+  const basePackagePin = communityQrPackagePin(baseSource);
+  const headPackagePin = communityQrPackagePin(headSource);
+  const expectedBasePin = gitBlobSha(basePackage);
+  const expectedHeadPin = gitBlobSha(headPackage);
+
+  if (basePackagePin !== expectedBasePin) {
+    throw new Error(
+      "Base QR package.json blob pin does not match its manifest.",
+    );
+  }
+  if (headPackagePin !== expectedHeadPin) {
+    throw new Error(
+      "Head QR package.json blob pin does not match its manifest.",
+    );
+  }
+
+  const expectedHeadSource = replaceCommunityQrPackagePin(
+    baseSource,
+    expectedHeadPin,
+  );
+  if (headSource !== expectedHeadSource) {
+    throw new Error(
+      "Community app catalog changes must update only the QR package.json blob pin.",
+    );
+  }
+}
+
+function communityQrPackagePin(source: string): string {
+  const marker = `templatePath: "${communityQrTemplatePath}"`;
+  const start = source.indexOf(marker);
+  if (start < 0 || source.indexOf(marker, start + marker.length) >= 0) {
+    throw new Error("Expected exactly one community QR template entry.");
+  }
+
+  const end = source.indexOf("\n    },", start);
+  if (end < 0) throw new Error("Community QR template entry is incomplete.");
+
+  const block = source.slice(start, end);
+  const pins = [
+    ...block.matchAll(/path: "package\.json",\n\s+blobSha: "([a-f0-9]{40})"/g),
+  ];
+  if (pins.length !== 1) {
+    throw new Error("Expected exactly one community QR package.json blob pin.");
+  }
+  return pins[0][1];
+}
+
+function replaceCommunityQrPackagePin(source: string, blobSha: string): string {
+  const marker = `templatePath: "${communityQrTemplatePath}"`;
+  const start = source.indexOf(marker);
+  if (start < 0 || source.indexOf(marker, start + marker.length) >= 0) {
+    throw new Error("Expected exactly one community QR template entry.");
+  }
+
+  const end = source.indexOf("\n    },", start);
+  if (end < 0) throw new Error("Community QR template entry is incomplete.");
+
+  const block = source.slice(start, end);
+  const pins = [
+    ...block.matchAll(/path: "package\.json",\n\s+blobSha: "([a-f0-9]{40})"/g),
+  ];
+  if (pins.length !== 1) {
+    throw new Error("Expected exactly one community QR package.json blob pin.");
+  }
+
+  const pin = pins[0];
+  const pinStart = start + (pin.index ?? 0);
+  const replacement = pin[0].replace(pin[1], blobSha);
+  return `${source.slice(0, pinStart)}${replacement}${source.slice(pinStart + pin[0].length)}`;
+}
+
+function gh(args: string[]): string {
+  return execFileSync("gh", args, {
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
+  }).trim();
+}
+
+function contentAt(path: string, ref: string): Buffer {
+  const encoded = gh([
+    "api",
+    `repos/${repo}/contents/${path}?ref=${ref}`,
+    "--jq",
+    ".content",
+  ]).replace(/\s/g, "");
+  return Buffer.from(encoded, "base64");
+}
+
+function main(): void {
+  if (!repo || !baseSha || !headSha || !prNumber) {
+    throw new Error("Missing release PR verification context.");
+  }
+
+  const changedFiles = gh([
+    "api",
+    "--paginate",
+    `repos/${repo}/pulls/${prNumber}/files`,
+    "--jq",
+    ".[].filename",
+  ])
+    .split("\n")
+    .map((file) => file.trim())
+    .filter(Boolean);
+
+  if (!changedFiles.includes(communityAppsPath)) {
+    console.log("Community app catalog is unchanged.");
+    return;
+  }
+
+  const baseSource = contentAt(communityAppsPath, baseSha).toString("utf8");
+  const headSource = contentAt(communityAppsPath, headSha).toString("utf8");
+  const basePackage = contentAt(communityQrPackagePath, baseSha);
+  const headPackage = contentAt(communityQrPackagePath, headSha);
+
+  assertCommunityQrPackagePinOnlyChange(
+    baseSource,
+    headSource,
+    basePackage,
+    headPackage,
+  );
+  console.log(
+    "Community app catalog contains only the matching QR package pin update.",
+  );
+}
+
+if (process.argv[1]?.endsWith("verify-community-qr-release-pin.ts")) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error);
+    process.exitCode = 1;
+  }
+}
