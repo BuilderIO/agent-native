@@ -1210,12 +1210,13 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const columnMenuAlignOffset = columnMenuWouldOverflowRight
     ? -COLUMN_OPTIONS_MENU_ALIGN_OFFSET
     : COLUMN_OPTIONS_MENU_ALIGN_OFFSET;
-  // A table at the screen's edge leaves its gutter to the block grip, which
-  // would otherwise sit under the first row's options.
-  const rowOptionsLeft = (tableEdge: number) =>
-    tableEdge -
-    wrapperRect.left -
-    (tableEdge < BLOCK_GRIP_WIDTH ? 0 : ROW_OPTIONS_HIT_WIDTH / 2);
+  // A table at the screen's edge leaves its gutter to the block grip, so its
+  // row options take only their half inside the border, which covers no more
+  // of the cell than usual.
+  const rowOptionsInside =
+    !!axisTableRect &&
+    !!axisScrollport &&
+    Math.max(axisTableRect.left, axisScrollport.left) < BLOCK_GRIP_WIDTH;
   const rowMenuAlign = rowMenuWouldOverflowBottom ? "end" : "start";
   const rowMenuAlignOffset = rowMenuWouldOverflowBottom
     ? -ROW_OPTIONS_MENU_ALIGN_OFFSET
@@ -1427,7 +1428,10 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
             <DropdownMenuTrigger asChild>
               <button
                 aria-label={t("database.rowOptions")}
-                className={lineButtonClass}
+                className={cn(
+                  lineButtonClass,
+                  rowOptionsInside && "justify-start",
+                )}
                 data-testid="table-row-options"
                 onClickCapture={(event) => {
                   event.preventDefault();
@@ -1445,13 +1449,16 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   setRowMenuOpen(true);
                 }}
                 style={{
-                  left: rowOptionsLeft(
-                    Math.max(axisTableRect.left, axisScrollport.left),
-                  ),
+                  left:
+                    Math.max(axisTableRect.left, axisScrollport.left) -
+                    wrapperRect.left -
+                    (rowOptionsInside ? 0 : ROW_OPTIONS_HIT_WIDTH / 2),
                   top: axisRect.top - wrapperRect.top + axisRect.height / 2,
                   height: ROW_OPTIONS_HIT_HEIGHT,
                   transform: "translateY(-50%)",
-                  width: ROW_OPTIONS_HIT_WIDTH,
+                  width: rowOptionsInside
+                    ? ROW_OPTIONS_HIT_WIDTH / 2
+                    : ROW_OPTIONS_HIT_WIDTH,
                 }}
               >
                 <span

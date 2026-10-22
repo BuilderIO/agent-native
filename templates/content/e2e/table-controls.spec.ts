@@ -433,7 +433,7 @@ test.describe("inline table controls", () => {
     expect((await grip.boundingBox())!.x).toBeGreaterThanOrEqual(0);
   });
 
-  test("at phone width the first row's options leave the block grip clear", async ({
+  test("at phone width the row options leave the block grip and the cell's text clear", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -464,6 +464,14 @@ test.describe("inline table controls", () => {
     expect(await topmost((await rowOptions.boundingBox())!)).toBe(
       "Row options",
     );
+
+    const textLeft = await cell(page, "Item").evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return range.getBoundingClientRect().left;
+    });
+    const optionsBox = (await rowOptions.boundingBox())!;
+    expect(optionsBox.x + optionsBox.width).toBeLessThanOrEqual(textLeft);
 
     await grip.click();
     await expect(
