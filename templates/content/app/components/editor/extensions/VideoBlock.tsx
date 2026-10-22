@@ -46,7 +46,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import { EDITOR_NON_EDIT_META } from "../editor-transaction-meta";
+import {
+  deleteNodeFromMenu,
+  EDITOR_NON_EDIT_META,
+} from "../editor-transaction-meta";
 import { uploadVideoFile, videoUploadErrorMessage } from "../image-upload";
 import type { ContentVideoOptions } from "./VideoNode";
 
@@ -146,7 +149,6 @@ async function copyVideo(
 export function VideoBlock({
   node,
   editor,
-  deleteNode,
   selected,
   updateAttributes,
   extension,
@@ -171,6 +173,7 @@ export function VideoBlock({
   const options = extension.options as ContentVideoOptions;
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
   const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const sourcePanelOpen = node.attrs.sourcePanelOpen === true;

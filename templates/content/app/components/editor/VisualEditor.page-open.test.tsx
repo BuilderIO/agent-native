@@ -487,6 +487,54 @@ describe("opening a page", () => {
     expectNoSave(opened);
   });
 
+  // The block's menu, not the editor, has focus, and a save that leaves the
+  // page empty needs evidence that a person made the change.
+  it.each([
+    [
+      "image",
+      "![Diagram](https://example.com/diagram.png)",
+      "editor.media.moreImageActions",
+    ],
+    [
+      "video",
+      '<video src="https://example.com/demo.mp4"></video>',
+      "editor.media.moreVideoActions",
+    ],
+    [
+      "audio",
+      '<audio src="https://example.com/demo.mp3"></audio>',
+      "editor.media.moreAudioActions",
+    ],
+  ])(
+    "saves the empty page left by deleting its only %s from the block's menu",
+    async (_kind, markdown, moreLabel) => {
+      const opened = await open(livePage(markdown));
+      const more = container.querySelector<HTMLButtonElement>(
+        `button[aria-label="${moreLabel}"]`,
+      );
+      expect(more).not.toBeNull();
+      act(() => {
+        more!.focus();
+        more!.click();
+      });
+      const remove = [
+        ...document.body.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitem"]',
+        ),
+      ].find((item) => item.textContent?.includes("editor.media.delete"));
+      expect(remove).toBeDefined();
+      act(() => {
+        remove!.focus();
+        remove!.click();
+      });
+      await settle();
+      expect(opened.editor.isFocused).toBe(false);
+      const saved = docToNfm(opened.editor.getJSON() as PMDoc);
+      expect(saved).not.toContain("example.com");
+      expect(opened.onChange).toHaveBeenCalledExactlyOnceWith(saved);
+    },
+  );
+
   it("does not save comment and suggestion highlights", async () => {
     const thread: CommentThread = {
       threadId: "t1",
