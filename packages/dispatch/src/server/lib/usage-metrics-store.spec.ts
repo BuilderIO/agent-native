@@ -148,6 +148,28 @@ describe("listDispatchUsageMetrics", () => {
     expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
   });
 
+  it("points a non-admin member asking about an outside email at the owning app", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.execute.mockImplementation(async ({ args }: { args?: unknown[] }) =>
+      args?.[1] === "member@example.test"
+        ? { rows: [{ role: "member" }] }
+        : { rows: [] },
+    );
+
+    const error = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "workspace",
+      userEmail: "customer@customer.example",
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "usage_user_not_org_member",
+      statusCode: 404,
+    });
+    expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+  });
+
   it("does not let a delegated org member read workspace usage as an owner", async () => {
     mocks.currentOrgId.mockReturnValue("org-a");
     mocks.currentOwnerEmail.mockReturnValue("member@example.test");
@@ -445,6 +467,43 @@ describe("listDispatchUsageMetrics", () => {
         );
       }),
     ).toBe(true);
+  });
+
+  it("redirects a non-member userEmail to the app that owns customer data with a typed error", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "owner", joined_at: null },
+            { email: "member@example.test", role: "member", joined_at: null },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const error = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "workspace",
+      userEmail: "customer@customer.example",
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "usage_user_not_org_member",
+      statusCode: 404,
+    });
+    expect((error as Error).message).toContain(
+      "customer@customer.example is not a member of this organization",
+    );
+    expect((error as Error).message).toContain("<relevant-apps>");
+    expect((error as Error).message).toContain("describe-workspace-apps");
   });
 
   it("lets an app owner inspect aggregate adoption for their own app", async () => {

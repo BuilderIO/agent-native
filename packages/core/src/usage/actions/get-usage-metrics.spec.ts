@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listAppUsageMetricsMock = vi.hoisted(() => vi.fn());
+const isOrgMemberMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../../action.js", () => ({
+vi.mock("../../action.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../action.js")>()),
   defineAction: (definition: unknown) => definition,
+}));
+
+vi.mock("../../org/membership.js", () => ({
+  isOrgMember: isOrgMemberMock,
 }));
 
 vi.mock("../metrics-store.js", async (importOriginal) => ({
@@ -20,6 +26,7 @@ describe("get-usage-metrics action", () => {
     resetAppConfigForTests();
     vi.stubEnv("AGENT_NATIVE_APP_ID", "configured-app");
     listAppUsageMetricsMock.mockResolvedValue({ ok: true });
+    isOrgMemberMock.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -126,5 +133,72 @@ describe("get-usage-metrics action", () => {
     expect(listAppUsageMetricsMock.mock.calls[0]?.[0]).toMatchObject({
       builderCreditsEnabled: true,
     });
+  });
+
+  it("rejects a userEmail outside the organization with a redirect to the owning app", async () => {
+    isOrgMemberMock.mockResolvedValue(false);
+
+    const error = await getUsageMetrics
+      .run(
+        {
+          sinceDays: 7,
+          scope: "workspace",
+          userEmail: "cust@customer.example",
+        },
+        { caller: "agent", userEmail: "admin@example.com", orgId: "org-1" },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(isOrgMemberMock).toHaveBeenCalledWith(
+      "org-1",
+      "cust@customer.example",
+    );
+    expect(error).toMatchObject({
+      errorCode: "usage_user_not_org_member",
+      statusCode: 404,
+    });
+    expect((error as Error).message).toContain(
+      "cust@customer.example is not a member of this organization",
+    );
+    expect((error as Error).message).toContain("<relevant-apps>");
+    expect((error as Error).message).toContain("describe-workspace-apps");
+    expect(listAppUsageMetricsMock).not.toHaveBeenCalled();
+  });
+
+  it("still serves a userEmail that belongs to the organization", async () => {
+    await getUsageMetrics.run(
+      { sinceDays: 7, scope: "workspace", userEmail: "member@example.com" },
+      { caller: "agent", userEmail: "admin@example.com", orgId: "org-1" },
+    );
+
+    expect(isOrgMemberMock).toHaveBeenCalledWith("org-1", "member@example.com");
+    expect(listAppUsageMetricsMock.mock.calls[0]?.[0]).toMatchObject({
+      userEmail: "member@example.com",
+    });
+  });
+
+  it("skips the membership check without an organization or for the caller's own email", async () => {
+    await getUsageMetrics.run(
+      { sinceDays: 7, scope: "me", userEmail: "solo@example.com" },
+      { caller: "agent", userEmail: "solo@example.com" },
+    );
+    await getUsageMetrics.run(
+      { sinceDays: 7, scope: "me", userEmail: "Admin@Example.com" },
+      { caller: "agent", userEmail: "admin@example.com", orgId: "org-1" },
+    );
+
+    expect(isOrgMemberMock).not.toHaveBeenCalled();
+    expect(listAppUsageMetricsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("scopes the description to this organization's members, not external customers", () => {
+    const description = (getUsageMetrics as unknown as { description: string })
+      .description;
+    const firstSentence = description.split(". ")[0];
+
+    expect(firstSentence).toContain("members of this organization");
+    expect(firstSentence).toContain("does NOT cover");
+    expect(firstSentence).toContain("external customers");
+    expect(firstSentence).toContain("describe-workspace-apps");
   });
 });

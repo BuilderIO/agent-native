@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
@@ -952,6 +953,13 @@ async function assertCanViewMetrics(viewScope: UsageMetricsScope): Promise<{
   );
 }
 
+function failUserNotOrgMember(email: string): never {
+  fail(
+    `${email} is not a member of this organization. list-dispatch-usage-metrics only covers this workspace's own agent usage; usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data (see <relevant-apps> or run describe-workspace-apps with a query).`,
+    { errorCode: "usage_user_not_org_member", statusCode: 404 },
+  );
+}
+
 export async function listDispatchUsageMetrics(input: {
   sinceDays?: number;
   scope?: UsageMetricsScope;
@@ -960,6 +968,19 @@ export async function listDispatchUsageMetrics(input: {
 }): Promise<DispatchUsageMetrics> {
   const viewScope: UsageMetricsScope =
     input.scope === "me" ? "me" : input.scope === "app" ? "app" : "workspace";
+  // Runs before the owner/admin gate so a member asking about an outside email
+  // is pointed at the owning app instead of told they lack permission.
+  const requestedEmail =
+    viewScope === "workspace" ? input.userEmail?.trim() || null : null;
+  const callerOrgId = currentOrgId();
+  if (
+    requestedEmail &&
+    callerOrgId &&
+    requestedEmail.toLowerCase() !== currentOwnerEmail().toLowerCase() &&
+    !(await readOrgMemberRole(callerOrgId, requestedEmail))
+  ) {
+    failUserNotOrgMember(requestedEmail);
+  }
   const { viewerEmail, orgId, role } = await assertCanViewMetrics(
     viewScope === "app" ? "me" : viewScope,
   );
@@ -1020,9 +1041,7 @@ export async function listDispatchUsageMetrics(input: {
           )?.email ?? null)
         : null;
   if (viewScope === "workspace" && requestedUserEmail && !selectedUserEmail) {
-    throw new ForbiddenError(
-      "The selected user is not available in this workspace.",
-    );
+    failUserNotOrgMember(requestedUserEmail);
   }
   const memberEmails = selectedUserEmail
     ? [selectedUserEmail]
