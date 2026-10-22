@@ -1,6 +1,7 @@
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   IconDots,
+  IconLink,
   IconPencil,
   IconPinned,
   IconPinnedOff,
@@ -9,7 +10,7 @@ import {
 } from "@tabler/icons-react";
 import React, { useMemo, useRef, useState } from "react";
 
-import { Skeleton } from "../design-system/components.js";
+import { Skeleton, Tooltip } from "../design-system/components.js";
 import { cn } from "../utils.js";
 
 /** How the viewer got access to a chat; the app supplies the translated copy. */
@@ -25,7 +26,12 @@ export interface ChatHistoryItem {
   titleText?: string;
   subtitle?: React.ReactNode;
   detail?: React.ReactNode;
-  /** Already-translated owner name, shown on shared rows. */
+  /**
+   * A shared row's owner mark, kept on one line beside the timestamp. Hovering
+   * it shows `ownerLabel` and `accessLabel`, which also head the row menu.
+   */
+  ownerAvatar?: React.ReactNode;
+  /** Already-translated owner name for a shared row. */
   ownerLabel?: React.ReactNode;
   /** Already-translated access description, e.g. "Shared with you". */
   accessLabel?: React.ReactNode;
@@ -34,8 +40,13 @@ export interface ChatHistoryItem {
   pinned?: boolean;
   disabled?: boolean;
   /**
+   * The viewer can open the chat but not rename, pin or delete it, e.g. a chat
+   * someone shared. The menu keeps the owner header and Copy link.
+   */
+  readOnly?: boolean;
+  /**
    * Presentation only: drops the row menu and context menu while the row stays
-   * selectable. The app decides which rows (e.g. not owned) get no actions.
+   * selectable, e.g. for a draft that has not been saved yet.
    */
   hideActions?: boolean;
 }
@@ -59,6 +70,7 @@ export interface ChatHistoryListLabels {
   rename: string;
   pin: string;
   unpin: string;
+  copyLink: string;
   delete: string;
 }
 
@@ -72,6 +84,8 @@ export interface ChatHistoryListProps {
   onRename?: (id: string, nextTitle: string) => void;
   renameMaxLength?: number;
   onDelete?: (id: string) => void;
+  /** Shown on every row, read-only ones included. */
+  onCopyLink?: (id: string) => void;
   renderRowActions?: (item: ChatHistoryItem) => React.ReactNode;
   renderAdditionalRowActions?: (
     item: ChatHistoryItem,
@@ -104,6 +118,7 @@ const DEFAULT_LABELS: ChatHistoryListLabels = {
   rename: "Rename",
   pin: "Pin to top",
   unpin: "Unpin from top",
+  copyLink: "Copy link",
   delete: "Delete",
 };
 
@@ -117,6 +132,7 @@ export function ChatHistoryList({
   onRename,
   renameMaxLength,
   onDelete,
+  onCopyLink,
   renderRowActions,
   renderAdditionalRowActions,
   searchValue,
@@ -141,9 +157,11 @@ export function ChatHistoryList({
       rename: labels?.rename ?? DEFAULT_LABELS.rename,
       pin: labels?.pin ?? DEFAULT_LABELS.pin,
       unpin: labels?.unpin ?? DEFAULT_LABELS.unpin,
+      copyLink: labels?.copyLink ?? DEFAULT_LABELS.copyLink,
       delete: labels?.delete ?? DEFAULT_LABELS.delete,
     }),
     [
+      labels?.copyLink,
       labels?.delete,
       labels?.options,
       labels?.pin,
@@ -252,6 +270,7 @@ export function ChatHistoryList({
                       onRename={onRename}
                       renameMaxLength={renameMaxLength}
                       onDelete={onDelete}
+                      onCopyLink={onCopyLink}
                       renderRowActions={renderRowActions}
                       renderAdditionalRowActions={renderAdditionalRowActions}
                       labels={resolvedLabels}
@@ -289,6 +308,7 @@ type ChatHistoryRowProps = {
   onRename?: (id: string, nextTitle: string) => void;
   renameMaxLength?: number;
   onDelete?: (id: string) => void;
+  onCopyLink?: (id: string) => void;
   renderRowActions?: (item: ChatHistoryItem) => React.ReactNode;
   renderAdditionalRowActions?: (
     item: ChatHistoryItem,
@@ -296,6 +316,21 @@ type ChatHistoryRowProps = {
   ) => React.ReactNode;
   labels: ChatHistoryListLabels;
 };
+
+function ChatHistoryOwnerSummary({ item }: { item: ChatHistoryItem }) {
+  return (
+    <span className="an-chat-history-owner">
+      {item.ownerLabel != null && (
+        <span className="an-chat-history-owner__name">{item.ownerLabel}</span>
+      )}
+      {item.accessLabel != null && (
+        <span className="an-chat-history-owner__access">
+          {item.accessLabel}
+        </span>
+      )}
+    </span>
+  );
+}
 
 const ChatHistoryRow = React.memo(function ChatHistoryRow({
   item,
@@ -306,6 +341,7 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
   onRename,
   renameMaxLength,
   onDelete,
+  onCopyLink,
   renderRowActions,
   renderAdditionalRowActions,
   labels,
@@ -315,12 +351,13 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
 
+  const editable = !item.readOnly;
+  const hasOwner = item.ownerLabel != null || item.accessLabel != null;
   const hasMenu =
     !item.hideActions &&
     Boolean(
-      onTogglePin ||
-      onRename ||
-      onDelete ||
+      (editable && (onTogglePin || onRename || onDelete)) ||
+      onCopyLink ||
       renderRowActions ||
       renderAdditionalRowActions,
     );
@@ -402,6 +439,22 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
         >
           <div className="an-chat-history-row__topline">
             <span className="an-chat-history-row__title">{item.title}</span>
+            {item.ownerAvatar != null && (
+              <Tooltip
+                trigger={
+                  <span
+                    className="an-chat-history-row__owner-mark"
+                    data-access-basis={item.accessBasis}
+                  >
+                    {item.ownerAvatar}
+                  </span>
+                }
+                content={
+                  hasOwner ? <ChatHistoryOwnerSummary item={item} /> : null
+                }
+                disabled={!hasOwner}
+              />
+            )}
             {item.timestamp != null && (
               <span className="an-chat-history-row__timestamp">
                 {item.timestamp}
@@ -413,23 +466,6 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
           )}
           {item.detail != null && (
             <div className="an-chat-history-row__detail">{item.detail}</div>
-          )}
-          {(item.ownerLabel != null || item.accessLabel != null) && (
-            <div
-              className="an-chat-history-row__access"
-              data-access-basis={item.accessBasis}
-            >
-              {item.ownerLabel != null && (
-                <span className="an-chat-history-row__owner">
-                  {item.ownerLabel}
-                </span>
-              )}
-              {item.accessLabel != null && (
-                <span className="an-chat-history-row__access-label">
-                  {item.accessLabel}
-                </span>
-              )}
-            </div>
           )}
         </button>
       )}
@@ -463,11 +499,22 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
                 side="bottom"
                 sideOffset={4}
               >
+                {hasOwner && (
+                  <div
+                    className="an-chat-history-row__menu-owner"
+                    data-access-basis={item.accessBasis}
+                  >
+                    {item.ownerAvatar != null && (
+                      <span aria-hidden="true">{item.ownerAvatar}</span>
+                    )}
+                    <ChatHistoryOwnerSummary item={item} />
+                  </div>
+                )}
                 {renderRowActions ? (
                   renderRowActions(item)
                 ) : (
                   <>
-                    {onRename && (
+                    {editable && onRename && (
                       <button
                         type="button"
                         role="menuitem"
@@ -478,7 +525,7 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
                         <span>{labels.rename}</span>
                       </button>
                     )}
-                    {onTogglePin && (
+                    {editable && onTogglePin && (
                       <button
                         type="button"
                         role="menuitem"
@@ -496,10 +543,24 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
                         <span>{item.pinned ? labels.unpin : labels.pin}</span>
                       </button>
                     )}
+                    {onCopyLink && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="an-chat-history-row__menu-item"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onCopyLink(item.id);
+                        }}
+                      >
+                        <IconLink size={13} strokeWidth={1.8} />
+                        <span>{labels.copyLink}</span>
+                      </button>
+                    )}
                     {renderAdditionalRowActions?.(item, () =>
                       setMenuOpen(false),
                     )}
-                    {onDelete && (
+                    {editable && onDelete && (
                       <button
                         type="button"
                         role="menuitem"

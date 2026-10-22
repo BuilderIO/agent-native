@@ -361,3 +361,9 @@ Compartir se basa en el modelo de alcance de datos más amplio del marco: el acc
 - [**Autenticación**](/docs/authentication) — sesiones, organizaciones y cómo fluye la identidad al contexto de la solicitud
 - [**Extensiones**](/docs/extensions#sharing) — uso compartido en la superficie de miniaplicaciones aisladas
 - [**Creación de plantillas**](/docs/creating-templates) — conexión de `ownableColumns` al esquema de una plantilla nueva
+
+## Historial de chats compartidos
+
+`@agent-native/toolkit/app/chat/ownership-history` ofrece `useOwnershipChatHistory()` y `OwnershipChatHistoryRail` para una barra lateral con secciones separadas para tus chats y los compartidos contigo. Las filas compartidas muestran el propietario y el motivo del acceso. Cada sección pagina por separado y conserva las filas y los cambios locales si falla la actualización.
+
+Un borrador activo y vacío sigue siendo seleccionable y se puede iniciar mientras espera su primer guardado. Hasta confirmar que está guardado, se ocultan las acciones para fijar, cambiar el nombre y archivar; además, el adaptador rechaza las llamadas forzadas a esas funciones de retorno. `ownDraftRows` proporciona la procedencia de persistencia de los borradores propios, mientras que las filas propias confirmadas de la lista del servidor conservan sus acciones habituales. En los valores personalizados de `OwnDraftRow`, establece el campo opcional `persisted?: boolean` en `true` solo cuando se haya confirmado que la fila persistida del servidor pertenece al usuario actual. No deduzcas que está guardado a partir del número de mensajes ni del ID activo. El rol, la privacidad y si el borrador activo está vacío son datos independientes.
