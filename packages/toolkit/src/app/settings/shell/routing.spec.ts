@@ -288,6 +288,41 @@ describe("legacy settings links", () => {
     ).toMatchObject({ page: "usage", legacy: false });
   });
 
+  it("routes a colliding template tab path to its derived page", () => {
+    const pages = [
+      ...CORE_SETTINGS_PAGES,
+      appPage("app-drafting", "drafting"),
+      appPage("drafting"),
+    ];
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/drafting", hash: "" },
+        pages,
+        { templateTabPageIds: new Map([["drafting", "app-drafting"]]) },
+      ),
+    ).toEqual({
+      page: "app-drafting",
+      sub: null,
+      anchor: null,
+      legacy: true,
+    });
+  });
+
+  it("preserves nested routes for app-owned page ids that match legacy patterns", () => {
+    const pages = [...CORE_SETTINGS_PAGES, appPage("secrets")];
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/secrets/credentials", hash: "" },
+        pages,
+      ),
+    ).toEqual({
+      page: "secrets",
+      sub: "credentials",
+      anchor: null,
+      legacy: false,
+    });
+  });
+
   it("prefers the agent panel's section over the hash it navigated to", () => {
     // The panel sends `secrets` to #integrations for today's Settings.
     expect(

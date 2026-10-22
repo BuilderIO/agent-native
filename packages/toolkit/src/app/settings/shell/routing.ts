@@ -224,6 +224,18 @@ export function resolveSettingsRoute(
         legacy: segments.length > 2,
       };
     }
+    const templatePageId = options.templateTabPageIds?.get(pageId);
+    const templatePage = templatePageId
+      ? pages.find((page) => page.id === templatePageId)
+      : undefined;
+    if (templatePage) {
+      return {
+        page: templatePage.id,
+        sub: null,
+        anchor: hash || null,
+        legacy: true,
+      };
+    }
     // Today's tab link to an area that moved onto the app's General page
     // (`/settings/alerts`). Checked before the redirect table, like
     // `resolveSettingsTabValue`, because the area id is the template's own.
@@ -231,8 +243,6 @@ export function resolveSettingsRoute(
       return { page: "app", sub: pageId, anchor: hash || null, legacy: true };
     }
     if (directPage) {
-      const pattern = segments.length > 1 && resolveSettingsIdPattern(joined);
-      if (pattern) return redirectRoute(pattern, pages, hash || null);
       return {
         page: pageId,
         sub: segments[1] ?? null,
