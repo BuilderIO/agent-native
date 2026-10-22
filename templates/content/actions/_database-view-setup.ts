@@ -636,7 +636,12 @@ export async function runUpdateContentDatabaseView(
       let nextViews: unknown[];
 
       if (input.operation === "create") {
-        validateTablePatch(input.view.config ?? {}, context.definitions);
+        // A new view may copy any saved view's filters, as a full save allows.
+        validateTablePatch(
+          input.view.config ?? {},
+          context.definitions,
+          normalized.views.flatMap((view) => view.filters),
+        );
         viewId = nanoid();
         nextViews = [
           ...rawViews,

@@ -270,27 +270,51 @@ describe("date filter values", () => {
     button("Due: on or before 2026-10-01");
   });
 
-  it("turns a relative day into its date when switching to between", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      vi.setSystemTime(new Date(2026, 9, 22, 9));
-      const latest = renderBar(
-        [filter("due", "Due", "on_or_before", "tomorrow")],
-        0,
-      );
+  it("keeps a relative day as a range's start when switching to between", async () => {
+    const latest = renderBar(
+      [filter("due", "Due", "on_or_before", "tomorrow")],
+      0,
+    );
 
-      await click(button("on or before"));
-      await chooseMenuItem("Between");
-      expect(latest.filters[0]).toMatchObject({
-        operator: "between",
-        value: "2026-10-23",
-      });
-      expect(byLabel<HTMLInputElement>("Start Due filter date").value).toBe(
-        "2026-10-23",
-      );
-    } finally {
-      vi.useRealTimers();
-    }
+    await click(button("on or before"));
+    await chooseMenuItem("Between");
+    expect(latest.filters[0]).toMatchObject({
+      operator: "between",
+      value: "tomorrow",
+    });
+    button("Tomorrow");
+    expect(byLabel<HTMLInputElement>("End Due filter date").value).toBe("");
+
+    await click(button("Exact date"));
+    await chooseMenuItem("Today");
+    expect(latest.filters[0]?.value).toBe(
+      JSON.stringify(["tomorrow", "today"]),
+    );
+  });
+
+  it("shows each range end's relative day or time", async () => {
+    const latest = renderBar(
+      [
+        filter(
+          "due",
+          "Due",
+          "between",
+          JSON.stringify(["yesterday", "2026-10-22T09:00"]),
+        ),
+      ],
+      0,
+    );
+
+    button("Yesterday");
+    const end = byLabel<HTMLInputElement>("End Due filter date");
+    expect(end.type).toBe("text");
+    expect(end.value).toBe("2026-10-22T09:00");
+
+    await click(button("Yesterday"));
+    await chooseMenuItem("Today");
+    expect(latest.filters[0]?.value).toBe(
+      JSON.stringify(["today", "2026-10-22T09:00"]),
+    );
   });
 
   it("turns a relative day into the exact day it means today", async () => {

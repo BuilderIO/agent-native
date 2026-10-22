@@ -52,6 +52,7 @@ import {
   applyContentDatabaseTableQuery,
   CONTENT_DATABASE_RELATIVE_DATE_RANGES,
   CONTENT_DATABASE_RELATIVE_DATES,
+  contentDatabaseDateValueHasTime,
   contentDatabaseFilterDateBound,
   contentDatabaseFilterDateRangeValues,
   contentDatabaseFilterGroupMode,
@@ -18209,8 +18210,9 @@ function DatabaseFilterValueControl({
 
   if (isDateFilterPropertyType(type)) {
     return (
-      <DatabaseDateFilterValueControl
-        filter={filter}
+      <DatabaseDateValueField
+        value={filter.value}
+        label={filter.label}
         autoFocus={autoFocus}
         onValueChange={onValueChange}
       />
@@ -18432,8 +18434,7 @@ function isDateFilterPropertyType(type: DocumentPropertyType) {
 
 // Only "is within" holds a relative range, so a value never carries across
 // that operator in either direction. Leaving "between" keeps the range's start;
-// a single date already reads as the start of a range. The range's inputs take
-// only dates, so a relative day becomes the date it means today.
+// a single date already reads as the start of a range.
 function databaseFilterNextValue(
   current: DatabaseFilter,
   next: Partial<DatabaseFilter>,
@@ -18446,10 +18447,6 @@ function databaseFilterNextValue(
   }
   if (current.operator === "between" && operator !== "between") {
     return contentDatabaseFilterDateRangeValues(current.value)[0];
-  }
-  const value = current.value.trim();
-  if (operator === "between" && isContentDatabaseRelativeDate(value)) {
-    return databaseFilterExactDay(value);
   }
   return current.value;
 }
@@ -18547,38 +18544,41 @@ function DatabaseBetweenDateFilterValueControl({
     onValueChange(databaseFilterEncodeDateRangeValues(nextStart, nextEnd));
   };
 
+  // Each end takes the same values as a single date, so they stack.
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-      <Input
-        type="date"
+    <div className="flex min-w-0 flex-col gap-1">
+      <DatabaseDateValueField
         value={start}
-        aria-label={`Start ${filter.label} filter date`}
-        onChange={(event) => updateRange(event.target.value, end)}
-        className="h-9 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
+        label={`Start ${filter.label} filter date`}
+        onValueChange={(next) => updateRange(next, end)}
       />
-      <span className="text-xs text-muted-foreground">to</span>
-      <Input
-        type="date"
+      <DatabaseDateValueField
         value={end}
-        aria-label={`End ${filter.label} filter date`}
-        onChange={(event) => updateRange(start, event.target.value)}
-        className="h-9 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
+        label={`End ${filter.label} filter date`}
+        onValueChange={(next) => updateRange(start, next)}
       />
     </div>
   );
 }
 
-function DatabaseDateFilterValueControl({
-  filter,
+// One date a filter compares with: an exact date or a day relative to today.
+// A value with a time, which only agents write, is edited as text, since a
+// date input would show it blank and drop the time.
+function DatabaseDateValueField({
+  value: rawValue,
+  label,
   autoFocus,
   onValueChange,
 }: {
-  filter: DatabaseFilter;
+  value: string;
+  label: string;
   autoFocus?: boolean;
   onValueChange: (value: string) => void;
 }) {
-  const value = filter.value.trim();
+  const value = rawValue.trim();
   const relative = isContentDatabaseRelativeDate(value) ? value : null;
+  // Decided once, so the field doesn't switch type while the time is edited.
+  const [editsText] = useState(() => contentDatabaseDateValueHasTime(value));
   const choiceLabel = (choice: ContentDatabaseRelativeDate | null) =>
     choice
       ? dbText(RELATIVE_DATE_LABEL_KEYS[choice])
@@ -18620,9 +18620,9 @@ function DatabaseDateFilterValueControl({
       {relative ? null : (
         <Input
           autoFocus={autoFocus}
-          type="date"
-          value={filter.value}
-          aria-label={filter.label}
+          type={editsText ? "text" : "date"}
+          value={rawValue}
+          aria-label={label}
           onChange={(event) => onValueChange(event.target.value)}
           className="h-9 min-w-0 flex-1 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
         />

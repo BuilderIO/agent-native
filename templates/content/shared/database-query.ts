@@ -231,7 +231,12 @@ export function contentDatabaseFilterHasTime(filter: ContentDatabaseFilter) {
     filter.operator === "between"
       ? contentDatabaseFilterDateRangeValues(filter.value)
       : [filter.value];
-  return values.some((value) => DATE_TIME.test(value.trim()));
+  return values.some(contentDatabaseDateValueHasTime);
+}
+
+/** Whether one date filter value holds a time, such as "2026-10-22T09:00". */
+export function contentDatabaseDateValueHasTime(value: string) {
+  return DATE_TIME.test(value.trim());
 }
 
 /** Whether the rows a filter matches depend on the day it is read. */

@@ -242,8 +242,10 @@ option from the typed query, and property settings can rename option labels
 or change option colors while preserving stable option IDs. Option-backed
 filter value pickers are searchable, can create a new option from the typed
 query, and can be cleared without removing the whole filter row. Date
-filters choose an exact date or a relative day, `is_within` chooses a relative
-range, and number properties use numeric inputs.
+filters, and each end of a `between` range, choose an exact date or a relative
+day; a value with a time is edited as text so the time isn't dropped.
+`is_within` chooses a relative range, and number properties use numeric
+inputs.
 
 Column header menus can add or clear column sorts, add or replace type-aware
 quick filters (including checked/unchecked for checkbox fields), clear

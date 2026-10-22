@@ -721,6 +721,21 @@ describe("ordinary property and table-view setup", () => {
     await expect(
       replaceConfig("copy-stale-into-view", await withCopy([stale])),
     ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+    await expect(
+      asOwner(async () =>
+        updateView.run({
+          operation: "create",
+          target,
+          ...(await revisions()),
+          idempotencyKey: "create-view-copying-stale-date",
+          view: {
+            name: "Created copy",
+            type: "table",
+            config: { filters: [stale] },
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({ receipt: { outcome: "created" } });
 
     await expect(savePersonal(stale)).resolves.toMatchObject({
       overrides: { views: [{ filters: [stale] }] },
