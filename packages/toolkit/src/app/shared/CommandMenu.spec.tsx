@@ -1269,6 +1269,78 @@ describe("CommandMenu", () => {
 
     expect(onSelect).toHaveBeenCalledOnce();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+
+    search("jump-to-today");
+    expect(
+      document.querySelector(
+        '[cmdk-item][data-value="app-command:actions:jump-to-today"]',
+      ),
+    ).toBeNull();
+    search("⌘ J");
+    expect(
+      document.querySelector(
+        '[cmdk-item][data-value="app-command:actions:jump-to-today"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("uses the latest nested page commands while the page is open", () => {
+    const createGroups = (
+      label: string,
+      onSelect: () => void,
+    ): AppCommandGroup[] => [
+      {
+        id: "main",
+        order: 1,
+        commands: [
+          {
+            id: "open-tools",
+            order: 1,
+            label: "Open tools",
+            page: {
+              id: "tools",
+              title: "Tools",
+              groups: [
+                {
+                  id: "tool-actions",
+                  order: 1,
+                  commands: [
+                    {
+                      id: "refresh",
+                      order: 1,
+                      label,
+                      deferSelect: false,
+                      onSelect,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ];
+    const originalSelect = vi.fn();
+    const latestSelect = vi.fn();
+
+    renderAppCommands({ groups: createGroups("Old command", originalSelect) });
+    const parentRow = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:main:open-tools"]',
+    );
+    expect(parentRow).toBeTruthy();
+    act(() => parentRow!.click());
+
+    renderAppCommands({ groups: createGroups("Latest command", latestSelect) });
+
+    expect(document.body.textContent).toContain("Latest command");
+    expect(document.body.textContent).not.toContain("Old command");
+    const currentRow = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:tool-actions:refresh"]',
+    );
+    expect(currentRow).toBeTruthy();
+    act(() => currentRow!.click());
+    expect(latestSelect).toHaveBeenCalledOnce();
+    expect(originalSelect).not.toHaveBeenCalled();
   });
 
   it("pushes nested command pages and returns by Back or Escape", () => {

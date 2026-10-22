@@ -323,11 +323,26 @@ function ordered<T extends { order: number }>(items: T[]): T[] {
 function appCommandSearchText<TAppContext>(
   command: AppCommand<TAppContext>,
 ): string {
-  return [command.id, command.label, command.description, command.shortcutHint]
+  return [command.label, command.description]
     .concat(command.keywords ?? [])
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+function findAppCommandPage<TAppContext>(
+  groups: AppCommandGroup<TAppContext>[],
+  pageId: string,
+): AppCommandPage<TAppContext> | undefined {
+  for (const group of groups) {
+    for (const command of group.commands) {
+      if (!("page" in command) || !command.page) continue;
+      if (command.page.id === pageId) return command.page;
+      const nestedPage = findAppCommandPage(command.page.groups, pageId);
+      if (nestedPage) return nestedPage;
+    }
+  }
+  return undefined;
 }
 
 function filterAppCommandGroups<TAppContext>(
@@ -463,7 +478,7 @@ export interface CommandMenuProps<TAppContext = unknown> {
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
   renderResults?: (search: string) => ReactNode;
-  /** Reports whether the default `renderResults` output has selectable rows. */
+  /** Reports whether the default `renderResults` output has selectable rows; supply it for opaque components. */
   renderResultsHasItems?: (search: string) => boolean;
   renderResultsPosition?: "before" | "after";
   renderContent?: (options: {
@@ -539,7 +554,7 @@ export function CommandMenu<TAppContext = unknown>({
 }: CommandMenuProps<TAppContext>) {
   const [search, setSearch] = useState("");
   const [appPageStack, setAppPageStack] = useState<
-    Array<{ page: AppCommandPage<TAppContext>; parentSearch: string }>
+    Array<{ pageId: string; parentSearch: string }>
   >([]);
   const [selectedCommandValue, setSelectedCommandValue] = useState("");
   const models = useChatModels({
@@ -803,7 +818,10 @@ export function CommandMenu<TAppContext = unknown>({
     });
   };
 
-  const activeAppPage = appPageStack.at(-1)?.page;
+  const activePageId = appPageStack.at(-1)?.pageId;
+  const activeAppPage = activePageId
+    ? findAppCommandPage(appCommandGroups ?? [], activePageId)
+    : undefined;
   const currentAppGroups = activeAppPage?.groups ?? appCommandGroups ?? [];
   const filteredAppGroups = filterAppCommandGroups(
     currentAppGroups,
@@ -862,7 +880,10 @@ export function CommandMenu<TAppContext = unknown>({
   }, [appPageStack, resetSelection, updateSearch]);
 
   const openAppPage = (page: AppCommandPage<TAppContext>) => {
-    setAppPageStack((stack) => [...stack, { page, parentSearch: search }]);
+    setAppPageStack((stack) => [
+      ...stack,
+      { pageId: page.id, parentSearch: search },
+    ]);
     updateSearch("");
     resetSelection();
   };
