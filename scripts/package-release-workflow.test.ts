@@ -126,6 +126,29 @@ describe("npm package release workflow", () => {
     );
   });
 
+  it("does not allow adding or removing a versionless package manifest", () => {
+    assert.throws(
+      () =>
+        packageManifestVersionChange(
+          "templates/community/qr/package.json",
+          "added",
+          null,
+          { version: null },
+        ),
+      /Could not verify added package manifest/,
+    );
+    assert.throws(
+      () =>
+        packageManifestVersionChange(
+          "templates/community/qr/package.json",
+          "removed",
+          { version: null },
+          null,
+        ),
+      /Could not verify removed package manifest/,
+    );
+  });
+
   it("keeps the major-promotion check for versioned package manifests", () => {
     assert.equal(isMajorVersionPromotion("0.216.0", "1.0.0"), true);
     assert.equal(isMajorVersionPromotion("0.216.0", "0.217.0"), false);
