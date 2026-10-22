@@ -162,7 +162,8 @@
 }
 
 .agentkit-composer [data-agent-composer-slot="model-button"] {
-  flex: none;
+  flex: 0 1 auto;
+  min-inline-size: 0;
   max-inline-size: 11rem;
 }
 
