@@ -162,8 +162,11 @@ actions for Forms, Content, Clips, Slides, and Design. The action should return
 concise structured content plus the link; it should not dump large catalogs or
 HTML.
 
-Compatibility target: build to the standard once, not per-client shims. MCP
-Apps-capable hosts should include Claude/Claude Desktop/Claude Code, ChatGPT
-custom MCP apps, VS Code GitHub Copilot, Goose, Postman, MCPJam, Cursor, and
-any future host that follows the extension negotiation. Host support varies by
-plan, release channel, and client version, so keep the deep link fallback.
+Compatibility target: build to the standard once, not per-client shims.
+Hosts that render MCP Apps inline today include Claude on web, desktop, mobile,
+and Cowork; ChatGPT; VS Code GitHub Copilot (1.109+); Microsoft 365 Copilot; Cursor (2.6+); Goose;
+Postman; MCPJam; Codex Desktop (26.616+); and T3 Code (in Codex threads). Claude Code (the
+terminal and the desktop Code tab) does not render them, so treat it as a
+link-out host. Host support varies by plan, release channel, and client version,
+so keep the deep link fallback. See the community-maintained
+[MCP client matrix](https://modelcontextprotocol.io/extensions/client-matrix).

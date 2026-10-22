@@ -136,11 +136,23 @@ Claude/ChatGPT conversation. Hidden context stays in model context; do not put
 internal app-state file instructions into the visible prompt. `submit: false`
 stays local as a prefill/review path.
 
+In the ChatGPT MCP App host, foreground text-and-context handoffs explicitly
+marked `chatTarget: "local"` also use the active `window.openai` / `ui/message`
+bridge, so review and edit actions continue in the ChatGPT conversation. Keep
+prefill-only, background, approval, URL-backed attachments, and app-scoped
+requests local. Inline images represented as data URLs and text attachments can
+use the host. A `newTab` prompt continues in ChatGPT's active conversation;
+thread-fork controls remain app-local because the host bridge has no fork
+method. Other MCP hosts retain their explicit local-chat behavior.
+
 When testing Claude through ngrok, use a production build (`pnpm exec agent-native build`
 then `pnpm exec agent-native start`) or a deployed preview/production URL. Claude's
 transplant path works with production asset chunks; raw Vite dev modules such
 as `/app/root.tsx` can be app-auth protected and fail dynamic imports from the
-Claude resource origin.
+Claude resource origin. A production build refuses local PGlite and a generated
+auth secret, so set `DATABASE_URL` to a Postgres database (a local Postgres or a
+Neon branch) and `BETTER_AUTH_SECRET` (from `openssl rand -hex 32`) before
+`agent-native start`.
 
 For known first-party handoffs, prefer a direct action with `mcpApp` over
 letting the model hunt through screens. Examples: Mail `manage-draft` for email
@@ -150,8 +162,11 @@ actions for Forms, Content, Clips, Slides, and Design. The action should return
 concise structured content plus the link; it should not dump large catalogs or
 HTML.
 
-Compatibility target: build to the standard once, not per-client shims. MCP
-Apps-capable hosts should include Claude/Claude Desktop/Claude Code, ChatGPT
-custom MCP apps, VS Code GitHub Copilot, Goose, Postman, MCPJam, Cursor, and
-any future host that follows the extension negotiation. Host support varies by
-plan, release channel, and client version, so keep the deep link fallback.
+Compatibility target: build to the standard once, not per-client shims.
+Hosts that render MCP Apps inline today include Claude on web, desktop, mobile,
+and Cowork; ChatGPT; VS Code GitHub Copilot (1.109+); Microsoft 365 Copilot; Cursor (2.6+); Goose;
+Postman; MCPJam; Codex Desktop (26.616+); and T3 Code (in Codex threads). Claude Code (the
+terminal and the desktop Code tab) does not render them, so treat it as a
+link-out host. Host support varies by plan, release channel, and client version,
+so keep the deep link fallback. See the community-maintained
+[MCP client matrix](https://modelcontextprotocol.io/extensions/client-matrix).

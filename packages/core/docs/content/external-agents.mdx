@@ -309,7 +309,7 @@ need a connector such as `npx @agent-native/core@latest connect https://assets.a
 | `visual-plans` | `agent-native-plans` | visual plans, recaps, and repo-native docs      |
 | `context-xray` | `xray`               | local Codex/Claude Code context usage           |
 
-The default client selection is all supported local clients; add `--client codex`, `--client claude-code`, or another specific target to narrow setup. Inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) render the picker / variant grid in chat; CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) return an "Open in … →" link where the user picks in the browser and pastes a handoff summary back.
+The default client selection is all supported local clients; add `--client codex`, `--client claude-code`, or another specific target to narrow setup. Inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) render the picker / variant grid in chat; CLI/link-only hosts (Codex CLI, Claude Code, Claude Desktop "Code" tab) return an "Open in … →" link where the user picks in the browser and pastes a handoff summary back.
 
 When you truly need an isolated app instead of Dispatch's workspace gateway,
 run the same command with that app's host:

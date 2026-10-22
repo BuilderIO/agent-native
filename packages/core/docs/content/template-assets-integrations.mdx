@@ -52,8 +52,9 @@ copies a handoff summary and shows a copyable context block; paste that summary
 back into the chat so the external agent can use the selected media URL and
 asset metadata.
 
-Codex, Claude Code, and Claude Desktop Code should be treated as link-out hosts
-for this flow. They may not render MCP Apps inline, and remote CDN markdown
+Codex CLI and Claude Code (the terminal and the desktop Code tab) use the
+link-out flow. For rendering hosts, including Codex Desktop, see
+[MCP Apps → Host support](/docs/mcp-apps#client-support). Remote CDN markdown
 images may not display reliably in the chat transcript. Agents should keep the
 asset link as the source of truth; when a visible inline preview is needed in a
 code-editor chat, download the selected `previewUrl`/`downloadUrl` to a local

@@ -258,9 +258,9 @@ ngrok를 통해 Claude를 테스트할 때 프로덕션 빌드(`pnpm build` 다�
 
 ## 클라이언트 지원 및 캐싱 {#client-support}
 
-현재 공식 MCP 앱 클라이언트 목록에는 Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT 및 Cursor가 포함됩니다. 호스트 지원은 여전히 ​​계획, 릴리스 채널 및 클라이언트 버전에 따라 다르므로 [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix)를 확인하세요. ChatGPT 맞춤형 MCP 앱은 ChatGPT 웹의 Business 및 Enterprise/Edu 작업 공간용 개발자 모드를 통해 사용할 수 있습니다. OpenAI의 [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) 노트를 참조하세요.
+MCP Apps를 인라인으로 렌더링하는 호스트에는 Claude(웹, 데스크톱, 모바일, Cowork) 및 다음 클라이언트가 포함됩니다: ChatGPT; VS Code GitHub Copilot (1.109+); Microsoft 365 Copilot; Cursor (2.6+); Goose; Postman; MCPJam; Codex Desktop (26.616+); T3 Code (Codex). 지원 여부는 요금제, 릴리스 채널 및 클라이언트 버전에 따라 다릅니다. 참조: [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix)를 확인하세요. ChatGPT 맞춤형 MCP 앱은 ChatGPT 웹의 Business 및 Enterprise/Edu 작업 공간용 개발자 모드를 통해 사용할 수 있습니다. OpenAI의 [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) 노트를 참조하세요.
 
-Claude 코드, Codex 및 기타 CLI/코드 편집기 클라이언트는 MCP 앱을 지원할 때 여전히 동일한 리소스와 메타데이터를 수신하지만 정확한 표면에서 인라인 iframe 렌더링을 확인하지 않는 한 이를 링크아웃 호스트로 처리합니다. 호스트가 iframe을 렌더링하지 않기로 선택한 경우 딥 링크는 안정적인 대체 수단으로 남아 있습니다. 실제로 모든 에이전트 기반 앱은 가능한 호스트에서 인라인 검토/편집을 위한 MCP 앱과 전체 앱으로의 범용 왕복을 위한 `link`를 모두 사용하여 작성되어야 합니다.
+Claude Code(터미널 및 데스크톱 앱의 Code 탭)는 MCP Apps를 렌더링하지 않습니다. 딥 링크 대체 수단을 사용하세요. 호스트가 iframe을 렌더링하지 않기로 선택한 경우 딥 링크는 안정적인 대체 수단으로 남아 있습니다. 실제로 모든 에이전트 기반 앱은 가능한 호스트에서 인라인 검토/편집을 위한 MCP 앱과 전체 앱으로의 범용 왕복을 위한 `link`를 모두 사용하여 작성되어야 합니다.
 
 Claude 및 ChatGPT는 기존 사용자 정의 커넥터에 대한 도구 및 리소스 메타데이터를 캐시할 수 있습니다. MCP 앱 메타데이터를 변경한 후 새로운 도구 호출로 확인하세요. 호스트가 여전히 이전 설명자를 사용하는 경우 Claude 커넥터를 다시 연결하거나 ChatGPT 커넥터를 다시 검색/검토하여 카탈로그를 새로 고치십시오. Claude가 배포 후 도구 설명자에 있는 `_meta.ui.csp` 또는 `_meta.ui.permissions`에 대한 경고를 기록하는 경우 해당 커넥터는 오래된 메타데이터를 사용하고 있는 것입니다. Claude 커넥터를 삭제/다시 연결하고 새로운 채팅을 시작하세요.
 
