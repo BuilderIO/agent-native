@@ -292,7 +292,8 @@ describe("describe-workspace-apps", () => {
         description: "Customer success dashboard: account health and usage.",
         whenToUse: [
           "Look up AI credit usage for a customer account or user email.",
-          "Review renewal risk, ARR at risk, open support escalations, recent Gong calls, and HubSpot activity for a named customer account before a QBR, renewal, or executive check-in with that customer.",
+          "Review renewal risk, ARR at risk, and open support escalations for a named customer account before a QBR or renewal call.",
+          "Summarize recent Gong calls and HubSpot activity for a customer account ahead of an executive check-in with that customer.",
         ],
       }),
       agent({
