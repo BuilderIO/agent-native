@@ -13,6 +13,9 @@ const DEFAULT_COLORS = [
 const WIDTH = 640;
 const HEIGHT = 360;
 const MARGIN = { top: 14, right: 18, bottom: 34, left: 46 };
+const Y_AXIS_TITLE_X = 14;
+const VALUE_AXIS_TICK_LABEL_INSET = 8;
+const VALUE_AXIS_TITLE_TICK_GAP = 8;
 const MAX_LABEL_LENGTH = 16;
 const MIN_PLOT_WIDTH = 32;
 const MAX_VERTICAL_VALUE_TICK_LABEL_WIDTH =
@@ -191,6 +194,7 @@ function ChartBody({
             (_, index) => (firstTick + index) * tickInterval,
           );
         })();
+  const axisTitleFontSize = chart.axisTitleFontSize ?? 11;
   const horizontalCategoryWidth = isHorizontalBar
     ? Math.max(
         0,
@@ -230,6 +234,14 @@ function ChartBody({
     ? Math.ceil(valueTickLabelWidth / 2) + 2
     : 0;
   const customValueTickWidth = isHorizontalBar ? 0 : customValueTickLabelWidth;
+  const verticalValueTickMargin = isHorizontalBar
+    ? 0
+    : chart.yAxisTitle
+      ? Y_AXIS_TITLE_X +
+        axisTitleFontSize / 2 +
+        VALUE_AXIS_TITLE_TICK_GAP +
+        VALUE_AXIS_TICK_LABEL_INSET
+      : VALUE_AXIS_TICK_LABEL_INSET * 2;
   const horizontalPositiveValueWidth =
     isHorizontalBar && chart.showValueLabels
       ? Math.max(
@@ -277,7 +289,7 @@ function ChartBody({
     left:
       Math.max(
         categoryMargin,
-        customValueTickWidth + 16,
+        customValueTickWidth + verticalValueTickMargin,
         horizontalValueTickLabelInset,
       ) +
       (horizontalNegativeValueWidth > 0
@@ -389,7 +401,6 @@ function ChartBody({
   const zero = Math.max(min, Math.min(max, 0));
   const zeroX = xForValue(zero);
   const zeroY = yForValue(zero);
-  const axisTitleFontSize = chart.axisTitleFontSize ?? 11;
   const axisTitleFontWeight = chart.axisTitleFontWeight ?? 500;
   const valueLabelFontSize = chart.valueLabelFontSize ?? 11;
   const valueLabelFontWeight = chart.valueLabelFontWeight ?? 400;
@@ -431,7 +442,7 @@ function ChartBody({
             />
             {axisLabelIndexes.has(tick.index) ? (
               <text
-                x={margin.left - 8}
+                x={margin.left - VALUE_AXIS_TICK_LABEL_INSET}
                 y={tick.y + 4}
                 fill="hsl(var(--muted-foreground))"
                 fontSize={labelFontSize}
@@ -493,9 +504,9 @@ function ChartBody({
       ) : null}
       {chart.yAxisTitle ? (
         <text
-          x={14}
+          x={Y_AXIS_TITLE_X}
           y={margin.top + plotHeight / 2}
-          transform={`rotate(-90 14 ${margin.top + plotHeight / 2})`}
+          transform={`rotate(-90 ${Y_AXIS_TITLE_X} ${margin.top + plotHeight / 2})`}
           fill="hsl(var(--foreground))"
           fontSize={axisTitleFontSize}
           fontWeight={axisTitleFontWeight}

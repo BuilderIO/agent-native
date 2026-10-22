@@ -466,12 +466,13 @@ describe("DataChartRenderer theme colors", () => {
     ]);
   });
 
-  it("compacts wide vertical ticks while preserving a usable plot width", () => {
+  it("compacts wide vertical ticks while keeping them clear of the axis title", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
         chart={{
           type: "line",
           xKey: "day",
+          yAxisTitle: "Revenue",
           series: [{ key: "value", label: "Value" }],
           data: [
             { day: "Low", value: 0 },
@@ -501,9 +502,15 @@ describe("DataChartRenderer theme colors", () => {
     expect(
       Number(plotBounds?.[2]) - Number(plotBounds?.[1]),
     ).toBeGreaterThanOrEqual(32);
+    const title = markup.match(
+      /<text x="([\d.]+)" y="[\d.]+" transform="rotate\(-90 [\d.]+ [\d.]+\)"[^>]*font-size="([\d.]+)"[^>]*>Revenue<\/text>/,
+    );
+    expect(title).not.toBeNull();
+    const titleRight = Number(title?.[1]) + Number(title?.[2]) / 2;
     for (const tick of tickLabels) {
       const estimatedWidth = tick.label.length * 11 * 0.65;
       expect(tick.x - estimatedWidth).toBeGreaterThanOrEqual(0);
+      expect(tick.x - estimatedWidth).toBeGreaterThanOrEqual(titleRight + 8);
       expect(tick.x).toBeLessThanOrEqual(640);
       expect(tick.y).toBeGreaterThanOrEqual(0);
       expect(tick.y).toBeLessThanOrEqual(360);
