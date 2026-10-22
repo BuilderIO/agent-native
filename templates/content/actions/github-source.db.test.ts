@@ -280,6 +280,7 @@ let syncGitHubSource: typeof import("./_github-source.js").syncGitHubSource;
 let getDocument: typeof import("./get-document.js").default;
 let runGitHubSourceSweep: typeof import("./_github-source-freshness.js").runGitHubSourceSweep;
 let refreshBeforeRead: typeof import("./_github-source-freshness.js").refreshGitHubSourceBeforeRead;
+let liveCopyPage: typeof import("../server/test-support/live-copy-page.js");
 let spaceId: string;
 
 const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
@@ -320,6 +321,7 @@ beforeAll(async () => {
   ({ mutateDocumentBody, documentRevisionToken } =
     await import("./_document-edit-mutation.js"));
   getDocument = (await import("./get-document.js")).default;
+  liveCopyPage = await import("../server/test-support/live-copy-page.js");
   ({ runGitHubSourceSweep, refreshGitHubSourceBeforeRead: refreshBeforeRead } =
     await import("./_github-source-freshness.js"));
   await as(() =>
@@ -870,6 +872,30 @@ describe("GitHub folder source", () => {
           entry.operation === "sync-github-source",
       ),
     ).toBe(true);
+  });
+
+  it("refuses to write an edited file over a page that takes body writes through its live copy", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    // A page detached from its source can switch, and its record still names it.
+    await liveCopyPage.putPageOnLiveCopy(faq.documentId);
+    try {
+      github.commit({
+        ...BASE_FILES,
+        "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+      });
+      await expect(
+        as(() => syncFolder.run({ databaseId: database.id })),
+      ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITER_UNSUPPORTED" });
+      const [after] = (await liveRows(database.id)).filter(
+        (row) => row.documentId === faq.documentId,
+      );
+      expect(after).toEqual(faq);
+    } finally {
+      await liveCopyPage.turnLiveCopyFlagsOff();
+    }
   });
 
   it("keeps a renamed file's page, and moves a deleted file's page to Trash", async () => {

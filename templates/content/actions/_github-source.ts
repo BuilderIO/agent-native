@@ -12,7 +12,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import {
   GitHubSourceDeadlineError,
@@ -1287,12 +1287,16 @@ async function applyFile(
                 previous.metaHash !== nextState.metaHash;
               const moved = document.sourcePath !== file.repoPath;
               if (bodyChanged) {
+                const legacy = await lockLegacyBodyWrites(tx, [document.id], {
+                  operation: "GitHub folder sync",
+                  content: page.content,
+                });
                 const [written] = await tx
                   .update(schema.documents)
                   .set({
                     title: page.title,
                     content: page.content,
-                    bodyRevision: bodyRevisionForContent(page.content),
+                    bodyRevision: legacy.bodyRevision(page.content),
                     description: page.description ?? "",
                     icon: page.icon ?? document.icon,
                     sourcePath: file.repoPath,
