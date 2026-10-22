@@ -1789,6 +1789,124 @@ describe("GitHub folder source", () => {
     }
   });
 
+  it("tries a rejected image once per sync, however many pages use it", async () => {
+    github.state.rejectFilename = "logo.png";
+    const logo = "# Logo\n\n![Logo](images/logo.png)\n";
+    github.commit({
+      ...BASE_FILES,
+      // First in the folder, so the logo's pages come before the other images.
+      "docs/a-one.md": logo,
+      "docs/a-two.md": `${logo}\nTwo.\n`,
+      "docs/a-three.md": `${logo}\nThree.\n`,
+      "docs/images/logo.png": "PNGLOGO",
+      "docs/chart.md": "# Chart\n\n![Chart](images/chart.png)\n",
+      "docs/images/chart.png": "PNGCHART",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const linked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      // One image failing on three pages isn't storage being down, so the
+      // chart and the diagram after them still upload.
+      expect(linked.sync).toMatchObject({
+        state: "synced",
+        created: 7,
+        imagesWaiting: 3,
+        problem: { code: "storage_failed" },
+      });
+      expect(github.state.uploadFailures).toBe(1);
+      expect(github.state.uploads).toBe(2);
+      const rows = await liveRows(database.id);
+      const page = (path: string) =>
+        rows.find((row) => row.sourcePath === path)!.content;
+      expect(page("docs/chart.md")).toContain("files.example.test");
+      expect(page("docs/getting-started.md")).toContain("files.example.test");
+      for (const path of [
+        "docs/a-one.md",
+        "docs/a-two.md",
+        "docs/a-three.md",
+      ]) {
+        expect(page(path)).not.toContain("files.example.test");
+      }
+
+      // The next sync tries the three pages again, and the logo once.
+      const still = await as(() => syncFolder.run({ databaseId: database.id }));
+      expect(still.sync).toMatchObject({
+        imagesWaiting: 3,
+        problem: { code: "storage_failed" },
+      });
+      expect(github.state.uploadFailures).toBe(2);
+
+      github.state.rejectFilename = null;
+      const filled = await as(() =>
+        syncFolder.run({ databaseId: database.id }),
+      );
+      expect(filled.sync).toMatchObject({
+        updated: 3,
+        imagesWaiting: 0,
+        problem: null,
+      });
+      expect(github.state.uploads).toBe(3);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps saying storage failed when a sync runs out of time before retrying the images", async () => {
+    github.state.rejectFilename = "poster.png";
+    github.commit({
+      ...BASE_FILES,
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const linked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      expect(linked.sync).toMatchObject({
+        imagesWaiting: 1,
+        problem: { code: "storage_failed" },
+      });
+      expect(github.state.uploadFailures).toBe(1);
+
+      // Storage is set up, but the time is gone before the poster is tried:
+      // nothing new is known about storage, so the reason stays.
+      const id = await sourceId(database.id);
+      const cut = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 0 }),
+      );
+      expect(cut).toMatchObject({
+        state: "partial",
+        remaining: 1,
+        imagesWaiting: 1,
+        problem: { code: "storage_failed" },
+      });
+      expect(github.state.uploadFailures).toBe(1);
+      const status = await as(() => getSource.run({ databaseId: database.id }));
+      expect(status.source?.metadata.github).toMatchObject({
+        imagesWaiting: 1,
+        problem: { code: "storage_failed" },
+      });
+
+      github.state.rejectFilename = null;
+      const filled = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(filled).toMatchObject({
+        state: "synced",
+        updated: 1,
+        imagesWaiting: 0,
+        problem: null,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("keeps general source settings off a GitHub link, and disconnecting frees its pages", async () => {
     const { database } = await linkBaseFolder();
     const id = await sourceId(database.id);

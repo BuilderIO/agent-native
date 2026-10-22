@@ -930,6 +930,8 @@ interface PlannedFile {
   text?: string | null;
   /** Images this sync couldn't store for the file's page. */
   imagesWaiting?: number;
+  /** Whether any of those failed to upload, this sync or an earlier one. */
+  imagesFailed?: boolean;
 }
 
 interface SyncRun {
@@ -947,6 +949,11 @@ interface SyncRun {
   documentIdByPath: Map<string, string>;
   /** Uploaded image URL by blob SHA, shared across pages. */
   assetUrlBySha: Map<string, string>;
+  /**
+   * Blob SHAs of images whose upload failed this run. Other pages that use
+   * one leave it out without trying again, so one image counts once.
+   */
+  failedAssetShas: Set<string>;
   /** Set once an upload finds no file storage, so later images skip the read. */
   storageMissing: boolean;
   /** Set once an upload fails, so the status says storage couldn't save images. */
@@ -1007,7 +1014,7 @@ async function storeImage(
 /**
  * Uploads that fail in a row before a sync stops trying for the rest of its
  * run. One failure may be that image alone, such as a file storage rejects;
- * several in a row mean storage itself is down.
+ * several different images in a row mean storage itself is down.
  */
 const STORAGE_DOWN_FAILURES = 3;
 
@@ -1034,6 +1041,7 @@ async function uploadAsset(
     const sha = hash(request.dataUrl);
     const cached = run.assetUrlBySha.get(sha);
     if (cached) return { sha, url: cached };
+    if (run.failedAssetShas.has(sha)) return "failed";
     if (storageDown(run)) return "no-storage";
     const extension = request.mediaType.split("/")[1]?.split("+")[0] ?? "img";
     const stored = await storeImage(run, {
@@ -1041,7 +1049,10 @@ async function uploadAsset(
       filename: `github-image.${extension}`,
       mimeType: request.mediaType,
     });
-    if (stored === "failed") return stored;
+    if (stored === "failed") {
+      run.failedAssetShas.add(sha);
+      return stored;
+    }
     if (!stored) return "no-storage";
     run.assetUrlBySha.set(sha, stored.url);
     return { sha, url: stored.url };
@@ -1054,6 +1065,7 @@ async function uploadAsset(
   }
   const cached = run.assetUrlBySha.get(entry.sha);
   if (cached) return { sha: entry.sha, url: cached };
+  if (run.failedAssetShas.has(entry.sha)) return "failed";
   if (storageDown(run)) return "no-storage";
   const data = await asLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
@@ -1069,7 +1081,10 @@ async function uploadAsset(
     filename: request.path.split("/").pop() ?? "image",
     mimeType,
   });
-  if (stored === "failed") return stored;
+  if (stored === "failed") {
+    run.failedAssetShas.add(entry.sha);
+    return stored;
+  }
   if (!stored) return "no-storage";
   run.assetUrlBySha.set(entry.sha, stored.url);
   return { sha: entry.sha, url: stored.url };
@@ -1333,6 +1348,7 @@ async function applyFile(
         ? { imagesFailedAt: previous.imagesFailedAt }
         : {}),
   };
+  file.imagesFailed = Boolean(nextState.imagesFailedAt);
 
   return withPositionLock(
     documentsPositionScope(run.database.ownerEmail, run.database.documentId),
@@ -1908,6 +1924,7 @@ export async function syncGitHubSource(
       removedKeys: removed,
       documentIdByPath: new Map(),
       assetUrlBySha,
+      failedAssetShas: new Set(),
       storageMissing: false,
       storageFailed: false,
       uploadFailuresInARow: 0,
@@ -2063,21 +2080,27 @@ export async function syncGitHubSource(
       }
     }
     result.remaining = remainingFiles + gone.size;
-    result.imagesWaiting = planned.reduce((total, file) => {
+    // Pages this run didn't get to still wait on what their last sync left out.
+    let imagesFailed = false;
+    for (const file of planned) {
       const linked = file.row ?? file.renamedFrom;
-      return (
-        total +
-        (file.imagesWaiting ??
-          (linked ? (rowState(linked)?.imagesWaiting ?? 0) : 0))
-      );
-    }, 0);
+      const last = linked ? rowState(linked) : null;
+      const waiting = file.imagesWaiting ?? last?.imagesWaiting ?? 0;
+      result.imagesWaiting += waiting;
+      if (waiting > 0 && (file.imagesFailed ?? Boolean(last?.imagesFailedAt))) {
+        imagesFailed = true;
+      }
+    }
     // Storage that just worked isn't missing, even if the time budget left
-    // some pages for the next sync to fill in.
-    const storageReady =
-      retryImages && !run.storageMissing && !run.storageFailed;
-    result.problem = storageReady
-      ? null
-      : storageProblem(result.imagesWaiting, now, run.storageFailed);
+    // some pages for the next sync to fill in. Images that failed to upload
+    // still say so until they're stored, even when the time ran out before
+    // this run got back to them.
+    const storageSetUp = retryImages && !run.storageMissing;
+    const storageFailed = run.storageFailed || (storageSetUp && imagesFailed);
+    result.problem =
+      storageSetUp && !storageFailed
+        ? null
+        : storageProblem(result.imagesWaiting, now, storageFailed);
     const complete = result.remaining === 0;
     result.state = complete ? "synced" : "partial";
     // A run that got through some files isn't a finished check, so the
