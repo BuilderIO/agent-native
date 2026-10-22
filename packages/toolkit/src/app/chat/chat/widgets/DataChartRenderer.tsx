@@ -38,6 +38,26 @@ function formatTick(value: number): string {
   return value.toFixed(1);
 }
 
+function formatAxisTick(value: number, interval: number): string {
+  let decimalPlaces = 0;
+  while (
+    decimalPlaces < 12 &&
+    Math.abs(
+      interval * 10 ** decimalPlaces -
+        Math.round(interval * 10 ** decimalPlaces),
+    ) > 1e-9
+  ) {
+    decimalPlaces += 1;
+  }
+  if (Math.abs(value) >= 1000) {
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: decimalPlaces,
+      maximumFractionDigits: decimalPlaces,
+    });
+  }
+  return value.toFixed(decimalPlaces);
+}
+
 function labelFor(value: unknown): string {
   const characters = Array.from(value == null ? "" : String(value));
   return characters.length > MAX_LABEL_LENGTH
@@ -81,6 +101,15 @@ function ChartBody({
   chart: DataChartWidgetData;
   labelFontSize: number;
 }) {
+  const categoryGapRatio = chart.horizontalCategoryGapRatio;
+  if (
+    categoryGapRatio !== undefined &&
+    (!Number.isFinite(categoryGapRatio) ||
+      categoryGapRatio < 0 ||
+      categoryGapRatio > 0.9)
+  ) {
+    throw new Error("Horizontal category gap ratio must be between 0 and 0.9");
+  }
   const { min, max } = rangeFor(chart);
   const isHorizontalBar = chart.type === "bar" && chart.layout === "horizontal";
   const horizontalCategoryWidth = isHorizontalBar
@@ -151,14 +180,41 @@ function ChartBody({
       : margin.left + (index / (chart.data.length - 1)) * plotWidth;
   const yForRow = (index: number) =>
     margin.top + ((index + 0.5) * plotHeight) / Math.max(1, chart.data.length);
-  const gridTicks = Array.from({ length: 4 }, (_, index) => {
-    const value = min + ((max - min) * index) / 3;
-    return {
-      value,
-      x: xForValue(value),
-      y: yForValue(value),
-    };
-  });
+  const tickInterval = chart.valueAxisTickInterval;
+  const gridTickValues =
+    tickInterval === undefined
+      ? Array.from({ length: 4 }, (_, index) => min + ((max - min) * index) / 3)
+      : (() => {
+          if (!Number.isFinite(tickInterval) || tickInterval < 1e-12) {
+            throw new Error(
+              "Chart value-axis interval must be finite and positive",
+            );
+          }
+          if (!Number.isFinite(max - min)) {
+            throw new Error("Chart value-axis range must be finite");
+          }
+          const firstTick = Math.ceil(min / tickInterval - 1e-9);
+          const lastTick = Math.floor(max / tickInterval + 1e-9);
+          const tickCount = lastTick - firstTick + 1;
+          if (
+            !Number.isSafeInteger(firstTick) ||
+            !Number.isSafeInteger(lastTick) ||
+            !Number.isSafeInteger(tickCount) ||
+            tickCount <= 0 ||
+            tickCount > 100
+          ) {
+            throw new Error("Chart value-axis interval exceeds the tick limit");
+          }
+          return Array.from(
+            { length: tickCount },
+            (_, index) => (firstTick + index) * tickInterval,
+          );
+        })();
+  const gridTicks = gridTickValues.map((value) => ({
+    value,
+    x: xForValue(value),
+    y: yForValue(value),
+  }));
   const xTickEvery = Math.max(1, Math.ceil(chart.data.length / 6));
   const zero = Math.max(min, Math.min(max, 0));
   const zeroX = xForValue(zero);
@@ -179,7 +235,7 @@ function ChartBody({
               y1={margin.top}
               y2={HEIGHT - margin.bottom}
               stroke="hsl(var(--border))"
-              strokeDasharray="3 3"
+              strokeDasharray={tickInterval === undefined ? "3 3" : undefined}
             />
             <text
               x={tick.x}
@@ -188,7 +244,9 @@ function ChartBody({
               fontSize={labelFontSize}
               textAnchor="middle"
             >
-              {formatTick(tick.value)}
+              {tickInterval === undefined
+                ? formatTick(tick.value)
+                : formatAxisTick(tick.value, tickInterval)}
             </text>
           </g>
         ) : (
@@ -199,7 +257,7 @@ function ChartBody({
               y1={tick.y}
               y2={tick.y}
               stroke="hsl(var(--border))"
-              strokeDasharray="3 3"
+              strokeDasharray={tickInterval === undefined ? "3 3" : undefined}
             />
             <text
               x={margin.left - 8}
@@ -208,7 +266,9 @@ function ChartBody({
               fontSize={labelFontSize}
               textAnchor="end"
             >
-              {formatTick(tick.value)}
+              {tickInterval === undefined
+                ? formatTick(tick.value)
+                : formatAxisTick(tick.value, tickInterval)}
             </text>
           </g>
         ),
@@ -281,7 +341,11 @@ function ChartBody({
     const slotSize =
       (isHorizontalBar ? plotHeight : plotWidth) /
       Math.max(1, chart.data.length);
-    const groupSize = slotSize * 0.72;
+    const groupSize =
+      slotSize *
+      (isHorizontalBar && categoryGapRatio !== undefined
+        ? 1 - categoryGapRatio
+        : 0.72);
     const barSize = groupSize / Math.max(1, chart.series.length);
     return (
       <>

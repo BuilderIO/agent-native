@@ -98,6 +98,131 @@ describe("DataChartRenderer theme colors", () => {
     expect(markup).toContain('viewBox="0 0 640 360"');
   });
 
+  it("renders bounded numeric value-axis steps with matching grid labels", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: 3 }],
+          valueAxisTickInterval: 0.2,
+        }}
+      />,
+    );
+    const numericLabels = Array.from(
+      markup.matchAll(/<text[^>]*>([^<]+)<\/text>/g),
+      (match) => match[1],
+    ).filter((label) => /^\d+\.\d$/.test(label ?? ""));
+
+    expect(numericLabels).toEqual(
+      Array.from({ length: 16 }, (_, index) => (index * 0.2).toFixed(1)),
+    );
+    expect(markup).not.toContain('stroke-dasharray="3 3"');
+  });
+
+  it("keeps horizontal-bar spacing by default and accepts an 8% slot gap", () => {
+    const renderBar = (horizontalCategoryGapRatio?: number) =>
+      renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type: "bar",
+            layout: "horizontal",
+            xKey: "day",
+            series: [{ key: "value", label: "Value" }],
+            data: [{ day: "Monday", value: 3 }],
+            horizontalCategoryGapRatio,
+          }}
+        />,
+      );
+    const firstBarHeight = (markup: string) =>
+      Number(markup.match(/<rect[^>]*height="([^"]+)"/)?.[1]);
+
+    expect(firstBarHeight(renderBar(0.08))).toBeGreaterThan(
+      firstBarHeight(renderBar()),
+    );
+    expect(renderBar()).toContain('stroke-dasharray="3 3"');
+    expect(() => renderBar(0.91)).toThrow(
+      "Horizontal category gap ratio must be between 0 and 0.9",
+    );
+  });
+
+  it("aligns custom value-axis ticks to the interval within the chart range", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: 0.8 }],
+          valueAxisTickInterval: 0.3,
+        }}
+      />,
+    );
+    const numericLabels = Array.from(
+      markup.matchAll(/<text[^>]*>([^<]+)<\/text>/g),
+      (match) => match[1],
+    ).filter((label) => /^\d+\.\d$/.test(label ?? ""));
+
+    expect(numericLabels).toEqual(["0.0", "0.3", "0.6"]);
+  });
+
+  it("keeps four automatic value-axis ticks when no step is set", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: 3 }],
+        }}
+      />,
+    );
+    const numericLabels = Array.from(
+      markup.matchAll(/<text[^>]*>([^<]+)<\/text>/g),
+      (match) => match[1],
+    ).filter((label) => /^\d+(?:\.\d)?$/.test(label ?? ""));
+
+    expect(numericLabels).toEqual(["0", "1", "2", "3"]);
+  });
+
+  it("rejects intervals that would create an excessive number of ticks", () => {
+    expect(() =>
+      renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type: "bar",
+            layout: "horizontal",
+            xKey: "day",
+            series: [{ key: "value", label: "Value" }],
+            data: [{ day: "Monday", value: 3 }],
+            valueAxisTickInterval: 0.001,
+          }}
+        />,
+      ),
+    ).toThrow("Chart value-axis interval exceeds the tick limit");
+  });
+
+  it("rejects non-finite value-axis intervals", () => {
+    expect(() =>
+      renderToStaticMarkup(
+        <DataChartRenderer
+          chart={{
+            type: "bar",
+            layout: "horizontal",
+            xKey: "day",
+            series: [{ key: "value", label: "Value" }],
+            data: [{ day: "Monday", value: 3 }],
+            valueAxisTickInterval: Number.POSITIVE_INFINITY,
+          }}
+        />,
+      ),
+    ).toThrow("Chart value-axis interval must be finite and positive");
+  });
+
   it("reserves space for long horizontal category and value labels", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer

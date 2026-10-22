@@ -10,6 +10,7 @@ import {
   createDataChartWidgetResult,
   createDataInsightsWidgetResult,
   createDataTableWidgetResult,
+  dataChartWidgetSchema,
   dataChartWidgetResultSchema,
   dataInsightsWidgetResultSchema,
   normalizeDataWidgetResult,
@@ -138,6 +139,82 @@ describe("data widget helpers", () => {
       valueLabelFontSize: 11,
       valueLabelFontWeight: 400,
     });
+  });
+
+  it("supports bounded value-axis steps and direct icon actions", () => {
+    const result = createDataChartWidgetResult({
+      chartSeries: {
+        type: "bar",
+        valueAxisTickInterval: 0.2,
+        horizontalCategoryGapRatio: 0.08,
+        xKey: "day",
+        series: [{ key: "value", label: "Value" }],
+        data: [{ day: "Monday", value: 3 }],
+        actions: [
+          {
+            label: "Download image",
+            href: "/reports/1/image",
+            icon: "camera",
+            presentation: "icon",
+          },
+        ],
+      },
+      display: {
+        actions: [
+          {
+            type: "link",
+            label: "Download image",
+            href: "/reports/1/image",
+            icon: "camera",
+            presentation: "icon",
+          },
+        ],
+      },
+    });
+
+    expect(dataChartWidgetResultSchema.parse(result)).toEqual(result);
+    expect(dataChartWidgetSchema.parse(result.chartSeries)).toMatchObject({
+      valueAxisTickInterval: 0.2,
+      horizontalCategoryGapRatio: 0.08,
+      actions: [{ presentation: "icon", icon: "camera" }],
+    });
+    expect(normalizeDataWidgetResult(result)).toMatchObject({
+      display: {
+        actions: [{ presentation: "icon", icon: "camera" }],
+      },
+      chartSeries: {
+        valueAxisTickInterval: 0.2,
+        horizontalCategoryGapRatio: 0.08,
+        actions: [{ presentation: "icon", icon: "camera" }],
+      },
+    });
+
+    const base = {
+      type: "bar" as const,
+      xKey: "day",
+      series: [{ key: "value", label: "Value" }],
+      data: [{ day: "Monday", value: 3 }],
+    };
+    expect(
+      dataChartWidgetSchema.safeParse({ ...base, valueAxisTickInterval: 0 })
+        .success,
+    ).toBe(false);
+    expect(
+      dataChartWidgetSchema.safeParse({
+        ...base,
+        valueAxisTickInterval: Number.POSITIVE_INFINITY,
+      }).success,
+    ).toBe(false);
+    expect(
+      dataChartWidgetSchema.safeParse({ ...base, valueAxisTickInterval: 0.001 })
+        .success,
+    ).toBe(false);
+    expect(
+      dataChartWidgetSchema.safeParse({
+        ...base,
+        horizontalCategoryGapRatio: 0.91,
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects chart presentation values outside the supported range", () => {

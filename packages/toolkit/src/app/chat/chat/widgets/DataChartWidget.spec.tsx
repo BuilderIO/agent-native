@@ -6,7 +6,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolkitI18nCatalog } from "../../../i18n.js";
-import type { DataWidgetAction } from "./data-widget-types.js";
+import type {
+  DataWidgetAction,
+  DataWidgetChartAction,
+  DataWidgetDisplayAction,
+} from "./data-widget-types.js";
 import { DataChartWidget } from "./DataChartWidget.js";
 
 const mocks = vi.hoisted(() => ({
@@ -45,7 +49,29 @@ const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 const initialBasePath = process.env.VITE_APP_BASE_PATH;
 const roots: Root[] = [];
 
-async function renderWidget(chartActions?: DataWidgetAction[]) {
+async function renderWidget(
+  chartActions?: DataWidgetChartAction[],
+  displayActions: DataWidgetDisplayAction[] = [
+    {
+      id: "details",
+      type: "link",
+      label: "Open details",
+      href: "/reports/1/details",
+    },
+    {
+      id: "query",
+      type: "copy",
+      label: "Copy query",
+      text: "select count(*)",
+    },
+    {
+      id: "unsafe",
+      type: "link",
+      label: "Unsafe",
+      href: "javascript:alert(1)",
+    },
+  ],
+) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -79,26 +105,7 @@ async function renderWidget(chartActions?: DataWidgetAction[]) {
               },
               { id: "local", label: "Local data" },
             ],
-            actions: [
-              {
-                id: "details",
-                type: "link",
-                label: "Open details",
-                href: "/reports/1/details",
-              },
-              {
-                id: "query",
-                type: "copy",
-                label: "Copy query",
-                text: "select count(*)",
-              },
-              {
-                id: "unsafe",
-                type: "link",
-                label: "Unsafe",
-                href: "javascript:alert(1)",
-              },
-            ],
+            actions: displayActions,
           }}
         />
       </AgentNativeI18nProvider>,
@@ -238,6 +245,51 @@ describe("DataChartWidget display contract", () => {
     expect(
       menu?.querySelector('a[href="/mounted/notebooks/new"] svg'),
     ).not.toBeNull();
+  });
+
+  it("renders an icon action directly with an accessible label", async () => {
+    const container = await renderWidget([
+      {
+        label: "Download image",
+        href: "/reports/1/image",
+        icon: "camera",
+        presentation: "icon",
+      },
+    ]);
+    const directAction = container.querySelector<HTMLAnchorElement>(
+      'a[aria-label="Download image"]',
+    );
+    const menu = await openActionsMenu(container);
+
+    expect(directAction?.getAttribute("href")).toBe("/mounted/reports/1/image");
+    expect(directAction?.getAttribute("title")).toBe("Download image");
+    expect(directAction?.querySelector("svg")).not.toBeNull();
+    expect(menu?.textContent).not.toContain("Download image");
+    expect(menu?.textContent).toContain("Open details");
+    expect(menu?.textContent).toContain("Copy query");
+  });
+
+  it("hides the overflow control when all actions are direct icons", async () => {
+    const container = await renderWidget(
+      [],
+      [
+        {
+          id: "direct-download",
+          type: "link",
+          label: "Download image",
+          href: "/reports/1/image",
+          icon: "camera",
+          presentation: "icon",
+        },
+      ],
+    );
+
+    expect(
+      container.querySelector('a[aria-label="Download image"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Chart actions"]'),
+    ).toBeNull();
   });
 
   it("keeps chart actions as links when payload metadata includes a type", async () => {
