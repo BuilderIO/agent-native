@@ -40,7 +40,6 @@ function numericValue(
 
 function formatTick(value: number): string {
   if (Math.abs(value) >= 1000) return value.toLocaleString();
-  if (Number.isInteger(value)) return String(value);
   return value.toFixed(1);
 }
 
@@ -543,9 +542,10 @@ function ChartBody({
           chart.type === "bar"
             ? margin.left + (index + 0.5) * (plotWidth / chart.data.length)
             : xForPoint(index);
+        const labelHalfWidth = estimateTextWidth(label, labelFontSize) / 2;
+        const leftEndpointOverflows = index === 0 && x - labelHalfWidth < 0;
         const rightEndpointOverflows =
-          index === chart.data.length - 1 &&
-          x + estimateTextWidth(label, labelFontSize) / 2 > WIDTH;
+          index === chart.data.length - 1 && x + labelHalfWidth > WIDTH;
 
         return (
           <text
@@ -554,7 +554,13 @@ function ChartBody({
             y={HEIGHT - 12}
             fill={labelColor}
             fontSize={labelFontSize}
-            textAnchor={rightEndpointOverflows ? "end" : "middle"}
+            textAnchor={
+              leftEndpointOverflows
+                ? "start"
+                : rightEndpointOverflows
+                  ? "end"
+                  : "middle"
+            }
           >
             {label}
           </text>
@@ -662,7 +668,7 @@ function ChartBody({
                     y={
                       isHorizontalBar
                         ? y + height / 2 + valueLabelFontSize * 0.35
-                        : y - 5
+                        : Math.max(valueLabelFontSize, y - 5)
                     }
                     fill={labelColor}
                     fontSize={valueLabelFontSize}

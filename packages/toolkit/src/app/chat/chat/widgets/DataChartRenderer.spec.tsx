@@ -167,6 +167,47 @@ describe("DataChartRenderer theme colors", () => {
     expect(Number(finalCategory?.[1])).toBeLessThanOrEqual(632);
   });
 
+  it("keeps a long first category label inside the SVG", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First category label", value: 0 },
+            { day: "Last", value: 1 },
+          ],
+        }}
+      />,
+    );
+
+    expect(markup).toMatch(
+      /<text x="46" y="348"[^>]*text-anchor="start">First categor\.\.\.<\/text>/,
+    );
+  });
+
+  it("keeps top vertical-bar value labels inside the SVG", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: 1 }],
+          showValueLabels: true,
+        }}
+        layout={{ plotInsets: { top: 0 } }}
+      />,
+    );
+    const valueLabel = markup.match(
+      /<text x="[\d.]+" y="([\d.]+)"[^>]*font-weight="400" text-anchor="middle">1\.0<\/text>/,
+    );
+
+    expect(valueLabel).not.toBeNull();
+    expect(Number(valueLabel?.[1])).toBeGreaterThanOrEqual(11);
+  });
+
   it("preserves the top value-axis label when the configured top inset is zero", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
@@ -852,7 +893,7 @@ describe("DataChartRenderer theme colors", () => {
       (match) => match[1],
     ).filter((label) => /^\d+(?:\.\d)?$/.test(label ?? ""));
 
-    expect(numericLabels).toEqual(["0", "1", "2", "3"]);
+    expect(numericLabels).toEqual(["0.0", "1.0", "2.0", "3.0"]);
   });
 
   it("rejects intervals that would create an excessive number of ticks", () => {
