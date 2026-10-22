@@ -29,6 +29,18 @@
     "maxApproximated": 0,
     "sourceHash": "ed09aaa70a136c0b2c479da951e9d58777e9f626b791dba45f74f9c83356b15c"
   },
+  "preset-analytics-dashboard": {
+    "maxDiffPercent": 1.229,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "4906ac5a06738a6158fbf367b52bf690d1e339bb09367f916a78e1bbabc1ffbe"
+  },
+  "preset-design-studio": {
+    "maxDiffPercent": 6.815,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "8b9b89e2a42d5e6fead4d642afe9c6dd60c6d50a7d367c893689bedea8a8b27b"
+  },
   "preset-display-ad": {
     "maxDiffPercent": 9.364,
     "maxOmitted": 0,
@@ -83,6 +95,12 @@
     "maxApproximated": 0,
     "sourceHash": "69ffb5a9b551bf1a21177334be2c799a97cdd803a3fc8ce97383ab4eb7058601"
   },
+  "preset-messaging-app": {
+    "maxDiffPercent": 1.049,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "bbd041c27252ed44bb3b0c5034c7ac65bac77b658367900410f672b137b6c36e"
+  },
   "preset-one-pager": {
     "maxDiffPercent": 0.481,
     "maxOmitted": 0,
@@ -94,6 +112,12 @@
     "maxOmitted": 0,
     "maxApproximated": 0,
     "sourceHash": "08f864b21b806752f7052096229593809d49e73d63e3ab8b7e4e0ebc50346cc0"
+  },
+  "preset-project-tasks": {
+    "maxDiffPercent": 13.965,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "719e35f7cf11e46e1e16b8aa1c71aac3df32ebffe9c5e1c2f3b07e1fca1866c4"
   },
   "preset-social-brutalist": {
     "maxDiffPercent": 2.866,

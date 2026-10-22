@@ -232,6 +232,23 @@ export default {
     expandSidebar: "사이드바 펼치기",
     collapseSidebar: "사이드바 접기",
   },
+  gettingStarted: {
+    title: "시작하기",
+    progress: "{{totalCount}}개 중 {{completeCount}}개 완료",
+    collapse: "접기",
+    expand: "펼치기",
+    completed: "완료됨",
+    loadError: "체크리스트를 불러오지 못했습니다",
+    retry: "다시 시도",
+    steps: {
+      createDesign: "첫 디자인 만들기",
+      addBrand: "브랜드 추가",
+      useRealData: "실제 데이터 사용",
+      shareFeedback: "피드백을 위해 공유",
+      inviteTeammate: "팀원 초대",
+      saveTemplate: "디자인을 템플릿으로 저장",
+    },
+  },
   settings: {
     agentTitle: "에이전트 관리",
     agentDescription:

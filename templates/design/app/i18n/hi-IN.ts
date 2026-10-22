@@ -232,6 +232,23 @@ export default {
     expandSidebar: "साइडबार फैलाएं",
     collapseSidebar: "साइडबार समेटें",
   },
+  gettingStarted: {
+    title: "शुरुआत करें",
+    progress: "{{totalCount}} में से {{completeCount}} पूरे",
+    collapse: "छोटा करें",
+    expand: "बड़ा करें",
+    completed: "पूरा हुआ",
+    loadError: "चेकलिस्ट लोड नहीं हो सकी",
+    retry: "फिर कोशिश करें",
+    steps: {
+      createDesign: "अपना पहला डिज़ाइन बनाएँ",
+      addBrand: "अपना ब्रांड जोड़ें",
+      useRealData: "अपना असली डेटा इस्तेमाल करें",
+      shareFeedback: "फ़ीडबैक के लिए शेयर करें",
+      inviteTeammate: "टीम के किसी सदस्य को आमंत्रित करें",
+      saveTemplate: "डिज़ाइन को टेम्पलेट के रूप में सेव करें",
+    },
+  },
   settings: {
     agentTitle: "एजेंट प्रबंधित करें",
     agentDescription:

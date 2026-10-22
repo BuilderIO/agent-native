@@ -238,6 +238,23 @@ export default {
     expandSidebar: "Expandir barra lateral",
     collapseSidebar: "Contraer barra lateral",
   },
+  gettingStarted: {
+    title: "Primeros pasos",
+    progress: "{{completeCount}} de {{totalCount}} completados",
+    collapse: "Contraer",
+    expand: "Expandir",
+    completed: "Completado",
+    loadError: "No se pudo cargar tu lista",
+    retry: "Reintentar",
+    steps: {
+      createDesign: "Crea tu primer diseño",
+      addBrand: "Añade tu marca",
+      useRealData: "Usa tus datos reales",
+      shareFeedback: "Comparte para recibir comentarios",
+      inviteTeammate: "Invita a un compañero",
+      saveTemplate: "Guarda un diseño como plantilla",
+    },
+  },
   settings: {
     agentTitle: "Gestionar agente",
     agentDescription:
