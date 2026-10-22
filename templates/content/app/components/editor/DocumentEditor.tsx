@@ -306,11 +306,11 @@ import {
   PropertyCommentsContext,
   type PropertyCommentsValue,
 } from "./property-comments";
-import { StaticDocumentBody } from "./StaticDocumentBody";
 import {
   useRecoveryAttemptOwner,
   type RecoveryAttempt,
 } from "./recovery-attempt";
+import { StaticDocumentBody } from "./StaticDocumentBody";
 import {
   createSuggestionAutosave,
   markSuggestionAutosaveSaved,
@@ -4540,18 +4540,21 @@ function PageEditorSessionBody({
       baseTitle: string | null,
       owner: RecoveryAttempt,
     ) => {
-      // The hash is awaited, so take the base as it was when this draft was
-      // written; a save can move the watermark meanwhile.
+      // The hash is awaited, so take the base and the row this draft replaces
+      // as they were when it was written; a save can move the watermark and a
+      // resolved choice can clear the row meanwhile.
       const base = { ...contentBase };
+      const current = recoveryDraftRef.current;
       const baseContentHash = await owner.step(() =>
         documentContentHash(base.content),
       );
-      const current = recoveryDraftRef.current;
       const result = await owner.step(() =>
         updatePreviewDocumentDraftRef.current({
           operation: "upsert",
           documentId,
-          expectedVersion: current?.version ?? null,
+          ...(current
+            ? { expectedVersion: current.version, expectedDraftId: current.id }
+            : { expectedVersion: null }),
           draft: {
             title,
             content,
@@ -4587,9 +4590,13 @@ function PageEditorSessionBody({
         };
         return;
       }
+      // Only the row this draft replaced can already hold it as this editor's
+      // write; a replacement with the same text is not this editor's row.
       if (
         result.status === "conflict" &&
-        result.draft?.editorSessionId === editorSessionId &&
+        current !== null &&
+        result.draft?.id === current.id &&
+        result.draft.editorSessionId === editorSessionId &&
         result.draft?.title === title &&
         result.draft.baseTitle === baseTitle &&
         result.draft.content === content

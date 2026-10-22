@@ -21,6 +21,7 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import type { PageEditorSession } from "./DocumentEditor";
+import type { DocumentReconcileRecovery } from "./DocumentReconcileRecovery";
 import type { useDocumentReconcileRecovery } from "./useDocumentReconcileRecovery";
 import type {
   VisualEditor,
@@ -49,6 +50,11 @@ const fixture = vi.hoisted(() => ({
   editor: null as ComponentProps<typeof VisualEditor> | null,
   pickIcon: null as ((icon: string | null) => Promise<void>) | null,
   recovery: null as ReturnType<typeof useDocumentReconcileRecovery> | null,
+  reconcileChooser: null as ComponentProps<
+    typeof DocumentReconcileRecovery
+  > | null,
+  contentHashStarted: vi.fn(),
+  contentHashHold: null as Promise<void> | null,
   save: vi.fn(),
   flushUpdates: vi.fn(),
   recoverySaveSettled: vi.fn(),
@@ -61,6 +67,8 @@ const fixture = vi.hoisted(() => ({
   onSyncEvent: null as
     | ((event: { source: string; key: string }) => void)
     | null,
+  pageVersion: 0,
+  pageSubscribers: new Set<() => void>(),
 }));
 
 const barrierStore = vi.hoisted(() => ({
@@ -192,22 +200,34 @@ vi.mock("@agent-native/core/client/agent-chat", async (original) => ({
 vi.mock("@/hooks/use-documents", async (importOriginal) => {
   const actualDocuments =
     await importOriginal<typeof import("@/hooks/use-documents")>();
+  const { useSyncExternalStore } = await import("react");
+  const subscribePage = (notify: () => void) => {
+    fixture.pageSubscribers.add(notify);
+    return () => {
+      fixture.pageSubscribers.delete(notify);
+    };
+  };
   return {
     ...actualDocuments,
-    usePageOpenDocument: () => ({
-      query: {
-        data: fixture.cachedDocument
-          ? (queryClient.getQueryData([
-              "action",
-              "get-document",
-              { id: fixture.page!.id },
-            ]) ?? fixture.page)
-          : fixture.page,
-        dataUpdatedAt: 1,
-      },
-      fetchedForThisOpen: true,
-      readsStartedEarly: true,
-    }),
+    usePageOpenDocument: () => {
+      // The app's update-document success writes the saved page into this
+      // read before the save resolves.
+      useSyncExternalStore(subscribePage, () => fixture.pageVersion);
+      return {
+        query: {
+          data: fixture.cachedDocument
+            ? (queryClient.getQueryData([
+                "action",
+                "get-document",
+                { id: fixture.page!.id },
+              ]) ?? fixture.page)
+            : fixture.page,
+          dataUpdatedAt: 1,
+        },
+        fetchedForThisOpen: true,
+        readsStartedEarly: true,
+      };
+    },
     useUpdateDocument: (
       ...args: Parameters<typeof actualDocuments.useUpdateDocument>
     ) =>
@@ -286,8 +306,25 @@ vi.mock("./LinkedLocalDocumentAgentBridge", () => ({
   LinkedLocalDocumentAgentBridge: () => null,
 }));
 vi.mock("./DocumentReconcileRecovery", () => ({
-  DocumentReconcileRecovery: () => null,
+  DocumentReconcileRecovery: (
+    props: ComponentProps<typeof DocumentReconcileRecovery>,
+  ) => {
+    fixture.reconcileChooser = props;
+    return null;
+  },
 }));
+vi.mock("@/lib/document-content-hash", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/document-content-hash")>();
+  return {
+    ...actual,
+    documentContentHash: async (content: string) => {
+      fixture.contentHashStarted();
+      await fixture.contentHashHold;
+      return actual.documentContentHash(content);
+    },
+  };
+});
 vi.mock("@tiptap/react", async (original) => {
   const actual = await original<typeof import("@tiptap/react")>();
   return {
@@ -444,6 +481,9 @@ beforeEach(() => {
   fixture.save.mockReset();
   fixture.flushUpdates.mockReset().mockResolvedValue(true);
   fixture.recoverySaveSettled.mockReset();
+  fixture.reconcileChooser = null;
+  fixture.contentHashStarted.mockReset();
+  fixture.contentHashHold = null;
   fixture.finishRecovery = Promise.resolve();
   fixture.mutation.mutateAsync
     .mockReset()
@@ -570,6 +610,10 @@ function acknowledgeCurrentSaves() {
       revision: "r2",
       updatedAt: "2026-10-19T12:00:01.000Z",
     };
+    // Unpublished, the editor keeps the page it opened and adopts that older
+    // body back over its own acknowledged save.
+    fixture.pageVersion += 1;
+    for (const notify of fixture.pageSubscribers) notify();
     return fixture.page;
   });
 }
@@ -1741,6 +1785,19 @@ it("republishes a newer acknowledged save when an obsolete retry is consumed", a
   await act(async () => vi.advanceTimersByTimeAsync(500));
   expect(fixture.flushUpdates).toHaveBeenCalledOnce();
   expect(fixture.save).not.toHaveBeenCalled();
+  // The retained draft waits on a real content hash. Wait in real time: the
+  // fake clock still has to measure the 800 ms retry exactly.
+  const deadline = realPerformance.now() + 2_000;
+  while (
+    !fixture.mutation.mutateAsync.mock.calls.some(
+      ([input]) => input.operation === "upsert",
+    ) &&
+    realPerformance.now() < deadline
+  ) {
+    await act(async () => {
+      await realDelay(10);
+    });
+  }
   expect(fixture.mutation.mutateAsync).toHaveBeenCalledWith(
     expect.objectContaining({
       operation: "upsert",
@@ -1791,6 +1848,184 @@ it("republishes a newer acknowledged save when an obsolete retry is consumed", a
   });
   expect(publish).toHaveBeenCalledOnce();
   publish.mockRestore();
+});
+
+it("binds a repeated recovery draft retention to the row it last saved", async () => {
+  fixture.flushUpdates
+    .mockResolvedValueOnce(false)
+    .mockResolvedValueOnce(false);
+  fixture.mutation.mutateAsync.mockImplementation(async (input) =>
+    input.operation === "upsert"
+      ? {
+          status: "saved",
+          draft: {
+            ...input.draft,
+            id: "retained-row",
+            version: (input.expectedVersion ?? 0) + 1,
+          },
+        }
+      : { status: "deleted", draft: null },
+  );
+  await act(async () => renderEditor());
+
+  act(() => fixture.editor!.onChange("First retained edit"));
+  await vi.waitFor(
+    () => expect(fixture.mutation.mutateAsync).toHaveBeenCalledOnce(),
+    { timeout: 3_000 },
+  );
+  act(() => fixture.editor!.onChange("Second retained edit"));
+  await vi.waitFor(
+    () => expect(fixture.mutation.mutateAsync).toHaveBeenCalledTimes(2),
+    { timeout: 3_000 },
+  );
+
+  const [[created], [updated]] = fixture.mutation.mutateAsync.mock.calls;
+  expect(created).toMatchObject({
+    operation: "upsert",
+    expectedVersion: null,
+    draft: { content: "First retained edit" },
+  });
+  expect(created).not.toHaveProperty("expectedDraftId");
+  expect(updated).toMatchObject({
+    operation: "upsert",
+    expectedVersion: 1,
+    expectedDraftId: "retained-row",
+    draft: { content: "Second retained edit" },
+  });
+  expect(fixture.save).not.toHaveBeenCalled();
+});
+
+it("does not adopt a same-text replacement as the recovery draft it retains", async () => {
+  fixture.flushUpdates
+    .mockResolvedValueOnce(false)
+    .mockResolvedValueOnce(false)
+    .mockResolvedValueOnce(false);
+  fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+    if (input.operation !== "upsert") return { status: "deleted", draft: null };
+    // The server's row is a replacement from this same editor session that
+    // already holds the second edit; the editor never saved that row.
+    if (input.draft.content === "Second retained edit")
+      return {
+        status: "conflict",
+        draft: { ...input.draft, id: "replacement-row", version: 1 },
+      };
+    return {
+      status: "saved",
+      draft: {
+        ...input.draft,
+        id: "retained-row",
+        version: (input.expectedVersion ?? 0) + 1,
+      },
+    };
+  });
+  const upserts = () =>
+    fixture.mutation.mutateAsync.mock.calls
+      .map(([input]) => input)
+      .filter((input) => input.operation === "upsert");
+  await act(async () => renderEditor());
+
+  for (const [index, content] of [
+    "First retained edit",
+    "Second retained edit",
+    "Third retained edit",
+  ].entries()) {
+    act(() => fixture.editor!.onChange(content));
+    await vi.waitFor(() => expect(upserts()).toHaveLength(index + 1), {
+      timeout: 3_000,
+    });
+  }
+
+  expect(upserts()).toMatchObject([
+    { expectedVersion: null, draft: { content: "First retained edit" } },
+    {
+      expectedVersion: 1,
+      expectedDraftId: "retained-row",
+      draft: { content: "Second retained edit" },
+    },
+    {
+      expectedVersion: 1,
+      expectedDraftId: "retained-row",
+      draft: { content: "Third retained edit" },
+    },
+  ]);
+});
+
+it("keeps a retention bound to its row when a chosen recovery clears it mid-hash", async () => {
+  let finishChoice!: (result: unknown) => void;
+  fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+    if (input.operation === "upsert")
+      return {
+        status: "saved",
+        draft: {
+          ...input.draft,
+          id: "chosen-row",
+          version: (input.expectedVersion ?? 0) + 1,
+        },
+      };
+    if (input.choice)
+      return new Promise((resolve) => {
+        finishChoice = resolve;
+      });
+    return { status: "deleted", draft: null };
+  });
+  const upserts = () =>
+    fixture.mutation.mutateAsync.mock.calls
+      .map(([input]) => input)
+      .filter((input) => input.operation === "upsert");
+  await act(async () => renderEditor());
+  act(() => fixture.editor!.onChange("Local edit"));
+  act(() => fixture.recovery!.report("conflict", "Local edit"));
+  expect(fixture.reconcileChooser).not.toBeNull();
+
+  let chosen!: Promise<boolean>;
+  act(() => {
+    chosen = fixture.reconcileChooser!.onUseSaved({
+      title: fixture.page!.title,
+      content: fixture.page!.content,
+      updatedAt: fixture.page!.updatedAt,
+      revision: fixture.page!.revision,
+    });
+  });
+  await vi.waitFor(
+    () =>
+      expect(fixture.mutation.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ choice: "use_saved" }),
+      ),
+    { timeout: 3_000 },
+  );
+  expect(upserts()).toHaveLength(1);
+
+  let releaseHash!: () => void;
+  fixture.contentHashHold = new Promise((resolve) => {
+    releaseHash = resolve;
+  });
+  fixture.contentHashStarted.mockClear();
+  fixture.flushUpdates.mockResolvedValueOnce(false);
+  act(() => fixture.editor!.onChange("Edit during the choice"));
+  await vi.waitFor(
+    () => expect(fixture.contentHashStarted).toHaveBeenCalledOnce(),
+    { timeout: 3_000 },
+  );
+  // The resolved choice clears the editor's draft at once, but its follow-up
+  // waits behind the held retention, so the hash is released first.
+  await act(async () => {
+    finishChoice({ status: "resolved" });
+    await realDelay(10);
+  });
+  await act(async () => releaseHash());
+  // Later retries queue behind the held retention, so it is the second write.
+  await vi.waitFor(() => expect(upserts().length).toBeGreaterThanOrEqual(2), {
+    timeout: 3_000,
+  });
+  await act(async () => {
+    await chosen;
+  });
+
+  expect(upserts()[1]).toMatchObject({
+    expectedVersion: 1,
+    expectedDraftId: "chosen-row",
+    draft: { content: "Edit during the choice" },
+  });
 });
 
 describe("actual additional field freshness", () => {

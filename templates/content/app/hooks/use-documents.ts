@@ -1134,10 +1134,9 @@ export function useUpdatePreviewDocumentDraft() {
       status: "saved" | "deleted" | "conflict" | "superseded";
       draft: PreviewDocumentDraftRecord | null;
     },
-    | {
+    | ({
         operation: "upsert";
         documentId: string;
-        expectedVersion: number | null;
         draft: {
           title: string;
           baseTitle: string | null;
@@ -1149,7 +1148,10 @@ export function useUpdatePreviewDocumentDraft() {
           editorSessionId?: string;
           editGeneration?: number;
         };
-      }
+      } & (
+        | { expectedVersion: null }
+        | { expectedVersion: number; expectedDraftId: string }
+      ))
     | {
         operation: "delete";
         documentId: string;

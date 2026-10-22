@@ -53,6 +53,7 @@ export default defineAction({
         operation: z.literal("upsert"),
         documentId: z.string().min(1),
         expectedVersion: z.number().int().positive().nullable(),
+        expectedDraftId: z.string().min(1).optional(),
         draft: draftPayload,
       }),
       z.object({
@@ -244,7 +245,7 @@ export default defineAction({
             ),
           };
         }
-      } else {
+      } else if (args.expectedDraftId !== undefined) {
         const updated = await tx
           .update(schema.documentPreviewDrafts)
           .set({
@@ -263,6 +264,9 @@ export default defineAction({
           .where(
             and(
               ownerFilter,
+              // A replacement draft restarts at version 1, so only the row id
+              // keeps a delayed update off a draft it never saw.
+              eq(schema.documentPreviewDrafts.id, args.expectedDraftId),
               eq(schema.documentPreviewDrafts.version, args.expectedVersion),
               ...(args.draft.editorSessionId
                 ? [

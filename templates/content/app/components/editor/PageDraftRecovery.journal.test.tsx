@@ -39,6 +39,8 @@ const state = vi.hoisted(() => ({
   cleared: vi.fn(),
   sweep: vi.fn(),
   draft: null as null | Record<string, unknown>,
+  // A query cache holds what its last fetch read; null reads the server live.
+  cachedRead: null as null | { draft: null | Record<string, unknown> },
   read: vi.fn(),
   live: vi.fn(),
   verify: vi.fn(),
@@ -52,8 +54,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
+// One client for the page's lifetime, so creation state can be marked on it.
+const queryClient = vi.hoisted(() => ({
+  refetchQueries: (...args: unknown[]) => state.refetch(...args),
+  getQueryCache: () => ({ findAll: () => [], subscribe: () => () => {} }),
+}));
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ refetchQueries: state.refetch }),
+  useQueryClient: () => queryClient,
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import { toast } from "sonner";
@@ -68,7 +75,7 @@ vi.mock("@/hooks/use-documents", () => ({
   isDocumentUpdateSuperseded: (result: { superseded?: boolean }) =>
     result.superseded === true,
   usePreviewDocumentDraft: () => ({
-    data: { draft: state.draft },
+    data: state.cachedRead ?? { draft: state.draft },
     refetch: state.refetch,
   }),
   useUpdateDocument: () => ({ mutateAsync: state.update }),
@@ -117,6 +124,13 @@ vi.mock("./document-save-rebase", () => ({
 vi.mock("./DocumentEditorSkeleton", () => ({
   DocumentEditorSkeleton: () => <div data-testid="editor-skeleton" />,
 }));
+
+import {
+  clearDocumentCreationConfirmed,
+  clearDocumentCreationPending,
+  markDocumentCreationConfirmed,
+  markDocumentCreationPending,
+} from "@/lib/optimistic-document";
 
 import { useRegisterLiveEditorSession } from "./live-editor-session";
 import { PageDraftRecovery } from "./PageDraftRecovery";
@@ -168,6 +182,7 @@ describe("Page browser journal recovery", () => {
     state.upsert.mockReset();
     state.entries = [];
     state.draft = null;
+    state.cachedRead = null;
     state.session = { email: "writer@example.test", orgId: "org" };
     state.read.mockImplementation(
       (
@@ -321,6 +336,42 @@ describe("Page browser journal recovery", () => {
     expect(state.entries).toHaveLength(2);
     expect(container.querySelector("textarea")).not.toBeNull();
   });
+
+  it.each([
+    ["an older", "v1"],
+    ["the current", "v2"],
+  ])(
+    "holds a closed tab's entry behind an open tab's same-text SQL draft on %s page version",
+    async (_, baseDocumentUpdatedAt) => {
+      const closed: (typeof state.entries)[number] = entry(
+        "closed-tab",
+        "Same text in both tabs",
+      );
+      closed.snapshot.baseUpdatedAt = null;
+      closed.snapshot.baseContent = "Earlier body";
+      state.entries = [closed];
+      state.live.mockResolvedValue(new Set(["open-tab"]));
+      state.draft = {
+        id: "open-tab-draft",
+        version: 1,
+        title: "Saved",
+        baseTitle: "Saved",
+        content: "Same text in both tabs",
+        baseDocumentUpdatedAt,
+        editorSessionId: "open-tab",
+        editGeneration: 1,
+      };
+
+      await act(async () => render());
+
+      expect(state.resolve).not.toHaveBeenCalled();
+      expect(state.upsert).not.toHaveBeenCalled();
+      expect(state.rebase).not.toHaveBeenCalled();
+      expect(state.cleared).not.toHaveBeenCalled();
+      expect(state.entries).toEqual([closed]);
+      expect(container.querySelector("textarea")).not.toBeNull();
+    },
+  );
 
   it("replays a closed tab's entry past one whose editor is still open", async () => {
     state.entries = [
@@ -552,9 +603,12 @@ describe("Page browser journal recovery", () => {
     state.upsert.mockResolvedValue({
       status: "saved",
       draft: {
+        id: "selected-draft",
         title: localRename,
         baseTitle: "Saved",
         content: "Local",
+        editorSessionId: "first",
+        editGeneration: 1,
         version: 3,
       },
     });
@@ -566,6 +620,7 @@ describe("Page browser journal recovery", () => {
     expect(state.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedVersion: 2,
+        expectedDraftId: "selected-draft",
         draft: expect.objectContaining({
           title: localRename,
           content: "Local",
@@ -627,6 +682,474 @@ describe("Page browser journal recovery", () => {
       expect(state.draft).toMatchObject({ title: "Newer SQL title" });
     },
   );
+
+  it.each([
+    ["another writer", { editorSessionId: "other-writer" }, false],
+    ["another generation of its writer", { editGeneration: 2 }, false],
+    ["its own writer and generation", {}, true],
+  ])(
+    "adopts a same-text draft an upsert conflicts with only when it is %s",
+    async (_, identity, adopted) => {
+      const journal: (typeof state.entries)[number] = entry(
+        "closed-writer",
+        "Same text",
+      );
+      journal.snapshot.baseUpdatedAt = null;
+      journal.snapshot.baseContent = "Earlier body";
+      state.entries = [journal];
+      state.upsert.mockImplementation(async () => {
+        state.draft = {
+          id: "conflicting-draft",
+          version: 3,
+          title: "Saved",
+          baseTitle: "Saved",
+          content: "Same text",
+          baseDocumentUpdatedAt: "v1",
+          editorSessionId: "closed-writer",
+          editGeneration: 1,
+          ...identity,
+        };
+        return { status: "conflict", draft: state.draft };
+      });
+      state.resolve.mockImplementation(async () => {
+        state.draft = null;
+        return { status: "resolved", choice: "use_saved" };
+      });
+
+      await act(async () => render());
+
+      expect(state.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ expectedVersion: null }),
+      );
+      if (adopted) {
+        expect(state.resolve).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            choice: "use_saved",
+            trigger: "automatic",
+            expectedDraftId: "conflicting-draft",
+            expectedDraftEditorSessionId: "closed-writer",
+            expectedDraftEditGeneration: 1,
+            expectedDraftVersion: 3,
+          }),
+        );
+        expect(state.cleared).toHaveBeenCalledWith("closed-writer");
+        return;
+      }
+      expect(state.resolve).not.toHaveBeenCalled();
+      expect(state.cleared).not.toHaveBeenCalled();
+      expect(state.entries).toEqual([journal]);
+      expect(
+        container.querySelector("[data-recovery-comparison]"),
+      ).not.toBeNull();
+    },
+  );
+
+  describe("when another writer saves a draft after the page read none", () => {
+    const peerDraft = (content: string, baseTitle: string | null) => ({
+      id: "peer-draft",
+      version: 1,
+      title: "Saved",
+      baseTitle,
+      content,
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "peer-writer",
+      editGeneration: 4,
+    });
+    function closedJournalBehindEmptyRead(
+      served: (peer: Record<string, unknown>) => Record<string, unknown> | null,
+      peer = peerDraft("Same text", null),
+    ) {
+      const journal: (typeof state.entries)[number] = entry(
+        "closed-writer",
+        "Same text",
+      );
+      journal.snapshot.baseUpdatedAt = null;
+      journal.snapshot.baseContent = "Earlier body";
+      state.entries = [journal];
+      state.cachedRead = { draft: null };
+      state.refetch.mockImplementation(async () => {
+        state.cachedRead = { draft: state.draft };
+        return { data: state.cachedRead };
+      });
+      state.upsert.mockImplementation(async () => {
+        state.draft = served(peer);
+        return { status: "conflict", draft: peer };
+      });
+      return journal;
+    }
+
+    it.each([
+      [
+        "the journal's text and an unknown title base",
+        peerDraft("Same text", null),
+        (served: Record<string, unknown>) => served,
+        "editor.previewDraftTitleUnknown",
+        "Same text",
+      ],
+      [
+        "other text",
+        peerDraft("Peer text", "Saved"),
+        (served: Record<string, unknown>) => served,
+        "editor.previewDraftConflict",
+        "Peer text",
+      ],
+      [
+        "a newer version by the time it is read",
+        peerDraft("Same text", null),
+        (served: Record<string, unknown>) => ({
+          ...served,
+          version: 2,
+          content: "Newer peer text",
+        }),
+        "editor.previewDraftTitleUnknown",
+        "Newer peer text",
+      ],
+    ])(
+      "reviews the draft it reads again when another writer's draft holds %s",
+      async (_, peer, served, notice, shown) => {
+        const journal = closedJournalBehindEmptyRead(served, peer);
+
+        await act(async () => render());
+
+        expect(container.querySelector("textarea")).toBeNull();
+        expect(
+          container.querySelector("[data-recovery-comparison]"),
+        ).not.toBeNull();
+        expect(container.textContent).toContain(notice);
+        expect(container.textContent).toContain(shown);
+        expect(state.refetch).toHaveBeenCalled();
+        expect(
+          container.querySelector('[data-testid="editor-skeleton"]'),
+        ).toBeNull();
+        expect(state.upsert).toHaveBeenCalledTimes(1);
+        expect(state.resolve).not.toHaveBeenCalled();
+        expect(state.cleared).not.toHaveBeenCalled();
+        expect(state.entries).toEqual([journal]);
+      },
+    );
+
+    it.each([
+      [
+        "that draft is gone by the time it is read",
+        { status: "conflict", draft: peerDraft("Same text", null) },
+        false,
+      ],
+      [
+        "its generation was settled and no draft holds the page",
+        { status: "superseded", draft: null },
+        false,
+      ],
+      [
+        "the draft that holds the page cannot be read",
+        { status: "superseded", draft: null },
+        true,
+      ],
+    ])(
+      "keeps the journal and offers a retry when %s",
+      async (_, refused, unreadable) => {
+        const journal = closedJournalBehindEmptyRead(() => null);
+        state.upsert.mockImplementation(async () => {
+          state.draft = null;
+          return refused;
+        });
+        if (unreadable)
+          state.refetch.mockRejectedValueOnce(new Error("Drafts unavailable"));
+
+        await act(async () => render());
+
+        expect(container.querySelector("textarea")).toBeNull();
+        expect(container.textContent).toContain("empty.genericError");
+        expect(
+          container.querySelector("[data-recovery-comparison]"),
+        ).toBeNull();
+        expect(state.refetch).toHaveBeenCalled();
+        expect(state.resolve).not.toHaveBeenCalled();
+        expect(state.cleared).not.toHaveBeenCalled();
+        expect(state.entries).toEqual([journal]);
+        expect(toast.success).not.toHaveBeenCalled();
+
+        state.upsert.mockImplementation(async ({ draft }) => ({
+          status: "saved",
+          draft: { id: "promoted-draft", ...draft, version: 1 },
+        }));
+        const retry = [...container.querySelectorAll("button")].find(
+          (button) => button.textContent === "database.retry",
+        )!;
+        await act(async () => retry.click());
+
+        expect(state.upsert).toHaveBeenCalledTimes(2);
+        expect(state.resolve).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            choice: "use_saved",
+            trigger: "automatic",
+            expectedDraftId: "promoted-draft",
+            expectedDraftEditorSessionId: "closed-writer",
+          }),
+        );
+        expect(state.cleared).toHaveBeenCalledWith("closed-writer");
+      },
+    );
+
+    it.each(["unmounts", "changes its account scope"])(
+      "presents nothing from that read when the page %s while it runs",
+      async (change) => {
+        const journal = closedJournalBehindEmptyRead((served) => served);
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        state.refetch.mockImplementation(async () => {
+          await held;
+          state.cachedRead = { draft: state.draft };
+          return { data: state.cachedRead };
+        });
+
+        await act(async () => render());
+        expect(state.refetch).toHaveBeenCalledTimes(1);
+
+        if (change === "unmounts") {
+          act(() => root.unmount());
+          root = createRoot(container);
+        } else {
+          state.session = { email: "writer@example.test", orgId: "other-org" };
+          await act(async () => render());
+        }
+        await act(async () => {
+          release();
+          await held;
+        });
+
+        expect(
+          container.querySelector("[data-recovery-comparison]"),
+        ).toBeNull();
+        expect(container.textContent).not.toContain("empty.genericError");
+        expect(state.resolve).not.toHaveBeenCalled();
+        expect(state.cleared).not.toHaveBeenCalled();
+        expect(state.entries).toEqual([journal]);
+        expect(toast.success).not.toHaveBeenCalled();
+      },
+    );
+
+    describe("and that draft is settled", () => {
+      function settledPeerDraft() {
+        const journal = closedJournalBehindEmptyRead((served) => served);
+        state.resolve.mockImplementation(async () => {
+          state.draft = null;
+          return { status: "resolved", choice: "use_saved" };
+        });
+        return journal;
+      }
+      function promoteJournal() {
+        const upserted: Array<typeof state.entries> = [];
+        state.upsert.mockImplementation(async ({ draft }) => {
+          upserted.push([...state.entries]);
+          state.draft = { id: "promoted-draft", ...draft, version: 1 };
+          return { status: "saved", draft: state.draft };
+        });
+        return upserted;
+      }
+      const choose = (label: string) =>
+        act(async () =>
+          [...container.querySelectorAll("button")]
+            .find((button) => button.textContent === label)!
+            .click(),
+        );
+
+      it("runs the journal again and settles it by its own draft", async () => {
+        const journal = settledPeerDraft();
+
+        await act(async () => render());
+        expect(container.textContent).toContain(
+          "editor.previewDraftTitleUnknown",
+        );
+        await act(async () => render({ ...page }));
+        expect(state.upsert).toHaveBeenCalledTimes(1);
+
+        const upserted = promoteJournal();
+        await choose("editor.previewDraftUseSaved");
+
+        expect(state.resolve).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            choice: "use_saved",
+            trigger: "reviewed",
+            expectedDraftId: "peer-draft",
+          }),
+        );
+        expect(state.upsert).toHaveBeenCalledTimes(2);
+        expect(state.upsert).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            expectedVersion: null,
+            draft: expect.objectContaining({
+              content: "Same text",
+              editorSessionId: "closed-writer",
+            }),
+          }),
+        );
+        expect(upserted).toEqual([[journal]]);
+        expect(state.resolve).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({
+            choice: "use_saved",
+            trigger: "automatic",
+            expectedDraftId: "promoted-draft",
+            expectedDraftEditorSessionId: "closed-writer",
+          }),
+        );
+        expect(state.cleared).toHaveBeenCalledExactlyOnceWith("closed-writer");
+        expect(state.entries).toEqual([]);
+        expect(container.querySelector("textarea")).not.toBeNull();
+      });
+
+      it("runs the journal again after settling the draft that replaced it", async () => {
+        const journal = settledPeerDraft();
+        await act(async () => render());
+
+        const replacement = {
+          ...peerDraft("Replacement text", "Saved"),
+          id: "replacement-draft",
+          editorSessionId: "replacing-writer",
+          editGeneration: 2,
+        };
+        state.draft = replacement;
+        state.cachedRead = { draft: replacement };
+        await act(async () => render({ ...page }));
+        expect(container.textContent).toContain("editor.previewDraftConflict");
+        expect(container.textContent).toContain("Replacement text");
+        expect(state.upsert).toHaveBeenCalledTimes(1);
+
+        const upserted = promoteJournal();
+        await choose("editor.previewDraftUseSaved");
+
+        expect(state.resolve).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            trigger: "reviewed",
+            expectedDraftId: "replacement-draft",
+          }),
+        );
+        expect(upserted).toEqual([[journal]]);
+        expect(state.resolve).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({
+            trigger: "automatic",
+            expectedDraftId: "promoted-draft",
+          }),
+        );
+        expect(state.cleared).toHaveBeenCalledExactlyOnceWith("closed-writer");
+        expect(state.entries).toEqual([]);
+      });
+
+      it.each(["account", "org", "page", "unmount"] as const)(
+        "ends the journal's next run when its %s lifetime ends",
+        async (change) => {
+          const journal = settledPeerDraft();
+          await act(async () => render());
+          const promoted = held<unknown>();
+          state.upsert.mockReturnValueOnce(promoted.promise);
+          await choose("editor.previewDraftUseSaved");
+          expect(state.upsert).toHaveBeenCalledTimes(2);
+
+          if (change === "account")
+            state.session = { email: "other@example.test", orgId: "org" };
+          if (change === "org")
+            state.session = {
+              email: "writer@example.test",
+              orgId: "other-org",
+            };
+          if (change === "unmount")
+            await act(async () => {
+              root.unmount();
+              root = createRoot(container);
+            });
+          else
+            await act(async () =>
+              render(change === "page" ? { ...page, id: "other-page" } : page),
+            );
+          await act(async () =>
+            promoted.resolve({
+              status: "saved",
+              draft: {
+                id: "promoted-draft",
+                version: 1,
+                title: "Saved",
+                baseTitle: "Saved",
+                content: "Same text",
+                baseDocumentUpdatedAt: null,
+                editorSessionId: "closed-writer",
+                editGeneration: 1,
+              },
+            }),
+          );
+
+          expect(state.resolve).toHaveBeenCalledTimes(1);
+          expect(state.cleared).not.toHaveBeenCalled();
+          expect(state.entries).toEqual([journal]);
+          expect(
+            container.querySelector("[data-recovery-comparison]"),
+          ).toBeNull();
+          expect(container.textContent).not.toContain("empty.genericError");
+          expect(toast.success).toHaveBeenCalledTimes(1);
+        },
+      );
+    });
+  });
+
+  it("reviews the journal's own draft when its History preservation is refused before the page read it", async () => {
+    const journal: (typeof state.entries)[number] = entry(
+      "closed-writer",
+      "Unsent journal body",
+    );
+    journal.snapshot.baseUpdatedAt = null;
+    journal.snapshot.baseContent = "Earlier body";
+    state.entries = [journal];
+    state.cachedRead = { draft: null };
+    state.refetch.mockImplementation(async () => {
+      state.cachedRead = { draft: state.draft };
+      return { data: state.cachedRead };
+    });
+    state.upsert.mockImplementation(async ({ draft }) => {
+      state.draft = { id: "promoted-draft", ...draft, version: 1 };
+      return { status: "saved", draft: state.draft };
+    });
+    state.resolve.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "This recovery choice was made for another version of the draft.",
+        ),
+        { errorCode: "PREVIEW_DRAFT_RECOVERY_CONFLICT", statusCode: 409 },
+      ),
+    );
+
+    await act(async () => render());
+
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(
+      container.querySelector("[data-recovery-comparison]"),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("editor.previewDraftConflict");
+    expect(container.textContent).toContain("Unsent journal body");
+    expect(state.entries).toEqual([journal]);
+    expect(state.cleared).not.toHaveBeenCalled();
+
+    state.resolve.mockImplementation(async () => {
+      state.draft = null;
+      return { status: "resolved", choice: "use_saved" };
+    });
+    const useSaved = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "editor.previewDraftUseSaved",
+    )!;
+    await act(async () => useSaved.click());
+
+    expect(state.resolve).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        trigger: "reviewed",
+        expectedDraftId: "promoted-draft",
+      }),
+    );
+    expect(state.upsert).toHaveBeenCalledTimes(1);
+    expect(state.cleared).toHaveBeenCalledExactlyOnceWith("closed-writer");
+    expect(state.entries).toEqual([]);
+  });
 
   it("replays a stale same-passage journal with its authored revision and accepts the server merge", async () => {
     state.entries = [
@@ -1058,7 +1581,12 @@ describe("Page browser journal recovery", () => {
     await act(async () =>
       retained.resolve({
         status: "saved",
-        draft: { ...journal.snapshot, version: 1 },
+        draft: {
+          ...journal.snapshot,
+          id: "promoted-draft",
+          editorSessionId: journal.scope.writerId,
+          version: 1,
+        },
       }),
     );
     expect(state.resolve).not.toHaveBeenCalled();
@@ -1143,6 +1671,463 @@ describe("Page browser journal recovery", () => {
     expect(state.resolve).toHaveBeenCalledTimes(2);
     expect(toast.success).toHaveBeenCalledOnce();
     expect(state.entries).toEqual([]);
+  });
+
+  describe("when recovery for another draft still holds the page", () => {
+    const newerDraft = {
+      id: "newer-draft",
+      version: 1,
+      title: "Saved",
+      baseTitle: "Saved",
+      content: "Newer body",
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "newer-writer",
+      editGeneration: 3,
+    };
+    const legacyDraft = {
+      ...newerDraft,
+      id: "legacy-draft",
+      content: "Legacy body",
+      editorSessionId: null,
+      editGeneration: null,
+    };
+    const arrivals = ["draft", "legacy draft", "journal entry"] as const;
+    type Arrival = (typeof arrivals)[number];
+    const arrivalContent = {
+      draft: newerDraft.content,
+      "legacy draft": legacyDraft.content,
+      "journal entry": "Second journal body",
+    };
+    const choicesFor = (arrival: Arrival) =>
+      state.resolve.mock.calls.filter(
+        ([request]) => request.expectedDraftContent === arrivalContent[arrival],
+      );
+    function arrive(arrival: Arrival) {
+      if (arrival === "journal entry")
+        state.entries.push(
+          entry("second-writer", arrivalContent[arrival], "unknown"),
+        );
+      else state.draft = arrival === "draft" ? newerDraft : legacyDraft;
+    }
+    // A settled draft leaves the page, as it does on the server.
+    function settleDrafts() {
+      state.resolve.mockImplementation(
+        async (request: { expectedDraftContent: string }) => {
+          if (
+            (state.draft as { content?: string } | null)?.content ===
+            request.expectedDraftContent
+          )
+            state.draft = null;
+          return { status: "resolved" };
+        },
+      );
+    }
+    // The journal's recovery reads the page again after History keeps its
+    // draft, and the arrival lands while those reads are held. A journal
+    // entry is already queued behind it; a draft arrives meanwhile.
+    async function holdJournalRereads(arrival: Arrival) {
+      retainJournalDraft();
+      if (arrival === "journal entry") arrive(arrival);
+      settleDrafts();
+      const reread = held<void>();
+      let holding = true;
+      state.refetch.mockImplementation(async () => {
+        if (holding) await reread.promise;
+        return { data: { draft: state.draft } };
+      });
+      await act(async () => render());
+      expect(state.resolve).toHaveBeenCalledTimes(1);
+      if (arrival !== "journal entry") {
+        arrive(arrival);
+        await act(async () => render());
+      }
+      return () =>
+        act(async () => {
+          holding = false;
+          reread.resolve();
+        });
+    }
+
+    it.each(arrivals)(
+      "recovers a %s once that recovery lets go of the page",
+      async (arrival) => {
+        const release = await holdJournalRereads(arrival);
+        expect(choicesFor(arrival)).toHaveLength(0);
+
+        await release();
+
+        expect(choicesFor(arrival)).toHaveLength(1);
+        expect(choicesFor(arrival)[0][0]).toMatchObject({
+          choice: "use_saved",
+          trigger: "automatic",
+        });
+        expect(state.entries).toEqual([]);
+        expect(container.querySelector("textarea")).not.toBeNull();
+        expect(
+          container.querySelector('[data-testid="editor-skeleton"]'),
+        ).toBeNull();
+        await act(async () => render());
+        expect(choicesFor(arrival)).toHaveLength(1);
+      },
+    );
+
+    it.each(["keep_mine", "use_saved", "save_separately"] as const)(
+      "offers no choice while that recovery holds the page, then makes one %s click count",
+      async (choice) => {
+        const release = await holdJournalRereads("journal entry");
+        // The queued entry waits behind a draft another writer saved
+        // meanwhile, so that draft needs a reviewed choice.
+        arrive("draft");
+        await act(async () => render());
+
+        expect(
+          container.querySelector("[data-recovery-comparison]"),
+        ).toBeNull();
+        expect(
+          container.querySelector('[data-testid="editor-skeleton"]'),
+        ).not.toBeNull();
+
+        await release();
+
+        expect(container.textContent).toContain("editor.previewDraftConflict");
+        expect(choicesFor("draft")).toHaveLength(0);
+        const control = (label: string) =>
+          [...container.querySelectorAll("button")].find(
+            (button) => button.textContent === label,
+          )!;
+        if (choice === "save_separately") {
+          const more = control("editor.previewDraftMoreOptions");
+          expect(more.disabled).toBe(false);
+          await act(async () => {
+            more.dispatchEvent(
+              new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+            );
+          });
+          const item = [...document.querySelectorAll('[role="menuitem"]')].find(
+            (menuItem) =>
+              menuItem.textContent === "editor.previewDraftSaveSeparately",
+          ) as HTMLElement;
+          await act(async () => item.click());
+        } else {
+          const button = control(
+            choice === "keep_mine"
+              ? "editor.previewDraftKeepMine"
+              : "editor.previewDraftUseSaved",
+          );
+          expect(button.disabled).toBe(false);
+          await act(async () => button.click());
+        }
+
+        expect(choicesFor("draft")).toHaveLength(1);
+        expect(choicesFor("draft")[0][0]).toEqual({
+          choice,
+          trigger: "reviewed",
+          documentId: "page",
+          expectedDraftId: newerDraft.id,
+          expectedDraftEditorSessionId: newerDraft.editorSessionId,
+          expectedDraftEditGeneration: newerDraft.editGeneration,
+          expectedDraftVersion: newerDraft.version,
+          expectedDraftTitle: newerDraft.title,
+          expectedDraftContent: newerDraft.content,
+          expectedDraftBaseTitle: newerDraft.baseTitle,
+          expectedDocumentTitle: page.title,
+          expectedDocumentUpdatedAt: page.updatedAt,
+        });
+        await act(async () => render());
+        expect(choicesFor("draft")).toHaveLength(1);
+      },
+    );
+
+    it.each(arrivals)("recovers a lone %s once", async (arrival) => {
+      retainJournalDraft();
+      state.entries = [];
+      settleDrafts();
+      arrive(arrival);
+
+      await act(async () => render());
+
+      expect(choicesFor(arrival)).toHaveLength(1);
+      expect(state.entries).toEqual([]);
+      expect(container.querySelector("textarea")).not.toBeNull();
+    });
+
+    it.each([
+      "unmount",
+      "account A to B to A",
+      "a same-id replacement",
+    ] as const)(
+      "starts nothing more when an ended recovery lets go after %s",
+      async (change) => {
+        const release = await holdJournalRereads("draft");
+        if (change === "unmount")
+          await act(async () => {
+            root.unmount();
+            root = createRoot(container);
+          });
+        else if (change === "a same-id replacement") {
+          // The replacement reads the page for itself.
+          state.refetch.mockImplementation(async () => ({
+            data: { draft: state.draft },
+          }));
+          await act(async () =>
+            render({ ...page, createdAt: "replacement" } as Document),
+          );
+        } else {
+          state.session = { email: "other@example.test", orgId: "org" };
+          state.draft = null;
+          await act(async () => render());
+          state.session = { email: "writer@example.test", orgId: "org" };
+          state.draft = newerDraft;
+          await act(async () => render());
+        }
+        // Back in its own scope, the page recovers the draft itself.
+        const recovered = change === "unmount" ? 0 : 1;
+        expect(choicesFor("draft")).toHaveLength(recovered);
+        const settled = {
+          html: container.innerHTML,
+          resolves: state.resolve.mock.calls.length,
+          successes: vi.mocked(toast.success).mock.calls.length,
+          errors: vi.mocked(toast.error).mock.calls.length,
+        };
+
+        await release();
+
+        expect(choicesFor("draft")).toHaveLength(recovered);
+        expect({
+          html: container.innerHTML,
+          resolves: state.resolve.mock.calls.length,
+          successes: vi.mocked(toast.success).mock.calls.length,
+          errors: vi.mocked(toast.error).mock.calls.length,
+        }).toEqual(settled);
+        if (change !== "unmount")
+          expect(container.querySelector("textarea")).not.toBeNull();
+      },
+    );
+  });
+
+  describe("when a page with the same id replaces this one", () => {
+    const original = { ...page, createdAt: "incarnation-a" } as Document;
+    const replacement = { ...original, createdAt: "incarnation-b" } as Document;
+    const replacementDraft = {
+      id: "replacement-draft",
+      version: 1,
+      title: "Saved",
+      baseTitle: "Saved",
+      content: "Replacement body",
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "replacement-writer",
+      editGeneration: 2,
+    };
+
+    it.each(["upsert", "resolve"] as const)(
+      "ends the replaced page's held journal %s without acting on its replacement",
+      async (step) => {
+        const journal = retainJournalDraft();
+        const first = held<unknown>();
+        if (step === "upsert") state.upsert.mockReturnValueOnce(first.promise);
+        else state.resolve.mockReturnValueOnce(first.promise);
+        await act(async () => render(original));
+        expect(state[step]).toHaveBeenCalledTimes(1);
+        // The journal names the page id alone, so the replacement replays it
+        // on its own; that replay waits here.
+        state.upsert.mockReturnValue(new Promise(() => {}));
+        state.draft = null;
+        await act(async () => render(replacement));
+        const reads = state.refetch.mock.calls.length;
+        const resolves = state.resolve.mock.calls.length;
+
+        await act(async () =>
+          first.resolve(
+            step === "upsert"
+              ? {
+                  status: "saved",
+                  draft: {
+                    ...journal.snapshot,
+                    id: "promoted-draft",
+                    editorSessionId: journal.scope.writerId,
+                    version: 1,
+                  },
+                }
+              : { status: "resolved" },
+          ),
+        );
+
+        expect(state.resolve).toHaveBeenCalledTimes(resolves);
+        expect(state.refetch).toHaveBeenCalledTimes(reads);
+        expect(state.entries).toEqual([journal]);
+        expect(state.cleared).not.toHaveBeenCalled();
+        expect(toast.success).not.toHaveBeenCalled();
+      },
+    );
+
+    it("reads the replacement's draft itself before recovering it", async () => {
+      await act(async () => render(original));
+      expect(state.verify).toHaveBeenCalledTimes(1);
+      expect(container.querySelector("textarea")).not.toBeNull();
+      const reread = held<void>();
+      state.refetch.mockImplementation(async () => {
+        await reread.promise;
+        return { data: { draft: state.draft } };
+      });
+      state.draft = replacementDraft;
+
+      await act(async () => render(replacement));
+
+      // A read this page open made, or one adopted for it, came from the
+      // page it opened.
+      expect(state.resolve).not.toHaveBeenCalled();
+      expect(
+        container.querySelector('[data-testid="editor-skeleton"]'),
+      ).not.toBeNull();
+      await act(async () => reread.resolve());
+      expect(state.resolve).toHaveBeenCalledTimes(1);
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({ expectedDraftId: replacementDraft.id }),
+      );
+    });
+
+    it("does not revive the replaced page's attempt when its row renders again", async () => {
+      const journal = retainJournalDraft();
+      const first = held<unknown>();
+      state.resolve.mockReturnValueOnce(first.promise);
+      await act(async () => render(original));
+      expect(state.resolve).toHaveBeenCalledTimes(1);
+      state.upsert.mockReturnValue(new Promise(() => {}));
+      state.draft = null;
+      await act(async () => render(replacement));
+      await act(async () => render(original));
+      const resolves = state.resolve.mock.calls.length;
+
+      await act(async () => first.resolve({ status: "resolved" }));
+
+      expect(state.resolve).toHaveBeenCalledTimes(resolves);
+      expect(state.entries).toEqual([journal]);
+      expect(state.cleared).not.toHaveBeenCalled();
+      expect(toast.success).not.toHaveBeenCalled();
+    });
+
+    it("recovers a same-id replacement of a page this tab created", async () => {
+      const created = markDocumentCreationConfirmed(
+        queryClient as never,
+        {
+          ...original,
+          id: "created-page",
+          createdAt: "created-here",
+        } as Document,
+      );
+      try {
+        state.draft = replacementDraft;
+        await act(async () => render(created));
+        // The creating editor lets go of creation; the page stays its own.
+        clearDocumentCreationConfirmed(queryClient as never, created);
+        await act(async () => render(created));
+        expect(state.verify).not.toHaveBeenCalled();
+        expect(state.resolve).not.toHaveBeenCalled();
+        expect(container.querySelector("textarea")).not.toBeNull();
+
+        await act(async () =>
+          render({ ...created, createdAt: "created-elsewhere" }),
+        );
+
+        expect(state.resolve).toHaveBeenCalledTimes(1);
+        expect(state.resolve).toHaveBeenCalledWith(
+          expect.objectContaining({
+            documentId: "created-page",
+            expectedDraftId: replacementDraft.id,
+          }),
+        );
+      } finally {
+        clearDocumentCreationConfirmed(queryClient as never, created);
+      }
+    });
+
+    it.each(["draft", "journal entry"] as const)(
+      "recovers a same-id replacement's %s while the created page's confirmation is still recorded",
+      async (retained) => {
+        const created = markDocumentCreationConfirmed(
+          queryClient as never,
+          {
+            ...original,
+            id: "created-page",
+            createdAt: "created-here",
+          } as Document,
+        );
+        try {
+          if (retained === "draft") state.draft = replacementDraft;
+          else retainJournalDraft().scope.documentId = "created-page";
+          await act(async () => render(created));
+          expect(state.verify).not.toHaveBeenCalled();
+          expect(state.refetch).not.toHaveBeenCalled();
+          expect(state.upsert).not.toHaveBeenCalled();
+          expect(state.resolve).not.toHaveBeenCalled();
+          expect(container.querySelector("textarea")).not.toBeNull();
+
+          const replacing = { ...created, createdAt: "created-elsewhere" };
+          await act(async () => render(replacing));
+
+          // The replacement reads its own draft rather than the open's read.
+          expect(state.refetch).toHaveBeenCalled();
+          expect(state.resolve).toHaveBeenCalledTimes(1);
+          expect(state.resolve).toHaveBeenCalledWith(
+            expect.objectContaining({
+              documentId: "created-page",
+              expectedDraftId:
+                retained === "draft" ? replacementDraft.id : "promoted-draft",
+            }),
+          );
+          if (retained === "journal entry")
+            expect(state.cleared).toHaveBeenCalledWith("closed-writer");
+
+          // The confirmation was never the replacement's to hold.
+          clearDocumentCreationConfirmed(queryClient as never, created);
+          state.draft = {
+            ...replacementDraft,
+            id: "later-draft",
+            content: "Later replacement body",
+          };
+          await act(async () => render(replacing));
+
+          expect(state.resolve).toHaveBeenCalledTimes(2);
+          expect(state.resolve).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+              documentId: "created-page",
+              expectedDraftId: "later-draft",
+            }),
+          );
+        } finally {
+          clearDocumentCreationConfirmed(queryClient as never, created);
+        }
+      },
+    );
+
+    it("keeps skipping recovery across the created page's confirmed timestamp", async () => {
+      const optimistic = markDocumentCreationPending(
+        queryClient as never,
+        {
+          ...original,
+          id: "created-page",
+          createdAt: "client-clock",
+        } as Document,
+      );
+      try {
+        state.draft = replacementDraft;
+        await act(async () => render(optimistic));
+        const confirmed = markDocumentCreationConfirmed(queryClient as never, {
+          ...optimistic,
+          createdAt: "server-clock",
+        });
+        await act(async () => render(confirmed));
+        clearDocumentCreationConfirmed(queryClient as never, confirmed);
+        await act(async () => render(confirmed));
+
+        expect(state.verify).not.toHaveBeenCalled();
+        expect(state.resolve).not.toHaveBeenCalled();
+        expect(container.querySelector("textarea")).not.toBeNull();
+      } finally {
+        clearDocumentCreationPending(queryClient as never, optimistic);
+        clearDocumentCreationConfirmed(queryClient as never, optimistic);
+      }
+    });
   });
 
   it("converges journal History preservation after a peer changes the page during promotion", async () => {
@@ -1267,6 +2252,37 @@ describe("Page browser journal recovery", () => {
     },
   );
 
+  it("offers a Retry, not the editor, when no draft holds the page after History preservation is refused", async () => {
+    const journal = retainJournalDraft();
+    state.resolve.mockImplementationOnce(async () => {
+      state.draft = null;
+      return {
+        status: "recovery_required",
+        reason: "prior_choice",
+        document: page,
+      };
+    });
+
+    await act(async () => render());
+
+    expect(state.resolve).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(container.textContent).toContain("empty.genericError");
+    expect(container.querySelector("[data-recovery-comparison]")).toBeNull();
+    expect(state.entries).toEqual([journal]);
+    expect(state.cleared).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+
+    const retry = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "database.retry",
+    )!;
+    await act(async () => retry.click());
+
+    expect(state.resolve).toHaveBeenCalledTimes(2);
+    expect(state.cleared).toHaveBeenCalledExactlyOnceWith("closed-writer");
+    expect(state.entries).toEqual([]);
+  });
+
   it("keeps journal and SQL draft and exposes a Retry for a technical preservation failure", async () => {
     const journal = retainJournalDraft();
     state.resolve.mockRejectedValueOnce(
@@ -1282,6 +2298,281 @@ describe("Page browser journal recovery", () => {
     expect(container.querySelector("[data-recovery-comparison]")).toBeNull();
     expect(state.cleared).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("keeps the chooser and the journal when a choice was made for another version of the draft", async () => {
+    const journal: (typeof state.entries)[number] = entry(
+      "closed-writer",
+      "Same body",
+    );
+    journal.snapshot.baseUpdatedAt = null;
+    journal.snapshot.baseContent = "Earlier body";
+    state.entries = [journal];
+    state.draft = {
+      id: "retained-draft",
+      version: 2,
+      title: "Saved",
+      baseTitle: "Saved",
+      content: "Same body",
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "closed-writer",
+      editGeneration: 1,
+    };
+    state.resolve.mockRejectedValue(
+      Object.assign(
+        new Error(
+          "This recovery choice was made for another version of the draft.",
+        ),
+        { errorCode: "PREVIEW_DRAFT_RECOVERY_CONFLICT", statusCode: 409 },
+      ),
+    );
+
+    await act(async () => render());
+    const useSaved = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "editor.previewDraftUseSaved",
+    );
+    expect(useSaved).toBeDefined();
+    await act(async () => useSaved!.click());
+
+    expect(state.resolve).toHaveBeenCalledTimes(2);
+    expect(state.resolve).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        choice: "use_saved",
+        trigger: "reviewed",
+        expectedDraftVersion: 2,
+      }),
+    );
+    expect(
+      container.querySelector("[data-recovery-comparison]"),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("editor.previewDraftConflict");
+    expect(
+      container.querySelector('[data-testid="editor-skeleton"]'),
+    ).toBeNull();
+    expect(state.entries).toEqual([journal]);
+    expect(state.cleared).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  describe("when a choice for an earlier version is refused", () => {
+    const button = (label: string) =>
+      Array.from(document.querySelectorAll("button")).find(
+        (item) => item.textContent === label,
+      );
+    async function choose(choice: "use_saved" | "save_separately") {
+      if (choice === "use_saved") {
+        const useSaved = button("editor.previewDraftUseSaved");
+        expect(useSaved).toBeDefined();
+        await act(async () => useSaved!.click());
+        return;
+      }
+      const more = button("editor.previewDraftMoreOptions");
+      expect(more).toBeDefined();
+      await act(async () => {
+        more!.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+      });
+      const saveSeparately = Array.from(
+        document.querySelectorAll('[role="menuitem"]'),
+      ).find(
+        (item) => item.textContent === "editor.previewDraftSaveSeparately",
+      );
+      expect(saveSeparately).toBeDefined();
+      await act(async () => (saveSeparately as HTMLElement).click());
+    }
+    const refused = () =>
+      Object.assign(new Error("The saved draft changed during recovery."), {
+        errorCode: "PREVIEW_DRAFT_RECOVERY_CONFLICT",
+        statusCode: 409,
+      });
+    const resolvedAs = (choice: "use_saved" | "save_separately") => ({
+      status: "resolved",
+      choice,
+      ...(choice === "save_separately"
+        ? { createdDocumentId: "copy", urlPath: "/page/copy" }
+        : {}),
+    });
+    const exactRequest = (
+      choice: "use_saved" | "save_separately",
+      draft: Record<string, unknown>,
+    ) => ({
+      choice,
+      trigger: "reviewed",
+      documentId: "page",
+      expectedDraftId: draft.id,
+      expectedDraftEditorSessionId: draft.editorSessionId,
+      expectedDraftEditGeneration: draft.editGeneration,
+      expectedDraftVersion: draft.version,
+      expectedDraftTitle: draft.title,
+      expectedDraftContent: draft.content,
+      expectedDraftBaseTitle: draft.baseTitle,
+      expectedDocumentTitle: page.title,
+      expectedDocumentUpdatedAt: page.updatedAt,
+    });
+
+    it.each(
+      (["use_saved", "save_separately"] as const).flatMap((choice) =>
+        (["no", "a newer"] as const).map((journal) => ({ choice, journal })),
+      ),
+    )(
+      "reviews the version it reads again and completes a new $choice click for it with $journal journal",
+      async ({ choice, journal }) => {
+        const earlier = {
+          id: "retained-draft",
+          version: 1,
+          title: "Saved",
+          baseTitle: null,
+          content: "Same body",
+          baseDocumentUpdatedAt: "v1",
+          editorSessionId: "closed-writer",
+          editGeneration: 5,
+        };
+        const retained = { ...earlier, version: 2 };
+        const newer: (typeof state.entries)[number] = entry(
+          "closed-writer",
+          "Newer body",
+        );
+        newer.snapshot.baseUpdatedAt = null;
+        newer.snapshot.baseContent = "Earlier body";
+        newer.snapshot.editGeneration = 6;
+        if (journal === "a newer") state.entries = [newer];
+        // The page read version 1; the server already holds version 2.
+        state.cachedRead = { draft: earlier };
+        state.draft = retained;
+        state.refetch.mockImplementation(async () => {
+          state.cachedRead = { draft: state.draft };
+          return { data: state.cachedRead };
+        });
+        state.resolve.mockRejectedValueOnce(refused());
+
+        await act(async () => render());
+        expect(container.textContent).toContain(
+          "editor.previewDraftTitleUnknown",
+        );
+        await choose(choice);
+
+        expect(state.resolve).toHaveBeenCalledTimes(1);
+        expect(state.resolve).toHaveBeenLastCalledWith(
+          exactRequest(choice, earlier),
+        );
+        expect(state.cachedRead).toEqual({ draft: retained });
+        expect(
+          container.querySelector("[data-recovery-comparison]"),
+        ).not.toBeNull();
+        expect(container.textContent).toContain(
+          "editor.previewDraftTitleUnknown",
+        );
+        expect(
+          container.querySelector('[data-testid="editor-skeleton"]'),
+        ).toBeNull();
+        expect(state.entries).toEqual(journal === "a newer" ? [newer] : []);
+
+        state.resolve.mockImplementationOnce(async () => {
+          state.draft = null;
+          return resolvedAs(choice);
+        });
+        await choose(choice);
+
+        expect(state.resolve).toHaveBeenNthCalledWith(
+          2,
+          exactRequest(choice, retained),
+        );
+        expect(
+          container.querySelector("[data-recovery-comparison]"),
+        ).toBeNull();
+        expect(
+          container.querySelector('[data-testid="editor-skeleton"]'),
+        ).toBeNull();
+        expect(container.querySelector("textarea")).not.toBeNull();
+        if (journal === "no") {
+          expect(state.resolve).toHaveBeenCalledTimes(2);
+          expect(state.cleared).not.toHaveBeenCalled();
+          return;
+        }
+        // Settling version 2 leaves the newer journal, which then goes to
+        // History through its own draft.
+        expect(state.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({
+            draft: expect.objectContaining({
+              content: "Newer body",
+              editGeneration: 6,
+            }),
+          }),
+        );
+        expect(state.resolve).toHaveBeenCalledTimes(3);
+        expect(state.resolve).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            choice: "use_saved",
+            trigger: "automatic",
+            expectedDraftId: "promoted-draft",
+            expectedDraftContent: "Newer body",
+          }),
+        );
+        expect(state.cleared).toHaveBeenCalledTimes(1);
+        expect(state.cleared.mock.invocationCallOrder[0]).toBeGreaterThan(
+          state.resolve.mock.invocationCallOrder[2],
+        );
+        expect(state.entries).toEqual([]);
+      },
+    );
+
+    it.each(["use_saved", "save_separately"] as const)(
+      "clears the journal a new %s click settles after its automatic preservation is refused",
+      async (choice) => {
+        const journal: (typeof state.entries)[number] = entry(
+          "closed-writer",
+          "Same body",
+        );
+        journal.snapshot.baseUpdatedAt = null;
+        journal.snapshot.baseContent = "Earlier body";
+        state.entries = [journal];
+        const retained = {
+          id: "retained-draft",
+          version: 2,
+          title: "Saved",
+          baseTitle: "Saved",
+          content: "Same body",
+          baseDocumentUpdatedAt: "v1",
+          editorSessionId: "closed-writer",
+          editGeneration: 1,
+        };
+        state.draft = retained;
+        state.resolve.mockRejectedValueOnce(refused());
+
+        await act(async () => render());
+        expect(state.resolve).toHaveBeenCalledWith(
+          expect.objectContaining({
+            choice: "use_saved",
+            trigger: "automatic",
+            expectedDraftVersion: 2,
+          }),
+        );
+        expect(container.textContent).toContain("editor.previewDraftConflict");
+        expect(state.entries).toEqual([journal]);
+
+        state.resolve.mockImplementationOnce(async () => {
+          state.draft = null;
+          return resolvedAs(choice);
+        });
+        await choose(choice);
+
+        expect(state.resolve).toHaveBeenCalledTimes(2);
+        expect(state.resolve).toHaveBeenLastCalledWith(
+          exactRequest(choice, retained),
+        );
+        expect(state.entries).toEqual([]);
+        expect(state.cleared).toHaveBeenCalledWith("closed-writer");
+        expect(
+          container.querySelector("[data-recovery-comparison]"),
+        ).toBeNull();
+        expect(
+          container.querySelector('[data-testid="editor-skeleton"]'),
+        ).toBeNull();
+        expect(container.querySelector("textarea")).not.toBeNull();
+      },
+    );
   });
 
   it.each(["receipt", "rebase"])(

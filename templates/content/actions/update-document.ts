@@ -1245,6 +1245,10 @@ const updateDocumentAction = defineAction({
           ) => {
             if (
               settlesPreviewDraft &&
+              // Automatic recovery settles this generation when its claim
+              // resolves, after checking for a draft the generation saved
+              // since the claim took its own.
+              !isAutomaticPreviewDraftRecovery(ctx) &&
               args.editorSnapshotTitle !== undefined &&
               args.editorSnapshotContent !== undefined &&
               // A title the editor never edited is not lost when a peer's

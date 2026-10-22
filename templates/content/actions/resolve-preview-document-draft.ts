@@ -20,6 +20,7 @@ import {
   withAutomaticPreviewDraftRecoveryContext,
   fencePreviewDocumentDraftGeneration,
   lockPreviewDocumentDraftSettlement,
+  readDiscardedPreviewDraftGeneration,
   settlePreviewDocumentDraft,
 } from "./_preview-document-draft-settlement.js";
 import createDocument from "./create-document.js";
@@ -56,6 +57,7 @@ const durableClaimPayload = z.object({
   processingToken: z.string().optional(),
   processingStartedAt: z.string().optional(),
   draftId: z.string().min(1),
+  draftVersion: z.number().int().positive().optional(),
   baseTitle: z.string().nullable().optional(),
   reviewedDocumentTitle: z.string().optional(),
   baseDocumentUpdatedAt: z.string().nullable(),
@@ -69,6 +71,12 @@ const durableClaimPayload = z.object({
 });
 
 const PROCESSING_LEASE_MS = 5 * 60_000;
+
+function claimOperation(choice: "keep_mine" | "use_saved" | "save_separately") {
+  return choice === "use_saved"
+    ? "use-saved-preview-draft"
+    : `claim-preview-draft-${choice}`;
+}
 
 function conflict(message: string, details?: Record<string, unknown>): never {
   throw new ActionContractError(message, {
@@ -92,6 +100,7 @@ async function recoveryDocumentId(args: {
     editorSessionId: string | null;
     editGeneration: number | null;
   };
+  override?: "keep_mine";
 }): Promise<string> {
   const input = JSON.stringify([
     args.ownerEmail,
@@ -108,6 +117,7 @@ async function recoveryDocumentId(args: {
           args.sourceIdentity.editGeneration,
         ]
       : []),
+    ...(args.override ? [args.override] : []),
   ]);
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -173,16 +183,17 @@ export default defineAction({
       (payload.editGeneration ?? null) === args.expectedDraftEditGeneration;
     const db = getDb();
     type ClaimTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+    const sourceIdentity = {
+      id: args.expectedDraftId,
+      editorSessionId: args.expectedDraftEditorSessionId,
+      editGeneration: args.expectedDraftEditGeneration,
+    };
     let recoveryId = await recoveryDocumentId({
       ...args,
       ownerEmail: userEmail,
       orgId,
       includeDocumentVersion: true,
-      sourceIdentity: {
-        id: args.expectedDraftId,
-        editorSessionId: args.expectedDraftEditorSessionId,
-        editGeneration: args.expectedDraftEditGeneration,
-      },
+      sourceIdentity,
     });
     let claimId = `draft-claim-${recoveryId.slice("recovery-".length)}`;
     let claimDocumentId = ownerEmail === userEmail ? args.documentId : claimId;
@@ -197,16 +208,23 @@ export default defineAction({
         ),
       )
       .limit(1);
+    const historicalClaimIds: string[] = [];
+    for (const includeDocumentVersion of [true, false]) {
+      const historicalRecoveryId = await recoveryDocumentId({
+        ...args,
+        ownerEmail: userEmail,
+        orgId,
+        includeDocumentVersion,
+      });
+      historicalClaimIds.push(
+        `draft-claim-${historicalRecoveryId.slice("recovery-".length)}`,
+      );
+    }
+    // Every claim ID format hashes the draft version its request named.
+    const versionClaimIds = new Set([claimId, ...historicalClaimIds]);
     // Both historical ID formats remain retryable only for their original source.
     if (!currentClaim) {
-      for (const includeDocumentVersion of [true, false]) {
-        const historicalRecoveryId = await recoveryDocumentId({
-          ...args,
-          ownerEmail: userEmail,
-          orgId,
-          includeDocumentVersion,
-        });
-        const historicalClaimId = `draft-claim-${historicalRecoveryId.slice("recovery-".length)}`;
+      for (const historicalClaimId of historicalClaimIds) {
         const [historicalClaim] = await db
           .select({ chatContext: schema.documentVersions.chatContext })
           .from(schema.documentVersions)
@@ -227,7 +245,7 @@ export default defineAction({
           JSON.parse(historicalClaim.chatContext),
         );
         if (!sourceIdentityMatches(payload)) continue;
-        recoveryId = historicalRecoveryId;
+        recoveryId = `recovery-${historicalClaimId.slice("draft-claim-".length)}`;
         claimId = historicalClaimId;
         claimDocumentId = ownerEmail === userEmail ? args.documentId : claimId;
         break;
@@ -344,12 +362,187 @@ export default defineAction({
         await lockPreviewDocumentDraftSettlement(input);
       else await fencePreviewDocumentDraftGeneration(input);
     };
+    // A claim found through its draft's recovery group alone may have
+    // consumed an earlier version with the same text. It proves this request's
+    // version by recording it or, from before claims did, by the ID it holds.
+    const claimedDraftVersion = (
+      payload: z.infer<typeof durableClaimPayload>,
+    ) => {
+      if (
+        payload.draftVersion === undefined
+          ? !versionClaimIds.has(claimId)
+          : payload.draftVersion !== args.expectedDraftVersion
+      )
+        conflict(
+          "This recovery choice was made for another version of the draft.",
+        );
+      return args.expectedDraftVersion;
+    };
+    // Other text or a recorded other version proves another snapshot. A
+    // claim from before claims recorded versions is known by its ID instead.
+    // Every claim writer hashed the owner, org, page, version and text it
+    // claimed, and a format that also hashed a page version recorded that
+    // version unchanged. While the exact draft holds this lineage in SQL, a
+    // well-formed claim whose ID none of those formats gives for this version
+    // concerns another one; anything less proves neither.
+    const groupClaimSnapshot = async (
+      candidate: {
+        id: string;
+        documentId: string;
+        title: string;
+        content: string;
+        chatContext: string | null;
+        groupKind: string | null;
+        operation: string | null;
+      },
+      holdsExactDraft: boolean,
+    ) => {
+      if (!candidate.chatContext) return "unproven" as const;
+      const payload = durableClaimPayload.parse(
+        JSON.parse(candidate.chatContext),
+      );
+      if (!sourceIdentityMatches(payload)) return "unproven" as const;
+      if (
+        candidate.title !== args.expectedDraftTitle ||
+        candidate.content !== args.expectedDraftContent ||
+        (args.expectedDraftBaseTitle !== undefined &&
+          payload.baseTitle !== undefined &&
+          payload.baseTitle !== args.expectedDraftBaseTitle)
+      )
+        return "different" as const;
+      if (payload.draftVersion !== undefined)
+        return payload.draftVersion === args.expectedDraftVersion
+          ? ("same" as const)
+          : ("different" as const);
+      if (versionClaimIds.has(candidate.id)) return "same" as const;
+      const recordedUpdatedAt = payload.expectedDocumentUpdatedAt;
+      // Only the format without a page version predates recording one.
+      if (recordedUpdatedAt !== undefined)
+        for (const source of [sourceIdentity, undefined]) {
+          const recorded = await recoveryDocumentId({
+            ...args,
+            expectedDocumentUpdatedAt: recordedUpdatedAt,
+            ownerEmail: userEmail,
+            orgId,
+            includeDocumentVersion: true,
+            sourceIdentity: source,
+          });
+          if (
+            candidate.id === `draft-claim-${recorded.slice("recovery-".length)}`
+          ) {
+            versionClaimIds.add(candidate.id);
+            return "same" as const;
+          }
+        }
+      return holdsExactDraft &&
+        /^draft-claim-[0-9a-f]{32}$/.test(candidate.id) &&
+        candidate.groupKind === "operation" &&
+        candidate.operation === claimOperation(payload.choice) &&
+        candidate.documentId ===
+          (ownerEmail === userEmail ? args.documentId : candidate.id)
+        ? ("different" as const)
+        : ("unproven" as const);
+    };
+    // A reviewed Keep mine can override another choice about this snapshot,
+    // including the claim its own request ID holds. The override is a decision
+    // of its own, so it takes an ID of its own that each retry derives again.
+    if (!automatic && args.choice === "keep_mine") {
+      const [named] = await db
+        .select({
+          id: schema.documentVersions.id,
+          documentId: schema.documentVersions.documentId,
+          title: schema.documentVersions.title,
+          content: schema.documentVersions.content,
+          chatContext: schema.documentVersions.chatContext,
+          groupKind: schema.documentVersions.groupKind,
+          groupId: schema.documentVersions.groupId,
+          operation: schema.documentVersions.operation,
+          checkpointKind: schema.documentVersions.checkpointKind,
+        })
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.id, claimId),
+            eq(schema.documentVersions.ownerEmail, userEmail),
+            eq(schema.documentVersions.documentId, claimDocumentId),
+          ),
+        )
+        .limit(1);
+      if (named?.chatContext) {
+        const { choice } = durableClaimPayload.parse(
+          JSON.parse(named.chatContext),
+        );
+        if (
+          choice !== "keep_mine" &&
+          named.groupKind === "operation" &&
+          named.groupId === `draft-recovery:${args.expectedDraftId}` &&
+          named.checkpointKind === "recovery" &&
+          named.operation === claimOperation(choice) &&
+          (await groupClaimSnapshot(named, false)) === "same"
+        ) {
+          recoveryId = await recoveryDocumentId({
+            ...args,
+            ownerEmail: userEmail,
+            orgId,
+            includeDocumentVersion: true,
+            sourceIdentity,
+            override: "keep_mine",
+          });
+          claimId = `draft-claim-${recoveryId.slice("recovery-".length)}`;
+          claimDocumentId =
+            ownerEmail === userEmail ? args.documentId : claimId;
+          destinationId = recoveryId;
+        }
+      }
+    }
+    // A claim's settlement and fence cover its whole editor generation, not
+    // only the snapshot it consumed, so a retry refuses while that generation
+    // still holds a later draft the claim never read.
+    const assertGenerationSparesRetainedDraft = async (
+      tx: ClaimTransaction,
+      payload: z.infer<typeof durableClaimPayload>,
+      settles: boolean,
+    ) => {
+      const input = claimGenerationInput(tx, payload, new Date().toISOString());
+      if (!input) return;
+      const settled = await lockPreviewDocumentDraftSettlement(input);
+      const discarded =
+        (await readDiscardedPreviewDraftGeneration(input)) ?? -1;
+      const [retained] = await tx
+        .select()
+        .from(schema.documentPreviewDrafts)
+        .where(
+          and(
+            eq(schema.documentPreviewDrafts.ownerEmail, userEmail),
+            eq(schema.documentPreviewDrafts.orgId, orgId),
+            eq(schema.documentPreviewDrafts.documentId, args.documentId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      if (
+        retained &&
+        !(
+          retained.id === payload.draftId &&
+          retained.version === claimedDraftVersion(payload)
+        ) &&
+        retained.editorSessionId === input.editorSessionId &&
+        retained.editGeneration !== null &&
+        retained.editGeneration <= input.editGeneration &&
+        ((settles && settled < input.editGeneration) ||
+          (payload.choice !== "keep_mine" && discarded < input.editGeneration))
+      )
+        conflict("The saved draft changed during recovery.");
+    };
     // Historical resolved claims may still need their settlement repaired.
+    // Every terminal transition settles here, after the retained-draft check,
+    // with the settlement and draft rows still locked.
     const settleClaimGeneration = async (
       tx: ClaimTransaction,
       payload: z.infer<typeof durableClaimPayload>,
       now = new Date().toISOString(),
     ) => {
+      await assertGenerationSparesRetainedDraft(tx, payload, true);
       if (
         payload.choice === "save_separately" &&
         !(await findExistingRecovery(tx))
@@ -362,7 +555,7 @@ export default defineAction({
         discarded: payload.choice !== "keep_mine",
         draftSnapshot: {
           id: payload.draftId,
-          version: args.expectedDraftVersion,
+          version: claimedDraftVersion(payload),
         },
       });
     };
@@ -381,8 +574,20 @@ export default defineAction({
           .from(schema.documentPreviewDrafts)
           .where(draftFilter)
           .limit(1);
-        const [previousChoice] = await tx
-          .select({ id: schema.documentVersions.id })
+        // A page timestamp identifies a reviewed version, not a new recovery
+        // decision. The draft's recovery group holds claims on every version
+        // of its row, so it only finds a claim; it does not prove one is this
+        // request's.
+        const groupClaims = await tx
+          .select({
+            id: schema.documentVersions.id,
+            documentId: schema.documentVersions.documentId,
+            title: schema.documentVersions.title,
+            content: schema.documentVersions.content,
+            chatContext: schema.documentVersions.chatContext,
+            groupKind: schema.documentVersions.groupKind,
+            operation: schema.documentVersions.operation,
+          })
           .from(schema.documentVersions)
           .where(
             and(
@@ -411,15 +616,55 @@ export default defineAction({
           .orderBy(
             desc(schema.documentVersions.createdAt),
             desc(schema.documentVersions.id),
+          );
+        const [requestClaim] = await tx
+          .select({ id: schema.documentVersions.id })
+          .from(schema.documentVersions)
+          .where(
+            and(
+              eq(schema.documentVersions.id, claimId),
+              eq(schema.documentVersions.ownerEmail, userEmail),
+              eq(schema.documentVersions.documentId, claimDocumentId),
+            ),
           )
           .limit(1);
-        // A page timestamp identifies a reviewed version, not a new recovery decision.
-        if (previousChoice && (automatic || args.choice !== "keep_mine")) {
-          claimId = previousChoice.id;
-          claimDocumentId =
-            ownerEmail === userEmail ? args.documentId : claimId;
-          recoveryId = `recovery-${claimId.slice("draft-claim-".length)}`;
-          destinationId = recoveryId;
+        if (!requestClaim && groupClaims.length > 0) {
+          const snapshots = [];
+          for (const candidate of groupClaims)
+            snapshots.push({
+              id: candidate.id,
+              operation: candidate.operation,
+              snapshot: await groupClaimSnapshot(
+                candidate,
+                sourceDraft !== undefined,
+              ),
+            });
+          // A reviewed Keep mine can override another choice about this
+          // snapshot, so it only resumes a claim that kept it.
+          const sameSnapshot = snapshots.find(
+            ({ operation, snapshot }) =>
+              snapshot === "same" &&
+              (automatic ||
+                args.choice !== "keep_mine" ||
+                operation === "claim-preview-draft-keep_mine"),
+          );
+          if (sameSnapshot) {
+            claimId = sameSnapshot.id;
+            claimDocumentId =
+              ownerEmail === userEmail ? args.documentId : claimId;
+            recoveryId = `recovery-${claimId.slice("draft-claim-".length)}`;
+            destinationId = recoveryId;
+          } else if (
+            // Only a reviewed choice about this exact snapshot starts a claim
+            // beside one proven to concern another. A reviewed Keep mine also
+            // starts its own beside one that proves neither.
+            automatic ||
+            (args.choice !== "keep_mine" &&
+              snapshots.some(({ snapshot }) => snapshot === "unproven"))
+          )
+            conflict(
+              "This recovery choice was made for another version of the draft.",
+            );
         }
         const [claim] = await tx
           .select()
@@ -434,6 +679,7 @@ export default defineAction({
           .for("update")
           .limit(1);
         let payload: z.infer<typeof durableClaimPayload> | undefined;
+        let separateCopy = false;
         if (claim) {
           if (
             claim.title !== args.expectedDraftTitle ||
@@ -448,7 +694,9 @@ export default defineAction({
               reason: "draft_changed" as const,
               document: currentDocument ?? null,
             };
+          claimedDraftVersion(payload);
           if (automatic) {
+            await assertGenerationSparesRetainedDraft(tx, payload, false);
             await fenceClaimGeneration(tx, payload);
             return {
               status: "recovery_required" as const,
@@ -459,8 +707,7 @@ export default defineAction({
             };
           }
           if (
-            previousChoice?.id === claim.id &&
-            args.choice !== "keep_mine" &&
+            groupClaims.some(({ id }) => id === claim.id) &&
             payload.choice === args.choice &&
             sourceDraft &&
             currentDocument &&
@@ -468,10 +715,13 @@ export default defineAction({
             (args.expectedDocumentTitle === undefined ||
               currentDocument.title === args.expectedDocumentTitle)
           ) {
+            // The claim's ID may have been the only proof of its version, and
+            // it was hashed from the page version this replaces.
             payload = {
               ...payload,
               expectedDocumentUpdatedAt: args.expectedDocumentUpdatedAt,
               reviewedDocumentTitle: currentDocument.title,
+              draftVersion: args.expectedDraftVersion,
             };
           }
           if (!sourceIdentityMatches(payload))
@@ -484,7 +734,13 @@ export default defineAction({
             args.expectedDraftBaseTitle !== (payload.baseTitle ?? null)
           )
             conflict("The saved draft changed during recovery.");
+          // A separate copy never writes the source page, so once its owned
+          // copy exists a reviewed retry can finish whatever the page did since.
+          separateCopy =
+            args.choice === "save_separately" &&
+            (await findExistingRecovery(tx)) !== null;
           if (
+            !separateCopy &&
             args.expectedDocumentTitle !== undefined &&
             payload.reviewedDocumentTitle !== undefined &&
             args.expectedDocumentTitle !== payload.reviewedDocumentTitle
@@ -547,16 +803,18 @@ export default defineAction({
           const expectedUpdatedAt =
             payload.expectedDocumentUpdatedAt ?? args.expectedDocumentUpdatedAt;
           if (
-            args.expectedDocumentUpdatedAt !== expectedUpdatedAt ||
             !currentDocument ||
-            (currentDocument.updatedAt !== expectedUpdatedAt &&
-              !claimMatchesDocument(claim, payload, currentDocument))
+            (!separateCopy &&
+              (args.expectedDocumentUpdatedAt !== expectedUpdatedAt ||
+                (currentDocument.updatedAt !== expectedUpdatedAt &&
+                  !claimMatchesDocument(claim, payload, currentDocument))))
           ) {
             return {
               status: "document_conflict" as const,
               document: currentDocument ?? null,
             };
           }
+          await assertGenerationSparesRetainedDraft(tx, payload, true);
           await fenceClaimGeneration(tx, payload);
           return {
             status: "claimed" as const,
@@ -583,9 +841,10 @@ export default defineAction({
         }
         if (
           !currentDocument ||
-          currentDocument.updatedAt !== args.expectedDocumentUpdatedAt ||
-          (args.expectedDocumentTitle !== undefined &&
-            currentDocument.title !== args.expectedDocumentTitle)
+          (!separateCopy &&
+            (currentDocument.updatedAt !== args.expectedDocumentUpdatedAt ||
+              (args.expectedDocumentTitle !== undefined &&
+                currentDocument.title !== args.expectedDocumentTitle)))
         ) {
           return {
             status: "document_conflict" as const,
@@ -605,6 +864,7 @@ export default defineAction({
             processingToken,
             processingStartedAt: now,
             draftId: draft.id,
+            draftVersion: draft.version,
             baseTitle: draft.baseTitle,
             reviewedDocumentTitle: currentDocument.title,
             baseDocumentUpdatedAt: draft.baseDocumentUpdatedAt,
@@ -630,10 +890,7 @@ export default defineAction({
               origin: ctx?.caller ?? "frontend",
               groupKind: "operation",
               groupId: `draft-recovery:${draft.id}`,
-              operation:
-                args.choice === "use_saved"
-                  ? "use-saved-preview-draft"
-                  : `claim-preview-draft-${args.choice}`,
+              operation: claimOperation(args.choice),
               checkpointKind: "recovery",
               createdAt: now,
               updatedAt: now,
@@ -787,9 +1044,13 @@ export default defineAction({
           await settleClaimGeneration(tx, payload);
           return false;
         }
+        const separateCopy =
+          args.choice === "save_separately" &&
+          (await findExistingRecovery(tx)) !== null;
         if (
           !currentDocument ||
-          (currentDocument.updatedAt !== args.expectedDocumentUpdatedAt &&
+          (!separateCopy &&
+            currentDocument.updatedAt !== args.expectedDocumentUpdatedAt &&
             !claimMatchesDocument(claim, payload, currentDocument))
         ) {
           conflict("The page changed after this recovery choice was reviewed.");
@@ -798,8 +1059,7 @@ export default defineAction({
           const alreadyApplied =
             args.choice === "use_saved" ||
             claimMatchesDocument(claim, payload, currentDocument) ||
-            (args.choice === "save_separately" &&
-              (await findExistingRecovery(tx)) !== null);
+            separateCopy;
           if (!alreadyApplied) {
             if (
               !payload.processingStartedAt ||
@@ -814,6 +1074,9 @@ export default defineAction({
             return false;
           }
         }
+        // A draft its generation saved since the claim read none would be
+        // settled under it.
+        await assertGenerationSparesRetainedDraft(tx, payload, true);
         const now = new Date().toISOString();
         const acquired = await tx
           .update(schema.documentVersions)
@@ -872,12 +1135,28 @@ export default defineAction({
           conflict("The recovery claim was lost.");
       });
     };
+    // Only the claim's own result resolves it. Its generation can be settled
+    // by another snapshot's choice, so without that result the claim keeps
+    // its exact draft, or reports the version that preserved it.
     const restoreClaimedDraft = async (
       draft: typeof schema.documentPreviewDrafts.$inferSelect,
     ) => {
       await db.transaction(async (tx) => {
+        const [currentDocument] = await tx
+          .select({
+            title: schema.documents.title,
+            content: schema.documents.content,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId))
+          .for("update")
+          .limit(1);
         const [claim] = await tx
-          .select({ chatContext: schema.documentVersions.chatContext })
+          .select({
+            title: schema.documentVersions.title,
+            content: schema.documentVersions.content,
+            chatContext: schema.documentVersions.chatContext,
+          })
           .from(schema.documentVersions)
           .where(eq(schema.documentVersions.id, claimId))
           .for("update")
@@ -891,8 +1170,18 @@ export default defineAction({
           payload.processingToken !== processingToken
         )
           return;
-        if (draft.editorSessionId !== null && draft.editGeneration !== null) {
-          const settledGeneration = await lockPreviewDocumentDraftSettlement({
+        if (
+          (currentDocument &&
+            claimMatchesDocument(claim, payload, currentDocument)) ||
+          (payload.choice === "save_separately" &&
+            (await findExistingRecovery(tx)) !== null)
+        ) {
+          if (!(await settleAndResolveClaim(tx, claim.chatContext, payload)))
+            conflict("The recovery claim was lost.");
+          return;
+        }
+        if (draft.editorSessionId !== null && draft.editGeneration !== null)
+          await lockPreviewDocumentDraftSettlement({
             db: tx,
             ownerEmail: userEmail,
             orgId,
@@ -900,26 +1189,6 @@ export default defineAction({
             editorSessionId: draft.editorSessionId,
             now: new Date().toISOString(),
           });
-          if (
-            settledGeneration !== null &&
-            draft.editGeneration <= settledGeneration &&
-            !automatic &&
-            (payload.choice !== "save_separately" ||
-              (await findExistingRecovery(tx)) !== null)
-          ) {
-            await tx
-              .update(schema.documentVersions)
-              .set({
-                chatContext: JSON.stringify({
-                  ...payload,
-                  status: "resolved",
-                }),
-                updatedAt: new Date().toISOString(),
-              })
-              .where(eq(schema.documentVersions.id, claimId));
-            return;
-          }
-        }
         const restored = await tx
           .insert(schema.documentPreviewDrafts)
           .values(draft)

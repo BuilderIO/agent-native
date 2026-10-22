@@ -22,7 +22,7 @@ import {
   type PreviewDocumentDraftRecord,
 } from "@/hooks/use-documents";
 import {
-  isDocumentCreationConfirmed,
+  getDocumentCreationBaseline,
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
 import {
@@ -177,23 +177,40 @@ export function PageDraftRecovery({
     document.canEdit !== true ||
     document.source?.mode === "local-files";
   const { session } = useSession();
+  // A page deleted for good leaves its id free, and a page created later under
+  // that id renders here without a remount. Only its creation time tells the
+  // two apart.
+  const incarnation = JSON.stringify([document.id, document.createdAt ?? null]);
   const scopeKey = session?.email
     ? JSON.stringify([
         session.email.trim().toLowerCase(),
         session.orgId ?? null,
         document.id,
+        document.createdAt ?? null,
       ])
     : null;
   const beginAttempt = useRecoveryAttemptOwner(scopeKey);
   const queryClient = useQueryClient();
+  const openedIncarnationRef = useRef(incarnation);
   const creationPending = isDocumentCreationPending(queryClient, document);
-  const skipCreationDraftRecoveryRef = useRef(
-    creationPending || isDocumentCreationConfirmed(queryClient, document),
-  );
-  if (creationPending || isDocumentCreationConfirmed(queryClient, document)) {
-    skipCreationDraftRecoveryRef.current = true;
+  // Creation state outlives the creating editor's hold on it, and an
+  // optimistic page takes the server's creation time once it is confirmed.
+  // A confirmation names the page it confirmed; a later page under the same
+  // id is not that page.
+  const createdIncarnationRef = useRef<string | null>(null);
+  const confirmedCreation = getDocumentCreationBaseline(queryClient, document);
+  if (
+    creationPending ||
+    (confirmedCreation &&
+      JSON.stringify([
+        confirmedCreation.id,
+        confirmedCreation.createdAt ?? null,
+      ]) === incarnation)
+  ) {
+    createdIncarnationRef.current = incarnation;
   }
-  const skipCreationDraftRecovery = skipCreationDraftRecoveryRef.current;
+  const skipCreationDraftRecovery =
+    createdIncarnationRef.current === incarnation;
   const drafts = usePreviewDocumentDraft(document.id, {
     enabled:
       !creationPending && !skipDraftRecovery && !skipCreationDraftRecovery,
@@ -205,7 +222,6 @@ export function PageDraftRecovery({
   const [releasedScopeKey, setReleasedScopeKey] = useState<string | null>(null);
   const [verifiedScopeKey, setVerifiedScopeKey] = useState<string | null>(null);
   const [verificationRevision, setVerificationRevision] = useState(0);
-  const [busy, setBusy] = useState(false);
   const [review, setReview] = useState<{
     scopeKey: string | null;
     draft: PreviewDocumentDraftRecord | null;
@@ -230,21 +246,38 @@ export function PageDraftRecovery({
   const scopeLiveWriters =
     liveWriters && liveWriters.scopeKey === scopeKey ? liveWriters : null;
   const skippedWriterIds = scopeLiveWriters?.writerIds;
-  const journalAttemptRef = useRef<string | null>(null);
+  const journalAttemptRef = useRef<{
+    key: string;
+    // The SQL draft the attempt stopped behind for review. A choice for a
+    // draft that does not hold the journal leaves it, so the attempt runs
+    // again once SQL holds any other draft or none.
+    waitingFor?: string;
+  } | null>(null);
   const pendingJournalRef = useRef<{
     entry: PageDraftJournalEntry;
     draft: PreviewDocumentDraftRecord;
   } | null>(null);
-  const runningRecoveryRef = useRef<RecoveryAttempt | null>(null);
+  // One recovery holds the page at a time. Its holder is state, so automatic
+  // recovery waits for it and the chooser offers no choice that could not
+  // take the page; both run again once the holder lets go.
+  const recoveryHolderRef = useRef<RecoveryAttempt | null>(null);
+  const [recoveryHolder, setRecoveryHolder] = useState<RecoveryAttempt | null>(
+    null,
+  );
+  const busy = recoveryHolder?.isActive() ?? false;
   const resolvedDraftsRef = useRef(new Set<string>());
   function acquireRecovery() {
-    if (runningRecoveryRef.current?.isActive()) return null;
+    if (recoveryHolderRef.current?.isActive()) return null;
     const owner = beginAttempt();
-    runningRecoveryRef.current = owner;
+    recoveryHolderRef.current = owner;
+    setRecoveryHolder(owner);
     return owner;
   }
   function releaseRecovery(owner: RecoveryAttempt) {
-    if (runningRecoveryRef.current === owner) runningRecoveryRef.current = null;
+    if (recoveryHolderRef.current !== owner) return;
+    recoveryHolderRef.current = null;
+    if (owner.isActive())
+      setRecoveryHolder((holder) => (holder === owner ? null : holder));
   }
   const automaticRecoveryRef = useRef<string | null>(null);
   const automaticLegacyRecoveryRef = useRef<string | null>(null);
@@ -315,11 +348,20 @@ export function PageDraftRecovery({
       return;
     const owner = beginAttempt();
     let cancelled = false;
-    void ensurePreviewDocumentDraftRead(
-      queryClient,
-      document.id,
-      document.createdAt,
-    )
+    // A read made for this page's open names its id alone, so it can hold
+    // the draft of the page this one replaced.
+    const read =
+      incarnation === openedIncarnationRef.current
+        ? ensurePreviewDocumentDraftRead(
+            queryClient,
+            document.id,
+            document.createdAt,
+          )
+        : drafts.refetch({ throwOnError: true }).then(({ data }) => {
+            if (data?.editable === false)
+              throw new Error("The page is no longer editable by this user.");
+          });
+    void read
       .then(() => {
         if (!cancelled && owner.isActive()) setVerifiedScopeKey(scopeKey);
       })
@@ -331,6 +373,7 @@ export function PageDraftRecovery({
     };
   }, [
     creationPending,
+    document.createdAt,
     document.id,
     skipDraftRecovery,
     skipCreationDraftRecovery,
@@ -339,7 +382,6 @@ export function PageDraftRecovery({
   ]);
 
   useEffect(() => {
-    setBusy(false);
     setReview(null);
     resolvedDraftsRef.current.clear();
     automaticRecoveryRef.current = null;
@@ -347,7 +389,7 @@ export function PageDraftRecovery({
     setJournalState("checking");
     journalAttemptRef.current = null;
     pendingJournalRef.current = null;
-  }, [document.id, session?.email, session?.orgId]);
+  }, [document.createdAt, document.id, session?.email, session?.orgId]);
 
   function completeJournalRecovery(
     settled: PreviewDocumentDraftRecord,
@@ -461,8 +503,9 @@ export function PageDraftRecovery({
       draft.content === journalSnapshot.content;
     if (
       sameAsCanonical ||
-      (sameAsSqlDraft &&
-        draft?.baseDocumentUpdatedAt === document.updatedAt &&
+      (matchingSqlDraft &&
+        sameAsSqlDraft &&
+        draft.baseDocumentUpdatedAt === document.updatedAt &&
         draft.baseTitle === journalSnapshot.baseTitle)
     ) {
       try {
@@ -474,32 +517,84 @@ export function PageDraftRecovery({
       }
       return;
     }
-    if (draft && !sameAsSqlDraft && !matchingSqlDraftHasLocalTitleConflict) {
+    // A page keeps one SQL draft, and an editor open in another tab is still
+    // writing it, so a closed tab's entry waits whatever text the two share.
+    if (
+      draft &&
+      (draftOpenElsewhere ||
+        (!sameAsSqlDraft && !matchingSqlDraftHasLocalTitleConflict))
+    ) {
       setJournalState("waiting_sql");
       return;
     }
     const attempt = `${accountId}:${scope.orgId ?? ""}:${document.id}:${entry.scope.writerId}:${entry.snapshot.editGeneration}:${entry.writtenAt}`;
-    if (journalAttemptRef.current === attempt) return;
+    // Compared with the unfiltered read: a draft the live editor wrote is
+    // hidden from review but still holds the page.
+    const latched = journalAttemptRef.current;
+    const storedDraft = drafts.data.draft;
+    if (
+      latched?.key === attempt &&
+      (latched.waitingFor === undefined ||
+        (storedDraft && latched.waitingFor === recoveryDraftKey(storedDraft)))
+    )
+      return;
     const acquired = acquireRecovery();
     if (!acquired) return;
     owner = acquired;
-    journalAttemptRef.current = attempt;
+    journalAttemptRef.current = { key: attempt };
     setJournalState("promoting");
+    // Another writer's draft can hold the same text; settling it here would
+    // consume and fence that writer's generation.
+    const holdsJournal = (sqlDraft: PreviewDocumentDraftRecord) =>
+      sqlDraft.editorSessionId === entry.scope.writerId &&
+      sqlDraft.editGeneration === journalSnapshot.editGeneration &&
+      sqlDraft.title === journalSnapshot.title &&
+      sqlDraft.baseTitle === journalSnapshot.baseTitle &&
+      sqlDraft.content === journalSnapshot.content;
+    // A review shows only the draft this page last read, and that read can
+    // predate the one SQL holds now. With no draft there, nothing proves the
+    // journal was recovered.
+    const reviewCurrentDraft = async (
+      failure?: DraftRecoveryFailure,
+      page: Document | null = null,
+    ) => {
+      const current = (
+        await owner.step(() => drafts.refetch({ throwOnError: true }))
+      ).data?.draft;
+      if (!current) throw new Error("The recovery draft could not be read.");
+      showRecoveryReview(
+        failure ?? (current.baseTitle == null ? "unknown" : "conflict"),
+        page,
+        current,
+        owner,
+      );
+      if (holdsJournal(current))
+        pendingJournalRef.current = {
+          entry: { ...entry, snapshot: journalStorageSnapshot },
+          draft: current,
+        };
+      journalAttemptRef.current = {
+        key: attempt,
+        waitingFor: recoveryDraftKey(current),
+      };
+      setJournalState("waiting_sql");
+    };
     const promote = async () => {
       owner.assertActive();
       const retainedDraft =
-        sameAsSqlDraft &&
-        draft &&
-        draft.title === journalSnapshot.title &&
-        draft.baseTitle === journalSnapshot.baseTitle &&
-        draft.content === journalSnapshot.content
+        draft && holdsJournal(draft)
           ? draft
           : (
               await owner.step(() =>
                 updateDraft.mutateAsync({
                   operation: "upsert",
                   documentId: document.id,
-                  expectedVersion: draft?.version ?? null,
+                  ...(draft
+                    ? {
+                        expectedVersion: draft.version,
+                        expectedDraftId: draft.id,
+                      }
+                    : { expectedVersion: null }),
                   draft: {
                     title: journalSnapshot.title,
                     baseTitle: journalSnapshot.baseTitle,
@@ -521,18 +616,8 @@ export function PageDraftRecovery({
                 }),
               )
             ).draft;
-      if (
-        retainedDraft?.title !== journalSnapshot.title ||
-        retainedDraft.baseTitle !== journalSnapshot.baseTitle ||
-        retainedDraft.content !== journalSnapshot.content
-      ) {
-        setJournalState("waiting_sql");
-        showRecoveryReview(
-          retainedDraft?.baseTitle == null ? "unknown" : "conflict",
-          null,
-          retainedDraft,
-          owner,
-        );
+      if (!retainedDraft || !holdsJournal(retainedDraft)) {
+        await reviewCurrentDraft();
         return;
       }
       pendingJournalRef.current = {
@@ -571,18 +656,7 @@ export function PageDraftRecovery({
         },
       );
       if (preserved.status !== "resolved") {
-        const refreshed = await owner.step(() =>
-          drafts.refetch({ throwOnError: true }),
-        );
-        if (!refreshed.data)
-          throw new Error("The recovery draft could not be read.");
-        setJournalState("waiting_sql");
-        showRecoveryReview(
-          "conflict",
-          preserved.document ?? null,
-          refreshed.data.draft,
-          owner,
-        );
+        await reviewCurrentDraft("conflict", preserved.document);
         return;
       }
       resolvedDraftsRef.current.add(recoveryDraftKey(retainedDraft));
@@ -781,21 +855,16 @@ export function PageDraftRecovery({
       setJournalState("checking");
     })()
       .catch((error: unknown) => {
-        if (!owner.isActive()) return;
         const failure = recoveryFailure(error);
-        if (failure === "error") setJournalState("failed");
-        else {
-          showRecoveryReview(
-            failure,
-            null,
-            pendingJournalRef.current?.draft ?? draft,
-            owner,
-          );
-          setJournalState("waiting_sql");
-        }
+        if (failure === "error") throw error;
+        return reviewCurrentDraft(failure);
+      })
+      .catch(() => {
+        if (owner.isActive()) setJournalState("failed");
       })
       .finally(() => releaseRecovery(owner));
   }, [
+    busy,
     creationPending,
     document,
     draft,
@@ -855,11 +924,12 @@ export function PageDraftRecovery({
   async function resolveConflict(
     choice: "keep_mine" | "use_saved" | "save_separately",
     trigger: "automatic" | "reviewed" = "reviewed",
+    onAcquired?: () => void,
   ) {
     if (!draft || busy) return;
     const owner = acquireRecovery();
     if (!owner) return;
-    setBusy(true);
+    onAcquired?.();
     setFailure(null);
     try {
       const result = await resolvePreviewDraftWithRefresh(
@@ -936,8 +1006,18 @@ export function PageDraftRecovery({
       }
     } finally {
       releaseRecovery(owner);
-      if (owner.isActive()) setBusy(false);
     }
+  }
+
+  // An automatic choice counts as made once it holds the page.
+  function chooseAutomatically(
+    made: { current: string | null },
+    attempt: string,
+    choice: "keep_mine" | "use_saved",
+  ) {
+    void resolveConflict(choice, "automatic", () => {
+      made.current = attempt;
+    });
   }
 
   const hasEditIdentity = Boolean(
@@ -957,9 +1037,9 @@ export function PageDraftRecovery({
       return;
     const attempt = `${draft.id}:${draft.version}:${document.updatedAt}`;
     if (automaticLegacyRecoveryRef.current === attempt) return;
-    automaticLegacyRecoveryRef.current = attempt;
     const intent = previewDraftTitleIntent(draft, document.title);
     if (intent.status === "unknown") {
+      automaticLegacyRecoveryRef.current = attempt;
       setFailure("unknown");
       return;
     }
@@ -969,10 +1049,10 @@ export function PageDraftRecovery({
         document.title === draft.baseTitle ||
         document.title === draft.title)
     ) {
-      void resolveConflict("keep_mine", "automatic");
+      chooseAutomatically(automaticLegacyRecoveryRef, attempt, "keep_mine");
       return;
     }
-    void resolveConflict("use_saved", "automatic");
+    chooseAutomatically(automaticLegacyRecoveryRef, attempt, "use_saved");
   }, [
     busy,
     document.updatedAt,
@@ -1009,8 +1089,7 @@ export function PageDraftRecovery({
       return;
     }
     if (pageHoldsDraft(draft, document)) {
-      automaticRecoveryRef.current = attempt;
-      void resolveConflict("keep_mine", "automatic");
+      chooseAutomatically(automaticRecoveryRef, attempt, "keep_mine");
       return;
     }
     if (
@@ -1019,8 +1098,7 @@ export function PageDraftRecovery({
         document.title === draft.baseTitle ||
         document.title === draft.title)
     ) {
-      automaticRecoveryRef.current = attempt;
-      void resolveConflict("keep_mine", "automatic");
+      chooseAutomatically(automaticRecoveryRef, attempt, "keep_mine");
       return;
     }
     if (session?.email) {
@@ -1043,8 +1121,7 @@ export function PageDraftRecovery({
         return;
       }
     }
-    automaticRecoveryRef.current = attempt;
-    void resolveConflict("use_saved", "automatic");
+    chooseAutomatically(automaticRecoveryRef, attempt, "use_saved");
   }, [
     busy,
     document,
