@@ -410,14 +410,6 @@ function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
   );
 }
 
-function hasRuntimeStyleMutationHandler(
-  attrs: readonly { name: string; value: string }[] | undefined,
-): boolean {
-  return (attrs ?? []).some(({ name, value }) =>
-    isRuntimeStyleMutationHandler(name, value),
-  );
-}
-
 function hasPotentialRuntimeMutationHandler(
   attrs: readonly { name: string; value: string }[] | undefined,
 ): boolean {
