@@ -654,6 +654,44 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
       "<columns>\n\t<column>\n\t\t- [ ] a\n\t\t- [x] b\n\t</column>\n</columns>",
   },
   {
+    id: "columns-child-before-any-column",
+    origin: "agent",
+    markdown: "<columns>\n\tstray\n\t<column>\n\t\ta\n\t</column>\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\tstray\n\t</column>\n\t<column>\n\t\ta\n\t</column>\n</columns>",
+    note: "A child before any column gets a column of its own.",
+  },
+  {
+    id: "columns-child-after-a-column",
+    origin: "agent",
+    markdown: "<columns>\n\t<column>\n\t\ta\n\t</column>\n\tafter\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\ta\n\t\tafter\n\t</column>\n</columns>",
+    note: "A child after a column joins it.",
+  },
+  {
+    id: "columns-list-after-a-column-continues",
+    origin: "agent",
+    markdown: "<columns>\n\t<column>\n\t\t- a\n\t</column>\n\t- b\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\t- a\n\t\t- b\n\t</column>\n</columns>",
+  },
+  {
+    id: "math-block-open-at-column-close",
+    origin: "agent",
+    markdown: "<columns>\n\t<column>\n\t\t$$\n\t</column>\n\traw\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\t$$\n\t\t\n\t\t$$\n\t\traw\n\t</column>\n</columns>",
+    note: "The equation ends at its column's close; the line after it joins that column.",
+  },
+  {
+    id: "math-block-open-at-columns-close",
+    origin: "agent",
+    markdown: "<columns>\n\t$$\n</columns>\nAfter\n$$",
+    canonical:
+      "<columns>\n\t<column>\n\t\t$$\n\t\t\n\t\t$$\n\t</column>\n</columns>\nAfter\n$$\n\n$$",
+  },
+  {
     id: "math-block-open-at-callout-close",
     origin: "agent",
     markdown: "<callout>\n\t$$\n\tx = 1\n</callout>\nAfter\n$$",
@@ -1139,18 +1177,12 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     losses: ["dropped-attribute"],
   },
   {
-    id: "refuse-columns-stray-child",
+    id: "refuse-details-line-below-body-after-equation-fence-line",
     origin: "agent",
-    markdown: "<columns>\n\tstray\n\t<column>\n\t\ta\n\t</column>\n</columns>",
-    unrepresentable: "Columns hold only columns.",
-    losses: ["dropped-source"],
-  },
-  {
-    id: "refuse-columns-math-block-open-at-close",
-    origin: "agent",
-    markdown: "<columns>\n\t$$\n</columns>\nAfter\n$$",
-    unrepresentable: "Columns hold only columns.",
-    losses: ["dropped-source", "invalid-structure"],
+    markdown: "\t\t<details>\n$$\n\t```\n\t$$\ncode\n```\n\t\t</details>",
+    unrepresentable:
+      "The details reader takes the fence line in the equation for a fence, so `code` stays below its body and is not read.",
+    losses: ["dropped-source", "reparse-mismatch"],
   },
   {
     id: "refuse-columns-empty",

@@ -2115,7 +2115,14 @@ function parseDetailsBody(
     if (indent >= requiredIndent) return line;
     return `${"\t".repeat(requiredIndent - indent)}${line}`;
   });
-  return parseBlockSequence(bodyLines, 0, childIndent).nodes;
+  const res = parseBlockSequence(bodyLines, 0, childIndent);
+  // A fence's lines move with its opener, so a line written shallower than
+  // the opener can stay below the body and end the read before the close.
+  for (let i = res.end; i < bodyLines.length; i++) {
+    const text = bodyLines[i].trim();
+    if (text) reportLoss("dropped-source", text);
+  }
+  return res.nodes;
 }
 
 // A container's children sit one tab in from its tags, but agents also write
@@ -2135,16 +2142,8 @@ function parseContainerChildren(
   const nodes: PMNode[] = [];
   for (let i = 0; ; ) {
     const res = parseBlockSequence(body, i, childIndent);
-    const last = nodes[nodes.length - 1];
-    const first = res.nodes[0];
-    // A list that goes on past the stop is still one list. Written as two
-    // lists of the same kind, it would read back as one and renumber.
-    if (last && first && last.type === first.type && isListNode(first)) {
-      pushAll(last.content!, first.content ?? []);
-      pushAll(nodes, res.nodes.slice(1));
-    } else {
-      pushAll(nodes, res.nodes);
-    }
+    // A list that goes on past the stop is still one list.
+    appendBlocks(nodes, res.nodes);
     if (res.end >= body.length) return nodes;
     i = res.end;
     const shift = TAB.repeat(childIndent - leadingTabs(body[i]));
@@ -2155,6 +2154,19 @@ function parseContainerChildren(
     }
     // Its closes were found at the old indents.
     containerCloseIndexes.delete(body);
+  }
+}
+
+// Two lists of one kind side by side are written as one list, which reads
+// back as one and renumbers, so a list appended after one joins it.
+function appendBlocks(target: PMNode[], blocks: readonly PMNode[]): void {
+  const last = target[target.length - 1];
+  const first = blocks[0];
+  if (last && first && last.type === first.type && isListNode(first)) {
+    pushAll(last.content!, first.content ?? []);
+    pushAll(target, blocks.slice(1));
+  } else {
+    pushAll(target, blocks);
   }
 }
 
@@ -3270,20 +3282,22 @@ function parseContainer(
   }
 
   if (tagKey === "<columns>") {
-    const children = parseContainerChildren(
+    // A child outside every column joins the column before it, or a new
+    // column when none comes before. Dropping it would lose text: a block
+    // written straight under `<columns>`, or one left there when a block open
+    // in a column ends at `</columns>`.
+    const columns: PMNode[] = [];
+    for (const child of parseContainerChildren(
       lines,
       childStart,
       closeIdx,
       indent,
-    );
-    const columns = children.filter((n) => {
-      if (n.type === "notionColumn") return true;
-      reportLoss(
-        "dropped-source",
-        docToNfm({ type: "doc", content: [n] }).slice(0, 200),
-      );
-      return false;
-    });
+    )) {
+      const last = columns[columns.length - 1];
+      if (child.type === "notionColumn") columns.push(child);
+      else if (last) appendBlocks((last.content ??= []), [child]);
+      else columns.push({ type: "notionColumn", content: [child] });
+    }
     const node: PMNode = { type: "notionColumns", content: columns };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
