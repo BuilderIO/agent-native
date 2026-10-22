@@ -1611,15 +1611,15 @@ export function useMeetingTranscription({
     let disposed = false;
     let inFlight = false;
     let unlistenStart: (() => void) | undefined;
-    let legacy = false;
+    let legacySession: MeetingTranscriptionSession | null = null;
     const checkEnded = async (legacyTick = false) => {
-      if (legacy !== legacyTick) return;
       const session = sessionRef.current;
       if (
         disposed ||
         inFlight ||
         !session ||
         !session.captureStopState ||
+        legacyTick !== (legacySession === session) ||
         session.stopping ||
         session.stopPending
       )
@@ -1679,7 +1679,7 @@ export function useMeetingTranscription({
               (!(error instanceof ClipsActionError) || !error.code) &&
               /unknown action|action(?: .*?)? not found/i.test(error.message)))
         )
-          legacy = true;
+          legacySession = session;
         if (!disposed)
           console.warn("[clips-popover] meeting end check failed:", error);
       } finally {

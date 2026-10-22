@@ -362,6 +362,59 @@ describe("meeting transcription pause and resume", () => {
     }
   });
 
+  it("probes capture-state again for a new session after a legacy session", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      mocks.getMeeting.mockRejectedValue(
+        new ClipsActionError("Not found", 404),
+      );
+      await act(async () => {
+        root.render(createElement(Harness));
+        await settle();
+      });
+      await dispatch("meetings:start-transcription", {
+        meetingId: "meeting-1",
+      });
+      mocks.legacyMeeting.mockResolvedValue({
+        meeting: { actualEnd: "2026-10-22T12:00:00Z" },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+        await settle();
+      });
+      expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000);
+        await settle();
+      });
+      const checks = mocks.getMeeting.mock.calls.length;
+      mocks.captureStopRevision = 7;
+      mocks.initialActualEnd = "2026-10-22T12:00:00Z";
+      mocks.getMeeting.mockResolvedValue({
+        meeting: { actualEnd: mocks.initialActualEnd, captureStopRevision: 7 },
+      });
+      await dispatch("meetings:start-transcription", {
+        meetingId: "meeting-1",
+      });
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await settle();
+      });
+      expect(mocks.getMeeting.mock.calls.length).toBeGreaterThan(checks);
+      expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
+      mocks.getMeeting.mockResolvedValue({
+        meeting: { actualEnd: mocks.initialActualEnd, captureStopRevision: 8 },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+        await settle();
+      });
+      expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(2);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it("uses the new path without legacy polling when the action responds", async () => {
     await act(async () => {
       root.render(createElement(Harness));
