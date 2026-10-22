@@ -17,6 +17,7 @@ import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   applyDocSurgically,
   createSharedEditorExtensions,
+  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   TaskListPasteNormalization,
   useCollabReconcile,
   type UseCollabReconcileResult,
@@ -43,6 +44,7 @@ import {
   type Extensions,
 } from "@tiptap/core";
 import Blockquote from "@tiptap/extension-blockquote";
+import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import Link from "@tiptap/extension-link";
 import { Table as BaseTable } from "@tiptap/extension-table";
 import { TableCell } from "@tiptap/extension-table-cell";
@@ -76,9 +78,14 @@ import {
   Node as TiptapNode,
   mergeAttributes,
 } from "@tiptap/react";
-import { prosemirrorToYDoc, yUndoPluginKey } from "@tiptap/y-tiptap";
+import {
+  prosemirrorToYDoc,
+  ySyncPluginKey,
+  yUndoPluginKey,
+} from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import {
+  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -113,6 +120,7 @@ import {
   type EditorDraftSaveResult,
 } from "./editor-draft-save";
 import { observeEditorMount } from "./editor-mount-telemetry";
+import { EDITOR_NON_EDIT_META } from "./editor-transaction-meta";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -1010,7 +1018,9 @@ function buildNormalizeTableHeadersTransaction(state: CoreEditor["state"]) {
   });
 
   return changed
-    ? transaction.setMeta(normalizeTableHeadersPluginKey, true)
+    ? transaction
+        .setMeta(normalizeTableHeadersPluginKey, true)
+        .setMeta(EDITOR_NON_EDIT_META, true)
     : null;
 }
 
@@ -1994,39 +2004,33 @@ export function shouldApplyExternalContentSync({
   return true;
 }
 
-export function shouldPersistLocalFileEditorUpdate({
-  docChanged,
-  editorFocused,
-  explicitLocalFileUserEdit,
-  recentUserEditIntent,
-  transactionUiEvent,
-}: {
-  docChanged: boolean;
-  editorFocused: boolean;
-  explicitLocalFileUserEdit?: boolean;
-  recentUserEditIntent: boolean;
-  transactionUiEvent: unknown;
-}): boolean {
-  if (!docChanged) return false;
-  if (explicitLocalFileUserEdit) return true;
-  if (editorFocused) return true;
-  if (recentUserEditIntent) return true;
-  return Boolean(transactionUiEvent);
+// Another tab's or an agent's change, arriving over the live copy. Undo
+// arrives the same way but is this tab's own.
+function isRemoteCollabChange(transaction: Transaction): boolean {
+  return (
+    isChangeOrigin(transaction) &&
+    !transaction.getMeta(ySyncPluginKey)?.isUndoRedoOperation
+  );
 }
 
-export function shouldPersistCollaborativeEditorUpdate({
-  collab,
-  editorFocused,
-  userInitiated,
-}: {
-  collab: boolean;
-  editorFocused: boolean;
-  userInitiated: boolean;
-}) {
-  return !collab || editorFocused || userInitiated;
+// Every local change to the document saves, wherever focus is, unless it
+// came from another tab or an agent, or the editor made it itself. Tiptap
+// reports a batch under its root, so a click or focus whose appended fix-up
+// changes the document isn't an edit.
+export function isLocalEditorEdit(transaction: Transaction): boolean {
+  return (
+    transaction.docChanged &&
+    !isRemoteCollabChange(transaction) &&
+    !transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION) &&
+    transaction.getMeta(EDITOR_NON_EDIT_META) !== true
+  );
 }
 
-export function isUserInitiatedCollaborativeEditorUpdate({
+// A load or reconcile can briefly look like a local change that empties the
+// editor, so a change that leaves the page empty saves only with this
+// evidence. Commands that can empty a page, such as undo and the table menus,
+// mark their transactions.
+export function hasDirectUserEditEvidence({
   editorFocused,
   explicitUserEdit,
   recentUserEditIntent,
@@ -2906,7 +2910,24 @@ function isNotionIncompatibleBlockType(blockType: string): boolean {
   return !NOTION_COMPATIBLE_BLOCK_TYPES.has(blockType);
 }
 
-function useRegistryBlockStore(editor: CoreEditor | null) {
+function repeatedRegistrySources(doc: ProseMirrorNode): Set<string> {
+  const seen = new Set<string>();
+  const repeated = new Set<string>();
+  doc.descendants((node) => {
+    if (node.type.name !== "registryBlock") return;
+    const raw = node.attrs.__raw;
+    if (typeof raw !== "string") return false;
+    if (seen.has(raw)) repeated.add(raw);
+    seen.add(raw);
+    return false;
+  });
+  return repeated;
+}
+
+function useRegistryBlockStore(
+  editor: CoreEditor | null,
+  ownedRegistrySourcesRef: RefObject<ReadonlySet<string>>,
+) {
   const t = useT();
   const cacheRef = useRef<Map<string, RegistryBlockStoreEntry>>(new Map());
   const pendingRef = useRef<Map<string, string>>(new Map());
@@ -3030,6 +3051,13 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
                           __raw: refreshedRaw,
                         },
                       );
+                      // The source still names the id the block was copied
+                      // from. When this tab's own edit left that source on
+                      // more than one block, its save holds the stale id until
+                      // this one replaces it.
+                      if (!ownedRegistrySourcesRef.current.has(raw)) {
+                        tr.setMeta(EDITOR_NON_EDIT_META, true);
+                      }
                       editor.view.dispatch(tr);
                       const entry = cacheRef.current.get(blockId);
                       if (entry) entry.rawSource = refreshedRaw;
@@ -3102,7 +3130,6 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
         ...node.attrs,
         __raw: raw,
       });
-      tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
       editor.view.dispatch(tr);
       bump();
     },
@@ -3492,6 +3519,14 @@ export function VisualEditor({
   }, []);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
+  // The page as a person's typing left it before the live copy's seed check
+  // finished.
+  const unseededEditDocRef = useRef<ProseMirrorNode | null>(null);
+  // Registry sources this tab's last edit left on more than one block. The
+  // claim is on the source, not the block id, because reloading the page can
+  // give a copy another id. It ends when another tab's or an agent's change
+  // leaves the page no longer repeating the source, as their repair does.
+  const ownedRegistrySourcesRef = useRef<ReadonlySet<string>>(new Set());
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
     hasUserEditIntentRef.current = true;
@@ -3776,7 +3811,14 @@ export function VisualEditor({
       },
     },
     editable,
-    onTransaction: ({ editor }) => {
+    onTransaction: ({ editor, transaction }) => {
+      const owned = ownedRegistrySourcesRef.current;
+      if (owned.size > 0 && isRemoteCollabChange(transaction)) {
+        const repeated = repeatedRegistrySources(editor.state.doc);
+        ownedRegistrySourcesRef.current = new Set(
+          [...owned].filter((raw) => repeated.has(raw)),
+        );
+      }
       notifyHistoryStateChange({
         canUndo: editor.can().undo(),
         canRedo: editor.can().redo(),
@@ -3796,28 +3838,8 @@ export function VisualEditor({
     onUpdate: ({ editor, transaction }) => {
       const guards = guardsRef.current;
       guards?.reportRemoteUpdate(transaction);
-      if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
-      if (
-        localFileMode &&
-        transaction.getMeta(normalizeTableHeadersPluginKey)
-      ) {
-        return;
-      }
-      if (
-        localFileMode &&
-        !shouldPersistLocalFileEditorUpdate({
-          docChanged: transaction.docChanged,
-          editorFocused: editor.isFocused,
-          explicitLocalFileUserEdit:
-            transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
-          recentUserEditIntent:
-            Date.now() - lastUserEditIntentAtRef.current < 2000,
-          transactionUiEvent: transaction.getMeta("uiEvent"),
-        })
-      ) {
-        return;
-      }
-      const userInitiated = isUserInitiatedCollaborativeEditorUpdate({
+      if (!guards) return;
+      const userInitiated = hasDirectUserEditEvidence({
         editorFocused: editor.isFocused,
         explicitUserEdit:
           transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
@@ -3825,16 +3847,24 @@ export function VisualEditor({
           Date.now() - lastUserEditIntentAtRef.current < 2000,
         transactionUiEvent: transaction.getMeta("uiEvent"),
       });
-      if (userInitiated) hasUserEditIntentRef.current = true;
-      if (
-        !shouldPersistCollaborativeEditorUpdate({
-          collab: !!ydoc,
-          editorFocused: editor.isFocused,
-          userInitiated,
-        })
-      ) {
+      if (guards.shouldIgnoreUpdate(transaction)) {
+        // The guards drop every edit until the live copy's seed check
+        // finishes, so typing that lands first is saved once it does.
+        if (
+          guards.initialSeedPending &&
+          !guards.isSettingContentRef.current &&
+          userInitiated &&
+          isLocalEditorEdit(transaction)
+        ) {
+          unseededEditDocRef.current = editor.state.doc;
+        }
         return;
       }
+      if (!isLocalEditorEdit(transaction)) return;
+      hasUserEditIntentRef.current = true;
+      ownedRegistrySourcesRef.current = repeatedRegistrySources(
+        editor.state.doc,
+      );
       if (isActiveSlashCommandDraft(editor)) return;
       if (shouldSkipMediaDraftPersistence(editor)) return;
       const priorSelection =
@@ -3849,9 +3879,8 @@ export function VisualEditor({
       if (replacementIntent) {
         onSuggestionReplacementIntentRef.current?.(replacementIntent);
       }
-      void persistEditorContent(editor, {
-        userInitiated,
-      });
+      unseededEditDocRef.current = null;
+      void persistEditorContent(editor, { userInitiated });
     },
   });
   historyEditorRef.current = editor;
@@ -4370,6 +4399,20 @@ export function VisualEditor({
     initialAppliedUpdatedAt: null,
   });
   guardsRef.current = collabState;
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !editable) return;
+    const unseededEditDoc = unseededEditDocRef.current;
+    if (collabState.initialSeedPending || !unseededEditDoc) return;
+    unseededEditDocRef.current = null;
+    // A seed, a restore or another tab's change has replaced the typing since,
+    // and saving now would report their content as this tab's edit.
+    if (!unseededEditDoc.eq(editor.state.doc)) return;
+    hasUserEditIntentRef.current = true;
+    ownedRegistrySourcesRef.current = repeatedRegistrySources(editor.state.doc);
+    if (isActiveSlashCommandDraft(editor)) return;
+    if (shouldSkipMediaDraftPersistence(editor)) return;
+    void persistEditorContent(editor, { userInitiated: true });
+  }, [collabState.initialSeedPending, editable, editor, persistEditorContent]);
 
   const localClientId = ydoc?.clientID ?? null;
   const { others } = usePresence(localAwareness, localClientId);
@@ -4422,7 +4465,10 @@ export function VisualEditor({
     [editor],
   );
 
-  const registryBlockStore = useRegistryBlockStore(editor);
+  const registryBlockStore = useRegistryBlockStore(
+    editor,
+    ownedRegistrySourcesRef,
+  );
   const registryBlockDataValue = useMemo(
     () => ({
       editable,
