@@ -1091,6 +1091,30 @@ function assertNoUnsupportedReactStylePropAnimations(
       ? findStaticTargets(sourceFile, [...new Set(targetNodeIds)], modulePath)
       : [];
   const targetElements = new Set(targets.map((target) => target.element));
+  const capturedMotionRefNames = new Set<string>();
+  for (const target of targets) {
+    const attributes = ts.isJsxElement(target.element)
+      ? target.element.openingElement.attributes
+      : target.element.attributes;
+    for (const property of attributes.properties) {
+      if (
+        !ts.isJsxAttribute(property) ||
+        property.name.getText(sourceFile) !== "ref" ||
+        !property.initializer ||
+        !ts.isJsxExpression(property.initializer) ||
+        !property.initializer.expression
+      ) {
+        continue;
+      }
+      for (const name of collectReactCapturedRefNames(
+        property.initializer.expression,
+        sourceFile,
+        new Set(),
+      )) {
+        capturedMotionRefNames.add(name);
+      }
+    }
+  }
   const targetRoots = new Set(
     targets.map((target) => findComponentRoot(sourceFile, target.element)),
   );
@@ -1150,6 +1174,7 @@ function assertNoUnsupportedReactStylePropAnimations(
               sourceFile,
               new Set(),
               false,
+              capturedMotionRefNames,
             )
           : "unknown";
         if (inspection !== "safe") {
@@ -1190,6 +1215,7 @@ function assertNoUnsupportedReactStylePropAnimations(
           node.expression,
           sourceFile,
           new Set(),
+          capturedMotionRefNames,
         );
         if (inspection !== "safe") {
           throw new MotionReactSourceError(
@@ -1227,6 +1253,7 @@ function assertNoUnsupportedReactStylePropAnimations(
                 sourceFile,
                 new Set(),
                 attributeName === "ref",
+                capturedMotionRefNames,
               )
             : "unknown";
           if (inspection !== "safe") {
@@ -1309,11 +1336,221 @@ const REACT_REF_READ_METHODS = new Set([
   "querySelectorAll",
 ]);
 
+function collectReactCapturedRefNames(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  resolving: Set<string>,
+): Set<string> {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+
+  if (!ts.isArrowFunction(expression) && !ts.isFunctionExpression(expression)) {
+    if (!ts.isIdentifier(expression)) return new Set();
+
+    const resolved = resolveReactStyleExpression(expression, sourceFile);
+    if (resolved) {
+      const declarationKey = `${resolved.start}:${resolved.end}`;
+      if (resolving.has(declarationKey)) return new Set();
+      resolving.add(declarationKey);
+      const names = collectReactCapturedRefNames(
+        resolved.expression,
+        sourceFile,
+        resolving,
+      );
+      resolving.delete(declarationKey);
+      return names;
+    }
+
+    const functions: TypeScript.FunctionDeclaration[] = [];
+    const findFunction = (node: TypeScript.Node): void => {
+      if (
+        ts.isFunctionDeclaration(node) &&
+        node.name?.text === expression.text
+      ) {
+        functions.push(node);
+      }
+      ts.forEachChild(node, findFunction);
+    };
+    findFunction(sourceFile);
+    const callback = functions.length === 1 ? functions[0] : null;
+    if (!callback?.body) return new Set();
+    return collectReactCapturedRefNamesFromCallback(
+      callback.parameters,
+      callback.body,
+    );
+  }
+
+  return collectReactCapturedRefNamesFromCallback(
+    expression.parameters,
+    expression.body,
+  );
+}
+
+function collectReactCapturedRefNamesFromCallback(
+  parameters: TypeScript.NodeArray<TypeScript.ParameterDeclaration>,
+  body: TypeScript.ConciseBody,
+): Set<string> {
+  const capturedNames = new Set<string>();
+  const parameterNames = getReactCallbackParameterNames(parameters);
+  if (parameterNames.size === 0) return capturedNames;
+
+  const visit = (node: TypeScript.Node): void => {
+    if (
+      ts.isBinaryExpression(node) &&
+      isReactAssignmentOperator(node.operatorToken.getText()) &&
+      ts.isIdentifier(node.left) &&
+      !parameterNames.has(node.left.text) &&
+      !isReactNameBoundWithinCallback(node, node.left.text, parameters, body) &&
+      isReactCallbackParameterDerivedExpression(
+        node.right,
+        parameterNames,
+        body,
+        new Set(),
+      )
+    ) {
+      capturedNames.add(node.left.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(body);
+  return capturedNames;
+}
+
+function isReactNameBoundWithinCallback(
+  assignment: TypeScript.BinaryExpression,
+  name: string,
+  callbackParameters: TypeScript.NodeArray<TypeScript.ParameterDeclaration>,
+  callbackBody: TypeScript.ConciseBody,
+): boolean {
+  const bindingContainsName = (
+    bindingName: TypeScript.BindingName,
+  ): boolean => {
+    if (ts.isIdentifier(bindingName)) return bindingName.text === name;
+    return bindingName.elements.some(
+      (element) =>
+        !ts.isOmittedExpression(element) && bindingContainsName(element.name),
+    );
+  };
+  const hasFunctionScopedBinding = (
+    functionNode: TypeScript.FunctionLikeDeclaration,
+  ): boolean => {
+    if (
+      functionNode.parameters.some((parameter) =>
+        bindingContainsName(parameter.name),
+      )
+    ) {
+      return true;
+    }
+    if (
+      (ts.isFunctionExpression(functionNode) ||
+        ts.isFunctionDeclaration(functionNode)) &&
+      functionNode.name?.text === name
+    ) {
+      return true;
+    }
+
+    let found = false;
+    const visit = (node: TypeScript.Node): void => {
+      if (found || (node !== functionNode.body && isFunctionBoundary(node))) {
+        return;
+      }
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.name.text === name &&
+        node.parent &&
+        ts.isVariableDeclarationList(node.parent) &&
+        (node.parent.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
+      ) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    if (functionNode.body) visit(functionNode.body);
+    return found;
+  };
+  const hasBlockScopedBinding = (block: TypeScript.Block): boolean => {
+    let found = false;
+    const visit = (node: TypeScript.Node): void => {
+      if (
+        found ||
+        (node !== block && (ts.isBlock(node) || isFunctionBoundary(node)))
+      ) {
+        return;
+      }
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.name.text === name &&
+        node.parent &&
+        ts.isVariableDeclarationList(node.parent) &&
+        (node.parent.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) !== 0
+      ) {
+        found = true;
+        return;
+      }
+      if (
+        (ts.isFunctionDeclaration(node) ||
+          ts.isClassDeclaration(node) ||
+          ts.isEnumDeclaration(node)) &&
+        node.name?.text === name
+      ) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(block);
+    return found;
+  };
+
+  if (
+    callbackParameters.some((parameter) => bindingContainsName(parameter.name))
+  ) {
+    return true;
+  }
+  for (
+    let current: TypeScript.Node | undefined = assignment.parent;
+    current;
+    current = current.parent
+  ) {
+    if (ts.isBlock(current) && hasBlockScopedBinding(current)) return true;
+    if (
+      isFunctionBoundary(current) &&
+      hasFunctionScopedBinding(current as TypeScript.FunctionLikeDeclaration)
+    ) {
+      return true;
+    }
+    if (current === callbackBody) {
+      const callbackFunction = current.parent;
+      if (
+        callbackFunction &&
+        isFunctionBoundary(callbackFunction) &&
+        hasFunctionScopedBinding(
+          callbackFunction as TypeScript.FunctionLikeDeclaration,
+        )
+      ) {
+        return true;
+      }
+      break;
+    }
+  }
+  return false;
+}
+
 function inspectReactStyleMutationCallback(
   expression: TypeScript.Expression,
   sourceFile: TypeScript.SourceFile,
   resolving: Set<string>,
   isRefCallback: boolean,
+  capturedMotionRefNames: ReadonlySet<string> = new Set(),
 ): ReactStyleInspection {
   while (
     ts.isParenthesizedExpression(expression) ||
@@ -1336,6 +1573,7 @@ function inspectReactStyleMutationCallback(
           sourceFile,
           resolving,
           isRefCallback,
+          capturedMotionRefNames,
         );
         resolving.delete(declarationKey);
         return result;
@@ -1369,6 +1607,11 @@ function inspectReactStyleMutationCallback(
               functions[0]!.body,
               callbackParameterNames,
             );
+        if (!isRefCallback) {
+          for (const name of capturedMotionRefNames) {
+            eventTargetBindings.targetNames.add(name);
+          }
+        }
         return inspectReactStyleMutationBody(
           functions[0]!.body,
           callbackParameterNames,
@@ -1399,6 +1642,11 @@ function inspectReactStyleMutationCallback(
         expression.body,
         callbackParameterNames,
       );
+  if (!isRefCallback) {
+    for (const name of capturedMotionRefNames) {
+      eventTargetBindings.targetNames.add(name);
+    }
+  }
   return inspectReactStyleMutationBody(
     expression.body,
     callbackParameterNames,
@@ -1422,6 +1670,26 @@ function inspectReactStyleMutationBody(
     if (inspection !== "safe") return;
 
     if (isReactGlobalDocumentReference(node, sourceFile)) {
+      inspection = "unknown";
+      return;
+    }
+
+    if (
+      isRefCallback &&
+      ts.isBinaryExpression(node) &&
+      isReactAssignmentOperator(node.operatorToken.getText()) &&
+      containsReactCallbackParameterReference(
+        node.right,
+        callbackParameterNames,
+      ) &&
+      (!ts.isIdentifier(node.left) ||
+        !isReactCallbackParameterDerivedExpression(
+          node.right,
+          callbackParameterNames,
+          body,
+          new Set(),
+        ))
+    ) {
       inspection = "unknown";
       return;
     }
@@ -1721,6 +1989,7 @@ function inspectReactJsxSpreadExpression(
   expression: TypeScript.Expression,
   sourceFile: TypeScript.SourceFile,
   resolving: Set<string>,
+  capturedMotionRefNames: ReadonlySet<string> = new Set(),
 ): ReactStyleInspection {
   while (
     ts.isParenthesizedExpression(expression) ||
@@ -1741,6 +2010,7 @@ function inspectReactJsxSpreadExpression(
       resolved.expression,
       sourceFile,
       resolving,
+      capturedMotionRefNames,
     );
     resolving.delete(declarationKey);
     return result;
@@ -1752,6 +2022,7 @@ function inspectReactJsxSpreadExpression(
         property.expression,
         sourceFile,
         resolving,
+        capturedMotionRefNames,
       );
       if (inspection !== "safe") return inspection;
       continue;
@@ -1794,6 +2065,7 @@ function inspectReactJsxSpreadExpression(
         sourceFile,
         new Set(),
         propertyName === "ref",
+        capturedMotionRefNames,
       );
     } else if (
       ["class", "className", "children", "dangerouslySetInnerHTML"].includes(

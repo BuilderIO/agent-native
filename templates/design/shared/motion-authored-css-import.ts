@@ -657,7 +657,10 @@ function hasConflictingCssTransitions(
     string,
     Map<string, TransitionCascadeDeclaration[]>
   >();
-  const uncertainTargets = new Set<string>();
+  const uncertainDeclarationsByTarget = new Map<
+    string,
+    postcss.Declaration[][]
+  >();
   let sourceOrder = 0;
   let conflict = false;
 
@@ -709,7 +712,13 @@ function hasConflictingCssTransitions(
               conflict = true;
               return;
             }
-            uncertainTargets.add(targetNodeId);
+            const uncertainDeclarations =
+              uncertainDeclarationsByTarget.get(targetNodeId) ?? [];
+            uncertainDeclarations.push(declarations);
+            uncertainDeclarationsByTarget.set(
+              targetNodeId,
+              uncertainDeclarations,
+            );
             continue;
           }
 
@@ -739,11 +748,24 @@ function hasConflictingCssTransitions(
     sourceOrder += rootOrder;
   }
 
+  for (const [
+    targetNodeId,
+    declarationGroups,
+  ] of uncertainDeclarationsByTarget) {
+    const properties = propertiesByTarget.get(targetNodeId);
+    if (
+      properties &&
+      transitionDeclarationGroupsConflict(declarationGroups, properties)
+    ) {
+      return true;
+    }
+  }
+
   for (const [targetNodeId, states] of declarationsByTargetAndState) {
     const properties = propertiesByTarget.get(targetNodeId);
     if (!properties) continue;
     if (
-      uncertainTargets.has(targetNodeId) &&
+      uncertainDeclarationsByTarget.has(targetNodeId) &&
       (declarationsByTarget.get(targetNodeId)?.length ?? 0) > 0
     ) {
       return true;
@@ -1045,20 +1067,31 @@ function splitCssSelectorList(value: string): string[] {
   return selectors.filter(Boolean);
 }
 
-function transitionDeclarationsConflict(
+interface TransitionDeclarationEffect {
+  properties: string[];
+  propertyListMayBeInherited: boolean;
+  durations: Array<number | null>;
+  hasPropertyDeclaration: boolean;
+  hasDurationDeclaration: boolean;
+}
+
+function analyzeTransitionDeclarations(
   declarations: readonly postcss.Declaration[],
-  animatedProperties: ReadonlySet<string>,
-): boolean {
+): TransitionDeclarationEffect | null {
   let effectiveProperties: string[] | null = null;
   let effectiveImportant = false;
   let propertyListMayBeInherited = false;
   let effectiveDurations: Array<number | null> | null = null;
   let durationsImportant = false;
   let hasTransitionBehavior = false;
+  let hasPropertyDeclaration = false;
+  let hasDurationDeclaration = false;
   for (const declaration of declarations) {
     const property = normalizedTransitionProperty(declaration.prop);
     if (property === "transition") {
       hasTransitionBehavior = true;
+      hasPropertyDeclaration = true;
+      hasDurationDeclaration = true;
       if (
         effectiveProperties === null ||
         declaration.important ||
@@ -1082,6 +1115,7 @@ function transitionDeclarationsConflict(
       }
     } else if (property === "transition-property") {
       hasTransitionBehavior = true;
+      hasPropertyDeclaration = true;
       if (
         effectiveProperties === null ||
         declaration.important ||
@@ -1095,6 +1129,7 @@ function transitionDeclarationsConflict(
       }
     } else if (property === "transition-duration") {
       hasTransitionBehavior = true;
+      hasDurationDeclaration = true;
       if (
         effectiveDurations === null ||
         declaration.important ||
@@ -1107,11 +1142,65 @@ function transitionDeclarationsConflict(
       hasTransitionBehavior = true;
     }
   }
-  if (!hasTransitionBehavior) return false;
-  const properties = effectiveProperties ?? ["*"];
-  const durations = effectiveDurations ?? [0];
+  if (!hasTransitionBehavior) return null;
+  return {
+    properties: effectiveProperties ?? ["*"],
+    propertyListMayBeInherited,
+    durations: effectiveDurations ?? [0],
+    hasPropertyDeclaration,
+    hasDurationDeclaration,
+  };
+}
+
+function transitionDeclarationsConflict(
+  declarations: readonly postcss.Declaration[],
+  animatedProperties: ReadonlySet<string>,
+): boolean {
+  const effect = analyzeTransitionDeclarations(declarations);
+  return effect
+    ? transitionEffectsConflict(effect, effect, animatedProperties)
+    : false;
+}
+
+function transitionDeclarationGroupsConflict(
+  declarationGroups: readonly (readonly postcss.Declaration[])[],
+  animatedProperties: ReadonlySet<string>,
+): boolean {
+  const effects = declarationGroups
+    .map(analyzeTransitionDeclarations)
+    .filter((effect): effect is TransitionDeclarationEffect => effect !== null);
+  for (const [propertyIndex, propertyEffect] of effects.entries()) {
+    if (!propertyEffect.hasPropertyDeclaration) continue;
+    for (const [durationIndex, durationEffect] of effects.entries()) {
+      if (
+        propertyIndex === durationIndex ||
+        !durationEffect.hasDurationDeclaration
+      ) {
+        continue;
+      }
+      if (
+        transitionEffectsConflict(
+          propertyEffect,
+          durationEffect,
+          animatedProperties,
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function transitionEffectsConflict(
+  propertyEffect: TransitionDeclarationEffect,
+  durationEffect: TransitionDeclarationEffect,
+  animatedProperties: ReadonlySet<string>,
+): boolean {
+  const properties = propertyEffect.properties;
+  const durations = durationEffect.durations;
   if (
-    propertyListMayBeInherited &&
+    propertyEffect.propertyListMayBeInherited &&
     durations.some((duration) => duration !== 0)
   ) {
     return true;

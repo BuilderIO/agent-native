@@ -33,16 +33,18 @@ import {
 import {
   decodeMotionTextDocument,
   injectMotionTextRuntime,
+  MOTION_TEXT_RUNTIME_SOURCE,
   MOTION_TEXT_RUNTIME_ATTRIBUTE,
   MOTION_TEXT_SOURCE_ATTRIBUTE,
   MOTION_TEXT_SOURCE_VERSION,
-  compileMotionTextRuntime,
+  MOTION_TEXT_SOURCE_VERSION_PROVENANCE,
   readMotionTextDocument,
   removeMotionTextRuntime,
   type MotionTextDocument,
 } from "./motion-text-code";
 import {
   MOTION_DEFAULT_PLAYBACK_MODE,
+  parseMotionPlaybackMode,
   readTimelinePlaybackMode,
   type MotionPlaybackMode,
   type MotionTimeline,
@@ -51,6 +53,8 @@ import {
 const NODE_ID_ATTRIBUTE = "data-agent-native-node-id";
 const MANAGED_STYLE_ATTRIBUTE = "data-agent-native-motion";
 const SAFE_NODE_ID = /^[A-Za-z0-9_-]{1,512}$/;
+const MOTION_TEXT_V1_RUNTIME_SHA256 =
+  "ba4c65a0893f8c551897d6ede05f9a2167d70832a7c8050b152859fb1828addb";
 
 const FATAL_HTML_PARSE_ERRORS = new Set([
   "control-character-in-input-stream",
@@ -547,14 +551,6 @@ function isExecutableScript(node: HtmlNode): boolean {
   return EXECUTABLE_SCRIPT_TYPES.has(type.split(";", 1)[0]!.trim());
 }
 
-function scriptBody(markup: string): string | null {
-  const bodyStart = markup.indexOf(">");
-  const bodyEnd = markup.lastIndexOf("</script>");
-  return bodyStart < 0 || bodyEnd < bodyStart
-    ? null
-    : markup.slice(bodyStart + 1, bodyEnd);
-}
-
 function isManagedMotionTextRuntime(source: string, node: HtmlNode): boolean {
   const marker = attributes(node, MOTION_TEXT_RUNTIME_ATTRIBUTE);
   if (
@@ -567,13 +563,111 @@ function isManagedMotionTextRuntime(source: string, node: HtmlNode): boolean {
 
   const textRead = readMotionTextDocument(source);
   if (textRead.status !== "valid") return false;
-
-  return (["once", "loop", "ping-pong"] as const).some((playbackMode) => {
-    const expectedBody = scriptBody(
-      compileMotionTextRuntime(textRead.document, playbackMode).runtimeMarkup,
+  const sourceMarker = parseHtml(source)
+    .nodes.filter((candidate) => candidate.tagName === "script")
+    .flatMap((candidate) =>
+      attributes(candidate, MOTION_TEXT_SOURCE_ATTRIBUTE),
     );
-    return expectedBody !== null && textContent(node) === expectedBody;
-  });
+  if (sourceMarker.length !== 1) return false;
+  const sourceVersion =
+    textRead.document[MOTION_TEXT_SOURCE_VERSION_PROVENANCE] ??
+    MOTION_TEXT_SOURCE_VERSION;
+  const expectedMarker = `v${sourceVersion}`;
+  if (
+    marker[0]?.value !== expectedMarker ||
+    sourceMarker[0]?.value !== expectedMarker
+  ) {
+    return false;
+  }
+
+  const runtime = extractManagedMotionTextRuntime(textContent(node).trim());
+  if (
+    !runtime ||
+    !runtimeAnimationsMatch(runtime.payload, textRead.document, sourceVersion)
+  ) {
+    return false;
+  }
+
+  if (sourceVersion === 1) {
+    return (
+      bytesToHex(sha256(new TextEncoder().encode(runtime.template))) ===
+      MOTION_TEXT_V1_RUNTIME_SHA256
+    );
+  }
+  return runtime.template === MOTION_TEXT_RUNTIME_SOURCE;
+}
+
+interface ManagedMotionTextRuntimePayload {
+  animations: unknown[];
+  playbackMode: MotionPlaybackMode;
+}
+
+function extractManagedMotionTextRuntime(
+  source: string,
+): { template: string; payload: ManagedMotionTextRuntimePayload } | null {
+  if (!source.endsWith(");")) return null;
+
+  let markerIndex = source.lastIndexOf("})(", source.length - 3);
+  while (markerIndex >= 0) {
+    const payloadSource = source.slice(markerIndex + 3, -2);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(payloadSource);
+    } catch {
+      markerIndex = source.lastIndexOf("})(", markerIndex - 1);
+      continue;
+    }
+    if (isManagedMotionTextRuntimePayload(payload)) {
+      return {
+        template: `${source.slice(0, markerIndex + 3)}__MOTION_TEXT_SOURCE__);`,
+        payload: {
+          animations: payload.animations,
+          playbackMode: payload.playbackMode,
+        },
+      };
+    }
+    markerIndex = source.lastIndexOf("})(", markerIndex - 1);
+  }
+  return null;
+}
+
+function isManagedMotionTextRuntimePayload(
+  value: unknown,
+): value is ManagedMotionTextRuntimePayload {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    Array.isArray((value as { animations?: unknown }).animations) &&
+    parseMotionPlaybackMode(
+      (value as { playbackMode?: unknown }).playbackMode,
+    ) !== null
+  );
+}
+
+function runtimeAnimationsMatch(
+  payload: ManagedMotionTextRuntimePayload,
+  document: MotionTextDocument,
+  sourceVersion: 1 | typeof MOTION_TEXT_SOURCE_VERSION,
+): boolean {
+  if (sourceVersion === MOTION_TEXT_SOURCE_VERSION) {
+    return (
+      JSON.stringify(payload.animations) === JSON.stringify(document.animations)
+    );
+  }
+
+  const legacyAnimations = document.animations.map((animation) => ({
+    targetNodeId: animation.targetNodeId,
+    unit: animation.unit,
+    direction: animation.direction,
+    staggerMs: animation.staggerMs,
+    delayMs: animation.delayMs,
+    property: animation.property,
+    durationMs: animation.durationMs,
+    keyframes: animation.keyframes,
+  }));
+  return (
+    JSON.stringify(payload.animations) === JSON.stringify(legacyAnimations)
+  );
 }
 
 function assertExecutableScriptsSafe(
@@ -649,8 +743,14 @@ function handlerMayMutateMotionTarget(
   targetNodeIds: readonly string[],
   generatedIds: Map<number | undefined, string>,
 ): boolean {
+  if (targetNodeIds.length > 0 && mayInjectRuntimeStylesheet(value)) {
+    return true;
+  }
+  if (mayMutateThroughDomTraversal(value)) return true;
+
   const targetIds = new Set(targetNodeIds);
-  const directTargetMutation = DIRECT_ELEMENT_MUTATION.test(value);
+  const directTargetMutation =
+    DIRECT_ELEMENT_MUTATION.test(value) || handlerTargetAliasMayMutate(value);
   if (
     directTargetMutation &&
     isMotionTargetNode(handlerNode, targetIds, generatedIds)
@@ -658,7 +758,8 @@ function handlerMayMutateMotionTarget(
     return true;
   }
   if (
-    DIRECT_EVENT_TARGET_MUTATION.test(value) &&
+    (DIRECT_EVENT_TARGET_MUTATION.test(value) ||
+      eventTargetAliasMayMutate(value)) &&
     containsMotionTarget(handlerNode, nodes, targetIds, generatedIds)
   ) {
     return true;
@@ -671,11 +772,118 @@ function handlerMayMutateMotionTarget(
   );
 }
 
-const DIRECT_ELEMENT_MUTATION =
-  /(?:\bthis\b|\b(?:event|e)\s*\.\s*(?:currentTarget|target)\b|\$el|\$event\s*\.\s*(?:currentTarget|target)\b)\s*(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute\b|removeAttribute\b|animate\b)/i;
+const MUTATION_MEMBER_ACCESS = String.raw`(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute\s*\(|removeAttribute\s*\(|animate\s*\()|\[\s*["'](?:style|classList|className|setAttribute|removeAttribute|animate)["']\s*\]`;
 
-const DIRECT_EVENT_TARGET_MUTATION =
-  /(?:\b(?:event|e)\s*\.\s*target\b|\$event\s*\.\s*target)\s*(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute\b|removeAttribute\b|animate\b)/i;
+const DIRECT_ELEMENT_MUTATION = new RegExp(
+  String.raw`(?:\bthis\b|\b(?:event|e)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\])|\$el|\$event\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))\s*(?:${MUTATION_MEMBER_ACCESS})`,
+  "i",
+);
+
+const DIRECT_EVENT_TARGET_MUTATION = new RegExp(
+  String.raw`(?:\b(?:event|e|\$event)\s*(?:\.\s*target|\[\s*["']target["']\s*\]))\s*(?:${MUTATION_MEMBER_ACCESS})`,
+  "i",
+);
+
+function mayInjectRuntimeStylesheet(value: string): boolean {
+  if (
+    /\b(?:adoptedStyleSheets|CSSStyleSheet|styleSheets|cssRules|insertRule|addRule|replaceSync)\b/i.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+
+  const createElementCalls = /\bcreateElement(?:NS)?\s*\(([^)]*)\)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = createElementCalls.exec(value)) !== null) {
+    const argument = match[1]?.trim() ?? "";
+    const tag = /^(['"])([^'"]+)\1$/.exec(argument)?.[2]?.toLowerCase();
+    if (!tag || tag === "style" || tag === "link") return true;
+  }
+
+  return /(?:innerHTML|insertAdjacentHTML)\s*(?:\+=|=|\()\s*[^;]*(?:<\s*style\b|<\s*link\b)/i.test(
+    value,
+  );
+}
+
+function mayMutateThroughDomTraversal(value: string): boolean {
+  const traversesDom =
+    /(?:\.\s*(?:parentElement|parentNode|children|childNodes|firstElementChild|lastElementChild|firstChild|lastChild|nextElementSibling|previousElementSibling|nextSibling|previousSibling|closest|matches)\b|\[\s*["'](?:parentElement|parentNode|children|childNodes|firstElementChild|lastElementChild|firstChild|lastChild|nextElementSibling|previousElementSibling|nextSibling|previousSibling|closest|matches)["']\s*\])/i.test(
+      value,
+    );
+  const mutatesElement =
+    /(?:\.\s*(?:style|classList|className)\b|\[\s*["'](?:style|classList|className)["']\s*\]|\.\s*(?:setAttribute|removeAttribute|animate)\s*\(|\[\s*["'](?:setAttribute|removeAttribute|animate)["']\s*\]\s*\()/i.test(
+      value,
+    );
+  return traversesDom && mutatesElement;
+}
+
+function assignedAliases(
+  source: string,
+  initialExpression: RegExp,
+): Set<string> {
+  const aliases = new Set<string>();
+  const assignments =
+    /(?:\b(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*([^;,\n]+)/g;
+  let match: RegExpExecArray | null;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    assignments.lastIndex = 0;
+    while ((match = assignments.exec(source)) !== null) {
+      const name = match[1]!;
+      const expression = match[2]!.trim().replace(/^\(|\)$/g, "");
+      const sourceAlias = /^([A-Za-z_$][\w$]*)\b/.exec(expression)?.[1];
+      if (
+        !aliases.has(name) &&
+        (initialExpression.test(expression) ||
+          (sourceAlias !== undefined && aliases.has(sourceAlias)))
+      ) {
+        aliases.add(name);
+        changed = true;
+      }
+    }
+  }
+  return aliases;
+}
+
+function identifierMutationSink(identifier: string): RegExp {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\s*(?:${MUTATION_MEMBER_ACCESS})`, "i");
+}
+
+function identifierMayFeedMutationSink(
+  source: string,
+  identifier: string,
+): boolean {
+  const aliases = identifierAliases(source, identifier);
+  return aliases.some((alias) => {
+    if (elementMutationSinkForIdentifier(alias).test(source)) return true;
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(
+      `\\b${escaped}(?:\\s*(?:\\?\\.|\\.)\\s*[A-Za-z_$][\\w$]*|\\s*\\[\\s*["'][^"']+["']\\s*\\]){1,8}\\s*(?:${MUTATION_MEMBER_ACCESS})`,
+      "i",
+    ).test(source);
+  });
+}
+
+function handlerTargetAliasMayMutate(value: string): boolean {
+  const targetExpression =
+    /^(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))/i;
+  const aliases = assignedAliases(value, targetExpression);
+  return [...aliases].some((alias) =>
+    identifierMutationSink(alias).test(value),
+  );
+}
+
+function eventTargetAliasMayMutate(value: string): boolean {
+  const targetExpression =
+    /^(?:event|e|\$event)\s*(?:\.\s*target|\[\s*["']target["']\s*\])/i;
+  const aliases = assignedAliases(value, targetExpression);
+  return [...aliases].some((alias) =>
+    identifierMutationSink(alias).test(value),
+  );
+}
 
 function containsMotionTarget(
   node: HtmlNode,
@@ -720,28 +928,24 @@ function handlerSelectsAndMutatesMotionTarget(
       value,
     );
   const mutatesElement =
-    /\.style(?:\s*(?:\.|\[)|\s*=)|\.classList\b|\.className\b|\.setAttribute\s*\(|\.removeAttribute\s*\(|\.animate\s*\(/i.test(
+    /(?:\.style(?:\s*(?:\.|\[)|\s*=)|\.classList\b|\.className\b|\.setAttribute\s*\(|\.removeAttribute\s*\(|\.animate\s*\(|\[\s*["'](?:style|classList|className|setAttribute|removeAttribute|animate)["']\s*\])/i.test(
       value,
     );
   if (!usesDocumentSelector || !mutatesElement) return false;
 
   const selectorCalls =
-    /\b(?:document|window|globalThis|self)\s*(?:\.\s*document)?\s*\.\s*(querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName))\s*\(/gi;
+    /\b(?:document|window|globalThis|self)\s*(?:\.\s*document|\[\s*["']document["']\s*\])?\s*(?:\.\s*(querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName))|\[\s*["'](querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName))["']\s*\])\s*\(/gi;
   let foundSelectorCall = false;
   let match: RegExpExecArray | null;
 
   while ((match = selectorCalls.exec(value)) !== null) {
     foundSelectorCall = true;
     const openParenIndex = selectorCalls.lastIndex - 1;
+    const method = match[1] ?? match[2]!;
     const callEndIndex = findSelectorCallEnd(value, openParenIndex);
     if (callEndIndex === null) return true;
     if (
-      !selectorCallFeedsMutationSink(
-        value,
-        match.index,
-        callEndIndex,
-        match[1]!,
-      )
+      !selectorCallFeedsMutationSink(value, match.index, callEndIndex, method)
     ) {
       selectorCalls.lastIndex = callEndIndex;
       continue;
@@ -752,10 +956,24 @@ function handlerSelectsAndMutatesMotionTarget(
     );
     if (!selectorArgument) return true;
 
-    const selector = selectorForDocumentCall(match[1]!, selectorArgument);
+    const selector = selectorForDocumentCall(method, selectorArgument);
     if (!selector) return true;
 
-    if (selectorMayTargetMotionNode(selector, nodes, targetIds, generatedIds)) {
+    const traversal = selectorCallTraversal(
+      value,
+      match.index,
+      callEndIndex,
+      method,
+    );
+    if (
+      selectorMayTargetMotionNode(
+        selector,
+        nodes,
+        targetIds,
+        generatedIds,
+        traversal,
+      )
+    ) {
       return true;
     }
   }
@@ -832,7 +1050,7 @@ function selectorCallFeedsMutationSink(
       source.slice(0, callStartIndex),
     );
   if (assignment) {
-    return elementMutationSinkForIdentifier(assignment[1]!).test(afterCall);
+    return identifierMayFeedMutationSink(afterCall, assignment[1]!);
   }
 
   const remainingExpression = afterCall.trimStart();
@@ -841,15 +1059,126 @@ function selectorCallFeedsMutationSink(
   return true;
 }
 
-const SELECTED_ELEMENT_MUTATION_SINK =
-  /^\s*(?:\[\s*\d+\s*\]\s*)?(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute\s*\(|removeAttribute\s*\(|animate\s*\()/i;
+const SELECTED_ELEMENT_MUTATION_SINK = new RegExp(
+  `^\\s*(?:\\[\\s*\\d+\\s*\\]\\s*)?(?:${MUTATION_MEMBER_ACCESS})`,
+  "i",
+);
 
 function elementMutationSinkForIdentifier(identifier: string): RegExp {
   const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(
-    `\\b${escapedIdentifier}\\s*(?:\\?\\.|\\.)\\s*(?:style\\b|classList\\b|className\\b|setAttribute\\s*\\(|removeAttribute\\s*\\(|animate\\s*\\()`,
+    `\\b${escapedIdentifier}\\s*(?:${MUTATION_MEMBER_ACCESS})`,
     "i",
   );
+}
+
+function identifierAliases(source: string, initial: string): string[] {
+  const aliases = new Set([initial]);
+  const assignments =
+    /(?:\b(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\b/g;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    assignments.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = assignments.exec(source)) !== null) {
+      if (!aliases.has(match[2]!) || aliases.has(match[1]!)) continue;
+      aliases.add(match[1]!);
+      changed = true;
+    }
+  }
+  return [...aliases];
+}
+
+function selectorCallTraversal(
+  source: string,
+  callStartIndex: number,
+  callEndIndex: number,
+  method: string,
+): { steps: string[]; unsupported: boolean } | null {
+  if (method.toLowerCase() === "queryselectorall") return null;
+
+  const afterCall = source.slice(callEndIndex);
+  if (
+    /(?:\.\s*(?:parentElement|parentNode|children|childNodes|firstElementChild|lastElementChild|firstChild|lastChild|closest|matches|querySelector(?:All)?)\b|\[\s*["'](?:parentElement|parentNode|children|childNodes|firstElementChild|lastElementChild|firstChild|lastChild|closest|matches|querySelector(?:All)?)["']\s*\])/i.test(
+      afterCall,
+    )
+  ) {
+    return { steps: [], unsupported: true };
+  }
+  const parseSteps = (suffix: string) => {
+    const access =
+      /\s*(?:\?\.|\.)\s*(nextElementSibling|previousElementSibling)\b|\s*\[\s*["'](nextElementSibling|previousElementSibling)["']\s*\]/iy;
+    const steps: string[] = [];
+    let offset = 0;
+    while (true) {
+      access.lastIndex = offset;
+      const match = access.exec(suffix);
+      if (!match) break;
+      steps.push((match[1] ?? match[2]!).toLowerCase());
+      offset = access.lastIndex;
+    }
+    if (steps.length > 0) {
+      return SELECTED_ELEMENT_MUTATION_SINK.test(suffix.slice(offset))
+        ? { steps, unsupported: false }
+        : null;
+    }
+    return null;
+  };
+
+  const direct = parseSteps(afterCall);
+  if (direct) return direct;
+
+  const assignment =
+    /(?:\b(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*$/.exec(
+      source.slice(0, callStartIndex),
+    );
+  const receiver = assignment?.[1];
+  if (!receiver) {
+    return /^\s*(?:\?\.|\.)[A-Za-z_$]/.test(afterCall) &&
+      !SELECTED_ELEMENT_MUTATION_SINK.test(afterCall)
+      ? { steps: [], unsupported: true }
+      : null;
+  }
+  const escaped = receiver.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const traversal = new RegExp(
+    `\\b${escaped}((?:(?:\\?\\.|\\.)\\s*(?:nextElementSibling|previousElementSibling)\\b|\\[\\s*["'](?:nextElementSibling|previousElementSibling)["']\\s*\\]))+`,
+    "i",
+  );
+  const match = traversal.exec(afterCall);
+  if (!match) {
+    const intermediate = new RegExp(
+      `\\b${escaped}(?:\\s*(?:\\?\\.|\\.)\\s*|\\s*\\[\\s*["'][^"']+["']\\s*\\])([A-Za-z_$][\\w$]*)[^;]*(?:${MUTATION_MEMBER_ACCESS})`,
+      "i",
+    ).exec(afterCall);
+    return intermediate &&
+      !/^(?:style|classList|className|setAttribute|removeAttribute|animate)$/i.test(
+        intermediate[1]!,
+      )
+      ? { steps: [], unsupported: true }
+      : null;
+  }
+
+  const steps: string[] = [];
+  const access =
+    /(?:\?\.|\.)\s*(nextElementSibling|previousElementSibling)\b|\[\s*["'](nextElementSibling|previousElementSibling)["']\s*\]/gi;
+  let accessMatch: RegExpExecArray | null;
+  while ((accessMatch = access.exec(match[1]!)) !== null) {
+    steps.push((accessMatch[1] ?? accessMatch[2]!).toLowerCase());
+  }
+  const suffix = afterCall.slice(match.index + match[0].length);
+  if (SELECTED_ELEMENT_MUTATION_SINK.test(suffix)) {
+    return { steps, unsupported: false };
+  }
+  const assignedTraversal =
+    /^\s*;?\s*(?:\b(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=/.exec(suffix);
+  if (
+    assignedTraversal &&
+    identifierMayFeedMutationSink(suffix, assignedTraversal[1]!)
+  ) {
+    return { steps, unsupported: false };
+  }
+  return { steps, unsupported: true };
 }
 
 function selectorForDocumentCall(
@@ -878,6 +1207,7 @@ function selectorMayTargetMotionNode(
   nodes: readonly HtmlNode[],
   targetNodeIds: ReadonlySet<string>,
   generatedIds: Map<number | undefined, string>,
+  traversal: { steps: string[]; unsupported: boolean } | null = null,
 ): boolean {
   const parsed = parseMotionAuthoredCssSimpleSelector(selector);
   if (!parsed) return true;
@@ -890,26 +1220,38 @@ function selectorMayTargetMotionNode(
           ? parsed.name
           : null;
 
-  return nodes.some((node) => {
-    if (!node.tagName) return false;
-    const targetAttrs = attributes(node, NODE_ID_ATTRIBUTE);
-    if (
-      targetAttrs.length > 1 &&
-      targetAttrs.some(({ value }) => targetNodeIds.has(value))
-    ) {
-      return true;
-    }
-    const targetNodeId =
-      targetAttrs[0]?.value ??
-      generatedIds.get(node.sourceCodeLocation?.startTag?.startOffset);
-    if (!targetNodeId || !targetNodeIds.has(targetNodeId)) return false;
+  const motionTargets = nodes.filter((node) =>
+    isMotionTargetNode(node, targetNodeIds, generatedIds),
+  );
+  if (traversal?.unsupported) return motionTargets.length > 0;
 
-    return (
+  if (
+    motionTargets.some((node) =>
       (node.attrs ?? []).some(({ name }) =>
         isDynamicHtmlAttribute(name, selectorAttribute),
-      ) || matchesHtmlSelector(node, parsed)
-    );
-  });
+      ),
+    )
+  ) {
+    return true;
+  }
+
+  let candidates = nodes.filter(
+    (node) => node.tagName && matchesHtmlSelector(node, parsed),
+  );
+  for (const step of traversal?.steps ?? []) {
+    candidates = candidates.flatMap((node) => {
+      const parent = node.parentNode;
+      const siblings = (parent?.childNodes ?? []).filter(
+        (sibling) => sibling.tagName !== undefined,
+      );
+      const index = siblings.indexOf(node);
+      const nextIndex = index + (step === "nextelementsibling" ? 1 : -1);
+      const sibling = siblings[nextIndex];
+      return sibling ? [sibling] : [];
+    });
+  }
+
+  return motionTargets.some((target) => candidates.includes(target));
 }
 
 function findRuntimeStyleMutationInScope(
@@ -1084,6 +1426,7 @@ function assertTargetsExist(
   source: string,
   targetNodeIds: readonly string[],
   sourceFilePath?: string,
+  checkExecutableScripts = true,
 ): void {
   if (targetNodeIds.length === 0) return;
   const { nodes } = parseHtml(source);
@@ -1096,7 +1439,9 @@ function assertTargetsExist(
       target.nodeId,
     ]),
   );
-  assertExecutableScriptsSafe(source, nodes, targetNodeIds, generatedIds);
+  if (checkExecutableScripts) {
+    assertExecutableScriptsSafe(source, nodes, targetNodeIds, generatedIds);
+  }
   const targets = new Map<string, HtmlNode[]>();
   for (const node of nodes) {
     if (!node.tagName) continue;
@@ -1725,6 +2070,7 @@ function removeAuthoredHtmlMotion(
 function readSource(
   source: string,
   sourceFilePath?: string,
+  options: { allowUnmanagedExecutableScripts?: boolean } = {},
 ): Exclude<MotionHtmlSourceReadResult, { status: "invalid" }> {
   const { nodes } = parseHtml(source);
   assertMotionTextOutsideTemplates(nodes);
@@ -1782,7 +2128,12 @@ function readSource(
     );
   }
   const targetNodeIds = targetsFromDocuments(document, textDocument);
-  assertTargetsExist(source, targetNodeIds, sourceFilePath);
+  assertTargetsExist(
+    source,
+    targetNodeIds,
+    sourceFilePath,
+    !options.allowUnmanagedExecutableScripts,
+  );
   const pathTrimmedSource = applyPathTrimTargets(
     source,
     pathTrimTargetsFromDocument(document),
@@ -2078,8 +2429,26 @@ export function removeMotionHtmlSource(
   source: string,
   sourceFilePath?: string,
 ): MotionHtmlSourceRemoval {
-  const read = readSource(source, sourceFilePath);
+  const read = readSource(source, sourceFilePath, {
+    allowUnmanagedExecutableScripts: true,
+  });
   if (read.status === "absent") return { source, changed: false };
+
+  const managedRuntimeScripts = parseHtml(source).nodes.filter(
+    (node) =>
+      node.tagName === "script" &&
+      attributes(node, MOTION_TEXT_RUNTIME_ATTRIBUTE).length > 0,
+  );
+  if (
+    managedRuntimeScripts.some(
+      (node) => !isManagedMotionTextRuntime(source, node),
+    )
+  ) {
+    sourceError(
+      "invalid-motion-text",
+      "The managed Motion Text runtime does not match a supported generated version.",
+    );
+  }
 
   const withoutAuthored = removeAuthoredHtmlMotion(source, sourceFilePath);
   const { nodes } = parseHtml(withoutAuthored);

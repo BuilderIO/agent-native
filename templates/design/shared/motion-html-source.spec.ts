@@ -17,6 +17,7 @@ import {
 } from "./motion-html-source";
 import { createMotionNativeStyleInstance } from "./motion-native-style-runtime";
 import type { MotionTextDocument } from "./motion-text-code";
+import motionTextRuntimeV1Template from "./motion-text-runtime-v1.fixture.txt?raw";
 import type { MotionTimeline } from "./motion-timeline";
 
 const html = `<!doctype html>
@@ -646,6 +647,78 @@ describe("HTML Motion source adapter", () => {
 
   it.each([
     [
+      "an event target alias traversing to a sibling with bracket access",
+      `onclick="const origin = event['target']; const sibling = origin['previousElementSibling']; sibling['classList'].add('hidden')"`,
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+    ],
+    [
+      "a selected ancestor traversing to a Motion target",
+      `onclick="const lead = document.querySelector('#lead'); const hero = lead['parentElement'].querySelector('[data-agent-native-node-id=hero-title]'); hero['style']['opacity'] = '0'"`,
+      '<span id="lead"></span><h1 data-agent-native-node-id="hero-title">Hello</h1>',
+    ],
+  ])(
+    "rejects handlers that reach Motion targets through %s",
+    (_label, handler, markup) => {
+      const source = html
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+          markup,
+        )
+        .replace("</main>", `<button ${handler}>Toggle</button>\n  </main>`);
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+    },
+  );
+
+  it.each([
+    ["a `this` alias", `onclick="var el = this; el.style.opacity = '0'"`],
+    ["bracket access on `this`", `onclick="this['style']['opacity'] = '0'"`],
+  ])("rejects direct Motion target mutation through %s", (_label, handler) => {
+    const source = html.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${handler}>Hello</h1>`,
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    expect(() => apply(source)).toThrowError(
+      expect.objectContaining({ code: "unsupported-target" }),
+    );
+  });
+
+  it("fails closed for handlers that create or mutate runtime stylesheets", () => {
+    for (const handler of [
+      `const sheet = new CSSStyleSheet(); sheet.addRule('[data-agent-native-node-id=hero-title]', 'opacity: 0')`,
+      `const style = document.createElement('style'); style.textContent = '[data-agent-native-node-id=hero-title] { opacity: 0 }'; document.head.appendChild(style)`,
+    ]) {
+      const source = html.replace(
+        "</main>",
+        `<button onclick="${handler}">Toggle</button>\n  </main>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    }
+  });
+
+  it.each([
+    [
       "inline script",
       `<script>document.querySelector('[data-agent-native-node-id="hero-title"]').classList.add('fade');document.querySelector('[data-agent-native-node-id="hero-title"]').style.opacity='0';</script>`,
     ],
@@ -685,6 +758,17 @@ describe("HTML Motion source adapter", () => {
       );
     },
   );
+
+  it("removes managed Motion source while preserving unrelated executable scripts", () => {
+    const written = apply(html).source;
+    const script = '<script src="./site-behavior.js"></script>';
+    const source = written.replace("</body>", `${script}\n</body>`);
+
+    expect(removeMotionHtmlSource(source)).toEqual({
+      source: html.replace("</body>", `${script}\n</body>`),
+      changed: true,
+    });
+  });
 
   it("ignores executable scripts inside inert templates", () => {
     const source = html.replace(
@@ -1678,6 +1762,55 @@ describe("HTML Motion source adapter", () => {
       source: html,
       changed: true,
     });
+  });
+
+  it("accepts a previous compatible Motion Text runtime template", () => {
+    const animation = {
+      targetNodeId: "hero-title",
+      unit: "word",
+      direction: "forward",
+      staggerMs: 40,
+      delayMs: 0,
+      property: "opacity",
+      durationMs: 320,
+      keyframes: [
+        { t: 0, value: "0", ease: "ease-out" },
+        { t: 1, value: "1" },
+      ],
+    };
+    const legacyDocument = { version: 1, animations: [animation] };
+    const legacyRuntime = motionTextRuntimeV1Template.replace(
+      "__MOTION_TEXT_SOURCE__",
+      JSON.stringify({ animations: [animation], playbackMode: "once" }),
+    );
+    const source = html.replace(
+      "</body>",
+      `<script type="application/json" data-agent-native-motion-text-source="v1">${JSON.stringify(legacyDocument)}</script>\n<script data-agent-native-motion-text-runtime="v1">${legacyRuntime}</script></body>`,
+    );
+
+    expect(readMotionHtmlSource(source)).toMatchObject({
+      status: "valid",
+      textDocument: { animations: [{ targetNodeId: "hero-title" }] },
+    });
+    expect(removeMotionHtmlSource(source)).toEqual({
+      source: html,
+      changed: true,
+    });
+  });
+
+  it("rejects unrecognized code under the managed Motion Text runtime marker", () => {
+    const source = apply(html, { textDocument }).source.replace(
+      /(<script data-agent-native-motion-text-runtime="v2">)[\s\S]*?<\/script>/,
+      "$1window.__unknownMotionRuntime = true;</script>",
+    );
+
+    expect(readMotionHtmlSource(source)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+    expect(() => removeMotionHtmlSource(source)).toThrowError(
+      expect.objectContaining({ code: "invalid-motion-text" }),
+    );
   });
 
   it("composes the existing SVG path trim source helper", () => {

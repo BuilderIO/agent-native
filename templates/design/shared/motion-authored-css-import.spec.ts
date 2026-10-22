@@ -148,6 +148,22 @@ describe("importAuthoredCssAnimations", () => {
     });
   });
 
+  it("fails closed when nested transition declarations combine for an imported property", () => {
+    const css = `@media (min-width: 1px) { #hero:hover { transition-property: opacity; } }
+@media (max-width: 1000px) { .hero:hover { transition-property: color; transition-duration: 1s; } }
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+    const resolveHeroAndId: MotionAuthoredCssTargetResolver = (selector) =>
+      selector === ".hero" || selector === "#hero"
+        ? { status: "resolved", targetNodeId: "node-hero" }
+        : { status: "unresolved" };
+
+    expect(importAuthoredCssAnimations(css, resolveHeroAndId)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
   it("fails closed when uncertain transition rules can combine through the cascade", () => {
     const css = `@media (min-width: 1px) {
   .hero:hover { transition-property: color; transition-duration: 1s; }

@@ -1163,6 +1163,151 @@ function Card(style = { animationName: "fade" }) {
     expect(() => apply(managed)).toThrow(MotionReactSourceError);
   });
 
+  it("rejects classList mutation through a Motion ref captured by a sibling handler", () => {
+    const managed = apply(source)
+      .source.replace(
+        "function Card() {",
+        "function Card() {\n  let sharedNode: HTMLElement | null = null;",
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" ref={(node) => { sharedNode = node; }}>Hello</h1>',
+      )
+      .replace(
+        '<main className="card">',
+        '<main className="card">\n      <button onClick={() => sharedNode?.classList.add("animated")}>Toggle</button>',
+      );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
+  });
+
+  it("tracks a captured Motion ref despite a nested shadowed local name", () => {
+    const managed = apply(source)
+      .source.replace(
+        "function Card() {",
+        "function Card() {\n  let sharedNode: HTMLElement | null = null;",
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" ref={(node) => { const helper = () => { const sharedNode = null; }; sharedNode = node; }}>Hello</h1>',
+      )
+      .replace(
+        '<main className="card">',
+        '<main className="card">\n      <button onClick={() => sharedNode?.classList.add("animated")}>Toggle</button>',
+      );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
+  });
+
+  it.each([
+    {
+      kind: "object",
+      declaration: "let stored: { node?: HTMLElement | null } = {};",
+      capture: "stored = { node };",
+      mutation: 'stored.node?.classList.add("animated")',
+    },
+    {
+      kind: "array",
+      declaration: "let stored: Array<HTMLElement | null> = [];",
+      capture: "stored = [node];",
+      mutation: 'stored[0]?.classList.add("animated")',
+    },
+  ])(
+    "rejects Motion ref storage inside a $kind before sibling handlers can mutate it",
+    ({ declaration, capture, mutation }) => {
+      const managed = apply(source)
+        .source.replace(
+          "function Card() {",
+          `function Card() {\n  ${declaration}`,
+        )
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+          `<h1 data-agent-native-node-id="hero-title" ref={(node) => { ${capture} }}>Hello</h1>`,
+        )
+        .replace(
+          '<main className="card">',
+          `<main className="card">\n      <button onClick={() => ${mutation}}>Toggle</button>`,
+        );
+
+      expect(readMotionReactSource(managed)).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+      expect(
+        inspectMotionReactSourceWriteCapability({
+          source: managed,
+          targetNodeIds: ["hero-title"],
+          modulePath: "src/components/Card.tsx",
+          moduleVersionHash: "a".repeat(64),
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-authored-motion",
+      });
+      expect(() => apply(managed)).toThrow(MotionReactSourceError);
+    },
+  );
+
+  it("allows an unrelated safe handler beside a captured Motion ref", () => {
+    const authored = apply(source)
+      .source.replace(
+        "function Card() {",
+        "function Card() {\n  let sharedNode: HTMLElement | null = null;",
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" ref={(node) => { sharedNode = node; }}>Hello</h1>',
+      )
+      .replace(
+        '<main className="card">',
+        '<main className="card">\n      <button onClick={(event) => event.preventDefault()}>Toggle</button>',
+      );
+
+    const edit = apply(authored);
+    expect(readMotionReactSource(edit.source)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: edit.source,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+  });
+
   it("rejects a named handler that closes over a global document alias", () => {
     const managed =
       `const pageDocument = document;\nfunction handleClick() { pageDocument.querySelector("#hero-title")?.classList.add("animated"); }\n${apply(source).source}`.replace(
