@@ -363,6 +363,27 @@ describe("client consent", () => {
     expect(revoke).toHaveBeenCalledTimes(1);
   });
 
+  it("asks again when the visitor clears the cookie while the page is open", async () => {
+    const { windowMock } = installBrowser({ region: "consent" });
+    const listeners = new Map<string, () => void>();
+    windowMock.addEventListener = (event: string, listener: () => void) =>
+      listeners.set(event, listener);
+    windowMock.removeEventListener = () => {};
+    const consent = await freshConsent();
+    const revoke = vi.fn();
+    consent.whenConsentAllows("performance", () => {}, { revoke });
+    await consent.resolveConsentRegion();
+    consent.setConsentChoice({ performance: true, targeting: false });
+    revoke.mockClear();
+
+    document.cookie = "an_consent=; path=/; max-age=0";
+    listeners.get("focus")!();
+
+    expect(consent.getConsentChoice()).toBeNull();
+    expect(consent.shouldShowConsentBanner()).toBe(true);
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
   it("holds a send until the region is known", async () => {
     const { windowMock } = installBrowser({ region: "consent" });
     windowMock.addEventListener = () => {};

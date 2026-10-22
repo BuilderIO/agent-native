@@ -403,10 +403,12 @@ function watchOtherTabs(): void {
 /** Store the visitor's choice for every app on this site, and apply it. */
 export function setConsentChoice(choice: ConsentChoice): void {
   if (typeof document === "undefined") return;
-  state().pageChoice = choice;
   writeChoiceCookie(choice);
   storeChoiceOnServer(choice);
   seenChoice = readCookie(CONSENT_COOKIE_NAME);
+  // Only a browser that won't keep the cookie falls back to this page's
+  // copy; a cookie the visitor clears later means they're asked again.
+  state().pageChoice = seenChoice === null ? choice : null;
   try {
     consentChannel?.postMessage("changed");
   } catch {
