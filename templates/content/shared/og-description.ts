@@ -185,7 +185,9 @@ function stripExcerptFrontmatter(
     if (truncated && index === lines.length - 1) break;
     if (!FRONTMATTER_LINE.test(line)) return markdown;
   }
-  return truncated && hasKey ? null : markdown;
+  // A prefix that has shown only YAML lines may end inside the frontmatter,
+  // even before its first key.
+  return truncated ? null : markdown;
 }
 
 const DEFAULT_EXCERPT_LENGTH = 300;
@@ -278,15 +280,16 @@ export function buildDocumentExcerpt({
       length += text.length + 1;
     }
   }
-  if (truncated && paragraphs.length > 0) {
+  const shown = paragraphs.length > 0 ? paragraphs : headings;
+  if (truncated && shown.length > 0) {
     // Markup the cut left open, like the `**` of a bold run it split.
-    const last = paragraphs.length - 1;
-    paragraphs[last] = paragraphs[last].replace(
+    const last = shown.length - 1;
+    shown[last] = shown[last].replace(
       /(^|\s)(?:\*{1,3}|_{1,3}|~~|`+)(?=[\p{L}\p{M}\p{N}])/gu,
       "$1",
     );
   }
-  const text = (paragraphs.length > 0 ? paragraphs : headings).join(" ");
+  const text = shown.join(" ");
   if (text.length > maxLength) return truncateDescription(text, maxLength);
   return truncated && text ? withEllipsis(text, maxLength) : text;
 }

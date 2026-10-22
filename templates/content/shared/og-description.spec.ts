@@ -244,6 +244,7 @@ const flag = true;
       "---\ntitle: Draft\nstatus: open",
       "---\ntitle: Draft\nsta",
       "---\n# Metadata\ntags:\n  - ne",
+      "---\n# Metadata\n# Owner and tags follow",
     ]) {
       expect(buildDocumentExcerpt({ content, truncated: true })).toBe("");
     }
@@ -381,6 +382,13 @@ const flag = true;
       }),
     ).toBe("Agenda...");
     expect(buildDocumentExcerpt({ content: "---", truncated: true })).toBe("");
+    // Headings lose markup the cut leaves open too.
+    expect(
+      buildDocumentExcerpt({
+        content: "# Agenda\n## Next **steps for",
+        truncated: true,
+      }),
+    ).toBe("Agenda Next steps...");
   });
 
   it("keeps the ellipsis inside the length limit", () => {
