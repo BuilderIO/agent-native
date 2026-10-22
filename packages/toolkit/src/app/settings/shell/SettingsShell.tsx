@@ -1049,9 +1049,25 @@ function SettingsNav({
     item?: Extract<AppSettingsNavigationItem, { type: "page" }>,
   ) => {
     const Icon = item?.icon ?? pageIcon(page);
+    const hasVisibleSubpageEntry = Boolean(
+      activeSub &&
+      appNavigationSections?.some(
+        (section) =>
+          (section.visibleWhen?.(context) ?? true) &&
+          section.items.some(
+            (candidate) =>
+              candidate.type === "page" &&
+              candidate.pageId === page.id &&
+              candidate.sub === activeSub &&
+              (candidate.visibleWhen?.(context) ?? true),
+          ),
+      ),
+    );
     const selected =
       page.id === activePageId &&
-      (item?.sub === undefined || item.sub === activeSub);
+      (item?.sub !== undefined
+        ? item.sub === activeSub
+        : activeSub === null || !hasVisibleSubpageEntry);
     const href = item?.sub
       ? settingsPageHref(page.id, item.sub)
       : page.href

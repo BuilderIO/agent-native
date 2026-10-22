@@ -306,6 +306,12 @@ describe("SettingsShell", () => {
           label: "Workspaces",
           items: [
             {
+              id: "workspace-overview",
+              type: "page",
+              pageId: "workspace-alpha",
+              label: "Workspace Alpha",
+            },
+            {
               id: "workspace-settings",
               type: "page",
               pageId: "workspace-alpha",
@@ -366,7 +372,27 @@ describe("SettingsShell", () => {
     });
     expect(onAddWorkspace).toHaveBeenCalled();
 
-    clickPage("workspace-alpha");
+    const subpageLink = rail().querySelector<HTMLElement>(
+      '[data-settings-nav-item="workspace-settings"]',
+    );
+    expect(subpageLink?.getAttribute("href")).toBe(
+      "/settings/workspace-alpha/settings",
+    );
+    act(() => {
+      subpageLink?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(
+      rail().querySelector(
+        '[data-settings-nav-item="workspace-overview"][aria-current="page"]',
+      ),
+    ).toBeNull();
+    expect(
+      rail().querySelector(
+        '[data-settings-nav-item="workspace-settings"][aria-current="page"]',
+      ),
+    ).not.toBeNull();
     await waitFor(() =>
       Boolean(container.querySelector('[data-testid="app-settings-page"]')),
     );

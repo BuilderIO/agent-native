@@ -177,15 +177,15 @@ export function resolveSettingsTabValue(
   if (templatePage && pages.some((page) => page.id === templatePage)) {
     return { page: templatePage, sub: null, anchor: null, legacy: true };
   }
+  if (appAreaIds.includes(tab)) {
+    return { page: "app", sub: tab, anchor: null, legacy: true };
+  }
   const appPage = pages.find(
     (page) =>
       isAppPage(page) && (page.id === tab || page.legacyTabIds?.includes(tab)),
   );
   if (appPage) {
     return { page: appPage.id, sub: null, anchor: null, legacy: true };
-  }
-  if (appAreaIds.includes(tab)) {
-    return { page: "app", sub: tab, anchor: null, legacy: true };
   }
   const redirect = resolveLegacySettingsId(tab, "tab");
   if (redirect) return redirectRoute(redirect, pages, null);
