@@ -89,6 +89,10 @@ function videoStorageStatusResponse(
     maxClipDurationMs: 10 * 60 * 1000,
     builderConfigured: true,
     builderUploadConfigured: true,
+    activeProvider:
+      overrides.mode && overrides.mode !== "own"
+        ? null
+        : { id: "builder", name: "Builder.io" },
     ...overrides,
   });
 }
@@ -872,19 +876,104 @@ describe("StorageSetupCard", () => {
       );
     }
 
-    async function connectBuilderAndConfigure() {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(videoStorageStatusResponse()),
-      );
-      await createAndActivate();
-      const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
-        onConnected: () => void;
-      };
-      act(() => connectOptions.onConnected());
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000);
+    beforeEach(() => {
+      // Like the real flow, start reports connecting and clears the last error.
+      mocks.start.mockImplementation(() => {
+        mocks.useBuilderConnectFlow.mockReturnValue(
+          flowState({ connecting: true }),
+        );
       });
+    });
+
+    const UNCONFIGURED = {
+      configured: false,
+      mode: "none",
+      builderConfigured: false,
+      builderUploadConfigured: false,
+    };
+    const S3_STORAGE = {
+      activeProvider: { id: "s3", name: "S3" },
+      builderConfigured: false,
+      builderUploadConfigured: false,
+    };
+
+    function stubStorageStatus(overrides: Record<string, unknown> = {}) {
+      const fetchMock = vi.fn(async () =>
+        videoStorageStatusResponse(overrides),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+
+    function connectOptions() {
+      return mocks.useBuilderConnectFlow.mock.calls[
+        mocks.useBuilderConnectFlow.mock.calls.length - 1
+      ]?.[0] as { onConnected: () => void };
+    }
+
+    async function showFlow(
+      overrides: Record<string, unknown>,
+      onConfigured = vi.fn(),
+    ) {
+      mocks.useBuilderConnectFlow.mockReturnValue(flowState(overrides));
+      await act(async () => {
+        root.render(<StorageSetupCard onConfigured={onConfigured} />);
+      });
+    }
+
+    // The real flow goes idle and calls onConnected in the same batch.
+    async function handOffToStoragePoll(onConfigured = vi.fn()) {
+      await act(async () => {
+        mocks.useBuilderConnectFlow.mockReturnValue(
+          flowState({ connecting: false }),
+        );
+        root.render(<StorageSetupCard onConfigured={onConfigured} />);
+        connectOptions().onConnected();
+      });
+    }
+
+    async function settle(ms = 5000) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    }
+
+    async function unmountCard() {
+      await act(async () => {
+        root.render(<div />);
+      });
+      await settle();
+    }
+
+    function openCustomKeys() {
+      act(() =>
+        container
+          .querySelector<HTMLAnchorElement>(
+            'a[href="/settings/general#video-storage"]',
+          )
+          ?.dispatchEvent(
+            new MouseEvent("click", { bubbles: true, cancelable: true }),
+          ),
+      );
+    }
+
+    const CONNECT_FAILED = {
+      connecting: false,
+      error: "Builder.io setup didn't finish.",
+      errorKind: "connection",
+    };
+
+    // The real flow re-renders the card as connecting once start runs.
+    async function startBuilder(onConfigured = vi.fn()) {
+      await createAndActivate();
+      await showFlow({ connecting: true }, onConfigured);
+    }
+
+    async function connectBuilderAndConfigure(onConfigured = vi.fn()) {
+      stubStorageStatus();
+      await startBuilder(onConfigured);
+      await handOffToStoragePoll(onConfigured);
+      await settle();
     }
 
     it("records one view per showing, labeled by the surface", async () => {
@@ -986,7 +1075,7 @@ describe("StorageSetupCard", () => {
       const onConfigured = vi.fn();
       await renderCard(onConfigured);
 
-      await connectBuilderAndConfigure();
+      await connectBuilderAndConfigure(onConfigured);
 
       expect(onConfigured).toHaveBeenCalledOnce();
       expect(storageEvents("onboarding_method_clicked")).toEqual([
@@ -1049,6 +1138,389 @@ describe("StorageSetupCard", () => {
 
       expect(storageEvents().map(([name]) => name)).toEqual([
         "onboarding_step_viewed",
+      ]);
+    });
+
+    it("records completion when the route unmounts the card as Builder connects", async () => {
+      await renderCard();
+      await startBuilder();
+      stubStorageStatus();
+      await handOffToStoragePoll();
+      await unmountCard();
+
+      expect(storageEvents("onboarding_step_completed")).toEqual([
+        [
+          "onboarding_step_completed",
+          expect.objectContaining({
+            step_view_id: "view-1",
+            method_id: "builder",
+          }),
+        ],
+      ]);
+    });
+
+    it("records completion when the card unmounts before Builder reports the connect", async () => {
+      await renderCard();
+      await startBuilder();
+      stubStorageStatus();
+      await unmountCard();
+
+      expect(storageEvents("onboarding_step_completed")).toEqual([
+        [
+          "onboarding_step_completed",
+          expect.objectContaining({ method_id: "builder" }),
+        ],
+      ]);
+    });
+
+    it("still finishes setup when Builder connects after the attempt failed", async () => {
+      const onConfigured = vi.fn();
+      await renderCard(onConfigured);
+      await startBuilder(onConfigured);
+      await showFlow(CONNECT_FAILED, onConfigured);
+      stubStorageStatus();
+      await handOffToStoragePoll(onConfigured);
+      await settle();
+
+      expect(onConfigured).toHaveBeenCalledOnce();
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(1);
+    });
+
+    it("records completion when a failed attempt connects late and the route unmounts the card", async () => {
+      await renderCard();
+      await startBuilder();
+      await showFlow(CONNECT_FAILED);
+      stubStorageStatus();
+      await handOffToStoragePoll();
+      await unmountCard();
+
+      expect(storageEvents("onboarding_step_completed")).toEqual([
+        [
+          "onboarding_step_completed",
+          expect.objectContaining({ method_id: "builder" }),
+        ],
+      ]);
+    });
+
+    it("reads no status on unmount after a failed attempt the card never accepted", async () => {
+      await renderCard();
+      await startBuilder();
+      await showFlow(CONNECT_FAILED);
+      const fetchMock = stubStorageStatus();
+      await unmountCard();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+    });
+    it("records no completion when free hosted clips read as configured", async () => {
+      await renderCard();
+      await startBuilder();
+      stubStorageStatus({ mode: "hosted", hostedRemaining: 3 });
+      await handOffToStoragePoll();
+      await settle();
+      await unmountCard();
+
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+    });
+
+    it("records the provider that actually finished setup", async () => {
+      await renderCard();
+      await startBuilder();
+      stubStorageStatus(S3_STORAGE);
+      await handOffToStoragePoll();
+      await settle();
+
+      expect(storageEvents("onboarding_step_completed")).toEqual([
+        [
+          "onboarding_step_completed",
+          expect.objectContaining({ method_id: "s3" }),
+        ],
+      ]);
+    });
+
+    it("records one completion, and reads no more status once it is recorded", async () => {
+      await renderCard();
+      openCustomKeys();
+      await connectBuilderAndConfigure();
+      const fetchMock = stubStorageStatus();
+      await unmountCard();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(1);
+    });
+
+    it("credits no connection the card ignored after a cancel's recovery window", async () => {
+      await renderCard();
+      await startBuilder();
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="storage-setup-builder-cancel"]',
+          )
+          ?.click();
+      });
+      await showFlow(CONNECT_FAILED);
+      await settle(61_000);
+      const fetchMock = stubStorageStatus();
+      await handOffToStoragePoll();
+      await settle(3000);
+      await unmountCard();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+    });
+
+    it("credits a connection when the route unmounts the card during the cancel's popup grace", async () => {
+      await renderCard();
+      await startBuilder();
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="storage-setup-builder-cancel"]',
+          )
+          ?.click();
+      });
+      // The real flow keeps connecting until its popup-closed grace ends.
+      await showFlow({ connecting: true });
+      stubStorageStatus();
+      await unmountCard();
+
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(1);
+    });
+
+    it("reads no status on return to the tab after Skip", async () => {
+      const onSkip = vi.fn();
+      await renderCard(vi.fn(), onSkip);
+      openCustomKeys();
+      act(() => bodyButton("agentChat.onboarding.skipForNow")?.click());
+      const fetchMock = stubStorageStatus(S3_STORAGE);
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+    });
+
+    it("reads no status on unmount after Skip", async () => {
+      const onSkip = vi.fn();
+      await renderCard(vi.fn(), onSkip);
+      await createAndActivate();
+      mocks.useBuilderConnectFlow.mockReturnValue(
+        flowState({ connecting: true }),
+      );
+      await act(async () => {
+        root.render(
+          <StorageSetupCard onConfigured={vi.fn()} onSkip={onSkip} />,
+        );
+      });
+      act(() => bodyButton("agentChat.onboarding.skipForNow")?.click());
+      const fetchMock = stubStorageStatus();
+      await unmountCard();
+
+      expect(onSkip).toHaveBeenCalledOnce();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+    });
+
+    it("records no completion when setup was started but storage stays unconfigured", async () => {
+      await renderCard();
+      await startBuilder();
+      const fetchMock = stubStorageStatus(UNCONFIGURED);
+      await unmountCard();
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+    });
+
+    it("records nothing and only warns when the closing status read fails", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await renderCard();
+      await startBuilder();
+      const fetchMock = vi.fn(async () => new Response(null, { status: 503 }));
+      vi.stubGlobal("fetch", fetchMock);
+      await unmountCard();
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+      expect(warn).toHaveBeenCalledWith(
+        "[storage-setup] completion check failed:",
+        expect.anything(),
+      );
+      warn.mockRestore();
+    });
+
+    it("records completion when the first storage check fails and the route then unmounts the card", async () => {
+      await renderCard();
+      await startBuilder();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(null, { status: 503 })),
+      );
+      await handOffToStoragePoll();
+      await settle(3000);
+      stubStorageStatus();
+      await unmountCard();
+
+      expect(storageEvents("onboarding_step_completed")).toEqual([
+        [
+          "onboarding_step_completed",
+          expect.objectContaining({ method_id: "builder" }),
+        ],
+      ]);
+    });
+
+    it("credits a connection the card accepts inside a cancel's recovery window", async () => {
+      await renderCard();
+      await startBuilder();
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="storage-setup-builder-cancel"]',
+          )
+          ?.click();
+      });
+      await showFlow(CONNECT_FAILED);
+      stubStorageStatus();
+      await handOffToStoragePoll();
+      await unmountCard();
+
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(1);
+    });
+    it("credits no custom-keys setup after the credit window", async () => {
+      await renderCard();
+      openCustomKeys();
+      await settle(16 * 60_000);
+      const fetchMock = stubStorageStatus(S3_STORAGE);
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      await unmountCard();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+    });
+
+    it("reads no status on unmount when no setup was started", async () => {
+      const fetchMock = stubStorageStatus();
+      await renderCard();
+      await unmountCard();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
+    });
+
+    it("records custom-keys completion when the card unmounts with storage configured", async () => {
+      await renderCard();
+      openCustomKeys();
+      stubStorageStatus(S3_STORAGE);
+      await unmountCard();
+
+      expect(storageEvents("onboarding_step_completed")).toEqual([
+        [
+          "onboarding_step_completed",
+          expect.objectContaining({ method_id: "s3" }),
+        ],
+      ]);
+    });
+
+    it("records custom-keys completion once on return to the tab while the card stays mounted", async () => {
+      await renderCard();
+      openCustomKeys();
+      const fetchMock = stubStorageStatus(S3_STORAGE);
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        document.dispatchEvent(new Event("visibilitychange"));
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(storageEvents("onboarding_step_completed")).toEqual([
+        [
+          "onboarding_step_completed",
+          expect.objectContaining({ method_id: "s3" }),
+        ],
+      ]);
+    });
+
+    it("records one completion when a return read and the unmount read land together", async () => {
+      await renderCard();
+      openCustomKeys();
+      const pending: Array<() => void> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              pending.push(() =>
+                resolve(videoStorageStatusResponse(S3_STORAGE)),
+              );
+            }),
+        ),
+      );
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      await act(async () => {
+        root.render(<div />);
+      });
+      expect(pending).toHaveLength(2);
+      await act(async () => {
+        pending.forEach((resolve) => resolve());
+      });
+      await settle(100);
+
+      expect(storageEvents("onboarding_step_completed")).toHaveLength(1);
+    });
+
+    it("reads no status on return to the tab when custom keys were never opened", async () => {
+      const fetchMock = stubStorageStatus(S3_STORAGE);
+      await renderCard();
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("keeps the reason the card first showed for every event of the showing", async () => {
+      await act(async () => {
+        root.render(
+          <StorageSetupCard
+            onConfigured={vi.fn()}
+            setupReason="status_unavailable"
+          />,
+        );
+      });
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
+      await act(async () => {
+        root.render(
+          <StorageSetupCard
+            onConfigured={vi.fn()}
+            setupReason="hosted_exhausted"
+          />,
+        );
+      });
+      stubStorageStatus();
+      await startBuilder();
+      await handOffToStoragePoll();
+      await settle();
+
+      expect(
+        storageEvents().map(([name, props]) => [name, props.setup_reason]),
+      ).toEqual([
+        ["onboarding_step_viewed", "status_unavailable"],
+        ["onboarding_method_clicked", "status_unavailable"],
+        ["onboarding_step_completed", "status_unavailable"],
       ]);
     });
 
