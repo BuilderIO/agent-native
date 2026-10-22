@@ -1318,12 +1318,10 @@ export function CommandMenu<TAppContext = unknown>({
                 onValueChange={(value) => {
                   updateSearch(value);
                   selectionEnabledRef.current = false;
-                  if (initialSelection === "none") setSelectionEnabled(false);
-                  setSelectedCommandValue(
-                    initialSelection === "none"
-                      ? nextEmptySelectionValue()
-                      : "",
-                  );
+                  if (initialSelection === "none") {
+                    setSelectionEnabled(false);
+                    setSelectedCommandValue(nextEmptySelectionValue());
+                  }
                 }}
                 onKeyDown={(event) => {
                   if (

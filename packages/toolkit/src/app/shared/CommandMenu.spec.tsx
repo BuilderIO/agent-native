@@ -9,13 +9,19 @@ const agentEngineStatusMock = vi.hoisted(() => ({
   state: "missing" as "unknown" | "configured" | "missing" | "unavailable",
 }));
 
-vi.mock("@agent-native/core/client/use-agent-engine-configured", () => ({
-  useAgentEngineConfigured: () => ({
-    canChat: agentEngineStatusMock.state === "configured",
-    missing: agentEngineStatusMock.state === "missing",
-    state: agentEngineStatusMock.state,
+vi.mock(
+  "@agent-native/core/client/use-agent-engine-configured",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/use-agent-engine-configured")
+    >()),
+    useAgentEngineConfigured: () => ({
+      canChat: agentEngineStatusMock.state === "configured",
+      missing: agentEngineStatusMock.state === "missing",
+      state: agentEngineStatusMock.state,
+    }),
   }),
-}));
+);
 
 vi.mock("../chat/chat/run-recovery.js", async () => {
   const { createElement } = await import("react");
@@ -1898,6 +1904,42 @@ describe("CommandMenu", () => {
         '[data-testid="command-menu-app-command-preview"]',
       )?.textContent,
     ).toBe("Second row preview");
+  });
+
+  it("keeps the selected app preview when search retains the highlighted row", () => {
+    renderAppCommands({
+      groups: [
+        {
+          id: "results",
+          order: 1,
+          commands: [
+            {
+              id: "meeting-notes",
+              order: 1,
+              label: "Meeting notes",
+              inlinePreview: <span>Meeting preview</span>,
+              onSelect() {},
+            },
+            {
+              id: "other-task",
+              order: 2,
+              label: "Other task",
+              inlinePreview: <span>Other preview</span>,
+              onSelect() {},
+            },
+          ],
+        },
+      ],
+    });
+
+    const selectedPreview = () =>
+      document.querySelector(
+        '[cmdk-item][data-value="app-command:results:meeting-notes"] [data-testid="command-menu-app-command-preview"]',
+      )?.textContent;
+
+    expect(selectedPreview()).toBe("Meeting preview");
+    search("Meeting");
+    expect(selectedPreview()).toBe("Meeting preview");
   });
 
   it("passes app context and search to an app command row preview", () => {
