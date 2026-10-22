@@ -728,8 +728,15 @@ async function storeReplayChunkBlob(
     ownerEmail: string;
     orgId: string | null;
   },
-): Promise<NormalizedSessionReplayChunk> {
-  if (chunk.storageKind === "blob" || !chunk.inlineData) return chunk;
+): Promise<{
+  chunk: NormalizedSessionReplayChunk;
+  storedBytes: number | null;
+}> {
+  // A blob the client stored itself declares its own size, which the server
+  // never measures, so it reports no stored size.
+  if (chunk.storageKind === "blob" || !chunk.inlineData) {
+    return { chunk, storedBytes: null };
+  }
 
   const gzipBytes = gzipSync(Buffer.from(chunk.inlineData, "utf8"));
   const handle = await putPrivateBlob({
@@ -759,14 +766,17 @@ async function storeReplayChunkBlob(
       );
     }
     warnInlineReplayFallback();
-    return chunk;
+    return { chunk, storedBytes: chunk.byteLength };
   }
 
   return {
-    ...chunk,
-    storageKind: "blob",
-    storageRef: encodeReplayBlobRef(handle),
-    inlineData: null,
+    chunk: {
+      ...chunk,
+      storageKind: "blob",
+      storageRef: encodeReplayBlobRef(handle),
+      inlineData: null,
+    },
+    storedBytes: gzipBytes.byteLength,
   };
 }
 
@@ -1828,12 +1838,21 @@ export async function recordSessionReplayChunks(
       });
     }
   };
+  // The usage row reserves the request's size while chunks upload, so
+  // concurrent ingests see it, then settles at the gzipped bytes actually
+  // stored. Cross-origin uploads arrive uncompressed and would otherwise count
+  // several times what they cost to keep. A gzipped request can settle a
+  // little above its wire size, since each chunk is gzipped on its own. A
+  // request carrying client-stored blobs keeps its reservation, since their
+  // sizes are only what it declares.
+  const reservedBytes = replayIngestByteLength(clampedInput, context);
+  let storedBytes: number | null = 0;
   try {
     await db.insert(schema.sessionReplayIngests).values({
       id: ingestId,
       publicKeyId: key.id,
       recordingId: recording.id,
-      byteLength: replayIngestByteLength(clampedInput, context),
+      byteLength: reservedBytes,
       createdAt: ingestedAt,
       ownerEmail: key.ownerEmail,
       orgId: key.orgId,
@@ -1860,7 +1879,7 @@ export async function recordSessionReplayChunks(
           413,
         );
       }
-      const chunk = await runWithRequestContext(
+      const stored = await runWithRequestContext(
         { userEmail: key.ownerEmail, orgId: key.orgId ?? undefined },
         () =>
           storeReplayChunkBlob(rawChunk, {
@@ -1870,6 +1889,11 @@ export async function recordSessionReplayChunks(
             orgId: key.orgId,
           }),
       );
+      const chunk = stored.chunk;
+      storedBytes =
+        storedBytes === null || stored.storedBytes === null
+          ? null
+          : storedBytes + stored.storedBytes;
       if (rawChunk.storageKind !== "blob" && chunk.storageKind === "blob") {
         const ref = decodeReplayBlobRef(chunk.storageRef);
         if (ref) uploadedBlobHandles.push(ref.handle);
@@ -2060,6 +2084,13 @@ export async function recordSessionReplayChunks(
       }
       errorCount = persistedErrorCount;
       rageClickCount = persistedRageClickCount;
+      const settledBytes = storedBytes ?? reservedBytes;
+      if (settledBytes !== reservedBytes) {
+        await tx
+          .update(schema.sessionReplayIngests)
+          .set({ byteLength: settledBytes })
+          .where(eq(schema.sessionReplayIngests.id, ingestId));
+      }
     });
     uploadedBlobHandles.length = 0;
   } catch (error) {

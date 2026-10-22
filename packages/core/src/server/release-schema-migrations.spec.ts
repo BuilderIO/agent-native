@@ -49,6 +49,9 @@ describe("framework release schema migrations", () => {
     expect(await columns(db, "chat_thread_shares")).toEqual(
       expect.arrayContaining(["resource_id", "principal_id"]),
     );
+    expect(await columns(db, "agent_chat_submission_inbox")).toContain(
+      "retry_count",
+    );
     await db.close();
   });
   it("creates the run and event columns used by failure diagnostics", async () => {

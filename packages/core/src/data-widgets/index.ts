@@ -38,6 +38,10 @@ export interface DataWidgetAction {
   icon?: DataWidgetActionIcon;
 }
 
+export interface DataWidgetChartAction extends DataWidgetAction {
+  presentation?: "icon";
+}
+
 export interface DataChartWidget {
   type: "bar" | "line" | "area";
   title?: string;
@@ -57,11 +61,15 @@ export interface DataChartWidget {
   axisTitleFontWeight?: 400 | 500;
   valueLabelFontSize?: number;
   valueLabelFontWeight?: 400 | 500;
+  valueAxisTickInterval?: number;
+  /** Fraction of each horizontal-bar category slot left empty; defaults to the existing spacing. */
+  horizontalCategoryGapRatio?: number;
   xKey: string;
   series: DataChartSeriesDefinition[];
   data: Array<Record<string, unknown>>;
   sampled?: boolean;
-  actions?: DataWidgetAction[];
+  truncated?: boolean;
+  actions?: DataWidgetChartAction[];
 }
 
 export interface DataWidgetDisplay {
@@ -85,6 +93,7 @@ export type DataWidgetDisplayAction =
       label: string;
       href: string;
       icon?: DataWidgetActionIcon;
+      presentation?: "icon";
     }
   | {
       id?: string;
@@ -161,6 +170,76 @@ function isString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+const MAX_DATA_CHART_AXIS_TICKS = 100;
+export const DATA_WIDGET_MAX_CHART_POINTS = 200;
+
+function chartRowsForRender<T>(rows: T[]): T[] {
+  return rows.slice(0, DATA_WIDGET_MAX_CHART_POINTS);
+}
+
+function numericWidgetValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasBoundedValueAxisTicks(chart: Record<string, unknown>): boolean {
+  const interval = chart.valueAxisTickInterval;
+  if (interval === undefined) return true;
+  if (
+    typeof interval !== "number" ||
+    !Number.isFinite(interval) ||
+    interval < 1e-12
+  ) {
+    return false;
+  }
+
+  const series = Array.isArray(chart.series) ? chart.series : [];
+  const rows = Array.isArray(chart.data) ? chartRowsForRender(chart.data) : [];
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (const row of rows) {
+    if (!isRecord(row)) continue;
+    for (const item of series) {
+      if (!isRecord(item) || !isString(item.key)) continue;
+      const value = numericWidgetValue(row[item.key]);
+      if (value === null) continue;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+  }
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    min = 0;
+    max = 1;
+  } else {
+    if (chart.type === "bar" || chart.type === "area") {
+      min = Math.min(0, min);
+      max = Math.max(0, max);
+    }
+    if (min === max) {
+      const padding = Math.abs(max || 1) * 0.2;
+      min -= padding;
+      max += padding;
+    }
+  }
+
+  if (!Number.isFinite(max - min)) return false;
+
+  const firstTick = Math.ceil(min / interval - 1e-9);
+  const lastTick = Math.floor(max / interval + 1e-9);
+  const tickCount = lastTick - firstTick + 1;
+  return (
+    Number.isSafeInteger(firstTick) &&
+    Number.isSafeInteger(lastTick) &&
+    Number.isSafeInteger(tickCount) &&
+    tickCount > 0 &&
+    tickCount <= MAX_DATA_CHART_AXIS_TICKS
+  );
+}
+
 export function normalizeDataWidgetKind(value: unknown): DataWidgetKind | null {
   if (value === DATA_TABLE_WIDGET) return DATA_TABLE_WIDGET;
   if (value === DATA_CHART_WIDGET) return DATA_CHART_WIDGET;
@@ -232,6 +311,14 @@ export function isDataChartWidget(value: unknown): value is DataChartWidget {
     (value.valueLabelFontWeight === undefined ||
       value.valueLabelFontWeight === 400 ||
       value.valueLabelFontWeight === 500) &&
+    (value.horizontalCategoryGapRatio === undefined ||
+      (typeof value.horizontalCategoryGapRatio === "number" &&
+        Number.isFinite(value.horizontalCategoryGapRatio) &&
+        value.horizontalCategoryGapRatio >= 0 &&
+        value.horizontalCategoryGapRatio <= 0.9)) &&
+    (value.sampled === undefined || typeof value.sampled === "boolean") &&
+    (value.truncated === undefined || typeof value.truncated === "boolean") &&
+    hasBoundedValueAxisTicks(value) &&
     isString(value.xKey) &&
     Array.isArray(value.series) &&
     value.series.every(
@@ -243,7 +330,7 @@ export function isDataChartWidget(value: unknown): value is DataChartWidget {
     ) &&
     (value.actions === undefined ||
       (Array.isArray(value.actions) &&
-        value.actions.every(isDataWidgetAction))) &&
+        value.actions.every(isDataWidgetChartAction))) &&
     Array.isArray(value.data) &&
     value.data.every(isRecord)
   );
@@ -259,6 +346,16 @@ function isDataWidgetAction(value: unknown): value is DataWidgetAction {
     isString(value.label) &&
     isString(value.href) &&
     (value.icon === undefined || isDataWidgetActionIcon(value.icon))
+  );
+}
+
+function isDataWidgetChartAction(
+  value: unknown,
+): value is DataWidgetChartAction {
+  const presentation = isRecord(value) ? value.presentation : undefined;
+  return (
+    isDataWidgetAction(value) &&
+    (presentation === undefined || presentation === "icon")
   );
 }
 
@@ -295,7 +392,8 @@ function isDataWidgetDisplayAction(
   if (value.type === "link") {
     return (
       isString(value.href) &&
-      (value.icon === undefined || isDataWidgetActionIcon(value.icon))
+      (value.icon === undefined || isDataWidgetActionIcon(value.icon)) &&
+      (value.presentation === undefined || value.presentation === "icon")
     );
   }
   if (value.type === "copy") return isString(value.text);
@@ -435,7 +533,6 @@ export function isDataWidgetResult(value: unknown): value is DataWidgetResult {
 }
 
 export const DATA_WIDGET_MAX_ROWS = 50;
-export const DATA_WIDGET_MAX_CHART_POINTS = 200;
 
 export function clampDataWidgetRows(
   result: DataWidgetResult,
@@ -459,8 +556,9 @@ export function clampDataWidgetRows(
     chartSeries && chartSeries.data.length > DATA_WIDGET_MAX_CHART_POINTS
       ? {
           ...chartSeries,
-          data: chartSeries.data.slice(0, DATA_WIDGET_MAX_CHART_POINTS),
+          data: chartRowsForRender(chartSeries.data),
           sampled: true,
+          truncated: true,
         }
       : chartSeries;
 
@@ -504,6 +602,7 @@ const dataWidgetActionSchema = z
     label: z.string().min(1),
     href: z.string().min(1),
     icon: z.enum(["explore", "camera", "notebook"]).optional(),
+    presentation: z.literal("icon").optional(),
   })
   .passthrough();
 
@@ -523,13 +622,24 @@ export const dataChartWidgetSchema = z
     axisTitleFontWeight: z.union([z.literal(400), z.literal(500)]).optional(),
     valueLabelFontSize: z.number().int().min(8).max(24).optional(),
     valueLabelFontWeight: z.union([z.literal(400), z.literal(500)]).optional(),
+    valueAxisTickInterval: z.number().finite().min(1e-12).optional(),
+    horizontalCategoryGapRatio: z.number().finite().min(0).max(0.9).optional(),
     xKey: z.string().min(1),
     series: z.array(dataChartSeriesDefinitionSchema).min(1),
     data: z.array(z.record(z.string(), z.unknown())),
     sampled: z.boolean().optional(),
+    truncated: z.boolean().optional(),
     actions: z.array(dataWidgetActionSchema).optional(),
   })
   .passthrough();
+
+const boundedDataChartWidgetSchema = dataChartWidgetSchema.refine(
+  hasBoundedValueAxisTicks,
+  {
+    path: ["valueAxisTickInterval"],
+    message: `valueAxisTickInterval must produce between 1 and ${MAX_DATA_CHART_AXIS_TICKS} ticks.`,
+  },
+);
 
 const primaryActionSchema = z
   .object({
@@ -555,6 +665,7 @@ const dataWidgetDisplayActionSchema = z.discriminatedUnion("type", [
       label: z.string().min(1),
       href: z.string().min(1),
       icon: z.enum(["explore", "camera", "notebook"]).optional(),
+      presentation: z.literal("icon").optional(),
     })
     .passthrough(),
   z
@@ -596,7 +707,7 @@ export const dataTableWidgetResultSchema = dataWidgetBaseSchema
 export const dataChartWidgetResultSchema = dataWidgetBaseSchema
   .extend({
     widget: z.literal(DATA_CHART_WIDGET),
-    chartSeries: dataChartWidgetSchema,
+    chartSeries: boundedDataChartWidgetSchema,
   })
   .passthrough();
 
@@ -604,7 +715,7 @@ export const dataInsightsWidgetResultSchema = dataWidgetBaseSchema
   .extend({
     widget: z.literal(DATA_INSIGHTS_WIDGET),
     table: dataTableWidgetSchema.optional(),
-    chartSeries: dataChartWidgetSchema.optional(),
+    chartSeries: boundedDataChartWidgetSchema.optional(),
   })
   .passthrough()
   .refine((value) => value.table || value.chartSeries, {

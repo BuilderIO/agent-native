@@ -960,7 +960,7 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
     // duplicated-document corruption this bug produced needed a client-side
     // untracked full ydoc.transact rewrite racing a diff-based server write
     // (reproduced separately against the real ydoc-manager — see
-    // GlslShaderPanel.tsx's write-race guard, which closes that exact path)
+    // shader-source-coordination.ts's write lock, which closes that path)
     // rather than two diff-based server writes. This assertion is the
     // documented, always-true floor: never corrupt, regardless of document
     // size or which write wins.
@@ -1015,7 +1015,7 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
     // push its own raw ydoc rewrite at all: DesignEditor.tsx's
     // commitVisualStyles now checks isShaderWriteInFlight(fileId) and defers
     // via waitForShaderWriteToSettle(fileId) BEFORE computing clientUpdate
-    // in the first place (see GlslShaderPanel.tsx), so in the real app this
+    // in the first place (see shader-source-coordination.ts), so in the real app this
     // clientUpdate is never built from the stale pre-shader base to begin
     // with — this test's job is only to prove the merge really would
     // corrupt the document if that guard were bypassed or removed.

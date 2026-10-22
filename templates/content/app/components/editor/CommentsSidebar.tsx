@@ -41,7 +41,10 @@ import {
   findCommentMentions,
 } from "@shared/comment-mentions";
 import type { CommentPropertyTarget } from "@shared/comment-property-target";
-import { suggestionDiffParts } from "@shared/suggestion-diff";
+import {
+  findReplaceSuggestionSummary,
+  suggestionDiffParts,
+} from "@shared/suggestion-diff";
 import type { SuggestionPresentationContext } from "@shared/suggestion-text";
 
 import {
@@ -2083,6 +2086,7 @@ export function CommentsSidebar({
     suggestion: ResourceSuggestion,
     marginTop = 0,
     onHeightChange = handleThreadCardHeightChange,
+    inProposalGroup = false,
   ) => {
     const anchorUnavailable =
       suggestion.status === "pending" &&
@@ -2099,6 +2103,7 @@ export function CommentsSidebar({
         marginTop={marginTop}
         onHeightChange={onHeightChange}
         suggestion={suggestion}
+        reason={inProposalGroup ? null : agentSuggestionReason(suggestion)}
         documentId={documentId}
         isActive={
           activeSuggestionId === suggestion.id ||
@@ -2159,7 +2164,7 @@ export function CommentsSidebar({
       }
       t={t}
     >
-      {members.map((member) => renderSuggestionCard(member, 0, () => {}))}
+      {members.map((member) => renderSuggestionCard(member, 0, () => {}, true))}
     </ProposalGroup>
   );
 
@@ -2719,7 +2724,12 @@ function ProposalGroup({
             !expanded && "-rotate-90",
           )}
         />
-        <span className="line-clamp-2 min-w-0 flex-1 break-words font-medium">
+        <span
+          className={cn(
+            "min-w-0 flex-1 break-words font-medium",
+            !expanded && "line-clamp-2",
+          )}
+        >
           {summary}
         </span>
         <span className="shrink-0 text-muted-foreground">
@@ -2756,6 +2766,34 @@ function ProposalGroup({
       ) : null}
     </div>
   );
+}
+
+/**
+ * Why an agent suggested an edit, for a suggestion on its own card. A grouped
+ * suggestion's reason is its group's header instead. People's suggestions and
+ * the summary written for an agent that gave no reason add nothing to the
+ * edit itself, so they have none.
+ */
+export function agentSuggestionReason(
+  suggestion: ResourceSuggestion,
+): string | null {
+  if (suggestion.actorKind !== "agent") return null;
+  const reason = (suggestion.proposalSummary || suggestion.summary).trim();
+  if (!reason) return null;
+  if (suggestion.proposalSummary && reason === suggestion.summary.trim())
+    return null;
+  const find = suggestion.metadata?.sourceFind;
+  const replace = suggestion.metadata?.sourceReplace;
+  if (
+    typeof find === "string" &&
+    reason ===
+      findReplaceSuggestionSummary(
+        find,
+        typeof replace === "string" ? replace : "",
+      )
+  )
+    return null;
+  return reason;
 }
 
 function SuggestionOperationSummary({
@@ -3047,6 +3085,7 @@ function SuggestionThreadView({
   marginTop = 0,
   onHeightChange,
   suggestion,
+  reason,
   documentId,
   isActive,
   expandRequested,
@@ -3073,6 +3112,8 @@ function SuggestionThreadView({
   marginTop?: number;
   onHeightChange: (threadId: string, height: number) => void;
   suggestion: ResourceSuggestion;
+  /** Why the agent suggested this edit, shown above it in full. */
+  reason: string | null;
   documentId: string;
   isActive: boolean;
   expandRequested: boolean;
@@ -3347,6 +3388,11 @@ function SuggestionThreadView({
         }
         firstEntryBody={
           <>
+            {reason ? (
+              <p className="mb-1" data-suggestion-reason>
+                {reason}
+              </p>
+            ) : null}
             <SuggestionOperationSummary
               operations={suggestion.operations}
               expanded={expanded}

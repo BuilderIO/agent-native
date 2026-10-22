@@ -26,9 +26,11 @@ let ensureContentSpacesAction: typeof import("./ensure-content-spaces.js").defau
 let createContentSpaceAction: typeof import("./create-content-space.js").default;
 let deleteContentSpaceAction: typeof import("./delete-content-space.js").default;
 let createDocumentAction: typeof import("./create-document.js").default;
+let listDocumentsAction: typeof import("./list-documents.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 let updateDocumentAction: typeof import("./update-document.js").default;
+let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let deleteContentDatabaseAction: typeof import("./delete-content-database.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
 let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
@@ -65,10 +67,13 @@ beforeAll(async () => {
   deleteContentSpaceAction = (await import("./delete-content-space.js"))
     .default;
   createDocumentAction = (await import("./create-document.js")).default;
+  listDocumentsAction = (await import("./list-documents.js")).default;
   getDocumentAction = (await import("./get-document.js")).default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
     .default;
   updateDocumentAction = (await import("./update-document.js")).default;
+  setDocumentPropertyAction = (await import("./set-document-property.js"))
+    .default;
   deleteContentDatabaseAction = (await import("./delete-content-database.js"))
     .default;
   deleteDocumentAction = (await import("./delete-document.js")).default;
@@ -855,6 +860,48 @@ describe("Content space provisioning", () => {
     });
   });
 
+  it("does not let a stale catalog reference grant a non-member visibility", async () => {
+    await addOrganization("org-shared", "Shared");
+    await addMember("owner-shared", "org-shared", OWNER, "owner");
+    await addMember("member-shared", "org-shared", MEMBER);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+    await runWithRequestContext({ userEmail: MEMBER }, () =>
+      provisionContentSpaces(getDb(), MEMBER),
+    );
+    const spaceId = organizationContentSpaceId("org-shared");
+    await getDbExec().execute({
+      sql: "DELETE FROM org_members WHERE id = $1",
+      args: ["member-shared"],
+    });
+    await runWithRequestContext({ userEmail: MEMBER }, async () => {
+      await expect(resolveContentSpaceAccess(spaceId)).rejects.toThrow(
+        "Content space not found.",
+      );
+      await expect(listContentSpacesAction.run({})).resolves.toMatchObject({
+        spaces: expect.not.arrayContaining([
+          expect.objectContaining({ id: spaceId }),
+        ]),
+      });
+      const [workspacesDatabase] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.ownerEmail, MEMBER),
+            eq(schema.contentDatabases.systemRole, "workspaces"),
+          ),
+        );
+      const catalog = await getContentDatabaseAction.run({
+        databaseId: workspacesDatabase!.id,
+      });
+      expect(catalog.items.map((item) => item.document.title)).not.toContain(
+        "Shared",
+      );
+    });
+  });
+
   it("limits delegated organization members to viewer access in their exact org", async () => {
     const email = "delegated-content-member@example.com";
     const orgId = "org-content-delegated-member";
@@ -924,78 +971,94 @@ describe("Content space provisioning", () => {
     );
   });
 
-  it("shows only visible organization documents in the personal favorites database", async () => {
-    const favoritesMember = "favorites-member@example.com";
-    await addOrganization("org-favorites-a", "Favorites A");
-    await addOrganization("org-favorites-b", "Favorites B");
-    await addOrganization("org-favorites-other", "Favorites Other");
-    await addMember("owner-favorites-a", "org-favorites-a", OWNER, "owner");
-    await addMember("owner-favorites-b", "org-favorites-b", OWNER, "owner");
-    await addMember(
-      "owner-favorites-other",
-      "org-favorites-other",
-      OWNER,
-      "owner",
-    );
-    await addMember("member-favorites-a", "org-favorites-a", favoritesMember);
-    await addMember("member-favorites-b", "org-favorites-b", favoritesMember);
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      provisionContentSpaces(getDb(), OWNER),
-    );
-    const now = new Date().toISOString();
-    await getDb()
-      .insert(schema.documents)
-      .values([
-        {
-          id: "favorite-org-a",
-          ownerEmail: OWNER,
-          orgId: "org-favorites-a",
-          spaceId: organizationContentSpaceId("org-favorites-a"),
-          title: "Favorite A",
-          isFavorite: 1,
-          visibility: "org",
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          id: "favorite-org-b",
-          ownerEmail: OWNER,
-          orgId: "org-favorites-b",
-          spaceId: organizationContentSpaceId("org-favorites-b"),
-          title: "Favorite B",
-          isFavorite: 1,
-          visibility: "org",
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          id: "private-org-a",
-          ownerEmail: OWNER,
-          orgId: "org-favorites-a",
-          spaceId: organizationContentSpaceId("org-favorites-a"),
-          title: "Private A",
-          isFavorite: 1,
-          visibility: "private",
-          createdAt: now,
-          updatedAt: now,
-        },
-        {
-          id: "favorite-unrelated",
-          ownerEmail: OWNER,
-          orgId: "org-favorites-other",
-          spaceId: organizationContentSpaceId("org-favorites-other"),
-          title: "Unrelated",
-          isFavorite: 1,
-          visibility: "org",
-          createdAt: now,
-          updatedAt: now,
-        },
-      ]);
+  // Favorites tests share a fixture because the database is created once
+  // for the whole file.
+  let orgFavorites:
+    | Promise<{
+        favoritesMember: string;
+        memberProvisioned: Awaited<ReturnType<typeof provisionContentSpaces>>;
+        now: string;
+      }>
+    | undefined;
+  function seedOrgFavorites() {
+    return (orgFavorites ??= (async () => {
+      const favoritesMember = "favorites-member@example.com";
+      await addOrganization("org-favorites-a", "Favorites A");
+      await addOrganization("org-favorites-b", "Favorites B");
+      await addOrganization("org-favorites-other", "Favorites Other");
+      await addMember("owner-favorites-a", "org-favorites-a", OWNER, "owner");
+      await addMember("owner-favorites-b", "org-favorites-b", OWNER, "owner");
+      await addMember(
+        "owner-favorites-other",
+        "org-favorites-other",
+        OWNER,
+        "owner",
+      );
+      await addMember("member-favorites-a", "org-favorites-a", favoritesMember);
+      await addMember("member-favorites-b", "org-favorites-b", favoritesMember);
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        provisionContentSpaces(getDb(), OWNER),
+      );
+      const now = new Date().toISOString();
+      await getDb()
+        .insert(schema.documents)
+        .values([
+          {
+            id: "favorite-org-a",
+            ownerEmail: OWNER,
+            orgId: "org-favorites-a",
+            spaceId: organizationContentSpaceId("org-favorites-a"),
+            title: "Favorite A",
+            isFavorite: 1,
+            visibility: "org",
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: "favorite-org-b",
+            ownerEmail: OWNER,
+            orgId: "org-favorites-b",
+            spaceId: organizationContentSpaceId("org-favorites-b"),
+            title: "Favorite B",
+            isFavorite: 1,
+            visibility: "org",
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: "private-org-a",
+            ownerEmail: OWNER,
+            orgId: "org-favorites-a",
+            spaceId: organizationContentSpaceId("org-favorites-a"),
+            title: "Private A",
+            isFavorite: 1,
+            visibility: "private",
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: "favorite-unrelated",
+            ownerEmail: OWNER,
+            orgId: "org-favorites-other",
+            spaceId: organizationContentSpaceId("org-favorites-other"),
+            title: "Unrelated",
+            isFavorite: 1,
+            visibility: "org",
+            createdAt: now,
+            updatedAt: now,
+          },
+        ]);
 
-    const memberProvisioned = await runWithRequestContext(
-      { userEmail: favoritesMember, orgId: "org-favorites-a" },
-      () => provisionContentSpaces(getDb(), favoritesMember),
-    );
+      const memberProvisioned = await runWithRequestContext(
+        { userEmail: favoritesMember, orgId: "org-favorites-a" },
+        () => provisionContentSpaces(getDb(), favoritesMember),
+      );
+      return { favoritesMember, memberProvisioned, now };
+    })());
+  }
+
+  it("shows only visible organization documents in the personal favorites database", async () => {
+    const { favoritesMember, memberProvisioned } = await seedOrgFavorites();
     const favorites = await runWithRequestContext(
       { userEmail: favoritesMember, orgId: "org-favorites-a" },
       () =>
@@ -1003,10 +1066,10 @@ describe("Content space provisioning", () => {
           databaseId: memberProvisioned.favoritesDatabaseId,
         }),
     );
-    const favoriteIds =
-      "items" in favorites
-        ? favorites.items.map((item) => item.document.id)
-        : [];
+    if (!("items" in favorites)) {
+      throw new Error("Expected Favorites database items.");
+    }
+    const favoriteIds = favorites.items.map((item) => item.document.id);
     expect(favoriteIds).toEqual(
       expect.arrayContaining(["favorite-org-a", "favorite-org-b"]),
     );
@@ -1024,53 +1087,107 @@ describe("Content space provisioning", () => {
           databaseId: memberProvisioned.favoritesDatabaseId,
         }),
     );
-    const delegatedFavoriteIds =
-      "items" in delegatedFavorites
-        ? delegatedFavorites.items.map((item) => item.document.id)
-        : [];
+    if (!("items" in delegatedFavorites)) {
+      throw new Error("Expected delegated Favorites database items.");
+    }
+    const delegatedFavoriteIds = delegatedFavorites.items.map(
+      (item) => item.document.id,
+    );
     expect(delegatedFavoriteIds).toContain("favorite-org-a");
     expect(delegatedFavoriteIds).not.toContain("favorite-org-b");
   });
 
-  it("does not let a stale catalog reference grant a non-member visibility", async () => {
-    await addOrganization("org-shared", "Shared");
-    await addMember("owner-shared", "org-shared", OWNER, "owner");
-    await addMember("member-shared", "org-shared", MEMBER);
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      provisionContentSpaces(getDb(), OWNER),
+  it("keeps private and unrelated organizations' favorites out of a member's lists", async () => {
+    const { favoritesMember, memberProvisioned } = await seedOrgFavorites();
+    const asMember = <T>(run: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: favoritesMember, orgId: "org-favorites-a" },
+        run,
+      );
+    const listed = await asMember(() => listDocumentsAction.run({}));
+    const favorites = await asMember(() =>
+      getContentDatabaseAction.run({
+        databaseId: memberProvisioned.favoritesDatabaseId,
+      }),
     );
-    await runWithRequestContext({ userEmail: MEMBER }, () =>
-      provisionContentSpaces(getDb(), MEMBER),
+    expect(favorites, JSON.stringify(favorites)).toHaveProperty("items");
+    if (!("items" in favorites)) {
+      throw new Error("Expected Favorites database items.");
+    }
+    const favoriteIds = favorites.items.map((item) => item.document.id);
+    for (const id of ["private-org-a", "favorite-unrelated"]) {
+      expect(listed.documents.map((document) => document.id)).not.toContain(id);
+      expect(favoriteIds).not.toContain(id);
+    }
+  });
+
+  it("lists favorites across every authorized organization", async () => {
+    const { favoritesMember, memberProvisioned, now } =
+      await seedOrgFavorites();
+
+    const result = await runWithRequestContext(
+      { userEmail: favoritesMember, orgId: "org-favorites-a" },
+      () => listDocumentsAction.run({}),
     );
-    const spaceId = organizationContentSpaceId("org-shared");
-    await getDbExec().execute({
-      sql: "DELETE FROM org_members WHERE id = $1",
-      args: ["member-shared"],
+    const ids = result.documents.map((document) => document.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(["favorite-org-a", "favorite-org-b"]),
+    );
+    expect(
+      result.documents.find(
+        (document) => document.id === memberProvisioned.favoritesDocumentId,
+      )?.database,
+    ).toMatchObject({ systemRole: "favorites" });
+    const favorites = await runWithRequestContext(
+      { userEmail: favoritesMember, orgId: "org-favorites-a" },
+      () =>
+        getContentDatabaseAction.run({
+          databaseId: memberProvisioned.favoritesDatabaseId,
+        }),
+    );
+    expect(favorites).toMatchObject({
+      database: { systemRole: "favorites" },
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          document: expect.objectContaining({ id: "favorite-org-a" }),
+        }),
+        expect.objectContaining({
+          document: expect.objectContaining({ id: "favorite-org-b" }),
+        }),
+      ]),
     });
-    await runWithRequestContext({ userEmail: MEMBER }, async () => {
-      await expect(resolveContentSpaceAccess(spaceId)).rejects.toThrow(
-        "Content space not found.",
-      );
-      await expect(listContentSpacesAction.run({})).resolves.toMatchObject({
-        spaces: expect.not.arrayContaining([
-          expect.objectContaining({ id: spaceId }),
-        ]),
-      });
-      const [workspacesDatabase] = await getDb()
-        .select()
-        .from(schema.contentDatabases)
-        .where(
-          and(
-            eq(schema.contentDatabases.ownerEmail, MEMBER),
-            eq(schema.contentDatabases.systemRole, "workspaces"),
-          ),
-        );
-      const catalog = await getContentDatabaseAction.run({
-        databaseId: workspacesDatabase!.id,
-      });
-      expect(catalog.items.map((item) => item.document.title)).not.toContain(
-        "Shared",
-      );
+
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: "favorites-personal-note",
+      ownerEmail: favoritesMember,
+      orgId: null,
+      databaseId: memberProvisioned.favoritesDatabaseId,
+      name: "Personal note",
+      type: "text",
+      position: 10,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const propertyUpdate = await runWithRequestContext(
+      { userEmail: favoritesMember, orgId: "org-favorites-a" },
+      () =>
+        setDocumentPropertyAction.run({
+          documentId: "favorite-org-b",
+          databaseId: memberProvisioned.favoritesDatabaseId,
+          propertyId: "favorites-personal-note",
+          value: "Cross-workspace metadata",
+        }),
+    );
+    expect(propertyUpdate).toMatchObject({
+      databaseId: memberProvisioned.favoritesDatabaseId,
+      properties: expect.arrayContaining([
+        expect.objectContaining({
+          definition: expect.objectContaining({
+            id: "favorites-personal-note",
+          }),
+          value: "Cross-workspace metadata",
+        }),
+      ]),
     });
   });
 

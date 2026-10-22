@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { DATA_WIDGET_MAX_CHART_POINTS } from "@agent-native/core/data-widgets";
 
 import type { DataChartWidget as DataChartWidgetData } from "./data-widget-types.js";
 
@@ -12,7 +13,11 @@ const DEFAULT_COLORS = [
 const WIDTH = 640;
 const HEIGHT = 360;
 const MARGIN = { top: 14, right: 18, bottom: 34, left: 46 };
+const Y_AXIS_TITLE_X = 14;
+const VALUE_AXIS_TICK_LABEL_INSET = 8;
+const VALUE_AXIS_TITLE_TICK_GAP = 8;
 const MAX_LABEL_LENGTH = 16;
+const MIN_PLOT_WIDTH = 32;
 const LABEL_FONT_FAMILIES = {
   sans: "var(--font-sans, ui-sans-serif, system-ui, sans-serif)",
   serif: "ui-serif, Georgia, Cambria, serif",
@@ -38,6 +43,24 @@ function formatTick(value: number): string {
   return value.toFixed(1);
 }
 
+function formatAxisTick(value: number, interval: number): string {
+  const [mantissa, exponent = "0"] = interval
+    .toString()
+    .toLowerCase()
+    .split("e");
+  const decimalPlaces = Math.max(
+    0,
+    (mantissa.split(".")[1]?.length ?? 0) - Number(exponent),
+  );
+  if (Math.abs(value) >= 1000) {
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: decimalPlaces,
+      maximumFractionDigits: decimalPlaces,
+    });
+  }
+  return value.toFixed(decimalPlaces);
+}
+
 function labelFor(value: unknown): string {
   const characters = Array.from(value == null ? "" : String(value));
   return characters.length > MAX_LABEL_LENGTH
@@ -50,6 +73,53 @@ function estimateTextWidth(text: string, fontSize: number): number {
     const codePoint = character.codePointAt(0) ?? 0;
     return width + (codePoint >= 0x2e80 ? fontSize : fontSize * 0.65);
   }, 0);
+}
+
+function formatCompactTick(
+  value: number,
+  fontSize: number,
+  maxWidth: number,
+): string {
+  for (let fractionDigits = 15; fractionDigits >= 0; fractionDigits -= 1) {
+    const [mantissa = "0", exponent = "0"] = value
+      .toExponential(fractionDigits)
+      .split("e");
+    const label = `${mantissa.replace(/\.?0+$/, "")}e${exponent}`;
+    if (estimateTextWidth(label, fontSize) <= maxWidth) return label;
+  }
+  return value.toExponential(0);
+}
+
+function maximumHorizontalLabelWidth(
+  categoryMargin: number,
+  includeValueLabels: boolean,
+): number {
+  let lower = 0;
+  let upper = WIDTH;
+  while (lower < upper) {
+    const candidate = Math.ceil((lower + upper) / 2);
+    const axisInset = Math.ceil(candidate / 2) + 2;
+    const valueLabelInset = includeValueLabels ? candidate + 13 : 0;
+    const leftMargin = Math.max(categoryMargin, axisInset) + valueLabelInset;
+    const rightMargin = Math.max(MARGIN.right, axisInset, valueLabelInset);
+    if (WIDTH - leftMargin - rightMargin >= MIN_PLOT_WIDTH) {
+      lower = candidate;
+    } else {
+      upper = candidate - 1;
+    }
+  }
+  return lower;
+}
+
+function formatHorizontalValueLabel(
+  value: number,
+  fontSize: number,
+  maxWidth: number,
+): string {
+  const label = formatTick(value);
+  return estimateTextWidth(label, fontSize) > maxWidth
+    ? formatCompactTick(value, fontSize, maxWidth)
+    : label;
 }
 
 function rangeFor(chart: DataChartWidgetData) {
@@ -81,8 +151,48 @@ function ChartBody({
   chart: DataChartWidgetData;
   labelFontSize: number;
 }) {
+  const categoryGapRatio = chart.horizontalCategoryGapRatio;
+  if (
+    categoryGapRatio !== undefined &&
+    (!Number.isFinite(categoryGapRatio) ||
+      categoryGapRatio < 0 ||
+      categoryGapRatio > 0.9)
+  ) {
+    throw new Error("Horizontal category gap ratio must be between 0 and 0.9");
+  }
   const { min, max } = rangeFor(chart);
   const isHorizontalBar = chart.type === "bar" && chart.layout === "horizontal";
+  const tickInterval = chart.valueAxisTickInterval;
+  const gridTickValues =
+    tickInterval === undefined
+      ? Array.from({ length: 4 }, (_, index) => min + ((max - min) * index) / 3)
+      : (() => {
+          if (!Number.isFinite(tickInterval) || tickInterval < 1e-12) {
+            throw new Error(
+              "Chart value-axis interval must be finite and positive",
+            );
+          }
+          if (!Number.isFinite(max - min)) {
+            throw new Error("Chart value-axis range must be finite");
+          }
+          const firstTick = Math.ceil(min / tickInterval - 1e-9);
+          const lastTick = Math.floor(max / tickInterval + 1e-9);
+          const tickCount = lastTick - firstTick + 1;
+          if (
+            !Number.isSafeInteger(firstTick) ||
+            !Number.isSafeInteger(lastTick) ||
+            !Number.isSafeInteger(tickCount) ||
+            tickCount <= 0 ||
+            tickCount > 100
+          ) {
+            throw new Error("Chart value-axis interval exceeds the tick limit");
+          }
+          return Array.from(
+            { length: tickCount },
+            (_, index) => (firstTick + index) * tickInterval,
+          );
+        })();
+  const axisTitleFontSize = chart.axisTitleFontSize ?? 11;
   const horizontalCategoryWidth = isHorizontalBar
     ? Math.max(
         0,
@@ -91,6 +201,45 @@ function ChartBody({
         ),
       )
     : 0;
+  const categoryMargin =
+    Math.max(MARGIN.left, horizontalCategoryWidth + 14) +
+    (chart.yAxisTitle ? 20 : 0);
+  const categoryLabelX = categoryMargin - 8;
+  const horizontalTextWidthLimit = isHorizontalBar
+    ? maximumHorizontalLabelWidth(
+        categoryMargin,
+        Boolean(chart.showValueLabels),
+      )
+    : 0;
+  const verticalValueTickMargin = isHorizontalBar
+    ? 0
+    : chart.yAxisTitle
+      ? Y_AXIS_TITLE_X +
+        axisTitleFontSize / 2 +
+        VALUE_AXIS_TITLE_TICK_GAP +
+        VALUE_AXIS_TICK_LABEL_INSET
+      : VALUE_AXIS_TICK_LABEL_INSET * 2;
+  const valueTickLabels = gridTickValues.map((value) => {
+    const label =
+      tickInterval === undefined
+        ? formatTick(value)
+        : formatAxisTick(value, tickInterval);
+    const maximumWidth = isHorizontalBar
+      ? horizontalTextWidthLimit
+      : WIDTH - MARGIN.right - MIN_PLOT_WIDTH - verticalValueTickMargin;
+    return estimateTextWidth(label, labelFontSize) > maximumWidth
+      ? formatCompactTick(value, labelFontSize, maximumWidth)
+      : label;
+  });
+  const valueTickLabelWidth = Math.max(
+    0,
+    ...valueTickLabels.map((label) => estimateTextWidth(label, labelFontSize)),
+  );
+  const customValueTickLabelWidth = isHorizontalBar ? 0 : valueTickLabelWidth;
+  const horizontalValueTickLabelInset = isHorizontalBar
+    ? Math.ceil(valueTickLabelWidth / 2) + 2
+    : 0;
+  const customValueTickWidth = isHorizontalBar ? 0 : customValueTickLabelWidth;
   const horizontalPositiveValueWidth =
     isHorizontalBar && chart.showValueLabels
       ? Math.max(
@@ -101,7 +250,11 @@ function ChartBody({
               .filter((value): value is number => value !== null && value >= 0)
               .map((value) =>
                 estimateTextWidth(
-                  formatTick(value),
+                  formatHorizontalValueLabel(
+                    value,
+                    chart.valueLabelFontSize ?? 11,
+                    horizontalTextWidthLimit,
+                  ),
                   chart.valueLabelFontSize ?? 11,
                 ),
               ),
@@ -118,25 +271,33 @@ function ChartBody({
               .filter((value): value is number => value !== null && value < 0)
               .map((value) =>
                 estimateTextWidth(
-                  formatTick(value),
+                  formatHorizontalValueLabel(
+                    value,
+                    chart.valueLabelFontSize ?? 11,
+                    horizontalTextWidthLimit,
+                  ),
                   chart.valueLabelFontSize ?? 11,
                 ),
               ),
           ),
         )
       : 0;
-  const categoryMargin =
-    Math.max(MARGIN.left, horizontalCategoryWidth + 14) +
-    (chart.yAxisTitle ? 20 : 0);
-  const categoryLabelX = categoryMargin - 8;
   const margin = {
     ...MARGIN,
     left:
-      categoryMargin +
+      Math.max(
+        categoryMargin,
+        customValueTickWidth + verticalValueTickMargin,
+        horizontalValueTickLabelInset,
+      ) +
       (horizontalNegativeValueWidth > 0
         ? horizontalNegativeValueWidth + 13
         : 0),
-    right: Math.max(MARGIN.right, horizontalPositiveValueWidth + 13),
+    right: Math.max(
+      MARGIN.right,
+      horizontalPositiveValueWidth + 13,
+      horizontalValueTickLabelInset,
+    ),
     bottom: MARGIN.bottom + (chart.xAxisTitle ? 16 : 0),
   };
   const plotWidth = WIDTH - margin.left - margin.right;
@@ -151,19 +312,93 @@ function ChartBody({
       : margin.left + (index / (chart.data.length - 1)) * plotWidth;
   const yForRow = (index: number) =>
     margin.top + ((index + 0.5) * plotHeight) / Math.max(1, chart.data.length);
-  const gridTicks = Array.from({ length: 4 }, (_, index) => {
-    const value = min + ((max - min) * index) / 3;
-    return {
-      value,
-      x: xForValue(value),
-      y: yForValue(value),
-    };
-  });
+  const axisLabelMinSpacing = isHorizontalBar
+    ? valueTickLabelWidth + 8
+    : labelFontSize + 4;
+  const visibleAxisLabelCount = Math.max(
+    1,
+    Math.floor(
+      (isHorizontalBar ? plotWidth : plotHeight) / axisLabelMinSpacing,
+    ) + 1,
+  );
+  const axisLabelStride = Math.max(
+    1,
+    Math.ceil(
+      (gridTickValues.length - 1) / Math.max(1, visibleAxisLabelCount - 1),
+    ),
+  );
+  const axisLabelIndexes = new Set(
+    gridTickValues.flatMap((_, index) =>
+      index % axisLabelStride === 0 &&
+      (visibleAxisLabelCount > 1 || index === 0)
+        ? [index]
+        : [],
+    ),
+  );
+  const finalAxisLabelIndex = gridTickValues.length - 1;
+  if (
+    visibleAxisLabelCount > 1 &&
+    finalAxisLabelIndex >= 0 &&
+    !axisLabelIndexes.has(finalAxisLabelIndex)
+  ) {
+    if (isHorizontalBar) {
+      axisLabelIndexes.add(finalAxisLabelIndex);
+    } else {
+      const precedingAxisLabelIndex =
+        Math.floor(finalAxisLabelIndex / axisLabelStride) * axisLabelStride;
+      const tickSpacing = plotHeight / Math.max(1, finalAxisLabelIndex);
+      const finalLabelSpacing =
+        (finalAxisLabelIndex - precedingAxisLabelIndex) * tickSpacing;
+      if (finalLabelSpacing < axisLabelMinSpacing) {
+        axisLabelIndexes.delete(precedingAxisLabelIndex);
+      }
+      axisLabelIndexes.add(finalAxisLabelIndex);
+    }
+  }
+  const axisLabelPosition = (index: number) =>
+    isHorizontalBar
+      ? xForValue(gridTickValues[index]!)
+      : yForValue(gridTickValues[index]!);
+  while (true) {
+    const selectedAxisLabelIndexes = [...axisLabelIndexes].sort(
+      (first, second) => first - second,
+    );
+    const crowdedPair = selectedAxisLabelIndexes.findIndex(
+      (currentIndex, position) => {
+        if (position === 0) return false;
+        const precedingIndex = selectedAxisLabelIndexes[position - 1]!;
+        const centerSpacing = Math.abs(
+          axisLabelPosition(currentIndex) - axisLabelPosition(precedingIndex),
+        );
+        const requiredSpacing = isHorizontalBar
+          ? (estimateTextWidth(valueTickLabels[currentIndex]!, labelFontSize) +
+              estimateTextWidth(
+                valueTickLabels[precedingIndex]!,
+                labelFontSize,
+              )) /
+              2 +
+            8
+          : labelFontSize + 4;
+        return centerSpacing < requiredSpacing;
+      },
+    );
+    if (crowdedPair < 0) break;
+    const precedingIndex = selectedAxisLabelIndexes[crowdedPair - 1]!;
+    const currentIndex = selectedAxisLabelIndexes[crowdedPair]!;
+    axisLabelIndexes.delete(
+      currentIndex === finalAxisLabelIndex ? precedingIndex : currentIndex,
+    );
+  }
+  const gridTicks = gridTickValues.map((value, index) => ({
+    value,
+    index,
+    x: xForValue(value),
+    y: yForValue(value),
+  }));
   const xTickEvery = Math.max(1, Math.ceil(chart.data.length / 6));
   const zero = Math.max(min, Math.min(max, 0));
   const zeroX = xForValue(zero);
   const zeroY = yForValue(zero);
-  const axisTitleFontSize = chart.axisTitleFontSize ?? 11;
   const axisTitleFontWeight = chart.axisTitleFontWeight ?? 500;
   const valueLabelFontSize = chart.valueLabelFontSize ?? 11;
   const valueLabelFontWeight = chart.valueLabelFontWeight ?? 400;
@@ -178,18 +413,20 @@ function ChartBody({
               x2={tick.x}
               y1={margin.top}
               y2={HEIGHT - margin.bottom}
-              stroke="hsl(var(--border))"
-              strokeDasharray="3 3"
+              stroke="hsl(var(--chart-grid, var(--border)))"
+              strokeDasharray={tickInterval === undefined ? "3 3" : undefined}
             />
-            <text
-              x={tick.x}
-              y={HEIGHT - margin.bottom + 14}
-              fill="hsl(var(--muted-foreground))"
-              fontSize={labelFontSize}
-              textAnchor="middle"
-            >
-              {formatTick(tick.value)}
-            </text>
+            {axisLabelIndexes.has(tick.index) ? (
+              <text
+                x={tick.x}
+                y={HEIGHT - margin.bottom + 14}
+                fill="hsl(var(--muted-foreground))"
+                fontSize={labelFontSize}
+                textAnchor="middle"
+              >
+                {valueTickLabels[tick.index]}
+              </text>
+            ) : null}
           </g>
         ) : (
           <g key={tick.y}>
@@ -198,18 +435,20 @@ function ChartBody({
               x2={WIDTH - margin.right}
               y1={tick.y}
               y2={tick.y}
-              stroke="hsl(var(--border))"
-              strokeDasharray="3 3"
+              stroke="hsl(var(--chart-grid, var(--border)))"
+              strokeDasharray={tickInterval === undefined ? "3 3" : undefined}
             />
-            <text
-              x={margin.left - 8}
-              y={tick.y + 4}
-              fill="hsl(var(--muted-foreground))"
-              fontSize={labelFontSize}
-              textAnchor="end"
-            >
-              {formatTick(tick.value)}
-            </text>
+            {axisLabelIndexes.has(tick.index) ? (
+              <text
+                x={margin.left - VALUE_AXIS_TICK_LABEL_INSET}
+                y={tick.y + 4}
+                fill="hsl(var(--muted-foreground))"
+                fontSize={labelFontSize}
+                textAnchor="end"
+              >
+                {valueTickLabels[tick.index]}
+              </text>
+            ) : null}
           </g>
         ),
       )}
@@ -218,7 +457,7 @@ function ChartBody({
         x2={isHorizontalBar ? zeroX : WIDTH - margin.right}
         y1={isHorizontalBar ? margin.top : zeroY}
         y2={isHorizontalBar ? HEIGHT - margin.bottom : zeroY}
-        stroke="hsl(var(--border))"
+        stroke="hsl(var(--chart-grid, var(--border)))"
       />
       {chart.data.map((row, index) =>
         isHorizontalBar ? (
@@ -263,9 +502,9 @@ function ChartBody({
       ) : null}
       {chart.yAxisTitle ? (
         <text
-          x={14}
+          x={Y_AXIS_TITLE_X}
           y={margin.top + plotHeight / 2}
-          transform={`rotate(-90 14 ${margin.top + plotHeight / 2})`}
+          transform={`rotate(-90 ${Y_AXIS_TITLE_X} ${margin.top + plotHeight / 2})`}
           fill="hsl(var(--foreground))"
           fontSize={axisTitleFontSize}
           fontWeight={axisTitleFontWeight}
@@ -281,7 +520,11 @@ function ChartBody({
     const slotSize =
       (isHorizontalBar ? plotHeight : plotWidth) /
       Math.max(1, chart.data.length);
-    const groupSize = slotSize * 0.72;
+    const groupSize =
+      slotSize *
+      (isHorizontalBar && categoryGapRatio !== undefined
+        ? 1 - categoryGapRatio
+        : 0.72);
     const barSize = groupSize / Math.max(1, chart.series.length);
     return (
       <>
@@ -311,7 +554,7 @@ function ChartBody({
               ? Math.max(2, Math.abs(valueX - zeroX))
               : Math.max(2, barSize - 2);
             const height = isHorizontalBar
-              ? Math.max(2, barSize - 2)
+              ? Math.max(0, barSize - Math.min(2, barSize * 0.1))
               : Math.max(1, Math.abs(zeroY - valueY));
             return (
               <g key={`${rowIndex}-${series.key}`}>
@@ -342,7 +585,13 @@ function ChartBody({
                       isHorizontalBar ? (value < 0 ? "end" : "start") : "middle"
                     }
                   >
-                    {formatTick(value)}
+                    {isHorizontalBar
+                      ? formatHorizontalValueLabel(
+                          value,
+                          valueLabelFontSize,
+                          horizontalTextWidthLimit,
+                        )
+                      : formatTick(value)}
                   </text>
                 ) : null}
               </g>
@@ -449,11 +698,19 @@ function ChartBody({
 
 export function DataChartRenderer({ chart }: { chart: DataChartWidgetData }) {
   const t = useT();
-  const contentHeight = chart.contentHeight;
-  const contentPadding = chart.contentPadding ?? 0;
+  const renderedChart =
+    chart.data.length > DATA_WIDGET_MAX_CHART_POINTS
+      ? {
+          ...chart,
+          data: chart.data.slice(0, DATA_WIDGET_MAX_CHART_POINTS),
+        }
+      : chart;
+  const contentHeight = renderedChart.contentHeight;
+  const contentPadding = renderedChart.contentPadding ?? 0;
   const hasContentBox = contentHeight !== undefined || contentPadding > 0;
-  const labelFontFamily = LABEL_FONT_FAMILIES[chart.labelFontFamily ?? "sans"];
-  const labelFontSize = chart.labelFontSize ?? 11;
+  const labelFontFamily =
+    LABEL_FONT_FAMILIES[renderedChart.labelFontFamily ?? "sans"];
+  const labelFontSize = renderedChart.labelFontSize ?? 11;
   return (
     <div
       className="box-border w-full min-w-0 overflow-hidden"
@@ -474,9 +731,9 @@ export function DataChartRenderer({ chart }: { chart: DataChartWidgetData }) {
         preserveAspectRatio={contentHeight !== undefined ? "none" : undefined}
         fontFamily={labelFontFamily}
         role="img"
-        aria-label={chart.title ?? t("agentChat.widget.dataChart")}
+        aria-label={renderedChart.title ?? t("agentChat.widget.dataChart")}
       >
-        <ChartBody chart={chart} labelFontSize={labelFontSize} />
+        <ChartBody chart={renderedChart} labelFontSize={labelFontSize} />
       </svg>
     </div>
   );

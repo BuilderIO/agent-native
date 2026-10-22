@@ -1072,6 +1072,8 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.workedFor": "{{duration}} verarbeitet",
   "widget.chart": "Diagramm",
   "widget.chartActions": "Diagrammaktionen",
+  "widget.chartRowsOmitted":
+    "Dieses Diagramm zeigt nur einen Teil der verfügbaren Zeilen.",
   "widget.dataSources": "Datenquellen",
   "widget.tableActions": "Tabellenaktionen",
   "widget.dataChart": "Datendiagramm",

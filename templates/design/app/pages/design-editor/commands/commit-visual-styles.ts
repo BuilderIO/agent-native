@@ -21,7 +21,7 @@ import {
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
-} from "@/components/design/inspector/GlslShaderPanel";
+} from "@/components/design/shader-source-coordination";
 import type { ElementInfo } from "@/components/design/types";
 import {
   bridgeSourceIdForCodeLayerNode,
@@ -248,8 +248,7 @@ export function runCommitVisualStyles(
   });
   if (!activeFile || !canEditDesign) return;
   if (!canApplyContentEdit(activeFile.id)) return;
-  // Cross-pipeline write race guard (see GlslShaderPanel.tsx's module doc
-  // comment on withShaderWriteLock/waitForShaderWriteToSettle): a shader
+  // Cross-pipeline write race guard (see shader-source-coordination.ts): a shader
   // apply/remove/knob-commit for this same file goes through a completely
   // separate round trip (read-source-file -> apply-source-edit) than this
   // function's own commit, and both eventually rewrite the SAME Y.Doc —

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { ActionContractError } from "@agent-native/core/action";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
@@ -44,6 +45,24 @@ export async function favoriteDocumentIds(
       ),
     );
   return new Set(rows.map((row: { documentId: string }) => row.documentId));
+}
+
+export async function favoriteMembershipIds(
+  db: Db,
+  userEmail: string,
+  documentId: string,
+): Promise<string[]> {
+  const favoritesDatabaseId = favoritesSystemIds(userEmail).databaseId;
+  const rows = await db
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.databaseId, favoritesDatabaseId),
+        eq(schema.contentDatabaseItems.documentId, documentId),
+      ),
+    );
+  return rows.map((row: { id: string }) => row.id);
 }
 
 export async function setFavoriteMembership(args: {
@@ -92,6 +111,24 @@ export async function setFavoriteMembership(args: {
       previous: existing,
     };
 
+  // Trash, restore and permanent delete read and rewrite a page's
+  // memberships while they hold its row, and nothing else stops a favorite
+  // being added meanwhile: no collection lock covers Favorites. Outside a
+  // transaction this lock ends before the insert, so callers run this in one.
+  // A save locks the membership before the page, so a removal must not take
+  // this lock, and a caller holding the page locks the membership first.
+  // guard:allow-unscoped — the caller already access-checked the page; this waits out its lifecycle writes.
+  const [page] = await args.db
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, args.documentId))
+    .for("share");
+  if (!page) {
+    throw new ActionContractError("Document not found.", {
+      errorCode: "DOCUMENT_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
   const [position] = await args.db
     .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.contentDatabaseItems)

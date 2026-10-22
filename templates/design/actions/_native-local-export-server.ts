@@ -12,6 +12,8 @@ import {
 } from "../server/source-workspace.js";
 import {
   classifyNativeLocalExportNavigation,
+  nativeLocalExportRevisionKey,
+  nativeLocalExportRevisionSchema,
   nativeLocalExportStateKey,
   nativeLocalExportStateSchema,
   type NativeLocalExportState,
@@ -59,7 +61,22 @@ export async function readNativeLocalExportState(
       errorCode: "native_export_request_unreadable",
       statusCode: 422,
     });
-  return parsed.data;
+  // CAS compares serialized JSON, so keep the validated value's stored key order.
+  return raw as NativeLocalExportState;
+}
+
+export async function readNativeLocalExportRevision(
+  designId: string,
+  tabId: string,
+): Promise<Record<string, unknown> | null> {
+  const raw = await readAppState(nativeLocalExportRevisionKey(designId, tabId));
+  if (raw === null) return null;
+  if (!nativeLocalExportRevisionSchema.safeParse(raw).success)
+    fail("The local export revision state is unreadable.", {
+      errorCode: "native_export_request_unreadable",
+      statusCode: 422,
+    });
+  return raw;
 }
 
 export async function readNativeLocalExportVersion(
@@ -129,38 +146,34 @@ export async function expireNativeLocalExportState(
   return latest;
 }
 
-export async function markNativeLocalExportDocumentReplaced(
-  designId: string,
-  tabId: string,
+export function planNativeLocalExportDocumentRegistration(
+  current: NativeLocalExportState,
   documentId: string,
-): Promise<void> {
-  const key = nativeLocalExportStateKey(designId, tabId);
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const raw = await readNativeLocalExportState(designId, tabId);
-    if (!raw) return;
-    const current = await expireNativeLocalExportState(raw);
-    if (
-      (current.status !== "running" &&
-        current.status !== "uploading" &&
-        current.status !== "cancel-requested") ||
-      !current.ownerDocumentId ||
-      current.ownerDocumentId === documentId
-    )
-      return;
-    const failed: NativeLocalExportState = {
-      ...current,
-      status: "failed",
-      failure: {
-        code: "client-unavailable",
-        message: "The editor page reloaded before local export finished.",
-      },
-    };
-    if (await compareAndSetAppState(key, current, failed)) return;
+): NativeLocalExportState {
+  if (current.status === "pending") {
+    if (!current.targetDocumentId)
+      return { ...current, targetDocumentId: documentId };
+    if (current.targetDocumentId === documentId) return current;
+  } else if (
+    current.status !== "running" &&
+    current.status !== "uploading" &&
+    current.status !== "cancel-requested"
+  ) {
+    return current;
+  } else if (
+    !current.ownerDocumentId ||
+    current.ownerDocumentId === documentId
+  ) {
+    return current;
   }
-  fail("The local export changed while recovering its editor page.", {
-    errorCode: "native_export_request_conflict",
-    statusCode: 409,
-  });
+  return {
+    ...current,
+    status: "failed",
+    failure: {
+      code: "client-unavailable",
+      message: "The editor page reloaded before local export finished.",
+    },
+  };
 }
 
 export async function markNativeLocalExportEditorLeft(
