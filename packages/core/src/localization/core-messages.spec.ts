@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { AUTOMATION_OUTCOME_MESSAGES } from "./automation-outcome-messages.js";
 import { CONSENT_BANNER_MESSAGES } from "./consent-banner-messages.js";
 import {
   coreMessagesForLocale,
@@ -18,6 +19,24 @@ function placeholders(value: string): string[] {
 }
 
 describe("Core localization", () => {
+  it("localizes automation approval and chaining errors in every built-in locale", () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      for (const key of [
+        "mcpApprovalUnavailable",
+        "chainingUnsupported",
+      ] as const) {
+        const message = AUTOMATION_OUTCOME_MESSAGES[locale][key];
+        expect(message, `${locale}.${key}`).toBeTruthy();
+        expect(placeholders(message), `${locale}.${key}`).toEqual([]);
+        if (locale !== "en-US") {
+          expect(message, `${locale}.${key}`).not.toBe(
+            AUTOMATION_OUTCOME_MESSAGES["en-US"][key],
+          );
+        }
+      }
+    }
+  });
+
   it("localizes resource pack labels in every built-in locale", async () => {
     for (const locale of SUPPORTED_LOCALES) {
       const messages = await loadCoreMessagesForLocale(locale);

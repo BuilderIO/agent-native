@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 const executeMock = vi.hoisted(() => vi.fn());
 const atomicBatchMock = vi.hoisted(() => vi.fn());
@@ -116,6 +117,7 @@ vi.mock("../jobs/run-history.js", () => ({
   ) => ({ sql: "history-delete", args: [owner, name, guard] }),
 }));
 
+import { defineAction } from "../action.js";
 import { nextOccurrence } from "../jobs/cron.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import {
@@ -291,6 +293,123 @@ describe("automation domain service", () => {
           : null;
       },
     );
+  });
+
+  it.each(["mcp", "tool"] as const)(
+    "keeps %s provenance through app action wrappers that omit the caller",
+    async (caller) => {
+      const action = defineAction({
+        description: "Create an app-owned automation.",
+        schema: z.object({}),
+        run: () =>
+          defineAutomation(actor, {
+            name: "app-created",
+            scope: "personal",
+            triggerType: "manual",
+            body: "Send a reminder.",
+          }),
+      });
+      const result = await action.run(
+        {},
+        { caller, userEmail: actor.userEmail },
+      );
+      expect(result.meta.mcpManaged).toBe(caller === "mcp" ? true : undefined);
+      expect(
+        parseJobResource(resourcePutWithDbMock.mock.calls[0][3]).meta
+          .mcpManaged,
+      ).toBe(caller === "mcp" ? true : undefined);
+    },
+  );
+
+  it("keeps MCP provenance through nested actions with a different inner caller", async () => {
+    let stored = resource(eventAutomation);
+    resourceGetByPathMock.mockImplementation(async () => stored);
+    resourcePutIfCurrentMock.mockImplementation(async (input) => {
+      stored = {
+        ...stored,
+        content: input.content,
+        updatedAt: stored.updatedAt + 1,
+      };
+      return stored;
+    });
+    const inner = defineAction({
+      description: "Update an app-owned automation.",
+      schema: z.object({}),
+      run: () =>
+        updateAutomation(
+          { ...actor, caller: "frontend" },
+          { name: "notify", scope: "organization", enabled: false },
+        ),
+    });
+    const outer = defineAction({
+      description: "Delegate an automation update.",
+      schema: z.object({}),
+      run: () => inner.run({}, { caller: "tool", userEmail: actor.userEmail }),
+    });
+    const result = await outer.run(
+      {},
+      { caller: "mcp", userEmail: actor.userEmail },
+    );
+    expect(result.meta.mcpManaged).toBe(true);
+    expect(parseJobResource(stored.content).meta.mcpManaged).toBe(true);
+  });
+
+  it.each(["mcp", "tool", "frontend"] as const)(
+    "persists MCP provenance only for %s definitions",
+    async (caller) => {
+      const result = await defineAutomation(
+        { ...actor, caller },
+        {
+          name: "mcp-created",
+          scope: "personal",
+          triggerType: "manual",
+          body: "Send a reminder.",
+          ...({ mcpManaged: false, caller: "frontend" } as any),
+        },
+      );
+      const content = resourcePutWithDbMock.mock.calls[0][3];
+      expect(parseJobResource(content).meta.mcpManaged).toBe(
+        caller === "mcp" ? true : undefined,
+      );
+      expect(result.meta.mcpManaged).toBe(caller === "mcp" ? true : undefined);
+    },
+  );
+
+  it("marks MCP edits and keeps the mark through later trusted edits and rebuilds", async () => {
+    let stored = resource(eventAutomation);
+    resourceGetByPathMock.mockImplementation(async () => stored);
+    resourcePutIfCurrentMock.mockImplementation(async (input) => {
+      stored = {
+        ...stored,
+        content: input.content,
+        updatedAt: stored.updatedAt + 1,
+      };
+      return stored;
+    });
+    const first = await updateAutomation(
+      { ...actor, caller: "mcp" },
+      {
+        name: "notify",
+        scope: "organization",
+        body: "Send a changed reminder.",
+        ...({ mcpManaged: false } as any),
+      },
+    );
+    expect(first.meta.mcpManaged).toBe(true);
+    expect(parseJobResource(stored.content).meta.mcpManaged).toBe(true);
+    const second = await updateAutomation(
+      { ...actor, caller: "frontend" },
+      {
+        name: "notify",
+        scope: "organization",
+        enabled: false,
+        ...({ mcpManaged: false } as any),
+      },
+    );
+    expect(second.meta.mcpManaged).toBe(true);
+    const { buildJobResourceContent } = await import("../jobs/frontmatter.js");
+    const rebuilt = buildJobResourceContent(second.meta, second.body);
+    expect(parseJobResource(rebuilt).meta.mcpManaged).toBe(true);
   });
 
   it("maps the centralized access result into the unified service list", async () => {
@@ -1082,7 +1201,7 @@ Send the digest.`),
     );
   });
 
-  it("re-applies an update over run state written while it was read", async () => {
+  it("preserves concurrent run state and MCP provenance when retrying an update", async () => {
     executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
     const withRun = (status: string, runAt: string) =>
       resource(
@@ -1094,6 +1213,10 @@ Send the digest.`),
     const before = withRun("success", "2026-10-01T00:00:00.000Z");
     const concurrentRun = {
       ...withRun("running", "2026-10-07T09:00:00.000Z"),
+      content: withRun("running", "2026-10-07T09:00:00.000Z").content.replace(
+        "runAs: creator",
+        "runAs: creator\nmcpManaged: true",
+      ),
       updatedAt: 2,
     };
     resourceGetByPathMock
@@ -1122,6 +1245,7 @@ Send the digest.`),
     // The caller reports what landed, not the pre-conflict snapshot.
     expect(updated.meta.enabled).toBe(false);
     expect(updated.meta.lastStatus).toBe("running");
+    expect(updated.meta.mcpManaged).toBe(true);
     expect(updated.resource.content).toBe(written);
   });
 

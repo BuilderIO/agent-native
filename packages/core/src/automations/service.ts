@@ -1,3 +1,5 @@
+import { actionExecutionStorage } from "../action-frame.js";
+import type { ActionCaller } from "../action.js";
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
@@ -72,6 +74,7 @@ export const DEFAULT_AUTOMATION_SCHEDULE = "0 * * * *";
 
 export interface AutomationActor {
   userEmail: string;
+  caller?: ActionCaller;
   orgId?: string | null;
   appId?: string | null;
 }
@@ -196,8 +199,20 @@ function normalizeExecutionTarget(
 function normalizeActor(actor: AutomationActor): AutomationActor {
   const userEmail = actor.userEmail.trim().toLowerCase();
   if (!userEmail) throw httpError("Not authenticated.", 401);
+  let caller = actor.caller;
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.context?.caller === "mcp") {
+      caller = "mcp";
+      break;
+    }
+  }
   return {
     userEmail,
+    caller,
     orgId: actor.orgId?.trim() || null,
     appId: actor.appId?.trim() || null,
   };
@@ -778,6 +793,7 @@ export async function defineAutomation(
     createdBy: actor.userEmail,
     orgId: input.scope === "organization" ? actor.orgId! : undefined,
     runAs: "creator",
+    ...(actor.caller === "mcp" ? { mcpManaged: true } : {}),
     ...(input.triggerType === "schedule"
       ? {
           nextRun: nextOccurrence(schedule, undefined, timezone).toISOString(),
@@ -899,6 +915,10 @@ export async function updateAutomation(
   const currentMeta = { ...definition.meta };
   const meta: AutomationDefinition["meta"] = { ...currentMeta };
   const fields: JobFrontmatterPatch = {};
+  if (actor.caller === "mcp") {
+    meta.mcpManaged = true;
+    fields.mcpManaged = true;
+  }
   const triggerType = input.triggerType ?? meta.triggerType;
   const triggerChanged = triggerType !== meta.triggerType;
   const schedule =
@@ -1294,6 +1314,7 @@ export async function updateAutomation(
   const replaced = parseJobResource(replacedContent);
   const changedField = (before: unknown, after: unknown) => before !== after;
   const requestedDiff =
+    (actor.caller === "mcp" && !replaced.meta.mcpManaged) ||
     (input.body !== undefined && changedField(replaced.body, body)) ||
     (input.enabled !== undefined &&
       changedField(replaced.meta.enabled, meta.enabled)) ||

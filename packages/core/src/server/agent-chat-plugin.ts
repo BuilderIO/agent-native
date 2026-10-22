@@ -239,6 +239,7 @@ import {
   declaredMcpToolNames,
   getMcpDirectoryWidgetResourceUri,
 } from "../mcp/build-server.js";
+import { preferMcpAppActions } from "../mcp/framework-tools.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -2548,6 +2549,15 @@ export function createAgentChatPlugin(
       const externalFullActions = mcpFullActions
         ? { ...mcpOnlyActions, ...mcpFullActions }
         : undefined;
+      const mcpAppActions = {
+        ...discoveredActions,
+        ...templateScripts,
+        ...mcpOnlyActions,
+      };
+      const mcpActions = preferMcpAppActions(externalActions, mcpAppActions);
+      const mcpProductionActions = externalFullActions
+        ? preferMcpAppActions(externalFullActions, mcpAppActions)
+        : undefined;
       reservedActionRegistries.push(
         templateScriptsAll,
         discoveredActionsAll,
@@ -3507,8 +3517,8 @@ export function createAgentChatPlugin(
           websiteUrl: mcpOptions.websiteUrl,
           widgetDomain: mcpOptions.widgetDomain,
           icons: mcpOptions.icons,
-          actions: externalActions,
-          productionActions: externalFullActions,
+          actions: mcpActions,
+          productionActions: mcpProductionActions,
           widgetReadActions: selectMcpDirectoryWidgetReadActions(
             mcpOptions.directoryProfile,
             templateScriptsAll,

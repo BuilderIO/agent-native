@@ -86,6 +86,7 @@ export default defineAction({
   description:
     "Create, update, or delete an automation from the Agent Automations page. Existing automations are addressed by stable resourceId; name and scope remain compatibility inputs.",
   agentTool: false,
+  needsApproval: (_input, ctx) => ctx?.caller === "mcp",
   schema,
   run: async (input, ctx) => {
     const userEmail = ctx?.userEmail;
@@ -94,6 +95,7 @@ export default defineAction({
       userEmail,
       orgId: ctx?.orgId,
       appId: ctx?.appId,
+      ...(ctx?.caller ? { caller: ctx.caller } : {}),
     };
 
     if (input.operation === "create") {
