@@ -679,6 +679,44 @@ describe("HTML Motion source adapter", () => {
   );
 
   it.each([
+    [
+      "this.querySelector on an ancestor",
+      `onclick="this.querySelector('h1').style.opacity = '0'"`,
+    ],
+    [
+      "querySelectorAll through an event-currentTarget alias",
+      `onclick="const scope = event.currentTarget; const headings = scope.querySelectorAll('h1'); headings[0].style.opacity = '0'"`,
+    ],
+    [
+      "querySelectorAll on an Alpine ancestor",
+      `@click="this.querySelectorAll('h1')[0].classList.add('hidden')"`,
+    ],
+  ])(
+    "rejects element-scoped selector mutations that can reach a Motion target through %s",
+    (_label, handler) => {
+      const source = html.replace(
+        '<main class="card">',
+        `<main class="card" ${handler}>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+      const generated = apply(html).source.replace(
+        '<main class="card">',
+        `<main class="card" ${handler}>`,
+      );
+      expect(readMotionHtmlSource(generated)).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-target" },
+      });
+    },
+  );
+
+  it.each([
     ["a `this` alias", `onclick="var el = this; el.style.opacity = '0'"`],
     ["bracket access on `this`", `onclick="this['style']['opacity'] = '0'"`],
   ])("rejects direct Motion target mutation through %s", (_label, handler) => {
@@ -768,6 +806,57 @@ describe("HTML Motion source adapter", () => {
       source: html.replace("</body>", `${script}\n</body>`),
       changed: true,
     });
+  });
+
+  it("removes managed Motion source when a target gains a runtime style binding", () => {
+    const generated = apply(html).source;
+    const source = generated.replace(
+      '<h1 data-agent-native-node-id="hero-title">',
+      '<h1 x-bind:style="{ opacity: open ? 0 : 1 }" data-agent-native-node-id="hero-title">',
+    );
+
+    expect(readMotionHtmlSource(source)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+    expect(removeMotionHtmlSource(source)).toEqual({
+      source: html.replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 x-bind:style="{ opacity: open ? 0 : 1 }" data-agent-native-node-id="hero-title">',
+      ),
+      changed: true,
+    });
+  });
+
+  it("reads and removes Motion when a CSS content string contains template braces", () => {
+    const source = html.replace(
+      "</head>",
+      `<style>.card::before { content: "{{ label }}"; }</style>\n</head>`,
+    );
+    const generated = apply(source).source;
+
+    expect(readMotionHtmlSource(generated)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+    expect(removeMotionHtmlSource(generated)).toEqual({
+      source,
+      changed: true,
+    });
+  });
+
+  it("still rejects actual CSS template interpolation for managed Motion", () => {
+    const source = html.replace(
+      "</head>",
+      `<style>.card { opacity: {{ opacity }}; }</style>\n</head>`,
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported" });
   });
 
   it("ignores executable scripts inside inert templates", () => {

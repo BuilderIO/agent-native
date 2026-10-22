@@ -442,6 +442,14 @@ export function readMotionReactSource(
   source: string,
   modulePath?: string,
 ): MotionReactSourceReadResult {
+  return readMotionReactSourceInternal(source, modulePath);
+}
+
+function readMotionReactSourceInternal(
+  source: string,
+  modulePath: string | undefined,
+  options: { allowUnsupportedRuntimeCallbacks?: boolean } = {},
+): MotionReactSourceReadResult {
   try {
     const sourceFile = parseTsx(source);
     const managedStyles = findManagedStyles(sourceFile);
@@ -502,7 +510,11 @@ export function readMotionReactSource(
       modulePath,
       managedStyles,
       managedTargetNodeIds,
-      { allowManagedMotionWithUnresolvedStylesheets: true },
+      {
+        allowManagedMotionWithUnresolvedStylesheets: true,
+        allowUnsupportedRuntimeCallbacks:
+          options.allowUnsupportedRuntimeCallbacks,
+      },
     );
     if (authoredMotion.document) {
       try {
@@ -691,7 +703,9 @@ export function removeMotionReactSource(
   source: string,
   modulePath?: string,
 ): MotionReactSourceRemoval {
-  const read = readMotionReactSource(source, modulePath);
+  const read = readMotionReactSourceInternal(source, modulePath, {
+    allowUnsupportedRuntimeCallbacks: true,
+  });
   if (read.status === "invalid") throw read.error;
   if (read.status === "absent") return { source, changed: false };
 
@@ -701,6 +715,10 @@ export function removeMotionReactSource(
     modulePath,
     findManagedStyles(originalSourceFile),
     read.status === "valid" ? read.targetNodeIds : [],
+    {
+      allowManagedMotionWithUnresolvedStylesheets: true,
+      allowUnsupportedRuntimeCallbacks: true,
+    },
   );
   const withoutAuthored = removeAuthoredCssSourceRanges(
     source,
@@ -768,7 +786,10 @@ function readAuthoredReactMotion(
   modulePath: string | undefined,
   managedStyles: readonly ManagedStyle[],
   managedTargetNodeIds: readonly string[] = [],
-  options: { allowManagedMotionWithUnresolvedStylesheets?: boolean } = {},
+  options: {
+    allowManagedMotionWithUnresolvedStylesheets?: boolean;
+    allowUnsupportedRuntimeCallbacks?: boolean;
+  } = {},
 ): AuthoredReactMotion {
   if (
     !options.allowManagedMotionWithUnresolvedStylesheets &&
@@ -893,11 +914,13 @@ function readAuthoredReactMotion(
     );
   }
 
-  assertNoUnsupportedReactStylePropAnimations(
-    sourceFile,
-    [...managedTargetNodeIds, ...importedTargetNodeIds],
-    modulePath,
-  );
+  if (!options.allowUnsupportedRuntimeCallbacks) {
+    assertNoUnsupportedReactStylePropAnimations(
+      sourceFile,
+      [...managedTargetNodeIds, ...importedTargetNodeIds],
+      modulePath,
+    );
+  }
   if (tracks.length === 0) return { document: null, rangesToRemove: [] };
   for (const name of usedKeyframeNames) {
     if ((keyframeNameCounts.get(name) ?? 0) > 1) {
@@ -1175,6 +1198,7 @@ function assertNoUnsupportedReactStylePropAnimations(
               new Set(),
               false,
               capturedMotionRefNames,
+              true,
             )
           : "unknown";
         if (inspection !== "safe") {
@@ -1551,6 +1575,7 @@ function inspectReactStyleMutationCallback(
   resolving: Set<string>,
   isRefCallback: boolean,
   capturedMotionRefNames: ReadonlySet<string> = new Set(),
+  inspectLifecycleCalls = false,
 ): ReactStyleInspection {
   while (
     ts.isParenthesizedExpression(expression) ||
@@ -1574,6 +1599,7 @@ function inspectReactStyleMutationCallback(
           resolving,
           isRefCallback,
           capturedMotionRefNames,
+          inspectLifecycleCalls,
         );
         resolving.delete(declarationKey);
         return result;
@@ -1597,14 +1623,18 @@ function inspectReactStyleMutationCallback(
         ) {
           return "unknown";
         }
+        const callback = functions[0]!;
+        const declarationKey = `${callback.getStart(sourceFile)}:${callback.end}`;
+        if (resolving.has(declarationKey)) return "unknown";
+        resolving.add(declarationKey);
         const callbackParameterNames = getReactCallbackParameterNames(
-          functions[0]!.parameters,
+          callback.parameters,
         );
         const eventTargetBindings = isRefCallback
           ? { targetNames: new Set<string>(), scalarNames: new Set<string>() }
           : getReactCallbackEventTargetBindings(
-              functions[0]!.parameters,
-              functions[0]!.body,
+              callback.parameters,
+              callback.body!,
               callbackParameterNames,
             );
         if (!isRefCallback) {
@@ -1612,14 +1642,18 @@ function inspectReactStyleMutationCallback(
             eventTargetBindings.targetNames.add(name);
           }
         }
-        return inspectReactStyleMutationBody(
-          functions[0]!.body,
+        const result = inspectReactStyleMutationBody(
+          callback.body!,
           callbackParameterNames,
           isRefCallback,
           sourceFile,
           eventTargetBindings.targetNames,
           eventTargetBindings.scalarNames,
+          resolving,
+          inspectLifecycleCalls,
         );
+        resolving.delete(declarationKey);
+        return result;
       }
     }
     return "unknown";
@@ -1654,6 +1688,8 @@ function inspectReactStyleMutationCallback(
     sourceFile,
     eventTargetBindings.targetNames,
     eventTargetBindings.scalarNames,
+    resolving,
+    inspectLifecycleCalls,
   );
 }
 
@@ -1664,6 +1700,8 @@ function inspectReactStyleMutationBody(
   sourceFile: TypeScript.SourceFile,
   eventTargetNames: Set<string>,
   eventTargetScalarNames: Set<string>,
+  resolving: Set<string>,
+  inspectLifecycleCalls: boolean,
 ): ReactStyleInspection {
   let inspection: ReactStyleInspection = "safe";
   const visit = (node: TypeScript.Node): void => {
@@ -1672,6 +1710,19 @@ function inspectReactStyleMutationBody(
     if (isReactGlobalDocumentReference(node, sourceFile)) {
       inspection = "unknown";
       return;
+    }
+
+    if (inspectLifecycleCalls && ts.isCallExpression(node)) {
+      const callInspection = inspectReactLifecycleHelperCall(
+        node,
+        sourceFile,
+        resolving,
+        eventTargetNames,
+      );
+      if (callInspection !== "safe") {
+        inspection = callInspection;
+        return;
+      }
     }
 
     if (
@@ -1826,6 +1877,25 @@ function inspectReactStyleMutationBody(
   };
   visit(body);
   return inspection;
+}
+
+function inspectReactLifecycleHelperCall(
+  call: TypeScript.CallExpression,
+  sourceFile: TypeScript.SourceFile,
+  resolving: Set<string>,
+  capturedMotionRefNames: ReadonlySet<string>,
+): ReactStyleInspection {
+  if (call.arguments.length > 0) return "unknown";
+  const callee = unwrapReactMotionExpression(call.expression);
+  if (!ts.isIdentifier(callee)) return "unknown";
+  return inspectReactStyleMutationCallback(
+    callee,
+    sourceFile,
+    resolving,
+    false,
+    capturedMotionRefNames,
+    true,
+  );
 }
 
 function isReactGlobalDocumentReference(

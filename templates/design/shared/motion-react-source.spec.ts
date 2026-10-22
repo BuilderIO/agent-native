@@ -1383,6 +1383,73 @@ function Card(style = { animationName: "fade" }) {
     },
   );
 
+  it("rejects lifecycle effects that delegate target mutation to a local helper", () => {
+    const managed = apply(source).source.replace(
+      "function Card() {",
+      `function Card() {
+  function applyStyles() {
+    document.querySelector("#hero-title")?.classList.add("animated");
+  }
+  React.useEffect(() => applyStyles(), []);`,
+    );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
+  });
+
+  it("removes owned Motion source after an unsafe helper effect is authored", () => {
+    const managed = apply(source).source.replace(
+      "function Card() {",
+      `function Card() {
+  function applyStyles() {
+    document.querySelector("#hero-title")?.classList.add("animated");
+  }
+  React.useEffect(() => applyStyles(), []);`,
+    );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+
+    const removed = removeMotionReactSource(managed);
+    expect(removed.changed).toBe(true);
+    expect(removed.source).not.toContain("data-agent-native-motion");
+    expect(removed.source).toContain("function applyStyles()");
+    expect(removed.source).toContain(
+      "React.useEffect(() => applyStyles(), []);",
+    );
+    expect(removed.source).toContain(
+      'document.querySelector("#hero-title")?.classList.add("animated");',
+    );
+    expect(readMotionReactSource(removed.source)).toEqual({ status: "absent" });
+  });
+
   it("allows literal object property keys matching a callback parameter", () => {
     const authored = source.replace(
       '<h1 data-agent-native-node-id="hero-title">Hello</h1>',

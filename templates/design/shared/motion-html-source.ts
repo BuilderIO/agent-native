@@ -764,12 +764,63 @@ function handlerMayMutateMotionTarget(
   ) {
     return true;
   }
+  if (
+    handlerElementSelectorMayMutateMotionTarget(
+      value,
+      handlerNode,
+      nodes,
+      targetIds,
+      generatedIds,
+    )
+  ) {
+    return true;
+  }
   return handlerSelectsAndMutatesMotionTarget(
     value,
     nodes,
     targetIds,
     generatedIds,
   );
+}
+
+function handlerElementSelectorMayMutateMotionTarget(
+  value: string,
+  handlerNode: HtmlNode,
+  nodes: readonly HtmlNode[],
+  targetIds: ReadonlySet<string>,
+  generatedIds: Map<number | undefined, string>,
+): boolean {
+  const selectorNames = String.raw`querySelector(?:All)?`;
+  const scope = String.raw`(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))`;
+  const selectorCall = new RegExp(
+    String.raw`\b${scope}\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
+    "gi",
+  );
+  const hasMutation =
+    /(?:\.style(?:\s*(?:\.|\[)|\s*=)|\.classList\b|\.className\b|\.setAttribute\s*\(|\.removeAttribute\s*\(|\.animate\s*\(|\[\s*["'](?:style|classList|className|setAttribute|removeAttribute|animate)["']\s*\])/i.test(
+      value,
+    );
+  if (!hasMutation) return false;
+
+  const aliases = assignedAliases(
+    value,
+    /^(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))/i,
+  );
+  const escapedAliases = [...aliases]
+    .map((alias) => alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  if (escapedAliases) {
+    const aliasSelectorCall = new RegExp(
+      String.raw`\b(?:${escapedAliases})\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
+      "gi",
+    );
+    if (aliasSelectorCall.test(value)) {
+      return containsMotionTarget(handlerNode, nodes, targetIds, generatedIds);
+    }
+  }
+
+  if (!selectorCall.test(value)) return false;
+  return containsMotionTarget(handlerNode, nodes, targetIds, generatedIds);
 }
 
 const MUTATION_MEMBER_ACCESS = String.raw`(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute\s*\(|removeAttribute\s*\(|animate\s*\()|\[\s*["'](?:style|classList|className|setAttribute|removeAttribute|animate)["']\s*\]`;
@@ -1427,6 +1478,7 @@ function assertTargetsExist(
   targetNodeIds: readonly string[],
   sourceFilePath?: string,
   checkExecutableScripts = true,
+  checkEditSafety = true,
 ): void {
   if (targetNodeIds.length === 0) return;
   const { nodes } = parseHtml(source);
@@ -1502,37 +1554,39 @@ function assertTargetsExist(
         `Motion target "${nodeId}" is on a non-rendered ${tagName} element.`,
       );
     }
-    const conflictingMotionBinding = target.attrs?.find(
-      ({ name }) =>
-        name.startsWith("x-transition") ||
-        [":style", "x-bind", "x-bind:style", "v-bind:style"].includes(name),
-    );
-    if (conflictingMotionBinding) {
-      sourceError(
-        "unsupported-target",
-        `Motion target "${nodeId}" uses ${conflictingMotionBinding.name}, which cannot be synchronized with CSS Motion yet.`,
+    if (checkEditSafety) {
+      const conflictingMotionBinding = target.attrs?.find(
+        ({ name }) =>
+          name.startsWith("x-transition") ||
+          [":style", "x-bind", "x-bind:style", "v-bind:style"].includes(name),
       );
-    }
-    const runtimeStyleMutation = findRuntimeStyleMutationAttribute(target);
-    if (runtimeStyleMutation) {
-      const { attribute, location } = runtimeStyleMutation;
-      const runtimeScope =
-        location === "target"
-          ? `uses ${attribute.name}`
-          : location === "ancestor"
-            ? `has an ancestor using ${attribute.name}`
-            : `is in a runtime scope using ${attribute.name}`;
-      sourceError(
-        "unsupported-target",
-        `Motion target "${nodeId}" ${runtimeScope}, whose runtime expression cannot be proven free of style mutations.`,
-      );
-    }
-    const inlineStyle = target.attrs?.find(({ name }) => name === "style");
-    if (inlineStyle && hasInlineMotionDeclarations(inlineStyle.value)) {
-      sourceError(
-        "unsupported-target",
-        `Motion target "${nodeId}" uses style, which cannot be synchronized with CSS Motion yet.`,
-      );
+      if (conflictingMotionBinding) {
+        sourceError(
+          "unsupported-target",
+          `Motion target "${nodeId}" uses ${conflictingMotionBinding.name}, which cannot be synchronized with CSS Motion yet.`,
+        );
+      }
+      const runtimeStyleMutation = findRuntimeStyleMutationAttribute(target);
+      if (runtimeStyleMutation) {
+        const { attribute, location } = runtimeStyleMutation;
+        const runtimeScope =
+          location === "target"
+            ? `uses ${attribute.name}`
+            : location === "ancestor"
+              ? `has an ancestor using ${attribute.name}`
+              : `is in a runtime scope using ${attribute.name}`;
+        sourceError(
+          "unsupported-target",
+          `Motion target "${nodeId}" ${runtimeScope}, whose runtime expression cannot be proven free of style mutations.`,
+        );
+      }
+      const inlineStyle = target.attrs?.find(({ name }) => name === "style");
+      if (inlineStyle && hasInlineMotionDeclarations(inlineStyle.value)) {
+        sourceError(
+          "unsupported-target",
+          `Motion target "${nodeId}" uses style, which cannot be synchronized with CSS Motion yet.`,
+        );
+      }
     }
   }
 }
@@ -1635,10 +1689,7 @@ function staticAuthoredHtmlStyleContents(
     }
 
     const css = source.slice(contentStart, contentEnd);
-    if (
-      textContent(node) !== css ||
-      /(?:\{\{[\s\S]*?\}\}|\$\{[\s\S]*?\}|<%[\s\S]*?%>)/u.test(css)
-    ) {
+    if (textContent(node) !== css || hasCssTemplateInterpolation(css)) {
       return [];
     }
     return [css];
@@ -1649,6 +1700,7 @@ function readAuthoredHtmlMotion(
   source: string,
   nodes: HtmlNode[],
   sourceFilePath?: string,
+  skipUnresolvedStylesheetCheck = false,
 ): AuthoredHtmlMotion {
   const generatedIds = sourceFilePath
     ? new Map(
@@ -1712,7 +1764,7 @@ function readAuthoredHtmlMotion(
     if (result.status === "unsupported") {
       sourceError("unsupported-authored-motion", result.reason);
     }
-    if (hasUnresolvedStylesheet(nodes)) {
+    if (!skipUnresolvedStylesheetCheck && hasUnresolvedStylesheet(nodes)) {
       sourceError(
         "unresolved-stylesheet",
         "Resolve external or runtime-generated styles before editing or adding Motion.",
@@ -1859,11 +1911,7 @@ function hasDynamicStyleContent(nodes: readonly HtmlNode[]): boolean {
       return true;
     }
     if (!isPotentialCssStyle(node)) return false;
-    if (
-      /(?:\{\{[\s\S]*?\}\}|\$\{[\s\S]*?\}|<%[\s\S]*?%>)/u.test(
-        textContent(node),
-      )
-    ) {
+    if (hasCssTemplateInterpolation(textContent(node))) {
       return true;
     }
     return (node.attrs ?? []).some((attribute) => {
@@ -1883,6 +1931,32 @@ function hasDynamicStyleContent(nodes: readonly HtmlNode[]): boolean {
       );
     });
   });
+}
+
+function hasCssTemplateInterpolation(css: string): boolean {
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < css.length; index++) {
+    const character = css[index]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+    } else if (
+      css.startsWith("{{", index) ||
+      css.startsWith("${", index) ||
+      css.startsWith("<%", index)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function hasImportedStylesheet(nodes: readonly HtmlNode[]): boolean {
@@ -2070,7 +2144,10 @@ function removeAuthoredHtmlMotion(
 function readSource(
   source: string,
   sourceFilePath?: string,
-  options: { allowUnmanagedExecutableScripts?: boolean } = {},
+  options: {
+    allowUnmanagedExecutableScripts?: boolean;
+    cleanupOnly?: boolean;
+  } = {},
 ): Exclude<MotionHtmlSourceReadResult, { status: "invalid" }> {
   const { nodes } = parseHtml(source);
   assertMotionTextOutsideTemplates(nodes);
@@ -2104,7 +2181,12 @@ function readSource(
       );
     }
   }
-  const authoredMotion = readAuthoredHtmlMotion(source, nodes, sourceFilePath);
+  const authoredMotion = readAuthoredHtmlMotion(
+    source,
+    nodes,
+    sourceFilePath,
+    options.cleanupOnly,
+  );
   if (authoredMotion.document) {
     try {
       document = mergeAuthoredCssMotionDocument(
@@ -2121,7 +2203,11 @@ function readSource(
     }
   }
   const textDocument = readMotionText(source);
-  if ((document || textDocument) && hasUnresolvedStylesheet(nodes)) {
+  if (
+    !options.cleanupOnly &&
+    (document || textDocument) &&
+    hasUnresolvedStylesheet(nodes)
+  ) {
     sourceError(
       "unresolved-stylesheet",
       "Resolve external or runtime-generated styles before editing or adding Motion.",
@@ -2133,6 +2219,7 @@ function readSource(
     targetNodeIds,
     sourceFilePath,
     !options.allowUnmanagedExecutableScripts,
+    !options.cleanupOnly,
   );
   const pathTrimmedSource = applyPathTrimTargets(
     source,
@@ -2145,7 +2232,7 @@ function readSource(
     );
   }
   if (!document && !textDocument) {
-    if (hasUnresolvedStylesheet(nodes)) {
+    if (!options.cleanupOnly && hasUnresolvedStylesheet(nodes)) {
       sourceError(
         "unresolved-stylesheet",
         "Resolve external or runtime-generated styles before editing or adding Motion.",
@@ -2431,6 +2518,7 @@ export function removeMotionHtmlSource(
 ): MotionHtmlSourceRemoval {
   const read = readSource(source, sourceFilePath, {
     allowUnmanagedExecutableScripts: true,
+    cleanupOnly: true,
   });
   if (read.status === "absent") return { source, changed: false };
 
