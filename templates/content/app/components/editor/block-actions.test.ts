@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { Editor, type JSONContent } from "@tiptap/core";
+import { Plugin, type Transaction } from "@tiptap/pm/state";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -109,6 +110,21 @@ describe("block actions", () => {
       duplicate: null,
       remove: null,
     });
+  });
+
+  it("asks the page about the edits the drag handle makes", () => {
+    const page = mount([paragraph("Hello"), paragraph("World")]);
+    const marked = (tr: Transaction) => tr.getMeta("uiEvent") !== undefined;
+    let allows = marked;
+    page.registerPlugin(
+      new Plugin({ filterTransaction: (tr) => !tr.docChanged || allows(tr) }),
+    );
+    const locks = () =>
+      blockActionLocks(page.state, 0, page.state.doc.child(0));
+
+    expect(locks()).toEqual({ duplicate: null, remove: null });
+    allows = (tr) => !marked(tr);
+    expect(locks()).toEqual({ duplicate: "page", remove: "page" });
   });
 
   it("locks a component from the page's source", () => {

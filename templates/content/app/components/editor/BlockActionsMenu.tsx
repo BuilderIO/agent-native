@@ -302,7 +302,15 @@ export function BlockActionsMenu({
       contentRef.current?.querySelectorAll<HTMLElement>(ENABLED_ITEMS) ?? [],
     );
 
+  // Each submenu needs this too: its Escape closes the whole menu without
+  // reaching the root's handler.
+  const markEscaped = () => {
+    escapedRef.current = true;
+  };
+
   const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    // Enter or an arrow that picks an input method's candidate.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const items = enabledItems();
@@ -325,7 +333,7 @@ export function BlockActionsMenu({
 
   // A submenu's keys reach this handler too, through React's tree.
   const handleMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     const mod = apple ? event.metaKey : event.ctrlKey;
     const key = event.key.toLowerCase();
     if (mod && !event.altKey && key === "d" && !event.shiftKey) {
@@ -489,13 +497,18 @@ export function BlockActionsMenu({
                 instantCloseMenuClass,
               )}
               collisionPadding={8}
+              onEscapeKeyDown={markEscaped}
             >
               {turnTargets.map(turnIntoItem)}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         ) : null}
         {showColor ? (
-          <ColorSubmenu value={node?.attrs.color ?? null} onChange={setColor} />
+          <ColorSubmenu
+            value={node?.attrs.color ?? null}
+            onChange={setColor}
+            onEscapeKeyDown={markEscaped}
+          />
         ) : null}
       </>,
     ]);
@@ -609,9 +622,7 @@ export function BlockActionsMenu({
             document.activeElement !== document.body;
           if (escaped && !focusTaken) returnToBlock();
         }}
-        onEscapeKeyDown={() => {
-          escapedRef.current = true;
-        }}
+        onEscapeKeyDown={markEscaped}
         onKeyDown={handleMenuKeyDown}
         side="right"
         sideOffset={6}

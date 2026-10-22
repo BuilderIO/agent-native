@@ -25,9 +25,11 @@ const DEFAULT_BACKGROUND = "default_bg";
 export function ColorSubmenu({
   value,
   onChange,
+  onEscapeKeyDown,
 }: {
   value: string | null;
   onChange: (color: string | null) => void;
+  onEscapeKeyDown?: () => void;
 }) {
   const t = useT();
   const choice = (color: string, label: string) => {
@@ -79,6 +81,7 @@ export function ColorSubmenu({
           instantCloseMenuClass,
         )}
         collisionPadding={8}
+        onEscapeKeyDown={onEscapeKeyDown}
       >
         <DropdownMenuRadioGroup
           value={value ?? DEFAULT_TEXT}

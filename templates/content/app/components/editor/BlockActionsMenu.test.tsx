@@ -389,14 +389,31 @@ describe("BlockActionsMenu", () => {
     const duplicate = item("editor.blockMenu.duplicate");
     act(() => duplicate.focus());
 
-    const typed = press(duplicate, "x");
+    const typed = press(duplicate, "u");
     expect(typed.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(searchBox());
-    expect(searchBox().value).toBe("x");
+    expect(searchBox().value).toBe("u");
 
-    act(() => item("editor.slash.turnInto")?.focus());
-    press(menus()[0]!, "Backspace");
+    const kept = item("editor.blockMenu.duplicate");
+    act(() => kept.focus());
+    const erased = press(kept, "Backspace");
+    expect(erased.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(searchBox());
     expect(searchBox().value).toBe("");
+  });
+
+  it("leaves the keys that pick an input method's candidate to it", () => {
+    const { request } = open(mount(), 0);
+
+    search("dup");
+    const enter = press(searchBox(), "Enter", { isComposing: true });
+    const arrow = press(searchBox(), "ArrowDown", { isComposing: true });
+
+    expect(enter.defaultPrevented).toBe(false);
+    expect(arrow.defaultPrevented).toBe(false);
+    expect(request.duplicate).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(searchBox());
+    expect(menus()).toHaveLength(1);
   });
 
   it("runs Duplicate, Delete and Comment from their shortcuts", () => {
@@ -494,6 +511,22 @@ describe("BlockActionsMenu", () => {
     expect(target.state.selection.empty).toBe(true);
     expect(target.state.selection.$from.parent.textContent).toBe("A");
   });
+
+  it.each(["editor.slash.turnInto", "editor.color.label"])(
+    "puts the caret in its block on Escape from %s",
+    async (submenu) => {
+      const target = mount();
+      open(target, 0);
+
+      press(menuItems(openSubmenu(submenu))[0]!, "Escape");
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+      expect(menus()).toEqual([]);
+      expect(target.view.hasFocus()).toBe(true);
+      expect(target.state.selection.empty).toBe(true);
+      expect(target.state.selection.$from.parent.textContent).toBe("Before");
+    },
+  );
 
   it("leaves focus taken while Escape closes it", async () => {
     const target = mount();

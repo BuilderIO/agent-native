@@ -6,6 +6,7 @@ import {
   NodeSelection,
   Selection,
   TextSelection,
+  type EditorState,
   type Transaction,
 } from "@tiptap/pm/state";
 import { type EditorView } from "@tiptap/pm/view";
@@ -288,39 +289,69 @@ const collapseAndBlurEditorAfterDrop = (
   view.dom.blur();
 };
 
-const focusSelectionNear = (
-  view: EditorView,
-  tr: Transaction,
-  pos: number,
-  bias: -1 | 1,
-) => {
+const selectNear = (tr: Transaction, pos: number, bias: -1 | 1) =>
   tr.setSelection(
     TextSelection.near(
       tr.doc.resolve(clamp(pos, 0, tr.doc.content.size)),
       bias,
     ),
   );
-  view.dispatch(markUserAction(tr).scrollIntoView());
+
+const dispatchAndFocus = (view: EditorView, tr: Transaction) => {
+  view.dispatch(tr.scrollIntoView());
   view.focus();
 };
 
-/** Puts a copy of the node at `pos` right after it, and selects the copy. */
+/**
+ * The edit that puts a copy of the block at `pos` right after it and selects
+ * the copy, or null when the copy doesn't fit there. A menu asking the page's
+ * filters whether it may duplicate must ask about this edit, not a lookalike.
+ */
+export function duplicateBlockTransaction(
+  state: EditorState,
+  pos: number,
+  node: ProseMirrorNode,
+): Transaction | null {
+  const insertPos = pos + node.nodeSize;
+  const tr = state.tr.insert(insertPos, node);
+  if (!tr.docChanged) return null;
+  try {
+    tr.setSelection(NodeSelection.create(tr.doc, insertPos));
+  } catch {
+    selectNear(tr, insertPos, 1);
+  }
+  return markUserAction(tr);
+}
+
+/**
+ * The edit that deletes the block at `pos` and puts the caret where it was.
+ * The page's last block leaves an empty paragraph.
+ */
+export function deleteBlockTransaction(
+  state: EditorState,
+  pos: number,
+  node: ProseMirrorNode,
+): Transaction {
+  const end = pos + node.nodeSize;
+  const paragraph = state.schema.nodes.paragraph;
+  if (state.doc.childCount <= 1 && paragraph) {
+    const replacement = paragraph.createAndFill() ?? paragraph.create();
+    const tr = state.tr.replaceWith(pos, end, replacement);
+    return markUserAction(selectNear(tr, pos + 1, 1));
+  }
+  const tr = state.tr.delete(pos, end);
+  return markUserAction(
+    selectNear(tr, pos, pos >= tr.doc.content.size ? -1 : 1),
+  );
+}
+
 const duplicateNodeAt = (
   view: EditorView,
   pos: number,
   node: ProseMirrorNode,
 ) => {
-  const insertPos = pos + node.nodeSize;
-  const tr = view.state.tr.insert(insertPos, node);
-  if (!tr.docChanged) return false;
-  try {
-    tr.setSelection(NodeSelection.create(tr.doc, insertPos));
-    view.dispatch(markUserAction(tr).scrollIntoView());
-    view.focus();
-  } catch {
-    focusSelectionNear(view, tr, insertPos, 1);
-  }
-  return true;
+  const tr = duplicateBlockTransaction(view.state, pos, node);
+  if (tr) dispatchAndFocus(view, tr);
 };
 
 // A click on one of these may act on the selected block, so it keeps the
@@ -813,20 +844,11 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       const resolved = resolveMenuContext(context);
       if (!resolved) return;
 
-      const { view, sourcePos, sourceNodeSize } = resolved;
-      const paragraph = view.state.schema.nodes.paragraph;
-      const sourceEnd = sourcePos + sourceNodeSize;
-
-      if (view.state.doc.childCount <= 1 && paragraph) {
-        const replacement = paragraph.createAndFill() ?? paragraph.create();
-        const tr = view.state.tr.replaceWith(sourcePos, sourceEnd, replacement);
-        focusSelectionNear(view, tr, sourcePos + 1, 1);
-        return;
-      }
-
-      const tr = view.state.tr.delete(sourcePos, sourceEnd);
-      const selectionBias = sourcePos >= tr.doc.content.size ? -1 : 1;
-      focusSelectionNear(view, tr, sourcePos, selectionBias);
+      const { view, sourcePos, sourceNode } = resolved;
+      dispatchAndFocus(
+        view,
+        deleteBlockTransaction(view.state, sourcePos, sourceNode),
+      );
     };
 
     const insertParagraphBelow = (context: DragHandleMenuContext) => {

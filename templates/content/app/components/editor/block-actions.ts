@@ -1,3 +1,7 @@
+import {
+  deleteBlockTransaction,
+  duplicateBlockTransaction,
+} from "@agent-native/toolkit/editor";
 import type { Node as ProseMirrorNode, NodeType } from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { findWrapping } from "@tiptap/pm/transform";
@@ -169,29 +173,23 @@ function containsSourceComponent(node: ProseMirrorNode) {
 
 /**
  * Whether the page would let the menu duplicate or delete the block at `pos`.
- * Asks the same filters that would refuse the edit, so the menu can say why
- * before anyone tries.
+ * Asks the page's filters about the drag handle's own edits, so the menu can
+ * say why before anyone tries.
  */
 export function blockActionLocks(
   state: EditorState,
   pos: number,
   node: ProseMirrorNode,
 ): { duplicate: BlockLock | null; remove: BlockLock | null } {
-  const end = pos + node.nodeSize;
-  const paragraph = state.schema.nodes.paragraph;
-  const duplicate = state.tr.insert(end, node);
-  // As the drag handle deletes: the last block leaves an empty paragraph.
-  const remove =
-    state.doc.childCount <= 1 && paragraph
-      ? state.tr.replaceWith(pos, end, paragraph.createAndFill()!)
-      : state.tr.delete(pos, end);
+  const duplicate = duplicateBlockTransaction(state, pos, node);
+  const remove = deleteBlockTransaction(state, pos, node);
   const lock = containsSourceComponent(node)
     ? "source"
     : isSuggestingEdits(state)
       ? "suggesting"
       : "page";
   return {
-    duplicate: refuses(state, duplicate) ? lock : null,
+    duplicate: !duplicate || refuses(state, duplicate) ? lock : null,
     remove: refuses(state, remove) ? lock : null,
   };
 }
