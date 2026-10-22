@@ -135,6 +135,7 @@ describe("opening a page", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await act(async () => root.unmount());
     queryClient.clear();
     ydoc.destroy();
@@ -328,7 +329,7 @@ describe("opening a page", () => {
     expectNoSave(opened);
   });
 
-  it("saves the source it rewrites for a block the user duplicates", async () => {
+  it("saves the source it rewrites for a block the user duplicates with the next edit", async () => {
     const opened = await open({ content: mermaid, ydoc, collabSynced: true });
     act(() => {
       const block = opened.editor.state.doc.firstChild!;
@@ -342,14 +343,26 @@ describe("opening a page", () => {
       expect(raws[1]).not.toBe(mermaid);
     });
     await settle();
+    expect(opened.onChange).toHaveBeenCalledOnce();
+    act(() => {
+      const { schema, tr, doc } = opened.editor.state;
+      opened.editor.view.dispatch(
+        tr.insert(
+          doc.content.size,
+          schema.nodes.paragraph.create(null, schema.text("Note.")),
+        ),
+      );
+    });
+    await settle();
+    expect(opened.onChange).toHaveBeenCalledTimes(2);
     const saved: string = opened.onChange.mock.lastCall?.[0];
     expect(saved).toBe(docToNfm(opened.editor.getJSON() as PMDoc));
     expect(saved.match(/id="mermaid-1"/g)).toHaveLength(1);
   });
 
   // Hydration is held, so this tab's copy is still waiting for its rewrite
-  // when another tab repairs it and then copies the block again.
-  it("does not save the source it rewrites for another tab's copy once its own copy is repaired", async () => {
+  // when another tab's copy of the block arrives.
+  it("does not save the source it rewrites for another tab's copy of a block", async () => {
     let release!: () => void;
     hydration.hold = new Promise((resolve) => {
       release = resolve;
@@ -365,7 +378,6 @@ describe("opening a page", () => {
     expect(opened.onChange).toHaveBeenCalledOnce();
     const copyId = String(opened.editor.state.doc.child(1).attrs.blockId);
     const repairedCopy = mermaid.replace("mermaid-1", copyId);
-    receive(`${mermaid}\n\n${repairedCopy}`);
     receive(`${mermaid}\n\n${mermaid}\n\n${repairedCopy}`);
     release();
     await vi.waitFor(() => {
@@ -530,17 +542,8 @@ describe("opening a page", () => {
     );
   });
 
-  // Hydration waits until the held save has gone out, so the copy's source
-  // is refreshed after it.
-  it("saves the source it rewrites for a block duplicated before the seed check finishes", async () => {
-    let release!: () => void;
-    hydration.hold = new Promise((resolve) => {
-      release = resolve;
-    });
-    const opened = mount(livePage(mermaid));
-    opened.onChange.mockImplementation((saved: string) =>
-      opened.render({ content: saved, contentRevision: "open-2" }),
-    );
+  it("saves a block duplicated before the seed check finishes with the source it rewrites", async () => {
+    const opened = mount({ ...livePage(mermaid), collabSynced: false });
     act(() => {
       const block = opened.editor.state.doc.firstChild!;
       opened.editor.view.dispatch(
@@ -549,18 +552,20 @@ describe("opening a page", () => {
           .setMeta("uiEvent", "dragHandle"),
       );
     });
-    await settle();
-    expect(opened.onChange).toHaveBeenCalledOnce();
-    release();
     await vi.waitFor(() => {
       const raws = registrySources(opened.editor);
       expect(raws).toHaveLength(2);
       expect(raws[1]).not.toBe(mermaid);
     });
-    await settle();
-    const saved: string = opened.onChange.mock.lastCall?.[0];
-    expect(saved).toBe(docToNfm(opened.editor.getJSON() as PMDoc));
-    expect(saved.match(/id="mermaid-1"/g)).toHaveLength(1);
+    const edited = docToNfm(opened.editor.getJSON() as PMDoc);
+    expect(edited.match(/id="mermaid-1"/g)).toHaveLength(1);
+    expect(opened.onChange).not.toHaveBeenCalled();
+    act(() => opened.render({ collabSynced: true }));
+    // The save goes out before the editor next reconciles with the stored
+    // page, a timer later.
+    await settle(0);
+    await settle(0);
+    expect(opened.onChange).toHaveBeenCalledExactlyOnceWith(edited);
   });
 
   it("does not save another tab's change that replaces an edit made before the seed check", async () => {

@@ -87,7 +87,6 @@ import {
 } from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import {
-  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -2928,24 +2927,7 @@ function isNotionIncompatibleBlockType(blockType: string): boolean {
   return !NOTION_COMPATIBLE_BLOCK_TYPES.has(blockType);
 }
 
-function repeatedRegistrySources(doc: ProseMirrorNode): Set<string> {
-  const seen = new Set<string>();
-  const repeated = new Set<string>();
-  doc.descendants((node) => {
-    if (node.type.name !== "registryBlock") return;
-    const raw = node.attrs.__raw;
-    if (typeof raw !== "string") return false;
-    if (seen.has(raw)) repeated.add(raw);
-    seen.add(raw);
-    return false;
-  });
-  return repeated;
-}
-
-function useRegistryBlockStore(
-  editor: CoreEditor | null,
-  ownedRegistrySourcesRef: RefObject<ReadonlySet<string>>,
-) {
+function useRegistryBlockStore(editor: CoreEditor | null) {
   const t = useT();
   const cacheRef = useRef<Map<string, RegistryBlockStoreEntry>>(new Map());
   const pendingRef = useRef<Map<string, string>>(new Map());
@@ -3070,12 +3052,11 @@ function useRegistryBlockStore(
                         },
                       );
                       // The source still names the id the block was copied
-                      // from. When this tab's own edit left that source on
-                      // more than one block, its save holds the stale id until
-                      // this one replaces it.
-                      if (!ownedRegistrySourcesRef.current.has(raw)) {
-                        tr.setMeta(EDITOR_NON_EDIT_META, true);
-                      }
+                      // from. Every tab holding the copy makes this rewrite,
+                      // so saving it would have a tab that only received the
+                      // copy save it again. It reaches the saved page with the
+                      // next edit.
+                      tr.setMeta(EDITOR_NON_EDIT_META, true);
                       editor.view.dispatch(tr);
                       const entry = cacheRef.current.get(blockId);
                       if (entry) entry.rawSource = refreshedRaw;
@@ -3544,11 +3525,6 @@ export function VisualEditor({
   // The page as a person's typing left it before the live copy's seed check
   // finished.
   const unseededEditDocRef = useRef<ProseMirrorNode | null>(null);
-  // Registry sources this tab's last edit left on more than one block. The
-  // claim is on the source, not the block id, because reloading the page can
-  // give a copy another id. It ends when another tab's or an agent's change
-  // leaves the page no longer repeating the source, as their repair does.
-  const ownedRegistrySourcesRef = useRef<ReadonlySet<string>>(new Set());
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
     hasUserEditIntentRef.current = true;
@@ -3838,12 +3814,13 @@ export function VisualEditor({
         observedDocumentRef.current = editor.state.doc;
         documentVersionRef.current = {};
       }
-      const owned = ownedRegistrySourcesRef.current;
-      if (owned.size > 0 && isRemoteCollabChange(transaction)) {
-        const repeated = repeatedRegistrySources(editor.state.doc);
-        ownedRegistrySourcesRef.current = new Set(
-          [...owned].filter((raw) => repeated.has(raw)),
-        );
+      // The editor's own fix-ups, such as a copied block's rewritten source,
+      // don't replace the typing.
+      if (
+        transaction.getMeta(EDITOR_NON_EDIT_META) === true &&
+        unseededEditDocRef.current?.eq(transaction.before)
+      ) {
+        unseededEditDocRef.current = editor.state.doc;
       }
       notifyHistoryStateChange({
         canUndo: editor.can().undo(),
@@ -3888,9 +3865,6 @@ export function VisualEditor({
       }
       if (!isLocalEditorEdit(transaction)) return;
       hasUserEditIntentRef.current = true;
-      ownedRegistrySourcesRef.current = repeatedRegistrySources(
-        editor.state.doc,
-      );
       if (isActiveSlashCommandDraft(editor)) return;
       if (shouldSkipMediaDraftPersistence(editor)) return;
       const priorSelection =
@@ -4441,7 +4415,6 @@ export function VisualEditor({
     // and saving now would report their content as this tab's edit.
     if (!unseededEditDoc.eq(editor.state.doc)) return;
     hasUserEditIntentRef.current = true;
-    ownedRegistrySourcesRef.current = repeatedRegistrySources(editor.state.doc);
     if (isActiveSlashCommandDraft(editor)) return;
     if (shouldSkipMediaDraftPersistence(editor)) return;
     void persistEditorContent(editor, { userInitiated: true });
@@ -4573,10 +4546,7 @@ export function VisualEditor({
     [editor],
   );
 
-  const registryBlockStore = useRegistryBlockStore(
-    editor,
-    ownedRegistrySourcesRef,
-  );
+  const registryBlockStore = useRegistryBlockStore(editor);
   const registryBlockDataValue = useMemo(
     () => ({
       editable,
