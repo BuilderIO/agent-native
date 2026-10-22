@@ -187,6 +187,18 @@ function deletionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   };
 }
 
+const documentSources = new WeakMap<ProseMirrorNode, string>();
+
+/** The editor document's Markdown, serialized once per immutable document. */
+export function editorDocumentSource(doc: ProseMirrorNode): string {
+  let source = documentSources.get(doc);
+  if (source === undefined) {
+    source = docToNfm(doc.toJSON());
+    documentSources.set(doc, source);
+  }
+  return source;
+}
+
 function insertionAtOperationAnchor(
   doc: ProseMirrorNode,
   from: number,
@@ -227,7 +239,7 @@ export function acceptedSuggestionAtRange(
   before: SuggestionPresentationContext,
   after: SuggestionPresentationContext,
 ): boolean {
-  const source = docToNfm(doc.toJSON());
+  const source = editorDocumentSource(doc);
   const beforeText = before.source.slice(before.from, before.to);
   const afterText = after.source.slice(after.from, after.to);
   const operation = (
@@ -331,7 +343,7 @@ function buildDecorations(
     return normalized;
   };
   const settledContent = specs.some((spec) => spec.settling)
-    ? canonicalizeContent(docToNfm(doc.toJSON()))
+    ? canonicalizeContent(editorDocumentSource(doc))
     : null;
 
   for (const spec of specs) {
@@ -474,6 +486,16 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
           if (meta.specs !== undefined) specs = meta.specs;
           if (meta.activeId !== undefined) activeId = meta.activeId;
         } else if (tr.docChanged) {
+          // Collaboration redraws the whole Page when the editor's plugins
+          // change; an identical Page keeps every highlight where it was.
+          if (tr.before.eq(tr.doc))
+            return {
+              ...value,
+              decorations: DecorationSet.create(
+                tr.doc,
+                value.decorations.find(),
+              ),
+            };
           specs = specs
             .map((spec) => ({
               ...spec,

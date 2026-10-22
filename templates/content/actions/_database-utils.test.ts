@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   contentDatabaseListDocumentSelection,
+  contentDatabaseTableQuerySchema,
   filterContentDatabaseSourceForVisibleDocuments,
   filterContentDatabaseSourceRowsForPage,
   filterDatabaseContainedDocuments,
@@ -15,6 +16,31 @@ describe("content database list projections", () => {
       title: expect.anything(),
       updatedAt: expect.anything(),
     });
+  });
+});
+
+describe("contentDatabaseTableQuerySchema", () => {
+  it("keeps each filter group's mode", () => {
+    const filters = [
+      {
+        key: "name",
+        label: "Name",
+        operator: "contains" as const,
+        value: "Launch",
+        filterGroupId: "advanced-nested",
+        parentFilterGroupId: "advanced",
+        filterGroupMode: "or" as const,
+        parentFilterGroupMode: "and" as const,
+      },
+    ];
+    expect(
+      contentDatabaseTableQuerySchema.parse({
+        search: "",
+        filters,
+        sorts: [],
+        filterMode: "and",
+      })?.filters,
+    ).toEqual(filters);
   });
 });
 

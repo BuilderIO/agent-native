@@ -1474,6 +1474,16 @@ export const runContentMigrations = runMigrations(
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_id TEXT;
         ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_name TEXT`,
     },
+    {
+      version: 124,
+      name: "content-live-body-switch",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_body_switched_at TEXT`,
+    },
+    {
+      version: 125,
+      name: "content-live-copy-version",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_copy_version INTEGER`,
+    },
   ],
   { table: "content_migrations" },
 );

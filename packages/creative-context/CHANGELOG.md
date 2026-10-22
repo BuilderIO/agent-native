@@ -1,5 +1,17 @@
 # @agent-native/creative-context
 
+## 0.8.54
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.53
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.52
 
 ### Patch Changes
@@ -645,25 +657,5 @@
 ### Patch Changes
 
 - 8e0afec: Improve Creative Context sharing and connection-chip interactions.
-
-## 0.5.0
-
-### Minor Changes
-
-- 149c0ee: Add bounded, app-owned native resource update checks and Library update submission controls.
-
-### Patch Changes
-
-- 149c0ee: Add governed creative-context sharing, host-backed native clone actions, and a reusable organization-admin permission helper.
-
-## 0.4.0
-
-### Minor Changes
-
-- a485fbe: Add the Creative Context package for importing, versioning, searching, and reusing workspace decks, designs, assets, websites, and content across creative apps.
-
-  Expose reusable ingestion, prompt-context provider, and search utility seams from core for package-driven creative context.
-
-  Includes bounded image-region cropping for durable localized creative-context fallbacks.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

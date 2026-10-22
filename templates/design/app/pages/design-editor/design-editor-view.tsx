@@ -477,7 +477,6 @@ export function renderDesignEditorView({
     setShareExportFormat,
     codingHandoffPreviewText,
     selectedLayerIds,
-    handleShaderEditCode,
     selectedInspectorElements,
   } = editorLayerModels;
   const selectedMotionTargets = resolveSelectedMotionTargets({
@@ -2031,7 +2030,6 @@ export function renderDesignEditorView({
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
     onApplyLayoutFlow: canEditDesign ? handleApplyLayoutFlow : undefined,
     onInteractionStateChange: handleInteractionStateChange,
-    onEditCode: handleShaderEditCode,
   };
 
   return (

@@ -104,6 +104,15 @@ export function withExecutionFence<T>(fence: ExecutionFence, work: () => T): T {
   );
 }
 
+export function runWithoutExecutionFence<T>(work: () => T): T {
+  // A follow-up turn scheduled by a completed run must not inherit that run's
+  // now-expired lease through AsyncLocalStorage.
+  return executionFenceStorage.run(
+    { fences: [], executionLeaseRequested: false },
+    work,
+  );
+}
+
 export async function lockAndAssertCurrentExecutionFences(
   tx: DbExec,
 ): Promise<void> {

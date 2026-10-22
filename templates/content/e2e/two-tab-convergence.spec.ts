@@ -26,6 +26,7 @@ import {
   observeIntegrity,
   outboxEntries,
   OUTBOX_PREFIX,
+  PAGE_PARAGRAPHS,
   postAction,
   RequestGate,
   SaveGate,
@@ -702,6 +703,90 @@ test.describe(
             "C replayed the edit A had saved",
           ).toBe(0);
         },
+      );
+    });
+
+    test("a tab sends no save for the edits it receives from another tab", async ({
+      context,
+    }, testInfo) => {
+      await runScenario("received-edits", testInfo, context, async (s) => {
+        const { first, second } = await openPair(s, 0);
+        const receivedSaves: Record<string, number> = {};
+        for (const [writer, receiver, anchor, label] of [
+          [first, second, "Alpha paragraph", "A"],
+          [second, first, "Charlie paragraph", "B"],
+        ] as const) {
+          await s.tabs.showOnly(writer);
+          const before = s.tabs.record(receiver).saveRequests;
+          const marker = s.markers.next(label);
+          await typeAtParagraphEnd(writer, anchor, ` ${marker}`);
+          await s.tabs.waitForTypingSaved(writer, s.id);
+          await s.tabs.quiet();
+          // A hidden tab doesn't poll, so the receiver shows itself to get the
+          // edit. The writer's save already holds it, so a save from the
+          // receiver can only be the received edit saved a second time.
+          await s.tabs.showOnly(receiver);
+          await s.tabs.waitForText(receiver, marker);
+          await s.tabs.quiet();
+          const receiverLabel = s.tabs.record(receiver).label;
+          receivedSaves[receiverLabel] =
+            s.tabs.record(receiver).saveRequests - before;
+          expect(
+            receivedSaves[receiverLabel],
+            `${receiverLabel} saved ${label}'s edit again`,
+          ).toBe(0);
+        }
+        s.notes.receivedSaves = receivedSaves;
+      });
+    });
+
+    test("alt text typed into an image's menu is saved", async ({
+      context,
+    }, testInfo) => {
+      const image = "https://example.com/sf01-diagram.svg";
+      await context.route(image, (route) =>
+        route.fulfill({
+          contentType: "image/svg+xml",
+          body: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160"><rect width="320" height="160" fill="gray"/></svg>',
+        }),
+      );
+      await runScenario(
+        "image-alt-menu",
+        testInfo,
+        context,
+        async (s) => {
+          const tab = await s.tabs.open("A", s.id);
+          await s.tabs.showOnly(tab);
+          const alt = `Diagram ${s.id.slice(0, 8)}`;
+          await tab.locator(`${EDITOR} .media-block`).hover();
+          await tab
+            .getByRole("button", { name: "View and edit alt text" })
+            .click();
+          const input = tab.getByPlaceholder("Describe this image");
+          await input.fill(alt);
+          // The menu's input keeps focus, so the editor never had it for this
+          // edit, and no mark tells the editor a person made it.
+          await expect(input).toBeFocused();
+          await input.press("Enter");
+          await expect
+            .poll(async () => (await getDocument(s.reader, s.id)).content, {
+              message: "the alt text should reach the saved page",
+              timeout: 30_000,
+            })
+            .toContain(`![${alt}](${image})`);
+          await s.tabs.quiet();
+          await tab.reload({ waitUntil: "domcontentloaded" });
+          await expectEditorReady(tab);
+          await expect(tab.locator(`${EDITOR} img`)).toHaveAttribute(
+            "alt",
+            alt,
+          );
+        },
+        [
+          ...PAGE_PARAGRAPHS.slice(0, 2),
+          `![Diagram](${image})`,
+          ...PAGE_PARAGRAPHS.slice(2),
+        ].join("\n\n"),
       );
     });
 

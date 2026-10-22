@@ -1,3 +1,16 @@
+## 0.29.5
+
+### Patch Changes
+
+- Updated dependencies [0b57293]
+  - @agent-native/toolkit@0.16.5
+
+## 0.29.4
+
+### Patch Changes
+
+- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
+
 ## 0.29.3
 
 ### Patch Changes

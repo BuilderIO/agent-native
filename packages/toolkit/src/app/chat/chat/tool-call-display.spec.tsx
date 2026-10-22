@@ -2698,9 +2698,17 @@ describe("WorkedForSummary", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    builderHandoffMocks.useAgentChatContext.mockReturnValue({ items: [] });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    const render = root.render.bind(root);
+    root.render = (children: ReactNode) =>
+      render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          {children}
+        </AgentNativeI18nProvider>,
+      );
   });
 
   afterEach(() => {
@@ -2740,6 +2748,17 @@ describe("WorkedForSummary", () => {
               response: ["The query returned a 12% increase."],
             },
           }}
+          workedForRowLayout={{
+            chevronSize: 16,
+            iconGap: 4,
+            fontSize: 14,
+            lineHeight: 20,
+            paddingBlock: 12,
+            paddingInline: 12,
+          }}
+          formatWorkedForDuration={(durationMs) =>
+            `${durationMs / 1000} seconds`
+          }
         />,
       );
     });
@@ -2748,6 +2767,8 @@ describe("WorkedForSummary", () => {
       container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
     ).find((button) => button.textContent?.includes("Worked for"));
     expect(workedFor).not.toBeNull();
+    expect(workedFor?.style.fontSize).toBe("14px");
+    expect(workedFor?.textContent).toContain("Worked for 5 seconds");
     act(() => workedFor?.click());
 
     expect(container.textContent).not.toContain("This private thought");
@@ -2822,6 +2843,39 @@ describe("WorkedForSummary", () => {
     expect(chevron?.getAttribute("class")?.split(/\s+/)).toContain(
       "rtl:-rotate-90",
     );
+  });
+
+  it("applies optional geometry to the completed-work disclosure row", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary
+          durationMs={5_000}
+          layout={{
+            chevronSize: 16,
+            iconGap: 4,
+            fontSize: 14,
+            lineHeight: 20,
+            paddingBlock: 12,
+            paddingInline: 12,
+          }}
+        >
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    const icon = button?.querySelector<SVGElement>("svg");
+    expect(button?.style.gap).toBe("4px");
+    expect(button?.style.fontSize).toBe("14px");
+    expect(button?.style.lineHeight).toBe("20px");
+    expect(button?.style.paddingBlock).toBe("12px");
+    expect(button?.style.paddingInline).toBe("12px");
+    expect(button?.style.fontFamily).toBe("inherit");
+    expect(icon?.style.width).toBe("16px");
+    expect(icon?.style.height).toBe("16px");
   });
 
   it("applies the running shimmer while the work summary is live", () => {

@@ -176,7 +176,6 @@ export function useEditorScreenRendering({
     lockedLayerIds,
     hiddenLayerIds,
     motionDockOpen,
-    shaderFillPreview,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
@@ -980,7 +979,6 @@ export function useEditorScreenRendering({
               ? handleMotionCanvasPathTracksChange
               : undefined
           }
-          shaderFillPreview={screenIsActive ? shaderFillPreview : null}
           gradientEditTarget={
             inScreenGradientEditTarget?.screenId === screen.id
               ? inScreenGradientEditTarget
@@ -1204,7 +1202,6 @@ export function useEditorScreenRendering({
       motionDefaultEase,
       motionEasingVariables,
       motionDurationMs,
-      shaderFillPreview,
       inScreenGradientEditTarget,
       handleInScreenGradientEditChange,
       statePreviewTarget,
