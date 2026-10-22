@@ -1514,6 +1514,8 @@ const messages = {
   "tool.workedFor": "Worked for {{duration}}",
   "widget.chart": "Chart",
   "widget.chartActions": "Chart actions",
+  "widget.chartRowsOmitted":
+    "This chart shows only some of the available rows.",
   "widget.dataSources": "Data sources",
   "widget.tableActions": "Table actions",
   "widget.dataChart": "Data chart",
