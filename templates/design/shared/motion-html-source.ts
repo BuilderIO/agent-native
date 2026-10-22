@@ -1649,6 +1649,14 @@ interface AuthoredHtmlMotion {
   rangesToRemove: MotionAuthoredCssSourceRange[];
 }
 
+function htmlStyleTextMatchesSource(
+  parsedText: string,
+  sourceText: string,
+): boolean {
+  const normalizeLineEndings = (text: string) => text.replace(/\r\n?/g, "\n");
+  return normalizeLineEndings(parsedText) === normalizeLineEndings(sourceText);
+}
+
 function staticAuthoredHtmlStyleContents(
   source: string,
   nodes: readonly HtmlNode[],
@@ -1677,7 +1685,10 @@ function staticAuthoredHtmlStyleContents(
     }
 
     const css = source.slice(contentStart, contentEnd);
-    if (textContent(node) !== css || hasCssTemplateInterpolation(css)) {
+    if (
+      !htmlStyleTextMatchesSource(textContent(node), css) ||
+      hasCssTemplateInterpolation(css)
+    ) {
       return [];
     }
     return [css];
@@ -1728,7 +1739,7 @@ function readAuthoredHtmlMotion(
       continue;
     }
     const css = source.slice(contentStart, contentEnd);
-    if (textContent(node) !== css) {
+    if (!htmlStyleTextMatchesSource(textContent(node), css)) {
       if (/(?:^|[;{\s])(?:-?[a-z]+-)?animation(?:-[a-z-]+)?\s*:/i.test(css)) {
         sourceError(
           "unsupported-authored-motion",

@@ -189,7 +189,12 @@ function getFrameDocumentLoadState(
     return current.URL === "about:srcdoc" ? "loaded" : "pending";
   }
   if (src === null) return "loaded";
-  return current.URL === new URL(src, baseURI).href ? "loaded" : "pending";
+  const destinationUrl = new URL(src, baseURI);
+  if (current.URL === destinationUrl.href) return "loaded";
+  return loadEventObserved &&
+    new URL(current.URL).origin === destinationUrl.origin
+    ? "loaded"
+    : "pending";
 }
 
 function animateEntry(

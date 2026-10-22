@@ -106,6 +106,109 @@ const SUPPORTED_PROPERTIES = new Set([
   "border-width",
   "box-shadow",
 ]);
+const BORDER_SIDE_COLOR_PROPERTIES = [
+  "border-top-color",
+  "border-right-color",
+  "border-bottom-color",
+  "border-left-color",
+];
+const BORDER_SIDE_WIDTH_PROPERTIES = [
+  "border-top-width",
+  "border-right-width",
+  "border-bottom-width",
+  "border-left-width",
+];
+const LOGICAL_BORDER_COLOR_PROPERTIES = [
+  "border-inline-color",
+  "border-block-color",
+  "border-inline-start-color",
+  "border-inline-end-color",
+  "border-block-start-color",
+  "border-block-end-color",
+];
+const LOGICAL_BORDER_WIDTH_PROPERTIES = [
+  "border-inline-width",
+  "border-block-width",
+  "border-inline-start-width",
+  "border-inline-end-width",
+  "border-block-start-width",
+  "border-block-end-width",
+];
+const BORDER_COLOR_PROPERTIES = [
+  ...BORDER_SIDE_COLOR_PROPERTIES,
+  ...LOGICAL_BORDER_COLOR_PROPERTIES,
+];
+const BORDER_WIDTH_PROPERTIES = [
+  ...BORDER_SIDE_WIDTH_PROPERTIES,
+  ...LOGICAL_BORDER_WIDTH_PROPERTIES,
+];
+const BORDER_COLOR_AND_WIDTH_PROPERTIES = [
+  "border-color",
+  "border-width",
+  ...BORDER_COLOR_PROPERTIES,
+  ...BORDER_WIDTH_PROPERTIES,
+];
+const BORDER_RADIUS_CORNER_PROPERTIES = [
+  "border-top-left-radius",
+  "border-top-right-radius",
+  "border-bottom-right-radius",
+  "border-bottom-left-radius",
+  "border-start-start-radius",
+  "border-start-end-radius",
+  "border-end-start-radius",
+  "border-end-end-radius",
+];
+const TRANSITION_SHORTHAND_TRACK_PROPERTIES: Readonly<
+  Record<string, readonly string[]>
+> = {
+  background: ["background-color"],
+  border: BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-top": [
+    "border-color",
+    "border-width",
+    "border-top-color",
+    "border-top-width",
+  ],
+  "border-right": [
+    "border-color",
+    "border-width",
+    "border-right-color",
+    "border-right-width",
+  ],
+  "border-bottom": [
+    "border-color",
+    "border-width",
+    "border-bottom-color",
+    "border-bottom-width",
+  ],
+  "border-left": [
+    "border-color",
+    "border-width",
+    "border-left-color",
+    "border-left-width",
+  ],
+  "border-color": BORDER_COLOR_PROPERTIES,
+  "border-width": BORDER_WIDTH_PROPERTIES,
+  "border-inline": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-block": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-inline-start": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-inline-end": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-block-start": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-block-end": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-inline-color": BORDER_COLOR_PROPERTIES,
+  "border-block-color": BORDER_COLOR_PROPERTIES,
+  "border-inline-start-color": BORDER_COLOR_PROPERTIES,
+  "border-inline-end-color": BORDER_COLOR_PROPERTIES,
+  "border-block-start-color": BORDER_COLOR_PROPERTIES,
+  "border-block-end-color": BORDER_COLOR_PROPERTIES,
+  "border-inline-width": BORDER_WIDTH_PROPERTIES,
+  "border-block-width": BORDER_WIDTH_PROPERTIES,
+  "border-inline-start-width": BORDER_WIDTH_PROPERTIES,
+  "border-inline-end-width": BORDER_WIDTH_PROPERTIES,
+  "border-block-start-width": BORDER_WIDTH_PROPERTIES,
+  "border-block-end-width": BORDER_WIDTH_PROPERTIES,
+  "border-radius": BORDER_RADIUS_CORNER_PROPERTIES,
+};
 
 const CSS_IDENTIFIER = /^-?[_a-zA-Z][_a-zA-Z0-9-]*$/;
 const CSS_WIDE_KEYWORDS = new Set([
@@ -657,6 +760,7 @@ function hasConflictingCssTransitions(
     string,
     Map<string, TransitionCascadeDeclaration[]>
   >();
+  const declarationGroupsByTarget = new Map<string, postcss.Declaration[][]>();
   const uncertainDeclarationsByTarget = new Map<
     string,
     postcss.Declaration[][]
@@ -702,6 +806,10 @@ function hasConflictingCssTransitions(
         for (const targetNodeId of matchedTargets) {
           const targetProperties = propertiesByTarget.get(targetNodeId);
           if (!targetProperties) continue;
+          const declarationGroups =
+            declarationGroupsByTarget.get(targetNodeId) ?? [];
+          declarationGroups.push(declarations);
+          declarationGroupsByTarget.set(targetNodeId, declarationGroups);
 
           // Nested conditions and selectors outside the static target subset
           // cannot safely participate in cross-rule cascade resolution.
@@ -755,7 +863,10 @@ function hasConflictingCssTransitions(
     const properties = propertiesByTarget.get(targetNodeId);
     if (
       properties &&
-      transitionDeclarationGroupsConflict(declarationGroups, properties)
+      transitionDeclarationGroupsConflict(
+        declarationGroupsByTarget.get(targetNodeId) ?? declarationGroups,
+        properties,
+      )
     ) {
       return true;
     }
@@ -764,12 +875,6 @@ function hasConflictingCssTransitions(
   for (const [targetNodeId, states] of declarationsByTargetAndState) {
     const properties = propertiesByTarget.get(targetNodeId);
     if (!properties) continue;
-    if (
-      uncertainDeclarationsByTarget.has(targetNodeId) &&
-      (declarationsByTarget.get(targetNodeId)?.length ?? 0) > 0
-    ) {
-      return true;
-    }
     for (const declarations of states.values()) {
       if (
         transitionDeclarationsConflict(
@@ -889,6 +994,7 @@ function resolveTransitionTargets(
   const targetNodeIds = new Set<string>();
   for (const selector of selectors) {
     if (selector === "*") return ["*"];
+    if (!parseMotionAuthoredCssSimpleSelector(selector)) return ["*"];
     try {
       const resolution = resolveTarget(selector);
       if (!resolution || typeof resolution !== "object") return ["*"];
@@ -900,6 +1006,8 @@ function resolveTransitionTargets(
           return ["*"];
         }
         targetNodeIds.add(resolution.targetNodeId);
+      } else if (resolution.status === "unresolved") {
+        return [];
       } else {
         return ["*"];
       }
@@ -1209,13 +1317,32 @@ function transitionEffectsConflict(
     let matchingDuration: number | null | undefined;
     for (const [index, property] of properties.entries()) {
       if (property === "none") continue;
-      if (property !== "*" && property !== animatedProperty) continue;
+      if (!transitionPropertyOverlapsTrack(property, animatedProperty)) {
+        continue;
+      }
       matchingDuration = durations[index % durations.length] ?? null;
     }
     if (matchingDuration === undefined) continue;
     if (matchingDuration !== 0) return true;
   }
   return false;
+}
+
+function transitionPropertyOverlapsTrack(
+  transitionProperty: string,
+  animatedProperty: string,
+): boolean {
+  if (transitionProperty === "*" || transitionProperty === animatedProperty) {
+    return true;
+  }
+  return (
+    TRANSITION_SHORTHAND_TRACK_PROPERTIES[transitionProperty]?.includes(
+      animatedProperty,
+    ) === true ||
+    TRANSITION_SHORTHAND_TRACK_PROPERTIES[animatedProperty]?.includes(
+      transitionProperty,
+    ) === true
+  );
 }
 
 function hasInheritedTransitionPropertyList(value: string): boolean {

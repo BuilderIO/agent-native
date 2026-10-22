@@ -480,6 +480,66 @@ describe("runPrototypeNavigationTransition", () => {
     destinationFrame.remove();
   });
 
+  it("starts a same-origin redirected destination on load and releases the staged exit", async () => {
+    frame.dataset.screenIframeId = "source";
+    const destinationFrame = document.createElement("iframe");
+    destinationFrame.dataset.anPrototypePreview = "";
+    destinationFrame.dataset.screenIframeId = "target";
+    const requestedUrl = "https://preview.test/requested";
+    const redirectedUrl = "https://preview.test/final";
+    let src = "https://preview.test/previous";
+    const getAttribute = destinationFrame.getAttribute.bind(destinationFrame);
+    vi.spyOn(destinationFrame, "getAttribute").mockImplementation((name) =>
+      name === "src" ? src : getAttribute(name),
+    );
+    const previousDocument = {
+      readyState: "complete",
+      URL: "https://preview.test/previous",
+    };
+    Object.defineProperty(destinationFrame, "contentDocument", {
+      configurable: true,
+      value: previousDocument,
+    });
+    const destinationAnimation = deferredAnimation();
+    const destinationAnimate = vi.fn(() => destinationAnimation.animation);
+    Object.defineProperty(destinationFrame, "animate", {
+      configurable: true,
+      value: destinationAnimate,
+    });
+    const transitionDocument = {
+      querySelectorAll: () => [frame, destinationFrame],
+    } as unknown as Document;
+
+    const update = vi.fn(() => {
+      src = requestedUrl;
+      Object.defineProperty(destinationFrame, "contentDocument", {
+        configurable: true,
+        value: { readyState: "complete", URL: redirectedUrl },
+      });
+    });
+    expect(
+      runPrototypeNavigationTransition(dissolve, update, transitionDocument, {
+        sourceFrame: frame,
+        destinationFrameId: "target",
+      }),
+    ).toBe("animated");
+
+    animations[0]!.finish();
+    await Promise.resolve();
+    expect(update).toHaveBeenCalledOnce();
+    expect(animations[0]!.cancel).not.toHaveBeenCalled();
+    expect(destinationAnimate).not.toHaveBeenCalled();
+
+    destinationFrame.dispatchEvent(new Event("load"));
+
+    expect(animations[0]!.cancel).toHaveBeenCalledOnce();
+    expect(destinationAnimate).toHaveBeenCalledWith(
+      [{ opacity: 0 }, { opacity: 1 }],
+      { duration: 210, easing: "ease-in-out", fill: "both" },
+    );
+    destinationFrame.remove();
+  });
+
   it("does not wait for a load event from an opaque unchanged destination", async () => {
     frame.dataset.screenIframeId = "source";
     const destinationFrame = document.createElement("iframe");

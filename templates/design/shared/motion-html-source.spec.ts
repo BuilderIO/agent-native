@@ -1395,6 +1395,35 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it("checks transitions in CRLF HTML style blocks when importing animation", () => {
+    const source = `<!doctype html>
+<html>
+<head>
+  <style>
+.hero {
+  animation-name: hero-fade;
+  animation-duration: 900ms;
+  animation-fill-mode: both;
+}
+@keyframes hero-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+  </style>
+  <style>\r\n.hero { transition: opacity 1s; }\r\n  </style>
+</head>
+<body><h1 class="hero" data-agent-native-node-id="hero-css">Hello</h1></body>
+</html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: {
+        code: "unsupported-authored-motion",
+        message: expect.stringContaining("CSS transitions overlap"),
+      },
+    });
+  });
+
   it.each([
     ["framework-bound", 'x-bind:media="query"'],
     ["handler-bearing", 'x-init="ready = true"'],
