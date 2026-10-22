@@ -871,16 +871,24 @@ importers:
       String((majorPromotionGuard.env as Workflow).PR_NUMBER),
       /inputs\.pull_request_number/,
     );
-    assert.match(String(majorPromotionGuard.run), /"--slurp"/);
-    assert.match(String(majorPromotionGuard.run), /JSON\.parse\(gh\(/);
-    assert.doesNotMatch(String(majorPromotionGuard.run), /\.split\("\\n"\)/);
-    assert.match(String(majorPromotionGuard.run), /HTTP 404/);
-    assert.match(String(majorPromotionGuard.run), /status === "added"/);
-    assert.match(String(majorPromotionGuard.run), /status === "removed"/);
-    assert.doesNotMatch(
-      String(majorPromotionGuard.run),
-      /catch\s*\{\s*return null/,
+    const majorPromotionRun = String(majorPromotionGuard.run);
+    const fileListApiCall =
+      /const pages = JSON\.parse\(gh\(\[([\s\S]*?)\]\)\);/.exec(
+        majorPromotionRun,
+      );
+    assert(fileListApiCall);
+    assert.match(fileListApiCall[1], /"api",\s*"--paginate",\s*"--slurp"/);
+    assert.doesNotMatch(fileListApiCall[1], /--jq|--template/);
+    assert.match(majorPromotionRun, /for \(const page of pages\)/);
+    assert.match(
+      majorPromotionRun,
+      /file\.filename === "package\.json" \|\| file\.filename\.endsWith\("\/package\.json"\)/,
     );
+    assert.doesNotMatch(majorPromotionRun, /\.split\("\\n"\)/);
+    assert.match(majorPromotionRun, /HTTP 404/);
+    assert.match(majorPromotionRun, /status === "added"/);
+    assert.match(majorPromotionRun, /status === "removed"/);
+    assert.doesNotMatch(majorPromotionRun, /catch\s*\{\s*return null/);
     assert(qrPinGuard);
     assert.equal(
       qrPinGuard.run,

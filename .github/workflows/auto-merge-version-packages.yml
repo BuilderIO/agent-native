@@ -279,14 +279,25 @@ jobs:
             return match.slice(1).map(Number);
           };
 
-          const files = JSON.parse(gh([
+          const pages = JSON.parse(gh([
             "api", "--paginate", "--slurp", `repos/${repo}/pulls/${process.env.PR_NUMBER}/files`,
-            "--jq", 'add | map(select(.filename == "package.json" or (.filename | endswith("/package.json"))) | {filename, status})',
           ]));
-          if (!Array.isArray(files) || files.some((file) =>
-            !file || typeof file.filename !== "string" || typeof file.status !== "string"
-          )) {
+          if (!Array.isArray(pages) || pages.length === 0 || pages.some((page) => !Array.isArray(page))) {
             throw new Error("GitHub returned an invalid release PR file list");
+          }
+
+          const files = [];
+          for (const page of pages) {
+            for (const file of page) {
+              if (!file || typeof file !== "object" || Array.isArray(file) ||
+                typeof file.filename !== "string" || typeof file.status !== "string"
+              ) {
+                throw new Error("GitHub returned an invalid release PR file list");
+              }
+              if (file.filename === "package.json" || file.filename.endsWith("/package.json")) {
+                files.push({ filename: file.filename, status: file.status });
+              }
+            }
           }
 
           const promotions = [];
