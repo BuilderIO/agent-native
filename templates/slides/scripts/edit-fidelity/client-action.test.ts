@@ -78,6 +78,15 @@ it("marks a browser-client network outage as could not run", async () => {
   expect(getHarnessUnavailableError(error)).toBeInstanceOf(CouldNotRun);
 });
 
+it("marks a rejected browser-client module import as could not run", async () => {
+  const error = await deleteScratchDeck(page, {
+    ...args,
+    source: new URL("./unavailable-browser-client.ts", import.meta.url).href,
+  }).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(ActionTransportError);
+  expect(getHarnessUnavailableError(error)).toBeInstanceOf(CouldNotRun);
+});
+
 it("marks a closed Playwright target as could not run", async () => {
   const closedPage = {
     evaluate: vi

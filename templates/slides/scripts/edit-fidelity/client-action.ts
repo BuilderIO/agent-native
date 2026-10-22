@@ -22,8 +22,8 @@ export async function deleteScratchDeck<T>(
 ): Promise<T> {
   const result = await page
     .evaluate(async ({ body, compatibilityVersion, source, timeoutMs }) => {
-      const { callAction } = await import(source);
       try {
+        const { callAction } = await import(source);
         const value: T = await callAction("delete-deck", body, {
           method: "DELETE",
           uiOnly: true,
