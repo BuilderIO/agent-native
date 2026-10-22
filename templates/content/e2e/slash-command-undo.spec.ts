@@ -40,6 +40,15 @@ async function openPage(page: Page, title: string) {
   return id;
 }
 
+/**
+ * Collaborative undo merges changes made within 500 ms into one step, so a
+ * command picked faster than a person could pick it would undo along with
+ * its typed query and hide whether the query still comes back on its own.
+ */
+async function pauseLikeAPerson(page: Page) {
+  await page.waitForTimeout(600);
+}
+
 async function expectParagraphRestored(page: Page) {
   await expect(firstBlock(page)).toHaveText(PARAGRAPH);
   expect(await firstBlock(page).evaluate((node) => node.tagName)).toBe("P");
@@ -55,6 +64,7 @@ test.describe("slash command undo", () => {
     await page.keyboard.press("Home");
     await page.keyboard.type("/heading 3");
     await expect(page.locator(".slash-command-menu")).toBeVisible();
+    await pauseLikeAPerson(page);
     await page.keyboard.press("Enter");
     await expect(page.locator(`${EDITOR} h3`).first()).toHaveText(PARAGRAPH);
     await expect.poll(() => savedBody(page, id)).toMatch(savedAsHeading);
@@ -83,6 +93,8 @@ test.describe("slash command undo on a touch screen", () => {
     await firstBlock(page).tap();
     await page.keyboard.press("Home");
     await page.keyboard.type("/heading 3");
+    await expect(page.locator(".slash-command-menu")).toBeVisible();
+    await pauseLikeAPerson(page);
     await page
       .locator(".slash-command-menu")
       .getByRole("button", { name: /Heading 3/ })
