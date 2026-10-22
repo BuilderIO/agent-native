@@ -2175,6 +2175,7 @@ describe("CommandMenu", () => {
     renderAppCommands({
       groups: [],
       renderResults: () => <LiveResults />,
+      renderResultsHasItems: () => true,
       emptyState: "No matching records",
     });
 
