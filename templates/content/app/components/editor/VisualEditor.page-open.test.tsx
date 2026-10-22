@@ -718,14 +718,22 @@ describe("opening a page", () => {
 
     expect(opened.editor.state.doc.textContent).toBe("Early Alpha paragraph.");
     expect(peer.editor.state.doc.textContent).toBe("Early Alpha paragraph.");
-    const saves = [opened, peer].flatMap(({ onChange }) =>
-      onChange.mock.calls.map(([body], index) => ({
-        body,
-        order: onChange.mock.invocationCallOrder[index],
-      })),
+    // The other tab held the typing to delete part of it, so its save keeps
+    // the rest, and this tab doesn't save it again.
+    expectNoSave(opened);
+    expect(peer.onChange).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("Early Alpha paragraph."),
     );
-    saves.sort((a, b) => a.order - b.order);
-    expect(saves[saves.length - 1]?.body).toContain("Early Alpha paragraph.");
+
+    act(() => {
+      opened.editor.view.dispatch(
+        opened.editor.state.tr.insertText("Later ", 1),
+      );
+    });
+    await settle();
+    expect(opened.onChange).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("Later Early Alpha paragraph."),
+    );
 
     await act(async () => peerRoot.unmount());
     peerDoc.destroy();
