@@ -877,6 +877,7 @@ export function CommandMenu<TAppContext = unknown>({
     setAppPageStack((stack) => stack.slice(0, -1));
     updateSearch(currentPage.parentSearch);
     resetSelection();
+    requestAnimationFrame(() => inputRef.current?.focus());
   }, [appPageStack, resetSelection, updateSearch]);
 
   const openAppPage = (page: AppCommandPage<TAppContext>) => {

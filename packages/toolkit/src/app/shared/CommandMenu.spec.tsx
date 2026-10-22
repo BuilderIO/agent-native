@@ -1395,9 +1395,12 @@ describe("CommandMenu", () => {
       '[data-testid="command-menu-page-back"]',
     );
     expect(backRow).toBeTruthy();
+    backRow!.focus();
+    expect(document.activeElement).toBe(backRow);
     act(() => backRow!.click());
 
     expect(input?.value).toBe("tools alias");
+    expect(document.activeElement).toBe(input);
     expect(document.body.textContent).toContain("Open tools");
     expect(document.body.textContent).not.toContain("Refresh data");
 
