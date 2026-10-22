@@ -254,7 +254,7 @@
     "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vitest": "catalog:",
-    "wrangler": "^4.80.0",
+    "wrangler": "^4.151.2",
     "yaml": "2.9.0"
   },
   "engines": {
