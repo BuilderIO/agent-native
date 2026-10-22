@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-21
+
+### Fixed
+
+- Calendar skips notification approval for solo events while preserving it for guest invitations and cancellations.
+
 ## 2026-10-19
 
 ### Changed

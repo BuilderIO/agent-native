@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.8.55
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.54
 
 ### Patch Changes
@@ -651,11 +657,5 @@
 ### Patch Changes
 
 - 915c940: Preserve stubbed optional package imports and package subpaths when bundling Cloudflare Pages workers.
-
-## 0.5.1
-
-### Patch Changes
-
-- 8e0afec: Improve Creative Context sharing and connection-chip interactions.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

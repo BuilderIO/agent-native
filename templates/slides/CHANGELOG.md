@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-21
+
+### Fixed
+
+- Deleting a deck through an agent requires approval for each deletion.
+
 ## 2026-10-20
 
 ### Improved
