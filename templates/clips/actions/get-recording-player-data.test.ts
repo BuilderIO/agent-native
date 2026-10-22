@@ -233,6 +233,26 @@ describe("get-recording-player-data direct public access", () => {
   });
 
   it.each(["admin", "editor", "viewer"] as const)(
+    "withholds a trashed recording's direct player payload from %s callers",
+    async (role) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          id: "rec-1",
+          visibility: "org",
+          password: null,
+          expiresAt: null,
+          trashedAt: "2026-10-22T12:00:00.000Z",
+        },
+      });
+      await expect(action.run({ recordingId: "rec-1" })).rejects.toThrow(
+        "No access to recording rec-1",
+      );
+      expect(mockDb.select).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["admin", "editor", "viewer"] as const)(
     "requires an explicit recording share for %s callers",
     async (role) => {
       mockResolveAccess.mockResolvedValue({

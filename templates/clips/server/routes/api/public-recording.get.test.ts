@@ -226,6 +226,59 @@ describe("/api/public-recording route", () => {
     mockHasExplicitRecordingShare.mockResolvedValue(false);
   });
 
+  it.each([null, "viewer", "editor", "admin"])(
+    "withholds trashed share data from %s callers, including existing agent tokens",
+    async (role) => {
+      const event = { setCookies: [] as unknown[] };
+      const recording = makeRecording({
+        trashedAt: "2026-10-22T12:00:00.000Z",
+      });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([[recording], [], [], [], []]),
+      );
+      mockGetQuery.mockReturnValue({
+        id: "rec-1",
+        agent_access: "existing-token",
+      });
+      mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+      if (role) {
+        mockGetSession.mockResolvedValue({
+          email: "viewer@example.com",
+          orgId: "org-1",
+        });
+        mockResolveAccess.mockResolvedValue({ role, resource: recording });
+      }
+
+      expect(await handler(event as any)).toEqual({ error: "Not found" });
+      expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 404);
+      expect(mockSignShortLivedToken).not.toHaveBeenCalled();
+      expect(mockSignScopedAgentAccessToken).not.toHaveBeenCalled();
+      expect(mockResolvePlayerVideoUrl).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { role: "owner", trashedAt: "2026-10-22T12:00:00.000Z" },
+    { role: "viewer", trashedAt: null },
+  ])(
+    "keeps owner Trash previews and restored shares available: $role",
+    async ({ role, trashedAt }) => {
+      const recording = makeRecording({ trashedAt });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([[recording], [], [], [], []]),
+      );
+      mockGetSession.mockResolvedValue({
+        email: `${role}@example.com`,
+        orgId: "org-1",
+      });
+      mockResolveAccess.mockResolvedValue({ role, resource: recording });
+
+      expect(await handler({ setCookies: [] } as any)).toMatchObject({
+        recording: { id: "rec-1" },
+      });
+    },
+  );
+
   it("sets a protected media cookie and long fallback token after password unlock", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetDb.mockReturnValue(

@@ -1,18 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
-import {
-  getRequestUserEmail,
-  getRequestUserName,
-} from "@agent-native/core/server/request-context";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
-import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
-import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
-import { nanoid } from "../server/lib/recordings.js";
+import addComment from "./add-comment.js";
 
 const mentionSchema = z.object({
   email: z.string().email(),
@@ -43,66 +34,16 @@ export default defineAction({
       .limit(1);
     if (!parent) throw new Error(`Comment not found: ${args.commentId}`);
 
-    const access = await assertAccess(
-      "recording",
-      parent.recordingId,
-      "viewer",
-    );
-    if (
-      isRecordingExpiredForViewer({
-        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError("Recording has expired");
-    }
-
-    const authorEmail = getRequestUserEmail();
-    if (!authorEmail) {
-      throw new Error("Sign in required to reply to comments.");
-    }
-    const authorName =
-      getRequestUserName()?.trim() || args.authorName?.trim() || null;
-    const mentions = await resolveCommentMentions(
-      args.mentions,
-      parent.organizationId,
-    );
-
-    const id = nanoid();
-    const now = new Date().toISOString();
-
-    await db.insert(schema.recordingComments).values({
-      id,
+    const result = await addComment.run({
       recordingId: parent.recordingId,
-      organizationId: parent.organizationId,
       threadId: parent.threadId,
       parentId: parent.id,
-      authorEmail,
-      authorName,
-      content: args.content,
-      mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
       videoTimestampMs: parent.videoTimestampMs,
-      createdAt: now,
-      updatedAt: now,
+      content: args.content,
+      authorName: args.authorName,
+      mentions: args.mentions,
     });
 
-    const notified = await notifyRecordingComment({
-      recordingId: parent.recordingId,
-      threadId: parent.threadId,
-      authorEmail,
-      authorName: authorName ?? undefined,
-      content: args.content,
-      mentions,
-      videoTimestampMs: parent.videoTimestampMs,
-      isReply: true,
-    });
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    console.log(
-      `Replied to comment ${args.commentId} (thread: ${parent.threadId})`,
-    );
-
-    return { id, threadId: parent.threadId, parentId: parent.id, notified };
+    return { ...result, parentId: parent.id };
   },
 });

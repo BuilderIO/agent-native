@@ -64,6 +64,7 @@ import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
 } from "../server/lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
 import {
@@ -160,6 +161,15 @@ export default defineAction({
 
     const db = getDb();
     const rec: any = access.resource;
+
+    if (
+      isRecordingTrashedForViewer({
+        trashedAt: rec.trashedAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
+      throw new ForbiddenError(`No access to recording ${args.recordingId}`);
+    }
 
     if (
       isRecordingExpiredForViewer({

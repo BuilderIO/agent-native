@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
+import { assertCommentWritingAccess } from "../server/lib/comment-writing-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 const cliBoolean = z.preprocess((value) => {
@@ -39,19 +39,7 @@ export default defineAction({
       throw new Error("Sign in required to resolve comments.");
     }
 
-    const access = await assertAccess(
-      "recording",
-      existing.recordingId,
-      "viewer",
-    );
-    if (
-      isRecordingExpiredForViewer({
-        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError("Recording has expired");
-    }
+    await assertCommentWritingAccess(existing.recordingId);
 
     if (!sameOwnerEmail(existing.authorEmail, userEmail)) {
       try {

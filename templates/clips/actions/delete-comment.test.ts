@@ -15,14 +15,9 @@ const mockGetUserEmail = vi.hoisted(() =>
   vi.fn<() => string | null>(() => "author@example.com"),
 );
 const mockWriteAppState = vi.hoisted(() => vi.fn());
-const { MockForbiddenError } = vi.hoisted(() => {
-  class MockForbiddenError extends Error {}
-  return { MockForbiddenError };
-});
-
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
-  ForbiddenError: MockForbiddenError,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -37,7 +32,8 @@ vi.mock("../server/lib/recording-page-access.js", () => ({
   isRecordingExpiredForViewer: () => false,
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: (...conditions: unknown[]) => ({ type: "and", conditions }),
   eq: (column: unknown, value: unknown) => ({
     type: "eq",
@@ -145,19 +141,30 @@ beforeEach(() => {
 });
 
 describe("delete-comment", () => {
-  it("deletes a comment and every nested descendant", async () => {
-    const result = await action.run(action.schema.parse({ id: "comment-1" }));
+  it.each([true, false])(
+    "deletes a comment and descendants with enableComments=%s",
+    async (enableComments) => {
+      mockAssertAccess.mockResolvedValue({
+        role: "viewer",
+        resource: { enableComments },
+      });
+      const result = await action.run(action.schema.parse({ id: "comment-1" }));
 
-    expect(result).toEqual({
-      id: "comment-1",
-      deletedCommentIds: ["comment-1", "comment-1-reply", "comment-1-reply-2"],
-    });
-    expect(state.rows.map((row) => row.id)).toEqual([
-      "comment-2",
-      "comment-1-cross-record-reply",
-    ]);
-    expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
-      ts: expect.any(Number),
-    });
-  });
+      expect(result).toEqual({
+        id: "comment-1",
+        deletedCommentIds: [
+          "comment-1",
+          "comment-1-reply",
+          "comment-1-reply-2",
+        ],
+      });
+      expect(state.rows.map((row) => row.id)).toEqual([
+        "comment-2",
+        "comment-1-cross-record-reply",
+      ]);
+      expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
+        ts: expect.any(Number),
+      });
+    },
+  );
 });

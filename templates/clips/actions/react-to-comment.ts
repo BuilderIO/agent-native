@@ -1,12 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingReaction } from "../server/lib/activity-notifications.js";
+import { assertCommentWritingAccess } from "../server/lib/comment-writing-access.js";
 
 const MAX_CAS_ATTEMPTS = 3;
 
@@ -33,7 +33,7 @@ export default defineAction({
       if (!existing) throw new Error(`Comment not found: ${args.commentId}`);
 
       if (attempt === 0) {
-        await assertAccess("recording", existing.recordingId, "viewer");
+        await assertCommentWritingAccess(existing.recordingId);
       }
 
       const previousJson = existing.emojiReactionsJson;
