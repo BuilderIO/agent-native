@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     sql: string;
     purpose?: string;
     reuseCompletedOnEnable?: boolean;
+    rerunPartial?: boolean;
   }>,
   sqlError: null as unknown,
   sqlLoading: false,
@@ -58,6 +59,7 @@ vi.mock("@/lib/sql-query", () => ({
       enabled: boolean;
       purpose?: string;
       reuseCompletedOnEnable?: boolean;
+      rerunPartial?: boolean;
     },
   ) => {
     mocks.sqlQueries.push({ ...options, key, sql });
@@ -243,6 +245,7 @@ describe("PanelDrilldownDialog metadata lookup", () => {
       enabled: true,
       purpose: "panel-drilldown",
       reuseCompletedOnEnable: true,
+      rerunPartial: true,
       sql: "SELECT visitor FROM events WHERE day = '2026-10-15' AND app = 'o\\'brien\\\\app' AND email = 'person@example.com' LIMIT 500",
     });
     expect(mocks.sqlQueries[1].enabled).toBe(false);

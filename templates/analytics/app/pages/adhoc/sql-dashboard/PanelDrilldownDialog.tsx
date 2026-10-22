@@ -155,6 +155,7 @@ export function PanelDrilldownDialog({
       enabled: open && hasRecordQuery,
       purpose: "panel-drilldown",
       reuseCompletedOnEnable: true,
+      rerunPartial: true,
     },
   );
   // Same key as the chart's own query, so this reads the cached aggregate rows.

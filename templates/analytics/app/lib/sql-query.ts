@@ -388,11 +388,16 @@ export function useSqlQuery(
     /**
      * A completed result for a SQL string is never stale, so enabling or
      * returning to a SQL that already has one does not rescan it. Only an
-     * explicit `refreshToken` refresh does. A `partial` result is not
-     * completed and reruns on the next enable or mount. Ignored when
-     * `staleTime` is set.
+     * explicit `refreshToken` refresh does. Ignored when `staleTime` is set.
      */
     reuseCompletedOnEnable?: boolean;
+    /**
+     * Treats a `partial` result as stale at once, so mounting or enabling the
+     * query again reruns it. Only for views a user opens on demand: a query
+     * enabled by viewport visibility would rescan a partial panel every time
+     * it scrolls back into view. Ignored when `staleTime` is set.
+     */
+    rerunPartial?: boolean;
     purpose?: SqlQueryPurpose;
     /**
      * Saves each successful result in this tab's session storage and, after a
@@ -471,6 +476,7 @@ export function useSqlQuery(
     result: SqlQueryResult | null;
   } | null>(null);
   const queryClient = useQueryClient();
+  const freshFor = options?.reuseCompletedOnEnable ? Infinity : 5 * 60 * 1000;
   const query = useQuery<SqlQueryResult>({
     queryKey: scopedQueryKey,
     queryFn: async ({ signal }) => {
@@ -545,8 +551,7 @@ export function useSqlQuery(
     },
     enabled,
     refetchInterval: options?.refetchInterval,
-    refetchOnMount:
-      options?.refetchOnMount ?? Boolean(options?.reuseCompletedOnEnable),
+    refetchOnMount: options?.refetchOnMount ?? Boolean(options?.rerunPartial),
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
     retry: (failureCount, error) => {
@@ -556,9 +561,9 @@ export function useSqlQuery(
     },
     staleTime:
       options?.staleTime ??
-      (options?.reuseCompletedOnEnable
-        ? (cached) => (cached.state.data?.partial ? 0 : Infinity)
-        : 5 * 60 * 1000),
+      (options?.rerunPartial
+        ? (cached) => (cached.state.data?.partial ? 0 : freshFor)
+        : freshFor),
   });
   const refetch = query.refetch;
   const accessDenied = isSqlQueryAccessDenied(query.error);
