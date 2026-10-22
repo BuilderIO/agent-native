@@ -1729,7 +1729,7 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("preserves visible reasoning without a Thinking history row", async () => {
+  it("preserves visible reasoning and applies the worked-row layout", async () => {
     const threadId = "thread-reasoning-work";
     const runId = "run-reasoning-work";
     const base = (sequence: number, seconds: number = sequence) => ({
@@ -1825,9 +1825,10 @@ describe("AgentChat lifecycle", () => {
     const formatWorkedForDuration = (durationMs: number) =>
       `${Math.round(durationMs / 1000)} seconds`;
     await tree.render(
-      <AgentKitProvider
+      <AgentKitRoot
         controller={observable.controller}
         threadId={threadId}
+        load="manual"
         workedForRowLayout={workedForRowLayout}
         formatWorkedForDuration={formatWorkedForDuration}
         registry={{
@@ -1846,7 +1847,7 @@ describe("AgentChat lifecycle", () => {
         }}
       >
         <AgentKitChat composer={false} />
-      </AgentKitProvider>,
+      </AgentKitRoot>,
     );
     const work = tree.container.querySelector<HTMLDetailsElement>(
       ".agentkit-activities",
@@ -1883,9 +1884,10 @@ describe("AgentChat lifecycle", () => {
       work.querySelector<HTMLElement>(".agentkit-summary-chevron")?.style.width,
     ).toBe("12px");
     await tree.render(
-      <AgentKitProvider
+      <AgentKitRoot
         controller={observable.controller}
         threadId={threadId}
+        load="manual"
         workedForRowLayout={workedForRowLayout}
         formatWorkedForDuration={formatWorkedForDuration}
         registry={{
@@ -1917,7 +1919,7 @@ describe("AgentChat lifecycle", () => {
         }}
       >
         <AgentKitChat composer={false} />
-      </AgentKitProvider>,
+      </AgentKitRoot>,
     );
     expect(work.querySelector("[data-work-summary]")?.textContent).toContain(
       "Searching documentation",
@@ -1952,6 +1954,12 @@ describe("AgentChat lifecycle", () => {
     expect(work.open).toBe(false);
     expect(work.querySelector("summary")?.textContent).toBe(
       "Worked for 18 seconds›",
+    );
+    expect(work.querySelector<HTMLElement>("summary")?.style.fontSize).toBe(
+      "13px",
+    );
+    expect(work.querySelector<HTMLElement>("summary")?.style.lineHeight).toBe(
+      "16px",
     );
     expect(work.querySelector("[data-agentkit-current-activity]")).toBeNull();
     expect(tree.container.querySelectorAll("article")).toHaveLength(1);
