@@ -1957,7 +1957,7 @@ describe("actual additional field freshness", () => {
     expect(fixture.fieldSave).toHaveBeenCalledOnce();
   });
 
-  it("flushes a locked field after failed input actually reverts to its saved value", async () => {
+  it("requires fresh confirmation before flushing a reverted failed field under suggestion lock", async () => {
     await mountField();
     const failure = new Error("Blocks field revision conflict");
     fixture.fieldSave.mockRejectedValue(failure);
@@ -1980,10 +1980,33 @@ describe("actual additional field freshness", () => {
     expect(fixture.fieldEditor!.getText()).toBe("Additional body");
     await act(async () => vi.advanceTimersByTimeAsync(0));
     expect(fieldState().pending).toBe("Additional body");
-    expect(fieldState().lastError).toBeNull();
+    expect(fieldState().lastError).toBe(failure);
     fixture.lockAdditionalForSuggestions = true;
     await act(async () => renderEditor());
     expect(fixture.fieldEditor!.isEditable).toBe(false);
+    await act(async () => {
+      await expect(fixture.session!.flush()).rejects.toThrow(
+        "editor.pageSaveBeforeNavigationFailed",
+      );
+    });
+    expect(fieldState().isClean).toBe(false);
+    expect(fixture.fieldSave).toHaveBeenCalledOnce();
+    // A newer authoritative field read confirms the reverted value.
+    fixture.fields = {
+      ...fixture.fields!,
+      properties: fixture.fields!.properties.map((field) =>
+        field.definition.id === "notes"
+          ? {
+              ...field,
+              blocksField: {
+                ...field.blocksField!,
+                revision: field.blocksField!.revision + 1,
+              },
+            }
+          : field,
+      ),
+    };
+    await act(async () => renderEditor());
     await act(async () => {
       await expect(fixture.session!.flush()).resolves.toBeUndefined();
     });

@@ -5,7 +5,10 @@ import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
-import { __resetBlockFieldSaveRegistry } from "./blockFieldSaveRegistry";
+import {
+  __resetBlockFieldSaveRegistry,
+  peekBlockFieldSaveController,
+} from "./blockFieldSaveRegistry";
 import { useBlockFieldEditor } from "./DocumentBlockFields";
 import type { VisualEditorExternalContent } from "./VisualEditor";
 
@@ -256,6 +259,60 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     });
     expect(isAcknowledgedContent("rejected draft")).toBe(false);
     expect(isAcknowledgedContent("")).toBe(false);
+  });
+
+  it("does not confirm a committed write's failed response from an older cached echo", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    let stored = "Baseline";
+    let revision = 0;
+    let rejectResponse!: (error: Error) => void;
+    const failure = new Error("property read failed after commit");
+    const save = vi.fn(async (request: SaveCall) => {
+      if (request.expectedBlocksFieldRevision !== revision)
+        throw new Error("Blocks field revision conflict");
+      stored = request.value;
+      revision += 1;
+      if (save.mock.calls.length === 2)
+        await new Promise<void>((_resolve, reject) => {
+          rejectResponse = reject;
+        });
+      return savedAt(revision);
+    });
+    const { field, render } = mountField({
+      initialContent: stored,
+      initialRevision: revision,
+      save,
+    });
+    act(() => field.onChange("Saved"));
+    await settle();
+    expect(stored).toBe("Saved");
+    act(() => field.onChange("Committed edit"));
+    await settle();
+    expect(stored).toBe("Committed edit");
+    render("Saved", 1);
+    act(() => field.onChange("Saved"));
+    await act(async () => {
+      rejectResponse(failure);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const controller = peekBlockFieldSaveController("doc:field")!;
+    expect(controller.lastError).toBe(failure);
+    expect(controller.isClean).toBe(false);
+    expect(stored).toBe("Committed edit");
+    expect(field.content).toBe("Saved");
+    expect(save).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await controller.flush();
+    });
+    expect(save).toHaveBeenLastCalledWith({
+      documentId: "doc",
+      propertyId: "field",
+      value: "Saved",
+      expectedBlocksFieldRevision: 1,
+    });
+    expect(controller.isClean).toBe(false);
+    expect(stored).toBe("Committed edit");
   });
 
   it("reports release only after the final persistence settles", async () => {

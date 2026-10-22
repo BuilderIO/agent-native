@@ -36,6 +36,7 @@ describe("blockFieldSaveController", () => {
     controller.change("Failed");
     await controller.flush();
     expect(controller.lastError).toBe(failure);
+    save.mockResolvedValue(undefined);
     controller.change("Pending");
     await controller.flush();
     expect(controller.lastSaved).toBe("Pending");
@@ -43,46 +44,76 @@ describe("blockFieldSaveController", () => {
     expect(controller.isClean).toBe(true);
   });
 
-  it("retires a failed Blocks value when input reverts to lastSaved without another save", async () => {
-    const failure = new Error("field write failed");
-    const save = vi.fn().mockRejectedValue(failure);
-    const controller = createBlockFieldSaveController({
-      initialContent: "Saved",
-      save,
-    });
-    controller.change("Failed edit");
-    await controller.flush();
-    expect(controller.lastError).toBe(failure);
-    expect(controller.isClean).toBe(false);
-    controller.change("Saved");
-    expect(controller.lastError).toBeNull();
-    expect(controller.isClean).toBe(true);
-    await controller.flush();
-    expect(controller.isClean).toBe(true);
-    expect(save).toHaveBeenCalledExactlyOnceWith("Failed edit");
-  });
+  it.each(["before", "after"])(
+    "requires an accepted undo when input reverts %s a committed write's response fails",
+    async (revert) => {
+      let stored = "Saved";
+      const read = () => stored;
+      const failure = new Error("response properties could not be read");
+      let rejectResponse!: (error: Error) => void;
+      let acceptUndo = false;
+      const save = vi.fn(async (value: string) => {
+        if (save.mock.calls.length === 1) {
+          // set-document-property commits before its response property read.
+          stored = value;
+          await new Promise<void>((_resolve, reject) => {
+            rejectResponse = reject;
+          });
+        } else {
+          if (!acceptUndo) throw failure;
+          stored = value;
+        }
+      });
+      const controller = createBlockFieldSaveController({
+        initialContent: read(),
+        save,
+      });
+      controller.change("Committed edit");
+      await vi.advanceTimersByTimeAsync(500);
+      expect(read()).toBe("Committed edit");
+      if (revert === "before") controller.change("Saved");
+      rejectResponse(failure);
+      await vi.advanceTimersByTimeAsync(0);
+      if (revert === "after") controller.change("Saved");
+      expect(controller.lastError).toBe(failure);
+      expect(controller.isClean).toBe(false);
+      await controller.flush();
+      expect(controller.lastError).toBe(failure);
+      expect(controller.isClean).toBe(false);
+      expect(read()).toBe("Committed edit");
 
-  it("retires a failed response that settles after input has reverted to lastSaved", async () => {
-    let rejectSave!: (error: Error) => void;
-    const save = vi.fn(
-      () =>
-        new Promise((_resolve, reject) => {
-          rejectSave = reject;
-        }),
-    );
+      acceptUndo = true;
+      await controller.flush();
+      expect(save).toHaveBeenLastCalledWith("Saved");
+      expect(read()).toBe("Saved");
+      expect(controller.lastError).toBeNull();
+      expect(controller.isClean).toBe(true);
+      const reloaded = createBlockFieldSaveController({
+        initialContent: read(),
+        save,
+      });
+      expect(reloaded.lastSaved).toBe("Saved");
+      expect(reloaded.isClean).toBe(true);
+    },
+  );
+
+  it("clears an uncertain failure when a fresh server read confirms the reverted value", async () => {
+    const stored = "Saved";
+    const save = vi.fn(async () => {
+      throw new Error("request did not reach the server");
+    });
     const controller = createBlockFieldSaveController({
-      initialContent: "Saved",
+      initialContent: stored,
       save,
     });
     controller.change("Failed edit");
-    const flushed = controller.flush();
+    await controller.flush();
     controller.change("Saved");
-    expect(controller.isSaving).toBe(true);
     expect(controller.isClean).toBe(false);
-    rejectSave(new Error("obsolete field failure"));
-    await flushed;
+    controller.mark(stored);
     expect(controller.lastError).toBeNull();
     expect(controller.isClean).toBe(true);
+    await controller.flush();
     expect(save).toHaveBeenCalledExactlyOnceWith("Failed edit");
   });
 

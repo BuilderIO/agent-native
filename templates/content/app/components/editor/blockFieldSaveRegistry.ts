@@ -135,7 +135,7 @@ function ensureEntry(
 }
 
 function controllerIsDirty(controller: BlockFieldSaveController): boolean {
-  return controller.pending !== controller.lastSaved;
+  return !controller.isClean;
 }
 
 export function releaseBlockFieldSaveController(

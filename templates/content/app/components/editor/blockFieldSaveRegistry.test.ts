@@ -123,6 +123,48 @@ describe("blockFieldSaveRegistry", () => {
     expect(activeControllerCount()).toBe(0);
   });
 
+  it("retains an uncertain reverted write across release and refuses reads and navigation until undo is accepted", async () => {
+    vi.useFakeTimers();
+    const key = "doc:field";
+    let stored = "Saved";
+    let available = true;
+    let loseResponse = true;
+    blockFieldSaveImplRef(key).current = async (value) => {
+      if (!available) throw new Error("offline");
+      stored = value;
+      if (loseResponse) throw new Error("response lost after commit");
+    };
+    const controller = acquireBlockFieldSaveController(
+      key,
+      factoryFor(key, stored),
+    );
+    controller.change("Committed edit");
+    await controller.flush();
+    controller.change("Saved");
+    available = false;
+    await expect(flushBlockFieldSaveController("doc", "field")).rejects.toThrow(
+      "could not be saved",
+    );
+    await expect(
+      flushAllBlockFieldSaveControllersForDocument("doc"),
+    ).rejects.toThrow("could not be saved");
+    await expect(releaseBlockFieldSaveController(key)).resolves.toBe(false);
+    expect(peekBlockFieldSaveController(key)).toBe(controller);
+    expect(stored).toBe("Committed edit");
+    expect(acquireBlockFieldSaveController(key, factoryFor(key, stored))).toBe(
+      controller,
+    );
+    available = true;
+    loseResponse = false;
+    await flushBlockFieldSaveController("doc", "field");
+    await flushAllBlockFieldSaveControllersForDocument("doc");
+    expect(stored).toBe("Saved");
+    await expect(releaseBlockFieldSaveController(key)).resolves.toBe(true);
+    expect(
+      acquireBlockFieldSaveController(key, factoryFor(key, stored)).lastSaved,
+    ).toBe("Saved");
+  });
+
   it("reopen BEFORE the flush settles reuses the same controller (eviction cancelled)", async () => {
     const key = "doc:field";
     const resolvers: Array<() => void> = [];

@@ -59,7 +59,7 @@ export function createBlockFieldSaveController(args: {
 
   function kick() {
     if (inFlight !== null) return;
-    if (pending === lastSaved) return;
+    if (pending === lastSaved && lastError === null) return;
 
     const attempted = pending;
     const promise = Promise.resolve(args.save(attempted))
@@ -72,7 +72,8 @@ export function createBlockFieldSaveController(args: {
         settled();
       })
       .catch((error) => {
-        lastError = pending === lastSaved ? null : error;
+        // A response can fail after the field write commits.
+        lastError = error;
         inFlight = null;
         args.onError?.(error);
         settled();
@@ -86,10 +87,7 @@ export function createBlockFieldSaveController(args: {
       if (content !== pending) version += 1;
       pending = content;
       clearTimer();
-      if (content === lastSaved) {
-        lastError = null;
-        return;
-      }
+      if (content === lastSaved && lastError === null) return;
       timer = setTimeoutFn(() => {
         timer = null;
         kick();
@@ -100,7 +98,7 @@ export function createBlockFieldSaveController(args: {
       while (inFlight !== null) {
         await inFlight;
       }
-      if (pending !== lastSaved) {
+      if (pending !== lastSaved || lastError !== null) {
         kick();
         const pendingSave = inFlight;
         if (pendingSave !== null) await Promise.resolve(pendingSave);

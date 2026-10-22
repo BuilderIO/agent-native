@@ -75,16 +75,13 @@ function candidate(entry: {
   try {
     parsed = JSON.parse(entry.state);
   } catch {
-    throw failure(
-      "open_editor_unreadable",
-      "The open editor identity could not be read.",
-    );
+    console.warn("Skipping malformed document editor awareness", {
+      clientId: entry.clientId,
+    });
+    return null;
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    throw failure(
-      "open_editor_unreadable",
-      "The open editor identity could not be read.",
-    );
+    return null;
   const state = parsed as Record<string, unknown>;
   const user =
     state.user && typeof state.user === "object"
@@ -209,7 +206,7 @@ export async function flushOpenDocumentEditorToSql(args: {
       const written = new Set<string>();
       try {
         const acquireUntil = Date.now() + BEST_EFFORT_FLUSH_TIMEOUT_MS;
-        const writes = await Promise.allSettled(
+        await Promise.allSettled(
           sessions.map(async (email) => {
             while (Date.now() < acquireUntil) {
               const occupied = await bounded(appStateGet(email, mailbox));
@@ -247,20 +244,19 @@ export async function flushOpenDocumentEditorToSql(args: {
             }
           }),
         );
-        for (const write of writes) {
-          if (write.status === "rejected") throw write.reason;
-        }
         const answerUntil = Date.now() + BEST_EFFORT_FLUSH_TIMEOUT_MS;
         while (written.size > 0 && Date.now() < answerUntil) {
           await pause();
           const answers = await bounded(
-            Promise.all(
+            Promise.allSettled(
               [...written].map((email) => appStateGet(email, mailbox)),
             ),
           );
-          const ownAnswers = answers.filter(
-            (value) => value?.requestId === request.requestId,
-          );
+          const ownAnswers = answers
+            .flatMap((answer) =>
+              answer.status === "fulfilled" ? [answer.value] : [],
+            )
+            .filter((value) => value?.requestId === request.requestId);
           const failed = ownAnswers.find((value) => value?.status === "error");
           if (failed)
             throw failure(

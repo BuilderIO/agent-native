@@ -13,6 +13,14 @@ vi.mock("@agent-native/core/application-state", () => ({
   appStateGetManyEntries: mocks.many,
   appStateCompareAndSet: mocks.cas,
 }));
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => {
+    throw new Error("Database access is forbidden in mailbox tests");
+  },
+  createGetDb: () => () => {
+    throw new Error("Database access is forbidden in mailbox tests");
+  },
+}));
 vi.mock("@agent-native/core/collab", () => ({
   AGENT_CLIENT_ID: 0xffffffff,
   hasCollabState: mocks.hasCollab,
@@ -895,6 +903,25 @@ describe("flushOpenDocumentEditorToSql", () => {
     },
   );
 
+  it.each(["{invalid", "null", "[]", "42", '"presence"'])(
+    "skips an unrelated malformed awareness row %s while freshly confirming the required writer",
+    async (state) => {
+      mocks.awareness.mockResolvedValue([
+        { clientId: 99, state, lastSeen: Date.now() },
+        editorRow(123),
+      ]);
+      expect(await settle()).toMatchObject({
+        value: {
+          status: "flushed",
+          snapshot: SQL_ROW,
+          editors: [
+            { clientId: 123, editorSessionId: "editor-123", flush: "answered" },
+          ],
+        },
+      });
+    },
+  );
+
   it("refuses an unsupported known writer beside a legacy viewer", async () => {
     mocks.awareness.mockResolvedValue([
       editorRow(123, "owner@example.com", { documentFlushProtocol: 1 }),
@@ -1083,12 +1110,11 @@ describe("flushOpenDocumentEditorToSql", () => {
     expect(store.size).toBe(0);
   });
 
-  it("joins legacy mailbox acquisitions before cleaning up a sibling read failure", async () => {
+  it("joins legacy mailbox acquisitions before returning an unconfirmed sibling read failure", async () => {
     mocks.awareness.mockResolvedValue([
       editorRow(123, "first@example.com", { canFlushDocument: undefined }),
       editorRow(456, "second@example.com", { canFlushDocument: undefined }),
     ]);
-    legacyReplies = false;
     const read = mocks.get.getMockImplementation()!;
     mocks.get.mockImplementation((email, key) =>
       email === "second@example.com"
@@ -1124,13 +1150,101 @@ describe("flushOpenDocumentEditorToSql", () => {
       release();
       await vi.advanceTimersByTimeAsync(0);
     }
-    expect(await result).toHaveProperty(
-      "error.errorCode",
-      "open_editor_flush_unreadable",
-    );
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await result).toMatchObject({
+      value: {
+        status: "flushed",
+        editors: [
+          { clientId: 123, flush: "unconfirmed", reason: "legacy_editor" },
+          { clientId: 456, flush: "unconfirmed", reason: "legacy_editor" },
+        ],
+      },
+    });
     expect(store.size).toBe(0);
     expect(mocks.capture).not.toHaveBeenCalled();
   });
+
+  it.each(["acquisition-read", "write", "answer-read"])(
+    "keeps a legacy per-session %s failure unconfirmed while joining a healthy sibling",
+    async (operation) => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "first@example.com", { canFlushDocument: undefined }),
+        editorRow(456, "owner@example.com", { canFlushDocument: undefined }),
+      ]);
+      const read = mocks.get.getMockImplementation()!;
+      const compare = mocks.cas.getMockImplementation()!;
+      let failed = false;
+      mocks.get.mockImplementation(async (email, key) => {
+        if (
+          email === "first@example.com" &&
+          (operation === "acquisition-read" ||
+            (operation === "answer-read" &&
+              !failed &&
+              store.has(address(email, key))))
+        ) {
+          failed = true;
+          throw new Error("legacy session read unavailable");
+        }
+        return read(email, key);
+      });
+      mocks.cas.mockImplementation(
+        async (email, key, expected, next, options) => {
+          if (email === "first@example.com" && operation === "write" && next) {
+            failed = true;
+            throw new Error("legacy session write unavailable");
+          }
+          return compare(email, key, expected, next, options);
+        },
+      );
+      expect(await settle()).toMatchObject({
+        value: {
+          status: "flushed",
+          editors: [
+            { clientId: 123, flush: "unconfirmed", reason: "legacy_editor" },
+            { clientId: 456, flush: "unconfirmed", reason: "legacy_editor" },
+          ],
+        },
+      });
+      expect(failed).toBe(true);
+      expect(mocks.capture).not.toHaveBeenCalled();
+      expect(store.size).toBe(0);
+    },
+  );
+
+  it.each(["get", "cas"] as const)(
+    "keeps legacy-only presence unconfirmed when every %s operation rejects",
+    async (operation) => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", { canFlushDocument: undefined }),
+      ]);
+      mocks[operation].mockRejectedValue(
+        new Error("legacy mailbox unavailable"),
+      );
+      expect(await settle()).toEqual({
+        value: {
+          status: "flushed",
+          editors: [
+            { clientId: 123, flush: "unconfirmed", reason: "legacy_editor" },
+          ],
+        },
+      });
+      expect(mocks.capture).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["get", "cas"] as const)(
+    "keeps a required modern mailbox %s failure typed",
+    async (operation) => {
+      mocks[operation].mockRejectedValue(
+        new Error("required mailbox unavailable"),
+      );
+      expect(await settle()).toHaveProperty(
+        "error.errorCode",
+        "open_editor_flush_unreadable",
+      );
+      expect(mocks.capture).not.toHaveBeenCalled();
+    },
+  );
 
   describe.each(["prepare", "verify"] as const)(
     "ACK batch validation during %s",

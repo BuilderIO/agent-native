@@ -1887,7 +1887,7 @@ export function useBlockFieldEditor({
   const [content, setContent] = useState(() => {
     const existing = peekBlockFieldSaveController(key);
     if (existing) {
-      if (existing.pending !== existing.lastSaved) {
+      if (!existing.isClean) {
         return existing.pending;
       }
       if (existing.hasSavedLocally && existing.lastSaved !== initialContent) {
@@ -1931,7 +1931,7 @@ export function useBlockFieldEditor({
     }
     // Older props lag a save of this editor's.
     if (initialRevision < revision.base) return;
-    if (controller.pending !== controller.lastSaved) return;
+    if (!controller.isClean) return;
     if (initialContent === controller.lastSaved) {
       if (controller.hasSavedLocally) controller.mark(initialContent);
       return;
@@ -2027,7 +2027,11 @@ export function useBlockFieldEditor({
         return;
       }
       // A refused save waits for the newer text, which hasn't arrived.
-      if (controller.pending === controller.lastSaved || revision.stale) {
+      if (
+        (controller.pending === controller.lastSaved &&
+          controller.lastError === null) ||
+        revision.stale
+      ) {
         return;
       }
       const sent = keepaliveSaveRef.current?.({

@@ -74,12 +74,17 @@ export default defineAction({
         propertyId: null,
         name: DEFAULT_BLOCKS_FIELD_NAME,
         primary: true,
-        content:
-          snapshot?.content ??
-          (fresh.resource.content as string | null | undefined) ??
-          "",
+        content: (fresh.resource.content as string | null | undefined) ?? "",
       });
     }
+
+    const sameCapturedField =
+      selected?.property.definition.id ===
+        freshSelected.property.definition.id &&
+      (freshSelected.primary
+        ? snapshot?.kind === "document"
+        : snapshot?.kind === "property" &&
+          snapshot.propertyId === freshSelected.property.definition.id);
 
     return wordCountResult({
       documentId,
@@ -89,7 +94,7 @@ export default defineAction({
       name: freshSelected.property.definition.name,
       primary: freshSelected.primary,
       content:
-        snapshot?.content ??
+        (sameCapturedField ? snapshot?.content : undefined) ??
         (freshSelected.primary
           ? ((fresh.resource.content as string | null | undefined) ?? "")
           : (freshSelected.property.value as string)),
