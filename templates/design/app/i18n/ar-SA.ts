@@ -231,6 +231,23 @@ export default {
     expandSidebar: "توسيع الشريط الجانبي",
     collapseSidebar: "طي الشريط الجانبي",
   },
+  gettingStarted: {
+    title: "ابدأ",
+    progress: "اكتمل {{completeCount}} من {{totalCount}}",
+    collapse: "طي",
+    expand: "توسيع",
+    completed: "مكتمل",
+    loadError: "تعذّر تحميل القائمة",
+    retry: "إعادة المحاولة",
+    steps: {
+      createDesign: "أنشئ تصميمك الأول",
+      addBrand: "أضف علامتك التجارية",
+      useRealData: "استخدم بياناتك الحقيقية",
+      shareFeedback: "شارك للحصول على ملاحظات",
+      inviteTeammate: "ادعُ زميلًا",
+      saveTemplate: "احفظ تصميمًا كقالب",
+    },
+  },
   settings: {
     agentTitle: "إدارة الوكيل",
     agentDescription:
