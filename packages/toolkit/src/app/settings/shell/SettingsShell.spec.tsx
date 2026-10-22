@@ -457,6 +457,37 @@ describe("SettingsShell", () => {
     ).toBeNull();
   });
 
+  it("renders an opted-in app page widget slot after the page content", async () => {
+    await render({
+      appSettingsPages: [
+        {
+          ...appPage("app-help", "App help"),
+          widgetSlot: <div data-testid="settings-help-widget">Help</div>,
+        },
+      ],
+      initialValue: "app-help",
+      value: "app-help",
+    });
+
+    const widget = container.querySelector('[data-settings-widget-slot=""]');
+    expect(widget?.textContent).toBe("Help");
+    expect(widget?.previousElementSibling?.getAttribute("data-testid")).toBe(
+      "page",
+    );
+  });
+
+  it("does not render an app page widget slot when it is omitted", async () => {
+    await render({
+      appSettingsPages: [appPage("app-help", "App help")],
+      initialValue: "app-help",
+      value: "app-help",
+    });
+
+    expect(
+      container.querySelector('[data-settings-widget-slot=""]'),
+    ).toBeNull();
+  });
+
   it("keeps template tabs separate when an app page uses the same id", async () => {
     await render({
       appSettingsPages: [

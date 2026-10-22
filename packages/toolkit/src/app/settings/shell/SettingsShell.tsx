@@ -956,6 +956,9 @@ function SettingsShellContent({
                 <Page key={activePage.id} {...pageProps} />
               </Suspense>
             ) : null}
+            {activePage?.group === "app" && activePage.widgetSlot != null ? (
+              <div data-settings-widget-slot="">{activePage.widgetSlot}</div>
+            ) : null}
           </div>
         </div>
         {agentPanel}

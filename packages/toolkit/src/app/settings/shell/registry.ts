@@ -1,7 +1,7 @@
 import type { LabStates } from "@agent-native/core/client/labs/use-lab";
 import type { CoreSettingsPageId } from "@agent-native/core/navigation/settings-redirects";
 import type { OrgRole } from "@agent-native/core/org/types";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 import type { SettingsBridge } from "./bridge.js";
 import type { SettingsPageIcon } from "./types.js";
@@ -83,6 +83,8 @@ export interface SettingsPageDefinition {
   icon: SettingsPageIcon;
   visible?: (context: SettingsPageContext, bridge: SettingsBridge) => boolean;
   component: ComponentType<SettingsPageProps>;
+  /** Optional app-owned content rendered after the page on app settings pages. */
+  widgetSlot?: ReactNode;
   subpages?: readonly SettingsSubpageDefinition[];
   searchEntries?: readonly SettingsPageSearchEntry[];
   /** Rendered at the right of the sticky header. */
