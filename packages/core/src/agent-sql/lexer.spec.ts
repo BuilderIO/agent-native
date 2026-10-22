@@ -169,6 +169,64 @@ describe("lexAgentSql (bigquery)", () => {
     expect(tokens.filter((t) => t.kind === "string")).toHaveLength(6);
   });
 
+  const literalForms = [
+    "",
+    "r",
+    "R",
+    "b",
+    "B",
+    "rb",
+    "rB",
+    "Rb",
+    "RB",
+    "br",
+    "bR",
+    "Br",
+    "BR",
+  ].flatMap((prefix) =>
+    ["'", '"', "'''", '"""'].map((quote) => ({
+      prefix,
+      quote,
+      form: `${prefix}${quote}`,
+    })),
+  );
+
+  it.each(literalForms)(
+    "pairs backslashes before delimiters in $form literals",
+    ({ prefix, quote }) => {
+      const literal = `${prefix}${quote}\\${quote}inside${quote}`;
+      const sql = `SELECT ${literal}; DELETE FROM audit_rows WHERE TRUE; -- ${quote}`;
+      const tokens = bq(sql);
+      expect(
+        tokens
+          .filter((token) => token.kind === "string")
+          .map((token) => token.text),
+      ).toEqual([literal]);
+      expect(tokens.filter((token) => token.text === ";")).toHaveLength(2);
+      expect(
+        tokens
+          .filter((token) => token.kind === "word")
+          .map((token) => token.value),
+      ).toEqual(["select", "delete", "from", "audit_rows", "where", "true"]);
+      for (const token of tokens) {
+        expect(sql.slice(token.start, token.end)).toBe(token.text);
+      }
+    },
+  );
+
+  it.each(literalForms)(
+    "closes $form literals after an even backslash run",
+    ({ prefix, quote }) => {
+      const literal = `${prefix}${quote}tail\\\\${quote}`;
+      expect(
+        bq(`SELECT ${literal} FROM audit_rows`).map((token) => token.text),
+      ).toEqual(["SELECT", literal, "FROM", "audit_rows"]);
+      expect(() => bq(`SELECT ${prefix}${quote}tail\\${quote}`)).toThrow(
+        AgentSqlSyntaxError,
+      );
+    },
+  );
+
   it("drops hash comments and does not nest block comments", () => {
     expect(bq("SELECT 1 # note\n FROM t").map((t) => t.value)).toEqual([
       "select",

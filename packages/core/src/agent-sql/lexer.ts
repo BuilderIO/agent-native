@@ -382,11 +382,14 @@ function lexBigQuery(s: Scanner): void {
       // A bare prefix letter is an identifier unless a quote follows it.
       (literal[1].length > 0 || ch === "'" || ch === '"')
     ) {
-      const raw = /[rR]/.test(literal[1]);
       s.pos += literal[1].length;
+      // A raw prefix changes only the value: GoogleSQL still pairs a
+      // backslash with the next character when finding the closing quote, so
+      // r'\'' is one literal. Ending at the escaped quote would misread every
+      // token after it.
       s.readQuoted(
         literal[2],
-        { backslashEscapes: !raw, doubledQuoteEscapes: false },
+        { backslashEscapes: true, doubledQuoteEscapes: false },
         "string",
       );
       s.push("string", start);
