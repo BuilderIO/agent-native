@@ -307,6 +307,26 @@ describe("SF-02 MCP edit beside the editor's trailing empty paragraph", () => {
     return saved!;
   }
 
+  async function openPageWithClosingHeading(): Promise<string> {
+    const body = "Opening paragraph.\n\n## Closing heading";
+    prosemirrorJSONToYXmlFragment(
+      createContentEditorStructuralSchema(),
+      nfmToDoc(body),
+      ydoc.getXmlFragment("default"),
+    );
+    await show({
+      content: body,
+      revision: "rev-1",
+      updatedAt: new Date(1_000).toISOString(),
+      collabRevision: null,
+    });
+    expect(
+      editor().state.doc.lastChild?.type.name,
+      "the editor keeps an empty paragraph after the heading",
+    ).toBe("paragraph");
+    return body;
+  }
+
   /** Place a copy of the saved video between two headings over MCP. */
   function placeOverMcp(saved: string): string {
     return [
@@ -316,6 +336,11 @@ describe("SF-02 MCP edit beside the editor's trailing empty paragraph", () => {
       saved,
     ].join("\n\n");
   }
+
+  it("a closing heading keeps its saved body while the editor adds an empty paragraph", async () => {
+    const body = await openPageWithClosingHeading();
+    expect(canonicalizeNfm(shownBody())).toBe(canonicalizeNfm(body));
+  });
 
   it(
     "legacy page: the open tab keeps an MCP edit made beside a video it just uploaded",
@@ -344,22 +369,7 @@ describe("SF-02 MCP edit beside the editor's trailing empty paragraph", () => {
     "legacy page: the open tab keeps an MCP append after a closing heading",
     knownLossTest(LEGACY_LOSS),
     async () => {
-      const body = "Opening paragraph.\n\n## Closing heading";
-      prosemirrorJSONToYXmlFragment(
-        createContentEditorStructuralSchema(),
-        nfmToDoc(body),
-        ydoc.getXmlFragment("default"),
-      );
-      await show({
-        content: body,
-        revision: "rev-1",
-        updatedAt: new Date(1_000).toISOString(),
-        collabRevision: null,
-      });
-      expect(
-        editor().state.doc.lastChild?.type.name,
-        "the editor keeps an empty paragraph after the heading",
-      ).toBe("paragraph");
+      const body = await openPageWithClosingHeading();
 
       const appended = `${body}\n\nParagraph the agent appended over MCP.`;
       await show({
