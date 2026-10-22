@@ -43,6 +43,8 @@ export interface ResolvedSettingsRoute extends SettingsRoute {
 export interface ResolveSettingsRouteOptions {
   /** Tabs on the app's General page, routed `/settings/app/<id>`. */
   appAreaIds?: readonly string[];
+  /** Derived template pages take precedence over same-named app-owned pages. */
+  templateTabPageIds?: ReadonlyMap<string, string>;
   /**
    * The tab a controlled template chose. A bare `/settings` opens it, which
    * covers the moment between a template stripping `?section=` from the URL
@@ -167,9 +169,14 @@ export function resolveSettingsTabValue(
   value: string,
   pages: readonly SettingsPageDefinition[],
   appAreaIds: readonly string[] = [],
+  templateTabPageIds?: ReadonlyMap<string, string>,
 ): ResolvedSettingsRoute {
   const tab = value.trim();
   if (!tab) return NO_ROUTE;
+  const templatePage = templateTabPageIds?.get(tab);
+  if (templatePage && pages.some((page) => page.id === templatePage)) {
+    return { page: templatePage, sub: null, anchor: null, legacy: true };
+  }
   const appPage = pages.find(
     (page) =>
       isAppPage(page) && (page.id === tab || page.legacyTabIds?.includes(tab)),
@@ -266,11 +273,21 @@ export function resolveSettingsRoute(
   }
   const section = settingsSectionParam(location.search);
   if (section) {
-    const route = resolveSettingsTabValue(section, pages, options.appAreaIds);
+    const route = resolveSettingsTabValue(
+      section,
+      pages,
+      options.appAreaIds,
+      options.templateTabPageIds,
+    );
     if (route.page) return route;
   }
   if (options.tabValue) {
-    return resolveSettingsTabValue(options.tabValue, pages, options.appAreaIds);
+    return resolveSettingsTabValue(
+      options.tabValue,
+      pages,
+      options.appAreaIds,
+      options.templateTabPageIds,
+    );
   }
   return NO_ROUTE;
 }

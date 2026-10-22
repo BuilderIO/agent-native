@@ -291,6 +291,124 @@ describe("SettingsShell", () => {
     ).toBe(false);
   });
 
+  it("renders ordered app sections with page, link, and action entries", async () => {
+    const onAddWorkspace = vi.fn();
+    const customPage = {
+      ...appPage("workspace-alpha", "Workspace Alpha", 25, AppSettingsPage),
+      subpages: [{ id: "settings", label: "Workspace settings" }],
+    };
+
+    await render({
+      appSettingsPages: [customPage],
+      appNavigationSections: [
+        {
+          id: "workspaces",
+          label: "Workspaces",
+          items: [
+            {
+              id: "workspace-settings",
+              type: "page",
+              pageId: "workspace-alpha",
+              sub: "settings",
+              label: "Workspace settings",
+            },
+            {
+              id: "workspace-help",
+              type: "link",
+              label: "Workspace help",
+              href: "/help",
+              visibleWhen: () => false,
+            },
+            {
+              id: "add-workspace",
+              type: "action",
+              label: "Add workspace",
+              onSelect: onAddWorkspace,
+            },
+          ],
+        },
+        {
+          id: "administration",
+          label: "Administration",
+          visibleWhen: (context) => context.isAdmin,
+          items: [
+            {
+              id: "invite-member",
+              type: "action",
+              label: "Invite member",
+              onSelect: () => undefined,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(
+      [...rail().querySelectorAll<HTMLElement>("[data-settings-group]")].map(
+        (group) => group.dataset.settingsGroup,
+      ),
+    ).toEqual(["workspaces"]);
+    expect(
+      rail().querySelector('[data-settings-link="workspace-help"]'),
+    ).toBeNull();
+    expect(
+      rail()
+        .querySelector('[data-settings-page="workspace-alpha"]')
+        ?.getAttribute("href"),
+    ).toBe("/settings/workspace-alpha/settings");
+
+    act(() => {
+      rail()
+        .querySelector<HTMLButtonElement>(
+          '[data-settings-action="add-workspace"]',
+        )
+        ?.click();
+    });
+    expect(onAddWorkspace).toHaveBeenCalled();
+
+    clickPage("workspace-alpha");
+    await waitFor(() =>
+      Boolean(container.querySelector('[data-testid="app-settings-page"]')),
+    );
+  });
+
+  it("keeps controlled template tabs ahead of a same-id app page", async () => {
+    const extraTab = {
+      id: "workspace-alpha",
+      label: "Template workspace",
+      content: "Template workspace content",
+    };
+    const customPage = appPage(
+      "workspace-alpha",
+      "Workspace alpha",
+      5,
+      AppSettingsPage,
+    );
+
+    await render({
+      value: "profile",
+      initialValue: "profile",
+      extraTabs: [extraTab],
+      appSettingsPages: [customPage],
+    });
+    await act(async () => {
+      root.render(
+        renderWithToolkitI18n(
+          <SettingsShell
+            appName="Clips"
+            value="workspace-alpha"
+            initialValue="profile"
+            extraTabs={[extraTab]}
+            appSettingsPages={[customPage]}
+          />,
+        ),
+      );
+    });
+    await waitFor(() =>
+      window.location.pathname.endsWith("/app-workspace-alpha"),
+    );
+  });
+
   it("mounts an app chat panel and replaces the shared toggle by default", async () => {
     await render({
       agentPanel: <div data-testid="app-agent-panel">Local chat</div>,
