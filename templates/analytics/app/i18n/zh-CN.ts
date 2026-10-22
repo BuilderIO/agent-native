@@ -1312,6 +1312,8 @@ export default {
     drilldownNoRecords: "没有匹配的记录",
     drilldownNoRecordsIncomplete:
       "未加载任何记录。结果不完整，因此仍可能有匹配的记录。",
+    drilldownNoLoadedMatchesIncomplete:
+      "已加载的记录中没有匹配项。结果不完整，因此仍可能有其他匹配的记录。",
     drilldownLoadFailed: "无法加载记录",
     drilldownOverByteCap:
       "这些记录将读取超过 {{gib}} GiB 的数据，因此未加载。请缩小仪表板的筛选条件或日期范围后重试。",

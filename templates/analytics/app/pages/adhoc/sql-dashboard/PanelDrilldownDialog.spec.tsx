@@ -371,6 +371,45 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     },
   );
 
+  it.each([
+    ["complete", "sqlDashboard.drilldownNoRecords"],
+    ["partial", "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
+    ["truncated", "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
+  ])(
+    "says what a filter that hides every loaded row proves: %s",
+    async (state, message) => {
+      mocks.actionQuery = {
+        data: { drilldown: { sql: "SELECT record FROM events LIMIT 500" } },
+        isSuccess: true,
+      };
+      mocks.sqlRows = [{ record: "loaded" }];
+      mocks.sqlPartial = state === "partial";
+      mocks.sqlTruncated = state === "truncated";
+      await render();
+      const input = container.querySelector("input")!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, "absent");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const shown = container.textContent ?? "";
+      expect(shown).toMatch(
+        new RegExp(`${message.replace(".", "\\.")}(?![A-Za-z])`),
+      );
+      for (const other of [
+        "sqlDashboard.drilldownNoRecords",
+        "sqlDashboard.drilldownNoRecordsIncomplete",
+        "sqlDashboard.drilldownNoLoadedMatchesIncomplete",
+      ].filter((key) => key !== message)) {
+        expect(shown).not.toMatch(
+          new RegExp(`${other.replace(".", "\\.")}(?![A-Za-z])`),
+        );
+      }
+    },
+  );
+
   it.each(["loading", "refetching", "failed"])(
     "does not show export warnings for a %s record query",
     async (state) => {

@@ -968,6 +968,8 @@ export default {
     drilldownNoRecords: "No matching records",
     drilldownNoRecordsIncomplete:
       "No records loaded. The result is incomplete, so some records may still match.",
+    drilldownNoLoadedMatchesIncomplete:
+      "No loaded records match. The result is incomplete, so other records may still match.",
     drilldownLoadFailed: "Couldn't load records",
     drilldownOverByteCap:
       "These records would read more than {{gib}} GiB, so they didn't load. Narrow the dashboard's filters or date range and try again.",
