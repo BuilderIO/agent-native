@@ -473,6 +473,7 @@ const databaseMessages = {
   listRowsMedium: "Medium",
   listRowsBold: "Bold",
   listRowsNothing: "Nothing",
+  listRowsPageText: "Page text",
   listRowsOneLine: "1 line",
   listRowsLineCount: "{{count}} lines",
   listRowsNoStatus: "No status",

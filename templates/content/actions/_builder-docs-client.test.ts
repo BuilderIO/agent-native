@@ -634,6 +634,7 @@ describe("Builder docs DB-backed source", () => {
     expect(result.executed).toBe(true);
     expect(builderWriteMock.executeBuilderCmsWrite).toHaveBeenCalledWith(
       expect.objectContaining({
+        legacyOnly: true,
         request: expect.objectContaining({
           method: "PATCH",
           body: {

@@ -206,6 +206,7 @@ const database = {
   listRowsMedium: "중간",
   listRowsBold: "굵게",
   listRowsNothing: "없음",
+  listRowsPageText: "페이지 텍스트",
   listRowsOneLine: "1줄",
   listRowsLineCount: "{{count}}줄",
   listRowsNoStatus: "상태 없음",
