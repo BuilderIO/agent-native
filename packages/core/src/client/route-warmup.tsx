@@ -66,6 +66,15 @@ const MODULE_WARMUP_DELAY_AFTER_LOAD_MS = 4_000;
 const warmedDataRoutes = new Set<string>();
 const warmedRouteAssets = new Set<string>();
 const fetchedRouteAssets = new Set<string>();
+// A later scan retries a failed fetch, at most twice and no sooner than 5
+// seconds after the last failure, so page updates during an outage don't set
+// the request rate.
+const ROUTE_ASSET_FETCH_ATTEMPTS = 3;
+const ROUTE_ASSET_RETRY_DELAY_MS = 5_000;
+const failedRouteAssetFetches = new Map<
+  string,
+  { attempts: number; retryAt: number }
+>();
 
 let cachedManifest: ReactRouterManifest | undefined;
 let cachedManifestRoutesSignature = "";
@@ -420,16 +429,32 @@ function fetchRouteAssetsForHref(href: string) {
     if (warmedRouteAssets.has(assetUrl) || fetchedRouteAssets.has(assetUrl)) {
       continue;
     }
+    const failed = failedRouteAssetFetches.get(assetUrl);
+    if (
+      failed &&
+      (failed.attempts >= ROUTE_ASSET_FETCH_ATTEMPTS ||
+        Date.now() < failed.retryAt)
+    ) {
+      continue;
+    }
     fetchedRouteAssets.add(assetUrl);
+    const onFailure = () => {
+      fetchedRouteAssets.delete(assetUrl);
+      failedRouteAssetFetches.set(assetUrl, {
+        attempts: (failed?.attempts ?? 0) + 1,
+        retryAt: Date.now() + ROUTE_ASSET_RETRY_DELAY_MS,
+      });
+    };
     window
       .fetch(assetUrl, { credentials: "same-origin", priority: "low" })
       .then((response) => {
-        if (response.ok) return response.arrayBuffer();
-        fetchedRouteAssets.delete(assetUrl);
+        if (response.ok) {
+          failedRouteAssetFetches.delete(assetUrl);
+          return response.arrayBuffer();
+        }
+        onFailure();
       })
-      .catch(() => {
-        fetchedRouteAssets.delete(assetUrl);
-      });
+      .catch(onFailure);
   }
 }
 
@@ -516,6 +541,7 @@ function resetRouteWarmupCachesForTests() {
   warmedDataRoutes.clear();
   warmedRouteAssets.clear();
   fetchedRouteAssets.clear();
+  failedRouteAssetFetches.clear();
 }
 
 export function AgentNativeRouteWarmup({

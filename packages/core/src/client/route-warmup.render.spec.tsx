@@ -152,27 +152,36 @@ describe("AgentNativeRouteWarmup", () => {
     expect(warmedModulePaths()).toHaveLength(3);
   });
 
-  it("fetches a module again after a failed fetch during the hold", async () => {
+  it("retries a failed module fetch during the hold after a delay, at most three times", async () => {
     let screenshotFetches = 0;
     fetchMock.mockImplementation(async (input: unknown) => {
       const path = new URL(String(input), window.location.href).pathname;
-      if (
-        path === "/assets/screenshots-DeF456.js" &&
-        ++screenshotFetches === 1
-      ) {
+      if (path === "/assets/screenshots-DeF456.js") {
+        screenshotFetches++;
         return new Response("", { status: 503 });
       }
       return new Response("{}", { status: 200 });
     });
-    setReadyState("complete");
+    setReadyState("loading");
     await mount();
     expect(screenshotFetches).toBe(1);
 
-    await act(async () => {
-      document.body.appendChild(document.createElement("div"));
-      await vi.advanceTimersByTimeAsync(0);
-    });
+    async function rescanAfter(ms: number) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+        document.body.appendChild(document.createElement("div"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+    await rescanAfter(0);
+    await rescanAfter(4_000);
+    expect(screenshotFetches).toBe(1);
+    await rescanAfter(1_000);
     expect(screenshotFetches).toBe(2);
+    await rescanAfter(5_000);
+    expect(screenshotFetches).toBe(3);
+    await rescanAfter(60_000);
+    expect(screenshotFetches).toBe(3);
     expect(
       fetchedPaths().filter((path) => path === "/assets/root-AbC123.js"),
     ).toHaveLength(1);
@@ -226,6 +235,20 @@ describe("AgentNativeRouteWarmup", () => {
     root = null;
 
     await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(warmedModulePaths()).toEqual([]);
+  });
+
+  it("drops the hold when it unmounts before the load event", async () => {
+    setReadyState("loading");
+    await mount();
+    await act(async () => root?.unmount());
+    root = null;
+
+    setReadyState("complete");
+    await act(async () => {
+      window.dispatchEvent(new Event("load"));
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(warmedModulePaths()).toEqual([]);
