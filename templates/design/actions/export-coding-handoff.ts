@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, isOutsideAgentCall } from "@agent-native/core";
 import {
   signShortLivedToken,
   buildDeepLink,
@@ -33,8 +33,7 @@ function designDeepLink(designId: string): string {
 }
 
 export default defineAction({
-  // Direct outside calls need approval; the app agent (including ask_app) uses "tool".
-  needsApproval: (_args, ctx) => ctx?.caller === "mcp" || ctx?.caller === "a2a",
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,

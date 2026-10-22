@@ -1,6 +1,10 @@
 import { createRequire } from "node:module";
 
 import {
+  actionCallIntent,
+  preparedCallNeedsApproval,
+} from "@agent-native/core/action";
+import {
   createMCPServerForRequest,
   type MCPConfig,
 } from "@agent-native/core/mcp";
@@ -28,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   rsvpEvent: vi.fn(),
   getUserSetting: vi.fn(),
   approval: vi.fn(),
+  deleteDrafts: vi.fn(),
 }));
 
 const { approvalAuth, approvalStore } = vi.hoisted(() => ({
@@ -64,6 +69,12 @@ vi.mock("@agent-native/core/event-bus", () => ({
   registerEvent: vi.fn(),
 }));
 vi.mock("@agent-native/core/tracking", () => ({ track: vi.fn() }));
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
+  deleteAppStateByPrefix: mocks.deleteDrafts,
+}));
 vi.mock("../onboarding.js", () => ({}));
 vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
 vi.mock("./google-calendar.js", () => ({
@@ -124,6 +135,7 @@ type ListedTool = {
 async function clientFor(
   userEmail = ownerEmail,
   oauthScopes = ["mcp:read", "mcp:write"],
+  supportsApproval = true,
 ) {
   const server = await createMCPServerForRequest(
     {
@@ -149,8 +161,10 @@ async function clientFor(
     { name: "calendar-write-test", version: "1.0.0" },
     { versionNegotiation: { mode: "auto" } },
   );
-  client.registerCapabilities({ elicitation: { form: {} } });
-  client.setRequestHandler("elicitation/create", mocks.approval);
+  if (supportsApproval) {
+    client.registerCapabilities({ elicitation: { form: {} } });
+    client.setRequestHandler("elicitation/create", mocks.approval);
+  }
   closeClients.push(async () => {
     await client.close();
     await server.close();
@@ -180,6 +194,7 @@ describe("Calendar direct MCP writes", () => {
     mocks.createEvent.mockResolvedValue({ id: "event-1" });
     mocks.updateEvent.mockResolvedValue({});
     mocks.rsvpEvent.mockResolvedValue(undefined);
+    mocks.deleteDrafts.mockResolvedValue(3);
     mocks.approval.mockResolvedValue({
       action: "accept",
       content: { decision: "deny" },
@@ -247,6 +262,61 @@ describe("Calendar direct MCP writes", () => {
     );
     expect(mocks.getAuthStatus).toHaveBeenCalledWith(ownerEmail, undefined);
     expect(askAgent).not.toHaveBeenCalled();
+  });
+
+  it("refuses bulk draft deletion when the MCP host cannot request approval", async () => {
+    const client = await clientFor(ownerEmail, undefined, false);
+    const result = await client.callTool({
+      name: "manage-event-draft",
+      arguments: { action: "delete-all" },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain("actionApproval");
+    expect(JSON.stringify(result.content)).toContain(
+      "did not declare the required capability",
+    );
+    expect(mocks.deleteDrafts).not.toHaveBeenCalled();
+  });
+
+  it("limits draft approval to outside bulk deletion", async () => {
+    for (const action of ["create", "update", "delete", "delete-all"]) {
+      const call = await actionCallIntent(manageEventDraft, {
+        action,
+        id: "draft-test",
+      });
+      if (!call.valid) throw call.error;
+      expect(
+        await preparedCallNeedsApproval(manageEventDraft, call, {
+          caller: "tool",
+        }),
+      ).toBe(false);
+      expect(
+        await preparedCallNeedsApproval(manageEventDraft, call, {
+          caller: "mcp",
+        }),
+      ).toBe(action === "delete-all");
+    }
+  });
+
+  it("deletes all drafts only after the MCP client approves the call", async () => {
+    mocks.approval.mockResolvedValue({
+      action: "accept",
+      content: { decision: "approve" },
+    });
+    const client = await clientFor();
+    const result = await client.callTool({
+      name: "manage-event-draft",
+      arguments: { action: "delete-all" },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(mocks.approval).toHaveBeenCalledOnce();
+    expect(mocks.deleteDrafts).toHaveBeenCalledWith("calendar-draft-");
+    expect(result.content).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Deleted 3 calendar event draft(s)"),
+      }),
+    ]);
   });
 
   it.each([undefined, "single", "all"] as const)(

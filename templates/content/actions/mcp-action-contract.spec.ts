@@ -1,3 +1,7 @@
+import {
+  actionCallIntent,
+  preparedCallNeedsApproval,
+} from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import { mcpToolInputSchema } from "../../../packages/core/src/mcp/tool-input-schema.js";
@@ -101,6 +105,44 @@ describe("Content action-owned agent catalogs", () => {
       addContentDatabaseSourceFieldProperty,
     "manage-content-database-migration": manageContentDatabaseMigration,
   };
+
+  it("requires approval for outside calls while preserving ordinary in-app tools", async () => {
+    const call = await actionCallIntent(shareLocalFileDocument, {
+      id: "local-file-test",
+    });
+    if (!call.valid) throw call.error;
+    for (const [ctx, expected] of [
+      [{ caller: "frontend" }, false],
+      [{ caller: "tool" }, false],
+      [{ caller: "http" }, true],
+      [{ caller: "cli" }, true],
+      [{ caller: "mcp-widget" }, true],
+      [{ caller: "mcp-widget-write" }, true],
+      [{ caller: "automation" }, true],
+      [{ caller: "mcp" }, true],
+      [{ caller: "webmcp" }, true],
+      [{ caller: "a2a" }, true],
+      [{ caller: "tool", networkProtocol: "mcp" }, true],
+      [{ caller: "tool", networkProtocol: "a2a" }, true],
+      [{ caller: "tool", networkProtocol: "provider-api" }, true],
+      [
+        {
+          caller: "tool",
+          automation: {
+            triggerId: "trigger-test",
+            triggerName: "Test automation",
+            policyId: "policy-test",
+          },
+        },
+        true,
+      ],
+    ] as const) {
+      expect(
+        await preparedCallNeedsApproval(shareLocalFileDocument, call, ctx),
+        JSON.stringify(ctx),
+      ).toBe(expected);
+    }
+  });
 
   it("owns compact MCP membership beside each directly callable action", () => {
     for (const action of Object.values(directMcpActions)) {

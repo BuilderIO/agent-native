@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, isOutsideAgentCall } from "@agent-native/core";
 import {
   readAppState,
   writeAppState,
@@ -60,6 +60,8 @@ function setIfPresent<T extends keyof CalendarEventDraft>(
 
 export default defineAction({
   mcpTool: true,
+  needsApproval: (args, ctx) =>
+    args.action === "delete-all" && isOutsideAgentCall(ctx),
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,

@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, isOutsideAgentCall } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -76,8 +76,7 @@ function serializeDocument(row: typeof schema.documents.$inferSelect) {
 
 export default defineAction({
   mcpTool: true,
-  // Direct outside calls need approval; the app agent (including ask_app) uses "tool".
-  needsApproval: (_args, ctx) => ctx?.caller === "mcp" || ctx?.caller === "a2a",
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
