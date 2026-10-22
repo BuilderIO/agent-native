@@ -468,7 +468,13 @@ export interface CommandMenuProps<TAppContext = unknown> {
   renderResultsPosition?: "before" | "after";
   renderContent?: (options: {
     search: string;
-    renderList: (results?: ReactNode) => ReactNode;
+    renderList: (
+      results?: ReactNode,
+      options?: {
+        /** Reports rows inside an opaque custom results component. */
+        hasSelectableItems?: boolean;
+      },
+    ) => ReactNode;
   }) => ReactNode;
   placeholder?: string;
   inputLabel?: string;
@@ -877,12 +883,19 @@ export function CommandMenu<TAppContext = unknown>({
     setTimeout(() => command.onSelect?.(appCommandContext), 50);
   };
 
-  const renderList = (results?: ReactNode) => {
+  const renderList = (
+    results?: ReactNode,
+    options?: {
+      hasSelectableItems?: boolean;
+    },
+  ) => {
     const usesDefaultResults = results === undefined;
     const renderedResults = usesDefaultResults ? dynamicResults : results;
-    const hasDynamicItems = usesDefaultResults
-      ? (renderResultsHasItems?.(search) ?? hasCommandItems(renderedResults))
-      : hasCommandItems(renderedResults);
+    const hasDynamicItems =
+      options?.hasSelectableItems ??
+      (usesDefaultResults
+        ? (renderResultsHasItems?.(search) ?? hasCommandItems(renderedResults))
+        : hasCommandItems(renderedResults));
     const hasResults = hasCommandResults || hasDynamicItems;
     const list = (
       <CommandListPrimitive>

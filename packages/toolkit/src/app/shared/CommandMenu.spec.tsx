@@ -2101,6 +2101,44 @@ describe("CommandMenu", () => {
     expect(hasDefaultResults).not.toHaveBeenCalled();
   });
 
+  it("accepts a presence hint for custom component results", () => {
+    function EmptyCustomResults() {
+      return null;
+    }
+
+    const hasDefaultResults = vi.fn(() => true);
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          renderResults={() => (
+            <CommandMenu.Group heading="Default results">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Default result
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          )}
+          renderResultsHasItems={hasDefaultResults}
+          renderContent={({ renderList }) =>
+            renderList(<EmptyCustomResults />, { hasSelectableItems: false })
+          }
+          emptyState="No matching records"
+        >
+          {null}
+        </CommandMenu>,
+      );
+    });
+
+    expect(document.body.textContent).not.toContain("Default result");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "No matching records",
+    );
+    expect(hasDefaultResults).not.toHaveBeenCalled();
+  });
+
   it("honors first and none initial selection modes", () => {
     const groups = [
       {
