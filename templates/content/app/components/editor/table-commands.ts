@@ -55,9 +55,23 @@ const isHeaderCell = (cell: ProseMirrorNode | undefined) =>
   cell?.type.name === "tableHeader";
 
 // The cells are what the table shows; NormalizeTableHeaders keeps the
-// table's own attributes in step with them.
+// table's own attributes in step with them. In a table one row tall or one
+// column wide, a header row and a header column make the same cells headers,
+// so there the attributes say which the table has.
 export function getTableHeaders(table: ProseMirrorNode): TableHeaders {
   const rows = children(table);
+  const saved = {
+    row: table.attrs.headerRow === true,
+    column: table.attrs.headerColumn === true,
+  };
+  const savedMatchesCells = rows.every((row, rowIndex) =>
+    children(row).every(
+      (cell, columnIndex) =>
+        isHeaderCell(cell) ===
+        ((saved.row && rowIndex === 0) || (saved.column && columnIndex === 0)),
+    ),
+  );
+  if (savedMatchesCells) return saved;
   const firstRow = rows[0] ? children(rows[0]) : [];
   return {
     row: firstRow.length > 0 && firstRow.every(isHeaderCell),
@@ -167,7 +181,7 @@ export function setColumnColor(
   columnIndex: number,
   color: string | null,
 ) {
-  const columns = getColumnMeta(table.node);
+  const columns = getColumnMeta(tr.doc.nodeAt(table.pos)!);
   while (columns.length <= columnIndex) columns.push({});
   columns[columnIndex] = { ...columns[columnIndex], color };
   return setColumnMeta(tr, table.pos, columns);
@@ -248,6 +262,55 @@ export function deleteTableColumn(
 ) {
   removeColumn(tr, tableRect(tr.doc, table.pos), columnIndex);
   return spliceColumnMeta(tr, table.pos, columnIndex, 1);
+}
+
+// A merged cell's row and column menus act on every row or column it covers.
+type CellSpan = Pick<TableRect, "left" | "right" | "top" | "bottom">;
+
+export function setColumnColors(
+  tr: Transaction,
+  table: TableAt,
+  cell: CellSpan,
+  color: string | null,
+) {
+  for (let column = cell.left; column < cell.right; column += 1) {
+    setColumnColor(tr, table, column, color);
+  }
+  return tr;
+}
+
+export function setRowColors(
+  tr: Transaction,
+  table: TableAt,
+  cell: CellSpan,
+  color: string | null,
+) {
+  for (let row = cell.top; row < cell.bottom; row += 1) {
+    setRowColor(tr, table, row, color);
+  }
+  return tr;
+}
+
+export function deleteTableColumns(
+  tr: Transaction,
+  table: TableAt,
+  cell: CellSpan,
+) {
+  for (let column = cell.right - 1; column >= cell.left; column -= 1) {
+    deleteTableColumn(tr, table, column);
+  }
+  return tr;
+}
+
+export function deleteTableRows(
+  tr: Transaction,
+  table: TableAt,
+  cell: CellSpan,
+) {
+  for (let row = cell.bottom - 1; row >= cell.top; row -= 1) {
+    deleteTableRow(tr, table, row);
+  }
+  return tr;
 }
 
 export function insertTableRow(
