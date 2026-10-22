@@ -6,8 +6,8 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
-import { assertCommentWritingAccess } from "../server/lib/comment-writing-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 import {
   displayCommentMentions,
@@ -51,7 +51,7 @@ export default defineAction({
       .limit(1);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    await assertCommentWritingAccess(existing.recordingId);
+    await assertCommentAccess(existing.recordingId);
 
     if (!sameOwnerEmail(existing.authorEmail, userEmail)) {
       throw new ForbiddenError(

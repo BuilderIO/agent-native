@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingReaction } from "../server/lib/activity-notifications.js";
-import { assertCommentWritingAccess } from "../server/lib/comment-writing-access.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 
 const MAX_CAS_ATTEMPTS = 3;
 
@@ -33,7 +33,7 @@ export default defineAction({
       if (!existing) throw new Error(`Comment not found: ${args.commentId}`);
 
       if (attempt === 0) {
-        await assertCommentWritingAccess(existing.recordingId);
+        await assertCommentAccess(existing.recordingId);
       }
 
       const previousJson = existing.emojiReactionsJson;

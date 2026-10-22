@@ -9,8 +9,8 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
-import { assertCommentWritingAccess } from "../server/lib/comment-writing-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 const mentionSchema = z.object({
@@ -57,7 +57,7 @@ export default defineAction({
       .describe("Organization members mentioned in the comment"),
   }),
   run: async (args) => {
-    await assertCommentWritingAccess(args.recordingId);
+    await assertCommentAccess(args.recordingId);
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {

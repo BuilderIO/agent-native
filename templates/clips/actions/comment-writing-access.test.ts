@@ -182,6 +182,16 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  it("refuses a trashed recording for a viewer", async () => {
+    mockAssertAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { enableComments: true, trashedAt: "2026-10-22T12:00:00.000Z" },
+    });
+    await expect(run()).rejects.toBeInstanceOf(ForbiddenError);
+    expect(state.inserted).toEqual([]);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it("preserves the owner's expiry exemption when comments are enabled", async () => {
     mockAssertAccess.mockResolvedValue({
       role: "owner",

@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { assertCommentWritingAccess } from "../server/lib/comment-writing-access.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 const cliBoolean = z.preprocess((value) => {
@@ -39,7 +39,7 @@ export default defineAction({
       throw new Error("Sign in required to resolve comments.");
     }
 
-    await assertCommentWritingAccess(existing.recordingId);
+    await assertCommentAccess(existing.recordingId);
 
     if (!sameOwnerEmail(existing.authorEmail, userEmail)) {
       try {

@@ -251,14 +251,16 @@ export default defineAction({
       ? normalizeBuilderCreditsStatus(builderCreditsRaw)
       : null;
 
-    const comments = await db
-      .select()
-      .from(schema.recordingComments)
-      .where(eq(schema.recordingComments.recordingId, args.recordingId))
-      .orderBy(
-        asc(schema.recordingComments.videoTimestampMs),
-        asc(schema.recordingComments.createdAt),
-      );
+    const comments = rec.enableComments
+      ? await db
+          .select()
+          .from(schema.recordingComments)
+          .where(eq(schema.recordingComments.recordingId, args.recordingId))
+          .orderBy(
+            asc(schema.recordingComments.videoTimestampMs),
+            asc(schema.recordingComments.createdAt),
+          )
+      : [];
     const hydratedComments = await hydrateCommentAuthorNames(comments);
 
     const reactions = await db
