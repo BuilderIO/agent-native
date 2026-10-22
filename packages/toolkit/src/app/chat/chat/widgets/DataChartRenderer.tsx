@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { DATA_WIDGET_MAX_CHART_POINTS } from "@agent-native/core/data-widgets";
 
 import type { DataChartWidget as DataChartWidgetData } from "./data-widget-types.js";
 
@@ -523,11 +524,19 @@ function ChartBody({
 
 export function DataChartRenderer({ chart }: { chart: DataChartWidgetData }) {
   const t = useT();
-  const contentHeight = chart.contentHeight;
-  const contentPadding = chart.contentPadding ?? 0;
+  const renderedChart =
+    chart.data.length > DATA_WIDGET_MAX_CHART_POINTS
+      ? {
+          ...chart,
+          data: chart.data.slice(0, DATA_WIDGET_MAX_CHART_POINTS),
+        }
+      : chart;
+  const contentHeight = renderedChart.contentHeight;
+  const contentPadding = renderedChart.contentPadding ?? 0;
   const hasContentBox = contentHeight !== undefined || contentPadding > 0;
-  const labelFontFamily = LABEL_FONT_FAMILIES[chart.labelFontFamily ?? "sans"];
-  const labelFontSize = chart.labelFontSize ?? 11;
+  const labelFontFamily =
+    LABEL_FONT_FAMILIES[renderedChart.labelFontFamily ?? "sans"];
+  const labelFontSize = renderedChart.labelFontSize ?? 11;
   return (
     <div
       className="box-border w-full min-w-0 overflow-hidden"
@@ -548,9 +557,9 @@ export function DataChartRenderer({ chart }: { chart: DataChartWidgetData }) {
         preserveAspectRatio={contentHeight !== undefined ? "none" : undefined}
         fontFamily={labelFontFamily}
         role="img"
-        aria-label={chart.title ?? t("agentChat.widget.dataChart")}
+        aria-label={renderedChart.title ?? t("agentChat.widget.dataChart")}
       >
-        <ChartBody chart={chart} labelFontSize={labelFontSize} />
+        <ChartBody chart={renderedChart} labelFontSize={labelFontSize} />
       </svg>
     </div>
   );

@@ -23,6 +23,25 @@ const chart: DataChartWidgetData = {
 };
 
 describe("DataChartRenderer theme colors", () => {
+  it("renders only the points used by bounded chart validation", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: Array.from({ length: 201 }, (_, index) => ({
+            day: `Day ${index}`,
+            value: index === 200 ? 1000 : 1,
+          })),
+          valueAxisTickInterval: 1,
+        }}
+      />,
+    );
+
+    expect(Array.from(markup.matchAll(/<rect /g))).toHaveLength(200);
+  });
+
   it("resolves its series colors through app chart tokens with legacy fallbacks", () => {
     const markup = renderToStaticMarkup(<DataChartRenderer chart={chart} />);
 
