@@ -232,6 +232,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
   const saveTimer = useRef<number | undefined>(undefined);
   const pending = useRef<StepGuide | null>(null);
   const discardOnClose = useRef(false);
+  const saving = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (!sessionId) {
@@ -243,14 +244,22 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
       .catch((error) => setStatus({ kind: "error", text: errorText(error) }));
   }, [sessionId]);
 
-  const flush = useCallback(async () => {
+  // One save at a time, since each writes the same temporary file: a flush
+  // waits for the save before it, then saves whatever is newest.
+  const flush = useCallback(() => {
     window.clearTimeout(saveTimer.current);
-    const guide = pending.current;
-    if (!guide || !sessionId) return;
-    await invoke("step_guide_save", { sessionId, guide });
-    // Kept until it is saved, so a failed save is retried by the next one;
-    // an edit made while this one ran stays pending.
-    if (pending.current === guide) pending.current = null;
+    const save = saving.current
+      .catch(() => undefined)
+      .then(async () => {
+        const guide = pending.current;
+        if (!guide || !sessionId) return;
+        await invoke("step_guide_save", { sessionId, guide });
+        // Kept until it is saved, so a failed save is retried by the next
+        // one; an edit made while this one ran stays pending.
+        if (pending.current === guide) pending.current = null;
+      });
+    saving.current = save;
+    return save;
   }, [sessionId]);
 
   // Tauri waits for this handler before it closes the window, so the last

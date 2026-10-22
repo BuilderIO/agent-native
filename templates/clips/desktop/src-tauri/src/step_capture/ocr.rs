@@ -24,6 +24,9 @@ const MENU_ROW_GAP: f64 = 450.0;
 const ICON_ASPECT: f64 = 0.75;
 /// A gap wider than this many text heights starts a new phrase.
 const PHRASE_GAP: f64 = 0.75;
+/// The widest gap, in text heights, between words of one control label:
+/// about a space.
+const CONTROL_WORD_GAP: f64 = 0.4;
 /// How far a pixel's brightness must differ from a word box's background to
 /// count as ink.
 const INK_CONTRAST: i16 = 48;
@@ -40,11 +43,21 @@ pub struct TextLine {
 /// wider than a space: `File  Edit  View` are three menu titles, while
 /// `Outbox & audit` is one label.
 pub fn phrases(words: &[TextLine]) -> Vec<TextLine> {
+    phrases_within(words, PHRASE_GAP)
+}
+
+/// The words of a clicked control's label: joined only across an ordinary
+/// space, so a field's text just beside a button never joins its label.
+pub fn control_phrases(words: &[TextLine]) -> Vec<TextLine> {
+    phrases_within(words, CONTROL_WORD_GAP)
+}
+
+fn phrases_within(words: &[TextLine], max_gap: f64) -> Vec<TextLine> {
     let mut out: Vec<TextLine> = Vec::new();
     for word in words {
         let joined = out.last_mut().filter(|last| {
             let gap = word.rect.x - (last.rect.x + last.rect.width);
-            gap <= PHRASE_GAP * last.rect.height.max(word.rect.height)
+            gap <= max_gap * last.rect.height.max(word.rect.height)
         });
         match joined {
             Some(last) => {
@@ -276,10 +289,10 @@ pub fn read_label(
                 })
                 .filter(|word| !is_icon(word))
                 .collect::<Vec<_>>();
-            if at == ReadAt::MenuBar {
-                words
-            } else {
-                phrases(&words)
+            match at {
+                ReadAt::MenuBar => words,
+                ReadAt::Control => control_phrases(&words),
+                ReadAt::Window | ReadAt::MenuItem => phrases(&words),
             }
         })
         .collect::<Vec<_>>();
@@ -433,6 +446,20 @@ mod tests {
             Some("Send")
         );
         assert_eq!(clicked_label(&lines, PxPoint { x: 180.0, y: 114.0 }), None);
+
+        // A field's text close enough to join a phrase stays out of the
+        // control's label, while the label's own words still join.
+        let words = [
+            line("Add", 100.0, 100.0, 40.0),
+            line("to", 148.0, 100.0, 22.0),
+            line("cart", 178.0, 100.0, 44.0),
+            line("draft", 240.0, 100.0, 60.0),
+        ];
+        assert_eq!(phrases(&words).len(), 1);
+        assert_eq!(
+            clicked_label(&control_phrases(&words), PxPoint { x: 160.0, y: 114.0 }).as_deref(),
+            Some("Add to cart")
+        );
     }
 
     #[test]
