@@ -44,11 +44,6 @@ import {
   inferPaintType,
 } from "../inspector/DesignColorPicker";
 import {
-  GlslShaderEffectSection,
-  useScreenGlslShaders,
-  type GlslShaderPanelContext,
-} from "../inspector/GlslShaderPanel";
-import {
   InspectorControlField,
   InspectorControlPopoverContent,
 } from "../inspector/InspectorControlPopover";
@@ -56,6 +51,11 @@ import {
   hasSelectedNativeEffects,
   NativeShaderEffectSection,
 } from "../inspector/NativeShaderPanel";
+import {
+  SavedGlslEffectRow,
+  useHasSavedGlslEffect,
+} from "../inspector/saved-glsl-shader";
+import type { ShaderEditorContext } from "../shader-source-coordination";
 import type { ElementInfo } from "../types";
 import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
@@ -628,13 +628,13 @@ export function EffectsProperties({
   element,
   onStyleChange,
   onStylesChange,
-  glslShaderContext,
+  shaderContext,
   motionKeyframeContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  glslShaderContext?: GlslShaderPanelContext;
+  shaderContext?: ShaderEditorContext;
   motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
@@ -723,18 +723,11 @@ export function EffectsProperties({
     shadowLayers.length,
     reorderShadowLayers,
   );
-  const screenShaders = useScreenGlslShaders(glslShaderContext ?? {});
-  const hasShaderEffect = Boolean(
-    glslShaderContext?.nodeId &&
-    screenShaders.mounts.some(
-      (mount) =>
-        mount.nodeId === glslShaderContext.nodeId && mount.mode === "effect",
-    ),
-  );
+  const hasShaderEffect = useHasSavedGlslEffect(shaderContext);
   const hasNativeEffect = hasSelectedNativeEffects(
-    glslShaderContext?.content,
-    glslShaderContext?.nodeId,
-    glslShaderContext?.selector,
+    shaderContext?.content,
+    shaderContext?.nodeId,
+    shaderContext?.selector,
   );
   const hasEffectsContent =
     effectsAreMixed ||
@@ -811,7 +804,7 @@ export function EffectsProperties({
                 <IconBackground className="size-3.5" />
                 {"Background blur" /* i18n-ignore design effect type */}
               </DropdownMenuItem>
-              {glslShaderContext?.nodeId ? (
+              {shaderContext?.nodeId ? (
                 <DropdownMenuItem
                   className="gap-2 !text-[11px]"
                   onSelect={() => {
@@ -1020,15 +1013,11 @@ export function EffectsProperties({
               ) : null}
             </>
           )}
-          {glslShaderContext?.nodeId ? (
+          {shaderContext?.nodeId ? (
             <>
-              <GlslShaderEffectSection
-                context={glslShaderContext}
-                pickerOpen={false}
-                onPickerOpenChange={setShaderPickerOpen}
-              />
+              <SavedGlslEffectRow context={shaderContext} />
               <NativeShaderEffectSection
-                context={glslShaderContext}
+                context={shaderContext}
                 pickerOpen={shaderPickerOpen}
                 onPickerOpenChange={setShaderPickerOpen}
                 renderColorPicker={renderShaderColorPicker}

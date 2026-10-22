@@ -19,6 +19,7 @@ import {
 import { hashEffectDefinition } from "@shared/native-effect-trust";
 import {
   parseEffectsFromHtml,
+  resolvedEffectPropertyValue,
   type EffectColor,
   type EffectColorStop,
   type EffectDefinition,
@@ -75,8 +76,8 @@ import type { RenderNestedColorPicker } from "./color-picker-nested";
 import {
   broadcastShaderMessage,
   withShaderWriteLock,
-  type GlslShaderPanelContext,
-} from "./GlslShaderPanel";
+  type ShaderEditorContext,
+} from "../shader-source-coordination";
 import { InspectorControlPopoverContent } from "./InspectorControlPopover";
 import {
   nativeCatalogDefinitionKey,
@@ -94,6 +95,41 @@ import { NativeShaderPaintControls } from "./NativeShaderPaintControls";
 import { ScrubInput } from "./ScrubInput";
 
 type Placement = EffectInstance["placement"];
+const PULSING_BORDER_PROPERTY_GROUPS = [
+  {
+    id: "smoke",
+    labelKey: "editPanel.shaders.nativeCatalog.properties.smoke",
+    properties: ["smoke", "smokeSize"],
+  },
+  {
+    id: "margin",
+    labelKey: "editPanel.shaders.nativeCatalog.properties.margin",
+    properties: [
+      "margin",
+      "marginLeft",
+      "marginRight",
+      "marginTop",
+      "marginBottom",
+    ],
+  },
+  {
+    id: "offset",
+    labelKey: "editPanel.shaders.nativeCatalog.groups.offset",
+    properties: ["offsetX", "offsetY", "originX", "originY"],
+  },
+  {
+    id: "layout",
+    labelKey: "editPanel.sections.layout",
+    properties: [
+      "aspectRatio",
+      "fit",
+      "scale",
+      "rotation",
+      "worldWidth",
+      "worldHeight",
+    ],
+  },
+] as const;
 type SourceFile = { content?: string; versionHash?: string };
 type EditResult = {
   content: string;
@@ -378,7 +414,7 @@ function recordFieldMaximum(
 }
 
 export async function persistNativeShaderEdit(
-  context: GlslShaderPanelContext,
+  context: ShaderEditorContext,
   operation: NativeEffectEdit,
 ): Promise<EditResult> {
   if (!context.designId || !context.fileId)
@@ -721,7 +757,9 @@ function PropertyControls({
   ): React.ReactNode => {
     const propertyKey = nativeCatalogPropertyKey(definition, property.label);
     const label = propertyKey ? t(propertyKey) : property.label;
-    const value = override?.value ?? instance.params[name] ?? property.default;
+    const value =
+      override?.value ??
+      resolvedEffectPropertyValue(definition, instance.params, name);
     if (
       property.visibleWhen &&
       (instance.params[property.visibleWhen.property] ??
@@ -847,6 +885,7 @@ function PropertyControls({
           label={label}
           value={value as EffectPaint}
           maxStops={property.maxCount}
+          allowedKinds={property.allowedKinds}
           onPreview={(next) =>
             (override?.onPreview ?? ((value) => previewProperty(name, value)))(
               next,
@@ -1016,26 +1055,29 @@ function PropertyControls({
       </label>
     );
   };
+  const pulsingGroups =
+    definition.id === "an-native-pulsing-border" && definition.version >= 3
+      ? PULSING_BORDER_PROPERTY_GROUPS
+      : [];
+  const pulsingGroupedNames = new Set<string>(
+    pulsingGroups.flatMap((group) => [...group.properties]),
+  );
+  const genericEntries = entries.filter(
+    ([name]) => !pulsingGroupedNames.has(name),
+  );
   const availableGroups = [
     ...new Set(
-      entries.flatMap(([, property]) =>
+      genericEntries.flatMap(([, property]) =>
         property.group ? [property.group] : [],
       ),
     ),
   ];
-  if (availableGroups.length === 0)
-    return (
-      <div className="grid gap-2">
-        {entries.map((entry) => renderProperty(entry))}
-      </div>
-    );
-
   const groupOrder = ["Shape", "Transform", "Surface", "Color", "Motion"];
   const orderedGroups = [
     ...groupOrder.filter((group) => availableGroups.includes(group)),
     ...availableGroups.filter((group) => !groupOrder.includes(group)),
   ];
-  const ungrouped = entries.filter(([, property]) => !property.group);
+  const ungrouped = genericEntries.filter(([, property]) => !property.group);
   return (
     <div className="grid gap-2">
       {ungrouped.map((entry) => renderProperty(entry))}
@@ -1055,9 +1097,26 @@ function PropertyControls({
               />
             </CollapsibleTrigger>
             <CollapsibleContent className="grid gap-2 pb-2">
-              {entries
+              {genericEntries
                 .filter(([, property]) => property.group === group)
                 .map((entry) => renderProperty(entry))}
+            </CollapsibleContent>
+          </Collapsible>
+        );
+      })}
+      {pulsingGroups.map((group) => {
+        const groupedEntries = entries.filter(([name]) =>
+          group.properties.some((property) => property === name),
+        );
+        if (!groupedEntries.length) return null;
+        return (
+          <Collapsible key={group.id} className="min-w-0">
+            <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 rounded-sm py-1 text-start text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {t(group.labelKey)}
+              <IconChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="grid gap-2 ps-2 pt-2">
+              {groupedEntries.map((entry) => renderProperty(entry))}
             </CollapsibleContent>
           </Collapsible>
         );
@@ -1072,7 +1131,7 @@ export function NativeShaderEffectSection({
   onPickerOpenChange,
   renderColorPicker,
 }: {
-  context: GlslShaderPanelContext;
+  context: ShaderEditorContext;
   pickerOpen: boolean;
   onPickerOpenChange: (open: boolean) => void;
   renderColorPicker?: RenderNestedColorPicker;
@@ -1252,7 +1311,7 @@ export function NativeShaderPanel({
   showRemoveButton = true,
   renderColorPicker,
 }: {
-  context: GlslShaderPanelContext;
+  context: ShaderEditorContext;
   placement: Placement;
   onChanged?: () => void;
   showCatalog?: boolean;

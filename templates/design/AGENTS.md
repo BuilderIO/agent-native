@@ -14,7 +14,6 @@ Read `.agents/skills/<name>/SKILL.md` before deeper work:
 - `design-review-feedback` — persisted review comments.
 - `export-handoff` — exports and coding handoffs.
 - `full-app-build` — fusion-backed app builds.
-- `shader-fills` — historical GLSL fills/effects.
 - `native-effects` — WebGPU fills/effects, source edits, and PNG.
 - `journey-storyboards` — onboarding-journey storyboards.
 

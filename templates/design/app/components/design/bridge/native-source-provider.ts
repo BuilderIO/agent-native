@@ -6488,7 +6488,12 @@ class SceneProvider implements NativeSceneProvider {
       this.svgFillLeaves.set(paint, leaf);
     }
     this.readSceneCalls += 1;
-    const source = await this.readSceneLeaf(leaf, undefined, phase);
+    // Background and inner coverage share one fill raster and cache snapshot.
+    const source = await this.readSceneLeaf(
+      leaf,
+      undefined,
+      paint === "fill" ? "background" : phase,
+    );
     const capture = nativeCaptureRoi(source);
     const box = { x: 0, y: 0, ...size };
     const expected = planNativeCaptureRoi({

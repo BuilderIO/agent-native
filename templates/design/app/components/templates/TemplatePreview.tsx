@@ -1,6 +1,7 @@
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { IconTemplate } from "@tabler/icons-react";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -8,6 +9,11 @@ import {
   type CSSProperties,
 } from "react";
 
+import {
+  connectNativePreviewSurface,
+  nativePreviewSurfaceDocumentKey,
+  prepareNativePreviewSurface,
+} from "@/components/design/design-canvas/native-preview-surface";
 import {
   connectPrivateReplayScreenshotPreview,
   preparePrivateReplayScreenshotPreviewDocument,
@@ -42,6 +48,7 @@ export function TemplatePreview({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const nativeCleanupRef = useRef<(() => void) | null>(null);
   const [scale, setScale] = useState(0.25);
   const [sessionReplayVisibility, setSessionReplayVisibility] = useState({
     enabled: recordSessionReplay,
@@ -72,6 +79,29 @@ export function TemplatePreview({
       { designId },
     );
   }, [designId, html, recordSessionReplay]);
+  const nativePreviewDocument = useMemo(
+    () =>
+      document
+        ? prepareNativePreviewSurface({
+            html: document.html,
+            sandbox: "allow-scripts",
+            profile: interactive ? "interactive" : "thumbnail",
+            baseHref:
+              typeof window === "undefined" ? undefined : window.location.href,
+          })
+        : null,
+    [document, interactive],
+  );
+  const connectFrame = useCallback(
+    (frame: HTMLIFrameElement | null) => {
+      nativeCleanupRef.current?.();
+      frameRef.current = frame;
+      nativeCleanupRef.current = frame
+        ? connectNativePreviewSurface(frame, nativePreviewDocument)
+        : null;
+    },
+    [nativePreviewDocument],
+  );
 
   useEffect(() => {
     if (!interactive) return;
@@ -226,12 +256,13 @@ export function TemplatePreview({
       )}
     >
       <iframe
-        ref={frameRef}
+        key={nativePreviewSurfaceDocumentKey(nativePreviewDocument)}
+        ref={connectFrame}
         {...(recordSessionReplay && sessionReplayVisible
           ? { [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }
           : {})}
         title={title}
-        srcDoc={document?.html}
+        srcDoc={nativePreviewDocument?.html}
         sandbox="allow-scripts"
         {...{ credentialless: "" }}
         referrerPolicy="no-referrer"

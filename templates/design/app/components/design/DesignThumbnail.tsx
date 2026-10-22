@@ -4,9 +4,14 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCode } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { withLocalRuntimes } from "@/components/design/design-canvas/local-runtime";
+import {
+  connectNativePreviewSurface,
+  nativePreviewSurfaceDocumentKey,
+  prepareNativePreviewSurface,
+} from "@/components/design/design-canvas/native-preview-surface";
 import {
   connectPrivateReplayScreenshotPreview,
   preparePrivateReplayScreenshotPreviewDocument,
@@ -28,6 +33,7 @@ export function DesignThumbnail({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.25);
   const [loaded, setLoaded] = useState(false);
+  const nativeCleanupRef = useRef<(() => void) | null>(null);
 
   const NATURAL_WIDTH = 1280;
   const NATURAL_HEIGHT = 720;
@@ -40,6 +46,28 @@ export function DesignThumbnail({
           )
         : null,
     [designId, html],
+  );
+  const nativePreviewDocument = useMemo(
+    () =>
+      previewDocument
+        ? prepareNativePreviewSurface({
+            html: previewDocument.html,
+            sandbox: "allow-scripts",
+            profile: "thumbnail",
+            baseHref:
+              typeof window === "undefined" ? undefined : window.location.href,
+          })
+        : null,
+    [previewDocument],
+  );
+  const connectFrame = useCallback(
+    (frame: HTMLIFrameElement | null) => {
+      nativeCleanupRef.current?.();
+      nativeCleanupRef.current = frame
+        ? connectNativePreviewSurface(frame, nativePreviewDocument)
+        : null;
+    },
+    [nativePreviewDocument],
   );
 
   useEffect(() => {
@@ -88,8 +116,10 @@ export function DesignThumbnail({
         </div>
       ) : null}
       <iframe
+        key={nativePreviewSurfaceDocumentKey(nativePreviewDocument)}
+        ref={connectFrame}
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-        srcDoc={previewDocument?.html}
+        srcDoc={nativePreviewDocument?.html}
         sandbox="allow-scripts"
         loading="lazy"
         tabIndex={-1}

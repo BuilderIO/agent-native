@@ -898,46 +898,6 @@ export function useEditorLayerModels({
     [codeLayerOwnerByNodeId, selectedElementLayerId, selectedLayerIds],
   );
 
-  const handleShaderEditCode = useCallback(
-    (_shaderId: string) => {
-      const targetFileId = activeFile?.id ?? activeFileId;
-      if (!targetFileId) return;
-      setActiveLeftPanel("code");
-      const nextSearch = getDesignEditorStateUrlSearch({
-        currentSearch: location.search,
-        viewMode,
-        screenId: activeFile?.id ?? activeFileId ?? undefined,
-        leftPanel: "code",
-        codeFileId: targetFileId,
-        selectionId: selectedUrlSelectionId,
-        zoom,
-        tool: activeTool,
-        mode,
-      });
-      if (nextSearch === location.search) return;
-      void navigate(
-        {
-          pathname: location.pathname,
-          search: nextSearch,
-          hash: location.hash,
-        },
-        { replace: true, preventScrollReset: true },
-      );
-    },
-    [
-      activeFile?.id,
-      activeFileId,
-      activeTool,
-      location.hash,
-      location.pathname,
-      location.search,
-      navigate,
-      selectedUrlSelectionId,
-      mode,
-      viewMode,
-      zoom,
-    ],
-  );
   const selectedLayerIdsRef = useRef<string[]>(selectedLayerIds);
 
   const selectedElementScreenId = useMemo(() => {
@@ -1110,7 +1070,6 @@ export function useEditorLayerModels({
     canEditSelectedLiveLayer,
     canEditSingleSelectedLiveLayer,
     selectedUrlSelectionId,
-    handleShaderEditCode,
     selectedLayerIdsRef,
     selectedElementScreenId,
     selectedLayerTargets,

@@ -68,6 +68,7 @@ const sceneKeys = new Set([
   "pixelRatio",
   "colorSpace",
   "frameRateTarget",
+  "compact",
   "clock",
   "requiredAssets",
   "definitions",
@@ -101,6 +102,7 @@ const messageKeys: Record<NativeWorkerToGpu["type"], ReadonlySet<string>> = {
     "assetId",
     "revision",
     "bitmap",
+    "sampleEncoding",
     "width",
     "height",
     "data",
@@ -272,6 +274,31 @@ function boundedRecordTree(value: unknown): boolean {
   return visit(value, 0);
 }
 
+function boundedInputAssetBindings(
+  target: NativeWorkerScene["targets"][number],
+): boolean {
+  const bindings = target.inputAssetIds;
+  if (bindings === undefined) return true;
+  if (
+    typeof bindings !== "object" ||
+    bindings === null ||
+    Array.isArray(bindings)
+  )
+    return false;
+  const entries = Object.entries(bindings);
+  return (
+    entries.length <= MAX_ASSETS &&
+    entries.every(
+      ([resource, assetId]) =>
+        resource.length > 0 &&
+        resource.length <= 128 &&
+        typeof assetId === "string" &&
+        Boolean(assetId.length) &&
+        assetId.length <= 4096,
+    )
+  );
+}
+
 function boundedScene(scene: NativeWorkerScene): boolean {
   return (
     typeof scene === "object" &&
@@ -279,6 +306,7 @@ function boundedScene(scene: NativeWorkerScene): boolean {
     hasOnlyKeys(scene, sceneKeys) &&
     hasOnlyKeys(scene.viewport, viewportKeys) &&
     hasOnlyKeys(scene.clock, clockKeys) &&
+    (scene.compact === undefined || typeof scene.compact === "boolean") &&
     nativeWorkerClockSampleValid(
       scene.clock,
       performance.timeOrigin + performance.now(),
@@ -298,6 +326,7 @@ function boundedScene(scene: NativeWorkerScene): boolean {
     scene.height <= MAX_SCENE_DIMENSION &&
     scene.width * scene.height <= MAX_SCENE_PIXELS &&
     scene.targets.length <= MAX_INSTANCES &&
+    scene.targets.every(boundedInputAssetBindings) &&
     scene.instances.length <= MAX_INSTANCES &&
     scene.definitions.length <= MAX_NATIVE_SCENE_EXECUTABLE_HASHES &&
     scene.requiredAssets.length <= MAX_ASSETS &&
@@ -903,7 +932,7 @@ export function connectNativePublicWorkerPreview(
               !Number.isSafeInteger(message.revision) ||
               message.revision < 0 ||
               typeof message.assetId !== "string" ||
-              message.assetId.length > 256
+              message.assetId.length > 4096
             ) {
               fail(
                 "worker-public-asset-invalid",
@@ -916,7 +945,12 @@ export function connectNativePublicWorkerPreview(
               (message.kind === "bitmap" &&
                 !(message.bitmap instanceof ImageBitmap)) ||
               (message.kind === "rgba16float" &&
-                !(message.data instanceof ArrayBuffer))
+                !(message.data instanceof ArrayBuffer)) ||
+              (message.kind === "bitmap" &&
+                message.sampleEncoding !== undefined &&
+                message.sampleEncoding !== "srgb-color" &&
+                message.sampleEncoding !== "linear-data") ||
+              (message.kind === "rgba16float" && "sampleEncoding" in message)
             ) {
               fail(
                 "worker-public-asset-invalid",

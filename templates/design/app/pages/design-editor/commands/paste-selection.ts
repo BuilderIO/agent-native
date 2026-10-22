@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
-import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
+import { isShaderWriteInFlight } from "@/components/design/shader-source-coordination";
 import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
 import type { VisibleCanvasRect } from "@/components/design/multi-screen/types";
 import type {
