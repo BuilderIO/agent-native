@@ -175,6 +175,16 @@ describe("first-touch server cookie route", () => {
     expect(storedTouch(replace)).toMatchObject({ utm_source: "youtube" });
   });
 
+  it("keeps a landing path with percent signs as the browser sent it", async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    const touch = { ...sourced, landing_path: "/docs/100%25-sure" };
+    const response = await post(touch);
+
+    expect(storedTouch(response)).toMatchObject({
+      landing_path: "/docs/100%25-sure",
+    });
+  });
+
   it("ignores a cookie from another format version", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const future = encodeURIComponent(JSON.stringify({ ...sourced, v: "2" }));

@@ -205,12 +205,27 @@ function settle(): void {
     const allowed = allows(waiter.category, region);
     if (allowed && !waiter.ran) {
       waiter.ran = true;
-      waiter.run();
+      isolate(waiter.run);
     } else if (!allowed && region) {
       // Also clears what an earlier page stored before the banner existed.
       waiter.ran = false;
-      waiter.revoke?.();
+      if (waiter.revoke) isolate(waiter.revoke);
     }
+  }
+}
+
+/**
+ * One callback throwing must not skip the waiters after it, or a later revoke
+ * would never clear what a rejected category stored. Rethrow it on its own task
+ * so it still surfaces.
+ */
+function isolate(callback: () => void): void {
+  try {
+    callback();
+  } catch (error) {
+    setTimeout(() => {
+      throw error;
+    });
   }
 }
 

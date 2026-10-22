@@ -87,7 +87,7 @@ function resetBrowserCookies(event: H3Event): void {
 function readCandidate(body: unknown): FirstTouchAttribution | null {
   const firstTouch = (body as { firstTouch?: unknown } | null)?.firstTouch;
   if (!firstTouch || typeof firstTouch !== "object") return null;
-  return decodeFirstTouchValue(JSON.stringify(firstTouch));
+  return decodeFirstTouchValue(encodeURIComponent(JSON.stringify(firstTouch)));
 }
 
 /** A touch more than a year old can't be kept, or win against one that can. */

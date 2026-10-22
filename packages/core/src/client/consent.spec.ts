@@ -108,6 +108,34 @@ describe("client consent", () => {
     expect(revoke).toHaveBeenCalledTimes(1);
   });
 
+  it("still revokes later waiters when an earlier callback throws", async () => {
+    installBrowser({ region: "consent" });
+    const consent = await freshConsent();
+    await consent.resolveConsentRegion();
+    const failure = new Error("broken callback");
+    const rethrown: Array<() => void> = [];
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: () => void,
+    ) => {
+      rethrown.push(callback);
+      return 0;
+    }) as unknown as typeof setTimeout);
+    const revoke = vi.fn();
+    const listener = vi.fn();
+    consent.subscribeConsent(listener);
+    consent.whenConsentAllows("performance", () => {
+      throw failure;
+    });
+    consent.whenConsentAllows("targeting", vi.fn(), { revoke });
+
+    consent.setConsentChoice({ performance: true, targeting: false });
+
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalled();
+    expect(rethrown).toHaveLength(1);
+    expect(() => rethrown[0]!()).toThrow(failure);
+  });
+
   it("asks the server to keep the choice for a year", async () => {
     const { fetchMock } = installBrowser({ region: "consent" });
     const consent = await freshConsent();
