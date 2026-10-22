@@ -193,7 +193,7 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
-  it("fails closed when a Motion target has dynamic or Alpine motion styles", () => {
+  it("fails closed when a Motion target has dynamic runtime-bound styles", () => {
     for (const attribute of [
       'x-transition.opacity=""',
       'x-bind="attrs"',
@@ -201,8 +201,10 @@ describe("HTML Motion source adapter", () => {
       'x-bind:style="style"',
       'v-bind:style="style"',
       'x-show="visible"',
+      'v-show="visible"',
       ':class="{ active: visible }"',
       'x-bind:class="classes"',
+      'v-bind:class="classes"',
     ]) {
       const source = html.replace(
         '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
@@ -228,6 +230,57 @@ describe("HTML Motion source adapter", () => {
       }
       expect(writeError).toMatchObject({ code: "unsupported-target" });
     }
+  });
+
+  it.each([
+    ["Vue v-show", 'v-show="visible"'],
+    ["Vue class binding", 'v-bind:class="classes"'],
+    ["Vue style binding", 'v-bind:style="style"'],
+  ])(
+    "fails closed when a Motion target has an ancestor with %s",
+    (_label, attribute) => {
+      const source = html.replace(
+        '<main class="card">',
+        `<main class="card" ${attribute}>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining(attribute.split("=")[0]!),
+      });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+    },
+  );
+
+  it("rejects Vue style bindings found in a Motion target's runtime scope", () => {
+    const source = html
+      .replace('<main class="card">', '<main class="card" v-scope="{}">')
+      .replace(
+        "</main>",
+        '<aside v-bind:style="runtimeStyles"></aside>\n  </main>',
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining("v-bind:style"),
+    });
+    expect(() => apply(source)).toThrowError(
+      expect.objectContaining({ code: "unsupported-target" }),
+    );
   });
 
   it.each([
@@ -940,6 +993,60 @@ describe("HTML Motion source adapter", () => {
       code: "unsupported-target",
       reason: expect.stringContaining("executable script"),
     });
+    expect(readMotionHtmlSource(generated)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
+
+  it.each([
+    [
+      "native load handler",
+      `<img onload="parent.document.body.classList.add('active')">`,
+    ],
+    [
+      "native error handler",
+      `<img onerror="parent.document.body.classList.add('active')">`,
+    ],
+    [
+      "runtime event handler",
+      `<button x-on:click="parent.document.body.classList.add('active')"></button>`,
+    ],
+    [
+      "runtime lifecycle handler",
+      `<div x-init="parent.document.body.classList.add('active')"></div>`,
+    ],
+    [
+      "direct javascript URL",
+      `<a href="javascript:parent.document.body.classList.add('active')">Run</a>`,
+    ],
+    [
+      "HTML-encoded tab in javascript URL scheme",
+      `<a href="java&#x09;script:parent.document.body.classList.add('active')">Run</a>`,
+    ],
+  ])("rejects %s in iframe srcdoc with Motion targets", (_label, markup) => {
+    const escapeAttribute = (value: string) =>
+      value
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    const iframe = `<iframe srcdoc="${escapeAttribute(markup)}"></iframe>`;
+    const source = html.replace("</body>", `${iframe}\n</body>`);
+    const generated = apply(html).source.replace(
+      "</body>",
+      `${iframe}\n</body>`,
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    expect(() => apply(source)).toThrowError(
+      expect.objectContaining({ code: "unsupported-target" }),
+    );
     expect(readMotionHtmlSource(generated)).toMatchObject({
       status: "invalid",
       error: { code: "unsupported-target" },

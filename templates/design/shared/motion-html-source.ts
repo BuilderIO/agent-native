@@ -405,10 +405,20 @@ function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
     isRuntimeLifecycleMutationAttribute(name) ||
     normalized === "x-show" ||
     normalized.startsWith("x-show.") ||
+    normalized === "v-show" ||
+    normalized.startsWith("v-show.") ||
     normalized === ":class" ||
     normalized.startsWith(":class.") ||
     normalized === "x-bind:class" ||
     normalized.startsWith("x-bind:class.") ||
+    normalized === "v-bind:class" ||
+    normalized.startsWith("v-bind:class.") ||
+    normalized === ":style" ||
+    normalized.startsWith(":style.") ||
+    normalized === "x-bind:style" ||
+    normalized.startsWith("x-bind:style.") ||
+    normalized === "v-bind:style" ||
+    normalized.startsWith("v-bind:style.") ||
     normalized === "x-on" ||
     normalized.startsWith("x-on:") ||
     normalized === "v-on" ||
@@ -564,13 +574,30 @@ function isExecutableScript(node: HtmlNode): boolean {
   return EXECUTABLE_SCRIPT_TYPES.has(type.split(";", 1)[0]!.trim());
 }
 
-function srcdocContainsExecutableScriptOrNestedFrame(value: string): boolean {
-  return parseHtml(value).nodes.some(
-    (node) =>
-      !node.insideTemplate &&
-      ((node.tagName === "script" && isExecutableScript(node)) ||
-        node.tagName === "iframe"),
-  );
+function isJavascriptUrl(value: string): boolean {
+  return value
+    .replace(/[\u0000-\u0020\u007f]/g, "")
+    .toLowerCase()
+    .startsWith("javascript:");
+}
+
+function srcdocContainsExecutableContentOrNestedFrame(value: string): boolean {
+  return parseHtml(value).nodes.some((node) => {
+    if (node.insideTemplate) return false;
+    if (
+      (node.tagName === "script" && isExecutableScript(node)) ||
+      node.tagName === "iframe" ||
+      (node.attrs ?? []).some(
+        ({ name, value: attributeValue }) =>
+          isEventHandlerAttribute(name) ||
+          isRuntimeLifecycleMutationAttribute(name) ||
+          isJavascriptUrl(attributeValue),
+      )
+    ) {
+      return true;
+    }
+    return false;
+  });
 }
 
 function isManagedMotionTextRuntime(source: string, node: HtmlNode): boolean {
@@ -724,11 +751,11 @@ function assertExecutableScriptsSafe(
     if (
       node.tagName === "iframe" &&
       srcdoc &&
-      srcdocContainsExecutableScriptOrNestedFrame(srcdoc)
+      srcdocContainsExecutableContentOrNestedFrame(srcdoc)
     ) {
       sourceError(
         "unsupported-target",
-        "HTML Motion targets cannot be synchronized safely while an iframe srcdoc contains an executable script or nested frame.",
+        "HTML Motion targets cannot be synchronized safely while an iframe srcdoc contains an executable script, event handler, javascript URL, or nested frame.",
       );
     }
 
