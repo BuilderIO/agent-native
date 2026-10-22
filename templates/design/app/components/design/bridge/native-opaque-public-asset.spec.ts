@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { Blob as NodeBlob } from "node:buffer";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -94,6 +96,56 @@ describe("opaque public source assets", () => {
       "https://design.example.test",
       expect.any(Array),
     );
+  });
+
+  it("returns the authorized Blob for GPU inputs without fetching a blob URL", async () => {
+    vi.resetModules();
+    vi.stubGlobal("Blob", NodeBlob);
+    const { resolveOpaquePublicAssetBlob: resolveBlob } =
+      await import("./native-opaque-public-asset");
+    const nonce = "01234567-89ab-4cde-8fab-0123456789ab";
+    let hostPort: MessagePort | undefined;
+    vi.stubGlobal("location", { origin: "null" });
+    vi.stubGlobal("window", {
+      frameElement: null,
+      parent: {
+        postMessage: (
+          _message: unknown,
+          _origin: string,
+          ports: MessagePort[],
+        ) => {
+          hostPort = ports[0];
+        },
+      },
+    });
+    vi.stubGlobal("document", {
+      baseURI: "https://design.example.test/editor",
+      referrer: "https://design.example.test/viewer",
+      querySelector: () => ({ content: nonce }),
+    });
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const pending = resolveBlob("/shaders/noise.png");
+    expect(hostPort).toBeDefined();
+    hostPort!.onmessage = (event) => {
+      if (event.data?.type !== "native-public-asset-request") return;
+      hostPort!.postMessage({
+        type: "native-public-asset-result",
+        requestId: event.data.requestId,
+        blob: new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }),
+      });
+    };
+    hostPort!.start();
+    hostPort!.postMessage({
+      type: "native-public-asset-connect",
+      nonce,
+      urls: ["https://design.example.test/shaders/noise.png"],
+    });
+    const blob = await pending;
+    expect(blob.type).toBe("image/png");
+    expect(blob.size).toBe(3);
+    expect(fetch).not.toHaveBeenCalled();
+    hostPort!.close();
   });
 
   it("cancels an in-flight handshake and its retries when the page closes", async () => {

@@ -20,6 +20,8 @@ export interface UseChatThreadListOptions {
   pageSize?: number;
   scope?: ChatThreadScope | null;
   includeExternal?: boolean;
+  /** Include archived threads. Defaults to false. */
+  includeArchived?: boolean;
   /** Search text. Empty lists the whole set. */
   query?: string;
   /** When false nothing is fetched and the list is empty. Defaults to true. */
@@ -105,6 +107,7 @@ export function useChatThreadList(
   const {
     ownership,
     includeExternal = false,
+    includeArchived = false,
     enabled = true,
     refreshOnThreadUpdates = true,
   } = options;
@@ -122,6 +125,7 @@ export function useChatThreadList(
     scopeId,
     pageSize,
     includeExternal,
+    includeArchived,
     enabled,
   ]);
   const [stored, setState] = useState(() => createListState(identity, enabled));
@@ -158,6 +162,7 @@ export function useChatThreadList(
         query,
         ownership,
         includeExternal,
+        includeArchived,
         scope: scopeType && scopeId ? { type: scopeType, id: scopeId } : null,
       }).then((result) => {
         if (result.hasMore === undefined) {
@@ -174,7 +179,15 @@ export function useChatThreadList(
         }
         return { threads: result.threads, hasMore: result.hasMore };
       }),
-    [apiUrl, includeExternal, ownership, query, scopeId, scopeType],
+    [
+      apiUrl,
+      includeArchived,
+      includeExternal,
+      ownership,
+      query,
+      scopeId,
+      scopeType,
+    ],
   );
 
   // Reload the first `window` server rows, one capped page at a time, and swap
