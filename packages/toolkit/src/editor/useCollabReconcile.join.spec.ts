@@ -71,6 +71,7 @@ function compareRevisions(first: string, second: string): number {
 }
 
 type DiscoveryStatus = "ready" | "failed" | "unavailable";
+type DiscoveryAnswer = { status: DiscoveryStatus; current?: () => boolean };
 type PeerState = {
   user?: { name: string };
   visible?: boolean;
@@ -175,6 +176,7 @@ function makeTabs({
   awareness.C.setLocalState(peer("C"));
   awareness.D.setLocalState(peer("D"));
   awareness.B.getStates().set(ids.A, peer("A"));
+  const replacedAwareness: Awareness[] = [];
 
   // B's updates reach the server unless its delivery is held or fails.
   let bDelivery: "delivers" | "held" | "fails" | "rejects" = "delivers";
@@ -225,8 +227,14 @@ function makeTabs({
   let settleDiscovery: ((status: DiscoveryStatus) => void) | null = null;
   // Presence answers C could not read, as its connection counts them.
   let refusedPresence = 0;
+  // B's presence requests answer with its awareness as it stands, unless a
+  // test answers them.
+  let answerB: (() => Promise<DiscoveryAnswer>) | null = null;
   const discover = {
-    B: async () => ({ status: "ready" as const }),
+    B: vi.fn(
+      (): Promise<DiscoveryAnswer> =>
+        answerB ? answerB() : Promise.resolve({ status: "ready" }),
+    ),
     C: vi.fn(() => {
       const refusedWhenSent = refusedPresence;
       return new Promise<{ status: DiscoveryStatus; current: () => boolean }>(
@@ -439,6 +447,39 @@ function makeTabs({
     refusePresenceToC: () => {
       refusedPresence += 1;
     },
+    /** A presence state B receives, as its poll delivers it. */
+    reportToB: (clientId: number, state: PeerState) => {
+      awareness.B.getStates().set(clientId, state);
+      awareness.B.emit("change", [
+        { added: [], updated: [clientId], removed: [] },
+        "remote",
+      ]);
+    },
+    /** A presence list reaches B without the client, as when it expires. */
+    omitFromB: (clientId: number) => {
+      awareness.B.getStates().delete(clientId);
+      awareness.B.emit("change", [
+        { added: [], updated: [], removed: [clientId] },
+        "remote",
+      ]);
+    },
+    /** How B's presence requests answer from now on; null restores them. */
+    answerBDiscovery: (answer: (() => Promise<DiscoveryAnswer>) | null) => {
+      answerB = answer;
+    },
+    /**
+     * The tab's next render gets a new awareness on the same doc, holding
+     * these presence states. Returns the one it replaces.
+     */
+    replaceAwareness: (name: Name, states: Array<[number, PeerState]>) => {
+      const replaced = awareness[name];
+      replacedAwareness.push(replaced);
+      awareness[name] = new Awareness(docs[name]);
+      awareness[name].setLocalState(peer(name));
+      for (const [clientId, state] of states)
+        awareness[name].getStates().set(clientId, state);
+      return replaced;
+    },
     joinFailed: (name: Name) => results[name]?.joinEvidenceFailed,
     retryJoin: (name: Name) => results[name]?.retryJoinEvidence(),
     syncC,
@@ -481,6 +522,7 @@ function makeTabs({
       act(() => root.unmount());
       root = createRoot(container);
       author.destroy();
+      for (const replaced of replacedAwareness) replaced.destroy();
       awareness.B.destroy();
       awareness.C.destroy();
       awareness.D.destroy();
@@ -2434,6 +2476,61 @@ describe("useCollabReconcile: a report waiting on delivery", () => {
     },
   );
 
+  it("finishes on the lead's report when the waiting tab's awareness was replaced on the same doc", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
+
+      // A reconnect gives C a new awareness that sees A and B as before.
+      tabs.replaceAwareness("C", [
+        [5, peer("A")],
+        [2, tabs.awareness.B.getLocalState() as PeerState],
+      ]);
+      tabs.failBDelivery("fails");
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: AGENT_EDIT,
+            withC: true,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.markdown("B")).toBe(`${SAVED}\n\n${CHARLIE}`);
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
+
+      act(() => tabs.recoverBDelivery());
+      await act(async () => vi.advanceTimersByTimeAsync(5_000));
+      expect(heldRevision(tabs.awareness.B)).toBe(AGENT_EDIT.revision);
+      expect(tabs.markdown("C")).toBe(`${SAVED}\n\n${CHARLIE}`);
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
+      expect(tabs.editors.C!.isEditable).toBe(false);
+
+      act(() =>
+        tabs.reportToC(2, tabs.awareness.B.getLocalState() as PeerState),
+      );
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+      expect(
+        tabs.results.C!.isJoinPending(),
+        "C missed B's report on its new awareness",
+      ).toBe(false);
+      expect(tabs.editors.C!.isEditable).toBe(true);
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      for (const name of ["A", "B", "C"] as const)
+        expect(occurrences(tabs.markdown(name), CHARLIE)).toBe(1);
+      expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
   it("reports only the newer body once one replaces a report waiting on delivery", async () => {
     const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
     vi.useFakeTimers();
@@ -2619,6 +2716,399 @@ describe("useCollabReconcile: a report waiting on delivery", () => {
       }
     },
   );
+});
+
+// A seeded the live doc and closed; its presence, with the lower id, stays
+// until it expires. B opens alone after an agent's edit was stored, waits on A
+// as the lead, and its join fails before A's presence goes.
+describe("useCollabReconcile: a failed join left alone", () => {
+  const ids = { A: 1, B: 2, C: 3 };
+  const LEFT = peer("A", STORED.revision);
+  const AGENT = { user: { name: "Agent" } };
+  const LATER: Snapshot = {
+    value: `${AGENT_EDIT.value}\n\nDelta paragraph.`,
+    revision: "body:3:d",
+    updatedAt: "2024-01-01T00:00:12.000Z",
+  };
+  const wait = (ms: number) => act(async () => vi.advanceTimersByTimeAsync(ms));
+  // Each step lets React run the effects the last one scheduled.
+  const settle = async (ms: number) => {
+    for (let elapsed = 0; elapsed < ms; elapsed += 50) await wait(50);
+  };
+  const asked = (tabs: Tabs) => ({
+    discover: tabs.discover.B.mock.calls.length,
+    catchUp: tabs.catchUp.B.mock.calls.length,
+  });
+  function open() {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs({ ids });
+    tabs.awareness.B.getStates().set(ids.A, LEFT);
+    vi.useFakeTimers();
+    return { tabs, warn };
+  }
+  async function failJoin({ tabs, warn }: ReturnType<typeof open>) {
+    act(() =>
+      root.render(
+        React.createElement(tabs.Tabs, { snapshot: AGENT_EDIT, withC: false }),
+      ),
+    );
+    await wait(21_000);
+    expect(tabs.joinFailed("B")).toBe(true);
+    expect(tabs.editors.B!.isEditable).toBe(false);
+    expect(tabs.markdown("B")).toBe(ORIGINAL);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("The stored body did not reach this document"),
+      expect.any(Error),
+    );
+  }
+  function expectLocked(tabs: Tabs) {
+    expect(tabs.joinFailed("B")).toBe(true);
+    expect(tabs.editors.B!.isEditable).toBe(false);
+    expect(tabs.markdown("B")).toBe(ORIGINAL);
+    expect(occurrences(tabs.markdown("A"), CHARLIE)).toBe(0);
+    expect(heldRevision(tabs.awareness.B)).toBeUndefined();
+  }
+
+  it("applies a stored body no collaborator holds at once when nobody else is open", async () => {
+    const opened = open();
+    const { tabs } = opened;
+    try {
+      tabs.awareness.B.getStates().delete(ids.A);
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: AGENT_EDIT,
+            withC: false,
+          }),
+        ),
+      );
+      await settle(500);
+      expect(tabs.joinFailed("B")).toBe(false);
+      expect(tabs.results.B!.isJoinPending()).toBe(false);
+      expect(tabs.editors.B!.isEditable).toBe(true);
+      expect(tabs.markdown("B")).toBe(AGENT_EDIT.value);
+      expect(occurrences(tabs.markdown("A"), CHARLIE)).toBe(1);
+      expect(heldRevision(tabs.awareness.B)).toBe(AGENT_EDIT.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("applies the stored body once the presence it waited on expires", async () => {
+    const opened = open();
+    const { tabs } = opened;
+    // Neither the agent nor a read-only viewer can apply the stored body.
+    tabs.awareness.B.getStates().set(AGENT_CLIENT_ID, AGENT);
+    tabs.awareness.B.getStates().set(4, {
+      ...peer("Viewer"),
+      canFlushDocument: false,
+    });
+    try {
+      await failJoin(opened);
+      await wait(11_000);
+      expectLocked(tabs);
+      const before = asked(tabs);
+
+      act(() => tabs.omitFromB(ids.A));
+      for (let elapsed = 0; elapsed < 500; elapsed += 50) {
+        expect(
+          !tabs.editors.B!.isEditable ||
+            occurrences(tabs.markdown("B"), CHARLIE) === 1,
+          "B was editable before it held the stored body",
+        ).toBe(true);
+        await wait(50);
+      }
+      expect(tabs.joinFailed("B")).toBe(false);
+      expect(tabs.results.B!.isJoinPending()).toBe(false);
+      expect(tabs.editors.B!.isEditable).toBe(true);
+      expect(tabs.markdown("B")).toBe(AGENT_EDIT.value);
+      expect(occurrences(tabs.markdown("A"), CHARLIE)).toBe(1);
+      expect(heldRevision(tabs.awareness.B)).toBe(AGENT_EDIT.revision);
+      // Once to confirm nobody else is open, once more as the join starts over.
+      expect(asked(tabs).discover - before.discover).toBe(2);
+      expect(asked(tabs).catchUp).toBeGreaterThan(before.catchUp);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("reports the stored body it applied alone only once the server has it", async () => {
+    const opened = open();
+    const { tabs } = opened;
+    try {
+      await failJoin(opened);
+      act(() => tabs.failBDelivery("fails"));
+      act(() => tabs.omitFromB(ids.A));
+      await settle(500);
+      expect(tabs.editors.B!.isEditable).toBe(true);
+      expect(tabs.markdown("B")).toBe(AGENT_EDIT.value);
+      expect(tabs.flush.B).toHaveBeenCalled();
+      expect(occurrences(tabs.markdown("A"), CHARLIE)).toBe(0);
+      expect(heldRevision(tabs.awareness.B)).toBeUndefined();
+
+      act(() => tabs.recoverBDelivery());
+      await wait(15_000);
+      expect(occurrences(tabs.markdown("A"), CHARLIE)).toBe(1);
+      expect(heldRevision(tabs.awareness.B)).toBe(AGENT_EDIT.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it.each<[string, (tabs: Tabs) => Promise<DiscoveryAnswer>]>([
+    [
+      "finds the collaborator the list left out",
+      async (tabs) => {
+        await Promise.resolve();
+        tabs.reportToB(ids.A, LEFT);
+        return { status: "ready" };
+      },
+    ],
+    ["fails", async () => ({ status: "failed" })],
+    [
+      "rejects",
+      async () => {
+        throw new Error("Failed to fetch");
+      },
+    ],
+    ["goes stale", async () => ({ status: "ready", current: () => false })],
+  ])(
+    "stays failed when a presence list leaves a collaborator out and asking who else is open %s",
+    async (_, answer) => {
+      const opened = open();
+      const { tabs } = opened;
+      try {
+        await failJoin(opened);
+        tabs.answerBDiscovery(() => answer(tabs));
+        const before = asked(tabs);
+
+        act(() => tabs.omitFromB(ids.A));
+        for (let elapsed = 0; elapsed < 30_000; elapsed += 1_000) {
+          await wait(1_000);
+          expectLocked(tabs);
+          // A presence poll that changes nothing B counts.
+          act(() => tabs.reportToB(AGENT_CLIENT_ID, AGENT));
+        }
+        expect(
+          asked(tabs).discover - before.discover,
+          "B asked who else is open to confirm",
+        ).toBe(1);
+        expect(asked(tabs).catchUp).toBe(before.catchUp);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  it("asks who else is open once for each presence list that leaves it alone", async () => {
+    const opened = open();
+    const { tabs } = opened;
+    try {
+      await failJoin(opened);
+      tabs.answerBDiscovery(async () => {
+        await Promise.resolve();
+        tabs.reportToB(ids.A, LEFT);
+        return { status: "ready" };
+      });
+      const before = asked(tabs);
+
+      for (let poll = 0; poll < 3; poll += 1) {
+        act(() => tabs.omitFromB(ids.A));
+        await wait(1_000);
+        for (let unchanged = 0; unchanged < 10; unchanged += 1) {
+          act(() => tabs.reportToB(ids.A, LEFT));
+          await wait(1_000);
+        }
+      }
+      expectLocked(tabs);
+      expect(
+        asked(tabs).discover - before.discover,
+        "B asked who else is open to confirm each list",
+      ).toBe(3);
+      expect(asked(tabs).catchUp).toBe(before.catchUp);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("stays failed when the collaborator it waits on is hidden, not gone", async () => {
+    const opened = open();
+    const { tabs } = opened;
+    try {
+      await failJoin(opened);
+      const before = asked(tabs);
+
+      act(() => tabs.reportToB(ids.A, { ...LEFT, visible: false }));
+      await wait(30_000);
+      expectLocked(tabs);
+      expect(asked(tabs)).toEqual(before);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("stops confirming once it unmounts", async () => {
+    const opened = open();
+    const { tabs } = opened;
+    try {
+      await failJoin(opened);
+      let answer!: (answer: DiscoveryAnswer) => void;
+      tabs.answerBDiscovery(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      );
+      const sent = asked(tabs);
+      act(() => tabs.omitFromB(ids.A));
+      expect(
+        asked(tabs).discover - sent.discover,
+        "B asked who else is open to confirm",
+      ).toBe(1);
+      act(() => root.render(null));
+      tabs.answerBDiscovery(null);
+      const before = asked(tabs);
+
+      await act(async () => answer({ status: "ready" }));
+      await wait(30_000);
+      expect(asked(tabs)).toEqual(before);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("drops a confirmation once a newer stored body arrives", async () => {
+    const opened = open();
+    const { tabs } = opened;
+    try {
+      await failJoin(opened);
+      let answer!: (answer: DiscoveryAnswer) => void;
+      tabs.answerBDiscovery(() => {
+        tabs.answerBDiscovery(null);
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      });
+      const sent = asked(tabs);
+      act(() => tabs.omitFromB(ids.A));
+      expect(
+        asked(tabs).discover - sent.discover,
+        "B asked who else is open to confirm",
+      ).toBe(1);
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, { snapshot: LATER, withC: false }),
+        ),
+      );
+      await settle(500);
+      expect(tabs.editors.B!.isEditable).toBe(true);
+      expect(tabs.markdown("B")).toBe(LATER.value);
+      expect(heldRevision(tabs.awareness.B)).toBe(LATER.revision);
+      const before = asked(tabs);
+
+      await act(async () => answer({ status: "ready" }));
+      await wait(30_000);
+      expect(asked(tabs)).toEqual(before);
+      expect(tabs.joinFailed("B")).toBe(false);
+      expect(tabs.results.B!.isJoinPending()).toBe(false);
+      expect(tabs.editors.B!.isEditable).toBe(true);
+      expect(tabs.markdown("B")).toBe(LATER.value);
+      expect(heldRevision(tabs.awareness.B)).toBe(LATER.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  describe("when its awareness is replaced on the same doc", () => {
+    // A reconnect gives B a new awareness that still sees A.
+    async function replace(tabs: Tabs) {
+      const replaced = tabs.replaceAwareness("B", [[ids.A, LEFT]]);
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: AGENT_EDIT,
+            withC: false,
+          }),
+        ),
+      );
+      await settle(500);
+      expectLocked(tabs);
+      return replaced;
+    }
+    function expectApplied(tabs: Tabs) {
+      expect(tabs.joinFailed("B")).toBe(false);
+      expect(tabs.results.B!.isJoinPending()).toBe(false);
+      expect(tabs.editors.B!.isEditable).toBe(true);
+      expect(tabs.markdown("B")).toBe(AGENT_EDIT.value);
+      expect(occurrences(tabs.markdown("A"), CHARLIE)).toBe(1);
+      expect(heldRevision(tabs.awareness.B)).toBe(AGENT_EDIT.revision);
+    }
+
+    it("ignores the replaced one, and applies the stored body once A expires from the new one", async () => {
+      const opened = open();
+      const { tabs } = opened;
+      try {
+        await failJoin(opened);
+        const replaced = await replace(tabs);
+        const before = asked(tabs);
+
+        act(() => {
+          replaced.getStates().delete(ids.A);
+          replaced.emit("change", [
+            { added: [], updated: [], removed: [ids.A] },
+            "remote",
+          ]);
+        });
+        await settle(500);
+        expectLocked(tabs);
+        expect(asked(tabs), "B asked about the replaced awareness").toEqual(
+          before,
+        );
+
+        act(() => tabs.omitFromB(ids.A));
+        await settle(500);
+        expectApplied(tabs);
+        expect(asked(tabs).discover - before.discover).toBe(2);
+      } finally {
+        tabs.dispose();
+      }
+    });
+
+    it("drops a confirmation it sent about the replaced one, and recovers through the new one", async () => {
+      const opened = open();
+      const { tabs } = opened;
+      try {
+        await failJoin(opened);
+        let answer!: (answer: DiscoveryAnswer) => void;
+        tabs.answerBDiscovery(() => {
+          tabs.answerBDiscovery(null);
+          return new Promise((resolve) => {
+            answer = resolve;
+          });
+        });
+        const sent = asked(tabs);
+        act(() => tabs.omitFromB(ids.A));
+        expect(
+          asked(tabs).discover - sent.discover,
+          "B asked who else is open to confirm",
+        ).toBe(1);
+        await replace(tabs);
+        const before = asked(tabs);
+
+        await act(async () => answer({ status: "ready" }));
+        await settle(500);
+        expectLocked(tabs);
+        expect(asked(tabs)).toEqual(before);
+
+        act(() => tabs.omitFromB(ids.A));
+        await settle(500);
+        expectApplied(tabs);
+        expect(asked(tabs).discover - before.discover).toBe(2);
+      } finally {
+        tabs.dispose();
+      }
+    });
+  });
 });
 
 // C holds a body the live doc wrote and takes a newer one, C's user types, and

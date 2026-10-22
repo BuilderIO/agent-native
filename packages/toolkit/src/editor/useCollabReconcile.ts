@@ -196,8 +196,11 @@ export interface UseCollabReconcileOptions {
    * When it cannot learn who else is open, or the stored body has not reached
    * the doc in time, it stays that way, leaves the doc as it is and reports
    * `joinEvidenceFailed` until `retryJoinEvidence` succeeds or the doc and
-   * the stored body match. A ready discovery whose `current()` turns false,
-   * as when a presence answer since could not be read, is asked again.
+   * the stored body match. When presence changes to leave no other writable
+   * client, hidden ones included, it asks once more who else is open, and
+   * starts the join over if the answer agrees. A ready discovery whose
+   * `current()` turns false, as when a presence answer since could not be
+   * read, is asked again.
    */
   discoverCollabPeers?: () => Promise<{
     status: "ready" | "failed" | "unavailable";
@@ -273,7 +276,8 @@ export interface UseCollabReconcileResult {
    * could not learn whether a collaborator holds that body, or learned that
    * none does and the body never reached the doc. The doc stays as it is,
    * neither replaced nor adopted, and the editor read-only, until
-   * `retryJoinEvidence` succeeds or the doc and the stored body match.
+   * `retryJoinEvidence` succeeds, the doc and the stored body match, or every
+   * other writable client leaves and asking again agrees.
    */
   joinEvidenceFailed: boolean;
   retryJoinEvidence: () => void;
@@ -710,6 +714,13 @@ export function useCollabReconcile({
     stopJoinClaims();
     releaseJoinReadOnly();
   };
+  // Evidence asked for afresh, by a deadline of its own.
+  const restartJoinEvidence = (doc: YDoc, revision: string) => {
+    joinEvidenceRequestRef.current?.cancel();
+    joinEvidenceRequestRef.current = null;
+    joinBodyDeadlineRef.current = null;
+    requestJoinEvidence(doc, revision);
+  };
   // Evidence a joining doc may act on: ready, about this revision, still
   // current, and holding every report collaborators made. A report made since
   // is not covered by its catch-up, so it catches up again.
@@ -832,7 +843,7 @@ export function useCollabReconcile({
   // never equals the stored body. The lead's report is how a waiting client
   // learns it arrived, and a report is trusted only after catching up again.
   useEffect(() => {
-    const target = heldRevisionAwarenessRef.current;
+    const target = heldRevisionTarget;
     if (
       !target ||
       !ydoc ||
@@ -850,7 +861,67 @@ export function useCollabReconcile({
     return () => {
       target.off("change", onChange);
     };
-  }, [joinEvidence, ydoc]);
+  }, [joinEvidence, ydoc, heldRevisionTarget]);
+  // A failed join leaves the doc to a collaborator that may hold unsaved text
+  // in it, hidden or not. A presence change that leaves none, as when a
+  // closed tab's presence expires, is checked by asking who else is open, and
+  // only if that agrees does the join start over, as a retry does. A presence
+  // list that leaves a collaborator out asks once, and changes that keep this
+  // client alone ask nothing.
+  useEffect(() => {
+    const target = heldRevisionTarget;
+    if (
+      !target ||
+      !ydoc ||
+      joinEvidence?.ydoc !== ydoc ||
+      joinEvidence.status !== "failed"
+    )
+      return;
+    const evidence = joinEvidence;
+    const accompanied = () => {
+      let others = false;
+      target.getStates().forEach((state, clientId) => {
+        if (clientId === ydoc.clientID || clientId === AGENT_CLIENT_ID) return;
+        const s = state as { user?: unknown; canFlushDocument?: boolean };
+        if (s?.user && s.canFlushDocument !== false) others = true;
+      });
+      return others;
+    };
+    let cancelled = false;
+    let company = accompanied();
+    const onChange = () => {
+      const had = company;
+      company = accompanied();
+      const discover = discoverCollabPeersRef.current;
+      if (!had || company || !discover) return;
+      const confirm = async () => {
+        const discovered = await discover();
+        // The evidence or the awareness can move on before React cleans this
+        // effect up.
+        if (
+          cancelled ||
+          joinEvidenceRef.current !== evidence ||
+          heldRevisionAwarenessRef.current !== target ||
+          discovered.status !== "ready" ||
+          !(discovered.current?.() ?? true) ||
+          accompanied()
+        )
+          return;
+        restartJoinEvidence(ydoc, evidence.revision);
+      };
+      void confirm().catch((error: unknown) =>
+        console.warn(
+          "Could not learn who else holds this document; leaving it as it is until a retry",
+          error,
+        ),
+      );
+    };
+    target.on("change", onChange);
+    return () => {
+      cancelled = true;
+      target.off("change", onChange);
+    };
+  }, [joinEvidence, ydoc, heldRevisionTarget]);
   const acknowledgedLocalSnapshotRef = useRef<{
     value: string;
     revision: string;
@@ -2015,10 +2086,7 @@ export function useCollabReconcile({
     retryJoinEvidence: () => {
       const evidence = joinEvidenceRef.current;
       if (!ydoc || evidence?.ydoc !== ydoc) return;
-      joinEvidenceRequestRef.current?.cancel();
-      joinEvidenceRequestRef.current = null;
-      joinBodyDeadlineRef.current = null;
-      requestJoinEvidence(ydoc, evidence.revision);
+      restartJoinEvidence(ydoc, evidence.revision);
     },
     isJoinPending,
     isSettingContentRef,
