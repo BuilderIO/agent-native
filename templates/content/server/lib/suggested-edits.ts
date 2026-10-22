@@ -248,6 +248,8 @@ type DeferredProposalCommit = LockedSuggestionTarget & {
   content: string;
   /** The Page after each earlier member, kept only for Blocks identity. */
   intermediateContents: string[];
+  /** Whether a member added or removed a top-level block. */
+  blockCountChanged: boolean;
   document: ProseMirrorNode;
   ctx: Record<string, unknown> | undefined;
   orgId: string | null;
@@ -731,6 +733,7 @@ async function commitAcceptedContent(input: {
   target: LockedSuggestionTarget;
   nextContent: string;
   intermediateContents?: readonly string[];
+  blockCountChanged?: boolean;
   nextDocument: ProseMirrorNode;
   ydoc: PreparedYDocMutationLease;
   ctx: Record<string, unknown> | undefined;
@@ -834,7 +837,14 @@ async function commitAcceptedContent(input: {
         intent,
         candidateHash: documentContentHash(nextContent),
         committedRevision: nextBodyRevision,
-        changedBlockIndexes: planned.changedBlockIndexes,
+        // Changed blocks are recorded by position. After a proposal member
+        // adds or removes a block, the blocks below it move, so the whole
+        // decision records none, as that member's own save did. A stale save
+        // over them is then kept for review rather than merged into a block
+        // that moved.
+        changedBlockIndexes: input.blockCountChanged
+          ? []
+          : planned.changedBlockIndexes,
         canonicalChanged: true,
         now,
       });
@@ -1041,6 +1051,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       target: proposal,
       nextContent: proposal.content,
       intermediateContents: proposal.intermediateContents,
+      blockCountChanged: proposal.blockCountChanged,
       nextDocument: proposal.document,
       ydoc: coordination.ydoc,
       ctx: proposal.ctx,
@@ -1106,10 +1117,16 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       // one edit hands to another.
       if (placed && target.primaryBlocksFields.length)
         intermediateContents.push(currentContent);
+      const blockCountChanged =
+        placed?.blockCountChanged === true ||
+        nextDocument.childCount !==
+          (placed?.document ?? parseSuggestionMarkdown(currentContent))
+            .childCount;
       coordination.proposal = {
         ...target,
         content: nextContent,
         intermediateContents,
+        blockCountChanged,
         document: nextDocument,
         ctx: placed?.ctx ?? context.ctx,
         orgId: placed?.orgId ?? context.suggestion.orgId ?? null,
