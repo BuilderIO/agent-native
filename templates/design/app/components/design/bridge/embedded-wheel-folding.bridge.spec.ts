@@ -23,7 +23,8 @@ async function withPage(run: (page: Page) => Promise<void>) {
   try {
     const page = await browser.newPage();
     // The bridge's timers run only when a test moves this clock.
-    await page.clock.install();
+    await page.clock.install({ time: 0 });
+    await page.clock.pauseAt(1000);
     await page.setContent('<!doctype html><html><body style="margin:0">');
     await page.evaluate(() => {
       const posted: unknown[] = [];

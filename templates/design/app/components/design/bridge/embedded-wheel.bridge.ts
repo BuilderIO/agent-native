@@ -26,7 +26,9 @@
  *   Until the host answers the last one with 'embedded-canvas-wheel-read'
  *   and its `seq`, later wheels fold into one pending message per kind of
  *   step, with deltas summed over `steps` wheels, so a host that falls behind
- *   never works through a queue of stale steps after the fingers stop.
+ *   doesn't work through a queue of stale steps after the fingers stop. A
+ *   host that hasn't answered in 100 ms (1 s once it has answered before) is
+ *   sent the next step anyway.
  *
  *   { type: 'embedded-canvas-pan', phase: 'start'|'move'|'end'|'cancel',
  *     pointerId, button, buttons, clientX, clientY, movementX, movementY,
@@ -159,8 +161,8 @@ declare var __INTERACTION_MODE__: boolean;
     if (wheelReadTimer !== null) window.clearTimeout(wheelReadTimer);
     // A host that never answers (the single-screen view reads pinches from the
     // zoom bridge instead) still gets the folded wheels, a few times a second.
-    // One that has answered keeps answering, however slow its frames, so its
-    // timer only covers an answer lost while the canvas remounts.
+    // One that has answered is waited on for up to a second, so slow frames
+    // don't let a second step through; past that the answer is taken as lost.
     wheelReadTimer = window.setTimeout(
       sendNextWheel,
       hostAnswersWheels ? 1000 : 100,

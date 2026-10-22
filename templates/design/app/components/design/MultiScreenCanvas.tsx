@@ -10799,8 +10799,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [handleWheelEvent]);
 
   // A render may have moved or resized a screen (a nudge, a collaborator's
-  // edit), so the next wheel step measures its frame again. A gesture's own
-  // camera moves write the DOM directly and don't render.
+  // edit), so the next wheel step measures its frame again. A gesture's camera
+  // moves write the DOM directly, so a pinch normally measures it once.
   useLayoutEffect(() => {
     embeddedWheelFrameRef.current = null;
   });
