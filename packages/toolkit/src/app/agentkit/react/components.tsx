@@ -3854,6 +3854,7 @@ export function AgentMessageView({
       <Supplement value={visibleMessage} threadId={threadId} />
     ) : null;
   }
+  let hasSeenWidget = false;
   return (
     <article
       className="agentkit-message"
@@ -3863,20 +3864,35 @@ export function AgentMessageView({
       aria-busy={message.status === "streaming"}
     >
       <div className="agentkit-message-content">
-        {orderedContent.map((item, index) => (
-          <AgentMessagePartView
-            key={item.key}
-            value={
-              item.type === "widget"
-                ? { type: "widget", widget: item.widget }
-                : item.part
-            }
-            threadId={threadId}
-            active={message.status === "streaming"}
-            resetKey={`${threadId}:${message.id}:${index}`}
-            userMessage={message.role === "user"}
-          />
-        ))}
+        {orderedContent.map((item, index) => {
+          const followsWidget =
+            message.role === "assistant" &&
+            hasSeenWidget &&
+            item.type === "part" &&
+            item.part.type === "text";
+          if (item.type === "widget") hasSeenWidget = true;
+          const content = (
+            <AgentMessagePartView
+              value={
+                item.type === "widget"
+                  ? { type: "widget", widget: item.widget }
+                  : item.part
+              }
+              threadId={threadId}
+              active={message.status === "streaming"}
+              resetKey={`${threadId}:${message.id}:${index}`}
+              userMessage={message.role === "user"}
+            />
+          );
+
+          return followsWidget ? (
+            <div key={item.key} data-post-widget-text="true">
+              {content}
+            </div>
+          ) : (
+            <React.Fragment key={item.key}>{content}</React.Fragment>
+          );
+        })}
         {attachedAnnotations.length ? (
           <div className="agentkit-annotations">
             {attachedAnnotations.map((annotation) => (
@@ -4823,6 +4839,8 @@ type AgentKitTranscriptContentStyle = CSSProperties & {
   "--agentkit-transcript-message-gap"?: string;
   "--agentkit-transcript-message-line-height"?: string;
   "--agentkit-transcript-font-family"?: string;
+  "--agentkit-transcript-post-widget-text-color"?: string;
+  "--agentkit-transcript-post-widget-paragraph-padding-block"?: string;
   "--agentkit-user-bubble-line-height"?: string;
   "--agentkit-user-bubble-max-width"?: string;
   "--agentkit-user-bubble-offset-inline"?: string;
@@ -4874,6 +4892,15 @@ function transcriptContentStyle(
       "messageLineHeight",
     ),
     "--agentkit-transcript-font-family": layout.fontFamily,
+    "--agentkit-transcript-post-widget-text-color":
+      layout.postWidgetText?.tone === "muted"
+        ? "var(--agentkit-text-muted)"
+        : undefined,
+    "--agentkit-transcript-post-widget-paragraph-padding-block":
+      transcriptLength(
+        layout.postWidgetText?.paragraphPaddingBlock,
+        "postWidgetText.paragraphPaddingBlock",
+      ),
     "--agentkit-user-bubble-line-height": transcriptLength(
       layout.userBubbleLineHeight,
       "userBubbleLineHeight",

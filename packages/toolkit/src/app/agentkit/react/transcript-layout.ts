@@ -13,6 +13,11 @@ export interface AgentChatTranscriptLayout {
   messageLineHeight?: number;
   /** Font family for transcript messages. Omitted uses the shared semantic font. */
   fontFamily?: string;
+  /** Optional appearance for assistant text displayed after a widget. */
+  postWidgetText?: {
+    tone?: "muted";
+    paragraphPaddingBlock?: number;
+  };
   /** User bubble line height, in CSS pixels. */
   userBubbleLineHeight?: number;
   /** Maximum user bubble width, in CSS pixels. */

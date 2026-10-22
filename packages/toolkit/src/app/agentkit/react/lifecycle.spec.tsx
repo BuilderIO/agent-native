@@ -216,21 +216,42 @@ describe("AgentChat lifecycle", () => {
           text: ({ value }) => <span data-chat-part>{value.text}</span>,
         }}
       >
-        <AgentKitChat composer={false} />
+        <AgentKitChat
+          composer={false}
+          transcriptLayout={{
+            postWidgetText: {
+              tone: "muted",
+              paragraphPaddingBlock: 4,
+            },
+          }}
+        />
       </AgentKitProvider>,
     );
 
     const content = tree.container.querySelector(
       `[data-message-id="${message.id}"] .agentkit-message-content`,
     );
+    const transcriptContent = tree.container.querySelector(
+      ".agentkit-transcript-content",
+    );
     const renderedOrder = [...(content?.children ?? [])].map((element) =>
-      element.hasAttribute("data-chat-part")
+      element.hasAttribute("data-post-widget-text")
         ? element.textContent
-        : element.hasAttribute("data-chart-result")
-          ? "chart"
-          : "other",
+        : element.hasAttribute("data-chat-part")
+          ? element.textContent
+          : element.hasAttribute("data-chart-result")
+            ? "chart"
+            : "other",
     );
     expect(renderedOrder).toEqual(["Intro. ", "chart", "Summary."]);
+    expect(content?.children[0]).not.toHaveAttribute("data-post-widget-text");
+    expect(content?.children[2]).toHaveAttribute("data-post-widget-text");
+    expect(transcriptContent?.getAttribute("style")).toContain(
+      "--agentkit-transcript-post-widget-text-color: var(--agentkit-text-muted)",
+    );
+    expect(transcriptContent?.getAttribute("style")).toContain(
+      "--agentkit-transcript-post-widget-paragraph-padding-block: 4px",
+    );
     await tree.unmount();
   });
 

@@ -863,6 +863,25 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   background: var(--agentkit-canvas);
 }
 
+.agentkit-message-content [data-post-widget-text="true"] {
+  display: contents;
+  color: var(--agentkit-transcript-post-widget-text-color, inherit);
+}
+
+.agentkit-message-content [data-post-widget-text="true"] > p,
+.agentkit-message-content [data-post-widget-text="true"] .agentkit-markdown p {
+  padding-block: var(
+    --agentkit-transcript-post-widget-paragraph-padding-block,
+    0px
+  );
+}
+
+.agentkit-message-content
+  > [data-post-widget-text="true"]:last-child
+  > :last-child {
+  margin-block-end: 0;
+}
+
 .agentkit-image-preview img {
   max-inline-size: 92vw;
   max-block-size: 90vh;
