@@ -8325,6 +8325,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   retryable: true,
                 };
               }
+              if (
+                mutation.type === "append" &&
+                result.message &&
+                !result.alreadySubmitted &&
+                !result.submissionExpired
+              ) {
+                scheduleQueuedSubmissionInboxDrain({
+                  threadId,
+                  turnContinues: false,
+                  waitUntil: getRequestRunContext()?.waitUntil,
+                  drain: drainQueuedSubmissionInbox,
+                  onError: (error) => {
+                    console.error(
+                      `[agent-chat] queued-submission append drain failed for ${threadId}:`,
+                      error,
+                    );
+                  },
+                });
+              }
               if (mutation.type === "cancel" && result.submittedRunId) {
                 await abortRunAndTurnDurably(
                   result.submittedRunId,
@@ -9124,6 +9143,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               orgId: receipt.actor.orgId ?? null,
               orgScope: receipt.actor.orgScope ?? null,
             };
+            seedAgentRunOwnerContext(admissionEvent, ownerContext);
 
             let admissionResponse: unknown;
             try {

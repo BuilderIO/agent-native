@@ -3621,6 +3621,16 @@ describe("chat thread store", () => {
         expiresAt: expect.any(Number),
       },
     });
+
+    const concurrentClientClaim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: message.id,
+      claimId: "concurrent-client-promoter",
+    });
+
+    expect(concurrentClientClaim?.receiptManaged).toBe(true);
+    expect(concurrentClientClaim?.claimBusy).toBeUndefined();
+    expect(concurrentClientClaim?.claimedMessage).toBeUndefined();
   });
 
   it("does not claim an inbox receipt whose retry time advanced after the scan", async () => {

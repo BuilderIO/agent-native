@@ -12,6 +12,7 @@ const sweepHarness = vi.hoisted(() => ({
 
 const inboxHarness = vi.hoisted(() => ({
   admissions: [] as Array<Record<string, unknown>>,
+  admissionOwnerContexts: [] as Array<Record<string, unknown> | undefined>,
   admissionAttempts: [] as string[],
   admit: null as ((body: Record<string, any>) => Promise<string>) | null,
   admissionThrow: null as { messageId: string; error: unknown } | null,
@@ -155,6 +156,11 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
       const body = event.context?.__agentChatBackgroundBody;
       if (body) {
         const messageId = String(body.queuedMessageId ?? "");
+        inboxHarness.admissionOwnerContexts.push(
+          event.context?.__agentNativeOwnerContext as
+            | Record<string, unknown>
+            | undefined,
+        );
         inboxHarness.admissionAttempts.push(messageId);
         const admissionThrow = inboxHarness.admissionThrow;
         if (admissionThrow?.messageId === messageId) {
@@ -367,6 +373,7 @@ describe("queued submission inbox recurring sweep", () => {
     sweepHarness.settingsEmitter = new EventEmitter();
     sweepHarness.closeHooks.length = 0;
     inboxHarness.admissions.length = 0;
+    inboxHarness.admissionOwnerContexts.length = 0;
     inboxHarness.admissionAttempts.length = 0;
     inboxHarness.admit = null;
     inboxHarness.admissionThrow = null;
@@ -1521,6 +1528,10 @@ describe("queued submission inbox recurring sweep", () => {
       queuedMessageId: messageId,
       message: "Continue the report",
       ...storedPayload,
+    });
+    expect(inboxHarness.admissionOwnerContexts[0]).toMatchObject({
+      owner: actor.email,
+      anonymous: false,
     });
     expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
       {

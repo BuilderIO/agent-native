@@ -1,3 +1,5 @@
+import { runWithoutExecutionFence } from "../agent/execution-fence.js";
+
 export function scheduleQueuedSubmissionInboxDrain(input: {
   threadId: string;
   turnContinues: boolean;
@@ -7,7 +9,9 @@ export function scheduleQueuedSubmissionInboxDrain(input: {
 }): void {
   if (input.turnContinues) return;
   const drain = Promise.resolve()
-    .then(() => input.drain({ threadId: input.threadId }))
+    .then(() =>
+      runWithoutExecutionFence(() => input.drain({ threadId: input.threadId })),
+    )
     .catch(input.onError);
   if (input.waitUntil) input.waitUntil(drain);
   else void drain;

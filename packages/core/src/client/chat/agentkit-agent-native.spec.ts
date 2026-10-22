@@ -10167,7 +10167,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("leaves receipt-backed queue promotion to the inbox drain", async () => {
+  it("reattaches to a queue run submitted by the inbox drain", async () => {
     const threadId = "thread-receipt-managed";
     const queueWrites: Array<Record<string, unknown>> = [];
     const queuedMessages = [
@@ -10178,9 +10178,20 @@ describe("createAgentNativeAgentKitTransport", () => {
       },
     ];
     let startRequests = 0;
+    let receiptReads = 0;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        if (
+          url.endsWith(
+            `/threads/${threadId}/queue/queued-receipt-managed/receipt`,
+          )
+        ) {
+          receiptReads += 1;
+          return receiptReads === 1
+            ? json({ state: "queued" })
+            : json({ state: "submitted", submittedRunId: "run-inbox-drain" });
+        }
         if (url.endsWith(`/threads/${threadId}/queued`)) {
           const mutation = JSON.parse(String(init?.body)).mutation;
           queueWrites.push(mutation);
@@ -10208,10 +10219,22 @@ describe("createAgentNativeAgentKitTransport", () => {
         threadId,
         messageId: "queued-receipt-managed",
       }),
-    ).resolves.toBeUndefined();
+    ).rejects.toMatchObject({ code: "queue_item_busy", retryable: true });
+    await expect(
+      transport.steerQueuedMessage?.({
+        threadId,
+        messageId: "queued-receipt-managed",
+      }),
+    ).resolves.toEqual({ runId: "run-inbox-drain", alreadySubmitted: true });
 
     expect(startRequests).toBe(0);
+    expect(receiptReads).toBe(2);
     expect(queueWrites).toEqual([
+      {
+        type: "claim",
+        messageId: "queued-receipt-managed",
+        claimId: expect.any(String),
+      },
       {
         type: "claim",
         messageId: "queued-receipt-managed",

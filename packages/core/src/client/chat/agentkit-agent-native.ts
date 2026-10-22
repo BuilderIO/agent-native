@@ -4319,6 +4319,62 @@ export function createAgentNativeAgentKitTransport(
     );
   }
 
+  async function readQueuedSubmissionStatus(
+    threadId: string,
+    messageId: string,
+  ) {
+    const requestHeaders = await headers({ sessionId: threadId });
+    requestHeaders.set(AGENT_CHAT_THREAD_ABSENCE_HEADER, "typed");
+    const response = await fetcher(
+      scopedThreadEndpoint(
+        `${apiUrl}/threads/${encodeURIComponent(threadId)}/queue/${encodeURIComponent(messageId)}/receipt`,
+        options,
+      ),
+      { headers: requestHeaders },
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) throw await responseError(response);
+    return parseNullableAgentQueuedSubmissionStatus(await response.json());
+  }
+
+  async function reconcileQueuedSubmission(
+    threadId: string,
+    messageId: string,
+  ) {
+    const status = await readQueuedSubmissionStatus(threadId, messageId);
+    if (!status) {
+      throw new TypeError(
+        `Receipt-managed queue message ${messageId} has no submission receipt.`,
+      );
+    }
+    if (status.state === "submitted") {
+      if (!status.submittedRunId) {
+        throw new TypeError(
+          `Submitted queue message ${messageId} has no run ID.`,
+        );
+      }
+      return {
+        runId: status.submittedRunId,
+        alreadySubmitted: true as const,
+      };
+    }
+    if (status.state === "removed" || status.state === "expired") {
+      return { alreadyRemoved: true as const };
+    }
+    if (status.state === "blocked") {
+      const error = new Error(
+        `Queued submission ${messageId} is blocked in the server inbox.`,
+      );
+      Object.assign(error, { code: "queue_item_blocked", retryable: false });
+      throw error;
+    }
+    const error = new Error(
+      `Queued submission ${messageId} is still waiting in the server inbox.`,
+    );
+    Object.assign(error, { code: "queue_item_busy", retryable: true });
+    throw error;
+  }
+
   const runtime = options.runtime ?? createAgentNativeChatRuntime(options);
   const feedbackUrl =
     options.feedbackUrl ??
@@ -4356,18 +4412,7 @@ export function createAgentNativeAgentKitTransport(
         threadSnapshotWithActiveRun(threadId),
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
       getQueuedSubmissionStatus: async ({ threadId, messageId }) => {
-        const requestHeaders = await headers({ sessionId: threadId });
-        requestHeaders.set(AGENT_CHAT_THREAD_ABSENCE_HEADER, "typed");
-        const response = await fetcher(
-          scopedThreadEndpoint(
-            `${apiUrl}/threads/${encodeURIComponent(threadId)}/queue/${encodeURIComponent(messageId)}/receipt`,
-            options,
-          ),
-          { headers: requestHeaders },
-        );
-        if (response.status === 404) return null;
-        if (!response.ok) throw await responseError(response);
-        return parseNullableAgentQueuedSubmissionStatus(await response.json());
+        return readQueuedSubmissionStatus(threadId, messageId);
       },
       queueMessage: async ({
         threadId,
@@ -4500,7 +4545,8 @@ export function createAgentNativeAgentKitTransport(
           }
           if (claim.receiptManaged) {
             clearPromotionClaimId(threadId, messageId);
-            return;
+            claimHeld = false;
+            return await reconcileQueuedSubmission(threadId, messageId);
           }
           if (!claim.claimedMessage) {
             throw new TypeError("Agent chat queue claim response is invalid.");
@@ -4579,7 +4625,8 @@ export function createAgentNativeAgentKitTransport(
               }
               if (claim.receiptManaged) {
                 clearPromotionClaimId(threadId, messageId);
-                return;
+                claimHeld = false;
+                return await reconcileQueuedSubmission(threadId, messageId);
               }
               if (claim.alreadySubmitted && claim.submittedRunId) {
                 clearPromotionClaimId(threadId, messageId);

@@ -3103,6 +3103,7 @@ export async function mutateThreadQueuedMessages(
                       queuedMessages:
                         claimQueueSnapshot ?? result?.queuedMessages ?? [],
                       claimedMessage: undefined,
+                      claimBusy: undefined,
                       receiptManaged: true,
                     };
                     return false;
