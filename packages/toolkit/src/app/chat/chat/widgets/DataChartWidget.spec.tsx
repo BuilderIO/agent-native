@@ -200,7 +200,9 @@ describe("DataChartWidget display contract", () => {
     );
 
     const sampledContainer = await renderWidget(undefined, undefined, true);
-    expect(sampledContainer.querySelector('[role="status"]')).toBeNull();
+    expect(sampledContainer.querySelector('[role="status"]')?.textContent).toBe(
+      "This chart shows only some of the available rows.",
+    );
 
     const sampledAndCappedContainer = await renderWidget(
       undefined,
