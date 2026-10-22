@@ -5054,6 +5054,7 @@ const AgentKitAssistantChatBody = forwardRef<
         className={props.className}
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}
         hasRenderedMessages={hasRenderedMessages}
+        transcriptLayout={props.transcriptLayout}
         emptyComposerPlacement={
           props.centerComposerWhenEmpty && !isRestoring ? "center" : "bottom"
         }

@@ -28,6 +28,7 @@ import type * as React from "react";
 
 import type { AgentKitWorkedForSummaryRenderProps } from "../../agentkit/react/context.js";
 import type { AgentMessageContentOrderResolver } from "../../agentkit/react/message-content-order.js";
+import type { AgentChatTranscriptLayout } from "../../agentkit/react/transcript-layout.js";
 import type { AssistantChatHistoryConfig } from "./history-types.js";
 import type { BuilderSetupCardLayout } from "./run-recovery.js";
 
@@ -238,6 +239,8 @@ export interface AssistantChatProps {
   /** Optional content rendered in the empty state, below the suggestion
    *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
   emptyStateFooter?: React.ReactNode;
+  /** Optional transcript geometry. Omitted values keep the shared defaults. */
+  transcriptLayout?: AgentChatTranscriptLayout;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */

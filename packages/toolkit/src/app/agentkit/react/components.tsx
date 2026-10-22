@@ -49,6 +49,7 @@ import {
   useRef,
   useState,
   type ComponentType,
+  type CSSProperties,
   type ErrorInfo,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -138,6 +139,7 @@ import {
 } from "./context.js";
 import { orderMessageContent } from "./message-content-order.js";
 import { AgentStreamingText } from "./streaming-text.js";
+import type { AgentChatTranscriptLayout } from "./transcript-layout.js";
 
 // AgentKit React installs without @agent-native/core, so it repeats core's
 // replay markers. Its specs assert core's attribute names.
@@ -4800,7 +4802,83 @@ export interface AgentKitChatProps {
   emptyComposerPlacement?: "center" | "bottom";
   /** Follow new output until the user deliberately scrolls away. */
   autoScroll?: boolean;
+  /** Optional transcript geometry. Omitted values keep the shared defaults. */
+  transcriptLayout?: AgentChatTranscriptLayout;
   className?: string;
+}
+
+type AgentKitTranscriptContentStyle = CSSProperties & {
+  "--agentkit-transcript-top-inset"?: string;
+  "--agentkit-transcript-lane-width"?: string;
+  "--agentkit-transcript-lane-offset-inline"?: string;
+  "--agentkit-transcript-message-gap"?: string;
+  "--agentkit-transcript-message-line-height"?: string;
+  "--agentkit-user-bubble-line-height"?: string;
+  "--agentkit-user-bubble-max-width"?: string;
+  "--agentkit-user-bubble-padding-block"?: string;
+  "--agentkit-user-bubble-padding-inline"?: string;
+};
+
+function transcriptLength(value: number | undefined, name: string) {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(
+      `transcriptLayout.${name} must be a non-negative number`,
+    );
+  }
+  return `${value}px`;
+}
+
+function transcriptOffset(value: number | undefined, name: string) {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`transcriptLayout.${name} must be a finite number`);
+  }
+  return `${value}px`;
+}
+
+function transcriptContentStyle(
+  layout?: AgentChatTranscriptLayout,
+): AgentKitTranscriptContentStyle | undefined {
+  if (!layout) return undefined;
+  return {
+    "--agentkit-transcript-top-inset": transcriptLength(
+      layout.topInset,
+      "topInset",
+    ),
+    "--agentkit-transcript-lane-width": transcriptLength(
+      layout.messageLaneWidth,
+      "messageLaneWidth",
+    ),
+    "--agentkit-transcript-lane-offset-inline": transcriptOffset(
+      layout.messageLaneOffsetInline,
+      "messageLaneOffsetInline",
+    ),
+    "--agentkit-transcript-message-gap": transcriptLength(
+      layout.messageGap,
+      "messageGap",
+    ),
+    "--agentkit-transcript-message-line-height": transcriptLength(
+      layout.messageLineHeight,
+      "messageLineHeight",
+    ),
+    "--agentkit-user-bubble-line-height": transcriptLength(
+      layout.userBubbleLineHeight,
+      "userBubbleLineHeight",
+    ),
+    "--agentkit-user-bubble-max-width": transcriptLength(
+      layout.userBubbleMaxWidth,
+      "userBubbleMaxWidth",
+    ),
+    "--agentkit-user-bubble-padding-block": transcriptLength(
+      layout.userBubblePadding?.block,
+      "userBubblePadding.block",
+    ),
+    "--agentkit-user-bubble-padding-inline": transcriptLength(
+      layout.userBubblePadding?.inline,
+      "userBubblePadding.inline",
+    ),
+  };
 }
 
 const AGENTKIT_TRANSCRIPT_BOTTOM_THRESHOLD = 24;
@@ -4832,6 +4910,7 @@ export function AgentKitChat({
   hasRenderedMessages = false,
   emptyComposerPlacement = "center",
   autoScroll = true,
+  transcriptLayout,
   className,
 }: AgentKitChatProps) {
   const { threadId, slots, registry, labels, onThreadForked } = useAgentKit();
@@ -5582,6 +5661,7 @@ export function AgentKitChat({
           <div
             ref={transcriptContentRef}
             className="agentkit-transcript-content"
+            style={transcriptContentStyle(transcriptLayout)}
           >
             <AgentKitRegionSlot slot={Transcript} threadId={threadId}>
               {!hasConversation && EmptyState ? (
