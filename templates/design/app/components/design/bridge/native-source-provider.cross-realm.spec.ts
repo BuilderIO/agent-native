@@ -260,3 +260,77 @@ it("rejects pixel-changing animation effects on an adopted node", async () => {
     provider.dispose();
   }
 });
+
+it("suspends a zero-area clipped native background and resumes its composition after resize", async () => {
+  const { provider, target } = createAdoptedSceneFixture();
+  const readStyle = vi.mocked(window.getComputedStyle).getMockImplementation()!;
+  let width = 0;
+  let shadow = "none";
+  Object.defineProperty(target, "offsetWidth", {
+    configurable: true,
+    get: () => width,
+  });
+  vi.mocked(window.getComputedStyle).mockImplementation((element) => {
+    const style = readStyle(element);
+    return element === target
+      ? ({
+          ...style,
+          backgroundColor: "rgb(240, 240, 220)",
+          overflowX: "hidden",
+          overflowY: "hidden",
+          boxShadow: shadow,
+        } as CSSStyleDeclaration)
+      : style;
+  });
+  try {
+    expect(await provider.readScene()).toEqual([]);
+    width = 100;
+    expect(
+      (await provider.readScene()).map((record) => record.nativeInstanceId),
+    ).toEqual(["final-layer"]);
+    width = 0;
+    shadow = "rgb(0, 0, 0) 0px 0px 10px 0px";
+    await expect(provider.readScene()).rejects.toMatchObject({
+      code: "source-empty-own-paint-unsupported",
+    });
+  } finally {
+    provider.dispose();
+  }
+});
+
+it("ignores an empty native target's stale presentation pixels and resumes after resize", async () => {
+  const { provider, target } = createAdoptedSceneFixture();
+  let width = 0;
+  Object.defineProperty(target, "offsetWidth", {
+    configurable: true,
+    get: () => width,
+  });
+  const child = document.createElement("div");
+  child.setAttribute("data-an-native-layer-instance", "overflow-child");
+  const presentation = document.createElement("canvas");
+  presentation.setAttribute("data-an-native-presentation", "");
+  presentation.setAttribute("data-an-native-canvas", "overflow-child");
+  presentation.setAttribute("data-an-native-layer-opacity-owner", "receiver");
+  target.append(child, presentation);
+  for (const element of [child, presentation])
+    Object.defineProperties(element, {
+      offsetWidth: { value: 80 },
+      offsetHeight: { value: 60 },
+      offsetLeft: { value: 0 },
+      offsetTop: { value: 0 },
+      offsetParent: { value: target },
+      getBoundingClientRect: { value: () => new DOMRect(10, 20, 80, 60) },
+      getAnimations: { value: () => [] },
+    });
+  try {
+    expect(
+      (await provider.readScene()).map((record) => record.nativeInstanceId),
+    ).toEqual(["overflow-child"]);
+    width = 100;
+    expect(
+      (await provider.readScene()).map((record) => record.nativeInstanceId),
+    ).toEqual(["final-layer"]);
+  } finally {
+    provider.dispose();
+  }
+});

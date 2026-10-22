@@ -23,6 +23,7 @@ import * as sourceProvider from "./native-source-provider";
 import { NativeStatelessFrameTransaction } from "./native-stateless-frame-transaction";
 import { nativeSvgViewportToClient } from "./native-svg-geometry";
 import { serializeNativeSvgSource } from "./native-svg-source";
+import { NativeWorkerSceneSourceError } from "./native-worker-scene-host";
 
 describe("persistent generated fill frames", () => {
   it("draws the indexed mesh with a private depth attachment on the legacy GPU path", async () => {
@@ -395,6 +396,8 @@ type SceneRuntime = {
   syncPresentation(mount: unknown): void;
   positionedParents: Map<HTMLElement, number>;
   syncScenePresentationMode(managed: boolean): void;
+  prepareWorkerSceneCommit(): void;
+  workerScene: unknown;
   restoreIndividualPresentationsAfterSceneFailure(): void;
 };
 
@@ -1377,6 +1380,56 @@ describe("native scene viewport composition", () => {
     expect(
       document.documentElement.hasAttribute("data-an-native-scene-managed"),
     ).toBe(true);
+  });
+
+  it("retires direct mounts before the worker commit without scheduling another generation", () => {
+    const { frame } = fixture();
+    frame.setAttribute("data-an-native-status", "ready");
+    frame.setAttribute("data-an-native-backend", "webgpu");
+    frame.setAttribute("data-an-native-scene-suppressed", "");
+    document.documentElement.setAttribute("data-an-native-scene-managed", "");
+    const mount = runtime.mounts.get("fill")!;
+    const previousWorkerScene = runtime.workerScene;
+    const setEntries = vi.fn();
+    runtime.workerScene = { setEntries } as never;
+    const unmount = vi.spyOn(runtime, "unmount").mockImplementation(() => {
+      frame.removeAttribute("data-an-native-status");
+      frame.removeAttribute("data-an-native-backend");
+      frame.removeAttribute("data-an-native-scene-suppressed");
+    });
+    runtime.releaseScenePresentation.mockImplementation(() => {
+      runtime.scenePresentation = null;
+      document.documentElement.removeAttribute("data-an-native-scene-managed");
+    });
+
+    try {
+      runtime.prepareWorkerSceneCommit();
+
+      expect(runtime.mounts.size).toBe(0);
+      expect(unmount).toHaveBeenCalledWith(mount);
+      expect(runtime.scenePresentation).toBeNull();
+      expect(frame.hasAttribute("data-an-native-status")).toBe(false);
+      expect(
+        document.documentElement.hasAttribute("data-an-native-scene-managed"),
+      ).toBe(false);
+      expect(setEntries).not.toHaveBeenCalled();
+
+      frame.setAttribute("data-an-native-scene-suppressed", "");
+      frame.setAttribute("data-an-native-status", "ready");
+      frame.setAttribute("data-an-native-backend", "webgpu-worker");
+      document.documentElement.setAttribute("data-an-native-scene-managed", "");
+      expect(frame.getAttribute("data-an-native-status")).toBe("ready");
+      expect(frame.getAttribute("data-an-native-backend")).toBe(
+        "webgpu-worker",
+      );
+      expect(frame.hasAttribute("data-an-native-scene-suppressed")).toBe(true);
+      expect(
+        document.documentElement.hasAttribute("data-an-native-scene-managed"),
+      ).toBe(true);
+      expect(runtime.mounts.has("fill")).toBe(false);
+    } finally {
+      runtime.workerScene = previousWorkerScene;
+    }
   });
 
   it("renders a zoomed-out scene at its displayed pixel density", async () => {
@@ -3719,5 +3772,124 @@ describe("stateless frame queue submission", () => {
     await expect(transaction.finish()).rejects.toThrow("profiling failed");
     await drain();
     expect((await frame.submissionOutcome).status).toBe("rejected");
+  });
+});
+
+describe("independent native Fill source dependencies", () => {
+  it("rescans an unrelated browser-shaped text failure into direct Fill rendering", async () => {
+    type Subject = {
+      onWorkerSceneFailure(error: Error): void;
+      workerCapabilityBlocked: boolean;
+      workerEntries: unknown[];
+      workerScene: unknown;
+      playing: boolean;
+      disposed: boolean;
+      mounts: Map<string, unknown>;
+      parse(): unknown;
+      mount(...args: unknown[]): Promise<unknown>;
+      renderInternal(...args: unknown[]): Promise<unknown>;
+      syncPresentation(...args: unknown[]): void;
+      scheduleIdleSourcePoll(): void;
+      issue(...args: unknown[]): void;
+      postStatus(...args: unknown[]): void;
+    };
+    const Runtime = runtime.constructor as new (script: Node | null) => Subject;
+    const subject = new Runtime(null);
+    const target = document.createElement("div");
+    target.setAttribute("data-agent-native-node-id", "mesh");
+    document.body.append(target);
+    const instance = {
+      id: "mesh-fill",
+      nodeId: "mesh",
+      definitionId: FOLDED_MESH_EFFECT.id,
+      definitionVersion: FOLDED_MESH_EFFECT.version,
+      placement: "fill",
+      params: {},
+      enabled: true,
+      opacity: 1,
+      seed: 1,
+      clip: "bounds",
+      blend: "normal",
+      timing: { speed: 1, paused: false, time: 0 },
+    };
+    const entry = {
+      instance,
+      definition: FOLDED_MESH_EFFECT,
+      definitionHash: "mesh",
+      target,
+    };
+    const worker = { committedScene: () => null, dispose: vi.fn() };
+    const direct = {
+      instance,
+      definition: FOLDED_MESH_EFFECT,
+      target,
+      canvas: document.createElement("canvas"),
+    };
+    vi.spyOn(subject, "parse").mockReturnValue([
+      {
+        schemaVersion: 2,
+        definitions: [FOLDED_MESH_EFFECT],
+        instances: [instance],
+      },
+    ]);
+    const mount = vi.spyOn(subject, "mount").mockResolvedValue(direct);
+    const render = vi.spyOn(subject, "renderInternal").mockResolvedValue({
+      time: 0,
+      rendered: 1,
+      failures: [],
+      renderWallMs: 0,
+    });
+    vi.spyOn(subject, "syncPresentation").mockImplementation(() => {});
+    vi.spyOn(subject, "scheduleIdleSourcePoll").mockImplementation(() => {});
+    const issue = vi.spyOn(subject, "issue").mockImplementation(() => {});
+    vi.spyOn(subject, "postStatus").mockImplementation(() => {});
+    const Worker = vi.fn();
+    vi.stubGlobal("Worker", Worker);
+    const offscreen = Object.getOwnPropertyDescriptor(
+      HTMLCanvasElement.prototype,
+      "transferControlToOffscreen",
+    );
+    Object.defineProperty(
+      HTMLCanvasElement.prototype,
+      "transferControlToOffscreen",
+      { configurable: true, value: () => ({}) },
+    );
+    subject.workerScene = worker;
+    subject.workerEntries = [entry];
+    subject.playing = false;
+    subject.disposed = false;
+    try {
+      subject.onWorkerSceneFailure(
+        new NativeWorkerSceneSourceError(
+          new sourceProvider.NativeSourceCapabilityError(
+            "source-webfont-style",
+            "Browser-shaped text required",
+          ),
+        ),
+      );
+      expect(subject.workerCapabilityBlocked).toBe(true);
+      await vi.waitFor(() => expect(render).toHaveBeenCalledOnce());
+      expect(worker.dispose).toHaveBeenCalledOnce();
+      expect(subject.workerScene).toBeNull();
+      expect(subject.mounts.get("mesh-fill")).toBe(direct);
+      expect(mount).toHaveBeenCalledOnce();
+      expect(issue).toHaveBeenCalledWith(
+        "source-webfont-style",
+        "Browser-shaped text required",
+      );
+      expect(Worker).not.toHaveBeenCalled();
+    } finally {
+      if (offscreen)
+        Object.defineProperty(
+          HTMLCanvasElement.prototype,
+          "transferControlToOffscreen",
+          offscreen,
+        );
+      else
+        Reflect.deleteProperty(
+          HTMLCanvasElement.prototype,
+          "transferControlToOffscreen",
+        );
+    }
   });
 });

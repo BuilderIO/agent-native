@@ -367,6 +367,7 @@ import {
 import { NativeWorkerHostError } from "./native-worker-host";
 import {
   NativeWorkerSceneHost,
+  NativeWorkerSceneSourceError,
   type NativeWorkerSceneEntry,
 } from "./native-worker-scene-host";
 
@@ -5201,6 +5202,84 @@ class NativeShaderRuntime {
     );
   }
 
+  private hasWorkerPresentationToRetire(): boolean {
+    return Boolean(
+      this.retiringWorkerScene || this.mounts.size || this.scenePresentation,
+    );
+  }
+
+  private prepareWorkerSceneCommit(): void {
+    if (this.retiringWorkerScene) {
+      this.retiringWorkerScene.dispose({ preservePresentationState: true });
+      this.retiringWorkerScene = null;
+    }
+    for (const [id, mount] of this.mounts) {
+      this.unmount(mount);
+      this.mounts.delete(id);
+    }
+    if (this.scenePresentation) this.releaseScenePresentation();
+  }
+
+  private onWorkerSceneFailure = (error: Error): void => {
+    const code =
+      error instanceof NativeWorkerSceneSourceError
+        ? error.captureFailure.code
+        : error instanceof NativeSourceError ||
+            error instanceof NativeWorkerHostError
+          ? error.code
+          : "worker-scene-failed";
+    if (
+      error instanceof NativeWorkerSceneSourceError ||
+      [
+        "worker-continuous-source-unsupported",
+        "worker-unavailable",
+        "gpu-unavailable",
+        "canvas-unavailable",
+      ].includes(code)
+    ) {
+      this.workerCapabilityBlocked = true;
+      queueMicrotask(() => this.requestScan());
+    }
+    if (
+      [
+        "gpu-device-lost",
+        "gpu-uncaptured-error",
+        "worker-failed",
+        "worker-init-timeout",
+      ].includes(code) &&
+      this.workerRecoveryAttempts < 2 &&
+      !this.workerRecoveryQueued
+    ) {
+      this.workerRecoveryAttempts += 1;
+      this.workerRecoveryQueued = true;
+      queueMicrotask(() => {
+        const failed = this.workerScene;
+        if (failed?.committedScene()) {
+          this.retiringWorkerScene?.dispose();
+          this.retiringWorkerScene = failed;
+          failed.holdLastFrame();
+        } else failed?.dispose();
+        if (this.workerScene === failed) this.workerScene = null;
+        this.workerRecoveryQueued = false;
+        window.setTimeout(
+          () => this.requestScan(),
+          100 * this.workerRecoveryAttempts,
+        );
+      });
+    }
+    this.issue(code, error.message);
+    for (const entry of this.workerEntries) {
+      const status = this.workerScene?.committedScene() ? "last-good" : "error";
+      entry.target.setAttribute("data-an-native-status", status);
+      entry.target.setAttribute("data-an-native-error", code);
+      this.postStatus(entry.instance.id, entry.instance.nodeId, status, {
+        code,
+        message: error.message,
+        instanceId: entry.instance.id,
+      });
+    }
+  };
+
   private scanOnce = async (): Promise<void> => {
     if (this.disposed) return;
     if (this.running) await this.running;
@@ -5597,20 +5676,6 @@ class NativeShaderRuntime {
           },
           (_publication, message) => {
             this.workerRecoveryAttempts = 0;
-            if (this.retiringWorkerScene) {
-              this.retiringWorkerScene.dispose({
-                preservePresentationState: true,
-              });
-              this.retiringWorkerScene = null;
-            }
-            if (this.mounts.size || this.scenePresentation) {
-              for (const [id, mount] of this.mounts) {
-                this.unmount(mount);
-                this.mounts.delete(id);
-              }
-              if (this.scenePresentation) this.releaseScenePresentation();
-              this.workerScene?.setEntries(this.workerEntries);
-            }
             if (message.contentChanged)
               for (const committed of message.committedInstances) {
                 const entry = this.workerEntries.find(
@@ -5624,69 +5689,7 @@ class NativeShaderRuntime {
                   );
               }
           },
-          (error) => {
-            const code =
-              error instanceof NativeSourceError ||
-              error instanceof NativeWorkerHostError
-                ? error.code
-                : "worker-scene-failed";
-            if (
-              [
-                "worker-continuous-source-unsupported",
-                "worker-unavailable",
-                "gpu-unavailable",
-                "canvas-unavailable",
-              ].includes(code)
-            ) {
-              this.workerCapabilityBlocked = true;
-              queueMicrotask(() => this.requestScan());
-            }
-            if (
-              [
-                "gpu-device-lost",
-                "gpu-uncaptured-error",
-                "worker-failed",
-                "worker-init-timeout",
-              ].includes(code) &&
-              this.workerRecoveryAttempts < 2 &&
-              !this.workerRecoveryQueued
-            ) {
-              this.workerRecoveryAttempts += 1;
-              this.workerRecoveryQueued = true;
-              queueMicrotask(() => {
-                const failed = this.workerScene;
-                if (failed?.committedScene()) {
-                  this.retiringWorkerScene?.dispose();
-                  this.retiringWorkerScene = failed;
-                  failed.holdLastFrame();
-                } else failed?.dispose();
-                if (this.workerScene === failed) this.workerScene = null;
-                this.workerRecoveryQueued = false;
-                window.setTimeout(
-                  () => this.requestScan(),
-                  100 * this.workerRecoveryAttempts,
-                );
-              });
-            }
-            this.issue(code, error.message);
-            for (const entry of this.workerEntries) {
-              const status = this.workerScene?.committedScene()
-                ? "last-good"
-                : "error";
-              entry.target.setAttribute("data-an-native-status", status);
-              entry.target.setAttribute("data-an-native-error", code);
-              this.postStatus(
-                entry.instance.id,
-                entry.instance.nodeId,
-                status,
-                {
-                  code,
-                  message: error.message,
-                  instanceId: entry.instance.id,
-                },
-              );
-            }
-          },
+          this.onWorkerSceneFailure,
           nativePresentationTargetLayout,
           () => {
             this.refreshPreviewViewport();
@@ -5706,6 +5709,8 @@ class NativeShaderRuntime {
             compact: this.previewPolicy.isOverviewCompact(),
           }),
           () => this.clockOrigin,
+          () => this.hasWorkerPresentationToRetire(),
+          () => this.prepareWorkerSceneCommit(),
         );
         this.workerScene.setVisible(
           document.visibilityState !== "hidden" &&

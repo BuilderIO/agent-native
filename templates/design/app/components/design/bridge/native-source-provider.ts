@@ -82,6 +82,8 @@ export class NativeSourceError extends Error {
   }
 }
 
+export class NativeSourceCapabilityError extends NativeSourceError {}
+
 export function nativePresentationVisible(
   canvas: HTMLCanvasElement,
   viewport: { width: number; height: number },
@@ -610,6 +612,108 @@ export function nativeTextFlowUsesDocumentFont(element: HTMLElement): boolean {
   return false;
 }
 
+function nativeRenderedTextFlow(element: HTMLElement): {
+  read(node: Node, start: number, end: number): string;
+  dispose(): void;
+} {
+  const clone = element.cloneNode(true) as HTMLElement;
+  const originals = [element, ...element.querySelectorAll<HTMLElement>("*")];
+  const copies = [clone, ...clone.querySelectorAll<HTMLElement>("*")];
+  for (let index = 0; index < originals.length; index++) {
+    const copy = copies[index]!;
+    copyComputedCss(originals[index]!, copy);
+    copy.removeAttribute("id");
+    copy.removeAttribute("data-agent-native-node-id");
+    for (const attribute of [...copy.attributes])
+      if (attribute.name.startsWith("data-an-native-"))
+        copy.removeAttribute(attribute.name);
+    copy.style.setProperty("animation", "none", "important");
+    copy.style.setProperty("transition", "none", "important");
+  }
+  const language = element.closest("[lang]")?.getAttribute("lang");
+  if (language !== undefined && language !== null)
+    clone.setAttribute("lang", language);
+  clone.setAttribute("data-an-native-presentation", "");
+  for (const [name, value] of Object.entries({
+    position: "fixed",
+    left: "-100000px",
+    top: "0px",
+    opacity: "0",
+    visibility: "visible",
+    "pointer-events": "none",
+    width: `${element.getBoundingClientRect().width}px`,
+    "min-width": "0px",
+    "max-width": "none",
+    "box-sizing": "border-box",
+    transform: "none",
+    translate: "none",
+    rotate: "none",
+    scale: "none",
+  }))
+    clone.style.setProperty(name, value, "important");
+  const nodes = new Map<Node, Text>();
+  const sourceWalker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  const cloneWalker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+  for (
+    let node = sourceWalker.nextNode();
+    node;
+    node = sourceWalker.nextNode()
+  ) {
+    const copy = cloneWalker.nextNode();
+    if (!copy)
+      throw new NativeSourceCapabilityError(
+        "source-webfont-layout",
+        "The rendered text clone has a different text structure.",
+      );
+    nodes.set(node, copy as Text);
+  }
+  document.body.append(clone);
+  const fail = (): never => {
+    throw new NativeSourceCapabilityError(
+      "source-webfont-style",
+      "The browser could not preserve transformed text while measuring its rendered lines.",
+    );
+  };
+  try {
+    if (
+      typeof element.innerText !== "string" ||
+      clone.innerText !== element.innerText
+    )
+      fail();
+  } catch (error) {
+    clone.remove();
+    throw error;
+  }
+  return {
+    read(node, start, end) {
+      const copy = nodes.get(node);
+      if (!copy?.parentNode || copy.textContent !== node.textContent)
+        return fail();
+      const value = copy.textContent ?? "";
+      const before = document.createTextNode(value.slice(0, start));
+      const after = document.createTextNode(value.slice(end));
+      const span = document.createElement("span");
+      span.style.cssText =
+        "all:inherit!important;display:inline!important;position:static!important;float:none!important;margin:0!important;padding:0!important;border:0!important;contain:none!important";
+      span.textContent = value.slice(start, end);
+      copy.replaceWith(before, span, after);
+      try {
+        if (
+          clone.innerText !== element.innerText ||
+          typeof span.innerText !== "string"
+        )
+          return fail();
+        return span.innerText;
+      } finally {
+        before.replaceWith(copy);
+        span.remove();
+        after.remove();
+      }
+    },
+    dispose: () => clone.remove(),
+  };
+}
+
 export async function paintNativeTextFlow(
   element: HTMLElement,
   canvas: HTMLCanvasElement,
@@ -618,7 +722,7 @@ export async function paintNativeTextFlow(
   captureRoi?: { density: number; pixelOffset: { x: number; y: number } },
 ): Promise<void> {
   if (!isPureTextFlow(element))
-    throw new NativeSourceError(
+    throw new NativeSourceCapabilityError(
       "source-webfont-layout",
       "Canvas text capture needs a text-only flow without embedded media.",
     );
@@ -640,7 +744,7 @@ export async function paintNativeTextFlow(
       Math.abs(matrix.c) > 1e-5 ||
       Math.abs(matrix.d - 1) > 1e-5
     )
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-webfont-transform-unsupported",
         "Viewport Range measurements cannot capture transformed webfont text in local coordinates.",
       );
@@ -663,96 +767,102 @@ export async function paintNativeTextFlow(
   if (captureRoi)
     context.translate(captureRoi.pixelOffset.x, captureRoi.pixelOffset.y);
   context.scale(scaleX, scaleY);
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const value = node.textContent ?? "";
-    if (!value.trim()) continue;
-    if (/[\u200d\uFE0F\p{Mark}]/u.test(value))
-      throw new NativeSourceError(
-        "source-webfont-grapheme",
-        "Complex joined glyphs need browser-shaped text capture.",
-      );
-    const parent = node.parentElement;
-    if (!parent || parent.closest("[data-an-native-canvas]")) continue;
-    const style = getComputedStyle(parent);
-    if (
-      style.writingMode !== "horizontal-tb" ||
-      style.direction !== "ltr" ||
-      style.textTransform !== "none" ||
-      style.textDecorationLine !== "none" ||
-      style.textShadow !== "none" ||
-      style.fontVariantCaps !== "normal"
-    )
-      throw new NativeSourceError(
-        "source-webfont-style",
-        "This text style needs browser-shaped glyph capture.",
-      );
-    const family = style.fontFamily;
-    const face = [...document.fonts].find((font) =>
-      family.split(",").some(
-        (name) =>
-          name
-            .trim()
-            .replace(/^['"]|['"]$/g, "")
-            .toLowerCase() ===
-          font.family.replace(/^['"]|['"]$/g, "").toLowerCase(),
-      ),
-    );
-    if (face && face.status !== "loaded")
-      throw new NativeSourceError(
-        "source-webfont-pending",
-        `Font ${face.family} is not loaded for Canvas2D capture.`,
-      );
-    context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-    context.fontKerning = "normal";
-    context.letterSpacing = style.letterSpacing;
-    context.textBaseline = "alphabetic";
-    // guard:allow-raw-color — text masks encode opaque coverage, independent of the editor theme.
-    context.fillStyle = mask
-      ? OPAQUE_COVERAGE_COLOR
-      : (glyphColors?.get(parent) ?? style.color);
-    const segments: { index: number; segment: string }[] = [];
-    for (let index = 0; index < value.length; ) {
-      const segment = String.fromCodePoint(value.codePointAt(index)!);
-      segments.push({ index, segment });
-      index += segment.length;
-    }
-    let lineStart = 0;
-    let lineTop = Number.NaN;
-    let lineRect: DOMRect | null = null;
-    const drawLine = (end: number): void => {
-      if (!lineRect || end <= lineStart) return;
-      const text = value.slice(lineStart, end);
-      const metric = context.measureText(text);
-      const ascent =
-        metric.actualBoundingBoxAscent ||
-        Number.parseFloat(style.fontSize) * 0.8;
-      const descent =
-        metric.actualBoundingBoxDescent ||
-        Number.parseFloat(style.fontSize) * 0.2;
-      const baseline =
-        lineRect.top - bounds.top + (lineRect.height + ascent - descent) / 2;
-      context.fillText(text, lineRect.left - bounds.left, baseline);
-    };
-    for (const segment of segments) {
-      range.setStart(node, segment.index);
-      range.setEnd(node, segment.index + segment.segment.length);
-      const rect = range.getBoundingClientRect();
-      if (!rect.width && !rect.height) continue;
-      if (lineRect && Math.abs(rect.top - lineTop) > 1) {
-        drawLine(segment.index);
-        lineStart = segment.index;
-        lineRect = null;
+  let rendered: ReturnType<typeof nativeRenderedTextFlow> | undefined;
+  try {
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const value = node.textContent ?? "";
+      if (!value.trim()) continue;
+      if (/[\u200d\uFE0F\p{Mark}]/u.test(value))
+        throw new NativeSourceCapabilityError(
+          "source-webfont-grapheme",
+          "Complex joined glyphs need browser-shaped text capture.",
+        );
+      const parent = node.parentElement;
+      if (!parent || parent.closest("[data-an-native-canvas]")) continue;
+      const style = getComputedStyle(parent);
+      if (
+        style.writingMode !== "horizontal-tb" ||
+        style.direction !== "ltr" ||
+        style.textDecorationLine !== "none" ||
+        style.textShadow !== "none" ||
+        style.fontVariantCaps !== "normal"
+      )
+        throw new NativeSourceCapabilityError(
+          "source-webfont-style",
+          "This text style needs browser-shaped glyph capture.",
+        );
+      const renderedText = (start: number, end: number): string =>
+        style.textTransform === "none"
+          ? value.slice(start, end)
+          : (rendered ??= nativeRenderedTextFlow(element)).read(
+              node,
+              start,
+              end,
+            );
+      const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      context.font = font;
+      if (
+        document.fonts &&
+        (typeof document.fonts.check !== "function" ||
+          !document.fonts.check(font, renderedText(0, value.length)))
+      )
+        throw new NativeSourceError(
+          "source-webfont-pending",
+          "The font for the rendered glyphs is not loaded for Canvas2D capture.",
+        );
+      context.fontKerning = "normal";
+      context.letterSpacing = style.letterSpacing;
+      context.textBaseline = "alphabetic";
+      // guard:allow-raw-color — text masks encode opaque coverage, independent of the editor theme.
+      context.fillStyle = mask
+        ? OPAQUE_COVERAGE_COLOR
+        : (glyphColors?.get(parent) ?? style.color);
+      const segments: { index: number; segment: string }[] = [];
+      for (let index = 0; index < value.length; ) {
+        const segment = String.fromCodePoint(value.codePointAt(index)!);
+        segments.push({ index, segment });
+        index += segment.length;
       }
-      if (!lineRect) {
-        lineRect = rect;
-        lineTop = rect.top;
-        lineStart = segment.index;
+      let lineStart = 0;
+      let lineTop = Number.NaN;
+      let lineRect: DOMRect | null = null;
+      const drawLine = (end: number): void => {
+        if (!lineRect || end <= lineStart) return;
+        const text = renderedText(lineStart, end);
+        const metric = context.measureText(text);
+        const ascent =
+          metric.actualBoundingBoxAscent ||
+          Number.parseFloat(style.fontSize) * 0.8;
+        const descent =
+          metric.actualBoundingBoxDescent ||
+          Number.parseFloat(style.fontSize) * 0.2;
+        const baseline =
+          lineRect.top - bounds.top + (lineRect.height + ascent - descent) / 2;
+        context.fillText(text, lineRect.left - bounds.left, baseline);
+      };
+      for (const segment of segments) {
+        range.setStart(node, segment.index);
+        range.setEnd(node, segment.index + segment.segment.length);
+        const rect = range.getBoundingClientRect();
+        if (!rect.width && !rect.height) continue;
+        if (lineRect && Math.abs(rect.top - lineTop) > 1) {
+          drawLine(segment.index);
+          lineStart = segment.index;
+          lineRect = null;
+        }
+        if (!lineRect) {
+          lineRect = rect;
+          lineTop = rect.top;
+          lineStart = segment.index;
+        }
       }
+      drawLine(value.length);
     }
-    drawLine(value.length);
+  } finally {
+    rendered?.dispose();
+    context.restore();
+    range.detach();
   }
-  context.restore();
-  range.detach();
 }
 
 function preserveTextFlowStyles(
@@ -797,6 +907,12 @@ function hasVisibleBoxPaint(style: CSSStyleDeclaration): boolean {
     // guard:allow-raw-color — this compares the browser's computed transparent pixel value.
     (style.backgroundColor !== "rgba(0, 0, 0, 0)" &&
       style.backgroundColor !== "transparent") ||
+    hasVisibleBoxDecoration(style)
+  );
+}
+
+function hasVisibleBoxDecoration(style: CSSStyleDeclaration): boolean {
+  return (
     style.boxShadow !== "none" ||
     (style.outlineStyle &&
       style.outlineStyle !== "none" &&
@@ -3235,7 +3351,7 @@ async function rasterOwnPaint(
     nativeTextFlowUsesDocumentFont(element);
   if (canvasText) {
     if (!isPureTextFlow(element))
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-webfont-layout",
         "Webfont text mixed with independent child paint needs a separate source path.",
       );
@@ -4191,25 +4307,42 @@ class SceneProvider implements NativeSceneProvider {
 
   needsContinuousFrames(): boolean {
     const scope = this.placement === "backdrop" ? document.body : this.target;
+    const captured = (element: Element): boolean => {
+      for (
+        let current: Element | null = element;
+        current;
+        current = current.parentElement
+      )
+        if (this.omit(current)) return false;
+      return true;
+    };
     if (
-      (isNativeHtmlTag(scope, "video") && !scope.paused && !scope.ended) ||
-      [...scope.querySelectorAll<HTMLVideoElement>("video")].some(
-        (video) => !video.paused && !video.ended,
-      ) ||
-      (isNativeHtmlTag(scope, "canvas") &&
-        !scope.hasAttribute("data-an-native-canvas") &&
-        !scope.hasAttribute("data-an-native-presentation")) ||
-      scope.querySelector(
-        "canvas:not([data-an-native-canvas]):not([data-an-native-presentation])",
+      [scope, ...scope.querySelectorAll("video,canvas")].some(
+        (element) =>
+          captured(element) &&
+          ((isNativeHtmlTag(element, "video") &&
+            !element.paused &&
+            !element.ended) ||
+            (isNativeHtmlTag(element, "canvas") &&
+              !element.hasAttribute("data-an-native-canvas") &&
+              !element.hasAttribute("data-an-native-presentation"))),
       )
     )
       return true;
-    const animated = (element: Element): boolean =>
-      typeof element.getAnimations === "function" &&
-      element
-        .getAnimations({ subtree: true })
-        .some((animation) => animation.playState === "running");
-    if (animated(scope)) return true;
+    const running = (animation: Animation): boolean => {
+      if (animation.playState !== "running") return false;
+      try {
+        const target = (animation.effect as KeyframeEffect | null)?.target;
+        return !isNativeElement(target) || captured(target);
+      } catch {
+        return true;
+      }
+    };
+    if (
+      typeof scope.getAnimations === "function" &&
+      scope.getAnimations({ subtree: true }).some(running)
+    )
+      return true;
     for (
       let parent = scope.parentElement;
       parent;
@@ -4217,9 +4350,7 @@ class SceneProvider implements NativeSceneProvider {
     )
       if (
         typeof parent.getAnimations === "function" &&
-        parent
-          .getAnimations({ subtree: false })
-          .some((animation) => animation.playState === "running")
+        parent.getAnimations({ subtree: false }).some(running)
       )
         return true;
     return false;
@@ -5678,7 +5809,11 @@ class SceneProvider implements NativeSceneProvider {
               overflow.detail,
             );
           if (overflow.edge !== "none") {
-            if (hasDirectText(element) || hasVisibleBoxPaint(style))
+            if (
+              hasDirectText(element) ||
+              hasVisibleBoxDecoration(style) ||
+              (overflow.outset > 0 && hasVisibleBoxPaint(style))
+            )
               throw new NativeSourceError(
                 "source-empty-own-paint-unsupported",
                 "A zero-size clipped source has own paint that cannot be captured faithfully.",
@@ -5696,7 +5831,10 @@ class SceneProvider implements NativeSceneProvider {
     const layerInstance =
       (element !== this.target || this.targetCapture === "appearance") &&
       element.getAttribute("data-an-native-layer-instance");
-    const replacementInstance = layerInstance || fillInstance;
+    const replacementInstance =
+      initialSize && hasEmptySourceLayout(initialSize)
+        ? null
+        : layerInstance || fillInstance;
     if (replacementInstance) {
       const presentations = [...(element.parentElement?.children ?? [])].filter(
         (child): child is HTMLCanvasElement =>
