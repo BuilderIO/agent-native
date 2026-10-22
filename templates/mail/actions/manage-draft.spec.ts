@@ -585,7 +585,7 @@ describe("manage-draft create-then-reply flow", () => {
 });
 
 describe("manage-draft approval", () => {
-  it("requires a fresh approval for every destructive draft call", () => {
+  it("requires a fresh approval for every external destructive draft call", () => {
     expect(action.allowPersistentApproval).toBe(false);
   });
 
@@ -596,7 +596,7 @@ describe("manage-draft approval", () => {
     "delete-saved",
     "delete-all",
   ] as const)(
-    "requires approval only for destructive draft mode %s",
+    "requires approval only for outside agents using destructive draft mode %s",
     async (operation) => {
       const needsApproval = action.needsApproval;
       expect(typeof needsApproval).toBe("function");
@@ -610,6 +610,11 @@ describe("manage-draft approval", () => {
       expect(await needsApproval(args, { caller: "mcp" })).toBe(
         operation !== "create" && operation !== "update",
       );
+      expect(await needsApproval(args, { caller: "a2a" })).toBe(
+        operation !== "create" && operation !== "update",
+      );
+      expect(await needsApproval(args, { caller: "tool" })).toBe(false);
+      expect(await needsApproval(args)).toBe(false);
     },
   );
 });

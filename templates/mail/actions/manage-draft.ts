@@ -170,9 +170,12 @@ export default defineAction({
     "`delete-saved` with `savedDraftId` for a saved mailbox draft, or " +
     "`delete-all` to remove all compose drafts. To start a new reply, call " +
     "`create` with mode=reply, replyToId, to, subject, and body. " +
-    "Deleting drafts requires human approval.",
+    "Outside agents require human approval to delete drafts.",
   schema: manageDraftSchema,
-  needsApproval: (args) => args.action !== "create" && args.action !== "update",
+  needsApproval: (args, ctx) =>
+    (ctx?.caller === "mcp" || ctx?.caller === "a2a") &&
+    args.action !== "create" &&
+    args.action !== "update",
   allowPersistentApproval: false,
   mcpApp: {
     compactCatalog: true,
