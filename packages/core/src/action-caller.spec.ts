@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { isOutsideAgentCall } from "./action-caller.js";
 import type { ActionCaller, ActionRunContext } from "./action.js";
-import { isOutsideAgentCall } from "./outside-agent-call.js";
 
 const callers = {
   frontend: { outside: false, reason: "the app's own UI" },
@@ -45,6 +45,15 @@ describe("isOutsideAgentCall", () => {
       expect(isOutsideAgentCall(ctx)).toBe(outside);
     });
 
+    it(`treats ${caller} with automation context as outside`, () => {
+      expect(
+        isOutsideAgentCall({
+          ...ctx,
+          automation: { triggerId: "trigger-1", triggerName: "Scheduled run" },
+        }),
+      ).toBe(true);
+    });
+
     for (const [protocol, reason] of Object.entries(protocols)) {
       it(`treats ${caller} over ${protocol} as outside: ${reason}`, () => {
         expect(
@@ -56,15 +65,6 @@ describe("isOutsideAgentCall", () => {
       });
     }
   }
-
-  it("does not exempt an automation that retains the tool caller", () => {
-    expect(
-      isOutsideAgentCall({
-        caller: "tool",
-        automation: { triggerId: "trigger-1", triggerName: "Scheduled run" },
-      }),
-    ).toBe(true);
-  });
 
   it("fails closed without context or a recognized caller", () => {
     expect(isOutsideAgentCall()).toBe(true);

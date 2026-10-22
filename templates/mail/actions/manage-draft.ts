@@ -1,9 +1,5 @@
-import { embedApp } from "@agent-native/core";
-import {
-  defineAction,
-  fail,
-  isOutsideAgentCall,
-} from "@agent-native/core/action";
+import { embedApp, isOutsideAgentCall } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,

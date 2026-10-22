@@ -23,12 +23,13 @@ const mocks = vi.hoisted(() => ({
   appendSignatureToBody: vi.fn(),
 }));
 
-vi.mock("@agent-native/core", () => ({
-  embedApp: vi.fn(() => ({})),
-}));
+vi.mock("@agent-native/core", async () => {
+  const { isOutsideAgentCall } =
+    await import("../../../packages/core/src/action-caller.js");
+  return { embedApp: vi.fn(() => ({})), isOutsideAgentCall };
+});
 
-vi.mock("@agent-native/core/action", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
+vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
   fail: (message: string, options: Record<string, unknown>) => {
     const error = Object.assign(new Error(message), options);
