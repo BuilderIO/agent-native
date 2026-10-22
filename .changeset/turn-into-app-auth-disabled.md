@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Clarify that generated app instructions must preserve the `AUTH_DISABLED` guidance when appropriate.
+Tell agents to override generated app instructions that forbid setting `AUTH_DISABLED` for the local first screenshot, while keeping the flag loopback-only and removing it before the production build.
