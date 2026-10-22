@@ -295,6 +295,24 @@ describe("the Discussion panel", () => {
     expect(storedFilters()).toBeNull();
   });
 
+  it("has one filter button, whose options say which ones are chosen", async () => {
+    render();
+    expect(
+      container.querySelectorAll("[data-discussion-filter-trigger]"),
+    ).toHaveLength(1);
+    const pressed = (group: string, option: string) =>
+      button(filterOption(group, option)).getAttribute("aria-pressed");
+
+    await click("[data-discussion-filter-trigger]");
+    expect(pressed("status", "open")).toBe("true");
+    expect(pressed("status", "resolved")).toBe("false");
+
+    await click(filterOption("status", "resolved"));
+    expect(replies.historyFilters.status).toBe("resolved");
+    expect(pressed("status", "resolved")).toBe("true");
+    expect(pressed("status", "open")).toBe("false");
+  });
+
   it("clears every chosen filter at once", async () => {
     render();
     act(() =>

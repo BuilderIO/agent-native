@@ -22,6 +22,7 @@ const trashRowSource = readFileSync(
   new URL("../../trash/TrashRow.tsx", import.meta.url),
   "utf8",
 );
+// source-read-ok: a composition boundary, like the reads above: Discussion must build on the shared table controls.
 const discussionPanelSource = readFileSync(
   new URL("../discussion-panel.tsx", import.meta.url),
   "utf8",

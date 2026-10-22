@@ -497,17 +497,10 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    const toolbarSource = readFileSync(
-      "app/components/editor/discussion-panel.tsx",
-      { encoding: "utf8" },
-    );
-
-    // One filter button, in the toolbar Collections and Trash share.
+    // The filter button lives in the Discussion toolbar; the rendered panel
+    // tests in CommentsSidebar.discussion.test.tsx cover it.
     expect(source).toContain("<DiscussionToolbar");
     expect(source).not.toContain('t("comments.filter")');
-    expect(toolbarSource.match(/t\("comments.filter"\)/g)).toHaveLength(1);
-    expect(toolbarSource).toContain("data-discussion-filter-group={group.key}");
-    expect(toolbarSource).toContain("aria-pressed={option.selected}");
     expect(source).toContain('"all" | "comments" | "suggestions"');
     expect(source).toContain('historyKind !== "comments"');
     expect(source).toContain('historyKind === "suggestions"');
