@@ -922,6 +922,59 @@ function Card(style = { animationName: "fade" }) {
     );
   });
 
+  it("allows React CSS properties that resolve to static scalar aliases", () => {
+    const authored = source
+      .replace(
+        'import React from "react";',
+        'import React from "react";\n\nconst titleColor = "green";',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" css={{ color: titleColor }}>Hello</h1>',
+      );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+
+    const edit = apply(authored);
+    expect(edit.source).toContain("css={{ color: titleColor }}");
+    expect(
+      readMotionReactSource(edit.source, "src/components/Card.tsx"),
+    ).toMatchObject({ status: "valid", targetNodeIds: ["hero-title"] });
+  });
+
+  it("rejects Motion declarations in aliases under plain tag selector keys", () => {
+    const authored = source
+      .replace(
+        'import React from "react";',
+        'import React from "react";\n\nconst headingStyles = { transition: "opacity 1s" };',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" css={{ h1: headingStyles }}>Hello</h1>',
+      );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+    expect(authored).toContain('transition: "opacity 1s"');
+  });
+
   it("fails closed when a nested CSS rule references an unresolved style object", () => {
     const prop = 'css={{ "&:hover": hoverStyles }}';
     const authored = source.replace(

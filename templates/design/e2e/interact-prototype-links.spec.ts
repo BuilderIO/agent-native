@@ -45,7 +45,9 @@ async function postAction(
   return response.json();
 }
 
-async function createLinkedDesign(page: Page): Promise<string> {
+async function createLinkedDesign(
+  page: Page,
+): Promise<{ designId: string; homeFileId: string }> {
   const created = await postAction(page, "create-design", {
     title: "Interact prototype links",
     projectType: "prototype",
@@ -53,24 +55,28 @@ async function createLinkedDesign(page: Page): Promise<string> {
   const designId: string | undefined =
     created?.id ?? created?.data?.id ?? created?.design?.id;
   if (!designId) throw new Error("create-design returned no id");
+  let homeFileId: string | undefined;
   for (const [filename, content] of [
     ["index.html", HOME],
     ["pricing.html", page2("Pricing")],
     ["docs.html", page2("Docs")],
   ] as const) {
-    await postAction(page, "create-file", {
+    const file = await postAction(page, "create-file", {
       designId,
       filename,
       content,
       fileType: "html",
     });
+    if (filename === "index.html") homeFileId = file?.id ?? file?.data?.id;
   }
-  return designId;
+  if (!homeFileId) throw new Error("create-file returned no Home screen id");
+  return { designId, homeFileId };
 }
 
 async function enterInteractOnHome(page: Page) {
   await page.setViewportSize({ width: 1751, height: 897 });
-  await gotoEditor(page, await createLinkedDesign(page));
+  const { designId } = await createLinkedDesign(page);
+  await gotoEditor(page, designId);
   await page.waitForURL(/editorView=overview/);
   await page
     .locator('[data-design-top-bar] [data-design-mode="interact"]')
@@ -220,13 +226,49 @@ test("a manual screen selection cancels a pending prototype transition", async (
   ).toHaveText("Docs screen");
 });
 
-test("an invalid code-authored transition does not navigate", async ({
+test("a single-screen invalid transition falls back to immediate navigation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1751, height: 897 });
+  const { designId, homeFileId } = await createLinkedDesign(page);
+  await gotoEditor(page, designId);
+  const editorUrl = new URL(page.url());
+  editorUrl.searchParams.set("editorView", "single");
+  editorUrl.searchParams.set("screen", homeFileId);
+  await page.goto(editorUrl.toString(), { waitUntil: "domcontentloaded" });
+  await expect(page.locator("iframe[data-design-preview-iframe]")).toHaveCount(
+    1,
+  );
+  await expect(page.locator("[data-multi-screen-canvas-surface]")).toHaveCount(
+    0,
+  );
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .click();
+
+  const inner = page
+    .locator("iframe[data-design-preview-iframe]")
+    .contentFrame();
+  await expect(inner.locator("#title")).toHaveText("Home screen");
+  await recordPreviewAnimations(page);
+  await inner.locator("#to-docs-invalid-transition").click();
+  await expect(inner.locator("#title")).toHaveText("Docs screen");
+  expect(
+    await page.evaluate(
+      () =>
+        (window as typeof window & { __prototypeAnimations: unknown[] })
+          .__prototypeAnimations,
+    ),
+  ).toEqual([]);
+});
+
+test("an invalid code-authored transition falls back to immediate navigation", async ({
   page,
 }) => {
   const { screen, inner } = await enterInteractOnHome(page);
   await recordPreviewAnimations(page);
   await inner.locator("#to-docs-invalid-transition").click();
-  await expect(screen).toHaveText("Home");
+  await expect(screen).toHaveText("Docs");
   expect(
     await page.evaluate(
       () =>
@@ -236,5 +278,5 @@ test("an invalid code-authored transition does not navigate", async ({
   ).toEqual([]);
   await expect(
     page.locator(INTERACT_FRAME).contentFrame().locator("#title"),
-  ).toHaveText("Home screen");
+  ).toHaveText("Docs screen");
 });

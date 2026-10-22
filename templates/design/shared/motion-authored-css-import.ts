@@ -653,16 +653,26 @@ function resolveTransitionTargets(
   const selectors = simpleSelector
     ? [simpleSelector]
     : selectorCompoundAtoms(lastSelectorCompound(selectorText));
+  if (selectors.length === 0) return ["*"];
   const targetNodeIds = new Set<string>();
   for (const selector of selectors) {
     if (selector === "*") return ["*"];
     try {
       const resolution = resolveTarget(selector);
+      if (!resolution || typeof resolution !== "object") return ["*"];
       if (resolution.status === "resolved") {
+        if (
+          typeof resolution.targetNodeId !== "string" ||
+          resolution.targetNodeId.trim().length === 0
+        ) {
+          return ["*"];
+        }
         targetNodeIds.add(resolution.targetNodeId);
+      } else if (resolution.status !== "unresolved") {
+        return ["*"];
       }
     } catch {
-      continue;
+      return ["*"];
     }
   }
   return [...targetNodeIds];
@@ -859,6 +869,7 @@ function transitionPropertyList(value: string, shorthand: boolean): string[] {
       .map((part) => {
         const property = normalizedTransitionProperty(part.trim());
         if (property === "none") return "none";
+        if (property === "all") return "*";
         return CSS_IDENTIFIER.test(property) || property.startsWith("--")
           ? property
           : "*";
@@ -881,7 +892,8 @@ function transitionPropertyList(value: string, shorthand: boolean): string[] {
             (CSS_IDENTIFIER.test(identifier) || identifier.startsWith("--")),
         );
       if (candidates.length === 1) {
-        return candidates[0] === "none" ? "none" : candidates[0]!;
+        if (candidates[0] === "none") return "none";
+        return candidates[0] === "all" ? "*" : candidates[0]!;
       }
       return candidates.length === 0 && /\bnone\b/i.test(part) ? "none" : "*";
     })

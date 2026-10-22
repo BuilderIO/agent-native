@@ -44,6 +44,57 @@ describe("importAuthoredCssAnimations", () => {
     });
   });
 
+  it.each([
+    ["transition shorthand", ".hero:hover { transition: all 1s; }"],
+    [
+      "transition-property longhand",
+      ".hero:hover { transition-property: all; transition-duration: 1s; }",
+    ],
+  ])("treats all as overlapping every Motion track in %s", (_label, rule) => {
+    const css = `${rule}
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
+  it.each(["ambiguous", "unsupported", "throws"] as const)(
+    "fails closed when a transition selector resolution is %s",
+    (failure) => {
+      const css = `#hero:hover { transition: opacity 1s; }
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+      const resolveTarget: MotionAuthoredCssTargetResolver = (selector) => {
+        if (selector === ".hero") {
+          return { status: "resolved", targetNodeId: "node-hero" };
+        }
+        if (failure === "throws") throw new Error("selector lookup failed");
+        return failure === "ambiguous"
+          ? { status: "ambiguous" }
+          : { status: "unsupported", reason: "selector is not supported" };
+      };
+
+      expect(importAuthoredCssAnimations(css, resolveTarget)).toMatchObject({
+        status: "unsupported",
+        reason: expect.stringContaining("overlap a Motion target property"),
+      });
+    },
+  );
+
+  it("fails closed when a transition selector has no statically resolvable atoms", () => {
+    const css = `:is(.hero, #hero):hover { transition: opacity 1s; }
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
   it("rejects a transition on the Motion target when it overlaps an imported track", () => {
     const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
 .hero:hover { transition: opacity 1s ease; }

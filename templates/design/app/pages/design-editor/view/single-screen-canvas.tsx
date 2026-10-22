@@ -557,7 +557,6 @@ export function renderSingleScreenCanvas({
           _href,
           transition: MotionPrototypeTransitionDecodeResult,
         ) => {
-          if (transition.status === "invalid") return;
           if (!screen) return;
           const norm = (s: string) =>
             s

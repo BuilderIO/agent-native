@@ -1216,7 +1216,7 @@ function inspectReactCssExpression(
     expression = expression.expression;
   }
 
-  if (expression.kind === ts.SyntaxKind.NullKeyword) return "safe";
+  if (isStaticReactCssValueExpression(expression)) return "safe";
   if (ts.isObjectLiteralExpression(expression)) {
     for (const property of expression.properties) {
       if (ts.isSpreadAssignment(property)) return "unknown";
@@ -1231,14 +1231,12 @@ function inspectReactCssExpression(
         ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : null;
       if (!text) return "unknown";
       if (isReactMotionStylePropName(text)) return "motion";
-      if (
-        ts.isPropertyAssignment(property) &&
-        (ts.isObjectLiteralExpression(property.initializer) ||
-          (isReactCssNestedRuleName(text) &&
-            !isStaticReactCssValueExpression(property.initializer)))
-      ) {
+      const valueExpression = ts.isPropertyAssignment(property)
+        ? property.initializer
+        : property.name;
+      if (!isStaticReactCssValueExpression(valueExpression)) {
         const nested = inspectReactCssExpression(
-          property.initializer,
+          valueExpression,
           sourceFile,
           resolving,
         );
@@ -1409,10 +1407,6 @@ function isReactMotionStylePropName(name: string): boolean {
       normalized,
     )
   );
-}
-
-function isReactCssNestedRuleName(name: string): boolean {
-  return /[&@:#.,>+~\s]/.test(name) || name.includes("[");
 }
 
 function isStaticReactCssValueExpression(

@@ -458,7 +458,6 @@ export function useEditorScreenRendering({
       _href: string,
       transition: MotionPrototypeTransitionDecodeResult,
     ) => {
-      if (transition.status === "invalid") return;
       const target = findInteractLinkTarget(
         files,
         screen,
