@@ -4172,6 +4172,13 @@ export function App({
     [refreshVideoStorageStatus],
   );
 
+  useEffect(() => {
+    if (videoStorageStatus !== "configured") return;
+    setRecError((message) =>
+      isStorageSetupFailureMessage(message) ? null : message,
+    );
+  }, [videoStorageStatus]);
+
   async function handleStartRecording(options?: {
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
