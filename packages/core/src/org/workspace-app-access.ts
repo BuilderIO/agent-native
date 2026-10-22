@@ -375,19 +375,12 @@ async function resolveHostedWorkspaceAppAuth(
     if (orgId && !normalizedOrgDomain) {
       return workspaceAppAccessUnavailable("org-domain-missing", { audience });
     }
-    stage = "org-a2a-secret-lookup-failed";
-    const orgSecret = orgId
-      ? (await cachedOrgA2ASecret(orgId))?.trim() || undefined
-      : undefined;
     const deploymentSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
-    const signingSecret = orgSecret || deploymentSecret;
-    if (!signingSecret) {
-      return workspaceAppAccessUnavailable("a2a-secret-missing", { audience });
-    }
-    stage = "token-signing-failed";
     const requestContext = getRequestContext();
+    let signingSecret: string;
     let token: string;
     if (requestContext?.a2aIdentityAssurance === "org-member") {
+      stage = "token-signing-failed";
       if (
         !orgId ||
         !normalizedOrgDomain ||
@@ -399,6 +392,9 @@ async function resolveHostedWorkspaceAppAuth(
           detail: "Delegated member identity is missing or out of scope.",
         });
       }
+      stage = "org-a2a-secret-lookup-failed";
+      const orgSecret = (await cachedOrgA2ASecret(orgId))?.trim() || undefined;
+      stage = "token-signing-failed";
       if (!orgSecret) {
         return workspaceAppAccessUnavailable("a2a-secret-missing", {
           audience,
@@ -411,6 +407,7 @@ async function resolveHostedWorkspaceAppAuth(
             "Organization and deployment A2A secrets must differ for delegated identity.",
         });
       }
+      signingSecret = orgSecret;
       token = await signA2AOrgMemberDelegationToken(
         email,
         normalizedOrgDomain,
@@ -418,9 +415,19 @@ async function resolveHostedWorkspaceAppAuth(
         audience,
       );
     } else {
-      token = await signA2AToken(email, normalizedOrgDomain, orgSecret, {
+      // The receiver drops the user from any user token that verifies only with
+      // an organization secret, so a signed-in member's token must be signed
+      // with the deployment secret to stay named.
+      if (!deploymentSecret) {
+        return workspaceAppAccessUnavailable("a2a-secret-missing", {
+          audience,
+        });
+      }
+      stage = "token-signing-failed";
+      signingSecret = deploymentSecret;
+      token = await signA2AToken(email, normalizedOrgDomain, undefined, {
         expiresIn: "1m",
-        preferGlobalSecret: false,
+        preferGlobalSecret: true,
         audience,
         extraClaims: {
           jti: randomUUID(),

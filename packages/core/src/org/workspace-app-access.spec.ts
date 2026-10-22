@@ -601,7 +601,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
-  it("signs org-scoped Dispatch registry reads with the organization secret", async () => {
+  it("signs org-scoped Dispatch registry reads as the member with the deployment secret", async () => {
     vi.stubEnv("A2A_SECRET", "workspace-deployment-secret");
     vi.stubEnv(
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
@@ -631,15 +631,18 @@ describe("isWorkspaceAppAccessAllowed", () => {
     const authorization = fetchMock.mock.calls[0]?.[1]?.headers
       ?.Authorization as string;
     const token = authorization.slice("Bearer ".length);
-    const payload = verifyJwtWithSecret(token, "dispatch-org-secret");
+    const payload = verifyJwtWithSecret(token, "workspace-deployment-secret");
     expect(payload).toMatchObject({
       sub: "member@example.com",
       org_domain: "example.test",
       aud: "https://dispatch.example.test",
     });
-    expect(() =>
-      verifyJwtWithSecret(token, "workspace-deployment-secret"),
-    ).toThrow();
+    expect(() => verifyJwtWithSecret(token, "dispatch-org-secret")).toThrow();
+    expect(
+      mocks.execute.mock.calls.filter(([query]) =>
+        query?.sql?.includes("SELECT a2a_secret"),
+      ),
+    ).toHaveLength(0);
   });
 
   it("uses the deployment secret when the active organization has no secret", async () => {
@@ -681,7 +684,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
     });
   });
 
-  it("uses a rotated organization secret after cache invalidation", async () => {
+  it("uses a rotated organization secret for delegated identity after cache invalidation", async () => {
     vi.stubEnv("A2A_SECRET", "workspace-deployment-secret");
     vi.stubEnv(
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
@@ -703,10 +706,18 @@ describe("isWorkspaceAppAccessAllowed", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const check = () =>
-      isWorkspaceAppAccessAllowed("allowed-app", {
-        email: "member@example.com",
-        orgId: "org-1",
-      });
+      runWithRequestContext(
+        {
+          userEmail: "member@example.com",
+          orgId: "org-1",
+          a2aIdentityAssurance: "org-member",
+        },
+        () =>
+          isWorkspaceAppAccessAllowed("allowed-app", {
+            email: "member@example.com",
+            orgId: "org-1",
+          }),
+      );
 
     await expect(check()).resolves.toBe(true);
     const firstAuthorization = fetchMock.mock.calls[0]?.[1]?.headers
@@ -1419,7 +1430,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("reports an organization secret lookup failure without calling the registry", async () => {
+    it("reports an organization secret lookup failure for delegated identity without calling the registry", async () => {
       stubDirectory("https://secret-lookup.example.test/dispatch");
       mocks.execute.mockImplementation(async ({ sql }: { sql?: string }) => {
         if (sql?.includes("SELECT allowed_domain")) {
@@ -1434,10 +1445,18 @@ describe("isWorkspaceAppAccessAllowed", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(
-        checkWorkspaceAppAccess("analytics", {
-          email: "member@example.com",
-          orgId: "org-secret-lookup-failure",
-        }),
+        runWithRequestContext(
+          {
+            userEmail: "member@example.com",
+            orgId: "org-secret-lookup-failure",
+            a2aIdentityAssurance: "org-member",
+          },
+          () =>
+            checkWorkspaceAppAccess("analytics", {
+              email: "member@example.com",
+              orgId: "org-secret-lookup-failure",
+            }),
+        ),
       ).resolves.toEqual({
         status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
         reason: "org-a2a-secret-lookup-failed",
