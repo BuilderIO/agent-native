@@ -213,7 +213,11 @@ describe("AgentChat lifecycle", () => {
           },
         }}
         slots={{
-          text: ({ value }) => <span data-chat-part>{value.text}</span>,
+          text: ({ value }) => (
+            <div className="agentkit-markdown" data-chat-part>
+              <p>{value.text}</p>
+            </div>
+          ),
         }}
       >
         <AgentKitChat
@@ -251,6 +255,9 @@ describe("AgentChat lifecycle", () => {
     expect(renderedOrder).toEqual(["Intro. ", "chart", "Summary."]);
     expect(content?.children[0]).not.toHaveAttribute("data-post-widget-text");
     expect(content?.children[2]).toHaveAttribute("data-post-widget-text");
+    expect(
+      content?.children[2].querySelector(".agentkit-markdown p"),
+    ).not.toBeNull();
     expect(transcriptContent?.getAttribute("style")).toContain(
       "--agentkit-transcript-post-widget-text-color: var(--agentkit-text-muted)",
     );
