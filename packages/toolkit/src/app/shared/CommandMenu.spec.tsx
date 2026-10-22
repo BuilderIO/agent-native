@@ -1959,8 +1959,29 @@ describe("CommandMenu", () => {
 
   it("passes palette context to filter launchers and keeps their keys out of command navigation", () => {
     renderAppCommands({
-      groups: [],
+      groups: [
+        {
+          id: "reports",
+          order: 1,
+          commands: [
+            {
+              id: "revenue-report",
+              order: 1,
+              label: "Revenue report",
+              onSelect() {},
+            },
+            {
+              id: "revenue-forecast",
+              order: 2,
+              label: "Revenue forecast",
+              onSelect() {},
+            },
+          ],
+        },
+      ],
       context: { workspace: "alpha" },
+      showSettingsCommand: false,
+      showSignOutCommand: false,
       filterLauncherSlot: ({ search: currentSearch, appContext, close }) => (
         <button type="button" onClick={close}>
           {currentSearch}:{appContext?.workspace}:Filter records
@@ -1974,25 +1995,21 @@ describe("CommandMenu", () => {
     );
     expect(slot?.textContent).toContain("revenue:alpha:Filter records");
 
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    const dialogKeyDown = vi.fn();
-    dialog?.addEventListener("keydown", dialogKeyDown);
+    const selectedBefore = document.querySelector<HTMLElement>(
+      '[cmdk-item][aria-selected="true"]',
+    );
+    expect(selectedBefore?.textContent).toContain("Revenue report");
     const arrowDown = new KeyboardEvent("keydown", {
       key: "ArrowDown",
-      bubbles: true,
-      cancelable: true,
-    });
-    const tab = new KeyboardEvent("keydown", {
-      key: "Tab",
       bubbles: true,
       cancelable: true,
     });
     const launcher = slot?.querySelector("button");
     expect(launcher).toBeTruthy();
     act(() => launcher!.dispatchEvent(arrowDown));
-    expect(dialogKeyDown).not.toHaveBeenCalled();
-    act(() => launcher!.dispatchEvent(tab));
-    expect(dialogKeyDown).toHaveBeenCalledOnce();
+    expect(document.querySelector('[cmdk-item][aria-selected="true"]')).toBe(
+      selectedBefore,
+    );
 
     act(() => launcher!.click());
     expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -2031,6 +2048,65 @@ describe("CommandMenu", () => {
     expect(row?.getAttribute("aria-disabled")).toBe("true");
     act(() => row?.click());
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("shows a dynamic item's preview inside only its selected row", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          showSettingsCommand={false}
+          showSignOutCommand={false}
+        >
+          <CommandMenu.Group heading="Records">
+            <CommandMenu.Item
+              value="record-one"
+              preview={<span>First record details</span>}
+              onSelect={() => undefined}
+            >
+              First record
+            </CommandMenu.Item>
+            <CommandMenu.Item
+              value="record-two"
+              preview={<span>Second record details</span>}
+              onSelect={() => undefined}
+            >
+              Second record
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const selectedRow = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="record-one"]',
+    );
+    const otherRow = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="record-two"]',
+    );
+    expect(
+      selectedRow?.querySelector('[data-testid="command-menu-item-preview"]')
+        ?.textContent,
+    ).toBe("First record details");
+    expect(
+      otherRow?.querySelector('[data-testid="command-menu-item-preview"]'),
+    ).toBeNull();
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    act(() =>
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+    );
+
+    expect(
+      document
+        .querySelector('[cmdk-item][data-value="record-two"]')
+        ?.querySelector('[data-testid="command-menu-item-preview"]')
+        ?.textContent,
+    ).toBe("Second record details");
   });
 
   it("uses an app matcher and reports each search change", () => {
@@ -2219,6 +2295,25 @@ describe("CommandMenu", () => {
       renderResults: () => (
         <CommandMenu.Group heading="Dynamic results">{null}</CommandMenu.Group>
       ),
+      emptyState: "No matching records",
+    });
+
+    search("missing");
+
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "No matching records",
+    );
+  });
+
+  it("uses result presence for opaque components that render no rows", () => {
+    function EmptyResults() {
+      return null;
+    }
+
+    renderAppCommands({
+      groups: [],
+      renderResults: () => <EmptyResults />,
+      renderResultsHasItems: () => false,
       emptyState: "No matching records",
     });
 

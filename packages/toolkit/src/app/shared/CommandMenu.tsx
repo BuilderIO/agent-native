@@ -170,7 +170,7 @@ function CommandGroup({ heading, children }: CommandGroupProps) {
   );
 }
 
-interface CommandItemProps {
+type CommandItemProps = {
   onSelect: () => void;
   children: ReactNode;
   keywords?: string[];
@@ -183,7 +183,14 @@ interface CommandItemProps {
    * example a search result gaining a snippet) loses the highlight.
    */
   value?: string;
-}
+} & (
+  | { preview?: never }
+  | {
+      /** Content shown in the selected row; provide a stable value to keep it out of search text. */
+      preview: ReactNode;
+      value: string;
+    }
+);
 
 function CommandItem({
   onSelect,
@@ -193,8 +200,10 @@ function CommandItem({
   deferSelect = true,
   value,
   disabled = false,
+  preview,
 }: CommandItemProps) {
   const { onOpenChange, selectionEnabled } = useCommandMenuContext();
+  const selectedValue = useCommandState((state) => state.value);
 
   const handleSelect = () => {
     if (!deferSelect) {
@@ -215,6 +224,14 @@ function CommandItem({
       disabled={disabled || !selectionEnabled}
     >
       {children}
+      {preview !== undefined && selectedValue === value ? (
+        <div
+          data-testid="command-menu-item-preview"
+          className="ms-auto min-w-0"
+        >
+          {preview}
+        </div>
+      ) : null}
     </CommandItemPrimitive>
   );
 }
