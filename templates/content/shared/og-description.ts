@@ -163,6 +163,10 @@ const FRONTMATTER_START = new RegExp(
 );
 // A key cut before its colon: one word, or a quoted name.
 const FRONTMATTER_KEY_START = /^(?:"[^"\n]*|'[^'\n]*|[^\s#:-][^\s:]*)$/;
+// A key written the way frontmatter keys are: one word that doesn't start
+// with a capital, or a quoted name. A label like `Note:` starts prose.
+const CONVENTIONAL_FRONTMATTER_KEY =
+  /^(?:"[^"\n]*"|'[^'\n]*'|[^\s\p{Lu}#:"'-][^\s:]*):(?=\s|$)/u;
 
 /**
  * The markdown after its frontmatter, or null when a prefix ends inside it.
@@ -183,12 +187,15 @@ function stripExcerptFrontmatter(
       return hasKey ? lines.slice(index + 1).join("\n") : markdown;
     }
     if (FRONTMATTER_KEY.test(line)) hasKey = true;
-    // A prefix's last line may be cut short. It counts as YAML only after a
-    // whole line, so a single long line of prose isn't taken for frontmatter.
+    // A prefix's last line may be cut short. After a whole line, it counts if
+    // it could still begin a YAML line. Cut as the first line, it counts only
+    // with a conventional key, so a long `Note: …` paragraph after a top
+    // divider stays page text while a long `description:` stays hidden.
     if (truncated && index === lines.length - 1) {
       const couldBeYaml =
-        index > 1 &&
-        (FRONTMATTER_LINE.test(line) || FRONTMATTER_KEY_START.test(line));
+        index > 1
+          ? FRONTMATTER_LINE.test(line) || FRONTMATTER_KEY_START.test(line)
+          : CONVENTIONAL_FRONTMATTER_KEY.test(line);
       if (!couldBeYaml) return markdown;
       break;
     }

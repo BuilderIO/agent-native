@@ -434,4 +434,24 @@ describe("buildListRowExcerpt", () => {
       expect(buildListRowExcerpt({ content: prefix })).toBe(expected);
     }
   });
+
+  it("tells a long first frontmatter value from a long first paragraph", () => {
+    const value = "word ".repeat(250);
+    for (const key of [
+      "description",
+      "og_description",
+      '"og:title"',
+      "タイトル",
+    ]) {
+      expect(
+        buildListRowExcerpt({ content: `---\n${key}: ${value}\n---\n\nBody.` }),
+      ).toBe("");
+    }
+    // A capitalized label after a top divider starts prose.
+    for (const label of ["Note", "Key takeaway"]) {
+      expect(
+        buildListRowExcerpt({ content: `---\n${label}: ${value}` }),
+      ).toMatch(new RegExp(`^${label}: word word .*\\.\\.\\.$`));
+    }
+  });
 });
