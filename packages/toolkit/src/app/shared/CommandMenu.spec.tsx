@@ -127,6 +127,7 @@ describe("CommandMenu", () => {
     renderResultsPosition,
     emptyState,
     container: portalContainer,
+    size,
     showSettingsCommand,
     showSignOutCommand,
     showAgentFallback = false,
@@ -142,6 +143,7 @@ describe("CommandMenu", () => {
     renderResultsPosition?: "before" | "after";
     emptyState?: React.ReactNode;
     container?: HTMLElement;
+    size?: "default" | "wide";
     showSettingsCommand?: boolean;
     showSignOutCommand?: boolean;
     showAgentFallback?: boolean;
@@ -179,6 +181,7 @@ describe("CommandMenu", () => {
           renderResultsPosition={renderResultsPosition}
           emptyState={emptyState}
           container={portalContainer}
+          size={size}
         >
           {null}
         </CommandMenu>,
@@ -235,6 +238,18 @@ describe("CommandMenu", () => {
     search("calendar");
     expect(document.body.textContent).not.toContain(
       "Use the Chrome extension for browser logs",
+    );
+  });
+
+  it("keeps the default dialog width and supports a shared wide variant", () => {
+    renderMenu();
+    expect(document.querySelector('[role="dialog"]')?.classList).toContain(
+      "max-w-lg",
+    );
+
+    renderAppCommands({ groups: [], size: "wide" });
+    expect(document.querySelector('[role="dialog"]')?.classList).toContain(
+      "max-w-3xl",
     );
   });
 

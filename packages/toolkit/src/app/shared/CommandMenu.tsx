@@ -503,6 +503,8 @@ export interface CommandMenuProps<TAppContext = unknown> {
   chatStorageKey?: string;
   clearSearchOnEscape?: boolean;
   onCloseAutoFocus?: (event: Event) => void;
+  /** Shared dialog width; `wide` is opt-in for palettes with denser app results. */
+  size?: "default" | "wide";
   className?: string;
   changelog?: string;
   changelogLabel?: string;
@@ -542,6 +544,7 @@ export function CommandMenu<TAppContext = unknown>({
   chatStorageKey,
   clearSearchOnEscape = false,
   onCloseAutoFocus,
+  size = "default",
   className,
   changelog,
   changelogLabel = "What's new",
@@ -1232,7 +1235,8 @@ export function CommandMenu<TAppContext = unknown>({
             transition: "none",
           }}
           className={cn(
-            "fixed left-1/2 top-[15vh] !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
+            "fixed left-1/2 top-[15vh] !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full",
+            size === "wide" ? "max-w-3xl" : "max-w-lg",
             "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
             className,
           )}
