@@ -1348,6 +1348,71 @@ describe("CommandMenu", () => {
     expect(document.body.textContent).not.toContain("Refresh data");
   });
 
+  it("keeps page transitions unselected in none-selection mode", () => {
+    renderAppCommands({
+      initialSelection: "none",
+      groups: [
+        {
+          id: "main",
+          order: 1,
+          commands: [
+            {
+              id: "open-tools",
+              order: 1,
+              label: "Open tools",
+              page: {
+                id: "tools",
+                title: "Tools",
+                groups: [
+                  {
+                    id: "tool-actions",
+                    order: 1,
+                    commands: [
+                      {
+                        id: "refresh",
+                        order: 1,
+                        label: "Refresh data",
+                        onSelect() {},
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(document.body.textContent).toContain("Refresh data");
+    expect(
+      document.querySelector('[cmdk-item][aria-selected="true"]'),
+    ).toBeNull();
+
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(document.body.textContent).toContain("Open tools");
+    expect(
+      document.querySelector('[cmdk-item][aria-selected="true"]'),
+    ).toBeNull();
+  });
+
   it("uses app context to control command visibility and enabled state", () => {
     const onSelect = vi.fn();
     renderAppCommands({
@@ -1816,6 +1881,29 @@ describe("CommandMenu", () => {
     expect(document.querySelector('[role="status"]')?.textContent).toContain(
       "No matching records",
     );
+  });
+
+  it("does not show the empty state beside component-rendered results", () => {
+    function LiveResults() {
+      return (
+        <CommandMenu.Group heading="Live results">
+          <CommandMenu.Item onSelect={() => undefined}>
+            Live result
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+      );
+    }
+
+    renderAppCommands({
+      groups: [],
+      renderResults: () => <LiveResults />,
+      emptyState: "No matching records",
+    });
+
+    search("active");
+
+    expect(document.body.textContent).toContain("Live result");
+    expect(document.querySelector('[role="status"]')).toBeNull();
   });
 
   it("honors first and none initial selection modes", () => {

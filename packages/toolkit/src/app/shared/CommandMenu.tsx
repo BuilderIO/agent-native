@@ -416,10 +416,16 @@ function hasCommandItems(children: ReactNode): boolean {
     if (child.type === CommandItem || child.type === CommandItemPrimitive) {
       return true;
     }
+    if (child.type === React.Fragment || child.type === CommandGroup) {
+      return hasCommandItems(
+        (child.props as { children?: ReactNode }).children,
+      );
+    }
     if (child.type === CommandDocsGroup) {
       const docs = (child.props as CommandDocsGroupProps).docs;
       return docs.length > 0;
     }
+    if (typeof child.type !== "string") return true;
     return hasCommandItems((child.props as { children?: ReactNode }).children);
   });
 }
@@ -566,6 +572,13 @@ export function CommandMenu<TAppContext = unknown>({
     close: closeMenu,
   };
 
+  const resetSelection = useCallback(() => {
+    selectionEnabledRef.current = false;
+    setSelectedCommandValue(
+      initialSelection === "none" ? NO_COMMAND_SELECTION : "",
+    );
+  }, [initialSelection]);
+
   const openChangelog = useCallback(() => {
     onOpenChange(false);
     markChangelogSeen();
@@ -581,25 +594,19 @@ export function CommandMenu<TAppContext = unknown>({
     if (!open) {
       updateSearch("");
       setAppPageStack([]);
-      setSelectedCommandValue(
-        initialSelection === "none" ? NO_COMMAND_SELECTION : "",
-      );
-      selectionEnabledRef.current = false;
+      resetSelection();
       return;
     }
 
     if (open) {
       updateSearch("");
       setAppPageStack([]);
-      setSelectedCommandValue(
-        initialSelection === "none" ? NO_COMMAND_SELECTION : "",
-      );
-      selectionEnabledRef.current = false;
+      resetSelection();
       requestAnimationFrame(() => {
         inputRef.current?.focus();
       });
     }
-  }, [initialSelection, open, updateSearch]);
+  }, [open, resetSelection, updateSearch]);
 
   const handleCommandValueChange = useCallback(
     (value: string) => {
@@ -805,13 +812,13 @@ export function CommandMenu<TAppContext = unknown>({
     if (!currentPage) return;
     setAppPageStack((stack) => stack.slice(0, -1));
     updateSearch(currentPage.parentSearch);
-    setSelectedCommandValue("");
-  }, [appPageStack, updateSearch]);
+    resetSelection();
+  }, [appPageStack, resetSelection, updateSearch]);
 
   const openAppPage = (page: AppCommandPage<TAppContext>) => {
     setAppPageStack((stack) => [...stack, { page, parentSearch: search }]);
     updateSearch("");
-    setSelectedCommandValue("");
+    resetSelection();
   };
 
   const selectAppCommand = (command: AppCommand<TAppContext>) => {
