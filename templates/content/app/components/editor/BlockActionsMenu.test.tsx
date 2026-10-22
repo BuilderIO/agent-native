@@ -551,6 +551,16 @@ describe("BlockActionsMenu", () => {
     expect(request.onClose).not.toHaveBeenCalled();
   });
 
+  it("tells the grip it closed when it goes while open", () => {
+    const target = mount();
+    const { request } = open(target, 1);
+
+    act(() => root!.render(null));
+
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(request.onClose).toHaveBeenCalledOnce();
+  });
+
   it("lets the grip open its own menu when no editor menu is mounted", () => {
     const target = mount();
     act(() => root!.unmount());

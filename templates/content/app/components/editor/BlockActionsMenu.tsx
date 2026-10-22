@@ -159,6 +159,11 @@ export function BlockActionsMenu({
       input.focus({ preventScroll: true });
     }
   }, []);
+  const requestRef = useRef(request);
+
+  useEffect(() => {
+    requestRef.current = request;
+  }, [request]);
 
   useEffect(() => {
     const host: BlockMenuHost = {
@@ -173,6 +178,10 @@ export function BlockActionsMenu({
     hosts.add(host);
     return () => {
       hosts.delete(host);
+      // The page stopped being editable with the menu open: give the grip
+      // back, or it stays held for a menu that's gone.
+      requestRef.current?.onClose();
+      setRequest(null);
     };
   }, [editor]);
 

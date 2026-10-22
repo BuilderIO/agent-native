@@ -893,6 +893,93 @@ describe("DragHandle app menu", () => {
     }
   });
 
+  it("finds no block once it is deleted, though the same block after it takes its DOM", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>Same</p><p>Same</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      const first = editor.view.nodeDOM(0);
+      editor.view.dispatch(
+        editor.state.tr
+          .delete(0, editor.state.doc.child(0).nodeSize)
+          .insertText("!", 2),
+      );
+      expect(editor.view.nodeDOM(0)).toBe(first);
+
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      expect(childText(editor, 0)).toBe("S!ame");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("finds no block once the page's content is replaced", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>Same</p><p>Other</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+
+    try {
+      clickHandle(handle);
+      editor.commands.setContent("<p>Same</p><p>Other</p>");
+      expect(requests[0].getBlock()).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps its block through the menu's own edits, even one that wraps it", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      const { schema } = editor.state;
+      request.dispatch(
+        editor.state.tr.setNodeMarkup(0, schema.nodes.heading, { level: 2 }),
+      );
+      expect(request.getBlock()?.node.type.name).toBe("heading");
+
+      const { doc } = editor.state;
+      const range = doc
+        .resolve(1)
+        .blockRange(doc.resolve(doc.child(0).nodeSize - 1))!;
+      request.dispatch(
+        editor.state.tr.wrap(range, [{ type: schema.nodes.blockquote }]),
+      );
+      expect(request.getBlock()).toMatchObject({ pos: 0 });
+      expect(request.getBlock()?.node.type.name).toBe("blockquote");
+
+      editor.commands.insertContentAt(
+        editor.state.doc.content.size,
+        "<p>Third</p>",
+      );
+      expect(request.getBlock()?.node.textContent).toBe("First");
+
+      editor.view.dispatch(editor.state.tr.insertText("!", 3));
+      expect(request.getBlock()).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
   // Two collaborators: the page is mounted for the first, and the second
   // edits it through a Yjs document synced with the first's. The second's
   // edits reach the first together, when `deliver` is called.
@@ -1157,25 +1244,39 @@ describe("DragHandle app menu", () => {
     }
   });
 
-  it("closes the app's menu when the page scrolls, but not when the menu does", () => {
+  it("closes the app's menu when the page scrolls, but not when the menu or a sidebar does", () => {
     const close = vi.fn();
-    const { editor, handle } = mountEditor("<p>First</p>", {
-      openMenu: () => close,
-    });
+    const page = document.createElement("div");
+    const sidebar = document.createElement("div");
     const menu = document.createElement("div");
     menu.setAttribute("role", "menu");
-    document.body.appendChild(menu);
+    document.body.append(page, sidebar, menu);
+    const { editor, handle } = mountEditor(
+      "<p>First</p>",
+      { openMenu: () => close },
+      undefined,
+      page,
+    );
 
     try {
       clickHandle(handle);
       menu.dispatchEvent(new Event("scroll"));
+      sidebar.dispatchEvent(new Event("scroll"));
       expect(close).not.toHaveBeenCalled();
 
-      window.dispatchEvent(new Event("scroll"));
+      page.dispatchEvent(new Event("scroll"));
       expect(close).toHaveBeenCalledTimes(1);
       expect(handle.getAttribute("aria-expanded")).toBe("false");
+
+      hoverAt(32, 12);
+      clickHandle(handle);
+      window.dispatchEvent(new Event("scroll"));
+      expect(close).toHaveBeenCalledTimes(2);
     } finally {
       editor.destroy();
+      page.remove();
+      sidebar.remove();
+      menu.remove();
     }
   });
 

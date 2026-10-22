@@ -47,15 +47,17 @@ import { MenuSwitchItem } from "./MenuSwitchItem";
 import {
   attrsWithDuplicatedColumn,
   deleteTableColumn,
+  deleteTableColumns,
   deleteTableRow,
+  deleteTableRows,
   findTableByIndex,
   getColumnColor,
   getRowColor,
   getTableHeaders,
   insertTableColumn,
   insertTableRow,
-  setColumnColor,
-  setRowColor,
+  setColumnColors,
+  setRowColors,
   setTableHeaders,
   type TableAt,
 } from "./table-commands";
@@ -1356,7 +1358,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <ColorSubmenu
                 onChange={(color) =>
                   editAtCell((tr, table, cell) =>
-                    setColumnColor(tr, table, cell.left, color),
+                    setColumnColors(tr, table, cell, color),
                   )
                 }
                 value={selectedColumnColor}
@@ -1402,10 +1404,13 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className="gap-2 text-destructive focus:text-destructive"
                 onSelect={() =>
                   editAtCell((tr, table, cell) => {
-                    if (TableMap.get(table.node).width <= 1) {
+                    if (
+                      cell.left === 0 &&
+                      cell.right >= TableMap.get(table.node).width
+                    ) {
                       deleteTableAt(tr, table);
                     } else {
-                      deleteTableColumn(tr, table, cell.left);
+                      deleteTableColumns(tr, table, cell);
                     }
                   })
                 }
@@ -1493,7 +1498,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <ColorSubmenu
                 onChange={(color) =>
                   editAtCell((tr, table, cell) =>
-                    setRowColor(tr, table, cell.top, color),
+                    setRowColors(tr, table, cell, color),
                   )
                 }
                 value={selectedRowColor}
@@ -1539,10 +1544,13 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className="gap-2 text-destructive focus:text-destructive"
                 onSelect={() =>
                   editAtCell((tr, table, cell) => {
-                    if (table.node.childCount <= 1) {
+                    if (
+                      cell.top === 0 &&
+                      cell.bottom >= TableMap.get(table.node).height
+                    ) {
                       deleteTableAt(tr, table);
                     } else {
-                      deleteTableRow(tr, table, cell.top);
+                      deleteTableRows(tr, table, cell);
                     }
                   })
                 }

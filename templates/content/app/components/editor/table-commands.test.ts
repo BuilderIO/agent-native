@@ -3,12 +3,15 @@
 import { getSchema } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState, type Transaction } from "@tiptap/pm/state";
+import { TableMap } from "@tiptap/pm/tables";
 import { describe, expect, it } from "vitest";
 
 import {
   attrsWithDuplicatedColumn,
   deleteTableColumn,
+  deleteTableColumns,
   deleteTableRow,
+  deleteTableRows,
   findTableByIndex,
   getColumnColor,
   getRowColor,
@@ -16,7 +19,9 @@ import {
   insertTableColumn,
   insertTableRow,
   setColumnColor,
+  setColumnColors,
   setRowColor,
+  setRowColors,
   setTableFitWidth,
   setTableHeaders,
   type TableAt,
@@ -73,7 +78,7 @@ function cells(node: ProseMirrorNode) {
 }
 
 const columnColors = (node: ProseMirrorNode) =>
-  Array.from({ length: node.firstChild!.childCount }, (_, index) =>
+  Array.from({ length: TableMap.get(node).width }, (_, index) =>
     getColumnColor(node, index),
   );
 
@@ -90,7 +95,7 @@ describe("findTableByIndex", () => {
 });
 
 describe("table headers", () => {
-  it("reads the headers from the cells, not the table's attributes", () => {
+  it("reads the headers from the cells when the table's attributes don't match them", () => {
     expect(
       getTableHeaders(
         table([
@@ -136,6 +141,38 @@ describe("table headers", () => {
     ]);
     expect(next.attrs).toMatchObject({ headerRow: false, headerColumn: true });
   });
+
+  it.each<{ shape: string; rows: string[][]; covering: "row" | "column" }>([
+    { shape: "one row", rows: [["A", "B"]], covering: "row" },
+    { shape: "one column", rows: [["A"], ["B"]], covering: "column" },
+    { shape: "one cell", rows: [["A"]], covering: "row" },
+  ])(
+    "tells a header row from a header column in a table of $shape",
+    ({ rows, covering }) => {
+      const other = covering === "row" ? "column" : "row";
+      const one = edit(table(rows), (tr, target) =>
+        setTableHeaders(tr, target, { [covering]: true }),
+      );
+      expect(getTableHeaders(one)).toEqual({
+        [covering]: true,
+        [other]: false,
+      });
+
+      const both = edit(one, (tr, target) =>
+        setTableHeaders(tr, target, { [other]: true }),
+      );
+      expect(getTableHeaders(both)).toEqual({ row: true, column: true });
+
+      const back = edit(both, (tr, target) =>
+        setTableHeaders(tr, target, { [other]: false }),
+      );
+      expect(getTableHeaders(back)).toEqual({
+        [covering]: true,
+        [other]: false,
+      });
+      expect(cells(back)).toEqual(rows.map((row) => row.map((c) => `h:${c}`)));
+    },
+  );
 });
 
 describe("setTableFitWidth", () => {
@@ -263,5 +300,63 @@ describe("rows", () => {
       ["h:A", "h:B"],
       ["", ""],
     ]);
+  });
+});
+
+describe("a merged cell's rows and columns", () => {
+  // A table whose first cell spans `span` columns or rows.
+  function withMergedCell(span: "colspan" | "rowspan", rows: string[][]) {
+    const merged = schema.nodes.tableCell.create(
+      { [span]: 2 },
+      schema.nodes.paragraph.create(null, schema.text("A")),
+    );
+    const node = schema.nodes.table.create(
+      null,
+      rows.map((row, index) =>
+        schema.nodes.tableRow.create(null, [
+          ...(index === 0 ? [merged] : []),
+          ...row.map(cell),
+        ]),
+      ),
+    );
+    const map = TableMap.get(node);
+    return { node, span: map.findCell(map.map[0]) };
+  }
+
+  it("colours and deletes every column the cell covers", () => {
+    const { node, span } = withMergedCell("colspan", [["C"], ["D", "E", "F"]]);
+
+    const coloured = edit(node, (tr, target) =>
+      setColumnColors(tr, target, span, "red"),
+    );
+    expect(columnColors(coloured)).toEqual(["red", "red", null]);
+
+    const deleted = edit(coloured, (tr, target) =>
+      deleteTableColumns(tr, target, span),
+    );
+    expect(cells(deleted)).toEqual([["C"], ["F"]]);
+    expect(columnColors(deleted)).toEqual([null]);
+  });
+
+  it("colours and deletes every row the cell covers", () => {
+    const { node, span } = withMergedCell("rowspan", [
+      ["B"],
+      ["C"],
+      ["D", "E"],
+    ]);
+
+    const coloured = edit(node, (tr, target) =>
+      setRowColors(tr, target, span, "blue_bg"),
+    );
+    expect([0, 1, 2].map((row) => getRowColor(coloured, row))).toEqual([
+      "blue_bg",
+      "blue_bg",
+      null,
+    ]);
+
+    const deleted = edit(coloured, (tr, target) =>
+      deleteTableRows(tr, target, span),
+    );
+    expect(cells(deleted)).toEqual([["D", "E"]]);
   });
 });
