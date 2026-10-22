@@ -33,6 +33,36 @@ export function isStorageSetupFailureMessage(
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
 }
 
+/**
+ * `force=true` keeps a Builder employee's browser on the host the desktop app
+ * is signed in to. Without it the page's beta-lane redirect moves them to
+ * beta, and the storage grant gets connected there instead.
+ */
+export function buildVideoStorageSetupUrl(serverUrl: string): string {
+  return `${serverUrl.trim().replace(/\/+$/, "")}/record?connectStorage=1&force=true`;
+}
+
+type StorageSetupListener = () => void;
+const storageSetupListeners = new Set<StorageSetupListener>();
+
+/**
+ * Fired the moment the server refuses a recording for missing storage. The
+ * start attempt may be cancelled before its rejection reaches the caller, and
+ * a cancelled start shows nothing, so the denial cannot ride the error alone.
+ */
+export function notifyStorageSetupRequired(): void {
+  for (const listener of [...storageSetupListeners]) listener();
+}
+
+export function onStorageSetupRequired(
+  listener: StorageSetupListener,
+): () => void {
+  storageSetupListeners.add(listener);
+  return () => {
+    storageSetupListeners.delete(listener);
+  };
+}
+
 export function buildCreateRecordingRequestBody(
   hasCamera: boolean,
   hasAudio: boolean,

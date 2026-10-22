@@ -373,6 +373,7 @@ jobs:
           CLIPS_DESKTOP_SENTRY_PROJECT_ID: ${{ secrets.CLIPS_DESKTOP_SENTRY_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           CLIPS_DESKTOP_SENTRY_INGEST_HOST: ${{ secrets.CLIPS_DESKTOP_SENTRY_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           CLIPS_DESKTOP_SENTRY_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
+          VITE_CLIPS_DEFAULT_SERVER_URL: ${{ env.RELEASE_CHANNEL == 'nightly' && 'https://beta.clips.agent-native.com' || '' }}
         with:
           projectPath: ${{ env.TAURI_APP_PATH }}
           tagName: ${{ env.RELEASE_TAG_PREFIX }}__VERSION__
