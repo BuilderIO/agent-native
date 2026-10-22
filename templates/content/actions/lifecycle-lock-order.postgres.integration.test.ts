@@ -32,6 +32,7 @@ vi.mock("../server/lib/private-icon-authority.js", async (importOriginal) => ({
     typeof import("../server/lib/private-icon-authority.js")
   >()),
   assertPrivateIconOwner: vi.fn(async () => undefined),
+  ownsPrivateIcon: vi.fn(async () => true),
 }));
 const builderRead = vi.hoisted(() => ({ entries: [] as unknown[] }));
 vi.mock("./_builder-cms-read-client.js", async (importOriginal) => ({

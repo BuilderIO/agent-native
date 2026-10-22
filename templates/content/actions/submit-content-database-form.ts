@@ -12,6 +12,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
+import {
+  recordPrivateCalloutAuthorizations,
+  syncPrivateCalloutReferences,
+} from "../server/lib/private-icon-references.js";
 import type {
   ContentDatabaseView,
   DocumentPropertySystemRole,
@@ -592,13 +596,17 @@ export default defineAction({
         .select({
           viewConfigJson: schema.contentDatabases.viewConfigJson,
           deletedAt: schema.contentDatabases.deletedAt,
+          ownerEmail: schema.contentDatabases.ownerEmail,
+          orgId: schema.contentDatabases.orgId,
         })
         .from(schema.contentDatabases)
         .where(eq(schema.contentDatabases.id, databaseId));
       if (
         !lockedDatabase ||
         lockedDatabase.deletedAt !== null ||
-        lockedDatabase.viewConfigJson !== database.viewConfigJson
+        lockedDatabase.viewConfigJson !== database.viewConfigJson ||
+        lockedDatabase.ownerEmail !== database.ownerEmail ||
+        lockedDatabase.orgId !== database.orgId
       ) {
         throw new Error(
           "The database form changed before form submission completed.",
@@ -701,6 +709,30 @@ export default defineAction({
         createdAt: now,
         updatedAt: now,
       });
+      await syncPrivateCalloutReferences(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          documentId,
+          before: "",
+          after: documentContent,
+          userEmail: actor ?? "",
+          ownerEmail: database.ownerEmail,
+          orgId: database.orgId,
+        },
+      );
+      for (const [, value] of additionalBlocks) {
+        await recordPrivateCalloutAuthorizations(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            documentId,
+            before: "",
+            after: typeof value === "string" ? value : "",
+            userEmail: actor ?? "",
+            ownerEmail: database.ownerEmail,
+            orgId: database.orgId,
+          },
+        );
+      }
       await tx.insert(schema.contentDatabaseItems).values({
         id: itemId,
         ownerEmail: database.ownerEmail,

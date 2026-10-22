@@ -1,5 +1,6 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -7,6 +8,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import {
+  recordPrivateCalloutAuthorizations,
+  syncPrivateCalloutReferences,
+} from "../server/lib/private-icon-references.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
@@ -193,7 +198,11 @@ export default defineAction({
           documentId,
         ]);
         const [lockedPage] = await tx
-          .select({ trashedAt: schema.documents.trashedAt })
+          .select({
+            trashedAt: schema.documents.trashedAt,
+            ownerEmail: schema.documents.ownerEmail,
+            orgId: schema.documents.orgId,
+          })
           .from(schema.documents)
           .where(eq(schema.documents.id, documentId));
         assertEditableDocument(lockedPage);
@@ -242,6 +251,17 @@ export default defineAction({
             throw new Error(`Document "${documentId}" not found`);
           }
           previousContent = currentDocument.content;
+          await syncPrivateCalloutReferences(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId,
+              before: previousContent,
+              after: content,
+              userEmail: getRequestUserEmail() ?? "",
+              ownerEmail: lockedPage!.ownerEmail,
+              orgId: lockedPage!.orgId,
+            },
+          );
           await tx
             .update(schema.documents)
             .set({
@@ -261,6 +281,17 @@ export default defineAction({
               ),
             );
           previousContent = currentField?.content ?? "";
+          await recordPrivateCalloutAuthorizations(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId,
+              before: "",
+              after: content,
+              userEmail: getRequestUserEmail() ?? "",
+              ownerEmail: lockedPage!.ownerEmail,
+              orgId: lockedPage!.orgId,
+            },
+          );
           await tx
             .insert(schema.documentBlockFieldContents)
             .values({

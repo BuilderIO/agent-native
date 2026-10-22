@@ -2,9 +2,19 @@ import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { withMigrationRuntime } from "@agent-native/core/db";
 import { serializeIconValue } from "@agent-native/core/icons";
+import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   migrateHistoricalIconUrls,
@@ -13,8 +23,13 @@ import {
   type RehostReceipt,
 } from "./migrate-historical-icon-urls.js";
 
+const assertOwner = vi.hoisted(() => vi.fn());
 vi.mock("../server/lib/private-icon-authority.js", () => ({
-  assertPrivateIconOwner: vi.fn(async () => undefined),
+  assertPrivateIconOwner: assertOwner,
+  ownsPrivateIcon: async (input: unknown) => {
+    await assertOwner(input);
+    return true;
+  },
   uploadPrivateIcon: vi.fn(),
   readPrivateIcon: vi.fn(),
 }));
@@ -43,7 +58,26 @@ const newRaw = JSON.stringify({
 });
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `pglite:${databasePath}`;
+  const targetUrl =
+    process.env.CONTENT_HISTORICAL_ICON_POSTGRES_URL ??
+    `pglite:${databasePath}`;
+  if (targetUrl.startsWith("postgres")) {
+    const target = new URL(targetUrl);
+    if (!target.pathname.includes("test"))
+      throw new Error(
+        "Historical icon tests require an isolated test database.",
+      );
+    console.info("DB target before connect", {
+      env: "CONTENT_HISTORICAL_ICON_POSTGRES_URL",
+      host: target.hostname,
+      port: target.port,
+      database: target.pathname,
+      credentials: "[redacted]",
+    });
+  }
+  process.env.DATABASE_URL = targetUrl;
+  if (targetUrl.startsWith("postgres"))
+    await withMigrationRuntime(() => runFrameworkReleaseMigrations(undefined));
   ({ getDb, schema } = await import("../server/db/index.js"));
   ({ replaceHistoricalIconIfUnchanged: replace } =
     await import("./historical-icon-apply.js"));
@@ -57,6 +91,10 @@ afterAll(() => {
   if (databasePath.includes("/.tmp/") || databasePath.includes("\\.tmp\\")) {
     rmSync(databasePath, { recursive: true, force: true });
   }
+});
+
+beforeEach(() => {
+  assertOwner.mockReset().mockResolvedValue(undefined);
 });
 
 describe("historical icon CAS and reference index", () => {
@@ -125,9 +163,17 @@ describe("historical icon CAS and reference index", () => {
       .select()
       .from(schema.privateIconReferences)
       .where(eq(schema.privateIconReferences.documentId, documentId));
-    expect(indexed).toMatchObject([
+    expect(
+      indexed
+        .map(({ elementType, assetId }) => ({ elementType, assetId }))
+        .sort((a, b) => a.elementType.localeCompare(b.elementType)),
+    ).toEqual([
       {
         elementType: "callout",
+        assetId: "00000000-0000-4000-8000-000000000001",
+      },
+      {
+        elementType: "callout-authorization-v1",
         assetId: "00000000-0000-4000-8000-000000000001",
       },
     ]);

@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 
+import { ActionContractError } from "@agent-native/core/action";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import type {
   ContentDatabase,
   ContentDatabaseBodyHydration,
@@ -994,7 +996,29 @@ class BuilderBodyHydrationError extends Error {
   }
 }
 
+function privateIconHydrationRefusal(error: unknown) {
+  if (!(error instanceof ActionContractError)) return null;
+  const reason =
+    error.errorCode === "PRIVATE_ICON_AUTHORIZATION_UNPROVEN"
+      ? ("authorization_unproven" as const)
+      : error.errorCode === "PRIVATE_ICON_AUTHORIZATION_INCOMPLETE"
+        ? ("authorization_incomplete" as const)
+        : error.errorCode === "PRIVATE_ICON_UNAVAILABLE"
+          ? ("access_denied" as const)
+          : null;
+  return reason
+    ? {
+        reason,
+        providerStatus: error.errorCode,
+        retryable: reason === "authorization_unproven",
+        message: error.message,
+      }
+    : null;
+}
+
 function builderBodyHydrationFailureEvidence(error: unknown) {
+  const refusal = privateIconHydrationRefusal(error);
+  if (refusal) return refusal;
   if (
     error instanceof BuilderCmsContentEntryReadError ||
     error instanceof BuilderBodyHydrationError
@@ -2402,7 +2426,25 @@ async function processBuilderBodyHydrationJob(
           updatedAt: now,
         })
         .where(and(eq(schema.documents.id, row.documentId), contentCas))
-        .returning({ id: schema.documents.id });
+        .returning({
+          id: schema.documents.id,
+          ownerEmail: schema.documents.ownerEmail,
+          orgId: schema.documents.orgId,
+        });
+      if (updatedDocument)
+        await syncPrivateCalloutReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            documentId: row.documentId,
+            before: currentContent,
+            after: nextContent,
+            // A background job has no authenticated author. Collection ownership
+            // cannot authorize private assets supplied by a provider.
+            userEmail: null,
+            ownerEmail: updatedDocument.ownerEmail,
+            orgId: updatedDocument.orgId,
+          },
+        );
       wroteBody = Boolean(updatedDocument);
     }
     if (shouldWriteBody && !wroteBody) {
@@ -2680,6 +2722,38 @@ async function persistPristineBuilderBodyHydrationsInBulk(
           );
         }
 
+        const scopes = await tx
+          .select({
+            id: schema.documents.id,
+            ownerEmail: schema.documents.ownerEmail,
+            orgId: schema.documents.orgId,
+          })
+          .from(schema.documents)
+          .where(
+            inArray(
+              schema.documents.id,
+              batch.map((row) => row.job.documentId),
+            ),
+          );
+        for (const row of batch) {
+          const scope = scopes.find((page) => page.id === row.job.documentId);
+          if (!scope)
+            throw new PristineBuilderBodyHydrationCasMiss(
+              "Builder body hydration document changed.",
+            );
+          await syncPrivateCalloutReferences(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId: row.job.documentId,
+              before: row.documentContent,
+              after: row.content,
+              userEmail: null,
+              ownerEmail: scope.ownerEmail,
+              orgId: scope.orgId,
+            },
+          );
+        }
+
         const updatedSourceRows = await tx
           .update(schema.contentDatabaseSourceRows)
           .set({
@@ -2787,7 +2861,11 @@ async function persistPristineBuilderBodyHydrationsInBulk(
       });
       for (const row of batch) persistedJobIds.add(row.job.id);
     } catch (error) {
-      if (!(error instanceof PristineBuilderBodyHydrationCasMiss)) throw error;
+      if (
+        !(error instanceof PristineBuilderBodyHydrationCasMiss) &&
+        !privateIconHydrationRefusal(error)
+      )
+        throw error;
       // The transaction rolled the whole chunk back. The existing per-row path
       // below reloads its conflict-sensitive state and preserves the safer
       // edit, migration, retry, and unavailable-body semantics.

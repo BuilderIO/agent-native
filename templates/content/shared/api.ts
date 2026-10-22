@@ -590,7 +590,9 @@ export type ContentDatabaseBodyHydrationReason =
   | "transient_read_failure"
   | "malformed_body"
   | "unsupported_content"
-  | "conversion_failed";
+  | "conversion_failed"
+  | "authorization_unproven"
+  | "authorization_incomplete";
 
 export interface ContentDatabaseBodyHydrationSummary {
   pending: number;

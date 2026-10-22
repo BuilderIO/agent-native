@@ -73,6 +73,8 @@ This Page recovery surface is narrower than the capability above: it does not su
 
 Page recovery replays serialized title/body content, including references. Inline collections omitted by the restored body follow ordinary save removal semantics; restoring an older reference does not recover a separately deleted collection object or its data.
 
+Private callout recovery requires positive authorization evidence scoped to this Page and its current owner/organization, or actual icon ownership by the restorer or the authenticated author of a kept recovery body. Checkpoint kind and historical presence alone are not authorization. Unproved legacy icons return a typed refusal while preserving all stored text and History; the icon owner can reauthorize the use through the existing registration Action. New checked uses retain durable evidence across body removal. That evidence alone never makes an absent callout's image readable. Authorization work has a finite asset budget, with exhaustion distinguished from unproved permission and authority outages.
+
 Linked local files keep their file as the source of truth. Their checkpoints remain readable, but this SQL restore action rejects replacement until a revision-guarded source write and history reconciliation protocol is available; changing only the SQL mirror must never be reported as restoring the file.
 
 Trash now adds a narrower recovery browser with an authorized, read-only Page-body preview and persisted purge receipts/outcomes. The preview is currently body-focused: it does not expose full typed Properties, comments, or checkpoint History. Purge operation records are deletion evidence, not the access-scoped cross-object Event/Revision query model required by this capability.

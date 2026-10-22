@@ -49,7 +49,19 @@ the markdown.
 
 `list-document-versions` / `restore-document-version` operate on saved
 document versions. There is no diff view — restoring replaces the current
-content with the selected version's content wholesale.
+content with the selected version's content wholesale. Private callout icons
+need a durable, positively authorized use on this page, ownership by the
+restorer, or (for a recovery checkpoint only) ownership by its authenticated
+author. A snapshot's presence or normal checkpoint kind does not prove that
+its icons were authorized.
+
+Unproved legacy icons fail with `PRIVATE_ICON_AUTHORIZATION_UNPROVEN` and
+`details.assetIds`; all text and History remain intact. The icon's owner can
+reauthorize it with `register-private-callout-icon` on the editable page before
+the restore is retried. Authorization proof is scoped to the page, owner and
+organization and survives removal from the body, but grants no image access
+without an authorized live callout. An authorization budget exhaustion returns
+`PRIVATE_ICON_AUTHORIZATION_INCOMPLETE`; an authority outage remains an error.
 
 ## Image blocks
 

@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
   normalizePropertyValue,
@@ -539,6 +541,9 @@ export async function applyMigration(
   for (const batch of chunks(versionRows, 100))
     await tx.insert(schema.documentVersions).values(batch);
   for (const row of plan.rows) {
+    const persisted = snapshot.rows.find(
+      (candidate: any) => candidate.item.id === row.itemId,
+    )!;
     const updated = await tx
       .update(schema.documents)
       .set({
@@ -552,8 +557,20 @@ export async function applyMigration(
           eq(schema.documents.updatedAt, row.expectedUpdatedAt),
         ),
       )
-      .returning({ id: schema.documents.id });
+      .returning({
+        id: schema.documents.id,
+        ownerEmail: schema.documents.ownerEmail,
+        orgId: schema.documents.orgId,
+      });
     if (updated.length !== 1) throw new Error(`Stale row ${row.documentId}.`);
+    await syncPrivateCalloutReferences(tx, {
+      documentId: row.documentId,
+      before: persisted.document.content,
+      after: row.content,
+      userEmail: getRequestUserEmail() ?? "",
+      ownerEmail: updated[0].ownerEmail,
+      orgId: updated[0].orgId,
+    });
   }
   const definitionRows = plan.propertyDefinitions.map((definition, index) => ({
     id: definition.id,
