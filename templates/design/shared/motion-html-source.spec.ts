@@ -573,6 +573,41 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
+  it("rejects Array.from selector callbacks that mutate a Motion target", () => {
+    const source = html
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+      )
+      .replace(
+        "</main>",
+        `<button onclick="Array.from(document.querySelectorAll('#hero-title')).forEach(el => el.style.opacity = '0')">Toggle</button>\n  </main>`,
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    expect(() => apply(source)).toThrowError(
+      expect.objectContaining({ code: "unsupported-target" }),
+    );
+    const generated = apply(
+      html.replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+      ),
+    ).source.replace(
+      "</main>",
+      `<button onclick="Array.from(document.querySelectorAll('#hero-title')).forEach(el => el.style.opacity = '0')">Toggle</button>\n  </main>`,
+    );
+    expect(readMotionHtmlSource(generated)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
+
   it("allows a sibling selector that resolves to a different stable HTML target", () => {
     const source = html
       .replace(
@@ -837,6 +872,31 @@ describe("HTML Motion source adapter", () => {
       );
     },
   );
+
+  it("rejects executable scripts embedded in iframe srcdoc with Motion targets", () => {
+    const iframe =
+      "<iframe srcdoc=\"&lt;script&gt;document.body.classList.add('active')&lt;/script&gt;\"></iframe>";
+    const source = html.replace("</body>", `${iframe}\n</body>`);
+    const generated = apply(html).source.replace(
+      "</body>",
+      `${iframe}\n</body>`,
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining("executable script"),
+    });
+    expect(readMotionHtmlSource(generated)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
 
   it("removes managed Motion source while preserving unrelated executable scripts", () => {
     const written = apply(html).source;
@@ -1405,6 +1465,40 @@ describe("HTML Motion source adapter", () => {
     expect(removed.source).toContain("/* Keep this authored note. */");
     expect(readMotionHtmlSource(removed.source, "index.html")).toEqual({
       status: "absent",
+    });
+  });
+
+  it("removes authored animation CSS despite an unresolved external stylesheet", () => {
+    const source = `<!doctype html>
+<html>
+<head>
+  <link rel="stylesheet" href="./theme.css">
+  <style>
+.badge {
+  color: rebeccapurple;
+  animation-name: badge-fade;
+  animation-duration: 900ms;
+  animation-fill-mode: both;
+}
+@keyframes badge-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+  </style>
+</head>
+<body><h1 data-agent-native-node-id="hero-title">Hello</h1><aside class="badge" data-agent-native-node-id="badge">Status</aside></body>
+</html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unresolved-stylesheet" },
+    });
+    expect(removeMotionHtmlSource(source, "index.html")).toEqual({
+      source: source
+        .replace("  animation-name: badge-fade;\n", "")
+        .replace("  animation-duration: 900ms;\n", "")
+        .replace("  animation-fill-mode: both;\n", ""),
+      changed: true,
     });
   });
 

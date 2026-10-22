@@ -558,6 +558,15 @@ function isExecutableScript(node: HtmlNode): boolean {
   return EXECUTABLE_SCRIPT_TYPES.has(type.split(";", 1)[0]!.trim());
 }
 
+function srcdocContainsExecutableScript(value: string): boolean {
+  return parseHtml(value).nodes.some(
+    (node) =>
+      !node.insideTemplate &&
+      node.tagName === "script" &&
+      isExecutableScript(node),
+  );
+}
+
 function isManagedMotionTextRuntime(source: string, node: HtmlNode): boolean {
   const marker = attributes(node, MOTION_TEXT_RUNTIME_ATTRIBUTE);
   if (
@@ -702,6 +711,18 @@ function assertExecutableScriptsSafe(
       sourceError(
         "unsupported-target",
         `HTML Motion targets cannot be synchronized safely while an inline ${targetMutatingHandler.name} handler may mutate a Motion target.`,
+      );
+    }
+
+    const srcdoc = attributes(node, "srcdoc")[0]?.value;
+    if (
+      node.tagName === "iframe" &&
+      srcdoc &&
+      srcdocContainsExecutableScript(srcdoc)
+    ) {
+      sourceError(
+        "unsupported-target",
+        "HTML Motion targets cannot be synchronized safely while an iframe srcdoc contains an executable script.",
       );
     }
 
@@ -1092,7 +1113,7 @@ function selectorCallFeedsMutationSink(
 
   if (method.toLowerCase() === "queryselectorall") {
     const callback =
-      /^\s*\.\s*(?:forEach|map|filter|some|every)\s*\(\s*(?:async\s+)?(?:\(\s*([\w$]+)\s*\)|([\w$]+))\s*=>/i.exec(
+      /^\s*\)?\s*\.\s*(?:forEach|map|filter|some|every)\s*\(\s*(?:async\s+)?(?:\(\s*([\w$]+)\s*\)|([\w$]+))\s*=>/i.exec(
         afterCall,
       );
     const callbackParameter = callback?.[1] ?? callback?.[2];
@@ -2140,9 +2161,15 @@ function matchesHtmlSelector(
 function removeAuthoredHtmlMotion(
   source: string,
   sourceFilePath?: string,
+  cleanupOnly = false,
 ): string {
   const { nodes } = parseHtml(source);
-  const authored = readAuthoredHtmlMotion(source, nodes, sourceFilePath);
+  const authored = readAuthoredHtmlMotion(
+    source,
+    nodes,
+    sourceFilePath,
+    cleanupOnly,
+  );
   return authored.rangesToRemove.length > 0
     ? removeAuthoredCssSourceRanges(source, authored.rangesToRemove)
     : source;
@@ -2545,7 +2572,11 @@ export function removeMotionHtmlSource(
     );
   }
 
-  const withoutAuthored = removeAuthoredHtmlMotion(source, sourceFilePath);
+  const withoutAuthored = removeAuthoredHtmlMotion(
+    source,
+    sourceFilePath,
+    true,
+  );
   const { nodes } = parseHtml(withoutAuthored);
   const managedStyle = findManagedStyle(withoutAuthored, nodes);
   let withoutStyle = withoutAuthored;
