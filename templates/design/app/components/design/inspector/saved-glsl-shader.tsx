@@ -38,6 +38,7 @@ type SourceFileResult = {
 export function findSavedGlslFill(context: ShaderEditorContext | undefined): {
   id: string;
   name: string;
+  nodeId: string;
 } | null {
   const { content, nodeId, selector } = context ?? {};
   if (!content || !nodeId || !content.includes("data-an-shader-fill"))
@@ -54,11 +55,15 @@ export function findSavedGlslFill(context: ShaderEditorContext | undefined): {
       (item.nodeId === nodeId || item.nodeId === authoredId) &&
       item.mode === "fill",
   );
-  if (!mount) return null;
+  if (!mount?.nodeId) return null;
   const definition = listShadersInHtml(content).find(
     (item) => item.id === mount.shaderId,
   );
-  return { id: mount.shaderId, name: definition?.name ?? mount.shaderId };
+  return {
+    id: mount.shaderId,
+    name: definition?.name ?? mount.shaderId,
+    nodeId: mount.nodeId,
+  };
 }
 
 function useSavedGlslSource(context: ShaderEditorContext) {
@@ -108,10 +113,13 @@ export function useRemoveSavedGlslShader(context: ShaderEditorContext) {
   const remove = async (mode: "fill" | "effect"): Promise<boolean> => {
     if (!context.nodeId || !context.fileId) return false;
     const nodeId = context.nodeId;
-    const transform = (html: string) =>
-      mode === "fill"
-        ? removeShaderFill(html, nodeId)
-        : removeShaderFromNode(html, nodeId, "effect");
+    const transform = (html: string) => {
+      if (mode === "effect")
+        return removeShaderFromNode(html, nodeId, "effect");
+      const fill = findSavedGlslFill({ ...context, content: html });
+      if (!fill) return { html, errors: ["shader-fill-source-target-missing"] };
+      return removeShaderFill(html, fill.nodeId);
+    };
     setBusy(true);
     try {
       if (context.editSource) {

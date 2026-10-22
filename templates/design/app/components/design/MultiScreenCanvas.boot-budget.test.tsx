@@ -331,17 +331,21 @@ describe("MultiScreenCanvas live boot budget", () => {
     await act(async () => {
       staticPreview("inline-0").dispatchEvent(new Event("load"));
     });
-    expect(post).toHaveBeenLastCalledWith(
+    const latestTweakMessage = () =>
+      post.mock.calls
+        .filter(([message]) => message.type === "tweak-values")
+        .at(-1);
+    expect(latestTweakMessage()).toEqual([
       { type: "tweak-values", values: { "--accent": "red" } },
       "*",
-    );
+    ]);
     await act(async () =>
       renderWithQueryClient(render({ "--accent": "blue" })),
     );
-    expect(post).toHaveBeenLastCalledWith(
+    expect(latestTweakMessage()).toEqual([
       { type: "tweak-values", values: { "--accent": "blue" } },
       "*",
-    );
+    ]);
   });
 
   it("keeps a screen's painted preview over its editor until the editor boots", async () => {

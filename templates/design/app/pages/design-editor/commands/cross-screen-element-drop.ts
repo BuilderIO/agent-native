@@ -12,9 +12,9 @@ import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
 import { dndHostLog } from "@/components/design/dnd-debug";
-import { isShaderWriteInFlight } from "@/components/design/shader-source-coordination";
 import { validateCrossScreenSourceHtmlSnapshot } from "@/components/design/multi-screen/cross-screen-drop";
 import { getPrimaryIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import { isShaderWriteInFlight } from "@/components/design/shader-source-coordination";
 import type {
   ElementInfo,
   PortableStyleSnapshot,

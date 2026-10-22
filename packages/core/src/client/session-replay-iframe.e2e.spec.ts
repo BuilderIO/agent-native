@@ -58,6 +58,7 @@ async function startHostServer(): Promise<ViteDevServer> {
     resolve: {
       alias: {
         "@": resolve(process.cwd(), "../../templates/design/app"),
+        "@shared": resolve(process.cwd(), "../../templates/design/shared"),
       },
     },
     server: {

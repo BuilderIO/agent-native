@@ -19,6 +19,41 @@ describe("native worker input assets", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    { width: 4097, height: 1, accepted: false },
+    { width: 1, height: 4097, accepted: false },
+    { width: 4096, height: 2049, accepted: false },
+    { width: 4096, height: 2048, accepted: true },
+  ])(
+    "enforces the worker texture contract for $width × $height",
+    async ({ width, height, accepted }) => {
+      opaque.active = true;
+      opaque.resolve.mockResolvedValue(
+        new Blob([new Uint8Array([1])], { type: "image/png" }),
+      );
+      const bitmap = { width, height, close: vi.fn() };
+      vi.stubGlobal(
+        "createImageBitmap",
+        vi.fn(async () => bitmap),
+      );
+      const assets = new NativeWorkerInputAssets();
+      try {
+        const result = assets.bitmap("/shaders/noise.png", "srgb-color");
+        if (accepted) {
+          await expect(result).resolves.toBe(bitmap);
+          expect(bitmap.close).not.toHaveBeenCalled();
+        } else {
+          await expect(result).rejects.toMatchObject({
+            code: "worker-input-asset-size",
+          });
+          expect(bitmap.close).toHaveBeenCalledTimes(1);
+        }
+      } finally {
+        assets.dispose();
+      }
+    },
+  );
+
   it("decodes linear data without color conversion and fetches a bounded asset once", async () => {
     vi.stubGlobal("location", {
       href: "about:srcdoc",

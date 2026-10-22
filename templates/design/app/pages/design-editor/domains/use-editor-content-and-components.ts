@@ -49,15 +49,15 @@ import type {
 import { motionPathTrackForTarget } from "@/components/design/design-canvas/motion-types";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import { type InspectCodeData } from "@/components/design/EditPanel";
-import {
-  waitForShaderWriteToSettle,
-  type ShaderSourceTransform,
-} from "@/components/design/shader-source-coordination";
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
 import { type MotionDockTrack } from "@/components/design/MotionDock";
 import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
 import type { ScreenProjectionNodeIdentity } from "@/components/design/multi-screen/types";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
+import {
+  waitForShaderWriteToSettle,
+  type ShaderSourceTransform,
+} from "@/components/design/shader-source-coordination";
 import type { ElementInfo } from "@/components/design/types";
 import {
   acknowledgeClipboardContentMutation,

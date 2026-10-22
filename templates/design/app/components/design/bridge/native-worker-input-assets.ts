@@ -7,6 +7,10 @@ import {
   nativeDocumentOrigin,
   NativeSourceError,
 } from "./native-source-provider";
+import {
+  NATIVE_WORKER_MAX_DIMENSION,
+  NATIVE_WORKER_MAX_PIXELS,
+} from "./native-worker-protocol";
 
 const MAX_ASSETS = 128;
 const MAX_ASSET_BYTES = 16 * 1024 * 1024;
@@ -50,9 +54,9 @@ export class NativeWorkerInputAssets {
       if (
         bitmap.width < 1 ||
         bitmap.height < 1 ||
-        bitmap.width > 8192 ||
-        bitmap.height > 8192 ||
-        bitmap.width * bitmap.height > 8192 * 8192
+        bitmap.width > NATIVE_WORKER_MAX_DIMENSION ||
+        bitmap.height > NATIVE_WORKER_MAX_DIMENSION ||
+        bitmap.width * bitmap.height > NATIVE_WORKER_MAX_PIXELS
       ) {
         bitmap.close();
         throw new NativeSourceError(

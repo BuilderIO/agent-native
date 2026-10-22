@@ -72,12 +72,12 @@ import {
   InspectorGridCell,
   InspectorPaintRow,
 } from "../edit-panel/inspector-grid";
-import type { RenderNestedColorPicker } from "./color-picker-nested";
 import {
   broadcastShaderMessage,
   withShaderWriteLock,
   type ShaderEditorContext,
 } from "../shader-source-coordination";
+import type { RenderNestedColorPicker } from "./color-picker-nested";
 import { InspectorControlPopoverContent } from "./InspectorControlPopover";
 import {
   nativeCatalogDefinitionKey,

@@ -1,5 +1,6 @@
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { IconTemplate } from "@tabler/icons-react";
+import type { ComponentProps } from "react";
 import {
   useCallback,
   useEffect,
@@ -19,11 +20,13 @@ import {
   preparePrivateReplayScreenshotPreviewDocument,
 } from "@/components/design/design-canvas/private-replay-screenshot-preview";
 import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "@/components/design/scaled-iframe-paint";
+import { useNativeShaderApprovals } from "@/components/design/use-native-shader-approvals";
 import { cn } from "@/lib/utils";
 
+import { NativePreviewErrorBoundary } from "../design/NativePreviewErrorBoundary";
 import { templatePreviewDocument } from "./template-preview-document";
 
-export function TemplatePreview({
+function TemplatePreviewContent({
   html,
   designId,
   title,
@@ -79,18 +82,26 @@ export function TemplatePreview({
       { designId },
     );
   }, [designId, html, recordSessionReplay]);
+  const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
+    useNativeShaderApprovals({
+      designId,
+      fileId: undefined,
+      scope: "design",
+      enabled: Boolean(html?.includes("application/x-agent-native-effects")),
+    });
   const nativePreviewDocument = useMemo(
     () =>
       document
         ? prepareNativePreviewSurface({
             html: document.html,
+            approvedHashes: approvedDefinitionHashes,
             sandbox: "allow-scripts",
             profile: interactive ? "interactive" : "thumbnail",
             baseHref:
               typeof window === "undefined" ? undefined : window.location.href,
           })
         : null,
-    [document, interactive],
+    [document, interactive, approvedDefinitionHashes],
   );
   const connectFrame = useCallback(
     (frame: HTMLIFrameElement | null) => {
@@ -268,6 +279,7 @@ export function TemplatePreview({
         referrerPolicy="no-referrer"
         loading={interactive ? "eager" : "lazy"}
         onLoad={(event) => {
+          syncNativeShaderApprovals(event.currentTarget);
           const frame = event.currentTarget;
           if (designId)
             connectPrivateReplayScreenshotPreview(
@@ -293,5 +305,18 @@ export function TemplatePreview({
         }
       />
     </div>
+  );
+}
+
+export function TemplatePreview(
+  props: ComponentProps<typeof TemplatePreviewContent>,
+) {
+  return (
+    <NativePreviewErrorBoundary
+      key={JSON.stringify([props.designId, props.html])}
+      className={props.className}
+    >
+      <TemplatePreviewContent {...props} />
+    </NativePreviewErrorBoundary>
   );
 }

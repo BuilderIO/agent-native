@@ -20523,7 +20523,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           premultiplyAlpha: "none",
           colorSpaceConversion: sampleEncoding === "linear-data" ? "none" : "default"
         });
-        if (bitmap.width < 1 || bitmap.height < 1 || bitmap.width > 8192 || bitmap.height > 8192 || bitmap.width * bitmap.height > 8192 * 8192) {
+        if (bitmap.width < 1 || bitmap.height < 1 || bitmap.width > NATIVE_WORKER_MAX_DIMENSION || bitmap.height > NATIVE_WORKER_MAX_DIMENSION || bitmap.width * bitmap.height > NATIVE_WORKER_MAX_PIXELS) {
           bitmap.close();
           throw new NativeSourceError(
             "worker-input-asset-size",
