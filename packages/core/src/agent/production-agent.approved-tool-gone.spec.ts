@@ -1,6 +1,7 @@
 import { mockEvent } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import type {
   AgentEngine,
@@ -8,6 +9,7 @@ import type {
   EngineStreamOptions,
 } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
+import { ensureRunTables } from "./run-store.js";
 import type { AgentChatStructuredMessage } from "./types.js";
 
 const consumeApproval = vi.hoisted(() => vi.fn(async () => true));
@@ -22,6 +24,8 @@ vi.mock("./tool-approval-store.js", async (importOriginal) => ({
 
 const { createProductionAgentHandler, toolCallCacheKey } =
   await import("./production-agent.js");
+
+beforeAll(() => withMigrationRuntime(ensureRunTables));
 
 const EMAIL = { to: "customer@example.com", body: "Your refund is approved." };
 
