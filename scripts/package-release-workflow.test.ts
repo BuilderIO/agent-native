@@ -26,6 +26,7 @@ import {
   decodeGitHubContentResponse,
   parseCompletePullRequestFiles,
 } from "./verify-community-qr-release-pin.ts";
+import { assertReleaseOnlyPullRequestFiles } from "./verify-release-package-files.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -647,6 +648,38 @@ importers:
     );
   });
 
+  it("checks complete release paths as filenames and rejects embedded newlines", () => {
+    const allowedFiles = [
+      ".changeset/release.md",
+      "packages/core/package.json",
+      "packages/dispatch/src/server/lib/community-apps.ts",
+    ];
+    assert.deepEqual(
+      assertReleaseOnlyPullRequestFiles(allowedFiles, allowedFiles.length),
+      allowedFiles,
+    );
+    assert.throws(
+      () =>
+        assertReleaseOnlyPullRequestFiles(
+          [".changeset/release.md\npackages/core/package.json"],
+          1,
+        ),
+      /filename with control characters/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles(["README.md"], 1),
+      /unexpected release PR path/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles(["package.json"], 2),
+      /returned 1 of 2 changed pull request files/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles([], 3_000),
+      /endpoint is capped at 3000/,
+    );
+  });
+
   it("rejects unreadable or incomplete GitHub Contents API responses", () => {
     const content = Buffer.from("manifest");
     assert.deepEqual(
@@ -729,6 +762,9 @@ importers:
     const releasePrContext = autoMergeSteps.find(
       (step) => step.name === "Verify release PR identity and event-bound SHAs",
     );
+    const majorPromotionGuard = autoMergeSteps.find(
+      (step) => step.name === "Refuse unattended major promotions",
+    );
     const requiredChecks = autoMergeSteps.find(
       (step) => step.name === "Wait for required release PR checks",
     );
@@ -779,10 +815,11 @@ importers:
     assert.match(String(requiredChecks.run), /--required --watch/);
     assert.match(String(requiredChecks.run), /all\(\.\[\]; \.bucket == "pass"/);
     assert(releaseDiff);
-    assert.match(
-      String(releaseDiff.run),
-      /packages\/dispatch\/src\/server\/lib\/community-apps\.ts/,
-    );
+    assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
+    assert(majorPromotionGuard);
+    assert.match(String(majorPromotionGuard.run), /"--slurp"/);
+    assert.match(String(majorPromotionGuard.run), /JSON\.parse\(gh\(/);
+    assert.doesNotMatch(String(majorPromotionGuard.run), /\.split\("\\n"\)/);
     assert(qrPinGuard);
     assert.equal(
       qrPinGuard.run,

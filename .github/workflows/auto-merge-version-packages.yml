@@ -104,18 +104,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          files=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename')
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
-            case "$file" in
-              .changeset/*.md|package.json|pnpm-lock.yaml|*/package.json|*/CHANGELOG.md|*/changelog/*|packages/dispatch/src/server/lib/community-apps.ts)
-                ;;
-              *)
-                echo "::error::Refusing admin-merge for unexpected release PR path: $file" >&2
-                exit 1
-                ;;
-            esac
-          done <<< "$files"
+          node --experimental-strip-types scripts/verify-release-package-files.ts
 
       - name: Verify community QR package pin
         env:
@@ -166,16 +155,19 @@ jobs:
             return match.slice(1).map(Number);
           };
 
-          const files = gh([
-            "api", "--paginate", `repos/${repo}/pulls/${process.env.PR_NUMBER}/files`,
-            "--jq", ".[].filename",
-          ])
-            .split("\n")
-            .map((line) => line.trim())
-            .filter((line) => line === "package.json" || line.endsWith("/package.json"));
+          const files = JSON.parse(gh([
+            "api", "--paginate", "--slurp", `repos/${repo}/pulls/${process.env.PR_NUMBER}/files`,
+            "--jq", "add | map(.filename)",
+          ]));
+          if (!Array.isArray(files) || files.some((file) => typeof file !== "string")) {
+            throw new Error("GitHub returned an invalid release PR file list");
+          }
+          const packageFiles = files.filter(
+            (file) => file === "package.json" || file.endsWith("/package.json"),
+          );
 
           const promotions = [];
-          for (const file of files) {
+          for (const file of packageFiles) {
             const before = versionAt(file, process.env.BASE_SHA);
             const after = versionAt(file, process.env.HEAD_SHA);
             if (!before || !after || before === after) continue;
@@ -196,8 +188,8 @@ jobs:
             process.exit(1);
           }
           console.log(
-            files.length > 0
-              ? `No forbidden promotion in ${files.length} changed package.json file(s).`
+            packageFiles.length > 0
+              ? `No forbidden promotion in ${packageFiles.length} changed package.json file(s).`
               : "No package.json changes in this release PR.",
           );
           NODE
