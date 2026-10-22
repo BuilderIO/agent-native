@@ -116,6 +116,13 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
             "Erlaubt einer mutierenden Action, gleichzeitig mit anderen Tool-Aufrufen derselben Runde zu laufen.",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "Wenn true (oder wenn das Prädikat true zurückgibt), ist ein abgelehnter Schreibvorgang ein bekannter Fehler, den das Modell korrigieren und erneut versuchen kann, statt das Tool zu blockieren. Siehe Wiederholungssichere Schreibvorgänge unten.",
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -404,6 +411,35 @@ Ein Netzwerkabbruch, eine HTML-Fehlerseite eines Proxys und eine bloße Statusze
 Der Status ist also nicht kosmetisch. Eine als `404` gesendete Ablehnung kostet einen Roundtrip. Dieselbe Ablehnung als `500` gesendet oder blank geworfen kostet vier Roundtrips und vier doppelte Fehlerberichte.
 
 Agent-Aufrufer sehen den Status nicht. Der Agent führt `run()` im Prozess aus, bekommt die Nachricht also direkt, unabhängig vom Typ, als `Error running <action>: <message>`. Ein `errorCode` abseits des Standards `action_failed` wird als `(errorCode: not_found)` angehängt, damit das Modell darauf verzweigen kann, ohne Prosa zu parsen. `details` folgen in einer eigenen Zeile als kompaktes JSON, etwa `Error details: {"importId":"imp_1"}`, sodass eine ID, die das Modell für seinen nächsten Aufruf braucht, nicht in die Nachricht geschrieben werden muss. Externe Agenten über MCP bekommen denselben Text und dieselben Details in `structuredContent.error`. Ein Tool, das ein Ausgabeschema ankündigt (`mcpOutputSchema: true`), liefert nur den Text, weil ein Client auch ein Fehlerergebnis gegen dieses Schema prüfen kann. Details sind auf 2.000 Zeichen begrenzt: darüber hinaus bleiben kleine Einträge der obersten Ebene erhalten, der Rest wird als ausgelassen aufgelistet. Secrets in der Nachricht und in den Details werden vorher entfernt, und die eigenen Schutzschalter des Agenten für wiederholte Fehler begrenzen die Zahl der Versuche.
+
+## Wiederholungssichere Schreibvorgänge {#retry-safe}
+
+Standardmäßig gilt: Wenn der eigene Handler einer schreibenden Action ablehnt – egal ob er wirft oder `fail()` aufruft –, protokolliert die Agent-Schleife ein unbekanntes Ergebnis und blockiert dieses Tool für den Rest des Threads. Das Modell sieht den Fehler, kann dieselbe Action aber nicht erneut aufrufen, um seine Argumente zu korrigieren.
+
+Setze `retrySafe: true` (oder ein Prädikat über die Eingabe), wenn eine erneute Ausführung nach einem Fehler keine Daten duplizieren oder beschädigen kann: Die Action validiert, bevor sie schreibt, oder sie setzt einen Endzustand, etwa Ersetzen per ID. Ein abgelehnter Aufruf bleibt dann ein bekannter Fehler. Das Modell erhält den Fehler, korrigiert seine Argumente und versucht es erneut.
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. A rejected call leaves
+  // nothing behind, so the model can fix its args and try again.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+Setze es **nicht**, wenn die Action nach der Validierung etwas anhängt, sendet oder abrechnet. Vorher zu validieren reicht allein nicht, wenn ein späterer Schritt vor der Ablehnung schon gewirkt haben kann. Ein paar weitere Grenzen:
+
+- Es deckt **den eigenen Schreibvorgang dieser Action** ab. Sobald eine verschachtelte Action, die sie aufruft, ihren Handler betreten hat, protokolliert ein Fehler weiterhin ein unbekanntes Ergebnis.
+- Es hebt einen Thread, der bereits ein unbekanntes Ergebnis protokolliert hat, nicht wieder auf. Nachdem du `retrySafe` hinzugefügt hast, starte einen **neuen Thread**, damit die Änderung greift.
+- Ein Deadline-Ablauf oder Abbruch nach dem Aufruf der Action blockiert das Tool weiterhin. Nur der eigene zurückgegebene Fehler der Action gilt als bekannter, wiederholbarer Fehler.
 
 ## Die Action-Oberfläche klein halten {#small-surface}
 

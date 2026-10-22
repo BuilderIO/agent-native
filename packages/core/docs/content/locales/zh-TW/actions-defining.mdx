@@ -112,6 +112,13 @@ description: "defineAction() 的結構：架構、run，以及 HTTP 設定，還
             "允許一個變更資料的 action 與同一回合中的其他工具呼叫同時執行。",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "為 true（或謂詞回傳 true）時，被拒絕的寫入是模型可以修正並重試的已知失敗，而不會封鎖該工具。請見下方的可安全重試的寫入。",
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -399,6 +406,35 @@ const reply = useActionMutation("reply-to-email", {
 所以狀態碼不是裝飾。以 `404` 送出的拒絕只需一次往返。同樣的拒絕若以 `500` 送出，或者裸拋，就要付出四次往返與四份重複的錯誤報告。
 
 代理呼叫方看不到狀態碼。代理在行程內執行 `run()`，因此無論型別為何都直接以 `Error running <action>: <message>` 的形式收到訊息。非預設值 `action_failed` 的 `errorCode` 會以 `(errorCode: not_found)` 的形式附加，讓模型不必解析文字即可據此分支。`details` 會以精簡 JSON 的形式另起一行接在後面，例如 `Error details: {"importId":"imp_1"}`，這樣模型下一次呼叫所需的 id 就不必寫進訊息裡。透過 MCP 接入的外部代理會收到同樣的文字，並在 `structuredContent.error` 中收到同樣的 details。宣告了輸出 schema 的工具（`mcpOutputSchema: true`）只回傳文字，因為用戶端也可能依該 schema 驗證錯誤結果。details 上限為 2,000 個字元：超出後會保留較小的頂層項目，其餘的則列為已省略。訊息和 details 中的密鑰會先被遮蔽，而代理自己的重複錯誤斷路器會限制它重試的次數。
+
+## 可安全重試的寫入 {#retry-safe}
+
+預設情況下，當寫入類 action 自身的處理函式拒絕時——無論是拋出例外還是呼叫 `fail()`——agent 迴圈會記錄一個未知結果，並在該執行緒剩餘的時間裡封鎖這個工具。模型看得到錯誤，但無法再次呼叫同一個 action 來修正參數。
+
+當出錯後重新執行不會重複或損壞資料時，設定 `retrySafe: true`（或一個依輸入判斷的謂詞）：action 在寫入前先做驗證，或者它設定的是一個終態，例如依 id 取代。這樣被拒絕的呼叫就維持為已知失敗。模型取得錯誤，修正參數，然後重試。
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. A rejected call leaves
+  // nothing behind, so the model can fix its args and try again.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+如果 action 在驗證之後會附加、傳送或收費，**不要**設定它。如果後續某個步驟在拒絕之前可能已經生效，光是先驗證並不夠。另外還有幾項限制：
+
+- 它只涵蓋**這個 action 自身的寫入**。一旦它呼叫的巢狀 action 進入了自己的處理函式，失敗仍會記錄為未知結果。
+- 它不會清除已經記錄了未知結果的執行緒。加入 `retrySafe` 之後，請開啟一個**新執行緒**讓變更生效。
+- action 被呼叫之後發生的逾時或中止仍會封鎖該工具。只有 action 自身回傳的錯誤才會被視為已知、可重試的失敗。
 
 ## 讓 action 介面保持精簡 {#small-surface}
 
