@@ -2060,6 +2060,7 @@ describe("CommandMenu", () => {
           showAgentFallback={false}
           showSettingsCommand={false}
           showSignOutCommand={false}
+          initialSelection="first"
         >
           <CommandMenu.Group heading="Records">
             <CommandMenu.Item
