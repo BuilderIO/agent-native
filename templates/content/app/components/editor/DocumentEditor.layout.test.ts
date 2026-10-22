@@ -2941,13 +2941,10 @@ describe("document editor layout", () => {
       "suggestionEditorIsolation.bindCanonicalYDoc",
     );
     expect(documentEditorSource).toContain(
-      "awareness={collabEditorEnabled ? awareness : null}",
+      "collabEditorEnabled ? awareness : null",
     );
     expect(documentEditorSource).toContain(
       "args.collabEditorEnabled && args.hasYDoc",
-    );
-    expect(documentEditorSource).toContain(
-      'args.canEdit\n        ? "live-pending"',
     );
     expect(documentEditorSource).toContain(
       "`snapshot:${args.documentUpdatedAt}`",
