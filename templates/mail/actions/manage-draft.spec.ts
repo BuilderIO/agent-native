@@ -585,6 +585,10 @@ describe("manage-draft create-then-reply flow", () => {
 });
 
 describe("manage-draft approval", () => {
+  it("requires a fresh approval for every destructive draft call", () => {
+    expect(action.allowPersistentApproval).toBe(false);
+  });
+
   it.each([
     "create",
     "update",

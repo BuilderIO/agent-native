@@ -159,7 +159,7 @@ export default defineAction({
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
-    openWorldHint: false,
+    openWorldHint: true,
   },
   description:
     "Manage compose drafts: use `create` for a new draft even if another " +
@@ -173,6 +173,7 @@ export default defineAction({
     "Deleting drafts requires human approval.",
   schema: manageDraftSchema,
   needsApproval: (args) => args.action !== "create" && args.action !== "update",
+  allowPersistentApproval: false,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
