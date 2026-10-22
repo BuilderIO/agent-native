@@ -196,9 +196,12 @@ describe("GLSL shader runtime — frame budget", () => {
       await settlesAt(320);
       await postFromEditor(3);
       await settlesAt(640);
+      // A zoom it can't read is ignored, not taken as full size.
+      await postFromEditor(0.5);
+      await settlesAt(320);
       await postFromEditor("not a number");
       await page.waitForTimeout(150);
-      expect(await canvasWidth(frame)).toBe(640);
+      expect(await canvasWidth(frame)).toBe(320);
       await page.close();
     },
   );
