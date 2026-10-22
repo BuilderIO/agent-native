@@ -16,6 +16,43 @@ test("targets the selected Blocks editor when sibling panels remain mounted", as
     <div hidden><div class="content-editor ProseMirror" contenteditable="true"><p>Body</p></div></div>
     <div><div class="content-editor ProseMirror" contenteditable="true"><p>Body</p></div></div>
   `);
+  // These plain contenteditables expose the state/selection API that the
+  // shared typing helper now uses; the assertion still exercises real keys.
+  await page.evaluate(() => {
+    for (const element of document.querySelectorAll<HTMLElement>(
+      ".content-editor.ProseMirror",
+    )) {
+      const paragraph = element.querySelector("p")!;
+      Object.assign(element, {
+        editor: {
+          state: {
+            get doc() {
+              return {
+                childCount: 1,
+                textContent: paragraph.textContent!,
+                child: () => ({
+                  type: { name: "paragraph" },
+                  textContent: paragraph.textContent!,
+                  nodeSize: paragraph.textContent!.length + 2,
+                }),
+              };
+            },
+          },
+          commands: {
+            setTextSelection(position: number) {
+              const range = document.createRange();
+              range.setStart(paragraph.firstChild!, position - 1);
+              range.collapse(true);
+              const selection = window.getSelection()!;
+              selection.removeAllRanges();
+              selection.addRange(range);
+            },
+          },
+          view: { focus: () => element.focus() },
+        },
+      });
+    }
+  });
   await expectEditorReady(page);
   await typeAtParagraphEnd(page, "Body", " fresh", 0);
   await expect(page.locator(ACTIVE_EDITOR)).toHaveText("Body fresh");

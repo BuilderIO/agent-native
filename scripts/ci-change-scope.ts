@@ -180,20 +180,28 @@ const CONTENT_DB_CORE_FILES = new Set([
 
 const CONTENT_DB_CORE_PATH_PREFIXES = ["packages/core/src/db/"] as const;
 
-// This lane also runs the nested widget storage-isolation E2E and the Core
-// embed, sharing, and theme helpers it exercises. Other Content e2e specs and
-// unit tests cannot move it.
+// The convergence lane covers its harness, stored-form acceptance, nested widget
+// storage isolation, and the build and Core runtime they exercise.
 const CONTENT_CONVERGENCE_FILES = new Set([
+  "templates/content/acceptance/known-loss.ts",
+  "templates/content/acceptance/round-trip-corpus.ts",
   "templates/content/agent-native.config.ts",
   "templates/content/agent-native.json",
   "templates/content/package.json",
   "templates/content/react-router.config.ts",
   "templates/content/ssr-entry.ts",
   "templates/content/vite.config.ts",
+  "templates/content/e2e/auth-files.ts",
   "templates/content/e2e/convergence-summary.ts",
+  "templates/content/e2e/editor-input-lineage.ts",
+  "templates/content/e2e/gate-arm.ts",
   "templates/content/e2e/global-setup.ts",
+  "templates/content/e2e/global-teardown.ts",
   "templates/content/e2e/helpers.ts",
+  "templates/content/e2e/live-body-gate.ts",
   "templates/content/e2e/playwright.config.ts",
+  "templates/content/e2e/save-lineage.ts",
+  "templates/content/e2e/server-identity.ts",
   "templates/content/e2e/two-tab-convergence.spec.ts",
   "templates/content/e2e/chatgpt-widget-body-paint.spec.ts",
 ]);
@@ -1015,6 +1023,7 @@ function isContentConvergenceRuntimePath(path: string): boolean {
   if (CONTENT_CONVERGENCE_FILES.has(path)) {
     return true;
   }
+  if (path.startsWith("templates/content/e2e/stored-form/")) return true;
   if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
   if (
     CONTENT_CONVERGENCE_CORE_FILES.has(path) ||
