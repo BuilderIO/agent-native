@@ -1418,6 +1418,8 @@ export default {
     drilldownAggregateOnly:
       "Dieses Panel enthält nur aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
     drilldownNoRecords: "Keine passenden Datensätze",
+    drilldownNoRecordsIncomplete:
+      "Keine Datensätze geladen. Das Ergebnis ist unvollständig, daher können trotzdem Datensätze passen.",
     drilldownLoadFailed: "Datensätze konnten nicht geladen werden",
     drilldownOverByteCap:
       "Diese Datensätze würden mehr als {{gib}} GiB lesen und wurden deshalb nicht geladen. Grenze die Filter oder den Zeitraum des Dashboards ein und versuche es erneut.",

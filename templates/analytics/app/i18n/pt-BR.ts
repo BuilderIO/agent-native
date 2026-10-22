@@ -1403,6 +1403,8 @@ export default {
     drilldownAggregateOnly:
       "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
     drilldownNoRecords: "Nenhum registro correspondente",
+    drilldownNoRecordsIncomplete:
+      "Nenhum registro foi carregado. O resultado está incompleto, então ainda pode haver registros correspondentes.",
     drilldownLoadFailed: "Não foi possível carregar os registros",
     drilldownOverByteCap:
       "Estes registros leriam mais de {{gib}} GiB, então não foram carregados. Restrinja os filtros ou o período do painel e tente de novo.",

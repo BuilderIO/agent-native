@@ -1407,6 +1407,8 @@ export default {
     drilldownAggregateOnly:
       "Este panel solo tiene filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
     drilldownNoRecords: "No hay registros coincidentes",
+    drilldownNoRecordsIncomplete:
+      "No se cargó ningún registro. El resultado está incompleto, así que puede haber registros coincidentes.",
     drilldownLoadFailed: "No se pudieron cargar los registros",
     drilldownOverByteCap:
       "Estos registros leerían más de {{gib}} GiB, así que no se cargaron. Acota los filtros o el intervalo de fechas del panel y vuelve a intentarlo.",

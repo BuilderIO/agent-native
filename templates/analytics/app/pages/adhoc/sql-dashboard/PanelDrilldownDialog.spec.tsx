@@ -331,6 +331,12 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     expect(container.textContent).toContain(
       'sqlDashboard.drilldownShowing {"shown":"localized:0","total":"localized:0"}',
     );
+    expect(container.textContent).toMatch(
+      /sqlDashboard\.drilldownNoRecords(?!Incomplete)/,
+    );
+    expect(container.textContent).not.toContain(
+      "sqlDashboard.drilldownNoRecordsIncomplete",
+    );
     expect(container.textContent).not.toContain(
       "sqlDashboard.drilldownCsvTruncated",
     );
@@ -349,6 +355,12 @@ describe("PanelDrilldownDialog metadata lookup", () => {
       await render();
       expect(container.textContent).toContain(
         'sqlDashboard.drilldownShowingLoaded {"shown":"localized:0","loaded":"localized:0"}',
+      );
+      expect(container.textContent).toContain(
+        "sqlDashboard.drilldownNoRecordsIncomplete",
+      );
+      expect(container.textContent).not.toMatch(
+        /sqlDashboard\.drilldownNoRecords(?!Incomplete)/,
       );
       expect(container.textContent).not.toContain(
         "sqlDashboard.drilldownCsvTruncated",

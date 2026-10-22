@@ -118,6 +118,11 @@ describe("useSqlQuery retained results", () => {
       );
     });
 
+  const unmount = () =>
+    act(async () => {
+      root.render(<QueryClientProvider client={queryClient} />);
+    });
+
   const settle = () =>
     vi.waitFor(() => {
       expect(latest.fetching).toBe(false);
@@ -427,6 +432,28 @@ describe("useSqlQuery retained results", () => {
       await render({ sql: "A", reuse: true });
       await settle();
       expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    });
+
+    it("reruns a partial result when it mounts again, but reuses a completed one", async () => {
+      mocks.callAction.mockImplementation(async (_name, args) => ({
+        rows: [{ v: args.query }],
+        schema: [],
+        ...(args.query === "A" ? { partial: true } : {}),
+      }));
+      for (const sql of ["A", "B"]) {
+        await render({ sql, reuse: true });
+        await settle();
+        await unmount();
+      }
+      mocks.callAction.mockClear();
+
+      await render({ sql: "A", reuse: true });
+      await settle();
+      await unmount();
+      await render({ sql: "B", reuse: true });
+      await settle();
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+      expect(mocks.callAction.mock.calls[0][1]).toMatchObject({ query: "A" });
     });
 
     it("keeps the five minute freshness for ordinary consumers", async () => {

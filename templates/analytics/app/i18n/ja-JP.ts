@@ -1388,6 +1388,8 @@ export default {
     drilldownAggregateOnly:
       "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
     drilldownNoRecords: "一致するレコードがありません",
+    drilldownNoRecordsIncomplete:
+      "レコードは読み込まれませんでした。結果が不完全なため、一致するレコードがある可能性があります。",
     drilldownLoadFailed: "レコードを読み込めませんでした",
     drilldownOverByteCap:
       "これらのレコードは {{gib}} GiB を超えて読み込むため、読み込みませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
