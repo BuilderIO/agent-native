@@ -1178,6 +1178,43 @@ describe("openGrantedDispatchMcpApp", () => {
     });
   });
 
+  it("reads the target embed start URL from Core MCP response metadata", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        targetPath: "/dashboards?range=30d",
+        expiresAt: 12345,
+      },
+      _meta: {
+        "agent-native/embedStart": {
+          startUrl:
+            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards?range=30d",
+          embed: true,
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result).toMatchObject({
+      app: "analytics",
+      embedStartUrl:
+        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      embedTargetPath: "/dashboards?range=30d",
+      embedExpiresAt: 12345,
+    });
+  });
+
   it.each([408, 429, 502, 503, 504])(
     "retries transient typed HTTP %i target MCP failures with HTML bodies",
     async (status) => {
