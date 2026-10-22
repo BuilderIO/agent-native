@@ -12,6 +12,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Changes made from a menu or popover, such as an image's alt text, are always saved.
 - Agents can read saved page titles and text after an unrelated icon change fails.
 - Text an agent writes inside a callout, column or synced block without indenting it now shows on the page and survives your edits.
 
