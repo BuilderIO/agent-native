@@ -301,6 +301,61 @@ describe("DataChartRenderer theme colors", () => {
     }
   });
 
+  it("thins labels using actual tick positions across uneven ranges", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Low", value: -5.1e28 },
+            { day: "High", value: 1.49e29 },
+          ],
+          valueAxisTickInterval: 5e28,
+        }}
+      />,
+    );
+    const valueTickLabels = Array.from(
+      markup.matchAll(
+        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+      ),
+      (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
+    );
+
+    expect(valueTickLabels).toHaveLength(1);
+  });
+
+  it("compacts horizontal tick labels that would exceed the chart width", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "High", value: 1e300 }],
+          valueAxisTickInterval: 1e299,
+        }}
+      />,
+    );
+    const valueTickLabels = Array.from(
+      markup.matchAll(
+        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+      ),
+      (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
+    );
+
+    expect(valueTickLabels).toHaveLength(11);
+    expect(valueTickLabels[1]?.label).toBe("1e+299");
+    for (const tick of valueTickLabels) {
+      const estimatedWidth = tick.label.length * 11 * 0.65;
+      expect(tick.x - estimatedWidth / 2).toBeGreaterThanOrEqual(0);
+      expect(tick.x + estimatedWidth / 2).toBeLessThanOrEqual(640);
+    }
+  });
+
   it("formats very small custom intervals without collapsing labels to zero", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
