@@ -16,7 +16,7 @@ Read `.agents/skills/<name>/SKILL.md` before deeper work:
 - `native-effects` — WebGPU fills/effects, source edits, and PNG.
 - `journey-storyboards` — onboarding-journey storyboards.
 
-Also read `.agents/skills/<name>/SKILL.md` for shared guides: `actions`,
+Also read `.agents/skills/<name>/SKILL.md`: `actions`,
 `adding-a-feature`, `storing-data`, `security`, `secrets`, `sharing`,
 `frontend-design`, `shadcn-ui`, `real-time-sync`, `context-awareness`,
 `delegate-to-agent`, `agent-native-docs`, `agent-native-toolkit`,
@@ -69,7 +69,7 @@ Find docs: `pnpm action docs-search --query "<topic>"`; read: `pnpm action docs-
 - Use actions for design data and writes; never write design rows directly with SQL.
 - For external integrations, inspect workspace/provider connections first; reuse the scoped resolver.
 - `[Reprompt selection]` is preview-only: only `propose-node-rewrite` may mutate. `[Selection question]` is read-only; answer without content-writing actions.
-- Generated files are standalone HTML (Alpine.js + Tailwind CDN), rendered without a build step. Follow `design-generation` for its quality/audit pass and `data-agent-native-locked="true"` for locked subtrees.
+- Generated files are complete standalone HTML (Alpine.js + Tailwind CDN), rendered without a build step. Follow `design-generation` for its quality/audit pass and `data-agent-native-locked="true"` for locked subtrees.
 - Source modes are `inline`, `localhost`, and `fusion` (`full-app-build`). `/design/:id` is read-only; `/visual-edit/:id` allows DOM-only localhost edits. Source writes and snapshot publishing require editor access.
 - `capability:visual-edit` scopes handoff actions. External agents use `get-visual-edit-pending`; browser agents use the page-local tool.
 
