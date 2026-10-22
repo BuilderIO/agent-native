@@ -60,9 +60,15 @@ describe("NFM round-trip corpus", () => {
       ids.add(sample.id);
     });
 
-    if (sample.canonical !== undefined) {
-      const canonical = sample.canonical;
-      it(`${sample.id} canonicalizes without loss`, () => {
+    if (sample.unrepresentable === undefined) {
+      // A follow-up's bytes pin today's reading, so its fix shows up here.
+      const canonical =
+        sample.canonical === undefined ? sample.storedToday : sample.canonical;
+      const stores =
+        sample.canonical === undefined
+          ? "stores its recorded follow-up form"
+          : "canonicalizes";
+      it(`${sample.id} ${stores} without loss`, () => {
         const result = canonicalizeNfmWithFidelity(sample.markdown);
         expect(result).toEqual({
           kind: "canonical",

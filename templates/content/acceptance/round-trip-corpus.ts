@@ -30,6 +30,7 @@ export type RoundTripSample = {
       /** The bytes the stored form holds: what the editor's live copy saves. */
       canonical: string;
       unrepresentable?: never;
+      storedToday?: never;
     }
   | {
       /**
@@ -41,6 +42,20 @@ export type RoundTripSample = {
       /** The losses canonicalizing reports, which the refusal names. */
       losses: readonly NfmFidelityLossKind[];
       canonical?: never;
+      storedToday?: never;
+    }
+  | {
+      /**
+       * The bytes stored today with no loss reported. Every word survives,
+       * but not in the structure the author meant, so they are not canonical:
+       * the fix for `followUp` changes them and moves the sample to
+       * `canonical`.
+       */
+      storedToday: string;
+      /** The recorded follow-up that changes `storedToday`. */
+      followUp: string;
+      canonical?: never;
+      unrepresentable?: never;
     }
 );
 
@@ -633,18 +648,20 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     id: "untabbed-callout-fence-close-below-opener",
     origin: "agent",
     markdown: "<callout>\n- x\n\t```\ncode\n```\nafter\n</callout>",
-    canonical:
+    storedToday:
       "<callout>\n\t- x\n\t\t````\n\t\tcode\n\t\t```\n\t\tafter\n\t\t````\n</callout>",
-    note: "A close shallower than its fence is code text, as in the same lines outside a callout; the fence ends at `</callout>`.",
+    followUp:
+      "A close shallower than its fence is code text, as in the same lines outside a callout, so `after` reads as code and the fence ends at `</callout>`.",
   },
   {
     id: "untabbed-details-with-tabbed-summary-in-callout",
     origin: "agent",
     markdown:
       "<callout>\n\tkept\n<details>\n\t<summary>S</summary>\n\tD\n</details>\n</callout>",
-    canonical:
+    storedToday:
       "<callout>\n\tkept\n\t<details>\n\t<summary></summary>\n\t\t\\<summary\\>S\\</summary\\>\n\t\tD\n\t</details>\n</callout>",
-    note: "A summary one tab deeper than its opener is body text, as on main; the title is a follow-up.",
+    followUp:
+      "A summary one tab deeper than its opener is body text, as on main, so the toggle has no title.",
   },
   {
     id: "untabbed-callout-ordered-list-continues",
