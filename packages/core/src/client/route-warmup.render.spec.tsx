@@ -134,19 +134,48 @@ describe("AgentNativeRouteWarmup", () => {
     expect(warmedModulePaths()).toHaveLength(3);
   });
 
-  it("warms modules anyway when the load event never comes", async () => {
+  it("keeps holding module preloads while the load event is late", async () => {
     setReadyState("loading");
     await mount();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(9_999);
+      await vi.advanceTimersByTimeAsync(30_000);
     });
     expect(warmedModulePaths()).toEqual([]);
+    expect(fetchedPaths()).toContain("/assets/screenshots-DeF456.js");
 
+    setReadyState("complete");
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
+      window.dispatchEvent(new Event("load"));
+      await vi.advanceTimersByTimeAsync(4_000);
     });
     expect(warmedModulePaths()).toHaveLength(3);
+  });
+
+  it("fetches a module again after a failed fetch during the hold", async () => {
+    let screenshotFetches = 0;
+    fetchMock.mockImplementation(async (input: unknown) => {
+      const path = new URL(String(input), window.location.href).pathname;
+      if (
+        path === "/assets/screenshots-DeF456.js" &&
+        ++screenshotFetches === 1
+      ) {
+        return new Response("", { status: 503 });
+      }
+      return new Response("{}", { status: 200 });
+    });
+    setReadyState("complete");
+    await mount();
+    expect(screenshotFetches).toBe(1);
+
+    await act(async () => {
+      document.body.appendChild(document.createElement("div"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screenshotFetches).toBe(2);
+    expect(
+      fetchedPaths().filter((path) => path === "/assets/root-AbC123.js"),
+    ).toHaveLength(1);
   });
 
   it("preloads at once when the load event ended long enough ago", async () => {
@@ -160,28 +189,35 @@ describe("AgentNativeRouteWarmup", () => {
     expect(warmedModulePaths()).toHaveLength(3);
   });
 
-  it("preloads a hovered link right away, even during the hold", async () => {
-    setReadyState("complete");
-    document.body.innerHTML = '<a href="/screenshots">Screenshots</a>';
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    await act(async () => {
-      root = createRoot(container);
-      root.render(<AgentNativeRouteWarmup config={{ strategy: "intent" }} />);
-    });
-    expect(warmedModulePaths()).toEqual([]);
+  it.each([
+    ["pointerover", () => new Event("pointerover", { bubbles: true })],
+    ["touchstart", () => new Event("touchstart", { bubbles: true })],
+    ["focusin", () => new FocusEvent("focusin", { bubbles: true })],
+  ])(
+    "preloads a link right away on %s, even during the hold",
+    async (_name, intentEvent) => {
+      setReadyState("complete");
+      document.body.innerHTML = '<a href="/screenshots">Screenshots</a>';
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      await act(async () => {
+        root = createRoot(container);
+        root.render(<AgentNativeRouteWarmup config={{ strategy: "intent" }} />);
+      });
+      expect(warmedModulePaths()).toEqual([]);
 
-    const link = document.querySelector("a")!;
-    await act(async () => {
-      link.dispatchEvent(new Event("pointerover", { bubbles: true }));
-    });
-    expect(warmedModulePaths()).toEqual([
-      "/assets/root-AbC123.js",
-      "/assets/screenshots-DeF456.js",
-      "/assets/IconCamera-GhI789.js",
-    ]);
-    expect(fetchedPaths()).toEqual(["/screenshots.data"]);
-  });
+      const link = document.querySelector("a")!;
+      await act(async () => {
+        link.dispatchEvent(intentEvent());
+      });
+      expect(warmedModulePaths()).toEqual([
+        "/assets/root-AbC123.js",
+        "/assets/screenshots-DeF456.js",
+        "/assets/IconCamera-GhI789.js",
+      ]);
+      expect(fetchedPaths()).toEqual(["/screenshots.data"]);
+    },
+  );
 
   it("drops the hold when it unmounts", async () => {
     setReadyState("complete");

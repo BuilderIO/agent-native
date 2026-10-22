@@ -58,10 +58,11 @@ const PREFETCH_ATTR = "data-an-prefetch";
 // built assets are immutable, so an early click still skips the network, and
 // WebKit only reports link preloads. Data warmup is a plain fetch and starts
 // right away.
+// A third-party script that never finishes can hold the load event back
+// indefinitely. The hold lasts as long, since preloads added before a late load
+// event would still be reported; the HTTP cache and intent preloads cover clicks
+// meanwhile.
 const MODULE_WARMUP_DELAY_AFTER_LOAD_MS = 4_000;
-// A third-party script that never finishes holds the load event back
-// indefinitely, so modules warm anyway after this long without one.
-const MODULE_WARMUP_MAX_WAIT_FOR_LOAD_MS = 10_000;
 const warmedDataRoutes = new Set<string>();
 const warmedRouteAssets = new Set<string>();
 const fetchedRouteAssets = new Set<string>();
@@ -422,7 +423,10 @@ function fetchRouteAssetsForHref(href: string) {
     fetchedRouteAssets.add(assetUrl);
     window
       .fetch(assetUrl, { credentials: "same-origin", priority: "low" })
-      .then((response) => (response.ok ? response.arrayBuffer() : undefined))
+      .then((response) => {
+        if (response.ok) return response.arrayBuffer();
+        fetchedRouteAssets.delete(assetUrl);
+      })
       .catch(() => {
         fetchedRouteAssets.delete(assetUrl);
       });
@@ -449,10 +453,6 @@ function afterUnusedPreloadCheck(callback: () => void): () => void {
     startTimer();
   } else {
     window.addEventListener("load", startTimer, { once: true });
-    timer = window.setTimeout(() => {
-      window.removeEventListener("load", startTimer);
-      callback();
-    }, MODULE_WARMUP_MAX_WAIT_FOR_LOAD_MS);
   }
   return () => {
     window.removeEventListener("load", startTimer);
