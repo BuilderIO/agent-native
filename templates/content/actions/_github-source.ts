@@ -1041,7 +1041,8 @@ async function uploadAsset(
       filename: `github-image.${extension}`,
       mimeType: request.mediaType,
     });
-    if (!url || url === "failed") return url ?? "no-storage";
+    if (url === "failed") return url;
+    if (!url) return "no-storage";
     run.assetUrlBySha.set(sha, url);
     return { sha, url };
   }
@@ -1068,7 +1069,8 @@ async function uploadAsset(
     filename: request.path.split("/").pop() ?? "image",
     mimeType,
   });
-  if (!url || url === "failed") return url ?? "no-storage";
+  if (url === "failed") return url;
+  if (!url) return "no-storage";
   run.assetUrlBySha.set(entry.sha, url);
   return { sha: entry.sha, url };
 }
