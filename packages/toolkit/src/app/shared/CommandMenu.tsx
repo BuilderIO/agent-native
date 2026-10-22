@@ -461,6 +461,8 @@ export interface CommandMenuProps<TAppContext = unknown> {
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
   renderResults?: (search: string) => ReactNode;
+  /** Reports whether the dynamic results contain selectable rows. */
+  renderResultsHasItems?: (search: string) => boolean;
   renderResultsPosition?: "before" | "after";
   renderContent?: (options: {
     search: string;
@@ -500,6 +502,7 @@ export function CommandMenu<TAppContext = unknown>({
   onOpenChange,
   children,
   renderResults,
+  renderResultsHasItems,
   renderResultsPosition = "before",
   renderContent,
   placeholder = "Type a command or ask AI...",
@@ -548,6 +551,11 @@ export function CommandMenu<TAppContext = unknown>({
   const containerRef = useRef<HTMLDivElement>(null);
   const searchValueRef = useRef("");
   const selectionEnabledRef = useRef(false);
+  const selectionResetRef = useRef(0);
+  const nextEmptySelectionValue = useCallback(
+    () => `${NO_COMMAND_SELECTION}${++selectionResetRef.current}`,
+    [],
+  );
   const onSearchChangeRef = useRef(onSearchChange);
   onSearchChangeRef.current = onSearchChange;
   const updateSearch = useCallback((value: string) => {
@@ -585,9 +593,9 @@ export function CommandMenu<TAppContext = unknown>({
   const resetSelection = useCallback(() => {
     selectionEnabledRef.current = false;
     setSelectedCommandValue(
-      initialSelection === "none" ? NO_COMMAND_SELECTION : "",
+      initialSelection === "none" ? nextEmptySelectionValue() : "",
     );
-  }, [initialSelection]);
+  }, [initialSelection, nextEmptySelectionValue]);
 
   const openChangelog = useCallback(() => {
     onOpenChange(false);
@@ -621,7 +629,6 @@ export function CommandMenu<TAppContext = unknown>({
   const handleCommandValueChange = useCallback(
     (value: string) => {
       if (initialSelection === "none" && !selectionEnabledRef.current) {
-        setSelectedCommandValue(NO_COMMAND_SELECTION);
         return;
       }
       setSelectedCommandValue(value);
@@ -800,7 +807,21 @@ export function CommandMenu<TAppContext = unknown>({
   const selectedAppCommand = appCommandEntries.find(
     (entry) => entry.value === selectedCommandValue,
   );
-  const previewAppCommand = selectedAppCommand;
+  const firstEnabledAppCommand = appCommandEntries.find(
+    ({ command }) => command.enabledWhen?.(appCommandContext) ?? true,
+  );
+  const commandMenuValue =
+    initialSelection === "none"
+      ? selectedCommandValue
+      : activeAppPage
+        ? (selectedAppCommand?.value ??
+          firstEnabledAppCommand?.value ??
+          NO_COMMAND_SELECTION)
+        : undefined;
+  const previewAppCommand =
+    appCommandEntries.find(
+      (entry) => entry.value === (commandMenuValue ?? selectedCommandValue),
+    ) ?? selectedAppCommand;
   const appPreview = previewAppCommand?.command.preview;
   const renderedAppPreview =
     typeof appPreview === "function"
@@ -848,7 +869,9 @@ export function CommandMenu<TAppContext = unknown>({
   };
 
   const renderList = (results: ReactNode = dynamicResults) => {
-    const hasResults = hasCommandResults || hasCommandItems(results);
+    const hasDynamicItems =
+      renderResultsHasItems?.(search) ?? hasCommandItems(results);
+    const hasResults = hasCommandResults || hasDynamicItems;
     const list = (
       <CommandListPrimitive>
         {activeAppPage ? (
@@ -1153,9 +1176,7 @@ export function CommandMenu<TAppContext = unknown>({
             loop
             shouldFilter={false}
             className="h-auto rounded-lg"
-            value={
-              initialSelection === "none" ? selectedCommandValue : undefined
-            }
+            value={commandMenuValue}
           >
             <CommandMenuContext.Provider
               value={{ search, onOpenChange, registerNestedDialog }}
@@ -1171,10 +1192,10 @@ export function CommandMenu<TAppContext = unknown>({
                 value={search}
                 onValueChange={(value) => {
                   updateSearch(value);
-                  setSelectedCommandValue(
-                    initialSelection === "none" ? NO_COMMAND_SELECTION : "",
-                  );
                   selectionEnabledRef.current = false;
+                  if (initialSelection === "none") {
+                    setSelectedCommandValue(nextEmptySelectionValue());
+                  }
                 }}
                 onKeyDown={(event) => {
                   if (

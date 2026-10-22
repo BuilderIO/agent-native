@@ -122,6 +122,7 @@ describe("CommandMenu", () => {
     itemMatcher,
     onSearchChange,
     renderResults,
+    renderResultsHasItems,
     renderResultsPosition,
     emptyState,
     container: portalContainer,
@@ -136,6 +137,7 @@ describe("CommandMenu", () => {
     itemMatcher?: CommandMenuItemMatcher;
     onSearchChange?: (search: string) => void;
     renderResults?: (search: string) => React.ReactNode;
+    renderResultsHasItems?: (search: string) => boolean;
     renderResultsPosition?: "before" | "after";
     emptyState?: React.ReactNode;
     container?: HTMLElement;
@@ -166,6 +168,7 @@ describe("CommandMenu", () => {
           itemMatcher={itemMatcher}
           onSearchChange={onSearchChange}
           renderResults={renderResults}
+          renderResultsHasItems={renderResultsHasItems}
           renderResultsPosition={renderResultsPosition}
           emptyState={emptyState}
           container={portalContainer}
@@ -1348,6 +1351,75 @@ describe("CommandMenu", () => {
     expect(document.body.textContent).not.toContain("Refresh data");
   });
 
+  it("selects the first matching page command instead of Back", () => {
+    const onSelect = vi.fn();
+    renderAppCommands({
+      groups: [
+        {
+          id: "main",
+          order: 1,
+          commands: [
+            {
+              id: "open-tools",
+              order: 1,
+              label: "Open tools",
+              page: {
+                id: "tools",
+                title: "Tools",
+                groups: [
+                  {
+                    id: "tool-actions",
+                    order: 1,
+                    commands: [
+                      {
+                        id: "refresh",
+                        order: 1,
+                        label: "Refresh data",
+                        onSelect() {},
+                      },
+                      {
+                        id: "open-settings",
+                        order: 2,
+                        label: "Open settings",
+                        deferSelect: false,
+                        onSelect,
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const parentRow = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:main:open-tools"]',
+    );
+    expect(parentRow).toBeTruthy();
+    act(() => parentRow!.click());
+
+    search("settings");
+    const pageCommand = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:tool-actions:open-settings"]',
+    );
+    expect(pageCommand?.getAttribute("aria-selected")).toBe("true");
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    act(() =>
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(onSelect).toHaveBeenCalledOnce();
+  });
+
   it("keeps page transitions unselected in none-selection mode", () => {
     renderAppCommands({
       initialSelection: "none",
@@ -1386,27 +1458,31 @@ describe("CommandMenu", () => {
 
     const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
     expect(input).toBeTruthy();
-    act(() => {
+    act(() =>
       input!.dispatchEvent(
         new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-      );
+      ),
+    );
+    act(() =>
       input!.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-      );
-    });
+      ),
+    );
     expect(document.body.textContent).toContain("Refresh data");
     expect(
       document.querySelector('[cmdk-item][aria-selected="true"]'),
     ).toBeNull();
 
-    act(() => {
+    act(() =>
       input!.dispatchEvent(
         new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-      );
+      ),
+    );
+    act(() =>
       input!.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-      );
-    });
+      ),
+    );
     expect(document.body.textContent).toContain("Open tools");
     expect(
       document.querySelector('[cmdk-item][aria-selected="true"]'),
@@ -1947,6 +2023,25 @@ describe("CommandMenu", () => {
     expect(document.querySelector('[role="status"]')).toBeNull();
   });
 
+  it("uses the render-results presence signal for components that render no rows", () => {
+    function EmptyLiveResults() {
+      return null;
+    }
+
+    renderAppCommands({
+      groups: [],
+      renderResults: () => <EmptyLiveResults />,
+      renderResultsHasItems: () => false,
+      emptyState: "No matching records",
+    });
+
+    search("missing");
+
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "No matching records",
+    );
+  });
+
   it("honors first and none initial selection modes", () => {
     const groups = [
       {
@@ -1990,6 +2085,69 @@ describe("CommandMenu", () => {
         '[cmdk-item][data-value="app-command:actions:first"][aria-selected="true"]',
       ),
     ).toBeTruthy();
+  });
+
+  it("keeps typing unselected until keyboard navigation begins", () => {
+    const onSelect = vi.fn();
+    renderAppCommands({
+      groups: [
+        {
+          id: "actions",
+          order: 1,
+          commands: [
+            {
+              id: "match",
+              order: 1,
+              label: "Matching action",
+              deferSelect: false,
+              onSelect,
+            },
+          ],
+        },
+      ],
+      initialSelection: "none",
+    });
+
+    search("matching");
+    expect(
+      document.querySelector('[cmdk-item][aria-selected="true"]'),
+    ).toBeNull();
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    act(() =>
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(onSelect).not.toHaveBeenCalled();
+
+    act(() =>
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(
+      document.querySelector('[cmdk-item][aria-selected="true"]'),
+    ).toBeTruthy();
+    act(() =>
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(onSelect).toHaveBeenCalledOnce();
   });
 
   it("selects the first app result when it arrives after the menu opens", () => {
