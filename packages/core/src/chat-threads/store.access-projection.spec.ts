@@ -23,7 +23,11 @@ vi.mock("../agent/run-manager.js", () => ({ getRun: vi.fn() }));
 vi.mock("../agent/run-store.js", () => ({ getRunById: vi.fn() }));
 
 import { callerHasThreadAccess } from "../agent/run-ownership.js";
-import { hasThreadAccess, resolveThreadAccess } from "./store.js";
+import {
+  hasThreadAccess,
+  resolveThreadAccess,
+  resolveThreadAccessScope,
+} from "./store.js";
 
 const THREAD_ROW = {
   id: "t1",
@@ -163,5 +167,60 @@ describe("yes/no thread access never reads the conversation body", () => {
     await expect(
       callerHasThreadAccess("viewer@example.com", "t1", "editor"),
     ).resolves.toBe(false);
+  });
+});
+
+describe("resolveThreadAccessScope", () => {
+  beforeEach(() => {
+    executeMock.mockReset();
+    resolveAccessMock.mockReset();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+  });
+
+  it("checks projected access and reads only the thread scope columns", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "t1",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        visibility: "private",
+      },
+    });
+    executeMock.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (
+        /^SELECT scope_type, scope_id, scope_label FROM chat_threads/.test(sql)
+      ) {
+        return {
+          rows: [
+            {
+              scope_type: "project",
+              scope_id: "project-1",
+              scope_label: "Project One",
+            },
+          ],
+          rowsAffected: 0,
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(
+      resolveThreadAccessScope("owner@example.com", "t1"),
+    ).resolves.toEqual({
+      scope: { type: "project", id: "project-1", label: "Project One" },
+    });
+
+    expect(resolveAccessMock.mock.calls[0][3]).toEqual({
+      skipResourceBody: true,
+    });
+    const sqls = executeMock.mock.calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    expect(sqls).toContain(
+      "SELECT scope_type, scope_id, scope_label FROM chat_threads WHERE id = ?",
+    );
+    expect(sqls.some((sql) => /thread_data/.test(sql))).toBe(false);
   });
 });

@@ -196,6 +196,7 @@ const database = {
   listRowsMedium: "मध्यम",
   listRowsBold: "बोल्ड",
   listRowsNothing: "कुछ नहीं",
+  listRowsPageText: "पेज का टेक्स्ट",
   listRowsOneLine: "1 लाइन",
   listRowsLineCount: "{{count}} लाइनें",
   listRowsNoStatus: "कोई स्थिति नहीं",

@@ -401,14 +401,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       motionDockUnmountTimerRef.current = null;
     }, MOTION_DOCK_EXIT_SETTLE_MS);
   }, [clearMotionDockUnmountTimer]);
-  const [shaderFillPreview, setShaderFillPreview] = useState<{
-    selector?: string;
-    nodeId?: string;
-    css: string;
-  } | null>(null);
-  const shaderFillPreviewActiveRef = useRef(false);
-  shaderFillPreviewActiveRef.current = shaderFillPreview !== null;
-
   const [activeBreakpointWidthState, setActiveBreakpointWidthState] = useState<
     number | undefined
   >(undefined);
@@ -1360,9 +1352,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     clearMotionAutosaveTimer,
     setMotionDockOpenAnimated,
     handleMotionDockExitComplete,
-    shaderFillPreview,
-    setShaderFillPreview,
-    shaderFillPreviewActiveRef,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,

@@ -10,7 +10,11 @@ import {
   editNativeEffectHtml,
   type NativeEffectEdit,
 } from "@shared/native-effect-edits";
-import { parseEffectsFromHtml } from "@shared/native-effects";
+import { PULSING_BORDER_EFFECT } from "@shared/native-effect-pulsing-border";
+import {
+  applyNativeEffectToHtml,
+  parseEffectsFromHtml,
+} from "@shared/native-effects";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -158,7 +162,7 @@ function Editor({
     <FillProperties
       element={selectedElement ?? elementFromSource(content)}
       onStyleChange={styleChange}
-      glslShaderContext={{
+      shaderContext={{
         designId: "d1",
         fileId: "f1",
         content,
@@ -257,7 +261,7 @@ describe("a gradient layer's paint row", () => {
       <FillProperties
         element={layerElement(image)}
         onStyleChange={styleChange}
-        glslShaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
+        shaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
       />,
     );
     openLayerPicker();
@@ -326,20 +330,52 @@ describe("a gradient layer's paint row", () => {
 });
 
 describe("Shader beside other fills", () => {
-  it("is not offered on a layer while another layer exists", () => {
+  it("shows Pulsing Border's standard gradient paint field from the native Fill row", () => {
+    const applied = applyNativeEffectToHtml(
+      documentWith("background-color: #ffffff"),
+      {
+        nodeId: "hero",
+        definition: PULSING_BORDER_EFFECT,
+        placement: "fill",
+      },
+    );
+    expect(applied.errors).toEqual([]);
+    mocks.source = applied.html;
+    render(<Editor initial={mocks.source} />);
+
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>("[data-native-fill-id] button")!
+        .click(),
+    );
+    expect(
+      document.querySelector<HTMLButtonElement>(
+        'button[aria-label="editPanel.shaders.nativeCatalog.properties.colors"]',
+      ),
+    ).not.toBeNull();
+    expect(document.querySelector("[data-color-slot]")).toBeNull();
+  });
+
+  it("remains offered on a layer while another layer exists", () => {
     render(
       <FillProperties
         element={layerElement([GRADIENT, RADIAL].join(", "))}
         onStyleChange={styleChange}
-        glslShaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
+        shaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
       />,
     );
     openLayerPicker(0);
 
-    expect(paintLabels()).toEqual(["Solid", "Gradient", "Image", "None"]);
+    expect(paintLabels()).toEqual([
+      "Solid",
+      "Gradient",
+      "Image",
+      "Shader",
+      "None",
+    ]);
   });
 
-  it("is not offered on a layer while the element has a base fill", () => {
+  it("remains offered on a layer while the element has a base fill", () => {
     render(
       <FillProperties
         element={element({
@@ -356,12 +392,18 @@ describe("Shader beside other fills", () => {
           },
         })}
         onStyleChange={styleChange}
-        glslShaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
+        shaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
       />,
     );
     openLayerPicker(0);
 
-    expect(paintLabels()).toEqual(["Solid", "Gradient", "Image", "None"]);
+    expect(paintLabels()).toEqual([
+      "Solid",
+      "Gradient",
+      "Image",
+      "Shader",
+      "None",
+    ]);
   });
 });
 
@@ -438,7 +480,7 @@ describe("SVG native fill", () => {
           inlineStyles: { fill: "#ff0000" },
         })}
         onStyleChange={styleChange}
-        glslShaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
+        shaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
       />,
     );
     act(() =>
@@ -467,7 +509,7 @@ describe("the sets that do not change", () => {
           },
         })}
         onStyleChange={styleChange}
-        glslShaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
+        shaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
       />,
     );
     openLayerPicker(0);
@@ -486,7 +528,7 @@ describe("the sets that do not change", () => {
           inlineStyles: { fill: "#ff0000" },
         })}
         onStyleChange={styleChange}
-        glslShaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
+        shaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
       />,
     );
     act(() =>

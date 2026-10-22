@@ -257,6 +257,60 @@ string copy and cannot import the module, so a one-sided edit drops the config
 silently in deployed builds. `posthog-config.spec.ts` pins the two outputs
 together.
 
+### Cookie consent
+
+Visitors in the consent region (`shared/consent.ts`, copied from builder.io's
+banner rules) see `ConsentBanner`, which `AppProviders` and the docs root
+mount, and choose two categories: `performance` (Google Analytics,
+Amplitude, Ahrefs) and `targeting` (Google Tag Manager, attribution).
+Everyone else gets no banner and every tag at once.
+
+- Every third-party browser tag goes through the gate: server-injected
+  scripts use `consentGatedScript()` in `server/analytics.ts`; client code
+  uses `whenConsentAllows(category, run)` from
+  `@agent-native/core/client/consent`. A tag in a raw `<script>` or a
+  `<noscript>` fallback runs before the visitor chooses.
+- The GTM container (`GTM_CONTAINER_ID`, shared by every app and the docs
+  site) carries the ad pixels: Meta, LinkedIn, Reddit, X, Bing UET, Google
+  Ads and OpenAI, plus HubSpot, Dreamdata, Vector, Unify, Common Room and
+  Apollo. Gating the container gates them all, which is why it sits under
+  `targeting`. Tags added inside GTM need no code change; tags added
+  anywhere else do.
+- The inline bootstrap in `server/analytics.ts` runs the queue on pages that
+  never load the app bundle. It repeats the cookie format and time-zone
+  rules of `client/consent.ts`; change both together. Each queued loader
+  runs once a page, even after a reject and a fresh accept.
+- A loaded tag can't be unloaded, so Google's tags follow Consent Mode: the
+  server pushes a `consent default` from the stored choice (all denied
+  without one) to every Google data layer before any tag, and
+  `client/consent.ts` pushes a `consent update` on each region answer and
+  choice. Our own `gtag` events also wait for `performance`. Non-Google tags
+  in GTM stop only on the next page load.
+- Use `consentDecision(category)` for anything a revoke can't undo once
+  sent; it is `null` until the visitor's choice or the server's region is
+  known. `consentAllowsNow` guesses from the time zone, so only pair it with
+  storage a `revoke` can clear.
+- First-party analytics keeps counting in the region before consent, but the
+  visitor id `an_aid` waits for `performance`: until then
+  `getOrCreateAnalyticsAnonymousId()` returns `undefined` and stores nothing,
+  and events go out with no `anonymousId` and
+  `properties.analytics_consent: "withheld"`. Events sent before the region
+  is known wait for it, or leave without the id, marked
+  `analytics_consent: "unknown"`, if the page closes first. The plain
+  sign-in page reads the id through the same helper and holds its events
+  with `whenConsentDecided`; never write `an_aid` directly. A choice made in
+  another tab applies at once in tabs of the same app, and on focus in
+  another app on the site. A
+  reject clears a stored id.
+  Those rows count as events and views but never as people; the Analytics
+  activation funnel joins them to a signup in the same session. Session
+  replay waits for `performance` too, with no time-zone head start; a reject
+  stops it, discards what it hasn't uploaded (including a batch an upload in
+  flight puts back), and forgets its stored replay identity. Amplitude rechecks the
+  choice before it initializes and never sends events from before an accept.
+  Google events held for the region's answer go out only if it allows them. Sentry error capture and the session id `an_sid` aren't
+  gated.
+
 ## MCP Server Events
 
 The MCP server an app exposes reports its own usage. `packages/core/src/mcp/analytics.ts`
@@ -319,7 +373,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 
 Every browser-side `trackEvent()` POST to the Agent-Native Analytics `/track` endpoint includes:
 
-- `anonymousId` — persistent per-browser visitor ID stored in `localStorage` under `agent-native.anonymous_id`. Generated once and reused across sessions. Use this for unique-visitor and returning-visitor metrics.
+- `anonymousId` — persistent per-browser visitor ID stored in `localStorage` under `agent-native.anonymous_id`. Generated once and reused across sessions. Use this for unique-visitor and returning-visitor metrics. In the consent region it's absent until the visitor accepts analytics cookies (see Cookie consent).
 - `sessionId` — rotating per-visit ID stored in `localStorage` under `agent-native.session_id`, with a 30-minute idle timeout (matches GA4 / Mixpanel defaults). Use this for sessions-per-visitor, pages-per-session, and session-duration metrics.
 - `userId` — only set when the calling code passes `properties.userId`. Anonymous traffic leaves this NULL by design; `anonymousId` is the fallback.
 
@@ -341,9 +395,12 @@ There is one capture implementation, `captureAttribution()` from `@agent-native/
 
 - `localStorage` key `an_attribution` and first-party cookie `an_ft` (`path=/; max-age=2592000; SameSite=Lax`, not HttpOnly — non-sensitive, written by client JS).
 - Both store the same URL-encoded compact JSON (empty fields omitted, each value capped at 120 chars): `{ ref, via, utm_source, utm_medium, utm_campaign, utm_content, utm_term, landing_path, landing_referrer, landed_at }`. `landing_referrer` is the **host only** of `document.referrer` (scrubbed; same-origin referrers are dropped).
+- A durable copy, cookie `an_fts`, set only by our server (`POST /_agent-native/auth/attribution`, same-origin, no session needed) and expiring 365 days after `landed_at`, never extended by later visits. The browser sends its first touch there each load until the server holds that visit. Safari caps cookies written by page JavaScript at seven days, so only a server-set cookie can keep first touch for a year. The value carries `v: "1"`; a reader ignores other versions. When the browser's copies are gone, capture restores them from `an_fts`. Each sync after the browser writes `an_ft` or `an_lt` also has the server write them again from the request's cookies, so Safari keeps them their full 30 days too.
+- Every copy is compared with `preferFirstTouch` (`shared/first-touch-persistence.ts`): the first visit with a source, else the first visit. Never add a second ordering rule: the server cookie route, the browser, and signup must agree on which visit is first touch, or a slow response from one tab overwrites a better touch from another.
+- Attribution is a `targeting` consent category. Visitors in the consent region (builder.io's GDPR list: the EU, the rest of the EEA, Monaco, San Marino, Åland and France's overseas regions; not the UK or Switzerland, in `packages/core/src/shared/consent.ts`) get nothing stored until they opt in through the `an_consent` cookie. The banner writes `an_consent` in the page and then `POST /_agent-native/auth/consent` writes it again from the server, so Safari keeps the choice its full year. The browser gates capture with `whenConsentAllows("targeting", …)` from `client/consent.ts`, which asks `GET /_agent-native/auth/consent-region` (the request's country) and falls back to the time zone; a reject clears every copy. The server refuses `an_fts` and clears all three cookies by request country unless `an_consent` grants targeting. Everyone else is stored as before, with no banner. Don't add attribution storage that bypasses `captureAttribution()`, or it skips this check.
 - `getFirstTouchAttribution()` (from `@agent-native/core/client`) returns the parsed object or `null`.
 
-**Signup event enrichment** (server-side, from the `an_ft` cookie on the signup/OAuth-callback request, derived in `packages/core/src/server/attribution.ts`):
+**Signup event enrichment** (server-side, from the `an_fts` and `an_ft` cookies on the signup/OAuth-callback request, whichever `preferFirstTouch` picks, with `an_fts` winning a tie, derived in `packages/core/src/server/attribution.ts`):
 
 - `referral_source` — `ref` if present, else derived: `/share/…` → `clip_share`; a plan public path (`/p/`, `/plan/`, `/share-plan/`) → `plan_share`; a non-empty external referring host → `external`; otherwise `direct`.
 - `referrer_user` (= `via`), `referral_medium` (= `utm_medium`), `referral_campaign` (= `utm_campaign`)

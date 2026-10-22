@@ -1,6 +1,11 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  EffectDefinition,
+  EffectDocument,
+  EffectInstance,
+} from "../../../../shared/native-effects";
 import {
   NativePublicAssetPreviewError,
   connectNativePublicAssetPreview,
@@ -9,6 +14,69 @@ import {
 
 const manifest =
   '<script type="application/x-agent-native-effects">{}</script>';
+const imageDefinition: EffectDefinition = {
+  id: "an-native-test-image-input",
+  name: "Image input",
+  version: 1,
+  kind: "processor",
+  placements: ["fill"],
+  properties: {},
+  inputs: {
+    image: {
+      kind: "texture-2d",
+      resource: "image",
+    },
+  },
+  outputs: { color: { kind: "texture-2d", resource: "color" } },
+  resources: [
+    {
+      name: "image",
+      kind: "texture-2d",
+      format: "rgba8unorm",
+      usage: ["sampled"],
+      external: true,
+      size: "viewport",
+    },
+    {
+      name: "color",
+      kind: "texture-2d",
+      format: "rgba8unorm",
+      usage: ["render", "sampled"],
+      size: "viewport",
+    },
+  ],
+  output: "color",
+  passes: [
+    {
+      id: "render",
+      kind: "render",
+      reads: ["image"],
+      output: "color",
+      wgsl: "",
+    },
+  ],
+  provenance: { origin: "design-original" },
+};
+const imageInstance: EffectInstance = {
+  id: "image-1",
+  nodeId: "card",
+  definitionId: imageDefinition.id,
+  definitionVersion: imageDefinition.version,
+  placement: "fill",
+  params: {},
+  bindings: { image: { kind: "asset", url: "/images/bundled.png" } },
+  enabled: true,
+  opacity: 1,
+  seed: 0,
+  clip: "bounds",
+  blend: "normal",
+  timing: { speed: 1, paused: false, time: 0 },
+};
+const imageDocument: EffectDocument = {
+  schemaVersion: 2,
+  definitions: [imageDefinition],
+  instances: [imageInstance],
+};
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -16,6 +84,37 @@ afterEach(() => {
 });
 
 describe("opaque public asset preparation", () => {
+  it("allowlists a bound image input and its replacement", () => {
+    const html = `<main data-agent-native-node-id="card"></main>${manifest}`;
+    const bundled = prepareNativePublicAssetPreviewDocument(
+      html,
+      "https://design.example.test/editor",
+      imageDocument,
+    );
+    expect(bundled.urls).toEqual([
+      "https://design.example.test/images/bundled.png",
+    ]);
+
+    const bound = prepareNativePublicAssetPreviewDocument(
+      html,
+      "https://design.example.test/editor",
+      {
+        ...imageDocument,
+        instances: [
+          {
+            ...imageInstance,
+            bindings: {
+              image: { kind: "asset", url: "/textures/custom-image.png" },
+            },
+          },
+        ],
+      },
+    );
+    expect(bound.urls).toEqual([
+      "https://design.example.test/textures/custom-image.png",
+    ]);
+  });
+
   it("indexes exact same-origin image, srcset, and CSS URLs without exposing other origins", () => {
     const html = `<!doctype html><html><head><style>
       .card { background-image: url('/textures/fold.png'); }

@@ -28,6 +28,41 @@ import {
   type PMNode,
 } from "./nfm.js";
 
+function expectLinearScaling(
+  build: (count: number) => string[],
+  parse: (markdown: string) => unknown = canonicalizeNfm,
+): void {
+  const small = build(1);
+  const large = build(4);
+  const median = (samples: number[]) =>
+    [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)]!;
+  const measure = (markdown: string) => {
+    const started = performance.now();
+    parse(markdown);
+    return performance.now() - started;
+  };
+  for (const [index, markdown] of small.entries()) {
+    parse(markdown);
+    const smallSamples: number[] = [];
+    const largeSamples: number[] = [];
+    for (let sample = 0; sample < 5; sample++) {
+      if (sample % 2 === 0) {
+        smallSamples.push(measure(markdown));
+        largeSamples.push(measure(large[index]));
+      } else {
+        largeSamples.push(measure(large[index]));
+        smallSamples.push(measure(markdown));
+      }
+    }
+    const baseline = Math.max(median(smallSamples), 1);
+    const ratio = median(largeSamples) / baseline;
+    expect(
+      ratio,
+      `input ${index + 1}: scaling ratio ${ratio.toFixed(2)}`,
+    ).toBeLessThan(10);
+  }
+}
+
 const editorSchema = getSchema(createVisualEditorExtensions());
 const structuralSchema = createContentEditorStructuralSchema();
 
@@ -60,9 +95,15 @@ describe("NFM round-trip corpus", () => {
       ids.add(sample.id);
     });
 
-    if (sample.canonical !== undefined) {
-      const canonical = sample.canonical;
-      it(`${sample.id} canonicalizes without loss`, () => {
+    if (sample.unrepresentable === undefined) {
+      // A follow-up's bytes pin today's reading, so its fix shows up here.
+      const canonical =
+        sample.canonical === undefined ? sample.storedToday : sample.canonical;
+      const stores =
+        sample.canonical === undefined
+          ? "stores its recorded follow-up form"
+          : "canonicalizes";
+      it(`${sample.id} ${stores} without loss`, () => {
         const result = canonicalizeNfmWithFidelity(sample.markdown);
         expect(result).toEqual({
           kind: "canonical",
@@ -336,102 +377,136 @@ describe("canonicalizeNfmWithFidelity", () => {
   });
 
   it("reads many underscore openers in linear time", () => {
-    const started = performance.now();
-    canonicalizeNfm("_a ".repeat(20_000));
-    canonicalizeNfm("__a_".repeat(20_000));
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expectLinearScaling((count) => [
+      "_a ".repeat(1_000 * count),
+      "__a_".repeat(1_000 * count),
+    ]);
   });
 
   it("reads many short lists and unmatched brackets in linear time", () => {
-    const started = performance.now();
-    canonicalizeNfm(" - a\nx\n".repeat(20_000));
-    canonicalizeNfm("[".repeat(20_000));
-    canonicalizeNfm("[".repeat(10_000) + "$".repeat(10_000));
-    canonicalizeNfm(
-      Array.from({ length: 500 }, (_, i) => `${"\t".repeat(i)}- a`).join("\n"),
-    );
-    canonicalizeNfm(`<table>\n<tr>\n${"<td>\n".repeat(16_000)}</tr>\n</table>`);
-    for (const cell of ["<td>a", "<td a", "<td>`"])
-      canonicalizeNfm(
-        `<table>\n<tr>${cell.repeat(48_000)}</th></tr>\n</table>`,
+    expectLinearScaling((count) => {
+      const inputs: string[] = [];
+      inputs.push(" - a\nx\n".repeat(5_000 * count));
+      inputs.push("[".repeat(5_000 * count));
+      inputs.push("[".repeat(2_500 * count) + "$".repeat(2_500 * count));
+      inputs.push(
+        Array.from(
+          { length: 250 * Math.sqrt(count) },
+          (_, i) => `${"\t".repeat(i)}- a`,
+        ).join("\n"),
       );
-    canonicalizeNfm("$`a".repeat(60_000));
-    expect(performance.now() - started).toBeLessThan(2_000);
+      inputs.push(
+        `<table>\n<tr>\n${"<td>\n".repeat(4_000 * count)}</tr>\n</table>`,
+      );
+      for (const cell of ["<td>a", "<td a", "<td>`"])
+        inputs.push(
+          `<table>\n<tr>${cell.repeat(12_000 * count)}</th></tr>\n</table>`,
+        );
+      inputs.push("$`a".repeat(15_000 * count));
+      return inputs;
+    });
   });
 
   it("reads unmatched backtick runs of many lengths in linear time", () => {
-    const runs = (lengths: number[]) =>
-      lengths.map((length) => "`".repeat(length)).join("a");
-    const ascending = runs(Array.from({ length: 400 }, (_, i) => i + 1));
-    const started = performance.now();
-    canonicalizeNfm(ascending);
-    canonicalizeNfm(`*${ascending}*`);
-    canonicalizeNfm(`[${ascending}](u)`);
-    canonicalizeNfm(`<table>\n<tr>\n<td>${ascending}</td>\n</tr>\n</table>`);
-    canonicalizeNfm(runs(Array.from({ length: 400 }, (_, i) => 400 - i)));
-    canonicalizeNfm(`a${"`".repeat(80_000)}`);
-    canonicalizeNfm(`*${"`".repeat(80_000)}*`);
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expectLinearScaling((count) => {
+      const inputs: string[] = [];
+      const runs = (lengths: number[]) =>
+        lengths.map((length) => "`".repeat(length)).join("a");
+      const lengths = Array.from(
+        { length: 100 * count },
+        (_, i) => (i * 4) / count + 1,
+      );
+      const ascending = runs(lengths);
+      inputs.push(ascending);
+      inputs.push(`*${ascending}*`);
+      inputs.push(`[${ascending}](u)`);
+      inputs.push(`<table>\n<tr>\n<td>${ascending}</td>\n</tr>\n</table>`);
+      inputs.push(runs([...lengths].reverse()));
+      inputs.push(`a${"`".repeat(20_000 * count)}`);
+      inputs.push(`*${"`".repeat(20_000 * count)}*`);
+      return inputs;
+    });
   });
 
+  // Indentation already grows quadratically with depth, so doubling depth quadruples input bytes.
   it("reads space-indented lines under deep tab nesting in linear time", () => {
-    const nested = (under: string) =>
-      Array.from(
-        { length: 1_000 },
-        (_, depth) => `${"\t".repeat(depth)}- a\n${"\t".repeat(depth)}${under}`,
-      ).join("\n") + "\nafter";
-    const started = performance.now();
-    canonicalizeNfm(nested("  - b"));
-    canonicalizeNfm(nested("  > q"));
-    canonicalizeNfm(nested("  ```"));
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expectLinearScaling((count) => {
+      const inputs: string[] = [];
+      const nested = (under: string) =>
+        Array.from(
+          { length: 500 * Math.sqrt(count) },
+          (_, depth) =>
+            `${"\t".repeat(depth)}- a\n${"\t".repeat(depth)}${under}`,
+        ).join("\n") + "\nafter";
+      inputs.push(nested("  - b"));
+      inputs.push(nested("  > q"));
+      inputs.push(nested("  ```"));
+      return inputs;
+    });
   });
 
   it("reads blank lines and fences under deep nesting in linear time", () => {
-    const deep = (item: (depth: number) => string) =>
-      Array.from({ length: 1_000 }, (_, depth) => item(depth)).join("\n");
-    const started = performance.now();
-    canonicalizeNfm(
-      `${deep((d) => `${"\t".repeat(d)}- a`)}${"\n".repeat(300_000)}  x`,
-    );
-    canonicalizeNfm(
-      `${deep((d) => `${"\t".repeat(d)}- a`)}\n${"\t\n".repeat(300_000)}  x`,
-    );
-    canonicalizeNfm(
-      `${deep((d) => `${"\t".repeat(d)}- c\n${"\t".repeat(d)}  \`\`\`js`)}${"\n".repeat(300_000)}b`,
-    );
-    // Read only: the writer indents each code line to its depth.
-    nfmToDoc(
-      `${deep((d) => `${"\t".repeat(d)}- a`)}\n${"\t".repeat(1_000)}\`\`\`\n${"x\n".repeat(300_000)}${"\t".repeat(1_000)}\`\`\`\n  x`,
-    );
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expectLinearScaling((count) => {
+      const inputs: string[] = [];
+      const deep = (item: (depth: number) => string) =>
+        Array.from({ length: 500 * Math.sqrt(count) }, (_, depth) =>
+          item(depth),
+        ).join("\n");
+      inputs.push(
+        `${deep((d) => `${"\t".repeat(d)}- a`)}${"\n".repeat(75_000 * count)}  x`,
+      );
+      inputs.push(
+        `${deep((d) => `${"\t".repeat(d)}- a`)}\n${"\t\n".repeat(75_000 * count)}  x`,
+      );
+      inputs.push(
+        `${deep((d) => `${"\t".repeat(d)}- c\n${"\t".repeat(d)}  \`\`\`js`)}${"\n".repeat(75_000 * count)}b`,
+      );
+
+      return inputs;
+    });
+    expectLinearScaling((count) => {
+      const inputs: string[] = [];
+      const deep = (item: (depth: number) => string) =>
+        Array.from({ length: 500 * Math.sqrt(count) }, (_, depth) =>
+          item(depth),
+        ).join("\n");
+      // Read only: the writer indents each code line to its depth.
+      inputs.push(
+        `${deep((d) => `${"\t".repeat(d)}- a`)}\n${"\t".repeat(500 * Math.sqrt(count))}\`\`\`\n${"x\n".repeat(75_000 * count)}${"\t".repeat(500 * Math.sqrt(count))}\`\`\`\n  x`,
+      );
+      return inputs;
+    }, nfmToDoc);
   });
 
   it("reads long runs of word and space characters in linear time", () => {
-    const started = performance.now();
-    canonicalizeNfm(`<span ${"a".repeat(200_000)}>x</span>`);
-    canonicalizeNfm(`<span a${" ".repeat(200_000)}b>x</span>`);
-    canonicalizeNfm(`a${" ".repeat(200_000)}{`);
-    canonicalizeNfm(`a${" ".repeat(200_000)}b`);
-    canonicalizeNfm(`- a${" ".repeat(200_000)}b`);
-    canonicalizeNfm(`a${"\\".repeat(200_000)}`);
-    canonicalizeNfm(
-      `<mention-user url="u">${" ".repeat(200_000)}a</mention-user>`,
-    );
-    canonicalizeNfm(`x <mention-${"u".repeat(100_000)}>a</mention-u>`);
-    canonicalizeNfm('<span color="red">a '.repeat(20_000));
-    canonicalizeNfm('<mention-user url="u">a '.repeat(20_000));
-    canonicalizeNfm(
-      `<table>\n<col${" ".repeat(200_000)}x\n<tr>\n<td>a</td>\n</tr>\n</table>`,
-    );
-    canonicalizeNfm(
-      `<table>\n<tr>\n<td>a\nb${" ".repeat(200_000)}c\n</td></tr>\n</table>`,
-    );
-    const runs = Array.from({ length: 600 }, (_, i) => "`".repeat(i + 1));
-    canonicalizeNfm(`| a |\n| - |\n|${runs.join("|")}|`);
-    canonicalizeNfm("[a](b".repeat(100_000));
-    canonicalizeNfm("<table>\n".repeat(60_000));
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expectLinearScaling((count) => {
+      const inputs: string[] = [];
+      inputs.push(`<span ${"a".repeat(50_000 * count)}>x</span>`);
+      inputs.push(`<span a${" ".repeat(50_000 * count)}b>x</span>`);
+      inputs.push(`a${" ".repeat(50_000 * count)}{`);
+      inputs.push(`a${" ".repeat(50_000 * count)}b`);
+      inputs.push(`- a${" ".repeat(50_000 * count)}b`);
+      inputs.push(`a${"\\".repeat(50_000 * count)}`);
+      inputs.push(
+        `<mention-user url="u">${" ".repeat(50_000 * count)}a</mention-user>`,
+      );
+      inputs.push(`x <mention-${"u".repeat(25_000 * count)}>a</mention-u>`);
+      inputs.push('<span color="red">a '.repeat(5_000 * count));
+      inputs.push('<mention-user url="u">a '.repeat(5_000 * count));
+      inputs.push(
+        `<table>\n<col${" ".repeat(50_000 * count)}x\n<tr>\n<td>a</td>\n</tr>\n</table>`,
+      );
+      inputs.push(
+        `<table>\n<tr>\n<td>a\nb${" ".repeat(50_000 * count)}c\n</td></tr>\n</table>`,
+      );
+      const runs = Array.from({ length: 150 * count }, (_, i) =>
+        "`".repeat((i * 4) / count + 1),
+      );
+      inputs.push(`| a |\n| - |\n|${runs.join("|")}|`);
+      inputs.push("[a](b".repeat(25_000 * count));
+      inputs.push("<table>\n".repeat(15_000 * count));
+      return inputs;
+    });
   });
 
   it("reads links nested past the inline limit as text and reports it", () => {
@@ -442,9 +517,12 @@ describe("canonicalizeNfmWithFidelity", () => {
     expect(deep.losses.map((loss) => loss.kind)).toEqual([
       "dropped-formatting",
     ]);
-    const started = performance.now();
-    expect(() => requireLosslessNfm(nested(50_000))).toThrow(NfmFidelityError);
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expectLinearScaling(
+      (count) => [nested(12_500 * count)],
+      (markdown) => {
+        expect(() => requireLosslessNfm(markdown)).toThrow(NfmFidelityError);
+      },
+    );
   });
 
   it("nests a space-indented list only as deep as the stack allows", () => {
@@ -460,9 +538,6 @@ describe("canonicalizeNfmWithFidelity", () => {
     expect(() => requireLosslessNfm(nested(4_000))).toThrow(NfmFidelityError);
   });
 
-  // Each page gets its own budget: together they are a few megabytes of
-  // linear work that a busy CI runner can stretch past one shared budget,
-  // while a quadratic read of any one of them takes several seconds.
   it.each([
     ...[
       "<details>",
@@ -470,27 +545,37 @@ describe("canonicalizeNfmWithFidelity", () => {
       "<columns>",
       '<synced_block url="u">',
       "<meeting-notes>",
-    ].map((opener) => [`unclosed ${opener}`, `${opener}\n`.repeat(20_000)]),
-    ["unclosed <details> over lists", "<details>\n- a\n  - b\n".repeat(10_000)],
+    ].map(
+      (opener) =>
+        [
+          `unclosed ${opener}`,
+          (count: number) => `${opener}\n`.repeat(1_000 * count),
+        ] as const,
+    ),
+    [
+      "unclosed <details> over lists",
+      (count: number) => "<details>\n- a\n  - b\n".repeat(2_500 * count),
+    ],
     [
       "unclosed callouts in a details",
-      `<details>\n${'<callout icon="i">\n'.repeat(20_000)}</details>`,
+      (count: number) =>
+        `<details>\n${'<callout icon="i">\n'.repeat(5_000 * count)}</details>`,
     ],
     [
       "nested <details>",
-      `${"<details>\n".repeat(2_000)}x\n${"</details>\n".repeat(2_000)}`,
+      (count: number) =>
+        `${"<details>\n".repeat(500 * count)}x\n${"</details>\n".repeat(500 * count)}`,
     ],
     [
       "callouts a tab deeper each line",
-      Array.from(
-        { length: 1_000 },
-        (_, i) => `${"\t".repeat(i)}<callout icon="i">`,
-      ).join("\n"),
+      (count: number) =>
+        Array.from(
+          { length: 500 * Math.sqrt(count) },
+          (_, i) => `${"\t".repeat(i)}<callout icon="i">`,
+        ).join("\n"),
     ],
-  ])("reads a page of %s in linear time", (_name, markdown) => {
-    const started = performance.now();
-    canonicalizeNfm(markdown);
-    expect(performance.now() - started).toBeLessThan(1_000);
+  ] as const)("reads a page of %s in linear time", (_name, build) => {
+    expectLinearScaling((count) => [build(count)]);
   });
 
   it("reads containers nested past the depth limit as text and reports it", () => {
@@ -505,21 +590,27 @@ describe("canonicalizeNfmWithFidelity", () => {
   });
 
   it("reads the runs of one link under a long URL in linear time", () => {
-    const started = performance.now();
-    // Read only: the writer repeats the URL for every run.
-    nfmToDoc(`[${"a`x`".repeat(60_000)}](${"u".repeat(60_000)})`);
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expectLinearScaling(
+      (count) => [
+        // Read only: the writer repeats the URL for every run.
+        `[${"a`x`".repeat(3_000 * count)}](${"u".repeat(3_000 * count)})`,
+      ],
+      nfmToDoc,
+    );
   });
 
   it("compares a long leaf under deep nesting in linear time", () => {
-    const depth = 300;
-    const markdown = `${Array.from(
-      { length: depth },
-      (_, i) => `${"\t".repeat(i)}- x`,
-    ).join("\n")}\n${"\t".repeat(depth)}${"a".repeat(3_000_000)}`;
-    const started = performance.now();
-    expect(canonicalizeNfmWithFidelity(markdown).losses).toEqual([]);
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expectLinearScaling(
+      (count) => {
+        const inputs: string[] = [];
+        const depth = 75 * count;
+        const markdown = `${Array.from({ length: depth }, (_, i) => `${"\t".repeat(i)}- x`).join("\n")}\n${"\t".repeat(depth)}${"a".repeat(750_000 * count)}`;
+        inputs.push(markdown);
+        return inputs;
+      },
+      (markdown) =>
+        expect(canonicalizeNfmWithFidelity(markdown).losses).toEqual([]),
+    );
   });
 
   it("reads math in link text and an image's alt as main does", () => {
@@ -562,13 +653,13 @@ describe("canonicalizeNfmWithFidelity", () => {
     expect(canonicalizeNfm("*a ****b**** c*")).toBe("*a ****b**** c*");
     expect(canonicalizeNfm("*a **~~b~~** c*")).toBe("*a **~~b~~** c*");
     expect(canonicalizeNfm("*a **b** **c** d")).toBe("*a b c*\\* d");
-    const started = performance.now();
-    canonicalizeNfm(`*${" **a**".repeat(40_000)}`);
-    canonicalizeNfm(`*${" **a**".repeat(40_000)} x*`);
-    canonicalizeNfm("*x **a** ".repeat(40_000));
-    canonicalizeNfm("* **a".repeat(40_000));
-    canonicalizeNfm("*a **b ".repeat(40_000));
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expectLinearScaling((count) => [
+      `*${" **a**".repeat(10_000 * count)}`,
+      `*${" **a**".repeat(10_000 * count)} x*`,
+      "*x **a** ".repeat(10_000 * count),
+      "* **a".repeat(10_000 * count),
+      "*a **b ".repeat(10_000 * count),
+    ]);
   });
 
   it("reads a table with more rows than a call takes arguments", () => {

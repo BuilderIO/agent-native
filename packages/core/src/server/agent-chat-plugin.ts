@@ -164,6 +164,7 @@ import {
   forkThread,
   getThread,
   getQueuedSubmissionReceipt,
+  getQueuedSubmissionReceiptStatus,
   listQueuedSubmissionReceipts,
   markQueuedSubmissionSubmitted,
   queuedSubmissionBehaviorMatches,
@@ -173,6 +174,7 @@ import {
   retryQueuedSubmissionReceipt,
   resolveRunThreadScope,
   resolveThreadAccess,
+  resolveThreadAccessScope,
   listThreads,
   searchThreads,
   renameThread,
@@ -316,6 +318,7 @@ import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
 import { startIntervalJob } from "./interval-job.js";
 import { isDirectLoopbackRequest } from "./loopback.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
+import { scheduleQueuedSubmissionInboxDrain } from "./queued-submission-inbox-drain.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
   runWithRequestContext,
@@ -329,6 +332,8 @@ import { getForwardedRequestOrigin } from "./request-origin.js";
 
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
+
+const MAX_QUEUED_SUBMISSION_RETRIES = 5;
 
 type AgentChatRunTrackingSource = Pick<
   TrackingMeta,
@@ -4072,6 +4077,18 @@ export function createAgentChatPlugin(
             );
           },
         );
+        scheduleQueuedSubmissionInboxDrain({
+          threadId: runThreadId,
+          turnContinues: endsAtContinuationBoundary(run),
+          waitUntil: getRequestRunContext()?.waitUntil,
+          drain: drainQueuedSubmissionInbox,
+          onError: (error) => {
+            console.error(
+              `[agent-chat] queued-submission follow-up drain failed for ${runThreadId}:`,
+              error,
+            );
+          },
+        });
 
         // Event triggers and local git checkpoints remain best effort and do
         // not extend the durable chat persistence gate.
@@ -7834,6 +7851,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
+            if (
+              method === "GET" &&
+              threadTail[0] === "queue" &&
+              threadTail[1] &&
+              threadTail[2] === "receipt" &&
+              threadTail.length === 3
+            ) {
+              const thread = await resolveThreadAccessScope(
+                owner,
+                threadId,
+                "viewer",
+                { orgId },
+              );
+              if (!thread || !threadMatchesRequestedScope(thread)) {
+                return threadNotFound();
+              }
+              return await getQueuedSubmissionReceiptStatus(
+                threadId,
+                threadTail[1],
+              );
+            }
+
             if (method === "GET") {
               const thread = await resolveThreadAccess(
                 owner,
@@ -8173,7 +8212,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   mutation = { type: "append", message: queued };
                 }
               } else if (
-                (record?.type === "remove" || record?.type === "moveToTop") &&
+                (record?.type === "remove" ||
+                  record?.type === "cancel" ||
+                  record?.type === "moveToTop") &&
                 typeof record.messageId === "string" &&
                 record.messageId
               ) {
@@ -8284,12 +8325,38 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   retryable: true,
                 };
               }
+              if (
+                mutation.type === "append" &&
+                result.message &&
+                !result.alreadySubmitted &&
+                !result.submissionExpired
+              ) {
+                scheduleQueuedSubmissionInboxDrain({
+                  threadId,
+                  turnContinues: false,
+                  waitUntil: getRequestRunContext()?.waitUntil,
+                  drain: drainQueuedSubmissionInbox,
+                  onError: (error) => {
+                    console.error(
+                      `[agent-chat] queued-submission append drain failed for ${threadId}:`,
+                      error,
+                    );
+                  },
+                });
+              }
+              if (mutation.type === "cancel" && result.submittedRunId) {
+                await abortRunAndTurnDurably(
+                  result.submittedRunId,
+                  clientAbortReason("user"),
+                );
+              }
               const withoutClaim = (message: QueuedMessage) => {
                 const { promotionClaim: _claim, ...safeMessage } = message;
                 return safeMessage;
               };
+              const { submittedRunId: _submittedRunId, ...safeResult } = result;
               return {
-                ...result,
+                ...(mutation.type === "cancel" ? safeResult : result),
                 queuedMessages: result.queuedMessages.map(withoutClaim),
                 ...(result.message
                   ? { message: withoutClaim(result.message) }
@@ -8501,6 +8568,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const scope = parseScopeFromQuery(query);
             const unscopedOnly = String(query.unscoped ?? "") === "1";
             const includeExternal = String(query.includeExternal ?? "") === "1";
+            const includeArchived = String(query.includeArchived ?? "") === "1";
             const ownership =
               query.ownership === undefined ? "all" : query.ownership;
             if (!isChatThreadOwnership(ownership)) {
@@ -8515,6 +8583,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   scope: scope ?? undefined,
                   orgId,
                   includeExternal,
+                  includeArchived,
                   sourceAppId: options?.appId ?? null,
                   ownership,
                   offset,
@@ -8526,6 +8595,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   unscopedOnly,
                   orgId,
                   includeExternal,
+                  includeArchived,
                   sourceAppId: options?.appId ?? null,
                   ownership,
                 });
@@ -8682,7 +8752,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       };
 
-      const drainQueuedSubmissionInbox = async () => {
+      const drainQueuedSubmissionInbox = async (
+        drainOptions: {
+          threadId?: string;
+        } = {},
+      ) => {
         const result = {
           scanned: 0,
           claimed: 0,
@@ -8692,8 +8766,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           expired: 0,
           failed: 0,
         };
-        const pending = await listQueuedSubmissionReceipts({ limit: 25 });
+        const pending = await listQueuedSubmissionReceipts({
+          limit: 25,
+          ...(drainOptions.threadId ? { threadId: drainOptions.threadId } : {}),
+        });
         result.scanned = pending.length;
+        const deferredThreads = new Set<string>();
+        const deferReceipt = (threadId: string) => {
+          result.deferred += 1;
+          deferredThreads.add(threadId);
+        };
         const deadlineAt = Date.now() + 30_000;
         const maxAdmissions = 5;
 
@@ -8715,10 +8797,98 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         };
 
         for (const receipt of pending) {
+          if (deferredThreads.has(receipt.threadId)) {
+            result.deferred += 1;
+            continue;
+          }
           if (Date.now() >= deadlineAt || result.submitted >= maxAdmissions) {
             break;
           }
+          if (
+            drainOptions.threadId &&
+            !(await waitForStableIdle(drainOptions.threadId))
+          ) {
+            deferReceipt(receipt.threadId);
+            break;
+          }
           let claimId: string | undefined;
+          let retryCount = receipt.retryCount;
+          let recoveryMutationAttempted = false;
+          const retryClaimedReceipt = async (countRetry = false) => {
+            if (!claimId) {
+              throw new Error(
+                `Queued submission ${receipt.messageId} has no active claim to retry`,
+              );
+            }
+            recoveryMutationAttempted = true;
+            let updated = await retryQueuedSubmissionReceipt(
+              receipt.threadId,
+              receipt.messageId,
+              Date.now() + 10_000,
+              { claimId, ...(countRetry ? { countRetry: true } : {}) },
+            );
+            if (!updated) {
+              updated = await retryQueuedSubmissionReceipt(
+                receipt.threadId,
+                receipt.messageId,
+                Date.now() + 10_000,
+                countRetry ? { countRetry: true } : {},
+              );
+            }
+            if (updated && countRetry) retryCount += 1;
+            return updated;
+          };
+          const blockClaimedReceipt = async () => {
+            if (!claimId) {
+              throw new Error(
+                `Queued submission ${receipt.messageId} has no active claim to block`,
+              );
+            }
+            recoveryMutationAttempted = true;
+            const updated = await blockQueuedSubmissionReceipt(
+              receipt.threadId,
+              receipt.messageId,
+              {
+                claimId,
+              },
+            );
+            return (
+              updated ||
+              (await blockQueuedSubmissionReceipt(
+                receipt.threadId,
+                receipt.messageId,
+              ))
+            );
+          };
+          const recoverClaimedReceipt = async () => {
+            if (!claimId) {
+              deferReceipt(receipt.threadId);
+              return;
+            }
+            if (
+              !recoveryMutationAttempted &&
+              retryCount >= MAX_QUEUED_SUBMISSION_RETRIES
+            ) {
+              const blocked = await blockClaimedReceipt();
+              await mutateThreadQueuedMessages(receipt.threadId, {
+                type: "release",
+                messageId: receipt.messageId,
+                claimId,
+              });
+              claimId = undefined;
+              if (blocked) result.blocked += 1;
+              else deferReceipt(receipt.threadId);
+              return;
+            }
+            if (!recoveryMutationAttempted) await retryClaimedReceipt(true);
+            await mutateThreadQueuedMessages(receipt.threadId, {
+              type: "release",
+              messageId: receipt.messageId,
+              claimId,
+            });
+            claimId = undefined;
+            deferReceipt(receipt.threadId);
+          };
           try {
             const message = receipt.message;
             if (
@@ -8732,7 +8902,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 receipt.messageId,
               );
               if (blocked) result.blocked += 1;
-              else result.deferred += 1;
+              else deferReceipt(receipt.threadId);
               continue;
             }
 
@@ -8748,7 +8918,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 receipt.messageId,
               );
               if (blocked) result.blocked += 1;
-              else result.deferred += 1;
+              else deferReceipt(receipt.threadId);
               continue;
             }
 
@@ -8766,14 +8936,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error.code !== "queued_message_id_conflict"
               ) {
                 claimId = undefined;
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
                 continue;
               }
               throw error;
             }
             if (claim?.receiptUnavailable) {
               claimId = undefined;
-              result.deferred += 1;
+              deferReceipt(receipt.threadId);
+              continue;
+            }
+            if (claim?.retryDeferred) {
+              deferReceipt(receipt.threadId);
               continue;
             }
             if (claim?.receiptConflict) {
@@ -8782,7 +8956,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               continue;
             }
             if (claim?.claimBusy) {
-              result.deferred += 1;
+              deferReceipt(receipt.threadId);
               continue;
             }
             if (claim?.submissionExpired) {
@@ -8796,7 +8970,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 { claimId },
               );
               if (blocked) result.blocked += 1;
-              else result.deferred += 1;
+              else deferReceipt(receipt.threadId);
               continue;
             }
             const claimedMessage = claim.claimedMessage;
@@ -8810,7 +8984,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (claimedReceipt?.state === "submitted") {
                 result.submitted += 1;
               } else {
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
               }
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
@@ -8820,6 +8994,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               claimId = undefined;
               continue;
             }
+            retryCount = claimedReceipt.retryCount;
 
             const finishInterrupt = async (runId: string) => {
               if (
@@ -8868,19 +9043,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimedReceipt.interruptRunId,
               );
               if (!stableIdle) {
-                await retryQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  Date.now() + 10_000,
-                  { claimId },
-                );
+                await retryClaimedReceipt();
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
                   claimId,
                 });
                 claimId = undefined;
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
                 continue;
               }
             }
@@ -8888,19 +9058,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const active = await getActiveRunForThreadAsync(receipt.threadId);
             if (active?.inFlight) {
               if (claimedMessage.interruptActiveRun !== true) {
-                await retryQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  Date.now() + 10_000,
-                  { claimId },
-                );
+                await retryClaimedReceipt();
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
                   claimId,
                 });
                 claimId = undefined;
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
                 continue;
               }
               const recorded = await recordQueuedSubmissionInterruptRun({
@@ -8910,35 +9075,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimId,
               });
               if (!recorded) {
-                await retryQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  Date.now() + 10_000,
-                  { claimId },
-                );
+                await retryClaimedReceipt();
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
                   claimId,
                 });
                 claimId = undefined;
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
                 continue;
               }
               if (!(await finishInterrupt(active.runId))) {
-                await retryQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  Date.now() + 10_000,
-                  { claimId },
-                );
+                await retryClaimedReceipt();
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
                   claimId,
                 });
                 claimId = undefined;
-                result.deferred += 1;
+                deferReceipt(receipt.threadId);
                 continue;
               }
             }
@@ -8961,6 +9116,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   : {}),
                 ...(claimedMessage.requestAttachments !== undefined
                   ? { requestAttachments: claimedMessage.requestAttachments }
+                  : {}),
+                ...(claimedMessage.references !== undefined
+                  ? { references: claimedMessage.references }
                   : {}),
                 ...(claimedMessage.metadata !== undefined
                   ? { metadata: claimedMessage.metadata }
@@ -8988,6 +9146,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               orgId: receipt.actor.orgId ?? null,
               orgScope: receipt.actor.orgScope ?? null,
             };
+            seedAgentRunOwnerContext(admissionEvent, ownerContext);
 
             let admissionResponse: unknown;
             try {
@@ -9009,12 +9168,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   receipt.messageId,
                 );
               } catch (receiptError) {
-                result.failed += 1;
                 console.error(
                   `[agent-chat] could not verify queued submission ${receipt.messageId} after admission failed:`,
                   { error, receiptError },
                 );
-                claimId = undefined;
+                await recoverClaimedReceipt();
+                result.failed += 1;
                 continue;
               }
               if (afterError?.state === "submitted") {
@@ -9022,19 +9181,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimId = undefined;
                 continue;
               }
-              await retryQueuedSubmissionReceipt(
-                receipt.threadId,
-                receipt.messageId,
-                Date.now() + 10_000,
-                { claimId },
-              );
+              const nonRetryableError =
+                error !== null &&
+                typeof error === "object" &&
+                "retryable" in error &&
+                (error as { retryable?: unknown }).retryable === false;
+              const retryLimitReached =
+                (afterError?.retryCount ?? 0) >= MAX_QUEUED_SUBMISSION_RETRIES;
+              if (nonRetryableError || retryLimitReached) {
+                const blocked = await blockClaimedReceipt();
+                await mutateThreadQueuedMessages(receipt.threadId, {
+                  type: "release",
+                  messageId: receipt.messageId,
+                  claimId,
+                });
+                claimId = undefined;
+                if (blocked) result.blocked += 1;
+                else deferReceipt(receipt.threadId);
+                console.error(
+                  `[agent-chat] queued submission admission could not be retried for ${receipt.messageId}:`,
+                  error,
+                );
+                continue;
+              }
+              await retryClaimedReceipt(true);
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
                 messageId: receipt.messageId,
                 claimId,
               });
               claimId = undefined;
-              result.deferred += 1;
+              deferReceipt(receipt.threadId);
               console.error(
                 `[agent-chat] queued submission admission failed for ${receipt.messageId}:`,
                 error,
@@ -9071,12 +9248,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 receipt.messageId,
               );
             } catch (error) {
-              result.failed += 1;
               console.error(
                 `[agent-chat] could not verify queued submission ${receipt.messageId} after admission returned:`,
                 error,
               );
-              claimId = undefined;
               await stream
                 ?.cancel()
                 .catch((cancelError) =>
@@ -9085,6 +9260,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     cancelError,
                   ),
                 );
+              await recoverClaimedReceipt();
+              result.failed += 1;
               continue;
             }
 
@@ -9093,11 +9270,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               (responseStatus < 400 || admittedReceipt?.state === "submitted")
             ) {
               if (admittedReceipt?.state !== "submitted") {
-                await blockQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  { claimId },
-                );
+                await blockClaimedReceipt();
                 result.failed += 1;
                 console.error(
                   `[agent-chat] run ${responseRunId} started without a submitted receipt for ${receipt.messageId}`,
@@ -9117,33 +9290,43 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               continue;
             }
 
-            if (
-              responseStatus >= 500 ||
-              responseCode === "run_slot_busy" ||
-              responseBody?.retryable === true
-            ) {
-              await retryQueuedSubmissionReceipt(
-                receipt.threadId,
-                receipt.messageId,
-                Date.now() + 10_000,
-                { claimId },
-              );
+            if (responseCode === "run_slot_busy") {
+              // The thread's run slot is still held by a run that is ending. That
+              // is a wait, not a failed admission: release the claim without
+              // spending a retry or setting a backoff, so the completion drain
+              // for that run can claim this receipt. A backoff here would make
+              // that drain skip it until the recurring sweep.
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
                 messageId: receipt.messageId,
                 claimId,
               });
               claimId = undefined;
-              result.deferred += 1;
+              deferReceipt(receipt.threadId);
               await stream?.cancel().catch(() => {});
               continue;
             }
 
-            const blocked = await blockQueuedSubmissionReceipt(
-              receipt.threadId,
-              receipt.messageId,
-              { claimId },
-            );
+            const retryableAdmission =
+              responseBody?.retryable === true ||
+              (responseBody?.retryable !== false && responseStatus >= 500);
+            if (
+              retryableAdmission &&
+              retryCount < MAX_QUEUED_SUBMISSION_RETRIES
+            ) {
+              await retryClaimedReceipt(true);
+              await mutateThreadQueuedMessages(receipt.threadId, {
+                type: "release",
+                messageId: receipt.messageId,
+                claimId,
+              });
+              claimId = undefined;
+              deferReceipt(receipt.threadId);
+              await stream?.cancel().catch(() => {});
+              continue;
+            }
+
+            const blocked = await blockClaimedReceipt();
             await mutateThreadQueuedMessages(receipt.threadId, {
               type: "release",
               messageId: receipt.messageId,
@@ -9151,7 +9334,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             });
             claimId = undefined;
             if (blocked) result.blocked += 1;
-            else result.deferred += 1;
+            else deferReceipt(receipt.threadId);
             await stream?.cancel().catch(() => {});
           } catch (error) {
             result.failed += 1;
@@ -9159,25 +9342,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               `[agent-chat] queued submission drain failed for ${receipt.messageId}:`,
               error,
             );
-            if (claimId) {
-              try {
-                await retryQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  Date.now() + 10_000,
-                  { claimId },
-                );
-                await mutateThreadQueuedMessages(receipt.threadId, {
-                  type: "release",
-                  messageId: receipt.messageId,
-                  claimId,
-                });
-              } catch (releaseError) {
-                console.error(
-                  `[agent-chat] could not release queued submission ${receipt.messageId}:`,
-                  releaseError,
-                );
-              }
+            try {
+              await recoverClaimedReceipt();
+            } catch (releaseError) {
+              console.error(
+                `[agent-chat] could not release queued submission ${receipt.messageId}:`,
+                releaseError,
+              );
+              deferReceipt(receipt.threadId);
             }
           }
         }

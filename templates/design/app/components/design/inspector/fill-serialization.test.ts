@@ -13,10 +13,6 @@ import {
   parseImageFillCss,
   type ImageFillValue,
 } from "./ImageFillControls";
-import {
-  descriptorFromPreset,
-  shaderDescriptorToCss,
-} from "./ShaderFillsPanel";
 
 describe("gradient serialization", () => {
   it.each(["linear", "radial", "angular", "diamond"] as const)(
@@ -187,21 +183,6 @@ describe("image fill serialization", () => {
         "fit",
       ),
     ).toEqual({ url: "https://x.test/new.png", fit: "fit" });
-  });
-});
-
-describe("shader fill serialization", () => {
-  it("produces a CSS fallback gradient for a preset descriptor", () => {
-    const descriptor = descriptorFromPreset({
-      name: "MeshGradient",
-      label: "Mesh Gradient",
-      description: "",
-      defaultColors: ["#e0eaff", "#241d9a", "#f75092"],
-      params: [],
-    });
-    const css = shaderDescriptorToCss(descriptor);
-    expect(css).toContain("#e0eaff");
-    expect(css).toContain("linear-gradient");
   });
 });
 

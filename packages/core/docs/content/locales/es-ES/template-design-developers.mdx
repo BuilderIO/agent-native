@@ -152,10 +152,10 @@ Cada operación específica de Design es un archivo TypeScript en
 | `get-motion-timeline`    | Leer la línea de tiempo de movimiento de un elemento                    |
 | `apply-motion-edit`      | Añadir o editar un fotograma clave en una línea de tiempo de movimiento |
 | `remove-motion-timeline` | Eliminar una línea de tiempo de movimiento                              |
-| `apply-shader`           | Aplicar un efecto de shader                                             |
-| `apply-shader-fill`      | Aplicar un shader como relleno                                          |
-| `preview-shader-fill`    | Previsualizar un relleno de shader antes de aplicarlo                   |
-| `get-shader`             | Leer los parámetros actuales de un shader                               |
+| `get-shader`             | Consultar definiciones nativas y manifiestos de efectos guardados       |
+| `edit-native-shader`     | Aplicar, editar, aprobar o eliminar efectos nativos                     |
+
+Los efectos nativos WebGPU usan WGSL. La creación personalizada usa `edit-native-shader` con `define-definition`, `get-shader` para leer el `executionHash` guardado, `approve-definition` con ese `expectedExecutionHash` y `apply` con el ID y la versión exactos de la definición. Cada edición requiere `designId`, `fileId` y el `expectedVersionHash` actual. Hay que volver a leer el hash después de cada escritura. La validación del esquema en CPU no compila código GPU, por lo que hay que comprobar la vista previa de Design. Los efectos GLSL guardados anteriormente siguen pudiéndose renderizar y eliminar.
 
 ### Calidad {#quality}
 

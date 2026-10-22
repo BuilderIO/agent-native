@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
@@ -8,6 +9,7 @@ import {
   registerBuiltinEngines,
 } from "@agent-native/core/agent/engine";
 import { getDbExec } from "@agent-native/core/db";
+import { isOrgMember } from "@agent-native/core/org";
 import { readOrgMemberRole } from "@agent-native/core/server";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import {
@@ -952,6 +954,13 @@ async function assertCanViewMetrics(viewScope: UsageMetricsScope): Promise<{
   );
 }
 
+function failUserNotOrgMember(email: string): never {
+  fail(
+    `${email} is not a member of this organization, so list-dispatch-usage-metrics has no data on them. For a customer's or account's usage or credits, use this app's own customer or billing actions if it has any, or find the app that owns that data with describe-workspace-apps query="<what you need>" and delegate with call-agent.`,
+    { errorCode: "usage_user_not_org_member", statusCode: 404 },
+  );
+}
+
 export async function listDispatchUsageMetrics(input: {
   sinceDays?: number;
   scope?: UsageMetricsScope;
@@ -960,6 +969,33 @@ export async function listDispatchUsageMetrics(input: {
 }): Promise<DispatchUsageMetrics> {
   const viewScope: UsageMetricsScope =
     input.scope === "me" ? "me" : input.scope === "app" ? "app" : "workspace";
+  // Another person's usage: unauthorized callers get one answer whether or not
+  // the email is a member, so the lookup cannot probe the roster; authorized
+  // callers asking about an outside email are pointed at the owning app.
+  const requestedEmail =
+    viewScope === "workspace" ? input.userEmail?.trim() || null : null;
+  const callerEmail = currentOwnerEmail();
+  const callerOrgId = currentOrgId();
+  if (
+    requestedEmail &&
+    callerOrgId &&
+    requestedEmail.toLowerCase() !== callerEmail.toLowerCase()
+  ) {
+    const callerRole = await readOrgMemberRole(callerOrgId, callerEmail);
+    if (
+      !isDispatchEnvironmentAdmin(callerEmail) &&
+      callerRole !== "owner" &&
+      callerRole !== "admin"
+    ) {
+      fail(
+        `list-dispatch-usage-metrics cannot answer this. For a teammate in this organization, only owners and admins can look up their usage. For a customer or other external user, list-dispatch-usage-metrics has no data: use this app's own customer or billing actions if it has any, or find the app that owns that data with describe-workspace-apps query="<what you need>" and delegate with call-agent.`,
+        { errorCode: "usage_user_lookup_forbidden", statusCode: 403 },
+      );
+    }
+    if (!(await isOrgMember(callerOrgId, requestedEmail))) {
+      failUserNotOrgMember(requestedEmail);
+    }
+  }
   const { viewerEmail, orgId, role } = await assertCanViewMetrics(
     viewScope === "app" ? "me" : viewScope,
   );
@@ -1020,9 +1056,7 @@ export async function listDispatchUsageMetrics(input: {
           )?.email ?? null)
         : null;
   if (viewScope === "workspace" && requestedUserEmail && !selectedUserEmail) {
-    throw new ForbiddenError(
-      "The selected user is not available in this workspace.",
-    );
+    failUserNotOrgMember(requestedUserEmail);
   }
   const memberEmails = selectedUserEmail
     ? [selectedUserEmail]
