@@ -45,7 +45,6 @@ import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { instantCloseMenuClass, menuIconClass } from "./menu-classes";
 import { MenuSwitchItem } from "./MenuSwitchItem";
 import {
-  attrsWithDuplicatedColumn,
   deleteTableColumn,
   deleteTableColumns,
   deleteTableRow,
@@ -60,6 +59,7 @@ import {
   setRowColors,
   setTableHeaders,
   type TableAt,
+  tableWithDuplicatedColumn,
 } from "./table-commands";
 
 interface TableHoverControlsProps {
@@ -148,14 +148,6 @@ function getCells(row: HTMLTableRowElement | null | undefined) {
         (cell) => cell.closest("tr") === row,
       )
     : [];
-}
-
-function getTableDimensions(table: HTMLElement) {
-  const rows = getRows(table);
-  return {
-    rowCount: rows.length,
-    columnCount: getCells(rows[0]).length,
-  };
 }
 
 // A reference preview renders its own read-only editor, tables included,
@@ -732,26 +724,15 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     const source = context && getCellRect(context.table, context.address);
     if (!context || !source) return;
 
-    const nextRows = getChildren(context.table.node).map((row) => {
-      const cells = getChildren(row);
-      const sourceCell = cells[context.address.columnIndex];
-      if (!sourceCell) return row;
-
-      cells.splice(context.address.columnIndex + 1, 0, copyNode(sourceCell));
-      return row.copy(Fragment.fromArray(cells));
-    });
-
+    // A merged cell grows rather than gaining a copy beside it.
+    const copied = source.right - source.left === 1;
     replaceTable(
       context.table.pos,
       context.table.node,
-      context.table.node.type.create(
-        attrsWithDuplicatedColumn(context.table.node, source.left),
-        Fragment.fromArray(nextRows),
-        context.table.node.marks,
-      ),
+      tableWithDuplicatedColumn(context.table.node, source.left),
       {
         ...context.address,
-        columnIndex: context.address.columnIndex + 1,
+        columnIndex: context.address.columnIndex + (copied ? 1 : 0),
       },
     );
   };
@@ -921,7 +902,17 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     event.preventDefault();
     event.stopPropagation();
 
-    const { rowCount, columnCount } = getTableDimensions(table);
+    // Counted as adjustColumnCount counts, by the table's grid: a merged cell
+    // in the first row takes up every column it spans.
+    const view = getMountedEditorView(editor);
+    const tableIndex = getTableIndex(table);
+    const target =
+      view && tableIndex !== undefined
+        ? findTableByIndex(view.state.doc, tableIndex)
+        : null;
+    if (!target) return;
+    const rowCount = target.node.childCount;
+    const columnCount = TableMap.get(target.node).width;
     pointerResizeRef.current = {
       didResize: false,
       kind,

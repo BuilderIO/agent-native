@@ -18,6 +18,14 @@ import { instantCloseMenuClass, menuIconClass } from "./menu-classes";
 const DEFAULT_TEXT = "default";
 const DEFAULT_BACKGROUND = "default_bg";
 
+/** The colour a choice leaves. A default clears only its own kind of colour. */
+export function chosenColor(current: string | null, choice: string) {
+  const background = !!current?.endsWith("_bg");
+  if (choice === DEFAULT_TEXT) return background ? current : null;
+  if (choice === DEFAULT_BACKGROUND) return background ? null : current;
+  return choice;
+}
+
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 type ColorChoice = { color: string; label: string };
 
@@ -100,11 +108,7 @@ export function ColorChoices({
   return (
     <DropdownMenuRadioGroup
       value={value ?? DEFAULT_TEXT}
-      onValueChange={(next) =>
-        onChange(
-          next === DEFAULT_TEXT || next === DEFAULT_BACKGROUND ? null : next,
-        )
-      }
+      onValueChange={(next) => onChange(chosenColor(value, next))}
     >
       {text.length > 0 ? (
         <>
