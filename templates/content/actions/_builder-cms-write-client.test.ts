@@ -280,7 +280,25 @@ describe("Builder CMS write client", () => {
       );
     });
 
-    it("surfaces re-authorization for a Source write", async () => {
+    it("keeps an unbound Source on its deploy key", async () => {
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(JSON.stringify({ id: "entry-1" }), { status: 200 }),
+      );
+
+      await expect(
+        executeBuilderCmsWrite({
+          request,
+          requireSourceBinding: true,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).resolves.toMatchObject({ ok: true, entryId: "entry-1" });
+      expect(resolveBuilderLegacyRequestAuthorizationMock).toHaveBeenCalledWith(
+        ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
+      );
+    });
+
+    it("surfaces re-authorization for a bound Source write", async () => {
       const fetchImpl = vi.fn();
 
       await expect(
@@ -358,6 +376,13 @@ describe("Builder CMS write client", () => {
     await expect(
       executeBuilderCmsWrite({
         request,
+        requireSourceBinding: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/not bound to its connected space/);
+    await expect(
+      executeBuilderCmsWrite({
+        request,
         expectedSourceSpace: "connected-space",
         expectedSourceConnectionId: "different-connection",
         requireSourceBinding: true,
@@ -389,6 +414,21 @@ describe("Builder CMS write client", () => {
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
     ).rejects.toThrow(/OAuth connection is unavailable/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps writing an unbound Source with its deploy key", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "legacy-private-key",
+      authorization: "Bearer legacy-private-key",
+      source: "legacy",
+      legacyCredentialKey: "BUILDER_PRIVATE_KEY",
+    });
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "entry-1" }), { status: 200 }),
+    );
+
     await expect(
       executeBuilderCmsWrite({
         request: {
@@ -396,11 +436,13 @@ describe("Builder CMS write client", () => {
           path: "/api/v1/write/blog-article/entry-1",
           body: { data: { title: "Reviewed title" } },
         },
+        expectedSourceSpace: null,
+        expectedSourceConnectionId: null,
         requireSourceBinding: true,
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
-    ).rejects.toThrow(/OAuth connection is unavailable/);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ ok: true, entryId: "entry-1" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to BUILDER_CMS_PRIVATE_KEY and sends POST writes", async () => {

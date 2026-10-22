@@ -589,7 +589,7 @@ describe("Builder source review execution gates", () => {
     });
   });
 
-  it("releases an unsent claim with its stored payload when blob storage is down", async () => {
+  it("releases an unsent blocked claim as ready when blob storage is down", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
       changeSetState: "approved",
@@ -654,7 +654,7 @@ describe("Builder source review execution gates", () => {
       .from(schema.contentDatabaseSourceExecutions)
       .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
     expect(released).toMatchObject({
-      state: "blocked",
+      state: "ready",
       attemptToken: null,
       lastError: "The Builder entry changed after review.",
       payloadJson: claimed!.payloadJson,

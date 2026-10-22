@@ -1373,10 +1373,14 @@ export function realExecutionDeps(
         }
         // Nothing was sent, so the stored payload is still accurate. Blob
         // storage being down must not hold the claim until its lease expires.
+        // Cancelling a blocked gate needs the preflight evidence that could
+        // not be stored; a ready gate stays cancellable and re-checks the
+        // live entry on its next run.
         const result = await getDb()
           .update(schema.contentDatabaseSourceExecutions)
           .set({
-            state: args.restore.state,
+            state:
+              args.restore.state === "blocked" ? "ready" : args.restore.state,
             summary: args.summary,
             lastError: args.lastError,
             attemptToken: args.restore.attemptToken ?? null,
@@ -1925,10 +1929,7 @@ export async function executeBuilderSourceExecutionWithDeps(
           request: plan.payload.request,
           expectedSourceSpace: source.metadata.builderSpacePublicKey,
           expectedSourceConnectionId: source.metadata.connectionId,
-          requireSourceBinding: Boolean(
-            source.metadata.builderSpacePublicKey ||
-            source.metadata.connectionId,
-          ),
+          requireSourceBinding: true,
         }),
       );
     } catch (error) {

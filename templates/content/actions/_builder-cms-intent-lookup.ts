@@ -77,6 +77,7 @@ export async function lookupBuilderCmsSafeModelIntent(args: {
     model: BUILDER_CMS_SAFE_WRITE_MODEL,
     rawData: true,
     requirePrivateKey: true,
+    requireBoundOAuth: true,
     limit: 10_000,
     expectedSourceSpace: args.expectedSourceSpace,
     expectedSourceConnectionId: args.expectedSourceConnectionId,

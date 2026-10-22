@@ -75,10 +75,15 @@ function assertBuilderWriteSourceBinding(
   authorization: Awaited<ReturnType<typeof readBuilderWriteAuthorization>>,
   expectedSourceSpace: string | null | undefined,
   expectedSourceConnectionId: string | null | undefined,
-  required: boolean,
+  sourceWrite: boolean,
 ) {
+  const sourceBound = Boolean(
+    expectedSourceSpace || expectedSourceConnectionId,
+  );
+  // An unbound Source keeps writing with its deploy keys, but OAuth may write
+  // only into the space a Source is bound to.
   if (
-    required &&
+    sourceBound &&
     (authorization?.source !== "oauth" ||
       authorization.oauthResource !== "general")
   ) {
@@ -88,7 +93,7 @@ function assertBuilderWriteSourceBinding(
     );
   }
   if (authorization?.source !== "oauth") return;
-  if (!required && !expectedSourceSpace && !expectedSourceConnectionId) return;
+  if (!sourceWrite && !sourceBound) return;
   if (!expectedSourceSpace || !expectedSourceConnectionId) {
     fail(
       "This Builder source is not bound to its connected space. Refresh the source before writing.",
@@ -224,8 +229,7 @@ export async function executeBuilderCmsWrite(args: {
         BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS,
       )
     : await readBuilderWriteAuthorization(
-        args.requireSourceBinding === true ||
-          Boolean(args.expectedSourceSpace || args.expectedSourceConnectionId),
+        Boolean(args.expectedSourceSpace || args.expectedSourceConnectionId),
       );
   if (!authorization) {
     return {
