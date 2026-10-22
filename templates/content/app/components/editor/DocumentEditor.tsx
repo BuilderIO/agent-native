@@ -220,7 +220,7 @@ import {
 import { observeCommentLane } from "./comment-lane";
 import {
   CommentsSidebar,
-  preserveCommentReplyEscape,
+  preserveCommentComposerEscape,
   useCommentReplyDrafts,
   usePendingCommentDraft,
 } from "./CommentsSidebar";
@@ -10175,7 +10175,7 @@ function PageEditorSessionBody({
             )}
             aria-describedby={undefined}
             onEscapeKeyDown={(event) => {
-              preserveCommentReplyEscape(event);
+              preserveCommentComposerEscape(event);
               if (event.defaultPrevented) return;
               const target = event.target;
               const nestedPopper =

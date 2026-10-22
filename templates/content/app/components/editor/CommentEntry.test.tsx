@@ -65,6 +65,8 @@ vi.mock("./CommentComposer", () => ({
     onChange,
     onSubmit,
     onCancel,
+    onEscape,
+    confirmEscape,
     ariaLabel,
     submitLabel,
   }: {
@@ -72,17 +74,21 @@ vi.mock("./CommentComposer", () => ({
     onChange: (value: string) => void;
     onSubmit: () => void;
     onCancel?: () => void;
+    onEscape?: () => void;
+    confirmEscape?: string | false;
     ariaLabel: string;
     submitLabel?: string;
   }) => (
     <>
       <textarea
         aria-label={ariaLabel}
+        data-confirm-escape={String(confirmEscape ?? false)}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
       {submitLabel ? <button onClick={onSubmit}>{submitLabel}</button> : null}
       {onCancel ? <button onClick={onCancel}>comments.cancel</button> : null}
+      {onEscape ? <button onClick={onEscape}>Escape</button> : null}
     </>
   ),
 }));
@@ -249,6 +255,46 @@ it("keeps an edit draft when its row unmounts and reopens", async () => {
   await click("comments.cancel");
   await click("comments.edit");
   expect(container.querySelector("textarea")?.value).toBe(comment.content);
+});
+
+it("has Escape confirm only a changed edit, and restores the comment once it cancels", async () => {
+  await act(async () => root.render(<Harness />));
+  await click("comments.edit");
+  const confirmEscape = () =>
+    container.querySelector("textarea")?.dataset.confirmEscape;
+  expect(confirmEscape()).toBe("false");
+  await act(async () => editDraft.setText("Original comment, revised"));
+  expect(confirmEscape()).toBe("edit");
+  // The composer runs this once the dialog's Discard is chosen.
+  await click("Escape");
+  expect(container.querySelector("textarea")).toBeNull();
+  await click("comments.edit");
+  expect(container.querySelector("textarea")?.value).toBe(comment.content);
+  expect(confirmEscape()).toBe("false");
+});
+
+it("does not count a repeated mention's extra pills as an edit", async () => {
+  const ana = {
+    kind: "person" as const,
+    email: "ana@example.test",
+    name: "Ana",
+  };
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{ ...comment, content: "@Ana asked @Ana", mentions: [ana] }}
+      />,
+    ),
+  );
+  await click("comments.edit");
+  // The editor reports one mention per pill; the comment stores one per name.
+  await act(async () => {
+    editDraft.setText("@Ana asked @Ana");
+    editDraft.setMentions([ana, ana]);
+  });
+  expect(container.querySelector("textarea")?.dataset.confirmEscape).toBe(
+    "false",
+  );
 });
 
 it.each([false, true])(

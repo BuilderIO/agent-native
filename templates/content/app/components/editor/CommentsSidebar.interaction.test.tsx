@@ -665,14 +665,9 @@ describe("comment review interactions", () => {
     expect(actions.remove).not.toHaveBeenCalled();
     expect(replyDraft.draft.text).toBe("");
   });
-  it("preserves a reply through dismissal, thread switches, and panel presentation remounts", async () => {
+  it("preserves a reply through thread switches and panel presentation remounts", async () => {
     render("one");
     await type("Unsent detailed feedback");
-    act(() => {
-      richEditor(container)!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    });
     render("two");
     await type("Different draft");
     render(null, undefined, "history");

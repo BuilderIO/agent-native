@@ -1593,6 +1593,13 @@ const overrides = {
   comments: {
     add: "टिप्पणी जोड़ें...",
     cancel: "रद्द करें",
+    discardCommentQuestion: "टिप्पणी छोड़ें?",
+    discardReplyQuestion: "जवाब छोड़ें?",
+    discardEditQuestion: "बदलाव छोड़ें?",
+    discardDescription: "आपने जो लिखा है वह खो जाएगा।",
+    discardEditDescription: "आपकी टिप्पणी पहले जैसी रहेगी।",
+    discard: "छोड़ें",
+    keepEditing: "संपादन जारी रखें",
     submit: "टिप्पणी करें",
     askAi: "AI से पूछें",
     aiBadge: "AI",

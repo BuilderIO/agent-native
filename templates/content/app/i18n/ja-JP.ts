@@ -1632,6 +1632,13 @@ const overrides = {
   comments: {
     add: "コメントを追加...",
     cancel: "キャンセル",
+    discardCommentQuestion: "コメントを破棄しますか？",
+    discardReplyQuestion: "返信を破棄しますか？",
+    discardEditQuestion: "変更を破棄しますか？",
+    discardDescription: "入力した内容は失われます。",
+    discardEditDescription: "コメントは元のまま残ります。",
+    discard: "破棄",
+    keepEditing: "編集を続ける",
     submit: "コメント",
     askAi: "AI に質問",
     aiBadge: "AI",

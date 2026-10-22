@@ -1672,6 +1672,13 @@ const overrides = {
   comments: {
     add: "添加评论...",
     cancel: "取消",
+    discardCommentQuestion: "放弃评论？",
+    discardReplyQuestion: "放弃回复？",
+    discardEditQuestion: "放弃更改？",
+    discardDescription: "你写的内容将会丢失。",
+    discardEditDescription: "你的评论将保持原样。",
+    discard: "放弃",
+    keepEditing: "继续编辑",
     submit: "评论",
     askAi: "询问 AI",
     aiBadge: "AI",
