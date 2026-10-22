@@ -1,0 +1,62 @@
+name: Slides authoring container trial
+
+# Temporary A/B: the same three Slides authoring shards on the bare runner
+# (apt-get + Playwright install every job) and inside the official Playwright
+# image (browsers and system libraries already baked in). Rerun the workflow
+# for more samples; delete this file once the comparison is recorded.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/slides-authoring-container-trial.yml
+
+concurrency:
+  group: slides-authoring-container-trial-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: host (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [chromium-authoring, corpus-and-firefox, webkit]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+          native-canvas-deps: "false"
+
+      - uses: ./.github/actions/slides-authoring-shard
+        with:
+          shard: ${{ matrix.shard }}
+
+  container:
+    name: container (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [chromium-authoring, corpus-and-firefox, webkit]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+          native-canvas-deps: "false"
+
+      - uses: ./.github/actions/slides-authoring-shard
+        with:
+          shard: ${{ matrix.shard }}
+          install-browsers: "false"

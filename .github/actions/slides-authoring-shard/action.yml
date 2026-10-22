@@ -8,11 +8,18 @@ inputs:
   shard:
     description: One of chromium-authoring, corpus-and-firefox, or webkit.
     required: true
+  install-browsers:
+    description: >-
+      `false` skips the Playwright cache and install for a job that already
+      runs inside an image with the browsers and their system libraries.
+    required: false
+    default: "true"
 
 runs:
   using: composite
   steps:
     - name: Restore Playwright browser cache
+      if: inputs.install-browsers == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.cache/ms-playwright
@@ -20,6 +27,7 @@ runs:
         restore-keys: playwright-${{ runner.os }}-
 
     - name: Install Playwright browsers
+      if: inputs.install-browsers == 'true'
       shell: bash
       run: |
         case "${{ inputs.shard }}" in
@@ -71,7 +79,7 @@ runs:
             cat "$log"
             exit 1
           fi
-          status="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8099/ || true)"
+          status="$(node -e 'fetch("http://localhost:8099/").then((r) => console.log(r.status), () => console.log(""))')"
           if [ -n "$status" ] && [ "$status" -ge 100 ] && [ "$status" -lt 500 ]; then
             echo "SLIDES_BASE_URL=http://localhost:8099" >> "$GITHUB_ENV"
             echo "Slides dev server ready (HTTP $status)"
