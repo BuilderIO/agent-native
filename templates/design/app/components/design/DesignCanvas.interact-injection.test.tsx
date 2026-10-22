@@ -286,6 +286,48 @@ describe("DesignCanvas when the mode swaps a markup document", () => {
   });
 });
 
+describe("DesignCanvas in Edit: the bridge that forwards a pinch", () => {
+  async function installedBridgeScript(embedded: boolean) {
+    await act(async () =>
+      root.render(
+        canvas({
+          interactMode: false,
+          content: "http://127.0.0.1:1/app",
+          embedded,
+        }),
+      ),
+    );
+    const iframe = previewIframe();
+    const post = vi.spyOn(iframe!.contentWindow!, "postMessage");
+    await act(async () => {
+      iframe!.dispatchEvent(new Event("load"));
+    });
+    const install = post.mock.calls.find(
+      ([message]) =>
+        (message as { type?: string } | null)?.type ===
+        "agentNative.installBridge",
+    );
+    return String((install?.[0] as { script?: string } | undefined)?.script);
+  }
+
+  it("leaves an overview screen's pinches to its gesture bridge, markup or running app", async () => {
+    await act(async () =>
+      root.render(canvas({ interactMode: false, embedded: true })),
+    );
+    const srcdoc = previewIframe()?.getAttribute("srcdoc") ?? "";
+    expect(srcdoc).toContain("embedded-canvas-wheel");
+    expect(srcdoc).not.toContain("pinch-zoom-wheel");
+
+    const script = await installedBridgeScript(true);
+    expect(script).toContain("embedded-canvas-wheel");
+    expect(script).not.toContain("pinch-zoom-wheel");
+  });
+
+  it("keeps the pinch bridge in a running app shown on its own", async () => {
+    expect(await installedBridgeScript(false)).toContain("pinch-zoom-wheel");
+  });
+});
+
 describe("DesignCanvas in Interact: a screen served from a URL", () => {
   it("loads a running app straight from its address, with no bridge registered for it", async () => {
     vi.spyOn(

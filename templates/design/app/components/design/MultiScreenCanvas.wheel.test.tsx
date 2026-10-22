@@ -566,6 +566,88 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     expect(readView(container).y).toBeCloseTo(before.y - 600, 10);
   });
 
+  it("caps a folded pinch per frame exactly as it caps the same wheels over blank canvas", async () => {
+    const pinch = Array.from({ length: 20 }, () => ({
+      deltaY: -6,
+      ctrlKey: true,
+    }));
+    const blank = await applyTicks(await renderSurface(), pinch);
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    const surface = await renderSurface();
+    const { iframe } = addScreenFrame(surface, { x: 100, y: 50 });
+    const folded = await postScreenWheel(iframe, {
+      deltaY: -120,
+      clientX: 300,
+      clientY: 250,
+      ctrlKey: true,
+      steps: 20,
+    });
+
+    // Twenty steps ask for about 2.46x. Over blank canvas the browser hands
+    // them to one frame as twenty wheels, and that frame moves at most 1.6x;
+    // a screen hands them over folded, and its frame moves the same.
+    expect(blank.scale).toBeCloseTo(MAX_ZOOM_FACTOR_PER_FRAME, 6);
+    expect(folded.scale).toBeCloseTo(blank.scale, 10);
+  });
+
+  it("ignores a screen's wheel whose numbers are not finite, and still answers it", async () => {
+    const surface = await renderSurface();
+    const { iframe } = addScreenFrame(surface, { x: 100, y: 50 });
+    const replies = vi.spyOn(iframe.contentWindow!, "postMessage");
+    const before = readView(container);
+
+    for (const bad of [
+      { clientX: Infinity },
+      { clientY: Number.NaN },
+      { deltaY: -Infinity },
+      { deltaX: "far" },
+    ]) {
+      const after = await postScreenWheel(iframe, {
+        deltaY: -6,
+        clientX: 50,
+        clientY: 40,
+        ctrlKey: true,
+        ...bad,
+      });
+      expect(after, Object.keys(bad)[0]).toEqual(before);
+    }
+    expect(
+      replies.mock.calls.filter(
+        ([message]) =>
+          (message as { type?: string }).type === "embedded-canvas-wheel-read",
+      ),
+    ).toHaveLength(4);
+  });
+
+  it("keeps the zoom anchor on the screen a wheel came from", async () => {
+    const surface = await renderSurface();
+    const start = readView(container);
+    const { iframe } = addScreenFrame(surface, {
+      x: start.x + 100,
+      y: start.y + 50,
+    });
+    // The page is 400 by 300; a point posted far outside it anchors at the
+    // page's nearest corner.
+    const corner = { x: start.x + 100 + 400, y: start.y + 50 };
+    const worldUnderCorner = (view: ReturnType<typeof readView>) => ({
+      x: (corner.x - view.x) / view.scale,
+      y: (corner.y - view.y) / view.scale,
+    });
+
+    const after = await postScreenWheel(iframe, {
+      deltaY: -6,
+      clientX: 5000,
+      clientY: -900,
+      ctrlKey: true,
+    });
+
+    expect(after.scale).toBeGreaterThan(start.scale);
+    expect(worldUnderCorner(after).x).toBeCloseTo(worldUnderCorner(start).x, 6);
+    expect(worldUnderCorner(after).y).toBeCloseTo(worldUnderCorner(start).y, 6);
+  });
+
   it("does not cancel a non-cancelable wheel", async () => {
     const surface = await renderSurface();
     const event = trustedWheel({

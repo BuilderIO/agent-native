@@ -1699,6 +1699,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     worldY: number;
     worldScaleX: number;
     worldScaleY: number;
+    // The page's own width and height, which bound a step's point.
+    viewportWidth: number;
+    viewportHeight: number;
     usedAt: number;
   } | null>(null);
   const worldRef = useRef<HTMLDivElement>(null);
@@ -10821,6 +10824,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (focusedInteractRef.current) return;
       const surface = surfaceRef.current;
       if (!surface) return;
+      // The screen's page runs the design's own scripts, which can post this
+      // message too: only finite numbers move the camera.
+      const localX = Number(event.data.clientX);
+      const localY = Number(event.data.clientY);
+      const deltaX = Number(event.data.deltaX);
+      const deltaY = Number(event.data.deltaY);
+      if (
+        !Number.isFinite(localX) ||
+        !Number.isFinite(localY) ||
+        !Number.isFinite(deltaX) ||
+        !Number.isFinite(deltaY)
+      ) {
+        return;
+      }
 
       // Measure the frame once per gesture. Reading its box on every step
       // forced a layout per step, and Safari queued those steps behind it.
@@ -10857,6 +10874,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             sourceIframe.clientHeight > 0
               ? rect.height / sourceIframe.clientHeight / scale
               : 1 / scale,
+          viewportWidth: sourceIframe.clientWidth,
+          viewportHeight: sourceIframe.clientHeight,
           usedAt: now,
         };
         embeddedWheelFrameRef.current = frame;
@@ -10865,20 +10884,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
       const scale = zoomRef.current / 100;
       const pan = panRef.current;
-      const localX = Number(event.data.clientX) || 0;
-      const localY = Number(event.data.clientY) || 0;
+      // A wheel inside the page lands inside the page, so the zoom anchor
+      // stays on the screen it came from.
+      const pageX = clamp(localX, 0, Math.max(0, frame.viewportWidth));
+      const pageY = clamp(localY, 0, Math.max(0, frame.viewportHeight));
       enqueueWheelGestureFromClient({
-        deltaX: Number(event.data.deltaX) || 0,
-        deltaY: Number(event.data.deltaY) || 0,
+        deltaX,
+        deltaY,
         deltaMode: Number(event.data.deltaMode) || WheelEvent.DOM_DELTA_PIXEL,
         clientX:
           frame.surfaceLeft +
           pan.x +
-          (frame.worldX + localX * frame.worldScaleX) * scale,
+          (frame.worldX + pageX * frame.worldScaleX) * scale,
         clientY:
           frame.surfaceTop +
           pan.y +
-          (frame.worldY + localY * frame.worldScaleY) * scale,
+          (frame.worldY + pageY * frame.worldScaleY) * scale,
         ctrlKey: Boolean(event.data.ctrlKey),
         metaKey: Boolean(event.data.metaKey),
         shiftKey: Boolean(event.data.shiftKey),
