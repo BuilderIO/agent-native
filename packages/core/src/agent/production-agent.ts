@@ -16386,8 +16386,10 @@ export function createProductionAgentHandler(
             : "foreground",
         runRowAlreadyInserted: foregroundRunRowInserted,
         executionLease: true,
-        // The same identity `$ai_trace` and `run_started` carry for this run.
-        userId: ownerEmail ?? undefined,
+        // An anonymous run is not a user; `run_started` does not name one either.
+        userId: turnInitiator?.anonymous
+          ? undefined
+          : (ownerEmail ?? undefined),
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
         model: effectiveModel,

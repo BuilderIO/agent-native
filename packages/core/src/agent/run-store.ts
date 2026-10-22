@@ -5421,7 +5421,10 @@ const ENDED_RUN_COLUMNS = `id, thread_id, turn_id, dispatch_mode, started_at, co
       AND i.turn_id = COALESCE(agent_runs.turn_id, agent_runs.id)) AS principal_email,
   (SELECT auth_user_id FROM agent_turn_initiators i
     WHERE i.thread_id = agent_runs.thread_id
-      AND i.turn_id = COALESCE(agent_runs.turn_id, agent_runs.id)) AS auth_user_id`;
+      AND i.turn_id = COALESCE(agent_runs.turn_id, agent_runs.id)) AS auth_user_id,
+  (SELECT is_anonymous FROM agent_turn_initiators i
+    WHERE i.thread_id = agent_runs.thread_id
+      AND i.turn_id = COALESCE(agent_runs.turn_id, agent_runs.id)) AS is_anonymous`;
 
 const ENDED_RUN_RETURNING = `RETURNING ${ENDED_RUN_COLUMNS}`;
 
@@ -5434,6 +5437,7 @@ interface EndedRunRow {
   completed_at?: unknown;
   principal_email?: unknown;
   auth_user_id?: unknown;
+  is_anonymous?: unknown;
 }
 
 function finiteMs(value: unknown): number | undefined {
@@ -5579,15 +5583,19 @@ async function sendSqlEndedRunTerminals(runs: SqlEndedRun[]): Promise<void> {
               : undefined,
         },
         // The turn's initiator, not the request that ended the run; `track()`
-        // drops it when it is a test identity.
-        {
-          userId:
-            typeof row.principal_email === "string"
-              ? row.principal_email
-              : undefined,
-          authUserId:
-            typeof row.auth_user_id === "string" ? row.auth_user_id : undefined,
-        },
+        // drops it when it is a test identity. An anonymous one is not a user.
+        row.is_anonymous === true || row.is_anonymous === "t"
+          ? undefined
+          : {
+              userId:
+                typeof row.principal_email === "string"
+                  ? row.principal_email
+                  : undefined,
+              authUserId:
+                typeof row.auth_user_id === "string"
+                  ? row.auth_user_id
+                  : undefined,
+            },
       );
     }),
   );

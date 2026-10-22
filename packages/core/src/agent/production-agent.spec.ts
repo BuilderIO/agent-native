@@ -214,6 +214,9 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
+const startRunOptionsSeen = vi.hoisted(
+  () => [] as Array<{ userId?: string } | undefined>,
+);
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 const mockRunManagerFlush = vi.hoisted(() => ({
   onFlush: undefined as (() => Promise<void>) | undefined,
@@ -268,6 +271,7 @@ vi.mock("./run-manager.js", async () => {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
       const [runId, threadId, runFn, onComplete, options] = args;
+      startRunOptionsSeen.push(options);
       return actual.startRun(
         runId,
         threadId,
@@ -9120,6 +9124,7 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
+    const firstRunOption = startRunOptionsSeen.length;
     await startRun("visitor-1", undefined, "session-anonymous", true);
     expect(assertAiSetupReady).not.toHaveBeenCalled();
 
@@ -9137,6 +9142,14 @@ describe("createProductionAgentHandler", () => {
 
     await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(4));
     expect(assertAiSetupReady).toHaveBeenCalledTimes(3);
+    // An anonymous visitor's run reports no user; signed-in runs report theirs.
+    const runUserIds = startRunOptionsSeen
+      .slice(firstRunOption)
+      .map((options) => options?.userId);
+    expect(runUserIds[0]).toBeUndefined();
+    expect(runUserIds).toEqual(
+      expect.arrayContaining(["alice@example.com", "bob@example.com"]),
+    );
     const sources = onRunComplete.mock.calls.map(([, , source]) => source);
     expect(sources).toContainEqual({
       userId: "alice@example.com",

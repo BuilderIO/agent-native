@@ -199,6 +199,19 @@ describe("a stopped run emits agent_run_terminal", () => {
     expect(sent[0].sessionId).toBeUndefined();
   });
 
+  it("names no user for a turn an anonymous visitor started", async () => {
+    const run = await seedRun(ids(), { ...INITIATOR, anonymous: true });
+
+    await markRunAborted(run.runId, "user");
+    await settledEvents();
+
+    const sent = eventsFor(run.runId);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].userId).toBeUndefined();
+    expect(sent[0].properties.user_id).toBeUndefined();
+    expect(sent[0].properties.auth_user_id).toBeUndefined();
+  });
+
   it.each(["duplicate_submission", "execution-lease-busy"])(
     "does not fire for a request aborted as %s, which never became a run",
     async (reason) => {
