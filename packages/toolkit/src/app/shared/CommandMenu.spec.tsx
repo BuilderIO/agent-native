@@ -1320,7 +1320,7 @@ describe("CommandMenu", () => {
     const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
     expect(input).toBeTruthy();
     const backRow = document.querySelector<HTMLElement>(
-      '[cmdk-item][data-value="app-command-page-back"]',
+      '[data-testid="command-menu-page-back"]',
     );
     expect(backRow).toBeTruthy();
     act(() => backRow!.click());

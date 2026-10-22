@@ -55,6 +55,7 @@ import React, {
   Suspense,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 
 import { AboutAgentNativeDialog } from "./AboutAgentNativeDialog.js";
 import { LazyChunkErrorBoundary } from "./LazyChunkErrorBoundary.js";
@@ -69,6 +70,7 @@ interface CommandMenuContextValue {
   search: string;
   onOpenChange: (open: boolean) => void;
   registerNestedDialog: (dismiss: () => void) => () => void;
+  selectionEnabled: boolean;
 }
 
 function CommandSelectionTracker({
@@ -192,7 +194,7 @@ function CommandItem({
   value,
   disabled = false,
 }: CommandItemProps) {
-  const { onOpenChange } = useCommandMenuContext();
+  const { onOpenChange, selectionEnabled } = useCommandMenuContext();
 
   const handleSelect = () => {
     if (!deferSelect) {
@@ -210,7 +212,7 @@ function CommandItem({
       className={cn("cursor-pointer gap-2", className)}
       onSelect={handleSelect}
       value={value}
-      disabled={disabled}
+      disabled={disabled || !selectionEnabled}
     >
       {children}
     </CommandItemPrimitive>
@@ -551,6 +553,7 @@ export function CommandMenu<TAppContext = unknown>({
   const containerRef = useRef<HTMLDivElement>(null);
   const searchValueRef = useRef("");
   const selectionEnabledRef = useRef(false);
+  const [selectionEnabled, setSelectionEnabled] = useState(false);
   const selectionResetRef = useRef(0);
   const nextEmptySelectionValue = useCallback(
     () => `${NO_COMMAND_SELECTION}${++selectionResetRef.current}`,
@@ -592,10 +595,16 @@ export function CommandMenu<TAppContext = unknown>({
 
   const resetSelection = useCallback(() => {
     selectionEnabledRef.current = false;
+    setSelectionEnabled(false);
     setSelectedCommandValue(
       initialSelection === "none" ? nextEmptySelectionValue() : "",
     );
   }, [initialSelection, nextEmptySelectionValue]);
+  const enableSelection = useCallback(() => {
+    if (selectionEnabledRef.current) return;
+    selectionEnabledRef.current = true;
+    flushSync(() => setSelectionEnabled(true));
+  }, []);
 
   const openChangelog = useCallback(() => {
     onOpenChange(false);
@@ -876,15 +885,22 @@ export function CommandMenu<TAppContext = unknown>({
       <CommandListPrimitive>
         {activeAppPage ? (
           <CommandGroup heading={activeAppPage.title}>
-            <CommandItemPrimitive
-              value="app-command-page-back"
-              className="cursor-pointer gap-2 py-2"
-              onSelect={goBackToAppPage}
+            <button
+              type="button"
+              aria-label={t("onboarding.back")}
+              data-testid="command-menu-page-back"
+              className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-start text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+              onClick={goBackToAppPage}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.stopPropagation();
+                }
+              }}
             >
               <IconArrowLeft className="h-4 w-4 text-muted-foreground" />
               <span>{t("onboarding.back")}</span>
               <CommandShortcutPrimitive>Esc</CommandShortcutPrimitive>
-            </CommandItemPrimitive>
+            </button>
           </CommandGroup>
         ) : null}
 
@@ -899,7 +915,10 @@ export function CommandMenu<TAppContext = unknown>({
                 <CommandItemPrimitive
                   key={command.id}
                   value={value}
-                  disabled={!enabled}
+                  disabled={
+                    !enabled ||
+                    (initialSelection === "none" && !selectionEnabled)
+                  }
                   className="cursor-pointer gap-2 py-2"
                   onSelect={() => selectAppCommand(command)}
                 >
@@ -950,6 +969,7 @@ export function CommandMenu<TAppContext = unknown>({
                 <div className="p-1">
                   <CommandItemPrimitive
                     className="cursor-pointer gap-2 py-2"
+                    disabled={initialSelection === "none" && !selectionEnabled}
                     onSelect={handleOpenSettings}
                   >
                     <IconSettings className="h-4 w-4 text-muted-foreground" />
@@ -968,6 +988,7 @@ export function CommandMenu<TAppContext = unknown>({
                 <div className="p-1">
                   <CommandItemPrimitive
                     className="cursor-pointer gap-2 py-2"
+                    disabled={initialSelection === "none" && !selectionEnabled}
                     onSelect={openChangelog}
                   >
                     <IconHistory className="h-4 w-4 text-muted-foreground" />
@@ -991,6 +1012,7 @@ export function CommandMenu<TAppContext = unknown>({
                 <div className="p-1">
                   <CommandItemPrimitive
                     className="cursor-pointer gap-2 py-2"
+                    disabled={initialSelection === "none" && !selectionEnabled}
                     onSelect={openAbout}
                   >
                     <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
@@ -1009,6 +1031,7 @@ export function CommandMenu<TAppContext = unknown>({
                 <div className="p-1">
                   <CommandItemPrimitive
                     className="cursor-pointer gap-2 py-2"
+                    disabled={initialSelection === "none" && !selectionEnabled}
                     onSelect={handleSignOut}
                   >
                     <IconLogout className="h-4 w-4 text-muted-foreground rtl:-scale-x-100" />
@@ -1052,7 +1075,10 @@ export function CommandMenu<TAppContext = unknown>({
                         ? "cursor-pointer"
                         : "cursor-not-allowed opacity-50",
                     )}
-                    disabled={!chatReady}
+                    disabled={
+                      !chatReady ||
+                      (initialSelection === "none" && !selectionEnabled)
+                    }
                     onSelect={handleSubmitToAgent}
                   >
                     <IconMessage className="h-4 w-4 text-muted-foreground" />
@@ -1131,7 +1157,7 @@ export function CommandMenu<TAppContext = unknown>({
               initialSelection === "none" &&
               (event.target as HTMLElement).closest?.("[cmdk-item]")
             ) {
-              selectionEnabledRef.current = true;
+              enableSelection();
             }
           }}
           onEscapeKeyDown={(event) => {
@@ -1179,7 +1205,13 @@ export function CommandMenu<TAppContext = unknown>({
             value={commandMenuValue}
           >
             <CommandMenuContext.Provider
-              value={{ search, onOpenChange, registerNestedDialog }}
+              value={{
+                search,
+                onOpenChange,
+                registerNestedDialog,
+                selectionEnabled:
+                  initialSelection !== "none" || selectionEnabled,
+              }}
             >
               {(appCommandGroups !== undefined ||
                 embeddedChatSlot ||
@@ -1193,6 +1225,7 @@ export function CommandMenu<TAppContext = unknown>({
                 onValueChange={(value) => {
                   updateSearch(value);
                   selectionEnabledRef.current = false;
+                  if (initialSelection === "none") setSelectionEnabled(false);
                   setSelectedCommandValue(
                     initialSelection === "none"
                       ? nextEmptySelectionValue()
@@ -1204,7 +1237,7 @@ export function CommandMenu<TAppContext = unknown>({
                     initialSelection === "none" &&
                     (event.key === "ArrowDown" || event.key === "ArrowUp")
                   ) {
-                    selectionEnabledRef.current = true;
+                    enableSelection();
                   }
                 }}
                 placeholder={placeholder}
