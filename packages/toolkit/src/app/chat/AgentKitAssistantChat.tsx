@@ -6474,6 +6474,7 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           activity={metadata.activity === true}
           isActiveTail={active === true}
           workedForRowLayout={surface.props.workedForRowLayout}
+          formatWorkedForDuration={surface.props.formatWorkedForDuration}
         />
       </SuppressInlineOpenAppContext.Provider>
     </ChatRunningContext.Provider>

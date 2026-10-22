@@ -2698,9 +2698,17 @@ describe("WorkedForSummary", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    builderHandoffMocks.useAgentChatContext.mockReturnValue({ items: [] });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    const render = root.render.bind(root);
+    root.render = (children: ReactNode) =>
+      render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          {children}
+        </AgentNativeI18nProvider>,
+      );
   });
 
   afterEach(() => {
@@ -2748,6 +2756,9 @@ describe("WorkedForSummary", () => {
             paddingBlock: 12,
             paddingInline: 12,
           }}
+          formatWorkedForDuration={(durationMs) =>
+            `${durationMs / 1000} seconds`
+          }
         />,
       );
     });
@@ -2757,6 +2768,7 @@ describe("WorkedForSummary", () => {
     ).find((button) => button.textContent?.includes("Worked for"));
     expect(workedFor).not.toBeNull();
     expect(workedFor?.style.fontSize).toBe("14px");
+    expect(workedFor?.textContent).toContain("Worked for 5 seconds");
     act(() => workedFor?.click());
 
     expect(container.textContent).not.toContain("This private thought");

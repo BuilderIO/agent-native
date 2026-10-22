@@ -647,6 +647,7 @@ export function ToolCallDisplay({
   isLatestRunning = isRunning,
   isActiveTail,
   workedForRowLayout,
+  formatWorkedForDuration,
 }: {
   toolName: string;
   toolCallId?: string;
@@ -669,6 +670,7 @@ export function ToolCallDisplay({
   repeatCount?: number;
   isActiveTail?: boolean;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
   /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
 }) {
@@ -756,6 +758,7 @@ export function ToolCallDisplay({
       repeatCount={repeatCount}
       context={builderContext}
       workedForRowLayout={workedForRowLayout}
+      formatWorkedForDuration={formatWorkedForDuration}
     />,
   );
 }
@@ -779,6 +782,7 @@ function ToolCallDisplayGeneric({
   repeatCount,
   context,
   workedForRowLayout,
+  formatWorkedForDuration,
 }: {
   toolName: string;
   toolCallId?: string;
@@ -801,6 +805,7 @@ function ToolCallDisplayGeneric({
   repeatCount?: number;
   context?: string;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
@@ -985,6 +990,7 @@ function ToolCallDisplayGeneric({
             : agentActivity?.durationMs
         }
         workedForRowLayout={workedForRowLayout}
+        formatWorkedForDuration={formatWorkedForDuration}
       />
     );
   }
@@ -1154,6 +1160,7 @@ function AgentCallCell({
   errorText,
   durationMs,
   workedForRowLayout,
+  formatWorkedForDuration,
 }: {
   agentName: string;
   toolCallId?: string;
@@ -1165,6 +1172,7 @@ function AgentCallCell({
   errorText?: string;
   durationMs?: number;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
@@ -1290,6 +1298,7 @@ function AgentCallCell({
               <WorkedForSummary
                 durationMs={durationMs}
                 layout={workedForRowLayout}
+                formatWorkedForDuration={formatWorkedForDuration}
               >
                 {workContent}
               </WorkedForSummary>
@@ -1839,6 +1848,7 @@ export function WorkedForSummary({
   autoCollapse = false,
   children,
   layout,
+  formatWorkedForDuration,
 }: {
   durationMs?: number | null;
   isRunning?: boolean;
@@ -1846,6 +1856,7 @@ export function WorkedForSummary({
   autoCollapse?: boolean;
   children: React.ReactNode;
   layout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
@@ -1863,7 +1874,7 @@ export function WorkedForSummary({
     ? t("agentChat.status.working")
     : durationMs != null && durationMs >= 1000
       ? t("agentChat.tool.workedFor", {
-          duration: formatDuration(durationMs),
+          duration: (formatWorkedForDuration ?? formatDuration)(durationMs),
         })
       : t("agentChat.tool.worked");
 
