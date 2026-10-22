@@ -11,6 +11,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import StarterKit from "@tiptap/starter-kit";
 import type { StarterKitOptions } from "@tiptap/starter-kit";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import bash from "highlight.js/lib/languages/bash";
 import css from "highlight.js/lib/languages/css";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -40,6 +41,7 @@ import type { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
 import { createCodeBlockNode } from "./CodeBlockNode.js";
+import { repairCollabUndo } from "./collabUndo.js";
 import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
 import { TaskListPasteNormalization } from "./TaskListPaste.js";
 
@@ -55,6 +57,21 @@ const CollaborationWithSafeInitialSelection = Collaboration.extend({
     for (const plugin of plugins) {
       const originalView = plugin.spec.view;
       if (!originalView) continue;
+
+      if (plugin.spec.key === yUndoPluginKey) {
+        plugin.spec.view = (view) => {
+          const pluginView = originalView(view);
+          const releaseRepair = repairCollabUndo(view);
+          return {
+            ...pluginView,
+            destroy: () => {
+              releaseRepair();
+              pluginView.destroy?.();
+            },
+          };
+        };
+        continue;
+      }
 
       plugin.spec.view = (view) => {
         const pluginState = plugin.getState(view.state) as
