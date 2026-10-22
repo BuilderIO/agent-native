@@ -10,6 +10,7 @@ import {
   AGENT_CLIENT_ID,
   loadAwarenessRowsStrict,
 } from "@agent-native/core/collab";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 import { parseDocumentRevisionToken } from "../server/lib/document-revision.js";
 import {
@@ -30,6 +31,18 @@ import {
 const FLUSH_POLL_INTERVAL_MS = 200;
 // The required-editor budget covers acquisition and both handshake phases.
 const FLUSH_TIMEOUT_MS = 20_000;
+const BEST_EFFORT_FLUSH_TIMEOUT_MS = 4_000;
+
+function expiredMailbox(value: Record<string, unknown> | null): boolean {
+  return (
+    !!value &&
+    ((typeof value.expiresAt === "number" && value.expiresAt <= Date.now()) ||
+      (value.expiresAt === undefined &&
+        (value.status === "success" || value.status === "error") &&
+        typeof value.ts === "number" &&
+        Date.now() - value.ts >= FLUSH_TIMEOUT_MS))
+  );
+}
 
 export type OpenEditorFlushOutcome =
   | (FlushEditorIdentity & {
@@ -131,6 +144,21 @@ export async function flushOpenDocumentEditorToSql(args: {
       clearTimeout(timer!);
     }
   }
+  async function finishCleanup(cleanup: Promise<unknown>, requestId: string) {
+    const settled = cleanup.catch((error) =>
+      console.warn("Document flush cleanup failed", { requestId, error }),
+    );
+    if (Date.now() < deadline) {
+      try {
+        await bounded(settled);
+      } catch (error) {
+        console.warn("Document flush cleanup exceeded its deadline", {
+          requestId,
+          error,
+        });
+      }
+    }
+  }
   const pause = () =>
     bounded(
       new Promise<void>((resolve) =>
@@ -158,17 +186,112 @@ export async function flushOpenDocumentEditorToSql(args: {
       );
     }
     const required = candidates.filter((value) => value.required);
+    if (candidates.length === 0) return { status: "no_open_editor" };
     if (required.length === 0) {
-      return candidates.length === 0
-        ? { status: "no_open_editor" }
-        : {
-            status: "flushed",
-            editors: candidates.map(({ clientId }) => ({
-              clientId,
-              flush: "unconfirmed",
-              reason: "legacy_editor",
-            })),
-          };
+      const sessions = [
+        ...new Set(
+          [
+            ...candidates.map((editor) => editor.email),
+            args.ownerEmail,
+            getRequestUserEmail(),
+          ].filter(
+            (email): email is string => typeof email === "string" && !!email,
+          ),
+        ),
+      ];
+      const mailbox = `flush-request-${args.documentId}`;
+      const request = {
+        id: args.documentId,
+        requestId: randomUUID(),
+        ts: Date.now(),
+        status: "pending",
+      };
+      const written = new Set<string>();
+      try {
+        const acquireUntil = Date.now() + BEST_EFFORT_FLUSH_TIMEOUT_MS;
+        const writes = await Promise.allSettled(
+          sessions.map(async (email) => {
+            while (Date.now() < acquireUntil) {
+              const occupied = await bounded(appStateGet(email, mailbox));
+              if (!occupied || expiredMailbox(occupied)) {
+                const operation = appStateCompareAndSet(
+                  email,
+                  mailbox,
+                  occupied,
+                  request,
+                  { requestSource: "agent" },
+                );
+                void operation
+                  .then((changed) => {
+                    if (changed && Date.now() >= deadline)
+                      return appStateCompareAndSet(
+                        email,
+                        mailbox,
+                        request,
+                        null,
+                        { requestSource: "agent" },
+                      );
+                  })
+                  .catch((error) =>
+                    console.warn(
+                      "Document flush late acquisition cleanup failed",
+                      { requestId: request.requestId, error },
+                    ),
+                  );
+                if (await bounded(operation)) {
+                  written.add(email);
+                  return;
+                }
+              }
+              await pause();
+            }
+          }),
+        );
+        for (const write of writes) {
+          if (write.status === "rejected") throw write.reason;
+        }
+        const answerUntil = Date.now() + BEST_EFFORT_FLUSH_TIMEOUT_MS;
+        while (written.size > 0 && Date.now() < answerUntil) {
+          await pause();
+          const answers = await bounded(
+            Promise.all(
+              [...written].map((email) => appStateGet(email, mailbox)),
+            ),
+          );
+          const ownAnswers = answers.filter(
+            (value) => value?.requestId === request.requestId,
+          );
+          const failed = ownAnswers.find((value) => value?.status === "error");
+          if (failed)
+            throw failure(
+              "open_editor_flush_failed",
+              "The legacy document editor could not save before syncing.",
+              { documentId: args.documentId },
+            );
+          if (ownAnswers.some((value) => value?.status === "success")) break;
+        }
+      } finally {
+        await finishCleanup(
+          Promise.all(
+            [...written].map(async (email) => {
+              const value = await appStateGet(email, mailbox);
+              if (value?.requestId === request.requestId)
+                await appStateCompareAndSet(email, mailbox, value, null, {
+                  requestSource: "agent",
+                });
+            }),
+          ),
+          request.requestId,
+        );
+      }
+      return {
+        status: "flushed",
+        editors: candidates.map(({ clientId }) => ({
+          clientId,
+          flush: "unconfirmed",
+          reason: "legacy_editor",
+        })),
+      };
     }
     for (const editor of required) {
       if (!editor.email || !editor.editorSessionId)
@@ -272,10 +395,8 @@ export async function flushOpenDocumentEditorToSql(args: {
         while (true) {
           const occupied = await bounded(appStateGet(email, mailbox));
           // Expiry permits mailbox acquisition, never save confirmation.
-          const expired =
-            occupied &&
-            typeof occupied.expiresAt === "number" &&
-            occupied.expiresAt <= Date.now();
+          // Legacy terminal values use ts and the same twenty-second budget.
+          const expired = expiredMailbox(occupied);
           if ((!occupied || expired) && (await cas(email, occupied, request)))
             break;
           await pause();
@@ -476,10 +597,7 @@ export async function flushOpenDocumentEditorToSql(args: {
         }),
       );
       // Cleanup cannot extend the confirmation deadline or delete a successor's nonce.
-      void cleanup.catch((error) =>
-        console.warn("Document flush cleanup failed", { requestId, error }),
-      );
-      if (Date.now() < deadline) await bounded(cleanup);
+      await finishCleanup(cleanup, requestId);
     }
   } catch (error) {
     if (error instanceof ActionContractError) throw error;

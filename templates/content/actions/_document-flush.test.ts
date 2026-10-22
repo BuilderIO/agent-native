@@ -347,6 +347,108 @@ describe("flushOpenDocumentEditorToSql", () => {
     expect(mocks.capture).toHaveBeenCalledOnce();
   });
 
+  it.each(["success", "error"] as const)(
+    "replaces an expired terminal legacy mailbox (%s) before a fresh handshake",
+    async (status) => {
+      const occupied = {
+        id: "doc-1",
+        requestId: "legacy-request",
+        ts: Date.now() - 20_001,
+        status,
+      };
+      store.set(address("owner@example.com", "flush-request-doc-1"), occupied);
+      expect(await settle()).toMatchObject({
+        value: {
+          status: "flushed",
+          snapshot: SQL_ROW,
+          editors: [{ clientId: 123, flush: "answered" }],
+        },
+      });
+      expect(mocks.cas).toHaveBeenCalledWith(
+        "owner@example.com",
+        "flush-request-doc-1",
+        occupied,
+        expect.objectContaining({ protocol: 2, phase: "prepare" }),
+        { requestSource: "agent" },
+      );
+      const requests = mocks.cas.mock.calls
+        .filter(([, key, , next]) => key === "flush-request-doc-1" && next)
+        .map(([, , , next]) => next);
+      expect(requests.map((request) => request.phase)).toEqual([
+        "prepare",
+        "verify",
+      ]);
+      expect(requests[0].requestId).not.toBe(occupied.requestId);
+      expect(requests[1].phaseToken).not.toBe(requests[0].phaseToken);
+      expect(mocks.capture).toHaveBeenCalledOnce();
+      expect(store.size).toBe(0);
+    },
+  );
+
+  it.each(["success", "error", "pending"] as const)(
+    "does not steal an unexpired or unfinished legacy mailbox (%s)",
+    async (status) => {
+      const occupied = {
+        requestId: "legacy-request",
+        ts: Date.now() - (status === "pending" ? 20_001 : 0),
+        status,
+      };
+      store.set(address("owner@example.com", "flush-request-doc-1"), occupied);
+      const reading = flushOpenDocumentEditorToSql({
+        documentId: "doc-1",
+      }).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(12_200);
+      expect(mocks.cas).not.toHaveBeenCalled();
+      expect(mocks.capture).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(7_801);
+      expect(await reading).toHaveProperty(
+        "error.errorCode",
+        "open_editor_flush_timeout",
+      );
+      expect(
+        store.get(address("owner@example.com", "flush-request-doc-1")),
+      ).toBe(occupied);
+    },
+  );
+
+  it("preserves a fresh successor when replacement of an expired legacy mailbox loses CAS", async () => {
+    const occupied = {
+      requestId: "legacy",
+      ts: Date.now() - 20_001,
+      status: "success",
+    };
+    const successor = {
+      requestId: "successor",
+      ts: Date.now(),
+      status: "pending",
+    };
+    const key = address("owner@example.com", "flush-request-doc-1");
+    store.set(key, occupied);
+    const compare = mocks.cas.getMockImplementation()!;
+    mocks.cas.mockImplementation(
+      async (email, mailbox, expected, next, options) => {
+        if (expected === occupied) store.set(key, successor);
+        return compare(email, mailbox, expected, next, options);
+      },
+    );
+    expect(await settle()).toHaveProperty(
+      "error.errorCode",
+      "open_editor_flush_timeout",
+    );
+    expect(mocks.cas).toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      occupied,
+      expect.objectContaining({ protocol: 2, phase: "prepare" }),
+      { requestSource: "agent" },
+    );
+    expect(store.get(key)).toBe(successor);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
   it("times out when one required editor session remains unconfirmed", async () => {
     mocks.awareness.mockResolvedValue([
       editorRow(123, "first@example.com", UNSAVED),
@@ -675,6 +777,70 @@ describe("flushOpenDocumentEditorToSql", () => {
     ).toEqual(successor);
   });
 
+  it.each(["throw", "held"] as const)(
+    "preserves a verified snapshot when cleanup is %s",
+    async (mode) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const compare = mocks.cas.getMockImplementation()!;
+      let release!: () => void;
+      mocks.cas.mockImplementation(
+        async (email, key, expected, next, options) => {
+          if (key === "flush-request-doc-1" && next === null) {
+            if (mode === "throw") throw new Error("cleanup refused");
+            await new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          }
+          return compare(email, key, expected, next, options);
+        },
+      );
+      const result = await settle();
+      expect(result).toMatchObject({
+        value: { status: "flushed", snapshot: SQL_ROW },
+      });
+      if (mode === "held") {
+        release();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(warning).toHaveBeenCalled();
+      warning.mockRestore();
+    },
+  );
+
+  it.each(["throw", "held"] as const)(
+    "retains the original typed protocol failure when cleanup is %s",
+    async (mode) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      respond = (request, target) => ({
+        ...ack(request, target),
+        phaseToken: "wrong-phase",
+      });
+      const compare = mocks.cas.getMockImplementation()!;
+      let release!: () => void;
+      mocks.cas.mockImplementation(
+        async (email, key, expected, next, options) => {
+          if (key === "flush-request-doc-1" && next === null) {
+            if (mode === "throw") throw new Error("cleanup refused");
+            await new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          }
+          return compare(email, key, expected, next, options);
+        },
+      );
+      expect(await settle()).toHaveProperty(
+        "error.errorCode",
+        "open_editor_flush_invalid_ack",
+      );
+      if (mode === "held") {
+        release();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(warning).toHaveBeenCalled();
+      warning.mockRestore();
+    },
+  );
+
   it("bounds mailbox acquisition and preparation by the same twenty-second deadline", async () => {
     store.set(address("owner@example.com", "flush-request-doc-1"), {
       requestId: "occupied",
@@ -857,6 +1023,115 @@ describe("flushOpenDocumentEditorToSql", () => {
       },
     });
   });
+  it("asks a legacy editor using main's best-effort mailbox wait without claiming a fresh receipt", async () => {
+    mocks.awareness.mockResolvedValue([
+      editorRow(123, "owner@example.com", { canFlushDocument: undefined }),
+    ]);
+    legacyReplies = false;
+    const started = Date.now();
+    let complete = false;
+    const result = flushOpenDocumentEditorToSql({ documentId: "doc-1" }).then(
+      (value) => {
+        complete = true;
+        return value;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.cas).toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      null,
+      expect.objectContaining({ id: "doc-1", status: "pending", ts: started }),
+      { requestSource: "agent" },
+    );
+    expect(complete).toBe(false);
+    await vi.advanceTimersByTimeAsync(3_800);
+    expect(await result).toEqual({
+      status: "flushed",
+      editors: [
+        { clientId: 123, flush: "unconfirmed", reason: "legacy_editor" },
+      ],
+    });
+    expect(Date.now() - started).toBe(4_000);
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(store.size).toBe(0);
+  });
+
+  it("keeps a legacy error acknowledgment typed instead of reporting unconfirmed success", async () => {
+    mocks.awareness.mockResolvedValue([
+      editorRow(123, "owner@example.com", { canFlushDocument: undefined }),
+    ]);
+    legacyReplies = false;
+    const compare = mocks.cas.getMockImplementation()!;
+    mocks.cas.mockImplementation(
+      async (email, key, expected, next, options) => {
+        const changed = await compare(email, key, expected, next, options);
+        if (changed && next?.status === "pending")
+          store.set(address(email, key), {
+            ...next,
+            status: "error",
+            error: "Legacy write failed",
+          });
+        return changed;
+      },
+    );
+    expect(await settle()).toHaveProperty(
+      "error.errorCode",
+      "open_editor_flush_failed",
+    );
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(store.size).toBe(0);
+  });
+
+  it("joins legacy mailbox acquisitions before cleaning up a sibling read failure", async () => {
+    mocks.awareness.mockResolvedValue([
+      editorRow(123, "first@example.com", { canFlushDocument: undefined }),
+      editorRow(456, "second@example.com", { canFlushDocument: undefined }),
+    ]);
+    legacyReplies = false;
+    const read = mocks.get.getMockImplementation()!;
+    mocks.get.mockImplementation((email, key) =>
+      email === "second@example.com"
+        ? Promise.reject(new Error("legacy mailbox read failed"))
+        : read(email, key),
+    );
+    const compare = mocks.cas.getMockImplementation()!;
+    let release!: () => void;
+    mocks.cas.mockImplementation(
+      async (email, key, expected, next, options) => {
+        if (email === "first@example.com" && next?.status === "pending")
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return compare(email, key, expected, next, options);
+      },
+    );
+    let complete = false;
+    const result = flushOpenDocumentEditorToSql({ documentId: "doc-1" }).then(
+      (value) => {
+        complete = true;
+        return { value };
+      },
+      (error) => {
+        complete = true;
+        return { error };
+      },
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(200);
+      expect(complete).toBe(false);
+    } finally {
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(await result).toHaveProperty(
+      "error.errorCode",
+      "open_editor_flush_unreadable",
+    );
+    expect(store.size).toBe(0);
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
   describe.each(["prepare", "verify"] as const)(
     "ACK batch validation during %s",
     (phase) => {

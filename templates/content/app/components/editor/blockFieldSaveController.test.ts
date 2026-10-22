@@ -39,8 +39,51 @@ describe("blockFieldSaveController", () => {
     controller.change("Pending");
     await controller.flush();
     expect(controller.lastSaved).toBe("Pending");
+    expect(controller.lastError).toBeNull();
+    expect(controller.isClean).toBe(true);
+  });
+
+  it("retires a failed Blocks value when input reverts to lastSaved without another save", async () => {
+    const failure = new Error("field write failed");
+    const save = vi.fn().mockRejectedValue(failure);
+    const controller = createBlockFieldSaveController({
+      initialContent: "Saved",
+      save,
+    });
+    controller.change("Failed edit");
+    await controller.flush();
     expect(controller.lastError).toBe(failure);
     expect(controller.isClean).toBe(false);
+    controller.change("Saved");
+    expect(controller.lastError).toBeNull();
+    expect(controller.isClean).toBe(true);
+    await controller.flush();
+    expect(controller.isClean).toBe(true);
+    expect(save).toHaveBeenCalledExactlyOnceWith("Failed edit");
+  });
+
+  it("retires a failed response that settles after input has reverted to lastSaved", async () => {
+    let rejectSave!: (error: Error) => void;
+    const save = vi.fn(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectSave = reject;
+        }),
+    );
+    const controller = createBlockFieldSaveController({
+      initialContent: "Saved",
+      save,
+    });
+    controller.change("Failed edit");
+    const flushed = controller.flush();
+    controller.change("Saved");
+    expect(controller.isSaving).toBe(true);
+    expect(controller.isClean).toBe(false);
+    rejectSave(new Error("obsolete field failure"));
+    await flushed;
+    expect(controller.lastError).toBeNull();
+    expect(controller.isClean).toBe(true);
+    expect(save).toHaveBeenCalledExactlyOnceWith("Failed edit");
   });
 
   it("does not invent a version for an already acknowledged unchanged serialization", async () => {

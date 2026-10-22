@@ -1,5 +1,4 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import { readClientAppState } from "@agent-native/core/client/application-state";
 import {
   isReconcileLeadClient,
@@ -296,6 +295,7 @@ import {
 } from "./pageSession";
 import {
   settleAcceptedDocumentPersistence,
+  settleRevertedDocumentPersistence,
   trackPendingDocumentPersistence,
   type DocumentPersistenceFailure,
 } from "./pending-document-persistence";
@@ -3862,6 +3862,13 @@ function PageEditorSessionBody({
   const persistDocumentUpdates = useCallback(
     (updates: DocumentUpdates, options: DocumentSaveOptions = {}) => {
       options.persistenceSequence = ++persistenceSequenceRef.current;
+      const persistenceIdentity = {
+        editorSessionId: options.editorSessionId ?? editorSessionIdRef.current!,
+        editGeneration:
+          options.editGeneration ?? editorEditGenerationRef.current,
+        saveAttemptId: options.saveAttemptId,
+        persistenceSequence: options.persistenceSequence,
+      };
       const fields = Object.keys(updates) as (keyof DocumentUpdates)[];
       const request = persistDocumentUpdatesUntracked(updates, options);
       const tracked = trackPendingDocumentPersistence(
@@ -3880,10 +3887,7 @@ function PageEditorSessionBody({
             for (const field of fields) {
               persistenceErrorsRef.current.set(field, {
                 error,
-                editorSessionId: options.editorSessionId,
-                editGeneration: options.editGeneration,
-                saveAttemptId: options.saveAttemptId,
-                persistenceSequence: options.persistenceSequence,
+                ...persistenceIdentity,
               });
             }
           } else {
@@ -3922,7 +3926,7 @@ function PageEditorSessionBody({
             settleAcceptedDocumentPersistence(
               persistenceErrorsRef.current,
               fields,
-              options,
+              persistenceIdentity,
             );
           }
         },
@@ -3931,10 +3935,7 @@ function PageEditorSessionBody({
             for (const field of fields) {
               persistenceErrorsRef.current.set(field, {
                 error,
-                editorSessionId: options.editorSessionId,
-                editGeneration: options.editGeneration,
-                saveAttemptId: options.saveAttemptId,
-                persistenceSequence: options.persistenceSequence,
+                ...persistenceIdentity,
               });
             }
           }
@@ -4802,29 +4803,41 @@ function PageEditorSessionBody({
     null,
   );
   const retryPendingSaveDelayRef = useRef(800);
-  const readEditorSaveState = useCallback(
-    () =>
-      editorSaveState({
-        saveQueued:
-          saveTimeoutRef.current !== null ||
-          pendingDocumentSaveRef.current !== null ||
-          queuedDocumentSavesRef.current > 0 ||
-          retryPendingSaveTimerRef.current !== null ||
-          remoteSaveTimerRef.current !== null,
-        saveInFlight:
-          activeContentSavesRef.current > 0 ||
-          pendingPersistenceRef.current.size > 0,
-        recoveryPending:
-          reconcileRecoveryStateRef.current !== null ||
-          recoveryDraftRef.current !== null ||
-          persistenceErrorsRef.current.size > 0,
-        localTitle: localTitleRef.current,
-        localContent: localContentRef.current,
-        savedTitle: lastSavedTitleRef.current,
-        savedContent: lastSavedContentRef.current,
-      }),
-    [],
-  );
+  const readEditorSaveState = useCallback(() => {
+    const fieldsMatchingSaved: (keyof DocumentUpdates)[] = [];
+    if (localTitleRef.current === lastSavedTitleRef.current.title)
+      fieldsMatchingSaved.push("title");
+    if (localContentRef.current === lastSavedContentRef.current.content)
+      fieldsMatchingSaved.push("content");
+    settleRevertedDocumentPersistence(
+      persistenceErrorsRef.current,
+      fieldsMatchingSaved,
+      {
+        editorSessionId: editorSessionIdRef.current!,
+        editGeneration: editorEditGenerationRef.current,
+        persistenceSequence: persistenceSequenceRef.current,
+      },
+    );
+    return editorSaveState({
+      saveQueued:
+        saveTimeoutRef.current !== null ||
+        pendingDocumentSaveRef.current !== null ||
+        queuedDocumentSavesRef.current > 0 ||
+        retryPendingSaveTimerRef.current !== null ||
+        remoteSaveTimerRef.current !== null,
+      saveInFlight:
+        activeContentSavesRef.current > 0 ||
+        pendingPersistenceRef.current.size > 0,
+      recoveryPending:
+        reconcileRecoveryStateRef.current !== null ||
+        recoveryDraftRef.current !== null ||
+        persistenceErrorsRef.current.size > 0,
+      localTitle: localTitleRef.current,
+      localContent: localContentRef.current,
+      savedTitle: lastSavedTitleRef.current,
+      savedContent: lastSavedContentRef.current,
+    });
+  }, []);
   publishEditorSaveStateRef.current = () => {
     const awareness = collabAwarenessRef.current;
     if (!awareness || isLocalFileDocument || isLinkedLocalSourceDocument)

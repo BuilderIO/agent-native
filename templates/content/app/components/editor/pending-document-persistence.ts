@@ -9,6 +9,28 @@ export type DocumentPersistenceFailure = DocumentPersistenceIdentity & {
   error: unknown;
 };
 
+export function settleRevertedDocumentPersistence<Field>(
+  failures: Map<Field, DocumentPersistenceFailure>,
+  fieldsMatchingSaved: readonly Field[],
+  current: DocumentPersistenceIdentity,
+): void {
+  for (const field of fieldsMatchingSaved) {
+    const failure = failures.get(field);
+    if (
+      failure &&
+      current.editorSessionId !== undefined &&
+      failure.editorSessionId === current.editorSessionId &&
+      current.editGeneration !== undefined &&
+      failure.editGeneration !== undefined &&
+      failure.editGeneration <= current.editGeneration &&
+      current.persistenceSequence !== undefined &&
+      failure.persistenceSequence !== undefined &&
+      failure.persistenceSequence <= current.persistenceSequence
+    )
+      failures.delete(field);
+  }
+}
+
 export function settleAcceptedDocumentPersistence<Field>(
   failures: Map<Field, DocumentPersistenceFailure>,
   fields: readonly Field[],

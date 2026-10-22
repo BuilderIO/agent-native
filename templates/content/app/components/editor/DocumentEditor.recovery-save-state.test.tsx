@@ -47,6 +47,7 @@ const fixture = vi.hoisted(() => ({
     | null,
   awareness: null as Awareness | null,
   editor: null as ComponentProps<typeof VisualEditor> | null,
+  pickIcon: null as ((icon: string | null) => Promise<void>) | null,
   recovery: null as ReturnType<typeof useDocumentReconcileRecovery> | null,
   save: vi.fn(),
   flushUpdates: vi.fn(),
@@ -124,9 +125,10 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   },
   useAvatarUrl: () => undefined,
   useActionMutation: (name: string, options: any) => {
-    if (!fixture.realDocumentMutation || name !== "update-document")
-      return fixture.mutation;
-    return useMutation({ ...options, mutationFn: fixture.save });
+    const mutation = useMutation({ ...options, mutationFn: fixture.save });
+    return fixture.realDocumentMutation && name === "update-document"
+      ? mutation
+      : fixture.mutation;
   },
   callAction: vi.fn(async () => null),
   tryCallActionKeepalive: () => ({ accepted: false }),
@@ -236,7 +238,14 @@ vi.mock("./PageDraftRecovery", () => ({
 vi.mock("./DocumentToolbar", () => ({ DocumentToolbar: () => null }));
 vi.mock("./ContentImportDialog", () => ({ ContentImportDialog: () => null }));
 vi.mock("./NotionConflictBanner", () => ({ NotionConflictBanner: () => null }));
-vi.mock("./EmojiPicker", () => ({ EmojiPicker: () => null }));
+vi.mock("./EmojiPicker", () => ({
+  EmojiPicker: (props: {
+    onSelect: (icon: string | null) => Promise<void>;
+  }) => {
+    fixture.pickIcon = props.onSelect;
+    return null;
+  },
+}));
 vi.mock("./DocumentProperties", () => ({ DocumentProperties: () => null }));
 vi.mock("@/hooks/use-document-properties", async (original) => ({
   ...(await original<typeof import("@/hooks/use-document-properties")>()),
@@ -291,43 +300,46 @@ vi.mock("./VisualEditor", async (original) => {
       onPersistenceControllerChange: publish,
     });
   }
+  function FixtureVisualEditor(props: ComponentProps<typeof VisualEditor>) {
+    const primary = !props.localFileMode;
+    const current = React.useRef(props);
+    current.current = props;
+    const draft = React.useRef(props.content);
+    const version = React.useRef({}).current;
+    if (primary)
+      fixture.editor = {
+        ...props,
+        onChange: (content) => {
+          draft.current = content;
+          props.onChange(content);
+        },
+      };
+    React.useEffect(() => {
+      if (!props.onPersistenceControllerChange) return;
+      props.onPersistenceControllerChange({
+        version,
+        flushLatest: async () => {
+          if (primary) fixture.visualFlush(draft.current);
+          const result = await current.current.onSaveContent!(draft.current);
+          return result !== false && result !== "failed";
+        },
+      });
+      return () => props.onPersistenceControllerChange!(null);
+    }, [props.onPersistenceControllerChange, version]);
+    return React.createElement("div", {
+      "data-visual-body": primary ? "primary" : "additional",
+    });
+  }
   return {
     ...actual,
-    VisualEditor: (props: ComponentProps<typeof VisualEditor>) => {
-      if (
+    VisualEditor: (props: ComponentProps<typeof VisualEditor>) =>
+      React.createElement(
         (fixture.realAdditionalEditors && props.localFileMode) ||
-        (fixture.realPrimaryEditor && !props.localFileMode)
-      )
-        return React.createElement(RealAdditionalEditor, props);
-      const primary = !props.localFileMode;
-      const current = React.useRef(props);
-      current.current = props;
-      const draft = React.useRef(props.content);
-      const version = React.useRef({}).current;
-      if (primary)
-        fixture.editor = {
-          ...props,
-          onChange: (content) => {
-            draft.current = content;
-            props.onChange(content);
-          },
-        };
-      React.useEffect(() => {
-        if (!props.onPersistenceControllerChange) return;
-        props.onPersistenceControllerChange({
-          version,
-          flushLatest: async () => {
-            if (primary) fixture.visualFlush(draft.current);
-            const result = await current.current.onSaveContent!(draft.current);
-            return result !== false && result !== "failed";
-          },
-        });
-        return () => props.onPersistenceControllerChange!(null);
-      }, [props.onPersistenceControllerChange, version]);
-      return React.createElement("div", {
-        "data-visual-body": primary ? "primary" : "additional",
-      });
-    },
+          (fixture.realPrimaryEditor && !props.localFileMode)
+          ? RealAdditionalEditor
+          : FixtureVisualEditor,
+        props,
+      ),
   };
 });
 vi.mock("./useDocumentReconcileRecovery", async (importOriginal) => {
@@ -356,10 +368,6 @@ vi.mock("./useDocumentReconcileRecovery", async (importOriginal) => {
 });
 
 import { TooltipProvider } from "@/components/ui/tooltip";
-import {
-  documentUpdateSuccessPatch,
-  patchDocumentCaches,
-} from "@/hooks/use-documents";
 
 import {
   documentContentHash,
@@ -371,7 +379,6 @@ import {
   peekBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
 import { PageEditorSurface } from "./DocumentEditor";
-import { listPageDraftJournal } from "./page-draft-journal";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
 let root: Root;
@@ -425,6 +432,7 @@ beforeEach(() => {
         : { status: "deleted", draft: null },
     );
   fixture.editor = null;
+  fixture.pickIcon = null;
   fixture.fields = null;
   fixture.realAdditionalEditors = false;
   fixture.realPrimaryEditor = false;
@@ -883,6 +891,150 @@ function pasteTitle(value: string) {
     title.dispatchEvent(paste);
   });
 }
+
+it("settles the failed pending title carried by a direct icon save after a later queued save", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  fixture.page!.revision = documentRevisionToken(1, fixture.page!.content);
+  const failure = new Error("The direct icon and title save failed.");
+  fixture.save
+    .mockRejectedValueOnce(failure)
+    .mockImplementation(async (input) => {
+      fixture.page = {
+        ...fixture.page!,
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.icon !== undefined ? { icon: input.icon } : {}),
+        updatedAt: "2026-10-19T12:00:01.000Z",
+      };
+      return fixture.page;
+    });
+  await act(async () => renderEditor());
+  pasteTitle("Saved after the icon failure");
+  await act(async () => {
+    await expect(fixture.pickIcon!("tabler:star")).rejects.toBe(failure);
+  });
+  expect(fixture.save.mock.calls[0][0]).toMatchObject({
+    icon: "tabler:star",
+    title: "Saved after the icon failure",
+    editorSessionId: undefined,
+    editorEditGeneration: undefined,
+  });
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  await act(async () => renderEditor());
+  expect(fixture.page!.title).toBe("Saved after the icon failure");
+  expect(fixture.save.mock.calls[1][0]).toMatchObject({
+    title: "Saved after the icon failure",
+    editorSessionId: fixture.awareness!.getLocalState()!.editorSessionId,
+    editorEditGeneration: 1,
+  });
+  // The icon also failed: settle it independently after the queued title ACK.
+  await act(async () => {
+    await fixture.pickIcon!("tabler:star");
+  });
+  expect(fixture.save.mock.calls[2][0]).not.toHaveProperty("title");
+  expect(fixture.save).toHaveBeenCalledTimes(3);
+  await act(async () => {
+    await expect(fixture.session!.flush()).resolves.toBeUndefined();
+  });
+  const store = connectBarrierStore();
+  expect(await runConnectedBarrier()).toMatchObject({
+    value: {
+      status: "flushed",
+      snapshot: {
+        title: "Saved after the icon failure",
+        content: "Saved body",
+      },
+    },
+  });
+  expect(store.requests.map((request) => request.phase)).toEqual([
+    "prepare",
+    "verify",
+  ]);
+  expect(publishedAcks().map((answer) => answer.status)).toEqual([
+    "prepared",
+    "verified",
+  ]);
+  expect(fixture.save).toHaveBeenCalledTimes(4);
+  expect(fixture.save.mock.calls[3][0]).toMatchObject({
+    title: "Saved after the icon failure",
+    content: "Saved body",
+  });
+});
+
+it.each(["title", "body"] as const)(
+  "preserves attestation and retained recovery for reverted primary %s input until an accepted retry",
+  async (field) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    fixture.page!.revision = documentRevisionToken(1, fixture.page!.content);
+    const failure = new Error("Primary save failed before revert.");
+    fixture.save.mockRejectedValue(failure);
+    await act(async () => renderEditor());
+    if (field === "title") pasteTitle("Failed title");
+    else act(() => fixture.editor!.onChange("Failed body"));
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(fixture.save).toHaveBeenCalledOnce();
+    expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(true);
+    if (field === "title") pasteTitle("Saved title");
+    else act(() => fixture.editor!.onChange("Saved body"));
+    let rejectAttestation!: (error: Error) => void;
+    fixture.save.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectAttestation = reject;
+        }),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(fixture.save).toHaveBeenCalledTimes(2);
+    expect(fixture.save.mock.calls[1][0]).toMatchObject({
+      title: "Saved title",
+      content: "Saved body",
+      editorSessionId: fixture.awareness!.getLocalState()!.editorSessionId,
+      editorEditGeneration: 2,
+    });
+    expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(true);
+    await act(async () =>
+      rejectAttestation(new Error("Revert attestation unavailable.")),
+    );
+    await act(async () => renderEditor());
+    expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(true);
+    const refused = connectBarrierStore();
+    const started = Date.now();
+    expect(await runConnectedBarrier()).toMatchObject({
+      error: { errorCode: "open_editor_flush_timeout" },
+    });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(20_000);
+    expect(Date.now() - started).toBeLessThanOrEqual(20_200);
+    expect(refused.captures).toHaveLength(0);
+    expect(fixture.save).toHaveBeenCalledTimes(2);
+    fixture.save.mockResolvedValue(fixture.page!);
+    pasteTitle("Saved title");
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    await act(async () => renderEditor());
+    expect(fixture.save).toHaveBeenCalledTimes(3);
+    expect(fixture.save.mock.calls[2][0]).toMatchObject({
+      title: "Saved title",
+      content: "Saved body",
+      editorEditGeneration: 3,
+    });
+    expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(false);
+    const store = connectBarrierStore();
+    expect(await runConnectedBarrier()).toMatchObject({
+      value: {
+        status: "flushed",
+        snapshot: { title: "Saved title", content: "Saved body" },
+      },
+    });
+    expect(store.requests.map((request) => request.phase)).toEqual([
+      "prepare",
+      "verify",
+    ]);
+    expect(
+      publishedAcks()
+        .slice(-2)
+        .map((ack) => ack.status),
+    ).toEqual(["prepared", "verified"]);
+    expect(fixture.save).toHaveBeenCalledTimes(3);
+  },
+);
 
 it("confirms a title-only save and adopts a newer peer rename once clean", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -1708,7 +1860,7 @@ describe("actual additional field freshness", () => {
     expect(fixture.fieldSave).toHaveBeenCalledOnce();
   });
 
-  it("refuses an acknowledged-looking locked field after a failed save and real change-back", async () => {
+  it("flushes a locked field after failed input actually reverts to its saved value", async () => {
     await mountField();
     const failure = new Error("Blocks field revision conflict");
     fixture.fieldSave.mockRejectedValue(failure);
@@ -1731,17 +1883,15 @@ describe("actual additional field freshness", () => {
     expect(fixture.fieldEditor!.getText()).toBe("Additional body");
     await act(async () => vi.advanceTimersByTimeAsync(0));
     expect(fieldState().pending).toBe("Additional body");
-    expect(fieldState().lastError).toBe(failure);
+    expect(fieldState().lastError).toBeNull();
     fixture.lockAdditionalForSuggestions = true;
     await act(async () => renderEditor());
     expect(fixture.fieldEditor!.isEditable).toBe(false);
     await act(async () => {
-      await expect(fixture.session!.flush()).rejects.toThrow(
-        "editor.pageSaveBeforeNavigationFailed",
-      );
+      await expect(fixture.session!.flush()).resolves.toBeUndefined();
     });
-    expect(fieldState().lastError).toBe(failure);
-    expect(fieldState().isClean).toBe(false);
+    expect(fieldState().lastError).toBeNull();
+    expect(fieldState().isClean).toBe(true);
     expect(fixture.fieldSave).toHaveBeenCalledOnce();
   });
 
