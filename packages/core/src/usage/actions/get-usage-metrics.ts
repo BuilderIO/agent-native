@@ -29,7 +29,7 @@ function resolveAppSelection(
 
 export default defineAction({
   description:
-    'Reports this workspace\'s own agent/LLM usage (Settings › Usage) for members of this organization only; it does NOT cover usage, credits, or activity of external customers, accounts, companies, or product usage, which belong to the app that owns that data (see <relevant-apps>, or search with describe-workspace-apps). Returns lookback totals, the daily trend (dailyBy feature, app, model and surface), top features, models, apps, chats and people, tool calls per day, and recent prompts, across every app unless app names one. Members see only their own usage; scope "workspace" (everyone in the organization) is for owners and admins. billing.unit identifies Builder.io credits, estimated dollars, mixed billing, or unknown.',
+    'Reports this workspace\'s own agent/LLM usage (Settings › Usage) for members of this organization only; it does NOT cover usage, credits, or activity of external customers, accounts, companies, or product usage, use this app\'s own customer or billing actions for those, or the app that owns that data (see <relevant-apps>, or search with describe-workspace-apps). Returns lookback totals, the daily trend (dailyBy feature, app, model and surface), top features, models, apps, chats and people, tool calls per day, and recent prompts, across every app unless app names one. Members see only their own usage; scope "workspace" (everyone in the organization) is for owners and admins. billing.unit identifies Builder.io credits, estimated dollars, mixed billing, or unknown.',
   http: { method: "GET" },
   schema: z.object({
     sinceDays: z.coerce.number().int().min(1).max(365).default(30),
@@ -76,13 +76,13 @@ export default defineAction({
         }))
       ) {
         fail(
-          'Usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data: find it with describe-workspace-apps query="<what you need>" (or <relevant-apps>) and delegate with call-agent. get-usage-metrics covers only this organization\'s own members, and only owners and admins can look up another member.',
+          `get-usage-metrics has no data on customers or other external users. For a customer's or account's usage or credits, use this app's own customer or billing actions, or find the app that owns that data with describe-workspace-apps query="<what you need>" and delegate with call-agent. get-usage-metrics reports only this organization's own members' agent usage, and only owners and admins can look up another member.`,
           { errorCode: "usage_user_lookup_forbidden", statusCode: 403 },
         );
       }
       if (!(await isOrgMember(ctx.orgId, userEmail))) {
         fail(
-          `${userEmail} is not a member of this organization. get-usage-metrics only covers this workspace's own agent usage; usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data (see <relevant-apps> or run describe-workspace-apps with a query).`,
+          `${userEmail} is not a member of this organization, so get-usage-metrics has no data on them. For a customer's or account's usage or credits, use this app's own customer or billing actions, or find the app that owns that data with describe-workspace-apps query="<what you need>" and delegate with call-agent.`,
           { errorCode: "usage_user_not_org_member", statusCode: 404 },
         );
       }

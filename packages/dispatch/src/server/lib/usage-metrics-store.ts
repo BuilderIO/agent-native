@@ -956,7 +956,7 @@ async function assertCanViewMetrics(viewScope: UsageMetricsScope): Promise<{
 
 function failUserNotOrgMember(email: string): never {
   fail(
-    `${email} is not a member of this organization. list-dispatch-usage-metrics only covers this workspace's own agent usage; usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data (see <relevant-apps> or run describe-workspace-apps with a query).`,
+    `${email} is not a member of this organization, so list-dispatch-usage-metrics has no data on them. For a customer's or account's usage or credits, use this app's own customer or billing actions, or find the app that owns that data with describe-workspace-apps query="<what you need>" and delegate with call-agent.`,
     { errorCode: "usage_user_not_org_member", statusCode: 404 },
   );
 }
@@ -988,7 +988,7 @@ export async function listDispatchUsageMetrics(input: {
       callerRole !== "admin"
     ) {
       fail(
-        'Usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data: find it with describe-workspace-apps query="<what you need>" (or <relevant-apps>) and delegate with call-agent. list-dispatch-usage-metrics covers only this organization\'s own members, and only owners and admins can look up another member.',
+        `list-dispatch-usage-metrics has no data on customers or other external users. For a customer's or account's usage or credits, use this app's own customer or billing actions, or find the app that owns that data with describe-workspace-apps query="<what you need>" and delegate with call-agent. list-dispatch-usage-metrics reports only this organization's own members' agent usage, and only owners and admins can look up another member.`,
         { errorCode: "usage_user_lookup_forbidden", statusCode: 403 },
       );
     }

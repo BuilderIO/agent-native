@@ -173,7 +173,7 @@ describe("listDispatchUsageMetrics", () => {
         errorCode: "usage_user_lookup_forbidden",
         statusCode: 403,
       });
-      expect((error as Error).message).toContain("<relevant-apps>");
+      expect((error as Error).message).toContain("own customer or billing actions");
       expect(mocks.isOrgMember).not.toHaveBeenCalled();
       expect(mocks.getUsageSummary).not.toHaveBeenCalled();
     },
@@ -530,7 +530,7 @@ describe("listDispatchUsageMetrics", () => {
     expect((error as Error).message).toContain(
       "customer@customer.example is not a member of this organization",
     );
-    expect((error as Error).message).toContain("<relevant-apps>");
+    expect((error as Error).message).toContain("own customer or billing actions");
     expect((error as Error).message).toContain("describe-workspace-apps");
   });
 
