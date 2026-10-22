@@ -382,10 +382,7 @@ async function performDocumentBodyMutation(
     });
     const previous = await readReplay(db);
     if (previous) return previous;
-    if (
-      (await liveBodyWriterGate(args.documentId, { db })).writePath ===
-      "live_copy"
-    ) {
+    if ((await liveBodyWriterGate(args.documentId)).writePath === "live_copy") {
       const live = await mutateLiveCopyDocumentBody({
         db,
         documentId: args.documentId,

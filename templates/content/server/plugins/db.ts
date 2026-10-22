@@ -1485,7 +1485,7 @@ export const runContentMigrations = runMigrations(
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_copy_version INTEGER`,
     },
     {
-      version: 124,
+      version: 126,
       name: "content-document-body-steps",
       sql: `CREATE TABLE IF NOT EXISTS document_body_steps (
           id TEXT PRIMARY KEY,
