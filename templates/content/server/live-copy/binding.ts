@@ -23,10 +23,18 @@ export const CONTENT_LIVE_COPY_EDITS = {
  */
 export const contentLiveCopy = defineLiveCopy({
   name: "content-body",
-  appliesTo: async (documentId) =>
-    liveBodyConversionFor(documentId) !== undefined ||
-    (await liveBodyWriterGate(documentId, { db: drizzleOverExec(getDbExec()) }))
-      .writePath === "live_copy",
+  appliesTo: async (documentId) => {
+    if (liveBodyConversionFor(documentId) !== undefined) return true;
+    const transaction = getDbExec();
+    return (
+      (
+        await liveBodyWriterGate(documentId, {
+          db: drizzleOverExec(transaction),
+          transaction,
+        })
+      ).writePath === "live_copy"
+    );
+  },
   runner: createBoundedTaskRunner({ source }),
   field: LIVE_BODY_FIELD,
   persist: persistContentLiveCopy,
