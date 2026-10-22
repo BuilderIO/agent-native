@@ -379,9 +379,12 @@ describe("switching a page to its live copy", () => {
   });
 
   it("refuses to switch a page whose stored body the parser can't keep in full", async () => {
-    // The parser drops an unindented callout child, so both serializations
+    // The parser drops text directly inside a table, so both serializations
     // of the built tree agree on the shortened body.
-    await insertPage("parse-loss", "Hello\n<callout>\nOnly text\n</callout>");
+    await insertPage(
+      "parse-loss",
+      "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>",
+    );
     const before = await page("parse-loss");
 
     await expect(
@@ -734,7 +737,10 @@ describe("writes through a switched page's live copy", () => {
       cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
         collab.mutateLiveCopy(binding.contentLiveCopy, "parse-loss-edit", {
           edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-          input: { content: "Hello\n<callout>\nOnly text\n</callout>" },
+          input: {
+            content:
+              "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>",
+          },
         }),
       ),
     ).rejects.toMatchObject({
@@ -1644,11 +1650,12 @@ describe("a browser save to a switched page's body", () => {
   it("keeps a tab's draft when its save is not its own serialization", async () => {
     await switchedPage("noncanonical", "Hello");
     const loaded = await page("noncanonical");
-    await typeInTab("noncanonical", ["Hello\n<callout>\n</callout>"]);
+    await typeInTab("noncanonical", ["Hello\n*Hi*"]);
     const stored = (await page("noncanonical")).content;
-    // The parse drops the unindented callout child, so this compares as the
-    // empty callout the live copy holds.
-    const candidate = "Hello\n<callout>\nOnly text\n</callout>";
+    // Another spelling of the body the live copy holds, one the editor never
+    // writes.
+    const candidate = "Hello\n_Hi_";
+    expect(candidate).not.toBe(stored);
     expect(nfm.docToNfm(nfm.nfmToDoc(candidate))).toBe(stored);
     await keepDraft("noncanonical", candidate);
 

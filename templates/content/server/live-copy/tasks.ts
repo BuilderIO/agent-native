@@ -175,7 +175,7 @@ export const tasks = {
   async [CONTENT_HOLDS_BODY_TASK](input: unknown): Promise<HoldsBodyResult> {
     const { base, stored, candidate } = holdsBodyInput(input);
     // The comparison reads the candidate in its parsed form, and a parse can
-    // drop text, such as an unindented callout child. Only an editor's own
+    // drop text, such as text directly inside a table. Only an editor's own
     // serialization says what the save holds.
     if (!isCanonical(candidate)) return "noncanonical";
     return bodyHoldsChanges(base, stored, candidate) ? "held" : "unheld";
