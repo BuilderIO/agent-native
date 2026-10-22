@@ -226,22 +226,31 @@ function ChartBody({
     ? customValueTickLabelWidth + 8
     : labelFontSize + 4;
   const visibleAxisLabelCount = Math.max(
-    2,
+    1,
     Math.floor(
       (isHorizontalBar ? plotWidth : plotHeight) / axisLabelMinSpacing,
     ) + 1,
   );
   const axisLabelStride = Math.max(
     1,
-    Math.ceil((gridTickValues.length - 1) / (visibleAxisLabelCount - 1)),
+    Math.ceil(
+      (gridTickValues.length - 1) / Math.max(1, visibleAxisLabelCount - 1),
+    ),
   );
   const axisLabelIndexes = new Set(
     gridTickValues.flatMap((_, index) =>
-      index % axisLabelStride === 0 ? [index] : [],
+      index % axisLabelStride === 0 &&
+      (visibleAxisLabelCount > 1 || index === 0)
+        ? [index]
+        : [],
     ),
   );
   const finalAxisLabelIndex = gridTickValues.length - 1;
-  if (finalAxisLabelIndex >= 0 && !axisLabelIndexes.has(finalAxisLabelIndex)) {
+  if (
+    visibleAxisLabelCount > 1 &&
+    finalAxisLabelIndex >= 0 &&
+    !axisLabelIndexes.has(finalAxisLabelIndex)
+  ) {
     const precedingAxisLabelIndex =
       Math.floor(finalAxisLabelIndex / axisLabelStride) * axisLabelStride;
     const axisSpan = isHorizontalBar ? plotWidth : plotHeight;

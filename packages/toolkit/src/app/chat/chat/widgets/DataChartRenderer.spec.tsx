@@ -249,6 +249,27 @@ describe("DataChartRenderer theme colors", () => {
     );
   });
 
+  it("keeps a single value label when the axis cannot fit two", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Only", value: 9.9e60 }],
+          valueAxisTickInterval: 1e59,
+        }}
+      />,
+    );
+    const numericLabels = Array.from(
+      markup.matchAll(/<text[^>]*text-anchor="middle">([^<]+)<\/text>/g),
+      (match) => match[1],
+    ).filter((label) => /^\d[\d,]*$/.test(label ?? ""));
+
+    expect(numericLabels).toHaveLength(1);
+  });
+
   it("formats very small custom intervals without collapsing labels to zero", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
