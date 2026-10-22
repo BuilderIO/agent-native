@@ -1476,16 +1476,21 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 124,
+      name: "content-live-body-switch",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_body_switched_at TEXT`,
+    },
+    {
+      version: 125,
       name: "content-preview-draft-base-content-hash",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_content_hash TEXT`,
     },
     {
-      version: 125,
+      version: 126,
       name: "preview-draft-originating-title-base",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_title TEXT`,
     },
     {
-      version: 126,
+      version: 127,
       name: "preview-draft-recovery-choice-lookup",
       sql: `CREATE INDEX IF NOT EXISTS document_versions_owner_recovery_group_idx
         ON document_versions (owner_email, group_id, created_at, id)
