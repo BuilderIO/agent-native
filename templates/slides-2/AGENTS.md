@@ -44,6 +44,7 @@ Create and edit slide decks through Agent-Native chat and the visual editor, bac
 | `apply-design-system` | Link a design system to a deck. |
 | `get-workspace-defaults`, `get-deck-reference-context` | Read workspace defaults and reusable deck context. |
 | `create-deck`, `create-deck-from-template` | Create a deck directly or from a template. |
+| `clone-context-slide` | Copy a pinned native library slide into an editable deck, preserving provenance |
 | `add-slide` | Add a slide to a saved deck. |
 | `update-slide` | Edit legacy slide content or structure. |
 | `get-slide-source`, `update-slide-source` | Read source and save revision-checked source edits. |

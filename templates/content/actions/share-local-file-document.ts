@@ -75,6 +75,14 @@ function serializeDocument(row: typeof schema.documents.$inferSelect) {
 }
 
 export default defineAction({
+  mcpTool: true,
+  needsApproval: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   description:
     "Create or refresh a collection-backed shareable copy of a local-file document. Use this before sharing a local file with other users.",
   schema: z.object({

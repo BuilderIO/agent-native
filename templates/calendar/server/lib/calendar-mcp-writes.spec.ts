@@ -81,12 +81,14 @@ vi.mock("./event-video-conferencing.js", () => ({
 import createEvent from "../../actions/create-event.js";
 import deleteEvent from "../../actions/delete-event.js";
 import listEvents from "../../actions/list-events.js";
+import manageEventDraft from "../../actions/manage-event-draft.js";
 import respondToEvent from "../../actions/respond-to-event.js";
 import rsvpEvent from "../../actions/rsvp-event.js";
 import updateEvent from "../../actions/update-event.js";
 import "../plugins/agent-chat.js";
 
 const actions = {
+  "manage-event-draft": manageEventDraft,
   "list-events": listEvents,
   "create-event": createEvent,
   "update-event": updateEvent,
@@ -197,6 +199,7 @@ describe("Calendar direct MCP writes", () => {
       "create_embed_session",
       "list-events",
       "list_apps",
+      "manage-event-draft",
       "open_app",
       "respond-to-event",
       "update-event",

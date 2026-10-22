@@ -33,6 +33,13 @@ function designDeepLink(designId: string): string {
 }
 
 export default defineAction({
+  needsApproval: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   description:
     "Turn a design into code: create an agent handoff for a design project. " +
     "Returns tokenized raw and ZIP URLs external agents can fetch, plus a " +

@@ -38,6 +38,7 @@ const actions: Record<string, ActionDefinition> = Object.fromEntries(
 );
 
 const DIRECT_MCP_READS = [
+  "open-traffic-dashboard",
   "account-deep-dive",
   "builder-blog-articles",
   "data-source-status",

@@ -59,8 +59,8 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `get-native-shader-approvals` | Read viewer-scoped exact effect approvals for accessible Design previews |
 | `prepare-native-scene-export` | Pin scene for PNG |
 | `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Request foreground native PNG and inspect attachment |
-| `export-png` | Export PNG |
-| `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
+| `generate-screens` | Plan screens |
+| `export-png` / `export-coding-handoff` | PNG/code; handoff needs approval (7-day bearer URLs) |
 
 ## Core Rules
 

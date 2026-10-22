@@ -25,6 +25,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 
 | Action | Purpose |
 | --- | --- |
+| `manage-event-draft` | Create, edit, or delete unsent invite drafts; never sends invitations |
 | `list-events` | Read a schedule with account and source coverage |
 | `create-event` | Create on an owned Google account's primary calendar |
 | `update-event` | Edit an event using its id and accountEmail |

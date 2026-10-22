@@ -44,6 +44,7 @@ import restoreContentDatabase from "./restore-content-database.js";
 import restoreDocument from "./restore-document.js";
 import searchDocuments from "./search-documents.js";
 import setDocumentProperty from "./set-document-property.js";
+import shareLocalFileDocument from "./share-local-file-document.js";
 import syncGitHubFolder from "./sync-github-folder.js";
 import updateComment from "./update-comment.js";
 import updateContentDatabaseView from "./update-content-database-view.js";
@@ -55,6 +56,7 @@ import viewScreen from "./view-screen.js";
 
 describe("Content action-owned agent catalogs", () => {
   const directMcpActions = {
+    "share-local-file-document": shareLocalFileDocument,
     "create-content-database": createContentDatabase,
     "configure-document-property": configureDocumentProperty,
     "update-content-database-view": updateContentDatabaseView,
@@ -105,6 +107,15 @@ describe("Content action-owned agent catalogs", () => {
       expect(action.mcpTool).toBe(true);
       expect(action.tool.description.length).toBeGreaterThan(80);
     }
+  });
+
+  it("requires approval before copying local content to a shareable document", () => {
+    expect(shareLocalFileDocument.needsApproval).toBe(true);
+    expect(shareLocalFileDocument.mcpAnnotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
   });
 
   it("returns migration receipts as structured MCP content", () => {
