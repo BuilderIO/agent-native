@@ -4,7 +4,7 @@ Recorded on 2026-10-22 against `origin/main` at `16d6de1469c90d57fe10faeb69d2a9d
 
 This is a historical audit snapshot, not a catalog configuration. The existing `advertised-catalog.harness.ts` loaded each app plugin and its actual constructed action map, then used the in-memory MCP client to call `tools/list`. Factory/core-loader provenance identified framework entries; names were not inferred from source text. App-owned entries, including Dispatch package actions, are not counted as framework factories.
 
-The run completed 476 listings: 17 apps, four runtime surfaces, and seven variants. Every entry below was actually advertised in the specified combinations. Entries sharing an identical exposure pattern are grouped.
+The run completed 476 listings: 17 apps, four runtime surfaces, and seven variants. It found 192 registry factory/core-loader names plus two factories created by the MCP server itself. Every entry below was actually advertised in the specified combinations. Entries sharing an identical exposure pattern are grouped.
 
 Apps: analytics, assets, brain, calendar, chat, clips, content, crm, design, dispatch, factory, forms, mail, plan, slides, slides-2, tasks.
 
@@ -19,8 +19,8 @@ The mounted default uses each app's configuration unchanged. Forced compact disa
 | connector       | 192                                           |
 | app             | 191                                           |
 | directory       | 54                                            |
-| full-token      | 191                                           |
-| full-env        | 191                                           |
+| full-token      | 193                                           |
+| full-env        | 193                                           |
 
 ## Default changes in this PR
 
@@ -30,7 +30,11 @@ The before/after comparison uses every mounted default catalog on all four surfa
 
 The fetch factory's real registered name is `web-request`. The new boundary also denies the `fetch` alias, all `db-*` and `provider-api-*` names, `seed-*`, inherited context/extension/browser-session exclusions, raw-query inputs without opt-in, and dev CLI wrappers. `db-exec` and `db-patch` are absent from these mounted shapes but are covered by the explicit registration regression fixtures.
 
-## Exact exposure groups
+## Server-created factories
+
+`create_workspace_app` and `list_templates` are added by the MCP server after the app's registry is assembled. Both appeared only in full-token and full-env listings, for every app on every surface (136 listings each). They appeared in none of the mounted-default, compact, connector, app, or directory listings. Both now default off under the same framework policy.
+
+## Registry exposure groups
 
 ### Group 1
 

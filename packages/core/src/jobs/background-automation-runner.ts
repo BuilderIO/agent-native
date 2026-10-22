@@ -1410,11 +1410,16 @@ async function executeBackgroundAutomation(
       const baseActions: Record<string, ActionEntry> = {
         ...(automation.meta.mcpManaged
           ? Object.fromEntries(
-              Object.entries(registeredActions).filter(
-                ([name, entry]) =>
-                  isActionExposedToExternalAgents(entry) &&
-                  isMcpActionEligible(name, entry),
-              ),
+              Object.entries(registeredActions)
+                .filter(
+                  ([name, entry]) =>
+                    isActionExposedToExternalAgents(entry) &&
+                    isMcpActionEligible(name, entry),
+                )
+                .map(([name, entry]) => [
+                  name,
+                  { ...entry, allowPersistentApproval: false },
+                ]),
             )
           : registeredActions),
         [AUTOMATION_NO_OP_TOOL]: {
@@ -1758,6 +1763,7 @@ async function executeBackgroundAutomation(
               actionCaller: automation.meta.mcpManaged
                 ? "mcp"
                 : options.actionCaller,
+              requireWriteApproval: automation.meta.mcpManaged === true,
               automation: options.actionAutomation,
               ...(options.resume
                 ? { recoverCompletedExecutionSteps: true }

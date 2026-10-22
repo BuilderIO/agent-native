@@ -4,6 +4,7 @@ import {
 } from "../action-ui.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isMcpAutomationOrigin } from "../automations/mcp-origin.js";
 import {
   defineAutomation,
   deleteAutomation,
@@ -571,7 +572,7 @@ export function createAutomationToolEntries(
   return frameworkMcpTools({
     "manage-automations": {
       needsApproval: (args, context) =>
-        context?.caller === "mcp" &&
+        isMcpAutomationOrigin(context?.caller) &&
         args.action !== "list" &&
         args.action !== "list-events" &&
         args.action !== "list-hosts",

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 const mocks = vi.hoisted(() => ({
   createMcpApprovalGrant: vi.fn(),
@@ -49,8 +50,11 @@ vi.mock("../mcp/approval-store.js", () => ({
   consumeMcpApprovalGrant: mocks.consumeMcpApprovalGrant,
 }));
 
+import { defineAction, type ActionCaller } from "../action.js";
+import { executeAgentToolCall } from "../agent/production-agent.js";
 import runAutomationNow from "../jobs/actions/run-automation-now.js";
 import { executeMcpActionCall } from "../mcp/execute-action-call.js";
+import { directHttpActionApprovalRefusal } from "../server/action-approval.js";
 import { createAutomationToolEntries } from "./actions.js";
 import manageAutomation from "./actions/manage-automation.js";
 
@@ -227,7 +231,7 @@ describe("manage-automations tool", () => {
   it("queues resource-id runs and describes immutable creator execution", async () => {
     const entry = tool();
     expect(entry.tool.description).toContain("immutable creator");
-    expect(entry.tool.parameters.properties.resource_id).toBeDefined();
+    expect(entry.tool.parameters?.properties.resource_id).toBeDefined();
     await entry.run({ action: "run-now", resource_id: "resource-1" });
     expect(mocks.queueAutomationRunNow).toHaveBeenCalledWith({
       userEmail: owner,
@@ -336,7 +340,12 @@ describe("MCP automation approval", () => {
     { name: "run-automation-now", args: { resourceId: "resource-1" } },
   ];
   const context = {
-    identity: { userEmail: owner, identityAssurance: "user" as const },
+    appId: undefined,
+    identity: {
+      userEmail: owner,
+      identityAssurance: "user" as const,
+      orgDomain: undefined,
+    },
     approvalCallerKey: "automation-spec-client",
     canRequestApproval: true,
   };
@@ -346,6 +355,37 @@ describe("MCP automation approval", () => {
       "manage-automation": manageAutomation,
       "run-automation-now": runAutomationNow,
     };
+  }
+
+  function nestedCall<T>(run: () => Promise<T>, caller: ActionCaller = "mcp") {
+    const inner = defineAction({
+      description: "Dispatch an automation operation.",
+      schema: z.object({}),
+      run,
+    });
+    const outer = defineAction({
+      description: "Delegate an automation operation.",
+      schema: z.object({}),
+      run: () => inner.run({}, { caller: "tool", userEmail: owner }),
+    });
+    return outer.run({}, { caller, userEmail: owner });
+  }
+
+  function dispatch(
+    args: Record<string, unknown>,
+    approvedToolCalls?: string[],
+  ) {
+    return executeAgentToolCall({
+      actions: callable(),
+      name: "manage-automations",
+      input: args,
+      callId: "nested-automation-call",
+      caller: "tool",
+      ownerEmail: owner,
+      orgId: "org-1",
+      approvedToolCalls,
+      consumeApproval: async () => true,
+    });
   }
 
   beforeEach(() => {
@@ -386,6 +426,96 @@ describe("MCP automation approval", () => {
       expect(mocks.deleteAutomation).not.toHaveBeenCalled();
       expect(mocks.queueAutomationRunNow).not.toHaveBeenCalled();
       run.mockRestore();
+    },
+  );
+
+  it.each(mutations.filter(({ name }) => name === "manage-automations"))(
+    "pauses nested MCP $args before any automation side effect",
+    async ({ args }) => {
+      const { emit } = await import("../event-bus/index.js");
+      const result = await nestedCall(() => dispatch(args));
+      expect(result.status).toBe("approval_required");
+      expect(mocks.defineAutomation).not.toHaveBeenCalled();
+      expect(mocks.updateAutomation).not.toHaveBeenCalled();
+      expect(mocks.deleteAutomation).not.toHaveBeenCalled();
+      expect(mocks.queueAutomationRunNow).not.toHaveBeenCalled();
+      expect(emit).not.toHaveBeenCalled();
+
+      if (result.status !== "approval_required") {
+        throw new Error("Missing nested approval request");
+      }
+      const approved = await nestedCall(() =>
+        dispatch(args, [result.approvalKey]),
+      );
+      expect(approved.status).toBe("completed");
+      const effect =
+        args.action === "define"
+          ? mocks.defineAutomation
+          : args.action === "update"
+            ? mocks.updateAutomation
+            : args.action === "delete"
+              ? mocks.deleteAutomation
+              : args.action === "run-now"
+                ? mocks.queueAutomationRunNow
+                : emit;
+      expect(effect).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(mutations.filter(({ name }) => name !== "manage-automations"))(
+    "requires approval for nested MCP $name $args on the direct action surface",
+    async ({ name, args }) => {
+      const entry =
+        callable()[name as "manage-automation" | "run-automation-now"];
+      const refusal = await nestedCall(() =>
+        directHttpActionApprovalRefusal(entry, args, {
+          actionName: name,
+          caller: "tool",
+          userEmail: owner,
+        }),
+      );
+      expect(refusal).toMatchObject({
+        errorCode: "approval_required",
+        statusCode: 409,
+      });
+    },
+  );
+
+  it.each(["list", "list-events", "list-hosts"])(
+    "runs nested MCP %s without approval",
+    async (action) => {
+      const result = await nestedCall(() => dispatch({ action }));
+      expect(result.status).toBe("completed");
+      expect(mocks.createMcpApprovalGrant).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["tool", "frontend"] as const)(
+    "preserves nested %s calls without an MCP ancestor",
+    async (caller) => {
+      const result = await nestedCall(
+        () => dispatch(mutations[0].args),
+        caller,
+      );
+      expect(result.status).toBe("completed");
+      expect(mocks.defineAutomation).toHaveBeenCalledOnce();
+      for (const { name, args } of mutations.filter(
+        ({ name }) => name !== "manage-automations",
+      )) {
+        const entry =
+          callable()[name as "manage-automation" | "run-automation-now"];
+        await expect(
+          nestedCall(
+            () =>
+              directHttpActionApprovalRefusal(entry, args, {
+                actionName: name,
+                caller: "tool",
+                userEmail: owner,
+              }),
+            caller,
+          ),
+        ).resolves.toBeNull();
+      }
     },
   );
 

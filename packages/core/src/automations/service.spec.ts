@@ -412,6 +412,135 @@ describe("automation domain service", () => {
     expect(parseJobResource(rebuilt).meta.mcpManaged).toBe(true);
   });
 
+  it.each([false, true])(
+    "rejects first MCP takeover of a running automation (sharing: %s)",
+    async (sharing) => {
+      resourceGetByPathMock.mockResolvedValue(
+        resource(
+          eventAutomation.replace(
+            "runAs: creator",
+            "runAs: creator\nlastStatus: running",
+          ),
+        ),
+      );
+
+      await expect(
+        updateAutomation(
+          { ...actor, caller: "mcp" },
+          {
+            name: "notify",
+            scope: "organization",
+            enabled: false,
+            ...(sharing ? { sharing: { kind: "personal" as const } } : {}),
+          },
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        message:
+          "This automation is running. Wait for it to finish before managing it through MCP.",
+      });
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(transactionMock).not.toHaveBeenCalled();
+      expect(atomicBatchMock).not.toHaveBeenCalled();
+      expect(replaceSharingMock).not.toHaveBeenCalled();
+      expect(resourceNotificationMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { caller: "mcp" as const, marked: true },
+    { caller: "tool" as const, marked: false },
+  ])(
+    "preserves running automation edits from $caller (marked: $marked)",
+    async ({ caller, marked }) => {
+      resourceGetByPathMock.mockResolvedValue(
+        resource(
+          eventAutomation.replace(
+            "runAs: creator",
+            `runAs: creator\nlastStatus: running${marked ? "\nmcpManaged: true" : ""}`,
+          ),
+        ),
+      );
+      const updated = await updateAutomation(
+        { ...actor, caller },
+        { name: "notify", scope: "organization", enabled: false },
+      );
+      expect(updated.meta.enabled).toBe(false);
+      expect(updated.meta.lastStatus).toBe("running");
+      expect(updated.meta.mcpManaged).toBe(marked ? true : undefined);
+      expect(parseJobResource(updated.resource.content).meta).toMatchObject({
+        enabled: false,
+        lastStatus: "running",
+      });
+    },
+  );
+
+  it.each(["mcp", "tool"] as const)(
+    "rechecks %s takeover when a concurrent run starts during an edit retry",
+    async (caller) => {
+      const before = resource(eventAutomation);
+      const running = {
+        ...before,
+        content: eventAutomation.replace(
+          "runAs: creator",
+          "runAs: creator\nlastStatus: running",
+        ),
+        updatedAt: 2,
+      };
+      resourceGetByPathMock
+        .mockResolvedValueOnce(before)
+        .mockResolvedValue(running);
+      resourcePutIfCurrentMock
+        .mockResolvedValueOnce(null)
+        .mockImplementation(async (input) => ({
+          ...running,
+          content: input.content,
+        }));
+
+      const update = updateAutomation(
+        { ...actor, caller },
+        { name: "notify", scope: "organization", enabled: false },
+      );
+      if (caller === "mcp") {
+        await expect(update).rejects.toMatchObject({ statusCode: 409 });
+        expect(resourcePutIfCurrentMock).toHaveBeenCalledOnce();
+      } else {
+        await expect(update).resolves.toMatchObject({
+          meta: { enabled: false, lastStatus: "running" },
+        });
+        expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(2);
+      }
+    },
+  );
+
+  it("localizes the running MCP takeover refusal for the editor", async () => {
+    getUserSettingMock.mockResolvedValue({ locale: "es-ES" });
+    resourceGetByPathMock.mockResolvedValue(
+      resource(
+        eventAutomation.replace(
+          "runAs: creator",
+          "runAs: creator\nlastStatus: running",
+        ),
+      ),
+    );
+
+    await expect(
+      updateAutomation(
+        { ...actor, caller: "mcp" },
+        { name: "notify", scope: "organization", enabled: false },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message:
+        "Esta automatización se está ejecutando. Espera a que termine antes de gestionarla mediante MCP.",
+    });
+    expect(getUserSettingMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "localization",
+    );
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
   it("maps the centralized access result into the unified service list", async () => {
     listAccessibleAutomationsMock.mockResolvedValue([
       {

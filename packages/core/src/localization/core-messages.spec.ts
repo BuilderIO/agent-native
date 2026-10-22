@@ -23,6 +23,7 @@ describe("Core localization", () => {
     for (const locale of SUPPORTED_LOCALES) {
       for (const key of [
         "mcpApprovalUnavailable",
+        "mcpTakeoverWhileRunning",
         "chainingUnsupported",
       ] as const) {
         const message = AUTOMATION_OUTCOME_MESSAGES[locale][key];

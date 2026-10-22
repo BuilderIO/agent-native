@@ -242,6 +242,7 @@ describe("MCP-managed automation callers", () => {
     "restricts the runtime registry only for MCP-managed=%s",
     async (mcpManaged) => {
       const { defineAction } = await import("../action.js");
+      const { z } = await import("zod");
       const { createJobTools } = await import("./tools.js");
       const { attachToolSearch } = await import("../agent/tool-search.js");
       const { createResourceScriptEntries } =
@@ -251,6 +252,10 @@ describe("MCP-managed automation callers", () => {
       const { executeAgentToolCall } = await vi.importActual<
         typeof import("../agent/production-agent.js")
       >("../agent/production-agent.js");
+      const { runWithoutExecutionFence } =
+        await import("../agent/execution-fence.js");
+      const callTool = (options: Parameters<typeof executeAgentToolCall>[0]) =>
+        runWithoutExecutionFence(() => executeAgentToolCall(options));
       const { runAgentLoopDirectWithSoftTimeout } =
         await import("../agent/run-loop-with-resume.js");
       const appSend = vi.fn(async (_args, ctx) => ({
@@ -271,6 +276,31 @@ describe("MCP-managed automation callers", () => {
           mcpTool: false,
           run: async () => ({ sent: true }),
         }),
+        "public-unapproved-send": defineAction({
+          description:
+            "Send an exposed application message without an approval gate.",
+          run: async () => ({ sent: true }),
+        }),
+        "public-predicate-bypass": defineAction({
+          description:
+            "Send an application message with a conditional approval gate.",
+          needsApproval: () => false,
+          run: async () => ({ sent: true }),
+        }),
+        "public-read": defineAction({
+          description: "Read application messages.",
+          readOnly: true,
+          run: async () => ({ messages: [] }),
+        }),
+        "mixed-management": defineAction({
+          description: "List or update application messages.",
+          schema: z.object({ action: z.enum(["list", "update"]) }),
+          planMode: {
+            effect: (args) => (args.action === "list" ? "read" : "write"),
+          },
+          needsApproval: () => false,
+          run: async ({ action }) => ({ action }),
+        }),
       });
       const blocked = [
         "manage-jobs",
@@ -285,7 +315,7 @@ describe("MCP-managed automation callers", () => {
             if (mcpManaged) {
               expect(opts.actions[name]).toBeUndefined();
               await expect(
-                executeAgentToolCall({
+                callTool({
                   actions: opts.actions,
                   name,
                   callId: `blocked-${name}`,
@@ -304,6 +334,15 @@ describe("MCP-managed automation callers", () => {
             });
             expect(discovered.results).toEqual([]);
           }
+          expect(
+            await callTool({
+              actions: opts.actions,
+              name: "public-read",
+              callId: `public-read-${mcpManaged}`,
+              caller: opts.actionCaller,
+              requireWriteApproval: opts.requireWriteApproval,
+            }),
+          ).toMatchObject({ status: "completed" });
           const input = {};
           const invocation = {
             actions: opts.actions,
@@ -313,14 +352,43 @@ describe("MCP-managed automation callers", () => {
             ownerEmail: opts.ownerEmail,
             caller: opts.actionCaller,
             automation: opts.automation,
+            requireWriteApproval: opts.requireWriteApproval,
+            isToolAlwaysAllowed: vi.fn(async () => true),
           };
-          const first = await executeAgentToolCall(invocation);
+          for (const name of [
+            "public-unapproved-send",
+            "public-predicate-bypass",
+          ]) {
+            const result = await callTool({
+              ...invocation,
+              name,
+              callId: `${name}-${mcpManaged}`,
+            });
+            expect(result.status, name).toBe(
+              mcpManaged ? "approval_required" : "completed",
+            );
+          }
+          for (const action of ["list", "update"]) {
+            const result = await callTool({
+              ...invocation,
+              name: "mixed-management",
+              input: { action },
+              callId: `mixed-management-${action}-${mcpManaged}`,
+            });
+            expect(result.status, `${action}: ${result.output}`).toBe(
+              mcpManaged && action === "update"
+                ? "approval_required"
+                : "completed",
+            );
+          }
+          const first = await callTool(invocation);
           if (mcpManaged) {
             expect(first.status).toBe("approval_required");
+            expect(invocation.isToolAlwaysAllowed).not.toHaveBeenCalled();
             expect(appSend).not.toHaveBeenCalled();
             if (first.status !== "approval_required")
               throw new Error("Missing approval request");
-            const approved = await executeAgentToolCall({
+            const approved = await callTool({
               ...invocation,
               approvedToolCalls: [first.approvalKey],
               consumeApproval: async () => true,

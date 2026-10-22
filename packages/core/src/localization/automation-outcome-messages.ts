@@ -16,10 +16,13 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
     noOpInstruction: string;
     noOpReason: string;
     mcpApprovalUnavailable: string;
+    mcpTakeoverWhileRunning: string;
     chainingUnsupported: string;
   }
 > = {
   "en-US": {
+    mcpTakeoverWhileRunning:
+      "This automation is running. Wait for it to finish before managing it through MCP.",
     mcpApprovalUnavailable:
       "MCP-managed automations cannot use features without per-action approval.",
     chainingUnsupported: "An automation cannot run another automation.",
@@ -34,6 +37,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "The automation produced no message for its configured delivery destination.",
   },
   "es-ES": {
+    mcpTakeoverWhileRunning:
+      "Esta automatización se está ejecutando. Espera a que termine antes de gestionarla mediante MCP.",
     mcpApprovalUnavailable:
       "Las automatizaciones gestionadas por MCP no pueden usar funciones sin aprobación por acción.",
     chainingUnsupported:
@@ -49,6 +54,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "La automatización no produjo ningún mensaje para su destino de entrega configurado.",
   },
   "fr-FR": {
+    mcpTakeoverWhileRunning:
+      "Cette automatisation est en cours d’exécution. Attendez qu’elle se termine avant de la gérer via MCP.",
     mcpApprovalUnavailable:
       "Les automatisations gérées par MCP ne peuvent pas utiliser de fonctionnalités sans approbation pour chaque action.",
     chainingUnsupported:
@@ -65,6 +72,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "L’automatisation n’a produit aucun message pour sa destination de livraison configurée.",
   },
   "de-DE": {
+    mcpTakeoverWhileRunning:
+      "Diese Automatisierung wird gerade ausgeführt. Warten Sie, bis sie beendet ist, bevor Sie sie über MCP verwalten.",
     mcpApprovalUnavailable:
       "MCP-verwaltete Automatisierungen können keine Funktionen ohne Genehmigung für jede Aktion verwenden.",
     chainingUnsupported:
@@ -80,6 +89,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "Die Automatisierung hat keine Nachricht für ihr konfiguriertes Zustellungsziel erzeugt.",
   },
   "pt-BR": {
+    mcpTakeoverWhileRunning:
+      "Esta automação está em execução. Aguarde a conclusão antes de gerenciá-la pelo MCP.",
     mcpApprovalUnavailable:
       "Automações gerenciadas por MCP não podem usar recursos sem aprovação por ação.",
     chainingUnsupported: "Uma automação não pode executar outra automação.",
@@ -94,6 +105,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "A automação não produziu nenhuma mensagem para seu destino de entrega configurado.",
   },
   "zh-CN": {
+    mcpTakeoverWhileRunning:
+      "此自动化正在运行。请等待其完成后再通过 MCP 管理。",
     mcpApprovalUnavailable:
       "MCP 管理的自动化无法使用不支持逐项操作审批的功能。",
     chainingUnsupported: "自动化无法运行另一个自动化。",
@@ -105,6 +118,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
     emptyDelivery: "自动化未生成要发送到已配置目标的消息。",
   },
   "zh-TW": {
+    mcpTakeoverWhileRunning:
+      "此自動化正在執行。請等待其完成後再透過 MCP 管理。",
     mcpApprovalUnavailable:
       "MCP 管理的自動化無法使用不支援逐項操作核准的功能。",
     chainingUnsupported: "自動化無法執行另一個自動化。",
@@ -116,6 +131,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
     emptyDelivery: "自動化未產生要傳送到已設定目標的訊息。",
   },
   "ja-JP": {
+    mcpTakeoverWhileRunning:
+      "この自動化は実行中です。完了してから MCP 経由で管理してください。",
     mcpApprovalUnavailable:
       "MCP 管理の自動化では、操作ごとの承認に対応していない機能は使用できません。",
     chainingUnsupported: "自動化から別の自動化を実行することはできません。",
@@ -129,6 +146,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "自動化は設定された配信先へのメッセージを生成しませんでした。",
   },
   "ko-KR": {
+    mcpTakeoverWhileRunning:
+      "이 자동화가 실행 중입니다. 완료된 후 MCP를 통해 관리하세요.",
     mcpApprovalUnavailable:
       "MCP가 관리하는 자동화는 작업별 승인을 지원하지 않는 기능을 사용할 수 없습니다.",
     chainingUnsupported: "자동화는 다른 자동화를 실행할 수 없습니다.",
@@ -142,6 +161,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "자동화가 설정된 전송 대상에 보낼 메시지를 생성하지 않았습니다.",
   },
   "hi-IN": {
+    mcpTakeoverWhileRunning:
+      "यह ऑटोमेशन चल रहा है। MCP के माध्यम से इसे प्रबंधित करने से पहले इसके पूरा होने की प्रतीक्षा करें।",
     mcpApprovalUnavailable:
       "MCP द्वारा प्रबंधित ऑटोमेशन उन सुविधाओं का उपयोग नहीं कर सकते जो हर कार्रवाई के लिए अनुमोदन का समर्थन नहीं करतीं।",
     chainingUnsupported: "एक ऑटोमेशन दूसरा ऑटोमेशन नहीं चला सकता।",
@@ -156,6 +177,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "ऑटोमेशन ने अपने कॉन्फ़िगर किए गए डिलीवरी गंतव्य के लिए कोई संदेश नहीं बनाया।",
   },
   "ar-SA": {
+    mcpTakeoverWhileRunning:
+      "هذه الأتمتة قيد التشغيل. انتظر حتى تنتهي قبل إدارتها عبر MCP.",
     mcpApprovalUnavailable:
       "لا يمكن للأتمتة المُدارة عبر MCP استخدام ميزات لا تدعم الموافقة على كل إجراء.",
     chainingUnsupported: "لا يمكن لأتمتة تشغيل أتمتة أخرى.",

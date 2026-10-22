@@ -1,4 +1,3 @@
-import { actionExecutionStorage } from "../action-frame.js";
 import type { ActionCaller } from "../action.js";
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
@@ -22,6 +21,7 @@ import {
   prepareAutomationRunsDelete,
 } from "../jobs/run-history.js";
 import { applyJobResourceEdit } from "../jobs/update-job-resource.js";
+import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   organizationIdFromResourceOwner,
@@ -58,6 +58,7 @@ import {
   resolveAutomationAccess,
   type AccessibleAutomation,
 } from "./access.js";
+import { isMcpAutomationOrigin } from "./mcp-origin.js";
 import {
   deleteAutomationSharingStateWithDb,
   ensureAutomationSharingTables,
@@ -199,20 +200,9 @@ function normalizeExecutionTarget(
 function normalizeActor(actor: AutomationActor): AutomationActor {
   const userEmail = actor.userEmail.trim().toLowerCase();
   if (!userEmail) throw httpError("Not authenticated.", 401);
-  let caller = actor.caller;
-  for (
-    let frame = actionExecutionStorage?.getStore()?.frame;
-    frame;
-    frame = frame.parent
-  ) {
-    if (frame.context?.caller === "mcp") {
-      caller = "mcp";
-      break;
-    }
-  }
   return {
     userEmail,
-    caller,
+    caller: isMcpAutomationOrigin(actor.caller) ? "mcp" : actor.caller,
     orgId: actor.orgId?.trim() || null,
     appId: actor.appId?.trim() || null,
   };
@@ -913,6 +903,16 @@ export async function updateAutomation(
   }
 
   const currentMeta = { ...definition.meta };
+  const mcpMessages =
+    actor.caller === "mcp"
+      ? await automationOutcomeMessagesForUser(actor.userEmail)
+      : undefined;
+  const assertMcpTakeoverAllowed = (latest: JobFrontmatter) => {
+    if (mcpMessages && !latest.mcpManaged && latest.lastStatus === "running") {
+      throw httpError(mcpMessages.mcpTakeoverWhileRunning, 409);
+    }
+  };
+  assertMcpTakeoverAllowed(currentMeta);
   const meta: AutomationDefinition["meta"] = { ...currentMeta };
   const fields: JobFrontmatterPatch = {};
   if (actor.caller === "mcp") {
@@ -1171,6 +1171,7 @@ export async function updateAutomation(
   );
   const deriveFields = (baseContent: string): JobFrontmatterPatch => {
     const latest = parseJobResource(baseContent).meta;
+    assertMcpTakeoverAllowed(latest);
     const derived = { ...fields };
     if (triggerType === "schedule" && fields.nextRun !== undefined) {
       const writeSchedule = input.schedule !== undefined || triggerChanged;

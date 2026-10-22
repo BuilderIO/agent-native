@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { isMcpAutomationOrigin } from "../../automations/mcp-origin.js";
 import {
   defineAutomation,
   deleteAutomation,
@@ -86,7 +87,7 @@ export default defineAction({
   description:
     "Create, update, or delete an automation from the Agent Automations page. Existing automations are addressed by stable resourceId; name and scope remain compatibility inputs.",
   agentTool: false,
-  needsApproval: (_input, ctx) => ctx?.caller === "mcp",
+  needsApproval: (_input, ctx) => isMcpAutomationOrigin(ctx?.caller),
   schema,
   run: async (input, ctx) => {
     const userEmail = ctx?.userEmail;
