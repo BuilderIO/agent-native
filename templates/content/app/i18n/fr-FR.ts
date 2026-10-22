@@ -138,6 +138,8 @@ const database = {
     "Récupération des modifications : {{done}} fichiers sur {{total}}",
   githubPicturesWaiting:
     "Certaines images ne s’afficheront pas tant qu’un administrateur de l’espace de travail n’aura pas configuré le stockage de fichiers.",
+  githubPicturesNotSaved:
+    "Certaines images n’ont pas pu être enregistrées dans le stockage de fichiers. Elles s’afficheront d’elles-mêmes dès qu’il fonctionnera de nouveau.",
   githubReconnect: "Reconnecter GitHub",
   githubProblemConnection:
     "Mises à jour arrêtées : GitHub vous demande de vous reconnecter.",

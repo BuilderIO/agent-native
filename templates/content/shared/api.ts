@@ -1029,7 +1029,7 @@ export interface ContentGitHubSourceStatus {
   skipped: Array<{ path: string; reason: GitHubSourceSkipReason }>;
   /** How many files were skipped in all. */
   skippedCount: number;
-  /** Images not shown yet because file storage isn't set up. */
+  /** Images not shown yet because file storage isn't set up or failed. */
   imagesWaiting: number;
   problem: {
     code: GitHubSourceProblemCode;

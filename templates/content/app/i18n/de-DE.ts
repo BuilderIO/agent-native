@@ -137,6 +137,8 @@ const database = {
     "Änderungen werden geholt: {{done}} von {{total}} Dateien",
   githubPicturesWaiting:
     "Einige Bilder werden erst angezeigt, wenn ein Admin des Arbeitsbereichs den Dateispeicher einrichtet.",
+  githubPicturesNotSaved:
+    "Einige Bilder konnten nicht im Dateispeicher gespeichert werden. Sie erscheinen von selbst, sobald er wieder funktioniert.",
   githubReconnect: "GitHub erneut verbinden",
   githubProblemConnection:
     "Aktualisierung gestoppt: Du musst dich erneut bei GitHub anmelden.",

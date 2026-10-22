@@ -206,6 +206,7 @@ const PROBLEM_STATUS: Record<GitHubSourceProblemCode, number> = {
   unavailable: 502,
   sync_failed: 500,
   storage_unavailable: 503,
+  storage_failed: 503,
 };
 
 /** Gives a GitHub read failure the error code and status agents act on. */
@@ -670,7 +671,7 @@ interface RowState {
   frontmatterId: string | null;
   /** Images uploaded for this page, by folder-relative path. */
   assets: Record<string, { sha: string; url: string }>;
-  /** Images left out because file storage isn't set up; retried once it is. */
+  /** Images left out because file storage isn't set up or failed; retried later. */
   imagesWaiting?: number;
 }
 
@@ -734,7 +735,7 @@ export interface GitHubSyncResult {
   renamed: number;
   trashed: number;
   remaining: number;
-  /** Images left out because file storage isn't set up. */
+  /** Images left out because file storage isn't set up or failed. */
   imagesWaiting: number;
   problem: GitHubSourceState["problem"];
 }
@@ -778,17 +779,29 @@ export function unexpectedSyncFailure(at: string): GitHubSyncResult {
   return emptyResult("error", null, unexpectedProblem(at));
 }
 
-/** The status problem for images a sync couldn't store, if there are any. */
+/**
+ * The status problem for images a sync couldn't store, if there are any:
+ * storage isn't set up, or `failed` when it's set up but couldn't save them.
+ */
 function storageProblem(
   imagesWaiting: number,
   at: string,
+  failed = false,
 ): GitHubSourceState["problem"] {
   if (imagesWaiting === 0) return null;
-  return {
-    code: "storage_unavailable",
-    message: `${imagesWaiting === 1 ? "1 image isn't" : `${imagesWaiting} images aren't`} shown because file storage isn't set up. Connect storage in Settings → File uploads; the next sync adds ${imagesWaiting === 1 ? "it" : "them"}.`,
-    at,
-  };
+  const images =
+    imagesWaiting === 1 ? "1 image isn't" : `${imagesWaiting} images aren't`;
+  return failed
+    ? {
+        code: "storage_failed",
+        message: `${images} shown because file storage couldn't save images. The next sync tries again.`,
+        at,
+      }
+    : {
+        code: "storage_unavailable",
+        message: `${images} shown because file storage isn't set up. Connect storage in Settings → File uploads; the next sync adds ${imagesWaiting === 1 ? "it" : "them"}.`,
+        at,
+      };
 }
 
 async function readSource(sourceId: string) {
@@ -927,6 +940,8 @@ interface SyncRun {
   assetUrlBySha: Map<string, string>;
   /** Set once an upload finds no file storage, so later images skip the read. */
   storageMissing: boolean;
+  /** Set once an upload fails, such as storage that's down; later images wait too. */
+  storageFailed: boolean;
   now: string;
   actor: string;
   /** Aborts GitHub requests once the sync's time budget runs out. */
@@ -949,8 +964,34 @@ function folderRelative(run: SyncRun, repoPath: string) {
 }
 
 /**
- * Copies one image into Content's file storage. `"no-storage"` means none is
- * set up, so the page leaves the image out until a later sync can store it.
+ * Stores one image's bytes, or returns null when storage isn't set up or
+ * failed. Either way the run stops uploading, so storage that's down doesn't
+ * use up the sync's time, and a later sync tries again.
+ */
+async function storeImage(
+  run: SyncRun,
+  file: Omit<Parameters<typeof uploadFile>[0], "ownerEmail">,
+): Promise<string | null> {
+  try {
+    const uploaded = await asLinker(run.state, run.database.orgId, () =>
+      uploadFile({ ...file, ownerEmail: run.database.ownerEmail }),
+    );
+    if (uploaded?.url) return uploaded.url;
+    run.storageMissing = true;
+  } catch (error) {
+    console.warn(
+      "[github-source] couldn't save an image to file storage; the next sync tries again:",
+      error instanceof Error ? error.message : String(error),
+    );
+    run.storageFailed = true;
+  }
+  return null;
+}
+
+/**
+ * Copies one image into Content's file storage. `"no-storage"` means storage
+ * isn't set up or failed, so the page leaves the image out until a later sync
+ * can store it.
  */
 async function uploadAsset(
   run: SyncRun,
@@ -963,22 +1004,16 @@ async function uploadAsset(
     const sha = hash(request.dataUrl);
     const cached = run.assetUrlBySha.get(sha);
     if (cached) return { sha, url: cached };
-    if (run.storageMissing) return "no-storage";
+    if (run.storageMissing || run.storageFailed) return "no-storage";
     const extension = request.mediaType.split("/")[1]?.split("+")[0] ?? "img";
-    const uploaded = await asLinker(run.state, run.database.orgId, () =>
-      uploadFile({
-        data,
-        filename: `github-image.${extension}`,
-        mimeType: request.mediaType,
-        ownerEmail: run.database.ownerEmail,
-      }),
-    );
-    if (!uploaded?.url) {
-      run.storageMissing = true;
-      return "no-storage";
-    }
-    run.assetUrlBySha.set(sha, uploaded.url);
-    return { sha, url: uploaded.url };
+    const url = await storeImage(run, {
+      data,
+      filename: `github-image.${extension}`,
+      mimeType: request.mediaType,
+    });
+    if (!url) return "no-storage";
+    run.assetUrlBySha.set(sha, url);
+    return { sha, url };
   }
   const entry = run.files.blobs.get(request.path);
   const mimeType = importImageMediaType(request.path);
@@ -988,7 +1023,7 @@ async function uploadAsset(
   }
   const cached = run.assetUrlBySha.get(entry.sha);
   if (cached) return { sha: entry.sha, url: cached };
-  if (run.storageMissing) return "no-storage";
+  if (run.storageMissing || run.storageFailed) return "no-storage";
   const data = await asLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
       owner: run.state.owner,
@@ -998,20 +1033,14 @@ async function uploadAsset(
       signal: run.signal,
     }),
   );
-  const uploaded = await asLinker(run.state, run.database.orgId, () =>
-    uploadFile({
-      data,
-      filename: request.path.split("/").pop() ?? "image",
-      mimeType,
-      ownerEmail: run.database.ownerEmail,
-    }),
-  );
-  if (!uploaded?.url) {
-    run.storageMissing = true;
-    return "no-storage";
-  }
-  run.assetUrlBySha.set(entry.sha, uploaded.url);
-  return { sha: entry.sha, url: uploaded.url };
+  const url = await storeImage(run, {
+    data,
+    filename: request.path.split("/").pop() ?? "image",
+    mimeType,
+  });
+  if (!url) return "no-storage";
+  run.assetUrlBySha.set(entry.sha, url);
+  return { sha: entry.sha, url };
 }
 
 /**
@@ -1838,6 +1867,7 @@ export async function syncGitHubSource(
       documentIdByPath: new Map(),
       assetUrlBySha,
       storageMissing: false,
+      storageFailed: false,
       now,
       actor: state.linkedBy,
       signal: budget.signal,
@@ -1917,6 +1947,17 @@ export async function syncGitHubSource(
     let cutShortPath: string | null = null;
     for (const file of work) {
       if (outOfTime()) break;
+      // Once storage fails, a page rebuilt only to add its images would come
+      // out the same, so it waits for a later sync without reading GitHub.
+      if (
+        run.storageFailed &&
+        file.row &&
+        rowState(file.row)?.blobSha === file.entry.sha
+      ) {
+        result.unchanged += 1;
+        done += 1;
+        continue;
+      }
       let outcome: Awaited<ReturnType<typeof applyFile>>;
       try {
         if (!file.row && !file.renamedFrom && goneById.size > 0) {
@@ -1980,10 +2021,11 @@ export async function syncGitHubSource(
     }, 0);
     // Storage that just worked isn't missing, even if the time budget left
     // some pages for the next sync to fill in.
-    const storageReady = retryImages && !run.storageMissing;
+    const storageReady =
+      retryImages && !run.storageMissing && !run.storageFailed;
     result.problem = storageReady
       ? null
-      : storageProblem(result.imagesWaiting, now);
+      : storageProblem(result.imagesWaiting, now, run.storageFailed);
     const complete = result.remaining === 0;
     result.state = complete ? "synced" : "partial";
     // A run that got through some files isn't a finished check, so the
@@ -2258,7 +2300,8 @@ export function githubSyncSummary(label: string, result: GitHubSyncResult) {
     return `${label} is already syncing; its rows update when that sync finishes.`;
   }
   const waiting =
-    result.problem?.code === "storage_unavailable"
+    result.problem?.code === "storage_unavailable" ||
+    result.problem?.code === "storage_failed"
       ? ` ${result.problem.message}`
       : "";
   if (result.state === "unchanged") {

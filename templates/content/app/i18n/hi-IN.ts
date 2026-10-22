@@ -128,6 +128,8 @@ const database = {
   githubSyncingProgress: "बदलाव लाए जा रहे हैं: {{total}} में से {{done}} फ़ाइलें",
   githubPicturesWaiting:
     "जब तक वर्कस्पेस एडमिन फ़ाइल स्टोरेज सेट नहीं करते, तब तक कुछ इमेज नहीं दिखेंगी।",
+  githubPicturesNotSaved:
+    "कुछ इमेज फ़ाइल स्टोरेज में सेव नहीं हो सकीं। स्टोरेज फिर से काम करने पर ये अपने आप दिखने लगेंगी।",
   githubReconnect: "GitHub फिर से कनेक्ट करें",
   githubProblemConnection: "अपडेट रुक गए: GitHub चाहता है कि आप फिर से साइन इन करें।",
   githubProblemForbidden:

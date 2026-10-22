@@ -134,6 +134,8 @@ const database = {
   githubSyncingProgress: "Trazendo mudanças: {{done}} de {{total}} arquivos",
   githubPicturesWaiting:
     "Algumas imagens só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
+  githubPicturesNotSaved:
+    "Algumas imagens não puderam ser salvas no armazenamento de arquivos. Elas vão aparecer sozinhas quando ele voltar a funcionar.",
   githubReconnect: "Reconectar GitHub",
   githubProblemConnection:
     "Atualizações interrompidas: o GitHub precisa que você faça login de novo.",

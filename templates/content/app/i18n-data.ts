@@ -135,6 +135,8 @@ const databaseMessages = {
   githubSyncingProgress: "Bringing in changes: {{done}} of {{total}} files",
   githubPicturesWaiting:
     "Some pictures won’t show until a workspace admin sets up file storage.",
+  githubPicturesNotSaved:
+    "Some pictures couldn’t be saved to file storage. They’ll show up on their own once it works again.",
   githubReconnect: "Reconnect GitHub",
   githubProblemConnection:
     "Stopped updating: GitHub needs you to sign in again.",

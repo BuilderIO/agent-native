@@ -60,7 +60,7 @@ export interface GitHubSourceState extends GitHubFolderLocation {
    * file at most, so a link never keeps more than 2,000.
    */
   readSkips: GitHubReadSkip[];
-  /** Images rows couldn't store yet because file storage isn't set up. */
+  /** Images rows couldn't store yet because file storage isn't set up or failed. */
   imagesWaiting: number;
   problem: {
     code: GitHubSourceProblemCode;

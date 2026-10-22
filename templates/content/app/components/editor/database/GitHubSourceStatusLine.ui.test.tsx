@@ -301,6 +301,18 @@ describe("GitHub source status line", () => {
     );
   });
 
+  it("says when file storage is set up but couldn't save pictures", () => {
+    renderLine(
+      githubSource({ problem: problem("storage_failed"), imagesWaiting: 2 }),
+    );
+    expect(document.querySelector('[role="alert"]')).toBe(null);
+    expect(statusLine().textContent).toContain(
+      "Some pictures couldn’t be saved to file storage. They’ll show up on their own once it works again.",
+    );
+    expect(statusLine().textContent).not.toContain("sets up file storage");
+    expect(statusLine().textContent).not.toContain("Updates are paused");
+  });
+
   it("shows how far an update has got", () => {
     renderLine(
       githubSource({

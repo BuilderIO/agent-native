@@ -377,9 +377,16 @@ function GitHubStatusLineContent({
   const actions = problem && stops ? problemActions(problem.code) : null;
   const syncing = !!status.pendingCommitSha && !!status.progress;
   // Pictures waiting on storage are a note, not a stop: the pages still update.
+  const storageFailed = problem?.code === "storage_failed";
   const picturesWaiting =
-    problem?.code === "storage_unavailable" || status.imagesWaiting > 0;
-  const paused = !!problem && !stops && problem.code !== "storage_unavailable";
+    problem?.code === "storage_unavailable" ||
+    storageFailed ||
+    status.imagesWaiting > 0;
+  const paused =
+    !!problem &&
+    !stops &&
+    problem.code !== "storage_unavailable" &&
+    !storageFailed;
   const openUnlink = () => {
     onDetailsOpenChange(false);
     onUnlinkOpenChange(true);
@@ -543,7 +550,9 @@ function GitHubStatusLineContent({
 
       {picturesWaiting ? (
         <div className="break-words text-muted-foreground">
-          {dbText("githubPicturesWaiting")}
+          {dbText(
+            storageFailed ? "githubPicturesNotSaved" : "githubPicturesWaiting",
+          )}
         </div>
       ) : null}
 

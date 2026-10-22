@@ -34,6 +34,9 @@ const github = vi.hoisted(() => {
     blobReads: 0,
     uploads: 0,
     noStorage: false,
+    /** Storage is set up but every upload throws, as a bucket that's down does. */
+    storageDown: false,
+    uploadFailures: 0,
     /** Runs once, during the next blob read, to race something against a sync. */
     duringBlobRead: null as null | (() => Promise<void>),
     /** Blob reads after this many wait until the sync's time runs out. */
@@ -57,6 +60,8 @@ const github = vi.hoisted(() => {
       state.blobReads = 0;
       state.uploads = 0;
       state.noStorage = false;
+      state.storageDown = false;
+      state.uploadFailures = 0;
       state.duringBlobRead = null;
       state.hangAfterBlobReads = null;
       state.slowContents.clear();
@@ -220,6 +225,10 @@ vi.mock("@agent-native/core/file-upload", () => ({
     github.state.noStorage ? null : { id: "test" },
   uploadFile: async (input: { filename: string }) => {
     if (github.state.noStorage) return null;
+    if (github.state.storageDown) {
+      github.state.uploadFailures += 1;
+      throw new Error("S3 PutObject failed (503): Service Unavailable");
+    }
     github.state.uploads += 1;
     return {
       url: `https://files.example.test/${github.state.uploads}/${input.filename}`,
@@ -1612,6 +1621,95 @@ describe("GitHub folder source", () => {
     });
     const settled = await as(() => syncFolder.run({ databaseId: database.id }));
     expect(settled.sync.state).toBe("unchanged");
+  });
+
+  it("fills pages without their images while file storage fails, then adds them once it works", async () => {
+    github.state.storageDown = true;
+    github.commit({
+      ...BASE_FILES,
+      "docs/chart.md": "# Chart\n\n![Chart](images/chart.png)\n",
+      "docs/images/chart.png": "PNGCHART",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const linked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      expect(linked.sync).toMatchObject({
+        state: "synced",
+        created: 4,
+        imagesWaiting: 2,
+        problem: { code: "storage_failed" },
+      });
+      expect(linked.sync.problem?.message).toBe(
+        "2 images aren't shown because file storage couldn't save images. The next sync tries again.",
+      );
+      // The first failure ends the run's uploads, so the other image isn't tried.
+      expect(github.state.uploadFailures).toBe(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("couldn't save an image to file storage"),
+        "S3 PutObject failed (503): Service Unavailable",
+      );
+      const before = await liveRows(database.id);
+      expect(before).toHaveLength(4);
+      for (const row of before) {
+        expect(row.content).not.toContain("files.example.test");
+      }
+      const waiting = await as(() =>
+        getSource.run({ databaseId: database.id }),
+      );
+      expect(waiting.source?.metadata.github).toMatchObject({
+        imagesWaiting: 2,
+        problem: { code: "storage_failed" },
+      });
+
+      // Still down: a sync tries one image again, and leaves the other page
+      // unread, since rebuilding it without its image changes nothing.
+      const readsBefore = github.state.blobReads;
+      const still = await as(() => syncFolder.run({ databaseId: database.id }));
+      expect(still.sync).toMatchObject({
+        state: "synced",
+        updated: 0,
+        unchanged: 4,
+        imagesWaiting: 2,
+        problem: { code: "storage_failed" },
+      });
+      expect(github.state.uploadFailures).toBe(2);
+      expect(github.state.blobReads - readsBefore).toBe(2);
+
+      github.state.storageDown = false;
+      const filled = await as(() =>
+        syncFolder.run({ databaseId: database.id }),
+      );
+      expect(filled.sync).toMatchObject({
+        state: "synced",
+        updated: 2,
+        unchanged: 2,
+        imagesWaiting: 0,
+        problem: null,
+      });
+      const after = await liveRows(database.id);
+      expect(after.map((row) => row.documentId).sort()).toEqual(
+        before.map((row) => row.documentId).sort(),
+      );
+      const content = after.map((row) => row.content).join("\n");
+      expect(content).toMatch(
+        /https:\/\/files\.example\.test\/\d+\/diagram\.png/,
+      );
+      expect(content).toMatch(
+        /https:\/\/files\.example\.test\/\d+\/chart\.png/,
+      );
+      const healthy = await as(() =>
+        getSource.run({ databaseId: database.id }),
+      );
+      expect(healthy.source?.metadata.github).toMatchObject({
+        imagesWaiting: 0,
+        problem: null,
+      });
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("keeps general source settings off a GitHub link, and disconnecting frees its pages", async () => {
