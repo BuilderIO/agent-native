@@ -4,9 +4,11 @@
  * are further requests: they repeat its `turn_id` as `initiator: "system"`, so
  * count turns by distinct `turn_id`, and the turns people started by
  * `initiator` `user` or `app`. A request refused for a busy run slot and then
- * queued is counted once, by the queued request that ran; a replay of a
- * finished turn is not counted. A send routed to Builder or an MCP host never
- * starts a local turn; it is reported with `routed_to` and no `turn_id`.
+ * queued is counted once when the browser promotes it, and not yet when the
+ * server's inbox drain admits it. A replay is not counted, including a retry
+ * the server answers with the run it already started. A send routed to
+ * Builder or an MCP host never starts a local turn; it is reported with
+ * `routed_to` and no `turn_id`, also when the host has not confirmed it.
  * Never the message text.
  */
 export const TURN_SUBMITTED_EVENT = "agent_turn_submitted";

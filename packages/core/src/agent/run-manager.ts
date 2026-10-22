@@ -736,6 +736,9 @@ function emitRunTerminalTrackingEvent(args: {
   } catch {
     // Metrics must never affect the agent run or its persisted status.
   }
+  // An abort is reported by the SQL write that ended the row, which may be
+  // another process's stop; reporting it here too would double-count it.
+  if (args.status === "aborted") return;
   void trackRunTerminal(
     {
       runId: args.runId,
@@ -2484,14 +2487,7 @@ export function startRun(
       // protect. `persistedStatus` (not `finalStatus`) is used so a
       // continuation boundary reports as "truncated" rather than a false
       // "completed" — that distinction is the whole point of this event.
-      // An abort is reported by the SQL write that ended the row, which may
-      // be another process's stop; this process reporting it too would
-      // double-count every stopped run.
-      if (
-        terminalPersistenceEstablished &&
-        !executionLeaseClaimFailed &&
-        finalStatus !== "aborted"
-      ) {
+      if (terminalPersistenceEstablished) {
         emitRunTerminalTrackingEvent({
           runId,
           threadId,

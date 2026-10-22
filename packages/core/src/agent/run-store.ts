@@ -5493,7 +5493,7 @@ type SqlRunEnding = Pick<
 interface SqlEndedRun {
   runId: string;
   ending: SqlRunEnding;
-  /** The ending UPDATE's RETURNING row, when the driver returned one. */
+  /** The ending UPDATE's RETURNING row; without it nothing is sent. */
   row: EndedRunRow | undefined;
 }
 
@@ -5547,17 +5547,9 @@ function trackRunsEndedInSql(endedRuns: SqlEndedRun[]): void {
 }
 
 async function sendSqlEndedRunTerminals(runs: SqlEndedRun[]): Promise<void> {
-  const client = getDbExec();
   await Promise.all(
     runs.map(async (run) => {
-      const row =
-        run.row ??
-        ((
-          await client.execute({
-            sql: `SELECT ${ENDED_RUN_COLUMNS} FROM agent_runs WHERE id = ?`,
-            args: [run.runId],
-          })
-        ).rows?.[0] as EndedRunRow | undefined);
+      const row = run.row;
       if (typeof row?.thread_id !== "string") {
         console.error(
           "[run-store] agent_run_terminal was not sent: ended run row is unreadable:",

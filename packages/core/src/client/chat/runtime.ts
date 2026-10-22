@@ -1601,6 +1601,7 @@ export function createHttpAgentChatRuntime<
               },
             ),
             turnId,
+            requestTurnId,
           );
         }
         cleanup();

@@ -24,7 +24,19 @@ afterAll(async () => {
   await pglite.close();
 });
 
-function execute(input: Parameters<DbExec["execute"]>[0]) {
+// Holds a read of a turn's initiator made outside the ending write until the
+// test releases it, so a prune in the same pass can land first.
+let initiatorReadGate: Promise<void> | null = null;
+
+async function execute(input: Parameters<DbExec["execute"]>[0]) {
+  if (
+    initiatorReadGate &&
+    typeof input !== "string" &&
+    /^\s*SELECT\b/i.test(input.sql) &&
+    input.sql.includes("agent_turn_initiators")
+  ) {
+    await initiatorReadGate;
+  }
   if (typeof input === "string") {
     return pglite.exec(input).then(() => ({ rows: [], rowsAffected: 0 }));
   }
@@ -239,8 +251,15 @@ describe("reaped runs emit agent_run_terminal", () => {
     const first = await seedRun({ ageMs: 3 * 24 * 60 * 60_000 });
     const second = await seedRun({ ageMs: 3 * 24 * 60 * 60_000 });
     handedWork = [];
+    let releaseReads!: () => void;
+    initiatorReadGate = new Promise((resolve) => (releaseReads = resolve));
 
-    await cleanupOldRuns(24 * 60 * 60_000);
+    try {
+      await cleanupOldRuns(24 * 60 * 60_000);
+    } finally {
+      initiatorReadGate = null;
+      releaseReads();
+    }
     await settledEvents();
 
     // One send for the whole sweep, not one per reaped run.
