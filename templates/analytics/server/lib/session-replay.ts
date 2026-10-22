@@ -728,9 +728,14 @@ async function storeReplayChunkBlob(
     ownerEmail: string;
     orgId: string | null;
   },
-): Promise<{ chunk: NormalizedSessionReplayChunk; storedBytes: number }> {
+): Promise<{
+  chunk: NormalizedSessionReplayChunk;
+  storedBytes: number | null;
+}> {
+  // A blob the client stored itself declares its own size, which the server
+  // never measures, so it reports no stored size.
   if (chunk.storageKind === "blob" || !chunk.inlineData) {
-    return { chunk, storedBytes: chunk.byteLength };
+    return { chunk, storedBytes: null };
   }
 
   const gzipBytes = gzipSync(Buffer.from(chunk.inlineData, "utf8"));
@@ -1836,9 +1841,10 @@ export async function recordSessionReplayChunks(
   // The usage row reserves the request's size while chunks upload, so
   // concurrent ingests see it, then settles at the gzipped bytes actually
   // stored. Cross-origin uploads arrive uncompressed and would otherwise count
-  // several times what they cost to keep.
+  // several times what they cost to keep. A request carrying client-stored
+  // blobs keeps its reservation, since their sizes are only what it declares.
   const reservedBytes = replayIngestByteLength(clampedInput, context);
-  let storedBytes = 0;
+  let storedBytes: number | null = 0;
   try {
     await db.insert(schema.sessionReplayIngests).values({
       id: ingestId,
@@ -1882,7 +1888,10 @@ export async function recordSessionReplayChunks(
           }),
       );
       const chunk = stored.chunk;
-      storedBytes += stored.storedBytes;
+      storedBytes =
+        storedBytes === null || stored.storedBytes === null
+          ? null
+          : storedBytes + stored.storedBytes;
       if (rawChunk.storageKind !== "blob" && chunk.storageKind === "blob") {
         const ref = decodeReplayBlobRef(chunk.storageRef);
         if (ref) uploadedBlobHandles.push(ref.handle);
@@ -2073,7 +2082,10 @@ export async function recordSessionReplayChunks(
       }
       errorCount = persistedErrorCount;
       rageClickCount = persistedRageClickCount;
-      const settledBytes = Math.min(reservedBytes, storedBytes);
+      const settledBytes =
+        storedBytes === null
+          ? reservedBytes
+          : Math.min(reservedBytes, storedBytes);
       if (settledBytes !== reservedBytes) {
         await tx
           .update(schema.sessionReplayIngests)

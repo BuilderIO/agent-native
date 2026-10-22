@@ -3402,6 +3402,47 @@ describe("session replay ingest parsing", () => {
     ).toEqual([]);
   });
 
+  it("keeps the reservation when a chunk is a blob the client stored", async () => {
+    const storageRef = JSON.stringify({
+      kind: "agent-native.session-replay.private-blob",
+      version: 1,
+      compression: "gzip",
+      handle: { opaque: "client-blob-1" },
+    });
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      chunks: [
+        {
+          seq: 0,
+          storageRef,
+          byteLength: 1,
+          eventCount: 1,
+          checksum: "client_checksum_1",
+        },
+      ],
+    });
+    const { db, inserts, updates } = createReplayDbMock(
+      replayIngestKeyDbResults(null),
+    );
+    getDbMock.mockReturnValue(db);
+
+    await recordSessionReplayChunks(input, {
+      origin: "https://app.example.com",
+      requestBytes: 4_000,
+    });
+
+    expect(putPrivateBlobMock).not.toHaveBeenCalled();
+    expect(
+      inserts.find((entry) => entry.table === schema.sessionReplayIngests)
+        ?.values,
+    ).toEqual(expect.objectContaining({ byteLength: 4_000 }));
+    expect(
+      updates.filter((entry) => entry.table === schema.sessionReplayIngests),
+    ).toEqual([]);
+  });
+
   it("adds signals for newly stored chunks once across batches and retries", async () => {
     const consoleError = (timestamp: number, repeat: number) => ({
       type: 5,
