@@ -817,6 +817,34 @@ describe("update-event approval gate", () => {
     ).toBe(true);
   });
 
+  it.each([true, false])(
+    "uses the series master's attendees for all occurrences (guests=%s)",
+    async (hasGuests) => {
+      getEventMock.mockImplementation(async (id: string) =>
+        id === "series"
+          ? { attendees: hasGuests ? [{ email: "guest@example.com" }] : [] }
+          : {
+              recurringEventId: "series",
+              attendees: hasGuests ? [] : [{ email: "exception@example.com" }],
+            },
+      );
+      expect(
+        await gate({
+          id: "google-exception",
+          scope: "all",
+          sendUpdates: "all",
+        }),
+      ).toBe(hasGuests);
+      expect(
+        await gate({
+          id: "google-exception",
+          scope: "single",
+          sendUpdates: "all",
+        }),
+      ).toBe(!hasGuests);
+    },
+  );
+
   it("gates adding a guest, which invites them by default", async () => {
     expect(
       await gate({

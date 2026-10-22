@@ -227,6 +227,7 @@ export default defineAction({
   needsApproval: async ({
     id,
     accountEmail: requestedAccountEmail,
+    scope,
     sendUpdates,
     notificationMessage,
     targetAccountEmail,
@@ -247,13 +248,19 @@ export default defineAction({
       resolveGoogleEventAccountEmail(id, requestedAccountEmail),
       ownerEmail,
     );
-    const event = await googleCalendar.getEvent(
+    let event = await googleCalendar.getEvent(
       normalizeWritableGoogleEventId(id),
       {
         ownerEmail,
         accountEmail,
       },
     );
+    if (scope === "all" && event.recurringEventId) {
+      event = await googleCalendar.getEvent(event.recurringEventId, {
+        ownerEmail,
+        accountEmail,
+      });
+    }
     return (event.attendees?.length ?? 0) > 0;
   },
   run: async (args, actionContext?: ActionRunContext) => {
