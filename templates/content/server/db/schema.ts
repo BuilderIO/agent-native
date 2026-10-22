@@ -20,6 +20,8 @@ export const documents = table("documents", {
   bodyRevision: integer("body_revision").notNull().default(0),
   collabBodyRevision: integer("collab_body_revision"),
   liveBodySwitchedAt: text("live_body_switched_at"),
+  // `_collab_docs.version` the stored body was last derived from.
+  liveCopyVersion: integer("live_copy_version"),
   description: text("description").notNull().default(""),
   icon: text("icon"),
   position: integer("position").notNull().default(0),

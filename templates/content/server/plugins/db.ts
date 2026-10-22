@@ -1481,6 +1481,11 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 125,
+      name: "content-live-copy-version",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_copy_version INTEGER`,
+    },
+    {
+      version: 126,
       name: "builder-private-payload-cleanup-queue",
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_id TEXT;
         ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_name TEXT;
@@ -1493,7 +1498,7 @@ export const runContentMigrations = runMigrations(
         )`,
     },
     {
-      version: 126,
+      version: 127,
       name: "builder-private-payload-cleanup-retries",
       sql: `ALTER TABLE content_database_builder_blob_cleanup
           ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
