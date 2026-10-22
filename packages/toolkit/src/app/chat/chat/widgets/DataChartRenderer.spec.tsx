@@ -207,6 +207,26 @@ describe("DataChartRenderer theme colors", () => {
     expect(markup).toContain(">0.0000000001</text>");
   });
 
+  it("preserves precision for allowed intervals with fractional coefficients", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Monday", value: 0 },
+            { day: "Tuesday", value: 3.6e-12 },
+          ],
+          valueAxisTickInterval: 1.2e-12,
+        }}
+      />,
+    );
+
+    expect(markup).toContain(">0.0000000000012</text>");
+    expect(markup).toContain(">0.0000000000024</text>");
+  });
+
   it("reserves room for custom decimal value-axis labels", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer

@@ -44,9 +44,9 @@ function formatAxisTick(value: number, interval: number): string {
     .toString()
     .toLowerCase()
     .split("e");
-  const decimalPlaces = Math.min(
-    12,
-    Math.max(0, (mantissa.split(".")[1]?.length ?? 0) - Number(exponent)),
+  const decimalPlaces = Math.max(
+    0,
+    (mantissa.split(".")[1]?.length ?? 0) - Number(exponent),
   );
   if (Math.abs(value) >= 1000) {
     return value.toLocaleString(undefined, {
