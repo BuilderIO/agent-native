@@ -245,18 +245,20 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
   }, [sessionId]);
 
   // One save at a time, since each writes the same temporary file: a flush
-  // waits for the save before it, then saves whatever is newest.
+  // waits for the save before it, then saves until no edit is pending, so an
+  // edit made during a save is written before the flush resolves.
   const flush = useCallback(() => {
     window.clearTimeout(saveTimer.current);
     const save = saving.current
       .catch(() => undefined)
       .then(async () => {
-        const guide = pending.current;
-        if (!guide || !sessionId) return;
-        await invoke("step_guide_save", { sessionId, guide });
-        // Kept until it is saved, so a failed save is retried by the next
-        // one; an edit made while this one ran stays pending.
-        if (pending.current === guide) pending.current = null;
+        while (pending.current && sessionId) {
+          const guide = pending.current;
+          await invoke("step_guide_save", { sessionId, guide });
+          // Kept until it is saved, so a failed save is retried by the next
+          // flush.
+          if (pending.current === guide) pending.current = null;
+        }
       });
     saving.current = save;
     return save;
