@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
 
 import { IN_PLACE_TEXT_UNDO_LIMIT } from "../../app/components/editor/in-place-text-session.ts";
+import { CLIENT_COMPATIBILITY_VERSION } from "../../shared/client-compatibility.ts";
 import {
   pick,
   resolvePnpmEntry,
@@ -746,10 +747,12 @@ async function action<T = any>(
     return page.evaluate(
       async ({
         body,
+        compatibilityVersion,
         source,
         timeoutMs,
       }: {
         body: Record<string, unknown>;
+        compatibilityVersion: string;
         source: string;
         timeoutMs: number;
       }) => {
@@ -758,10 +761,15 @@ async function action<T = any>(
           method: "DELETE",
           uiOnly: true,
           timeoutMs,
+          // Cleanup can run before Vite's client bootstrap sets define globals.
+          headers: {
+            "X-Agent-Native-Client-Compatibility": compatibilityVersion,
+          },
         });
       },
       {
         body,
+        compatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
         source: `/@fs/${WORKTREE_ROOT.replace(/\\/g, "/")}/packages/core/src/client/use-action.ts`,
         timeoutMs,
       },
