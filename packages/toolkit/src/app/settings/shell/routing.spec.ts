@@ -38,7 +38,15 @@ function resolve(
   rest: Partial<SettingsLocation> = {},
   pages: readonly SettingsPageDefinition[] = CORE_SETTINGS_PAGES,
 ) {
-  return resolveSettingsRoute({ pathname, hash, ...rest }, pages);
+  return resolveSettingsRoute({ pathname, hash, ...rest }, pages, {
+    templateTabPageIds: new Map(
+      pages.flatMap((page) =>
+        page.group === "app"
+          ? (page.legacyTabIds ?? []).map((tabId) => [tabId, page.id] as const)
+          : [],
+      ),
+    ),
+  });
 }
 
 describe("settings shell routing", () => {
@@ -366,6 +374,7 @@ describe("legacy settings links", () => {
     expect(
       resolveSettingsRoute({ pathname: "/settings", hash: "" }, MAIL_PAGES, {
         tabValue: "drafting",
+        templateTabPageIds: new Map([["drafting", "drafting"]]),
       }),
     ).toMatchObject({ page: "drafting", legacy: true });
   });

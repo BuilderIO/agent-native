@@ -359,7 +359,7 @@ describe("SettingsShell", () => {
     ).toBeNull();
     expect(
       rail()
-        .querySelector('[data-settings-page="workspace-alpha"]')
+        .querySelector('[data-settings-nav-item="workspace-settings"]')
         ?.getAttribute("href"),
     ).toBe("/settings/workspace-alpha/settings");
 
@@ -959,7 +959,8 @@ describe("SettingsShell", () => {
         "/settings/custom-controls/delivery",
       );
       expect(
-        container.querySelector('[aria-current="page"]')?.textContent,
+        container.querySelector('header nav [aria-current="page"]')
+          ?.textContent,
       ).toBe("Delivery settings");
       expect(
         container.querySelector('[data-testid="app-settings-page"]')
