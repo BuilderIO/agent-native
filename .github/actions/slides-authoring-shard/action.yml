@@ -28,13 +28,23 @@ runs:
           webkit) browsers="webkit" ;;
           *) echo "::error::Unknown Slides authoring shard: ${{ inputs.shard }}"; exit 1 ;;
         esac
+        # apt-get has stalled for the whole 45-minute job budget on the mirror
+        # list fetch (run 39816497341), so cap each attempt and retry.
+        install_with_retry() {
+          for attempt in 1 2 3; do
+            if timeout -k 10 300 "$@"; then return 0; fi
+            echo "::warning::'$*' failed or stalled (attempt $attempt of 3)"
+            sudo dpkg --configure -a || true
+          done
+          return 1
+        }
         for browser in $browsers; do
           if [ "$browser" = chromium ]; then
-            # Experiment: the runner image may already carry Chromium's system
-            # libraries, and --with-deps re-runs apt-get every job.
-            pnpm exec playwright install --only-shell chromium
+            # The runner image already carries Chromium's system libraries, so
+            # skip --with-deps: it re-runs apt-get on every job.
+            install_with_retry pnpm exec playwright install --only-shell chromium
           else
-            pnpm exec playwright install --with-deps "$browser"
+            install_with_retry pnpm exec playwright install --with-deps "$browser"
           fi
         done
 
