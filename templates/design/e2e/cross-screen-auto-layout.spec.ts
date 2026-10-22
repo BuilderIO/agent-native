@@ -510,7 +510,6 @@ async function expectUndoRedo(
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.describe("physical cross-screen auto-layout behavior", () => {
-  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test("board to Screen auto-layout keeps held target/source evidence and full undo-redo publication", async ({
     app,
   }) => {

@@ -76,6 +76,7 @@ vi.mock("@/lib/sql-query", () => ({
 vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: () => null,
   ExtensionSlot: () => null,
+  isExtensionApiPath: () => false,
 }));
 
 vi.mock("@shared/panel-events", async (importOriginal) => {
@@ -93,7 +94,7 @@ import {
   DashboardAnnotationsProvider,
   type DataNoteActions,
 } from "./dashboard-annotations-context";
-import { layoutDataNoteLabels } from "./data-note-bands";
+import { DataNoteRangeProvider, layoutDataNoteLabels } from "./data-note-bands";
 import {
   useEventMarkerAxisPadding,
   useEventMarkerGroups,
@@ -244,6 +245,36 @@ describe("SqlChart key-date markers", () => {
       for (const cx of reaches) {
         expect(cx - 11).toBeGreaterThanOrEqual(plot.left);
         expect(cx + 11).toBeLessThanOrEqual(plot.right);
+      }
+    },
+  );
+
+  it.each(["line", "area", "combo"] as const)(
+    "draws the markers over the dots a hovered %s chart puts on a day",
+    async (chartType) => {
+      await act(async () => {
+        root.render(<SqlChart panel={panel(chartType)} />);
+      });
+      await act(async () => {
+        container.querySelector(".recharts-wrapper")!.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 400,
+            clientY: 160,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      const dots = container.querySelectorAll(".recharts-active-dot");
+      expect(dots.length).toBeGreaterThan(0);
+      // SVG paints in document order, so whatever comes later is on top.
+      for (const marker of container.querySelectorAll("[data-event-marker]")) {
+        for (const dot of dots) {
+          expect(
+            dot.compareDocumentPosition(marker) &
+              Node.DOCUMENT_POSITION_FOLLOWING,
+          ).toBeTruthy();
+        }
       }
     },
   );
@@ -868,7 +899,21 @@ describe("SqlChart key-date markers", () => {
         { day: "Signup", people: 120 },
         { day: "Connect", people: 80 },
       ];
-      await renderInDashboard(failures("bar"));
+      await act(async () => {
+        root.render(
+          <DashboardAnnotationsProvider dashboardId="dash" annotations={{}}>
+            <DataNoteRangeProvider
+              value={{
+                kind: "days",
+                start: Date.parse("2026-09-15"),
+                end: Date.parse("2026-12-15"),
+              }}
+            >
+              <SqlChart panel={failures("bar")} />
+            </DataNoteRangeProvider>
+          </DashboardAnnotationsProvider>,
+        );
+      });
       expect(container.querySelector("[data-data-note-band]")).toBeNull();
       expect(
         container.querySelector("[data-data-note-lines]")?.textContent,

@@ -3,22 +3,141 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-16
+## 2026-10-21
 
 ### Improved
 
-- Dashboard freshness stays in the title row, with compact update times on wide cards and a clock on narrow cards.
+- Analytics recognizes questions about connected data, product analytics, sessions, dashboards, and charts.
+- Onboarding journeys honor larger event row budgets with aggregate cost limits, a read deadline, and clear partial-coverage reporting.
 
 ### Fixed
 
+- Preserve unknown replay availability in partial journeys
+
+## 2026-10-20
+
+### Fixed
+
+- Blog signup attribution excludes signups before the first visit and URLs on unrelated hosts
+- Collapsed Analytics navigation starts at the top with more space between icons.
+- Content keeps successful coverage dates and missing-day gaps, and Search Console setup validates paths before saving
+- Private GitHub repositories can be indexed with an organization-scoped GitHub token
+- Search Console preserves historical backfill after empty results and keeps daily collection paused when editing properties.
+- Search Console refreshes historical coverage when properties change and advances normally after empty results
+- Search Console setup keeps saved properties readable and supports disabling collection with invalid drafts.
+- Blog article credits include direct and wrapped author references.
+- Content collection recovers abandoned runs, avoids duplicate work, and preserves missing author names.
+- Daily content metrics recover collection gaps and keep omitted Search Console values uncollected.
+- Fixed Analytics dbt metric lookups that returned a bad-gateway error when the metric existed; the error now names the failing field.
+
+## 2026-10-19
+
+### Added
+
+- Import from Sigma lists every workbook you can see in Sigma, with search. Workbooks already migrated show greyed out with their owner and open the dashboard in a new tab, so nobody migrates the same workbook twice.
+
+### Fixed
+
+- Composer focus remains safe when an editor changes during navigation.
+- Dashboard API guidance works without an open dashboard
+- Dashboard upgrades preserve saved history, custom data sources, and legacy edits.
+- The agent sees the row breakdown open in your current browser tab.
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+### Security
+
+- Creating or revoking a public analytics key now asks you to approve it every time the agent or another app tries it.
+
+## 2026-10-17
+
+### Added
+
+- Dashboard descriptions and custom blocks now open safe Markdown links in a new tab
+
+### Improved
+
+- Analytics distinguishes email-domain filters from creator self-view exclusions
+- Analytics validates explicit day-first date ranges before querying dbt metrics
+- Keyboard chart point lists show every visible metric with localized dates and values
+
+### Fixed
+
+- Failed chart drilldowns no longer allow exporting stale cached rows
+- Keep chart-point pagination stable and preserve aggregate result columns
+- Keyboard chart controls now describe the chart points they open
+
+## 2026-10-16
+
+### Added
+
+- In Edit mode, rename or delete a multi-select filter's group from its dropdown while that group is selected.
+- The Content dashboard can show signups per blog article, collected once a day behind a BigQuery cost cap that a dry run measures first
+- Click a table row to see its numbers broken down by app, or another column, in a side panel.
+- Connect a personal Sigma account to import its dashboards
+- First-party charts can read a scheduled warehouse events model instead of the raw event table, so repeat loads reuse BigQuery's cache between model rebuilds.
+
+### Improved
+
+- Data notes under charts without a date axis now follow the dashboard's time range, so a 90-day view lists a note from two months ago and a 30-day view drops it.
+- Analytics preserves requested organization grain and guides supported ratio query retries
+- Charts that compute their window from today's date can now reuse BigQuery's cached results within the day instead of rerunning the full query on every load.
+- Dashboard callouts and descriptions support Markdown links
+- Dashboard filters show your selection immediately while charts update.
+- Dashboard panels can be resized by dragging their edges.
+- Keyboard chart point lists now paginate and show each value
+- Dashboard freshness stays in the title row, with compact update times on wide cards and a clock on narrow cards.
+- Analytics preserves metric breakdowns across continued queries and keeps partial totals clearly labeled.
+- Analytics query errors now explain safe next steps without exposing raw SQL or backend details
+- Analytics separates related metrics from the measure you asked for and retries partial BigQuery results.
+
+### Fixed
+
+- A key-date marker opens its card on hover even where a chart's hovered point sits on top of it.
+- Alert polls enforce a query byte limit and report evaluations that exceed it as errors.
+- All-time dashboard panels keep their historical label when you edit a title or description
+- Analytics answers owner-defined dbt metrics through the Semantic Layer and say when dbt is not ready, instead of reading warehouse tables as the approved definition.
+- Analytics can now count its own first-party events strictly from Postgres when you rule out BigQuery, and refuses instead of quietly querying BigQuery when the data only lives there
+- Analytics recognizes more natural date range formats, including day-first and same-month shorthand.
+- Chart drilldowns are accessible from the keyboard
+- Clarified dbt setup errors when organization context is unavailable
+- Month and quarter comparisons now stay aligned with their named periods, including requests that use “with”.
+- Dashboard event colors render consistently in email reports
+- Dashboard filters show when navigation temporarily prevents changes and close open menus safely
+- Dashboard panel sizes stay put when multiple edits save together
+- Date-based metric comparisons now honor both requested periods.
+- First-party Analytics health checks bound BigQuery reads and identify recent activity counts.
+- First-party dashboards apply the selected time range earlier to avoid unnecessary BigQuery event scans.
+- Fixed a dashboard crash caused by an invalid panel description.
+- Fixed dashboard panels reverting to stale SQL, repeating query validation while resizing, and lacking a reset to content-based height.
+- Formatted negative numbers stay numeric in CSV exports, and funnel drilldowns remain accessible to screen readers
+- Funnel outcome stages now open drilldown details, and CSV exports preserve negative numeric values.
+- Markdown links in chart descriptions and custom blocks open external pages in a new tab.
+- Organization breakdowns now distinguish a root organization from its individual organizations
+- Ratio recovery preserves fractional results for integer data
+- Resized dashboard panels keep their size through concurrent edits
+- Resizing a dashboard panel keeps its size when other edits are saved.
+- Explorer flags incomplete query results
 - Chart drilldowns preserve the selected series and report lookup or export failures safely.
 - CSV downloads show when results are limited to the first 500 records
 - Dashboard update status remains visible for sources without fetch-time or cache metadata
+- Normalize typed date literals in first-party BigQuery queries
+- Treat incomplete schema and truncated BigQuery results as partial evidence
+
+### Changed
+
+- Built-in dashboards stay read-only and update with each release; Duplicate to customize makes your own editable copy
 
 ## 2026-10-15
 
 ### Added
 
+- A Content dashboard lists every blog article with its author, pageviews, and search clicks, and says when a source failed or isn't set up instead of showing zero
+- Data sources has a Google Search Console card that shows the service account to grant and turns on daily collection
+- Analytics can collect daily GA4 pageviews and Search Console clicks and impressions for each blog article
+- Analytics can collect your blog article list once a day into its own tables, ready for the Content view
 - Click any bar, line point, funnel stage or slice on the first-party dashboard to open the underlying records in a pop-up, with filter, SQL and CSV export.
 - Add key dates and data notes from the dashboard's new Annotations menu or a chart's menu, show or hide key-date sets per dashboard, and mark a note fixed or hide it on one chart from its hover card.
 - Data notes shade the days a chart's numbers were affected by an incident or a tracking problem, on the dashboard and in scheduled email reports.
@@ -27,14 +146,26 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The blog article tool now returns each article's author and co-authors
+- Collapsed Analytics navigation icons stay centered when the list is short
+- Active-user answers distinguish Builder product activity from Agent-Native app opens, and dbt metric follow-ups keep their original filters.
+- Analytics keeps ambiguous active-user questions open across product activity and membership sources, and validates dbt metric date ranges before reporting results
+- Analytics keeps ambiguous active-user searches open across Builder activity, organization membership, and app opens until you choose the population.
+- Analytics now shows when a data connection is still checking and flags warehouse results that may be incomplete
+- Analytics seat and permission questions now find membership data.
+- Metric queries can resume after an interruption without starting over.
+- Oversized dbt responses now give safe recovery guidance instead of repeating the same page.
+- Time-based active-user questions now find matching sources, and connections being checked are no longer reported as disconnected.
 - Dashboard history now says what each save changed, and the save toast names the change
 - The agent now sees which key dates and data notes a dashboard's charts draw, and confirms which charts a new key date or data note shows on.
 - Collapsed navigation has clearer spacing between its icons
 
 ### Fixed
 
+- Collapsed navigation icons stay centered in the Analytics sidebar
 - Dashboard query costs and refresh confirmations reflect actual execution, and disconnected sources clear saved rows
 - Dashboard results disappear when access is withdrawn, and Explorer query costs exclude cached scans
+- Analytics now distinguishes empty and partial dbt metric results from complete answers.
 
 ## 2026-10-14
 
@@ -249,6 +380,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- AI tools connected over MCP now get a checked result format for the analytics health check and the connected database tables list
 - Session replays now show the date and time the session started, and the Sessions list shows start times in a shorter, easier-to-scan format.
 - Agent dashboard edits are now checked against the live chart before they save, so the agent no longer reports a chart change that did not happen.
 

@@ -154,9 +154,16 @@ export function isDesignEditorDarkTheme(): boolean {
   return document.documentElement.classList.contains("dark");
 }
 
-export function defaultCanvasTextColor(needsLightFill: boolean): string {
+export function defaultCanvasTextColor(
+  needsLightFill: boolean,
+  needsDarkFill = false,
+): string {
   // guard:allow-raw-color — written into the user's design HTML, where the editor's theme tokens do not exist
-  return needsLightFill ? "#ffffff" : "currentColor";
+  return needsLightFill
+    ? "#ffffff" // guard:allow-raw-color — inline design HTML does not have the editor theme tokens
+    : needsDarkFill
+      ? "#000000" // guard:allow-raw-color — inline design HTML does not have the editor theme tokens
+      : "currentColor";
 }
 
 export function defaultCanvasFrameFill(): string {

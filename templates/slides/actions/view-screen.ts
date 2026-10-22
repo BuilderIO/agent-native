@@ -393,11 +393,20 @@ export default defineAction({
       } | null;
       const openPanel = (await readAppStateForCurrentTab("slides-open-panel", {
         fallbackToGlobal: false,
-      })) as { slideId?: string; panel?: string | null } | null;
+      })) as {
+        slideId?: string;
+        panel?: string | null;
+        notesOpen?: boolean;
+      } | null;
       if (openPanel?.panel && openPanel.slideId === currentSlide?.id) {
         lines.push(``);
         lines.push(`### Open side panel`);
         lines.push(`openPanel: ${openPanel.panel}`);
+      }
+      if (openPanel?.notesOpen && openPanel.slideId === currentSlide?.id) {
+        lines.push(``);
+        lines.push(`### Speaker notes panel`);
+        lines.push(`notesOpen: true`);
       }
       const selectionSlide =
         selection?.slideId &&

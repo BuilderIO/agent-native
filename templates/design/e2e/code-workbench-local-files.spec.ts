@@ -32,7 +32,7 @@ import { createRoot } from "react-dom/client";
 function PrimaryButton({ variant = "primary", children, ...props }) {
   const buttonRef = (button) => {
     if (!button) return;
-    Object.defineProperty(button, "__reactFiber$component-parity", {
+    Object.defineProperty(button, "__reactFiber$component-url", {
       configurable: true,
       enumerable: true,
       value: {
@@ -324,15 +324,16 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
     { waitUntil: "domcontentloaded" },
   );
   const rootName = path.basename(rootPath);
-  const localRoot = page.getByText(`LOCAL FILES — ${rootName}`, {
-    exact: true,
-  });
-  await expect(localRoot).toBeVisible({ timeout: 30_000 });
-  await expect(localRoot).toHaveAttribute("title", rootPath);
   const localTree = page.getByRole("tree", {
     name: `LOCAL FILES — ${rootName}`,
     exact: true,
   });
+  await expect(localTree).toBeVisible({ timeout: 30_000 });
+  const localRoot = page.getByText(`LOCAL FILES — ${rootName}`, {
+    exact: true,
+  });
+  await expect(localRoot).toBeVisible();
+  await expect(localRoot).toHaveAttribute("title", rootPath);
   await expect(
     localTree.getByText("Dockerfile", { exact: true }),
   ).toBeVisible();
@@ -612,8 +613,14 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     previewState: "static",
   });
   await expect(page.getByLabel("Screen URL")).toHaveCount(0);
+  await expect(screenPreviewIframe).toHaveAttribute(
+    "data-design-source-type",
+    "inline",
+  );
   await expect(
-    page.getByText("Preparing live editor...", { exact: true }),
+    page
+      .locator(`[data-screen-shell][data-frame-id="${screenId}"]`)
+      .getByText("Preparing live editor...", { exact: true }),
   ).toHaveCount(0);
   await expect(
     screenPreviewIframe.contentFrame().getByText("Local workbench fixture"),
@@ -874,7 +881,7 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   ).toBeVisible();
   await cdpScreenshot(
     page,
-    testInfo.outputPath("url-react-component-parity.png"),
+    testInfo.outputPath("url-react-component-contract.png"),
   );
 });
 

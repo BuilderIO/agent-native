@@ -84,6 +84,11 @@ import {
 } from "../shared/node-rewrite.js";
 import action from "./resolve-node-rewrite.js";
 
+const target = {
+  nodeId: "hero",
+  selector: "source-equivalent:v1:body > section:nth-of-type(1)",
+};
+
 function proposal() {
   return {
     proposalId: "proposal_1",
@@ -91,7 +96,7 @@ function proposal() {
     designId: "design_1",
     fileId: "file_1",
     filename: "index.html",
-    target: { nodeId: "hero" },
+    target,
     resolvedTarget: {
       nodeId: "hero",
       selector: '[data-agent-native-node-id="hero"]',
@@ -122,7 +127,7 @@ describe("resolve-node-rewrite", () => {
       repromptId: "reprompt_1",
       designId: "design_1",
       fileId: "file_1",
-      target: { nodeId: "hero" },
+      target,
       baseVersionHash: "hash_base",
       instruction: "Make it darker",
       createdAt: "2026-07-16T00:00:00.000Z",
@@ -211,6 +216,7 @@ describe("resolve-node-rewrite", () => {
         bridgeMessages: [
           expect.objectContaining({
             type: "node-html-preview",
+            target,
             operation: "restore",
           }),
         ],

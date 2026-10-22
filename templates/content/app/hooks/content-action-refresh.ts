@@ -16,6 +16,13 @@ const COMMENT_MUTATIONS = new Set([
   "update-comment",
 ]);
 
+/** Changes that open, resolve, or remove a Comment thread. */
+const COMMENT_COUNT_MUTATIONS = new Set([
+  ...COMMENT_MUTATIONS,
+  "apply-comment-ai-request",
+  "undo-comment-ai-request",
+]);
+
 const DOCUMENT_MUTATIONS = new Set([
   "create-and-link-notion-page",
   "decide-resource-suggestion",
@@ -23,13 +30,16 @@ const DOCUMENT_MUTATIONS = new Set([
   "delete-document",
   "delete-document-property",
   "delete-content-database",
+  "disconnect-content-database-source",
   "execute-content-trash-purge",
   "permanently-delete-document",
   "duplicate-document-property",
   "edit-document",
   "execute-builder-source-batch",
   "execute-builder-source-execution",
+  "create-github-collection",
   "import-content-source",
+  "link-github-folder",
   "migrate-content-database-rows",
   "move-document",
   "mutate-content-database-block",
@@ -40,6 +50,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "pull-notion-page",
   "push-builder-doc",
   "push-notion-page",
+  "refresh-content-database-source",
   "reorder-document-property",
   "resolve-local-folder-conflict",
   "resolve-notion-sync-conflict",
@@ -49,6 +60,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "set-document-discoverability",
   "set-document-property",
   "set-image-alt-text",
+  "sync-github-folder",
   "sync-local-folder-source",
   "sync-manifest-local-folder-source",
   "transcribe-media",
@@ -62,22 +74,27 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "delete-content-database",
   "delete-document",
   "delete-document-property",
+  "disconnect-content-database-source",
   "duplicate-database-item",
   "duplicate-database-items",
   "duplicate-document-property",
   "edit-document",
   "execute-builder-source-batch",
   "execute-builder-source-execution",
+  "create-github-collection",
   "import-content-source",
+  "link-github-folder",
   "migrate-content-database-rows",
   "move-database-item",
   "patch-database-items",
+  "refresh-content-database-source",
   "remove-database-items",
   "reorder-document-property",
   "restore-content-database",
   "restore-document",
   "set-document-property",
   "submit-content-database-form",
+  "sync-github-folder",
   "update-database-item",
   "update-database-items",
   "update-content-database-view",
@@ -90,16 +107,24 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
 ]);
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
+  "create-github-collection",
   "delete-content-database",
   "execute-content-trash-purge",
   "permanently-delete-document",
   "restore-content-database",
   "restore-document",
+  // Files deleted in GitHub move their pages to Trash.
+  "refresh-content-database-source",
+  "sync-github-folder",
 ]);
 
 const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
   "create-document",
+  "create-github-collection",
   "import-content",
+  "link-github-folder",
+  "refresh-content-database-source",
+  "sync-github-folder",
 ]);
 
 const PREVIEW_DRAFT_MUTATIONS = new Set([
@@ -264,6 +289,10 @@ function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
     return false;
   if (query.queryKey[1] === "get-content-database-personal-view") return true;
   if (query.queryKey[1] !== "query-content-database-items") return false;
+  return queryReadsFilesNavigation(query);
+}
+
+function queryReadsFilesNavigation(query: ActionQuery): boolean {
   const args = query.queryKey[2];
   return !!args && typeof args === "object" && "navigation" in args;
 }
@@ -277,8 +306,7 @@ function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
   )
     return true;
   if (query.queryKey[1] !== "query-content-database-items") return false;
-  const args = query.queryKey[2];
-  return !!args && typeof args === "object" && "navigation" in args;
+  return queryReadsFilesNavigation(query);
 }
 
 function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
@@ -425,11 +453,15 @@ export function contentActionInvalidatePredicate(
       return true;
     }
     if (queryTargetsDatabase(query, documentId)) {
+      // Table rows carry their open-Comment counts, so a Comment change
+      // refreshes them too. The Files tree shows no counts.
+      const readsCommentCounts = !queryReadsFilesNavigation(query);
       return events.some(
         (event) =>
           event.source === "action" &&
           typeof event.key === "string" &&
-          DATABASE_RESULT_MUTATIONS.has(event.key),
+          (DATABASE_RESULT_MUTATIONS.has(event.key) ||
+            (readsCommentCounts && COMMENT_COUNT_MUTATIONS.has(event.key))),
       );
     }
     return false;

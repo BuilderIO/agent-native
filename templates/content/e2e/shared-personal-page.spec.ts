@@ -6,6 +6,8 @@ import {
   type Route,
 } from "@playwright/test";
 
+import { presentUiCapability } from "./helpers";
+
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
   "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
@@ -417,6 +419,7 @@ test("an editor can read and edit one shared Personal page without gaining its p
         mode: "selection",
         documentIds: [id],
       });
+      await presentUiCapability(owner);
       await runAction(owner, "permanently-delete-document", {
         id,
         planId: plan.planId,

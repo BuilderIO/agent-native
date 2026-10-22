@@ -48,7 +48,7 @@ Un flag sin registrar siempre se evalúa como `false`, sin importar lo que un op
 Esta es la comprobación que realmente importa, ya que todo invocador, ya sea el agente, el frontend o un script, tiene que pasar por ella:
 
 ```ts
-// actions/create-fusion-app.ts
+// actions/create-builder-app.ts
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 
 run: async (args, ctx) => {

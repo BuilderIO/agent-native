@@ -26,6 +26,7 @@ import {
   nearestVisibleTrashRow,
   readTrashOperationId,
   reconcileTrashBrowseFilters,
+  isRestoreBusyError,
   selectedTrashItems,
   trashActionError,
   trashFilterMembershipKey,
@@ -228,7 +229,9 @@ export function TrashBrowser({
       toast.success(t("trash.restored"));
     } catch (error) {
       toast.error(t("trash.restoreFailed"), {
-        description: trashActionError(error, t("trash.restoreFailed")),
+        description: isRestoreBusyError(error)
+          ? t("trash.restoreBusy")
+          : trashActionError(error, t("trash.restoreFailed")),
       });
     }
   }

@@ -108,6 +108,7 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpOpenConnectPage: "전체 연결 페이지 열기",
   mcpIdentityError: "이 앱의 연결 정보를 불러오지 못했습니다.",
   mcpRetry: "다시 시도",
+  mcpOAuthBackToApp: "앱으로 돌아가기",
   mcpConnect: mcpConnectMessages,
 };
 

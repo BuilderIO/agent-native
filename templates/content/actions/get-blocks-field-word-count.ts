@@ -21,7 +21,7 @@ import {
 
 export default defineAction({
   description:
-    "Count words in one exact Content Blocks field. Omit propertyId for the Page's primary Content body; provide a Blocks property ID for an additional field.",
+    "Count words in one exact Content Blocks field (a tab on a collection row's page), saving its open editor first. Omit propertyId for the Page's primary Content body; provide a Blocks property ID for an additional field.",
   schema: z.object({
     documentId: z.string().describe("Page document ID (required)"),
     propertyId: z
@@ -33,8 +33,14 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpTool: true,
   readOnly: true,
-  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async ({ documentId, propertyId }) => {
     const access = await resolveReadableDocument(documentId);
     const context = await readableFieldContext(access.resource);
@@ -42,7 +48,7 @@ export default defineAction({
       requireValueVisibility: false,
     });
 
-    await flushOpenDocumentEditorToSql({
+    const editorFlush = await flushOpenDocumentEditorToSql({
       documentId,
       ownerEmail: (access.resource.ownerEmail as string | undefined) || null,
       ...(selected && !selected.primary
@@ -50,6 +56,8 @@ export default defineAction({
         : {}),
     });
 
+    const snapshot =
+      editorFlush.status === "flushed" ? editorFlush.snapshot : undefined;
     const fresh = await resolveReadableDocument(documentId);
     const freshContext = await readableFieldContext(fresh.resource);
     const freshSelected = selectReadableBlocksField(
@@ -66,9 +74,22 @@ export default defineAction({
         propertyId: null,
         name: DEFAULT_BLOCKS_FIELD_NAME,
         primary: true,
-        content: (fresh.resource.content as string | null | undefined) ?? "",
+        content:
+          (selected === null && snapshot?.kind === "document"
+            ? snapshot.content
+            : undefined) ??
+          (fresh.resource.content as string | null | undefined) ??
+          "",
       });
     }
+
+    const sameCapturedField =
+      selected?.property.definition.id ===
+        freshSelected.property.definition.id &&
+      (freshSelected.primary
+        ? snapshot?.kind === "document"
+        : snapshot?.kind === "property" &&
+          snapshot.propertyId === freshSelected.property.definition.id);
 
     return wordCountResult({
       documentId,
@@ -77,9 +98,11 @@ export default defineAction({
         : freshSelected.property.definition.id,
       name: freshSelected.property.definition.name,
       primary: freshSelected.primary,
-      content: freshSelected.primary
-        ? ((fresh.resource.content as string | null | undefined) ?? "")
-        : (freshSelected.property.value as string),
+      content:
+        (sameCapturedField ? snapshot?.content : undefined) ??
+        (freshSelected.primary
+          ? ((fresh.resource.content as string | null | undefined) ?? "")
+          : (freshSelected.property.value as string)),
     });
   },
   link: ({ result }) => {

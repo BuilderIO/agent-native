@@ -258,6 +258,11 @@ aberto localmente não precisam de aprovação de parceiro nem de um ID de clien
 preconfigurado: a OpenAI emite o ID no primeiro login, e o app o reutiliza para
 essa conta do ChatGPT.
 
+O acesso ao plano do ChatGPT requer uma conta pessoal. No desenvolvimento local,
+defina `access.autoCreateDefaultOrg: false` antes do primeiro login para que o
+app não crie uma organização padrão para essa conta. Se a conta já pertence a
+uma organização, use uma conta pessoal para acessar o plano do ChatGPT.
+
 Esse fluxo exige um callback OAuth HTTP em `127.0.0.1`, o endereço de loopback
 na máquina do usuário. Por isso, ele não funciona em apps hospedados
 remotamente, e `localhost` não substitui `127.0.0.1`. Sites hospedados em

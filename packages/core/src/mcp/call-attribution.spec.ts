@@ -15,7 +15,6 @@ describe("mcpCallAttribution", () => {
         },
         envelope: { [CLIENT_INFO]: { name: "from-envelope", version: "2.0" } },
         oauthClientId: "client-123",
-        clientAccepted: true,
       }),
     ).toEqual({
       mcpClient: {
@@ -23,7 +22,6 @@ describe("mcpCallAttribution", () => {
         version: "2.0",
         oauthClientId: "client-123",
       },
-      mcpClientAccepted: true,
     });
   });
 
@@ -37,18 +35,16 @@ describe("mcpCallAttribution", () => {
         },
         envelope: undefined,
         oauthClientId: undefined,
-        clientAccepted: false,
       }),
     ).toEqual({ mcpClient: { name: "cursor", version: "1" } });
   });
 
-  it("adds nothing when the call carries no client facts and was not approved", () => {
+  it("adds nothing when the call carries no client facts", () => {
     expect(
       mcpCallAttribution({
         request: { params: { name: "list-forms" } },
         envelope: {},
         oauthClientId: undefined,
-        clientAccepted: false,
       }),
     ).toEqual({});
   });

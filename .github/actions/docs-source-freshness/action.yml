@@ -1,0 +1,162 @@
+name: Verify docs production source freshness
+description: Check that queued docs inputs are still current on main.
+inputs:
+  source-ref:
+    description: Exact commit SHA used to build or migrate docs.
+    required: true
+  fail-on-stale:
+    description: Fail instead of skip when newer docs inputs are present.
+    required: false
+    default: "false"
+outputs:
+  current:
+    description: Whether the source is current for production docs deployment.
+    value: ${{ steps.freshness.outputs.current }}
+runs:
+  using: composite
+  steps:
+    - name: Compare docs source against current main
+      id: freshness
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        SOURCE_REF: ${{ inputs.source-ref }}
+        FAIL_ON_STALE: ${{ inputs.fail-on-stale }}
+      with:
+        github-token: ${{ github.token }}
+        script: |
+          core.setOutput("current", "false");
+          const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
+          if (!/^[0-9a-f]{40}$/.test(sourceRef)) {
+            core.setFailed("Docs production source must be a full 40-character commit SHA.");
+            return;
+          }
+
+          const mainSha = (await github.rest.git.getRef({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: "heads/main",
+          })).data.object.sha.toLowerCase();
+          if (sourceRef === mainSha) {
+            core.setOutput("current", "true");
+            return;
+          }
+
+          const comparison = await github.rest.repos.compareCommits({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            base: sourceRef,
+            head: mainSha,
+            per_page: 100,
+            page: 1,
+          });
+          const firstPage = comparison.data;
+          if (!["ahead", "identical"].includes(firstPage.status)) {
+            core.setFailed(`Docs production source ${sourceRef} is no longer an ancestor of main ${mainSha}.`);
+            return;
+          }
+
+          const totalCommits = firstPage.total_commits;
+          const files = firstPage.files;
+          if (
+            !Number.isInteger(totalCommits) ||
+            totalCommits < 0 ||
+            !Array.isArray(firstPage.commits) ||
+            !Array.isArray(files) ||
+            !files.every(
+              (file) =>
+                typeof file?.filename === "string" &&
+                (file.previous_filename === undefined ||
+                  typeof file.previous_filename === "string"),
+            ) ||
+            files.length >= 300
+          ) {
+            core.setFailed("Cannot verify all newer docs deployment inputs; refusing to publish this queued source.");
+            return;
+          }
+
+          const pageSize = 100;
+          const pageCount = Math.max(1, Math.ceil(totalCommits / pageSize));
+          const commits = [];
+          const commitShas = new Set();
+          for (let page = 1; page <= pageCount; page += 1) {
+            const data = page === 1
+              ? firstPage
+              : (await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: sourceRef,
+                  head: mainSha,
+                  per_page: pageSize,
+                  page,
+                })).data;
+            const expectedPageCommits = Math.min(
+              pageSize,
+              totalCommits - commits.length,
+            );
+            if (
+              data.status !== firstPage.status ||
+              data.total_commits !== totalCommits ||
+              !Array.isArray(data.commits) ||
+              data.commits.length !== expectedPageCommits
+            ) {
+              core.setFailed("Cannot verify every newer commit in the docs comparison; refusing to publish this queued source.");
+              return;
+            }
+            for (const commit of data.commits) {
+              if (typeof commit.sha !== "string" || commitShas.has(commit.sha)) {
+                core.setFailed("Docs comparison returned a missing or duplicate commit; refusing to publish this queued source.");
+                return;
+              }
+              commitShas.add(commit.sha);
+              commits.push(commit);
+            }
+          }
+          if (commits.length !== totalCommits) {
+            core.setFailed("Cannot verify every newer commit in the docs comparison; refusing to publish this queued source.");
+            return;
+          }
+
+          const docsPaths = [
+            ".nvmrc",
+            "package.json",
+            "pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
+            "packages/agentkit/**",
+            "packages/core/**",
+            "packages/core-corpus/**",
+            "packages/docs/**",
+            "packages/recap-cli/**",
+            "packages/toolkit/**",
+            "scripts/netlify-prebuilt-target.ts",
+            "scripts/netlify-migration-url.ts",
+            "scripts/netlify-api-request.ts",
+            "scripts/netlify-production-sites.json",
+            ".github/actions/docs-source-freshness/action.yml",
+            ".github/workflows/deploy-docs-production.yml",
+            ".github/workflows/deploy-netlify-prebuilt.yml",
+          ];
+          const matchesDocsPath = (path) => {
+            if (typeof path !== "string") return false;
+            return docsPaths.some((pattern) => {
+              if (!pattern.endsWith("/**")) return path === pattern;
+              const directory = pattern.slice(0, -3);
+              return path === directory || path.startsWith(`${directory}/`);
+            });
+          };
+          const newerDocsChange = files.some((file) =>
+            [file.filename, file.previous_filename].some(matchesDocsPath),
+          );
+          if (newerDocsChange) {
+            const message = `Docs source ${sourceRef} is stale: main contains newer docs deployment inputs.`;
+            if (
+              process.env.FAIL_ON_STALE === "true" ||
+              context.eventName === "workflow_dispatch"
+            ) {
+              core.setFailed(`Refusing to publish ${message}`);
+            } else {
+              core.notice(`Skipping queued ${message}`);
+            }
+            return;
+          }
+
+          core.setOutput("current", "true");

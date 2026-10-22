@@ -42,6 +42,7 @@ describe("agent clip context helpers", () => {
       "clips-get-context",
       "clips-get-transcript",
       "clips-get-frame",
+      "clips-get-frames",
     ]);
     expect(payload.http.tools.map((tool) => tool.name)).toEqual([
       "clips-get-context",
@@ -64,7 +65,9 @@ describe("agent clip context helpers", () => {
     });
     expect(payload.instructions).toContain("Do not request frame URLs again");
     expect(
-      payload.http.tools.some((tool) => tool.name === "clips-get-frame"),
+      payload.http.tools.some((tool) =>
+        tool.name.startsWith("clips-get-frame"),
+      ),
     ).toBe(false);
   });
 
@@ -122,6 +125,13 @@ describe("agent clip context helpers", () => {
           "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={atMs}",
         responseType: "image/jpeg",
       },
+      {
+        name: "clips-get-frames",
+        method: "GET",
+        endpoint:
+          "https://clips.example.com/api/agent-frames.jpg?id=rec-1&startMs={startMs}&endMs={endMs}&fps={fps}",
+        responseType: "image/jpeg",
+      },
     ]);
   });
 
@@ -141,6 +151,31 @@ describe("agent clip context helpers", () => {
     expect(manifest.tools).toHaveLength(3);
     expect(manifest.tools[1].parameters).toEqual(manifest.tools[1].inputSchema);
     expect(manifest.tools[2].endpoint).toContain("atMs={atMs}");
+  });
+
+  it("lists the frame sheet only when the clip has one", () => {
+    const manifest = buildAgentHttpToolManifest({
+      contextUrl: "https://clips.example.com/api/agent-context.json?id=rec-1",
+      transcriptUrl:
+        "https://clips.example.com/api/agent-transcript.json?id=rec-1",
+      frameUrlTemplate:
+        "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={timestampMs}",
+      frameSheetUrlTemplate:
+        "https://clips.example.com/api/agent-frames.jpg?id=rec-1&startMs={startMs}&endMs={endMs}&fps={fps}",
+    });
+
+    expect(manifest.tools.map((tool) => tool.name)).toEqual([
+      "clips-get-context",
+      "clips-get-transcript",
+      "clips-get-frame",
+      "clips-get-frames",
+    ]);
+    expect(manifest.tools[3].parameters).toMatchObject({
+      required: ["startMs"],
+      properties: {
+        fps: { maximum: 60 },
+      },
+    });
   });
 
   it("builds shareable agent API URLs with base path and token", () => {
@@ -164,6 +199,9 @@ describe("agent clip context helpers", () => {
     );
     expect(urls.frameUrl(1234)).toBe(
       "https://clips.example.com/app/api/agent-frame.jpg?id=rec+1&agent_access=tok&atMs=1234",
+    );
+    expect(urls.frameSheetUrlTemplate).toBe(
+      "https://clips.example.com/app/api/agent-frames.jpg?id=rec+1&agent_access=tok&startMs={startMs}&endMs={endMs}&fps={fps}",
     );
   });
 

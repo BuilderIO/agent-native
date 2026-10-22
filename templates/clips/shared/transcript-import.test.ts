@@ -52,6 +52,108 @@ describe("detectTranscriptFormat", () => {
       ],
     });
   });
+
+  it.each([
+    ["0:05 --> 0:10 is the range we trim.", "--> 0:10 is the range we trim."],
+    [
+      "0:05.000 --> 0:10.000 is the range we trim.",
+      "--> 0:10.000 is the range we trim.",
+    ],
+    ["0:05 --> 0:10 https://example.com/a", "--> 0:10 https://example.com/a"],
+    ["0:05 --> Intro", "--> Intro"],
+    ["0:05 --> 0:10 align:start", "--> 0:10 align:start"],
+  ])(
+    "keeps the timestamped line %j, which starts with an arrow, as text",
+    (line, kept) => {
+      const text = ["0:00 Intro.", line, "0:12 Done."].join("\n");
+      expect(detectTranscriptFormat(text)).toBe("text");
+      const result = parseTranscriptImport(text);
+      if (!result.ok)
+        throw new Error(describeTranscriptImportError(result.error));
+      expect(result.segments.map((s) => [s.startMs, s.endMs, s.text])).toEqual([
+        [0, 5000, "Intro."],
+        [5000, 12_000, kept],
+        [12_000, 13_000, "Done."],
+      ]);
+    },
+  );
+
+  // It has the same shape as an SRT timing with prose after it, which must
+  // fail, so it fails too; the caller can say the file is text.
+  it("reads a file that opens with an arrow line as cues unless told it is text", () => {
+    const text = "0:05 --> 0:10 is the range we trim.\n0:12 Done.";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: false,
+      error: { code: "bad-timing", line: 1 },
+    });
+    expect(parseTranscriptImport(text, { format: "text" })).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 5000, text: "--> 0:10 is the range we trim." },
+        { startMs: 12_000, text: "Done." },
+      ],
+    });
+  });
+
+  it("reads cue timings with no WEBVTT header as SRT", () => {
+    const text =
+      "00:05.000 --> 00:10.000\nHello\n\n00:10.000 --> 00:12.000\nWorld";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 5000, endMs: 10_000, text: "Hello" },
+        { startMs: 10_000, endMs: 12_000, text: "World" },
+      ],
+    });
+  });
+
+  it("reads SRT timings followed by X1:100-style coordinates", () => {
+    const text =
+      "1\n00:00:01,000 --> 00:00:04,000 X1:100 X2:500 Y1:20 Y2:80\nHello";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
+      segments: [{ startMs: 1000, endMs: 4000, text: "Hello" }],
+    });
+  });
+
+  it("reads SRT whose timings have no fraction", () => {
+    const text =
+      "1\n00:00:01 --> 00:00:04\nHello\n\n2\n00:00:04 --> 00:00:06\nWorld";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 1000, endMs: 4000, text: "Hello" },
+        { startMs: 4000, endMs: 6000, text: "World" },
+      ],
+    });
+  });
+
+  it("reads headerless cues under text identifiers as SRT", () => {
+    const text =
+      "intro\n00:00:01.000 --> 00:00:02.000\nHello\n\noutro\n00:00:02.000 --> 00:00:03.000\nBye";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 1000, endMs: 2000, text: "Hello" },
+        { startMs: 2000, endMs: 3000, text: "Bye" },
+      ],
+    });
+  });
+
+  it("reads a file that opens with an SRT index as cues when the timing under it is broken", () => {
+    const text =
+      "1\n00:00:01,000 -> 00:00:02,000\nHello\n\n2\n00:00:02,000 --> 00:00:03,000\nWorld";
+    expect(detectTranscriptFormat(text)).toBe("srt");
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: false,
+      error: { code: "missing-timing", line: 1 },
+    });
+  });
 });
 
 describe("parseTranscriptImport", () => {
@@ -182,10 +284,34 @@ describe("parseTranscriptImport", () => {
       2,
     ],
     [
+      "an unreadable cue timing with no fraction",
+      "00:00:01 --> soon\nHello",
+      "bad-timing",
+      1,
+    ],
+    [
       "an unreadable timing right under the previous cue",
       "1\n00:00:01,000 --> 00:00:02,000\nHello\n00:00:02,000 --> later\nWorld",
       "bad-timing",
       4,
+    ],
+    [
+      "prose after a timing right under the previous cue",
+      "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n00:00:03.000 --> 00:00:04.000 foo\nWorld",
+      "bad-timing",
+      5,
+    ],
+    [
+      "prose after a timing inside a cue's text",
+      "WEBVTT\n\n00:01.000 --> 00:04.000\nThe range\n0:05 --> 0:10 is what we trim.",
+      "bad-timing",
+      5,
+    ],
+    [
+      "an unknown setting after a timing",
+      "1\n00:00:01,000 --> 00:00:04,000 Hi:there\nHello",
+      "bad-timing",
+      2,
     ],
     [
       "a cue that ends before it starts",
@@ -314,6 +440,32 @@ describe("parseTranscriptImport", () => {
     });
   });
 
+  it.each([
+    ["an SRT", "1\n00:00:00,000 --> 00:00:02,000\na<b and c>d"],
+    ["a WebVTT", "WEBVTT\n\n00:00.000 --> 00:02.000\na<b and c>d"],
+  ])("keeps prose that starts like a tag in %s cue", (_, text) => {
+    expect(parseTranscriptImport(text)).toMatchObject({
+      ok: true,
+      segments: [{ text: "a<b and c>d" }],
+    });
+  });
+
+  it("strips tags with classes, annotations and font attributes", () => {
+    expect(
+      parseTranscriptImport(
+        "WEBVTT\n\n00:00.000 --> 00:02.000\n<v.loud Sarah><b.loud>x</b> <lang en>y</lang></v>",
+      ),
+    ).toMatchObject({
+      ok: true,
+      segments: [{ text: "x y", speaker: "Sarah" }],
+    });
+    expect(
+      parseTranscriptImport(
+        "1\n00:00:00,000 --> 00:00:02,000\n<font face='Arial' size=3>z</font>",
+      ),
+    ).toMatchObject({ ok: true, segments: [{ text: "z" }] });
+  });
+
   it("reads NUL and references that are not characters as U+FFFD", () => {
     const FFFD = String.fromCodePoint(0xfffd);
     const result = parseTranscriptImport(
@@ -351,6 +503,40 @@ describe("parseTranscriptImport", () => {
       segments: [
         { startMs: 1000, endMs: 2000, text: "Hello" },
         { startMs: 2000, endMs: 3000, text: "x --> y" },
+      ],
+    });
+  });
+
+  it("starts a new cue at a timing with no fraction and no blank line before it", () => {
+    const result = parseTranscriptImport(
+      "1\n00:00:01 --> 00:00:02\nHello\n2\n00:00:02 --> 00:00:03\nWorld",
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      format: "srt",
+      segments: [
+        { startMs: 1000, endMs: 2000, text: "Hello" },
+        { startMs: 2000, endMs: 3000, text: "World" },
+      ],
+    });
+  });
+
+  it("reads a timing with no fraction followed by cue settings", () => {
+    const result = parseTranscriptImport(
+      [
+        "WEBVTT",
+        "",
+        "00:01 --> 00:02 align:start",
+        "Hello",
+        "00:02 --> 00:03 line:0 position:50%",
+        "World",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      segments: [
+        { startMs: 1000, endMs: 2000, text: "Hello" },
+        { startMs: 2000, endMs: 3000, text: "World" },
       ],
     });
   });

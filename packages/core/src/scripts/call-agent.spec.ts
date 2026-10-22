@@ -106,6 +106,7 @@ vi.mock("../integrations/a2a-continuation-processor.js", () => ({
 vi.mock("../agent/run-store.js", () => ({
   insertRun: vi.fn(() => Promise.resolve()),
   insertRunEvent: vi.fn(() => Promise.resolve()),
+  insertRunEvents: vi.fn(() => Promise.resolve()),
   updateRunStatus: vi.fn(() => Promise.resolve()),
   updateRunStatusIfRunning: vi.fn(() => Promise.resolve(true)),
   getRunStatus: vi.fn(() => Promise.resolve("running")),
@@ -191,6 +192,9 @@ describe("call-agent action", () => {
   it("defaults cross-app work to the receiving specialist agent", async () => {
     const { tool } = await import("./call-agent.js");
 
+    expect(tool.parameters.properties.agent.description).toContain(
+      "URLs are not supported",
+    );
     expect(tool.description).toContain("Use message by default");
     expect(tool.description).toContain(
       "ONLY use it when the user's requested outcome depends on data or a capability only that app can provide",
@@ -198,6 +202,15 @@ describe("call-agent action", () => {
     expect(tool.description).toContain("availability alone is not a reason");
     expect(tool.description).toContain(
       "The receiver owns provider, schema, query, join, and SQL decisions",
+    );
+    expect(tool.description).toContain(
+      "use the current app's image-generation action or provider when it has one",
+    );
+    expect(tool.description).toContain(
+      'Call Assets (agent="assets") only when the user explicitly requests its brand library',
+    );
+    expect(tool.description).toContain(
+      "Assets being available, convenient, or able to enrich imagery is not enough to delegate",
     );
     expect(tool.description).toContain(
       "never expose or call a direct action to work around",
@@ -1423,7 +1436,8 @@ describe("call-agent action", () => {
       expect(error.name).toBe("A2AInvocationError");
       expect(error.errorCode).toBe("agent_not_found");
       expect(error.message).toContain("nosuchapp");
-      expect(error.message).toContain("plan");
+      expect(error.message).not.toContain("Connected agents:");
+      expect(logged.join("\n")).toContain("plan");
       expect(error.message).toMatch(/not an outage/i);
 
       expect(
@@ -1442,6 +1456,52 @@ describe("call-agent action", () => {
       unregisterTrackingProvider("qa-a2a-not-found");
       consoleError.mockRestore();
     }
+  });
+
+  it("offers at most three normalized name suggestions without routing a fuzzy match", async () => {
+    const discovery = await import("../server/agent-discovery.js");
+    vi.mocked(discovery.findAgent).mockResolvedValueOnce(undefined);
+    vi.mocked(discovery.discoverAgents).mockResolvedValueOnce(
+      ["calendar", "calenda", "calendary", "calender", "slides"].map((id) => ({
+        id,
+        name: id,
+        description: "",
+        url: "",
+        color: "",
+      })),
+    );
+    const { run } = await import("./call-agent.js");
+
+    const outcome = await run(
+      { agent: "calendarr", message: "Check this" },
+      undefined,
+      "brain",
+    ).then(
+      (resolved) => ({ resolved }) as const,
+      (error) => ({ error }) as const,
+    );
+    expect("error" in outcome).toBe(true);
+    expect(
+      (outcome as { error: Error & { errorCode: string } }).error,
+    ).toMatchObject({
+      errorCode: "agent_not_found",
+    });
+    expect((outcome as { error: Error }).error.message).toContain(
+      "Possible matches:",
+    );
+    expect((outcome as { error: Error }).error.message).not.toContain(
+      "Connected agents:",
+    );
+    expect((outcome as { error: Error }).error.message).not.toContain("slides");
+    const suggestionLine = (outcome as { error: Error }).error.message.match(
+      /Possible matches: ([^.]+)\./,
+    )?.[1];
+    expect(suggestionLine?.split(", ")).toHaveLength(3);
+    expect(discovery.findAgent).toHaveBeenCalledWith(
+      "calendarr",
+      "brain",
+      expect.any(Object),
+    );
   });
 
   it("reports an agent registry read failure instead of treating it as an unknown target", async () => {
@@ -1932,16 +1992,21 @@ describe("call-agent action", () => {
         managedRun.subscribers.add(() => {});
 
         while (!onUpdate) await vi.advanceTimersByTimeAsync(1);
+        bumpRunProgressMock.mockClear();
 
         await vi.advanceTimersByTimeAsync(30_000);
-        onUpdate!(makeTask("working"));
+        onUpdate!({ id: "remote-task", status: { state: "working" } });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(bumpRunProgressMock).toHaveBeenCalled();
+        bumpRunProgressMock.mockClear();
+
         await vi.advanceTimersByTimeAsync(30_000);
-        onUpdate!(makeTask("working"));
+        onUpdate!({ id: "remote-task", status: { state: "working" } });
         await vi.advanceTimersByTimeAsync(2_000);
+        expect(bumpRunProgressMock).toHaveBeenCalled();
+
         resolveCall!("final");
         await vi.advanceTimersByTimeAsync(2_000);
-
-        expect(bumpRunProgressMock.mock.calls.length).toBeGreaterThanOrEqual(4);
       } finally {
         vi.useRealTimers();
       }

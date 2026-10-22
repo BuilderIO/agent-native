@@ -350,7 +350,7 @@ describe("text-edit commit claims its content as source", () => {
             (window as Window & { __selectionPayloads?: unknown[] })
               .__selectionPayloads?.length === 2,
         );
-        const deepSelection = await page.evaluate(
+        const repeatedSelection = await page.evaluate(
           () =>
             (
               window as Window & {
@@ -358,7 +358,7 @@ describe("text-edit commit claims its content as source", () => {
               }
             ).__selectionPayloads?.[1],
         );
-        expect(deepSelection?.sourceId).toBe(NODE_ID);
+        expect(repeatedSelection?.sourceId).toBe("generated-group");
 
         await page.mouse.dblclick(
           line.x + line.width / 2,

@@ -404,8 +404,10 @@ test.describe("auto layout", () => {
       ...styleOf(before.get("abs-intro")),
       display: "flex",
       "flex-direction": "row",
+      "align-items": "flex-start",
       gap: "10px",
     });
+    await expect(app.node("abs-intro")).toHaveCSS("align-items", "flex-start");
     expect(childrenOf(after, "abs-intro")).toStrictEqual([
       "abs-title",
       "abs-sub",
@@ -666,9 +668,7 @@ test.describe("selection", () => {
       drawn.map((node) => [node.parent, node.attrs["data-an-primitive"]]),
     ).toEqual([["draw-frame", "rectangle"]]);
     await expect.poll(() => app.selectedLayers()).toEqual(["Rectangle"]);
-
     await app.page.keyboard.press("Escape");
-
     await expect.poll(() => app.selectedLayers()).toEqual([]);
     await expect(app.page.locator("[data-frame-selection-box]")).toHaveCount(0);
   });

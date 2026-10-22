@@ -24,9 +24,11 @@ export type SourceHealthId = (typeof SOURCE_HEALTH_SOURCES)[number]["id"];
 export type SourceHealthState =
   | "connected"
   | "configured"
+  | "checking"
   | "not_connected"
   | "needs_reauth"
-  | "error";
+  | "error"
+  | "unknown";
 
 // A granted dbt row is connected only when the org token and environment ID are
 // saved too. A missing readiness value is unknown, so it reads as an error.
@@ -85,6 +87,7 @@ export function sourceHealthState(
   if (grantState === "connected") {
     return "connected";
   }
+  if (provider?.connectionHealth === "checking") return "checking";
   if (grantState === "needs_grant") {
     const missingRequiredKeys = provider?.missingRequiredKeys;
     const requiredCredentialsConfigured =
@@ -94,11 +97,12 @@ export function sourceHealthState(
           missingRequiredKeys.length === 0;
     return requiredCredentialsConfigured ? "configured" : "not_connected";
   }
-  if (data.workspaceConnections?.available === false) return "error";
-  if (provider?.configured === null) return "error";
+  if (data.workspaceConnections?.available === false) return "unknown";
+  if (provider?.configured === null) return "unknown";
   if (grantState === "granted") {
     if (statuses.has("needs_reauth")) return "needs_reauth";
     if (statuses.has("error")) return "error";
+    if (statuses.has("checking")) return "checking";
   }
   if (provider?.configured === true || grantState === "granted") {
     return "configured";

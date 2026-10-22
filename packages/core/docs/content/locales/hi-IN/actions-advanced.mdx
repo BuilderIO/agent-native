@@ -48,7 +48,7 @@ export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
 यह वह जांच है जो वास्तव में मायने रखती है, क्योंकि हर कॉलर, चाहे वह एजेंट हो, फ्रंटएंड हो, या कोई स्क्रिप्ट, इससे गुज़रना ही पड़ता है:
 
 ```ts
-// actions/create-fusion-app.ts
+// actions/create-builder-app.ts
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 
 run: async (args, ctx) => {
