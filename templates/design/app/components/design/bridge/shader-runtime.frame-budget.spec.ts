@@ -132,12 +132,6 @@ describe("GLSL shader runtime — frame budget", () => {
       screenHtml(),
     );
     const frame = (await (await page.$("#screen"))!.contentFrame())!;
-    await frame.waitForFunction(() => {
-      const canvas = document.querySelector(
-        "canvas[data-an-shader-canvas]",
-      ) as HTMLCanvasElement | null;
-      return canvas !== null && canvas.width > 1;
-    });
     const postFromEditor = (scaleX: unknown, scaleY: unknown = scaleX) =>
       page.evaluate(
         ([x, y]) => {
@@ -156,11 +150,14 @@ describe("GLSL shader runtime — frame budget", () => {
           (
             document.querySelector(
               "canvas[data-an-shader-canvas]",
-            ) as HTMLCanvasElement
-          ).width === w,
+            ) as HTMLCanvasElement | null
+          )?.width === w,
         width,
         { timeout: 5_000 },
       );
+    // A new canvas starts at the browser's default 300px, so wait for the
+    // first draw to size it: the 320px host at the device's resolution.
+    await settlesAt(320 * deviceScaleFactor);
     return { page, frame, postFromEditor, settlesAt };
   }
 
