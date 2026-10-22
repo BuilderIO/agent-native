@@ -258,6 +258,13 @@ describe("legacy settings links", () => {
         },
       ),
     ).toMatchObject({ page: "app", sub: "alerts" });
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/alerts", hash: "" },
+        collidingPages,
+        { appAreaIds: ["alerts"] },
+      ),
+    ).toMatchObject({ page: "app", sub: "alerts" });
     // Today's tab path for an area (Analytics' Alerts tab).
     expect(
       resolveSettingsRoute(

@@ -1315,7 +1315,7 @@ function SettingsNav({
                   <div className="truncate px-2 pb-1 text-[11.5px] font-medium text-muted-foreground">
                     {groupLabel(group)}
                   </div>
-                  {(groups.get(group) ?? []).map(renderItem)}
+                  {(groups.get(group) ?? []).map((page) => renderItem(page))}
                 </div>
               ))}
         </nav>

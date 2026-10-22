@@ -213,7 +213,8 @@ export function resolveSettingsRoute(
   if (segments.length > 0) {
     const joined = segments.join(":");
     const pageId = segments[0]!;
-    if (pages.some((page) => page.id === pageId)) {
+    const directPage = pages.find((page) => page.id === pageId);
+    if (directPage && isCoreSettingsPageId(pageId)) {
       const pattern = segments.length > 1 && resolveSettingsIdPattern(joined);
       if (pattern) return redirectRoute(pattern, pages, hash || null);
       return {
@@ -228,6 +229,16 @@ export function resolveSettingsRoute(
     // `resolveSettingsTabValue`, because the area id is the template's own.
     if (options.appAreaIds?.includes(pageId)) {
       return { page: "app", sub: pageId, anchor: hash || null, legacy: true };
+    }
+    if (directPage) {
+      const pattern = segments.length > 1 && resolveSettingsIdPattern(joined);
+      if (pattern) return redirectRoute(pattern, pages, hash || null);
+      return {
+        page: pageId,
+        sub: segments[1] ?? null,
+        anchor: hash || null,
+        legacy: segments.length > 2,
+      };
     }
     const redirect = resolveLegacySettingsId(joined, "tab");
     if (redirect) return redirectRoute(redirect, pages, hash || null);
