@@ -127,6 +127,7 @@ describe("client consent", () => {
       throw failure;
     });
     consent.whenConsentAllows("targeting", vi.fn(), { revoke });
+    revoke.mockClear();
 
     consent.setConsentChoice({ performance: true, targeting: false });
 
