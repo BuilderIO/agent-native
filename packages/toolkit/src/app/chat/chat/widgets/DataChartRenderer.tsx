@@ -141,8 +141,8 @@ function ChartBody({
             (_, index) => (firstTick + index) * tickInterval,
           );
         })();
-  const customValueTickWidth =
-    !isHorizontalBar && tickInterval !== undefined
+  const customValueTickLabelWidth =
+    tickInterval !== undefined
       ? Math.max(
           0,
           ...gridTickValues.map((value) =>
@@ -153,6 +153,7 @@ function ChartBody({
           ),
         )
       : 0;
+  const customValueTickWidth = isHorizontalBar ? 0 : customValueTickLabelWidth;
   const horizontalCategoryWidth = isHorizontalBar
     ? Math.max(
         0,
@@ -221,8 +222,22 @@ function ChartBody({
       : margin.left + (index / (chart.data.length - 1)) * plotWidth;
   const yForRow = (index: number) =>
     margin.top + ((index + 0.5) * plotHeight) / Math.max(1, chart.data.length);
-  const gridTicks = gridTickValues.map((value) => ({
+  const axisLabelMinSpacing = isHorizontalBar
+    ? customValueTickLabelWidth + 8
+    : labelFontSize + 4;
+  const visibleAxisLabelCount = Math.max(
+    2,
+    Math.floor(
+      (isHorizontalBar ? plotWidth : plotHeight) / axisLabelMinSpacing,
+    ) + 1,
+  );
+  const axisLabelStride = Math.max(
+    1,
+    Math.ceil((gridTickValues.length - 1) / (visibleAxisLabelCount - 1)),
+  );
+  const gridTicks = gridTickValues.map((value, index) => ({
     value,
+    index,
     x: xForValue(value),
     y: yForValue(value),
   }));
@@ -248,17 +263,20 @@ function ChartBody({
               stroke="hsl(var(--chart-grid, var(--border)))"
               strokeDasharray={tickInterval === undefined ? "3 3" : undefined}
             />
-            <text
-              x={tick.x}
-              y={HEIGHT - margin.bottom + 14}
-              fill="hsl(var(--muted-foreground))"
-              fontSize={labelFontSize}
-              textAnchor="middle"
-            >
-              {tickInterval === undefined
-                ? formatTick(tick.value)
-                : formatAxisTick(tick.value, tickInterval)}
-            </text>
+            {tick.index % axisLabelStride === 0 ||
+            tick.index === gridTickValues.length - 1 ? (
+              <text
+                x={tick.x}
+                y={HEIGHT - margin.bottom + 14}
+                fill="hsl(var(--muted-foreground))"
+                fontSize={labelFontSize}
+                textAnchor="middle"
+              >
+                {tickInterval === undefined
+                  ? formatTick(tick.value)
+                  : formatAxisTick(tick.value, tickInterval)}
+              </text>
+            ) : null}
           </g>
         ) : (
           <g key={tick.y}>
@@ -270,17 +288,20 @@ function ChartBody({
               stroke="hsl(var(--chart-grid, var(--border)))"
               strokeDasharray={tickInterval === undefined ? "3 3" : undefined}
             />
-            <text
-              x={margin.left - 8}
-              y={tick.y + 4}
-              fill="hsl(var(--muted-foreground))"
-              fontSize={labelFontSize}
-              textAnchor="end"
-            >
-              {tickInterval === undefined
-                ? formatTick(tick.value)
-                : formatAxisTick(tick.value, tickInterval)}
-            </text>
+            {tick.index % axisLabelStride === 0 ||
+            tick.index === gridTickValues.length - 1 ? (
+              <text
+                x={margin.left - 8}
+                y={tick.y + 4}
+                fill="hsl(var(--muted-foreground))"
+                fontSize={labelFontSize}
+                textAnchor="end"
+              >
+                {tickInterval === undefined
+                  ? formatTick(tick.value)
+                  : formatAxisTick(tick.value, tickInterval)}
+              </text>
+            ) : null}
           </g>
         ),
       )}

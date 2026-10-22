@@ -1523,8 +1523,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.workedFor": "عمل لمدة {{duration}}",
   "widget.chart": "مخطط",
   "widget.chartActions": "إجراءات المخطط",
-  "widget.chartRowsOmitted":
-    "لا تظهر بعض صفوف المخطط لأن البيانات تجاوزت حد العرض.",
+  "widget.chartRowsOmitted": "يعرض هذا المخطط بعض الصفوف المتاحة فقط.",
   "widget.dataSources": "مصادر البيانات",
   "widget.tableActions": "إجراءات الجدول",
   "widget.dataChart": "مخطط بيانات",

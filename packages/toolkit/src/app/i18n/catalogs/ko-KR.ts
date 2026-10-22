@@ -1511,8 +1511,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.workedFor": "{{duration}} 동안 작업함",
   "widget.chart": "차트",
   "widget.chartActions": "차트 작업",
-  "widget.chartRowsOmitted":
-    "데이터가 표시 한도를 초과하여 차트의 일부 행이 표시되지 않습니다.",
+  "widget.chartRowsOmitted": "이 차트에는 사용 가능한 행 중 일부만 표시됩니다.",
   "widget.dataSources": "데이터 소스",
   "widget.tableActions": "표 작업",
   "widget.dataChart": "데이터 차트",

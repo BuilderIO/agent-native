@@ -184,7 +184,7 @@ describe("DataChartWidget display contract", () => {
     expect(window.location.search).toBe("?tab=chart");
   });
 
-  it("announces omitted chart rows and stays quiet for complete data", async () => {
+  it("announces incomplete chart data and stays quiet for complete data", async () => {
     const cappedContainer = await renderWidget(
       undefined,
       undefined,
@@ -194,12 +194,12 @@ describe("DataChartWidget display contract", () => {
     const cappedDisclosure = cappedContainer.querySelector('[role="status"]');
 
     expect(cappedDisclosure?.textContent).toBe(
-      "Some chart rows are not shown because the data exceeds the display limit.",
+      "This chart shows only some of the available rows.",
     );
 
     const sampledContainer = await renderWidget(undefined, undefined, true);
     expect(sampledContainer.querySelector('[role="status"]')?.textContent).toBe(
-      "Some chart rows are not shown because the data exceeds the display limit.",
+      "This chart shows only some of the available rows.",
     );
 
     const completeContainer = await renderWidget();

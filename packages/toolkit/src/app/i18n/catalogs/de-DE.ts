@@ -1070,7 +1070,7 @@ const messages: ToolkitAgentChatTranslation = {
   "widget.chart": "Diagramm",
   "widget.chartActions": "Diagrammaktionen",
   "widget.chartRowsOmitted":
-    "Einige Diagrammzeilen werden nicht angezeigt, weil die Daten das Anzeigelimit überschreiten.",
+    "Dieses Diagramm zeigt nur einen Teil der verfügbaren Zeilen.",
   "widget.dataSources": "Datenquellen",
   "widget.tableActions": "Tabellenaktionen",
   "widget.dataChart": "Datendiagramm",

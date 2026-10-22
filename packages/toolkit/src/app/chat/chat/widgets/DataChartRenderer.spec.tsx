@@ -189,6 +189,57 @@ describe("DataChartRenderer theme colors", () => {
     expect(numericLabels).toEqual(["0.0", "0.3", "0.6"]);
   });
 
+  it("limits custom tick-label density without dropping grid lines", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First", value: 0 },
+            { day: "Last", value: 99 },
+          ],
+          valueAxisTickInterval: 1,
+        }}
+      />,
+    );
+    const numericLabels = Array.from(
+      markup.matchAll(/<text[^>]*>([^<]+)<\/text>/g),
+      (match) => match[1],
+    ).filter((label) => /^\d+$/.test(label ?? ""));
+
+    expect(numericLabels.length).toBeLessThanOrEqual(30);
+    expect(numericLabels[0]).toBe("0");
+    expect(numericLabels.at(-1)).toBe("99");
+    expect(markup.match(/<line /g)).toHaveLength(101);
+
+    const smallRangeMarkup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First", value: 0 },
+            { day: "Last", value: 3 },
+          ],
+          valueAxisTickInterval: 0.2,
+        }}
+      />,
+    );
+    const smallRangeLabels = Array.from(
+      smallRangeMarkup.matchAll(/<text[^>]*>([^<]+)<\/text>/g),
+      (match) => match[1],
+    ).filter((label) => /^\d+\.\d$/.test(label ?? ""));
+
+    expect(smallRangeLabels).toEqual(
+      Array.from({ length: 16 }, (_, index) => (index * 0.2).toFixed(1)),
+    );
+  });
+
   it("formats very small custom intervals without collapsing labels to zero", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer

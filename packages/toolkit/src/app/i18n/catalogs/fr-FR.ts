@@ -1070,7 +1070,7 @@ const messages: ToolkitAgentChatTranslation = {
   "widget.chart": "Graphique",
   "widget.chartActions": "Actions du graphique",
   "widget.chartRowsOmitted":
-    "Certaines lignes du graphique ne sont pas affichées, car les données dépassent la limite d’affichage.",
+    "Ce graphique n’affiche qu’une partie des lignes disponibles.",
   "widget.dataSources": "Sources de données",
   "widget.tableActions": "Actions du tableau",
   "widget.dataChart": "Graphique de données",

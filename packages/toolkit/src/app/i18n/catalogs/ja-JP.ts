@@ -1538,7 +1538,7 @@ const messages: ToolkitAgentChatTranslation = {
   "widget.chart": "チャート",
   "widget.chartActions": "チャート操作",
   "widget.chartRowsOmitted":
-    "データが表示上限を超えているため、グラフの一部の行は表示されていません。",
+    "このグラフには、利用可能な行の一部のみが表示されます。",
   "widget.dataSources": "データソース",
   "widget.tableActions": "テーブル操作",
   "widget.dataChart": "データチャート",

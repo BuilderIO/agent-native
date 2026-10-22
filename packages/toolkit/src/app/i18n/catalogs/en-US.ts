@@ -1515,7 +1515,7 @@ const messages = {
   "widget.chart": "Chart",
   "widget.chartActions": "Chart actions",
   "widget.chartRowsOmitted":
-    "Some chart rows are not shown because the data exceeds the display limit.",
+    "This chart shows only some of the available rows.",
   "widget.dataSources": "Data sources",
   "widget.tableActions": "Table actions",
   "widget.dataChart": "Data chart",
