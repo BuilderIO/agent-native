@@ -217,6 +217,7 @@ function ChartBody({
   const { min, max } = rangeFor(chart);
   const isHorizontalBar = chart.type === "bar" && chart.layout === "horizontal";
   const tickInterval = chart.valueAxisTickInterval;
+  const valueLabelFontSize = chart.valueLabelFontSize ?? 11;
   const gridTickValues =
     tickInterval === undefined
       ? Array.from({ length: 4 }, (_, index) => min + ((max - min) * index) / 3)
@@ -307,7 +308,7 @@ function ChartBody({
   const configuredTopInset = inset(layout?.plotInsets?.top, "top", MARGIN.top);
   const minimumVerticalValueLabelTop =
     chart.type === "bar" && !isHorizontalBar && chart.showValueLabels
-      ? (chart.valueLabelFontSize ?? 11) + 5
+      ? valueLabelFontSize + 5
       : 0;
   const configuredBottomInset = inset(
     layout?.plotInsets?.bottom,
@@ -357,6 +358,25 @@ function ChartBody({
           ),
         )
       : 0;
+  const verticalBarValueLabelInset =
+    chart.type === "bar" && !isHorizontalBar && chart.showValueLabels
+      ? Math.ceil(
+          Math.max(
+            0,
+            ...chart.data.flatMap((row) =>
+              chart.series
+                .map((series) => numericValue(row, series.key))
+                .filter((value): value is number => value !== null)
+                .map((value) =>
+                  estimateTextWidth(
+                    formatValueLabel(value),
+                    valueLabelFontSize,
+                  ),
+                ),
+            ),
+          ) / 2,
+        ) + 4
+      : 0;
   const margin = {
     ...MARGIN,
     top: Math.max(configuredTopInset, minimumVerticalValueLabelTop),
@@ -375,6 +395,7 @@ function ChartBody({
             MARGIN.right,
             horizontalPositiveValueWidth + 13,
             horizontalValueTickLabelInset,
+            verticalBarValueLabelInset,
           )
         : Math.max(
             inset(layout.plotInsets.right, "right", MARGIN.right),
@@ -382,6 +403,7 @@ function ChartBody({
               ? horizontalPositiveValueWidth + 13
               : 0,
             horizontalValueTickLabelInset,
+            verticalBarValueLabelInset,
           ),
     bottom:
       Math.max(
@@ -499,7 +521,6 @@ function ChartBody({
   const zeroX = xForValue(zero);
   const zeroY = yForValue(zero);
   const axisTitleFontWeight = chart.axisTitleFontWeight ?? 500;
-  const valueLabelFontSize = chart.valueLabelFontSize ?? 11;
   const valueLabelFontWeight = chart.valueLabelFontWeight ?? 400;
 
   const axes = (

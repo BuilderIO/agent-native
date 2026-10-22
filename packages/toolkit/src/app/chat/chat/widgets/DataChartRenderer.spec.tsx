@@ -232,6 +232,38 @@ describe("DataChartRenderer theme colors", () => {
     );
   });
 
+  it("keeps final vertical-bar value labels inside the SVG at a small right inset", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: Array.from({ length: 60 }, (_, index) => ({
+            day: `Day ${index}`,
+            value: index === 59 ? 1_234_567 : 0,
+          })),
+          showValueLabels: true,
+        }}
+        layout={{ plotInsets: { right: 8 } }}
+      />,
+    );
+    const valueLabels = Array.from(
+      markup.matchAll(
+        /<text(?=[^>]*data-value-label="true")([^>]*)>([^<]+)<\/text>/g,
+      ),
+    );
+    const finalValueLabel = valueLabels.at(-1);
+    const finalLabelX = Number(
+      finalValueLabel?.[1].match(/\bx="([\d.]+)"/)?.[1],
+    );
+    const finalLabelWidth =
+      Array.from(finalValueLabel?.[2] ?? "").length * 11 * 0.65;
+
+    expect(finalValueLabel).toBeDefined();
+    expect(finalLabelX + finalLabelWidth / 2).toBeLessThanOrEqual(640);
+  });
+
   it("preserves the top value-axis label when the configured top inset is zero", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
