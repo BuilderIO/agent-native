@@ -23,6 +23,7 @@ import {
 import {
   assertCommunityQrPackagePinOnlyChange,
   decodeGitHubContentResponse,
+  parseCompletePullRequestFiles,
 } from "./verify-community-qr-release-pin.ts";
 
 type Workflow = Record<string, unknown>;
@@ -644,6 +645,23 @@ importers:
           "head-sha",
         ),
       /GitHub returned incomplete file content/,
+    );
+  });
+
+  it("rejects pull request file lists at GitHub's 3,000-file cap", () => {
+    const belowLimit = Array.from(
+      { length: 2_999 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+    const atLimit = Array.from(
+      { length: 3_000 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+
+    assert.equal(parseCompletePullRequestFiles(belowLimit).length, 2_999);
+    assert.throws(
+      () => parseCompletePullRequestFiles(atLimit),
+      /pull request files API reached its 3,000-file limit/,
     );
   });
 

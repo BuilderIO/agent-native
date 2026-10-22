@@ -9,6 +9,7 @@ const prNumber = process.env.PR_NUMBER;
 const communityAppsPath = "packages/dispatch/src/server/lib/community-apps.ts";
 const communityQrPackagePath = "templates/community/qr/package.json";
 const communityQrTemplatePath = "templates/community/qr";
+const pullRequestFilesLimit = 3_000;
 
 export function assertCommunityQrPackagePinOnlyChange(
   baseSource: string,
@@ -134,6 +135,20 @@ export function decodeGitHubContentResponse(
   return decoded;
 }
 
+export function parseCompletePullRequestFiles(output: string): string[] {
+  const files = output
+    .split("\n")
+    .map((file) => file.trim())
+    .filter(Boolean);
+
+  if (files.length >= pullRequestFilesLimit) {
+    throw new Error(
+      "GitHub's pull request files API reached its 3,000-file limit; refusing to verify an incomplete release diff.",
+    );
+  }
+  return files;
+}
+
 function contentAt(path: string, ref: string): Buffer {
   const response = JSON.parse(
     gh(["api", `repos/${repo}/contents/${path}?ref=${ref}`]),
@@ -146,16 +161,15 @@ function main(): void {
     throw new Error("Missing release PR verification context.");
   }
 
-  const changedFiles = gh([
-    "api",
-    "--paginate",
-    `repos/${repo}/pulls/${prNumber}/files`,
-    "--jq",
-    ".[].filename",
-  ])
-    .split("\n")
-    .map((file) => file.trim())
-    .filter(Boolean);
+  const changedFiles = parseCompletePullRequestFiles(
+    gh([
+      "api",
+      "--paginate",
+      `repos/${repo}/pulls/${prNumber}/files`,
+      "--jq",
+      ".[].filename",
+    ]),
+  );
 
   if (!changedFiles.includes(communityAppsPath)) {
     console.log("Community app catalog is unchanged.");
