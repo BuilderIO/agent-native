@@ -722,8 +722,17 @@ function builderMcpSpacePublicKeyFromIdentity(value: unknown) {
     )
     .map((candidate) => candidate.trim());
   const uniqueCandidates = [...new Set(candidates)];
-  return uniqueCandidates.length === 1 ? uniqueCandidates[0] : null;
+  if (uniqueCandidates.length > 0) {
+    return uniqueCandidates.length === 1 ? uniqueCandidates[0] : null;
+  }
+  // `who_am_i` names the Space only by id, which is also its public API key.
+  return typeof record.id === "string" && record.id.trim()
+    ? record.id.trim()
+    : null;
 }
+
+// Builder's hosted Publish MCP names its identity tool `who_am_i`.
+const BUILDER_MCP_IDENTITY_TOOLS = ["get_authenticated_user", "who_am_i"];
 
 async function readBuilderCmsModelsViaPublishMcp(args: {
   expectedSpace: string;
@@ -772,13 +781,18 @@ async function readBuilderCmsModelsViaPublishMcp(args: {
     Array.isArray((toolList as Record<string, unknown>).tools)
       ? ((toolList as Record<string, unknown>).tools as unknown[])
       : [];
-  const identityTool = toolRecords.find(
-    (tool) =>
-      tool &&
-      typeof tool === "object" &&
-      !Array.isArray(tool) &&
-      (tool as Record<string, unknown>).name === "get_authenticated_user",
-  ) as Record<string, unknown> | undefined;
+  const toolNames = new Set(
+    toolRecords
+      .map((tool) =>
+        tool && typeof tool === "object" && !Array.isArray(tool)
+          ? (tool as Record<string, unknown>).name
+          : null,
+      )
+      .filter((name): name is string => typeof name === "string"),
+  );
+  const identityTool = BUILDER_MCP_IDENTITY_TOOLS.find((name) =>
+    toolNames.has(name),
+  );
   if (!identityTool) {
     fail("Builder MCP does not expose its authenticated Space identity.", {
       errorCode: "builder_response_invalid",
@@ -796,7 +810,7 @@ async function readBuilderCmsModelsViaPublishMcp(args: {
       id: 3,
       method: "tools/call",
       params: {
-        name: identityTool.name as string,
+        name: identityTool,
         arguments: {},
       },
     },
@@ -841,7 +855,46 @@ async function readBuilderCmsModelsViaPublishMcp(args: {
   return builderMcpModelsFromToolResponse(modelsJson);
 }
 
+// Body hydration reads entries one at a time and each read needs the model id.
+// Rediscovering it per entry costs a request per row, and seven when discovery
+// falls back to the Publish MCP, so a large source floods Builder.
+const BUILDER_MODEL_ID_TTL_MS = 60_000;
+const builderModelIdCache = new WeakMap<
+  FetchLike,
+  Map<string, { expiresAt: number; modelId: string }>
+>();
+
 async function resolveBuilderCmsGeneralModelId(args: {
+  model: string;
+  authorization: BuilderRequestAuthorization;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  fetchImpl: FetchLike;
+  signal?: AbortSignal;
+}) {
+  const publicKey = requireBuilderOAuthPublicKey(
+    args.authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+  );
+  const key = [
+    publicKey,
+    args.authorization.oauthConnectionId ?? "",
+    args.model.trim().toLowerCase(),
+  ].join("\u0000");
+  const entries = builderModelIdCache.get(args.fetchImpl) ?? new Map();
+  builderModelIdCache.set(args.fetchImpl, entries);
+  const cached = entries.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.modelId;
+  const modelId = await discoverBuilderCmsGeneralModelId(args);
+  entries.set(key, {
+    expiresAt: Date.now() + BUILDER_MODEL_ID_TTL_MS,
+    modelId,
+  });
+  return modelId;
+}
+
+async function discoverBuilderCmsGeneralModelId(args: {
   model: string;
   authorization: BuilderRequestAuthorization;
   expectedSourceSpace?: string | null;

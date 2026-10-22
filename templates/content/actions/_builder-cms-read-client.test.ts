@@ -517,6 +517,96 @@ describe("Builder CMS read client", () => {
     ).toBe(false);
   });
 
+  it.each([
+    ["selected-space-key", "live"],
+    ["different-space-key", "error"],
+  ])(
+    "checks the bound Space through Builder's who_am_i identity (space %s)",
+    async (spaceId, state) => {
+      resolveBuilderRequestAuthorizationMock
+        .mockResolvedValueOnce({
+          token: "general-oauth-token",
+          authorization: "Bearer general-oauth-token",
+          source: "oauth",
+          oauthResource: "general",
+          oauthSelectedPublicKey: "selected-space-key",
+          oauthConnectionId: "content-connection-1",
+        })
+        .mockResolvedValueOnce({
+          token: "publish-oauth-token",
+          authorization: "Bearer publish-oauth-token",
+          source: "oauth",
+          oauthResource: "publish",
+        });
+      const toolText = (value: unknown) =>
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [{ type: "text", text: JSON.stringify(value) }],
+            },
+          }),
+          { status: 200 },
+        );
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 401 }))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              result: { supportedVersions: ["2026-07-28"] },
+            }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              result: {
+                tools: [
+                  { name: "list_builder_models" },
+                  { name: "create_builder_content" },
+                  { name: "who_am_i" },
+                ],
+              },
+            }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          toolText({
+            tool: "who_am_i",
+            authMethod: "oauth",
+            user: { id: "user-1" },
+            space: { id: spaceId, name: "Builder space" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          toolText({
+            models: [{ id: "model-1", name: "blog_article", fields: [] }],
+          }),
+        );
+
+      await expect(
+        listBuilderCmsModels({
+          expectedSourceSpace: "selected-space-key",
+          expectedSourceConnectionId: "content-connection-1",
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).resolves.toMatchObject({ state });
+      const toolCalls = fetchImpl.mock.calls
+        .slice(1)
+        .map(([, init]) => JSON.parse((init as RequestInit).body as string))
+        .filter((payload) => payload.method === "tools/call")
+        .map((payload) => payload.params.name);
+      expect(toolCalls).toEqual(
+        state === "live" ? ["who_am_i", "list_builder_models"] : ["who_am_i"],
+      );
+    },
+  );
+
   it.each([null, { data: [] }, { models: "not-an-array" }, { models: [{}] }])(
     "rejects malformed general API model responses: %j",
     async (payload) => {
@@ -744,7 +834,7 @@ describe("Builder CMS read client", () => {
         "collection changed between refresh pages",
       ),
     });
-    const continuationRequest = fetchImpl.mock.calls[3]?.[0] as URL;
+    const continuationRequest = fetchImpl.mock.calls.at(-1)?.[0] as URL;
     expect(continuationRequest.searchParams.get("offset")).toBe("1");
     expect(continuationRequest.searchParams.has("query.id.$gt")).toBe(false);
   });
@@ -819,7 +909,7 @@ describe("Builder CMS read client", () => {
       state: "error",
       message: expect.stringContaining("changed before the saved cursor"),
     });
-    const continuationRequest = fetchImpl.mock.calls[3]?.[0] as URL;
+    const continuationRequest = fetchImpl.mock.calls.at(-1)?.[0] as URL;
     expect(continuationRequest.searchParams.get("offset")).toBe("1");
   });
 
@@ -1151,7 +1241,7 @@ describe("Builder CMS read client", () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
-    expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(5);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
     for (const [input] of fetchImpl.mock.calls) {
       expect(String(input)).toMatch(/^https:\/\/cdn\.builder\.io\/api\/v1\//);
     }
@@ -2830,6 +2920,64 @@ describe("Builder CMS read client", () => {
       entry: { id: "builder-entry-1" },
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("discovers the model once across a run of entry reads, without caching a failed discovery", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    let modelReads = 0;
+    const fetchImpl = vi.fn(async (input: URL) => {
+      if (input.pathname === "/api/v1/models") {
+        modelReads += 1;
+        return modelReads === 1
+          ? new Response(null, { status: 403 })
+          : new Response(
+              JSON.stringify({
+                models: [
+                  { id: "model-uuid", name: "blog_article", fields: [] },
+                ],
+              }),
+              { status: 200 },
+            );
+      }
+      const entryId = input.searchParams.get("query.id");
+      return new Response(
+        JSON.stringify({
+          results: [{ id: entryId, modelId: "blog_article", data: {} }],
+          totalCount: 1,
+        }),
+        { status: 200 },
+      );
+    });
+    const read = (entryId: string) =>
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+
+    await expect(read("builder-entry-1")).rejects.toThrow();
+    const results = [];
+    for (const entryId of [
+      "builder-entry-1",
+      "builder-entry-2",
+      "builder-entry-3",
+    ]) {
+      results.push(await read(entryId));
+    }
+
+    expect(results.map((result) => result.entry?.id)).toEqual([
+      "builder-entry-1",
+      "builder-entry-2",
+      "builder-entry-3",
+    ]);
+    expect(modelReads).toBe(2);
   });
 
   it("reports an empty general exact query as a 200 not-found result", async () => {
