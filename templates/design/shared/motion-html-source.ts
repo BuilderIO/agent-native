@@ -67,6 +67,7 @@ type HtmlNode = {
   tagName?: string;
   value?: string;
   attrs?: Array<{ name: string; value: string }>;
+  parentNode?: HtmlNode;
   childNodes?: HtmlNode[];
   content?: HtmlNode;
   insideTemplate?: boolean;
@@ -188,20 +189,23 @@ function parseHtml(source: string): ParsedHtml {
   }
 
   const nodes: HtmlNode[] = [];
-  const pending: Array<{ node: HtmlNode; insideTemplate: boolean }> = [
-    { node: document, insideTemplate: false },
-  ];
+  const pending: Array<{
+    node: HtmlNode;
+    insideTemplate: boolean;
+    parent?: HtmlNode;
+  }> = [{ node: document, insideTemplate: false }];
   while (pending.length > 0) {
-    const { node, insideTemplate } = pending.pop()!;
+    const { node, insideTemplate, parent } = pending.pop()!;
+    if (parent) node.parentNode = parent;
     node.insideTemplate = insideTemplate;
     nodes.push(node);
     pending.push(
       ...(node.childNodes ?? [])
         .reverse()
-        .map((child) => ({ node: child, insideTemplate })),
+        .map((child) => ({ node: child, insideTemplate, parent: node })),
     );
     if (node.tagName === "template" && node.content) {
-      pending.push({ node: node.content, insideTemplate: true });
+      pending.push({ node: node.content, insideTemplate: true, parent: node });
     }
   }
   return { nodes };
@@ -388,9 +392,11 @@ function assertSafeTargetId(targetNodeId: string): void {
   }
 }
 
-function isRuntimeStyleMutationHandler(name: string): boolean {
+function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
   const normalized = name.toLowerCase();
   return (
+    ((normalized === "x-data" || normalized === "v-scope") &&
+      !isStaticRuntimeScopeData(value)) ||
     normalized === "x-init" ||
     normalized.startsWith("x-init.") ||
     normalized === "x-effect" ||
@@ -405,9 +411,130 @@ function isRuntimeStyleMutationHandler(name: string): boolean {
 }
 
 function hasRuntimeStyleMutationHandler(
-  attrs: readonly { name: string }[] | undefined,
+  attrs: readonly { name: string; value: string }[] | undefined,
 ): boolean {
-  return (attrs ?? []).some(({ name }) => isRuntimeStyleMutationHandler(name));
+  return (attrs ?? []).some(({ name, value }) =>
+    isRuntimeStyleMutationHandler(name, value),
+  );
+}
+
+function isRuntimeStyleMutationScope(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return normalized === "x-data" || normalized === "v-scope";
+}
+
+function isStaticRuntimeScopeData(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized || normalized === "{}") return true;
+  if (!normalized.startsWith("{") || !normalized.endsWith("}")) return false;
+
+  const entries = splitStaticObjectProperties(normalized.slice(1, -1).trim());
+  return (
+    entries !== null &&
+    entries.every((entry) => {
+      const match =
+        /^(?:[A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*:\s*(.+)$/s.exec(
+          entry,
+        );
+      return match !== null && isStaticRuntimeScopeValue(match[1]!.trim());
+    })
+  );
+}
+
+function splitStaticObjectProperties(value: string): string[] | null {
+  if (!value) return [];
+  const properties: string[] = [];
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  let start = 0;
+
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]!;
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === ",") {
+      properties.push(value.slice(start, index).trim());
+      start = index + 1;
+    } else if ("{}[]()".includes(character)) {
+      return null;
+    }
+  }
+
+  if (quote || escaped) return null;
+  properties.push(value.slice(start).trim());
+  return properties.every(Boolean) ? properties : null;
+}
+
+function isStaticRuntimeScopeValue(value: string): boolean {
+  return /^(?:true|false|null|undefined|-?(?:\d+(?:\.\d*)?|\.\d+)|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')$/.test(
+    value,
+  );
+}
+
+function findRuntimeStyleMutationAttribute(
+  target: HtmlNode,
+):
+  | { attribute: { name: string; value: string }; isTargetAttribute: boolean }
+  | undefined {
+  const ancestors = [target];
+  let current = target.parentNode;
+  let outermostScopeIndex = -1;
+  while (current) {
+    ancestors.push(current);
+    if (current.attrs?.some(({ name }) => isRuntimeStyleMutationScope(name))) {
+      outermostScopeIndex = ancestors.length - 1;
+    }
+    current = current.parentNode;
+  }
+
+  const lastIndex = Math.max(0, outermostScopeIndex);
+  for (let index = 0; index <= lastIndex; index++) {
+    const node = ancestors[index]!;
+    const attribute = node.attrs?.find(({ name, value }) =>
+      isRuntimeStyleMutationHandler(name, value),
+    );
+    if (attribute) return { attribute, isTargetAttribute: index === 0 };
+  }
+
+  if (outermostScopeIndex >= 0) {
+    const scope = ancestors[outermostScopeIndex]!;
+    const attribute = findRuntimeStyleMutationInScope(scope);
+    if (attribute) return { attribute, isTargetAttribute: false };
+  }
+
+  return undefined;
+}
+
+function findRuntimeStyleMutationInScope(
+  scope: HtmlNode,
+): { name: string; value: string } | undefined {
+  const pending = [...(scope.childNodes ?? [])];
+  if (scope.content) pending.push(scope.content);
+
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (node.insideTemplate || node.tagName === "template") continue;
+
+    const attribute = node.attrs?.find(({ name, value }) =>
+      isRuntimeStyleMutationHandler(name, value),
+    );
+    if (attribute) return attribute;
+
+    pending.push(...(node.childNodes ?? []));
+    if (node.content) pending.push(node.content);
+  }
+
+  return undefined;
 }
 
 function assertSafeSourceFilePath(sourceFilePath: string): string {
@@ -639,13 +766,15 @@ function assertTargetsExist(
         `Motion target "${nodeId}" uses ${conflictingMotionBinding.name}, which cannot be synchronized with CSS Motion yet.`,
       );
     }
-    const runtimeStyleMutation = target.attrs?.find(({ name }) =>
-      isRuntimeStyleMutationHandler(name),
-    );
+    const runtimeStyleMutation = findRuntimeStyleMutationAttribute(target);
     if (runtimeStyleMutation) {
+      const { attribute, isTargetAttribute } = runtimeStyleMutation;
+      const runtimeScope = isTargetAttribute
+        ? `uses ${attribute.name}`
+        : `is in a runtime scope using ${attribute.name}`;
       sourceError(
         "unsupported-target",
-        `Motion target "${nodeId}" uses ${runtimeStyleMutation.name}, whose runtime expression cannot be proven free of style mutations.`,
+        `Motion target "${nodeId}" ${runtimeScope}, whose runtime expression cannot be proven free of style mutations.`,
       );
     }
     const inlineStyle = target.attrs?.find(({ name }) => name === "style");

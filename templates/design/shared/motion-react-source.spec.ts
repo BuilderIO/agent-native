@@ -989,6 +989,166 @@ function Card(style = { animationName: "fade" }) {
     expect(apply(authored).source).toContain('css={"color: red"}');
   });
 
+  it.each([
+    [
+      "event style assignment",
+      'onClick={(event) => { event.currentTarget.style.transition = "opacity 1s"; }}',
+    ],
+    [
+      "event setProperty call",
+      'onClick={(event) => { event.currentTarget.style.setProperty("animation-name", "pulse"); }}',
+    ],
+    [
+      "ref style assignment",
+      'ref={(node) => { if (node) node.style.animationName = "pulse"; }}',
+    ],
+    [
+      "ref style attribute mutation",
+      'ref={(node) => node.setAttribute("style", "transition: opacity 1s")}',
+    ],
+    [
+      "ref classList mutation",
+      'ref={(node) => node.classList.add("animated")}',
+    ],
+    [
+      "ref className assignment",
+      'ref={(node) => { node.className = "animated"; }}',
+    ],
+    [
+      "ref dataset assignment",
+      'ref={(node) => { node.dataset.state = "open"; }}',
+    ],
+    [
+      "ref mutation through a local alias",
+      'ref={(node) => { const target = node; target.classList.add("animated"); }}',
+    ],
+    [
+      "ref mutator extracted through a local alias",
+      'ref={(node) => { const setAttribute = node.setAttribute; setAttribute("style", "transition: opacity 1s"); }}',
+    ],
+    [
+      "ref destructured classList mutation",
+      'ref={(node) => { const { classList } = node; classList.add("animated"); }}',
+    ],
+    [
+      "ref destructured style mutation",
+      'ref={(node) => { const { style } = node; style.setProperty("transition", "opacity 1s"); }}',
+    ],
+    [
+      "destructured ref callback parameter",
+      'ref={({ classList }) => classList.add("animated")}',
+    ],
+    [
+      "forwarded event parameter",
+      "onClick={(event) => { updateTarget(event); }}",
+    ],
+    [
+      "forwarded event shorthand property",
+      "onClick={(event) => { updateTarget({ event }); }}",
+    ],
+    [
+      "nested forwarded ref parameter",
+      "ref={(node) => { registerTarget({ payload: { node } }); }}",
+    ],
+    [
+      "destructured event target parameter",
+      "onClick={({ currentTarget }) => { registerTarget(currentTarget); }}",
+    ],
+    [
+      "aliased default event target parameter",
+      "onClick={({ target: eventTarget = null }) => { registerTarget({ payload: eventTarget }); }}",
+    ],
+    [
+      "object rest event parameter",
+      "onClick={({ ...eventFields }) => { registerTarget(eventFields); }}",
+    ],
+    [
+      "array default and rest ref parameter",
+      "ref={([node = null, ...nodes]) => { registerTarget({ payload: [node, nodes] }); }}",
+    ],
+    ["forwarded ref parameter", "ref={(node) => { registerTarget(node); }}"],
+  ])("rejects Motion target %s from reads and writes", (_label, handler) => {
+    const managed = apply(source).source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${handler}>Hello</h1>`,
+    );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
+  });
+
+  it("allows literal object property keys matching a callback parameter", () => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" onClick={(event) => updateTarget({ event: "label" })}>Hello</h1>',
+    );
+
+    const edit = apply(authored);
+    expect(edit.source).toContain('{ event: "label" }');
+    expect(readMotionReactSource(edit.source)).toMatchObject({
+      status: "valid",
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: edit.source,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+  });
+
+  it("rejects a named handler that forwards its event parameter", () => {
+    const managed =
+      `function handleClick(event) { updateTarget(event); }\n${apply(source).source}`.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" onClick={handleClick}>Hello</h1>',
+      );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+  });
+
+  it("allows a target event handler that does not access DOM styles", () => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" onClick={(event) => event.preventDefault()}>Hello</h1>',
+    );
+
+    const edit = apply(authored);
+    expect(edit.source).toContain("event.preventDefault()");
+    expect(readMotionReactSource(edit.source)).toMatchObject({
+      status: "valid",
+    });
+  });
+
   it("rejects Motion declarations in aliases under plain tag selector keys", () => {
     const authored = source
       .replace(

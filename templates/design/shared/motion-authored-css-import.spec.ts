@@ -157,6 +157,20 @@ describe("importAuthoredCssAnimations", () => {
     },
   );
 
+  it.each(["initial", "unset", "inherit", "revert", "revert-layer"])(
+    "treats transition: %s as potentially overlapping every Motion track",
+    (keyword) => {
+      const css = `.hero:hover { transition: ${keyword}; }
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+      expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+        status: "unsupported",
+        reason: expect.stringContaining("overlap a Motion target property"),
+      });
+    },
+  );
+
   it("preserves important transition-property precedence over later normal declarations", () => {
     const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
 .hero:hover { transition-property: opacity !important; transition-property: color; transition-duration: 1s; }

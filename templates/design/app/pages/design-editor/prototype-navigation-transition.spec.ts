@@ -314,6 +314,115 @@ describe("runPrototypeNavigationTransition", () => {
     ).toBe(true);
   });
 
+  it("animates the message source frame and the matching destination frame", async () => {
+    const sourceAnimation = deferredAnimation();
+    const destinationAnimation = deferredAnimation();
+    const sourceFrame = document.createElement("iframe");
+    sourceFrame.dataset.anPrototypePreview = "";
+    sourceFrame.dataset.screenIframeId = "source";
+    const sourceAnimate = vi.fn(() => sourceAnimation.animation);
+    Object.defineProperty(sourceFrame, "animate", {
+      configurable: true,
+      value: sourceAnimate,
+    });
+    Object.defineProperty(sourceFrame, "contentDocument", {
+      configurable: true,
+      value: { readyState: "complete" },
+    });
+
+    const destinationFrame = document.createElement("iframe");
+    destinationFrame.dataset.anPrototypePreview = "";
+    destinationFrame.dataset.screenIframeId = "target";
+    const destinationAnimate = vi.fn(() => destinationAnimation.animation);
+    Object.defineProperty(destinationFrame, "animate", {
+      configurable: true,
+      value: destinationAnimate,
+    });
+    Object.defineProperty(destinationFrame, "contentDocument", {
+      configurable: true,
+      value: { readyState: "complete" },
+    });
+    document.body.append(sourceFrame, destinationFrame);
+
+    const update = vi.fn();
+    expect(
+      runPrototypeNavigationTransition(dissolve, update, document, {
+        sourceFrame,
+        destinationFrameId: "target",
+      }),
+    ).toBe("animated");
+    expect(animate).not.toHaveBeenCalled();
+    expect(sourceAnimate).toHaveBeenCalledWith(
+      [{ opacity: 1 }, { opacity: 0 }],
+      { duration: 210, easing: "ease-in-out", fill: "both" },
+    );
+    expect(destinationAnimate).not.toHaveBeenCalled();
+
+    sourceAnimation.finish();
+    await Promise.resolve();
+
+    expect(update).toHaveBeenCalledOnce();
+    expect(sourceAnimation.cancel).toHaveBeenCalledOnce();
+    expect(destinationAnimate).toHaveBeenCalledWith(
+      [{ opacity: 0 }, { opacity: 1 }],
+      { duration: 210, easing: "ease-in-out", fill: "both" },
+    );
+    sourceFrame.remove();
+    destinationFrame.remove();
+  });
+
+  it("retains the exit effect until a loading destination starts entering", async () => {
+    frame.dataset.screenIframeId = "source";
+    const destinationFrame = document.createElement("iframe");
+    destinationFrame.dataset.anPrototypePreview = "";
+    destinationFrame.dataset.screenIframeId = "target";
+    const destinationAnimation = deferredAnimation();
+    const destinationAnimate = vi.fn(() => destinationAnimation.animation);
+    Object.defineProperty(destinationFrame, "animate", {
+      configurable: true,
+      value: destinationAnimate,
+    });
+    const previousDestinationDocument = {
+      readyState: "complete",
+      URL: "about:srcdoc",
+    };
+    destinationFrame.setAttribute("srcdoc", "<p>old target</p>");
+    Object.defineProperty(destinationFrame, "contentDocument", {
+      configurable: true,
+      value: previousDestinationDocument,
+    });
+    document.body.append(destinationFrame);
+
+    const update = vi.fn(() => {
+      destinationFrame.setAttribute("srcdoc", "<p>new target</p>");
+    });
+    expect(
+      runPrototypeNavigationTransition(dissolve, update, document, {
+        sourceFrame: frame,
+        destinationFrameId: "target",
+      }),
+    ).toBe("animated");
+
+    animations[0]!.finish();
+    await Promise.resolve();
+    expect(update).toHaveBeenCalledOnce();
+    expect(animations[0]!.cancel).not.toHaveBeenCalled();
+    expect(destinationAnimate).not.toHaveBeenCalled();
+
+    Object.defineProperty(destinationFrame, "contentDocument", {
+      configurable: true,
+      value: { readyState: "complete", URL: "about:srcdoc" },
+    });
+    destinationFrame.dispatchEvent(new Event("load"));
+
+    expect(animations[0]!.cancel).toHaveBeenCalledOnce();
+    expect(destinationAnimate).toHaveBeenCalledWith(
+      [{ opacity: 0 }, { opacity: 1 }],
+      { duration: 210, easing: "ease-in-out", fill: "both" },
+    );
+    destinationFrame.remove();
+  });
+
   it("fails closed for smart animate until matched layers can be tweened", () => {
     const update = vi.fn();
 

@@ -916,6 +916,7 @@ function transitionPropertyList(value: string, shorthand: boolean): string[] {
         );
       if (candidates.length === 1) {
         if (candidates[0] === "none") return "none";
+        if (CSS_WIDE_KEYWORDS.has(candidates[0]!)) return "*";
         return candidates[0] === "all" ? "*" : candidates[0]!;
       }
       return candidates.length === 0 && /\bnone\b/i.test(part) ? "none" : "*";

@@ -29,7 +29,10 @@ import type { EditorScreenInspector } from "../domains/use-editor-screen-inspect
 import type { EditorScreenRendering } from "../domains/use-editor-screen-rendering";
 import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-and-styles";
 import type { EditorToolsAndVectors } from "../domains/use-editor-tools-and-vectors";
-import { runPrototypeNavigationTransition } from "../prototype-navigation-transition";
+import {
+  getPrototypeDestinationFrameId,
+  runPrototypeNavigationTransition,
+} from "../prototype-navigation-transition";
 import type { DesignData } from "../types";
 
 export function renderSingleScreenCanvas({
@@ -556,6 +559,7 @@ export function renderSingleScreenCanvas({
           screen,
           _href,
           transition: MotionPrototypeTransitionDecodeResult,
+          sourceFrame: HTMLIFrameElement,
         ) => {
           if (!screen) return;
           const norm = (s: string) =>
@@ -581,6 +585,14 @@ export function renderSingleScreenCanvas({
                     fromPrototypeNavigation: true,
                   });
                 }
+              },
+              undefined,
+              {
+                sourceFrame,
+                destinationFrameId: getPrototypeDestinationFrameId(
+                  match.id,
+                  sourceFrame,
+                ),
               },
             );
           }

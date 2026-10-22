@@ -6,7 +6,14 @@ import type {
 import { validateMotionPrototypeNavigationTransition } from "@shared/motion-prototype-transition";
 import { flushSync } from "react-dom";
 
-type PrototypeTransitionDocument = Pick<Document, "querySelector">;
+type PrototypeTransitionDocument = Pick<
+  Document,
+  "querySelector" | "querySelectorAll"
+>;
+type PrototypeNavigationTransitionOptions = {
+  sourceFrame?: HTMLIFrameElement;
+  destinationFrameId?: string;
+};
 type TransitionRun = {
   generation: number;
   animation?: Animation;
@@ -30,6 +37,31 @@ const DIRECTION_OFFSETS: Record<
   bottom: ["0%", "100%", "0%", "-100%"],
 };
 const transitionRuns = new WeakMap<object, TransitionRun>();
+
+export function getPrototypeDestinationFrameId(
+  screenId: string,
+  sourceFrame: HTMLIFrameElement,
+): string {
+  const breakpoint = sourceFrame
+    .getAttribute("data-screen-iframe-id")
+    ?.match(/::bp-\d+$/)?.[0];
+  return `${screenId}${breakpoint ?? ""}`;
+}
+
+function findPreviewFrame(
+  documentRef: PrototypeTransitionDocument,
+  frameId?: string,
+): HTMLIFrameElement | null {
+  const frames = documentRef.querySelectorAll<HTMLIFrameElement>(
+    PREVIEW_FRAME_SELECTOR,
+  );
+  if (!frameId) return frames[0] ?? null;
+  return (
+    Array.from(frames).find(
+      (frame) => frame.getAttribute("data-screen-iframe-id") === frameId,
+    ) ?? null
+  );
+}
 
 function beginTransitionRun(documentRef: PrototypeTransitionDocument): number {
   const previous = transitionRuns.get(documentRef);
@@ -162,9 +194,12 @@ function animateEntry(
   documentRef: PrototypeTransitionDocument,
   durationMs: number,
   generation: number,
+  options: PrototypeNavigationTransitionOptions,
+  beforeStart?: () => void,
 ): PrototypeNavigationTransitionResult {
-  const previousFrame = documentRef.querySelector<HTMLIFrameElement>(
-    PREVIEW_FRAME_SELECTOR,
+  const previousFrame = findPreviewFrame(
+    documentRef,
+    options.destinationFrameId,
   );
   const previousSource = previousFrame
     ? [
@@ -174,9 +209,7 @@ function animateEntry(
     : null;
   const previousDocument = previousFrame?.contentDocument ?? null;
   flushSync(update);
-  const frame = documentRef.querySelector<HTMLIFrameElement>(
-    PREVIEW_FRAME_SELECTOR,
-  );
+  const frame = findPreviewFrame(documentRef, options.destinationFrameId);
   if (!frame || typeof frame.animate !== "function") {
     return "browser-fallback";
   }
@@ -188,6 +221,7 @@ function animateEntry(
   const start = (): boolean => {
     if (!isCurrentTransitionRun(documentRef, generation)) return false;
     setRunCleanup(documentRef, generation, undefined);
+    beforeStart?.();
     try {
       const animation = startFrameAnimation(
         frame,
@@ -235,10 +269,9 @@ function animateExit(
   durationMs: number,
   continueWithEntry: boolean,
   generation: number,
+  options: PrototypeNavigationTransitionOptions,
 ): PrototypeNavigationTransitionResult {
-  const frame = documentRef.querySelector<HTMLIFrameElement>(
-    PREVIEW_FRAME_SELECTOR,
-  );
+  const frame = options.sourceFrame ?? findPreviewFrame(documentRef);
   if (!frame || typeof frame.animate !== "function") {
     flushSync(update);
     return "browser-fallback";
@@ -255,19 +288,31 @@ function animateExit(
   setRunAnimation(documentRef, generation, animation);
   void animation.finished.then(
     () => {
-      animation.cancel();
       if (!isCurrentTransitionRun(documentRef, generation)) return;
-      setRunAnimation(documentRef, generation, undefined);
       if (continueWithEntry) {
-        animateEntry(
+        let released = false;
+        const releaseExit = () => {
+          if (released) return;
+          released = true;
+          animation.cancel();
+          if (transitionRuns.get(documentRef)?.animation === animation) {
+            setRunAnimation(documentRef, generation, undefined);
+          }
+        };
+        const result = animateEntry(
           transition,
           update,
           documentRef,
           transition.durationMs! - durationMs,
           generation,
+          options,
+          releaseExit,
         );
+        if (result !== "animated") releaseExit();
       } else {
         flushSync(update);
+        animation.cancel();
+        setRunAnimation(documentRef, generation, undefined);
       }
     },
     () => {
@@ -288,6 +333,7 @@ export function runPrototypeNavigationTransition(
   "undefined"
     ? undefined
     : document,
+  options: PrototypeNavigationTransitionOptions = {},
 ): PrototypeNavigationTransitionResult {
   const generation = documentRef ? beginTransitionRun(documentRef) : 0;
   if (!transition) {
@@ -337,8 +383,16 @@ export function runPrototypeNavigationTransition(
       exitDuration,
       staged,
       generation,
+      options,
     );
   }
 
-  return animateEntry(config, update, documentRef, durationMs, generation);
+  return animateEntry(
+    config,
+    update,
+    documentRef,
+    durationMs,
+    generation,
+    options,
+  );
 }

@@ -958,6 +958,7 @@ interface DesignCanvasProps {
     screen: string,
     href: string,
     transition: MotionPrototypeTransitionDecodeResult,
+    sourceFrame: HTMLIFrameElement,
   ) => void;
   motionTracks?: MotionTrackWire[];
   motionEasingVariables?: MotionEasingVariable[];
@@ -5774,6 +5775,8 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "prototype-navigate") {
+        const sourceFrame = iframeRef.current;
+        if (!sourceFrame || sourceFrame.contentWindow !== e.source) return;
         const transition = decodeMotionPrototypeTransitionAttribute(
           e.data.transition,
         );
@@ -5781,6 +5784,7 @@ export function DesignCanvas({
           String(e.data.screen || ""),
           String(e.data.href || ""),
           transition,
+          sourceFrame,
         );
         return;
       }

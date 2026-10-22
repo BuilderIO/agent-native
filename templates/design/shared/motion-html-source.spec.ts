@@ -268,6 +268,168 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
+  it("rejects scoped sibling event handlers that can mutate a Motion target ref", () => {
+    const scopeAttrs = 'x-data="{ open: true }"';
+    const targetMarkup =
+      '<h1 x-ref="hero" data-agent-native-node-id="hero-title">Hello</h1>';
+    const siblingMarkup =
+      "<button @click=\"$refs.hero.style.setProperty('transition', 'opacity 1s')\">Toggle</button>";
+    const source = html
+      .replace('<main class="card">', `<main class="card" ${scopeAttrs}>`)
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        targetMarkup,
+      )
+      .replace("</main>", `${siblingMarkup}\n  </main>`);
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining("@click"),
+    });
+    expect(() => apply(source)).toThrowError(
+      expect.objectContaining({ code: "unsupported-target" }),
+    );
+
+    const generated = apply(html)
+      .source.replace(
+        '<main class="card">',
+        `<main class="card" ${scopeAttrs}>`,
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        targetMarkup,
+      )
+      .replace("</main>", `${siblingMarkup}\n  </main>`);
+    expect(readMotionHtmlSource(generated, "index.html")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
+
+  it("does not reject runtime handlers outside the target's owning scope", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        '<main class="card" x-data="{ open: true }">',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 x-ref="hero" data-agent-native-node-id="hero-title">Hello</h1>',
+      )
+      .replace(
+        '<script src="./page.js"></script>',
+        "<aside @click=\"$refs.hero.style.setProperty('transition', 'opacity 1s')\"></aside>\n  <script src=\"./page.js\"></script>",
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+
+    const written = apply(source);
+    expect(readMotionHtmlSource(written.source, "index.html")).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
+
+  it("ignores handlers on inert template siblings in the target's owning scope", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        '<main class="card" x-data="{ open: true }">',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 x-ref="hero" data-agent-native-node-id="hero-title">Hello</h1>',
+      )
+      .replace(
+        "</main>",
+        "<template @click=\"$refs.hero.style.setProperty('transition', 'opacity 1s')\"><span>Inert</span></template>\n  </main>",
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+
+    const written = apply(source);
+    expect(readMotionHtmlSource(written.source, "index.html")).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
+
+  it.each([
+    [
+      "Alpine scope initializer",
+      `x-data="{ init() { this.$refs.hero.style.transition = 'opacity 1s' } }"`,
+      "x-data",
+    ],
+    [
+      "Alpine ancestor event",
+      `x-data="{ open: true }" @click="$refs.hero.style.setProperty('transition', 'opacity 1s')"`,
+      "@click",
+    ],
+    [
+      "Vue ancestor event",
+      `v-scope="{ open: true }" v-on:click="$refs.hero.style.setProperty('transition', 'opacity 1s')"`,
+      "v-on:click",
+    ],
+  ])(
+    "rejects Motion targets in an unsafe %s scope for reads and writes",
+    (_label, scopeAttrs, expectedAttribute) => {
+      const source = html
+        .replace('<main class="card">', `<main class="card" ${scopeAttrs}>`)
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+          '<h1 x-ref="hero" data-agent-native-node-id="hero-title">Hello</h1>',
+        );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining(expectedAttribute),
+      });
+      let writeError: unknown;
+      try {
+        apply(source);
+      } catch (error) {
+        writeError = error;
+      }
+      expect(writeError).toMatchObject({ code: "unsupported-target" });
+
+      const generated = apply(html)
+        .source.replace(
+          '<main class="card">',
+          `<main class="card" ${scopeAttrs}>`,
+        )
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+          '<h1 x-ref="hero" data-agent-native-node-id="hero-title">Hello</h1>',
+        );
+      expect(readMotionHtmlSource(generated, "index.html")).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-target" },
+      });
+    },
+  );
+
   it.each([
     ["Alpine initialization", "x-init=\"$el.style.transition = 'opacity 1s'\""],
     [

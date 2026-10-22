@@ -1120,10 +1120,6 @@ function assertNoUnsupportedReactStylePropAnimations(
   const visit = (node: TypeScript.Node): void => {
     if (ts.isJsxAttribute(node)) {
       const attributeName = node.name.getText(sourceFile);
-      if (!["style", "css", "sx"].includes(attributeName)) {
-        ts.forEachChild(node, visit);
-        return;
-      }
       const initializer = node.initializer;
       const attributes = node.parent;
       const opening = attributes.parent;
@@ -1131,11 +1127,35 @@ function assertNoUnsupportedReactStylePropAnimations(
       const isRelevantTargetProp =
         targetElements.has(host) ||
         (attributeName !== "style" && isWithinTargetRoot(host));
-      if (!isRelevantTargetProp) return;
       const expression =
         initializer && ts.isJsxExpression(initializer) && initializer.expression
           ? initializer.expression
           : null;
+
+      if (!["style", "css", "sx"].includes(attributeName)) {
+        if (
+          isRelevantTargetProp &&
+          (attributeName === "ref" || /^on[A-Za-z]/.test(attributeName))
+        ) {
+          const inspection = expression
+            ? inspectReactStyleMutationCallback(
+                expression,
+                sourceFile,
+                new Set(),
+                attributeName === "ref",
+              )
+            : "unknown";
+          if (inspection !== "safe") {
+            throw new MotionReactSourceError(
+              "unsupported-authored-motion",
+              `React ${attributeName} callbacks on a Motion component can access or mutate target styles and cannot be proven safe.`,
+            );
+          }
+        }
+        ts.forEachChild(node, visit);
+        return;
+      }
+      if (!isRelevantTargetProp) return;
       const inspection = expression
         ? attributeName === "style"
           ? inspectReactStyleExpression(expression, sourceFile, new Set())
@@ -1156,6 +1176,425 @@ function assertNoUnsupportedReactStylePropAnimations(
 }
 
 type ReactStyleInspection = "safe" | "motion" | "unknown";
+const REACT_REF_READ_METHODS = new Set([
+  "closest",
+  "contains",
+  "getAttribute",
+  "getBoundingClientRect",
+  "getClientRects",
+  "hasAttribute",
+  "matches",
+  "querySelector",
+  "querySelectorAll",
+]);
+
+function inspectReactStyleMutationCallback(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  resolving: Set<string>,
+  isRefCallback: boolean,
+): ReactStyleInspection {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+
+  if (!ts.isArrowFunction(expression) && !ts.isFunctionExpression(expression)) {
+    if (ts.isIdentifier(expression)) {
+      const resolved = resolveReactStyleExpression(expression, sourceFile);
+      if (resolved) {
+        const declarationKey = `${resolved.start}:${resolved.end}`;
+        if (resolving.has(declarationKey)) return "unknown";
+        resolving.add(declarationKey);
+        const result = inspectReactStyleMutationCallback(
+          resolved.expression,
+          sourceFile,
+          resolving,
+          isRefCallback,
+        );
+        resolving.delete(declarationKey);
+        return result;
+      }
+
+      const handlerName = expression.text;
+      const functions: TypeScript.FunctionDeclaration[] = [];
+      const findFunction = (node: TypeScript.Node): void => {
+        if (ts.isFunctionDeclaration(node) && node.name?.text === handlerName) {
+          functions.push(node);
+        }
+        ts.forEachChild(node, findFunction);
+      };
+      findFunction(sourceFile);
+      if (functions.length === 1 && functions[0]!.body) {
+        if (
+          isRefCallback &&
+          functions[0]!.parameters.some(
+            (parameter) => !ts.isIdentifier(parameter.name),
+          )
+        ) {
+          return "unknown";
+        }
+        return inspectReactStyleMutationBody(
+          functions[0]!.body,
+          getReactCallbackParameterNames(functions[0]!.parameters),
+          isRefCallback,
+        );
+      }
+    }
+    return "unknown";
+  }
+
+  if (
+    isRefCallback &&
+    expression.parameters.some((parameter) => !ts.isIdentifier(parameter.name))
+  ) {
+    return "unknown";
+  }
+
+  return inspectReactStyleMutationBody(
+    expression.body,
+    getReactCallbackParameterNames(expression.parameters),
+    isRefCallback,
+  );
+}
+
+function inspectReactStyleMutationBody(
+  body: TypeScript.ConciseBody,
+  callbackParameterNames: Set<string>,
+  isRefCallback: boolean,
+): ReactStyleInspection {
+  let inspection: ReactStyleInspection = "safe";
+  const visit = (node: TypeScript.Node): void => {
+    if (inspection !== "safe") return;
+
+    if (
+      isRefCallback &&
+      ts.isVariableDeclaration(node) &&
+      !ts.isIdentifier(node.name) &&
+      node.initializer &&
+      isReactCallbackParameterDerivedExpression(
+        node.initializer,
+        callbackParameterNames,
+        body,
+        new Set(),
+      )
+    ) {
+      inspection = "unknown";
+      return;
+    }
+
+    if (
+      isRefCallback &&
+      ((ts.isCallExpression(node) &&
+        isReactRefTargetMethodCall(node, callbackParameterNames, body)) ||
+        isReactRefTargetMemberAccess(node, callbackParameterNames, body) ||
+        (ts.isBinaryExpression(node) &&
+          isReactRefTargetMemberAssignment(node, callbackParameterNames, body)))
+    ) {
+      inspection = "unknown";
+      return;
+    }
+
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      ["style", "currentTarget", "target", "current"].includes(node.name.text)
+    ) {
+      inspection = node.name.text === "style" ? "motion" : "unknown";
+      return;
+    }
+    if (
+      ts.isElementAccessExpression(node) &&
+      node.argumentExpression &&
+      ts.isStringLiteralLike(node.argumentExpression) &&
+      ["style", "currentTarget", "target", "current"].includes(
+        node.argumentExpression.text,
+      )
+    ) {
+      inspection =
+        node.argumentExpression.text === "style" ? "motion" : "unknown";
+      return;
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      node.arguments.some((argument) =>
+        containsReactCallbackParameterReference(
+          argument,
+          callbackParameterNames,
+        ),
+      )
+    ) {
+      inspection = "unknown";
+      return;
+    }
+
+    ts.forEachChild(node, visit);
+  };
+  visit(body);
+  return inspection;
+}
+
+function isReactRefTargetMethodCall(
+  call: TypeScript.CallExpression,
+  callbackParameterNames: Set<string>,
+  body: TypeScript.ConciseBody,
+): boolean {
+  const callee = call.expression;
+  const propertyAccess = ts.isPropertyAccessExpression(callee) ? callee : null;
+  const elementAccess = ts.isElementAccessExpression(callee) ? callee : null;
+  const receiver =
+    propertyAccess?.expression ?? elementAccess?.expression ?? null;
+  if (
+    !receiver ||
+    !isReactCallbackParameterDerivedExpression(
+      receiver,
+      callbackParameterNames,
+      body,
+      new Set(),
+    )
+  ) {
+    return false;
+  }
+
+  const argumentExpression = elementAccess?.argumentExpression;
+  const methodName = propertyAccess
+    ? propertyAccess.name.text
+    : argumentExpression && ts.isStringLiteralLike(argumentExpression)
+      ? argumentExpression.text
+      : null;
+  return !methodName || !REACT_REF_READ_METHODS.has(methodName);
+}
+
+function isReactRefTargetMemberAccess(
+  node: TypeScript.Node,
+  callbackParameterNames: Set<string>,
+  body: TypeScript.ConciseBody,
+): boolean {
+  const propertyAccess = ts.isPropertyAccessExpression(node) ? node : null;
+  const elementAccess = ts.isElementAccessExpression(node) ? node : null;
+  const receiver =
+    propertyAccess?.expression ?? elementAccess?.expression ?? null;
+  if (
+    !receiver ||
+    !isReactCallbackParameterDerivedExpression(
+      receiver,
+      callbackParameterNames,
+      body,
+      new Set(),
+    )
+  ) {
+    return false;
+  }
+
+  const argumentExpression = elementAccess?.argumentExpression;
+  const propertyName = propertyAccess
+    ? propertyAccess.name.text
+    : argumentExpression && ts.isStringLiteralLike(argumentExpression)
+      ? argumentExpression.text
+      : null;
+  return !propertyName || !REACT_REF_READ_METHODS.has(propertyName);
+}
+
+function isReactRefTargetMemberAssignment(
+  assignment: TypeScript.BinaryExpression,
+  callbackParameterNames: Set<string>,
+  body: TypeScript.ConciseBody,
+): boolean {
+  if (!isReactAssignmentOperator(assignment.operatorToken.getText())) {
+    return false;
+  }
+
+  const left = assignment.left;
+  const receiver = ts.isPropertyAccessExpression(left)
+    ? left.expression
+    : ts.isElementAccessExpression(left)
+      ? left.expression
+      : null;
+  return (
+    receiver !== null &&
+    isReactCallbackParameterDerivedExpression(
+      receiver,
+      callbackParameterNames,
+      body,
+      new Set(),
+    )
+  );
+}
+
+function isReactAssignmentOperator(operator: string): boolean {
+  return [
+    "=",
+    "+=",
+    "-=",
+    "*=",
+    "**=",
+    "/=",
+    "%=",
+    "<<=",
+    ">>=",
+    ">>>=",
+    "&=",
+    "|=",
+    "^=",
+    "&&=",
+    "||=",
+    "??=",
+  ].includes(operator);
+}
+
+function isReactCallbackParameterDerivedExpression(
+  expression: TypeScript.Expression,
+  callbackParameterNames: Set<string>,
+  body: TypeScript.ConciseBody,
+  resolving: Set<string>,
+): boolean {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression) ||
+    ts.isNonNullExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+
+  if (ts.isIdentifier(expression)) {
+    if (callbackParameterNames.has(expression.text)) return true;
+    if (resolving.has(expression.text)) return false;
+
+    const assignments: TypeScript.Expression[] = [];
+    const visit = (node: TypeScript.Node): void => {
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.name.text === expression.text &&
+        node.initializer
+      ) {
+        assignments.push(node.initializer);
+      } else if (
+        ts.isBinaryExpression(node) &&
+        ts.isIdentifier(node.left) &&
+        node.left.text === expression.text &&
+        isReactAssignmentOperator(node.operatorToken.getText())
+      ) {
+        assignments.push(node.right);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(body);
+    if (assignments.length === 0) return false;
+
+    resolving.add(expression.text);
+    const derived = assignments.some((assignment) =>
+      isReactCallbackParameterDerivedExpression(
+        assignment,
+        callbackParameterNames,
+        body,
+        resolving,
+      ),
+    );
+    resolving.delete(expression.text);
+    return derived;
+  }
+
+  if (ts.isPropertyAccessExpression(expression)) {
+    return isReactCallbackParameterDerivedExpression(
+      expression.expression,
+      callbackParameterNames,
+      body,
+      resolving,
+    );
+  }
+  if (ts.isElementAccessExpression(expression)) {
+    return isReactCallbackParameterDerivedExpression(
+      expression.expression,
+      callbackParameterNames,
+      body,
+      resolving,
+    );
+  }
+  if (ts.isCallExpression(expression)) {
+    const callee = expression.expression;
+    const receiver = ts.isPropertyAccessExpression(callee)
+      ? callee.expression
+      : ts.isElementAccessExpression(callee)
+        ? callee.expression
+        : null;
+    return (
+      receiver !== null &&
+      isReactCallbackParameterDerivedExpression(
+        receiver,
+        callbackParameterNames,
+        body,
+        resolving,
+      )
+    );
+  }
+  return false;
+}
+
+function containsReactCallbackParameterReference(
+  node: TypeScript.Node,
+  callbackParameterNames: Set<string>,
+): boolean {
+  let found = false;
+  const visit = (current: TypeScript.Node): void => {
+    if (found) return;
+    if (
+      ts.isIdentifier(current) &&
+      callbackParameterNames.has(current.text) &&
+      !isReactStaticPropertyName(current)
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function isReactStaticPropertyName(node: TypeScript.Identifier): boolean {
+  const parent = node.parent;
+  return (
+    (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+    ((ts.isPropertyAssignment(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isPropertySignature(parent)) &&
+      parent.name === node &&
+      !ts.isComputedPropertyName(parent.name))
+  );
+}
+
+function getReactCallbackParameterNames(
+  parameters: TypeScript.NodeArray<TypeScript.ParameterDeclaration>,
+): Set<string> {
+  const names = new Set<string>();
+  const addBindingNames = (bindingName: TypeScript.BindingName): void => {
+    if (ts.isIdentifier(bindingName)) {
+      names.add(bindingName.text);
+      return;
+    }
+    if (ts.isObjectBindingPattern(bindingName)) {
+      for (const element of bindingName.elements) {
+        addBindingNames(element.name);
+      }
+      return;
+    }
+    for (const element of bindingName.elements) {
+      if (!ts.isOmittedExpression(element)) addBindingNames(element.name);
+    }
+  };
+
+  for (const parameter of parameters) addBindingNames(parameter.name);
+  return names;
+}
 
 function inspectReactStyleExpression(
   expression: TypeScript.Expression,

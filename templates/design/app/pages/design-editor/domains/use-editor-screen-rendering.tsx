@@ -44,7 +44,10 @@ import {
   resolveOverviewScreenSourceType,
   shouldUseRuntimeLayerProjection,
 } from "../pending-edits";
-import { runPrototypeNavigationTransition } from "../prototype-navigation-transition";
+import {
+  getPrototypeDestinationFrameId,
+  runPrototypeNavigationTransition,
+} from "../prototype-navigation-transition";
 import { findInteractLinkTarget } from "../screen-command-utils";
 import {
   getContentSignature,
@@ -457,6 +460,7 @@ export function useEditorScreenRendering({
       screen: string,
       _href: string,
       transition: MotionPrototypeTransitionDecodeResult,
+      sourceFrame: HTMLIFrameElement,
     ) => {
       const target = findInteractLinkTarget(
         files,
@@ -472,6 +476,14 @@ export function useEditorScreenRendering({
             keepInteractDevice: true,
             fromPrototypeNavigation: true,
           });
+        },
+        undefined,
+        {
+          sourceFrame,
+          destinationFrameId: getPrototypeDestinationFrameId(
+            target.id,
+            sourceFrame,
+          ),
         },
       );
     },
