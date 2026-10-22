@@ -1,3 +1,7 @@
+import {
+  acquireOpaqueNativeWorkerLease,
+  isOpaqueNativeWorkerPreview,
+} from "./native-opaque-worker-lease";
 import type {
   NativeWorkerFromGpu,
   NativeWorkerToGpu,
@@ -231,6 +235,8 @@ export function acquireNativeWorkerLease(
   sceneId: string,
   listener: Listener,
 ): NativeWorkerLease {
+  if (isOpaqueNativeWorkerPreview())
+    return acquireOpaqueNativeWorkerLease(sceneId, listener);
   const owner = (window.frameElement?.ownerDocument.defaultView ??
     window) as BrokerWindow;
   const broker = owner[BROKER_KEY];

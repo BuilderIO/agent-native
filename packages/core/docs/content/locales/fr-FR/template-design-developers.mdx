@@ -144,15 +144,15 @@ action <name>`.
 
 ### Mouvement et shaders
 
-| Action                   | Ce qu'elle fait                                                    |
-| ------------------------ | ------------------------------------------------------------------ |
-| `get-motion-timeline`    | Lire la chronologie de mouvement d'un élément                      |
-| `apply-motion-edit`      | Ajouter ou modifier une image clé sur une chronologie de mouvement |
-| `remove-motion-timeline` | Supprimer une chronologie de mouvement                             |
-| `apply-shader`           | Appliquer un effet de shader                                       |
-| `apply-shader-fill`      | Appliquer un shader comme remplissage                              |
-| `preview-shader-fill`    | Prévisualiser un remplissage shader avant de l'appliquer           |
-| `get-shader`             | Lire les paramètres actuels d'un shader                            |
+| Action                   | Ce qu'elle fait                                                            |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `get-motion-timeline`    | Lire la chronologie de mouvement d'un élément                              |
+| `apply-motion-edit`      | Ajouter ou modifier une image clé sur une chronologie de mouvement         |
+| `remove-motion-timeline` | Supprimer une chronologie de mouvement                                     |
+| `get-shader`             | Consulter les définitions natives et les manifestes des effets sauvegardés |
+| `edit-native-shader`     | Appliquer, modifier, approuver ou supprimer des effets natifs              |
+
+Les effets natifs WebGPU utilisent WGSL. La création personnalisée utilise `edit-native-shader` avec `define-definition`, puis `get-shader` pour lire le `executionHash` sauvegardé, `approve-definition` avec ce `expectedExecutionHash`, et `apply` avec l’identifiant et la version exacts de la définition. Chaque modification nécessite `designId`, `fileId` et le `expectedVersionHash` actuel. Il faut relire le hachage après chaque écriture. La validation du schéma sur CPU ne compile pas le code GPU, il faut donc vérifier l’aperçu Design. Les effets GLSL déjà sauvegardés restent affichables et supprimables.
 
 ### Qualité {#quality}
 

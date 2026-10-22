@@ -57,6 +57,8 @@ const filterSchema = z
     value: z.string(),
     filterGroupId: z.string().max(200).optional(),
     parentFilterGroupId: z.string().max(200).optional(),
+    filterGroupMode: z.enum(["and", "or"]).optional(),
+    parentFilterGroupMode: z.enum(["and", "or"]).optional(),
   })
   .strict();
 
@@ -317,6 +319,20 @@ function validateTablePatch(
       setupError(
         "INVALID_VIEW_REFERENCE",
         `Filter operator \"${filter.operator}\" is not valid for property \"${filter.key}\".`,
+        400,
+      );
+    }
+    if (filter.filterGroupMode && !filter.filterGroupId) {
+      setupError(
+        "INVALID_VIEW_REFERENCE",
+        `Filter on "${filter.key}" sets filterGroupMode without a filterGroupId.`,
+        400,
+      );
+    }
+    if (filter.parentFilterGroupMode && !filter.parentFilterGroupId) {
+      setupError(
+        "INVALID_VIEW_REFERENCE",
+        `Filter on "${filter.key}" sets parentFilterGroupMode without a parentFilterGroupId.`,
         400,
       );
     }

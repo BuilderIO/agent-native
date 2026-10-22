@@ -44,10 +44,81 @@ const pixels = (step = 0.1): NativeEffectPropertyPresentation => ({
   step,
 });
 
+const pulsingBorderV3Presentation = {
+  roundness: percent,
+  thickness: percent,
+  softness: percent,
+  intensity: percent,
+  bloom: percent,
+  spots: count,
+  spotSize: percent,
+  pulse: percent,
+  smoke: percent,
+  smokeSize: percent,
+  margin: percent,
+  marginLeft: percent,
+  marginRight: percent,
+  marginTop: percent,
+  marginBottom: percent,
+  scale: multiplier,
+  rotation: { displayScale: 1, unit: "°", step: 1 },
+  offsetX: percent,
+  offsetY: percent,
+  originX: percent,
+  originY: percent,
+  worldWidth: pixels(1),
+  worldHeight: pixels(1),
+} satisfies Record<string, NativeEffectPropertyPresentation>;
+const pulsingBorderGlowPresentation = {
+  ...pulsingBorderV3Presentation,
+  glowSpread: percent,
+};
+
+const foldedMeshNumeric: Readonly<
+  Record<string, NativeEffectPropertyPresentation>
+> = {
+  timeOffset: { displayScale: 1, unit: "s", step: 0.01 },
+  contrast: percent,
+  saturation: percent,
+  hueShift: degrees,
+  displacementAmount: percent,
+  displacementFrequencyX: { ...multiplier, step: 0.1 },
+  displacementFrequencyY: { ...multiplier, step: 0.1 },
+  positionX: percent,
+  positionY: percent,
+  positionZ: percent,
+  rotationX: degrees,
+  rotationY: degrees,
+  rotationZ: degrees,
+  scaleX: percent,
+  scaleY: percent,
+  scaleZ: percent,
+  twistX: degrees,
+  twistY: degrees,
+  twistZ: degrees,
+  foldConcentrationX: percent,
+  foldConcentrationY: percent,
+  foldConcentrationZ: percent,
+  glowAmount: percent,
+  glowSpread: percent,
+  glowFocus: percent,
+  lineDensity: count,
+  lineThickness: percent,
+  compressionResponse: percent,
+};
+
 // Presentation is deliberately outside EffectDefinition so familiar units do not change execution hashes.
 export const NATIVE_EFFECT_PROPERTY_PRESENTATIONS: Readonly<
   Record<string, Readonly<Record<string, NativeEffectPropertyPresentation>>>
 > = {
+  "an-native-folded-mesh@1": {
+    scale: percent,
+    twist: degrees,
+    depth: percent,
+    softness: percent,
+  },
+  "an-native-folded-mesh@2": foldedMeshNumeric,
+  "an-native-folded-mesh@3": foldedMeshNumeric,
   "an-native-gradient-field@1": {
     scale: percent,
     movement: percent,
@@ -395,6 +466,9 @@ export const NATIVE_EFFECT_PROPERTY_PRESENTATIONS: Readonly<
     intensity: percent,
     movement: percent,
   },
+  "an-native-pulsing-border@3": pulsingBorderV3Presentation,
+  "an-native-pulsing-border@4": pulsingBorderGlowPresentation,
+  "an-native-pulsing-border@5": pulsingBorderGlowPresentation,
   "an-native-color-panels@1": {
     detail: count,
     softness: percent,
@@ -469,6 +543,13 @@ export function getNativeEffectPropertyPresentation(
       `${definition.id}@${definition.version}`
     ]?.[propertyKey];
   if (curated) return curated;
+  return getNativeEffectRecordFieldPresentation(property);
+}
+
+export function getNativeEffectRecordFieldPresentation(
+  property: EffectProperty,
+): NativeEffectPropertyPresentation | null {
+  if (!numericProperty(property)) return null;
   const displayScale = property.displayScale ?? 1;
   return {
     displayScale,

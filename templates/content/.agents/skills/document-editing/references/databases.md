@@ -180,6 +180,17 @@ checked/unchecked. Users can reorder stacked sort and filter conditions from
 the collection toolbar menus, and sort priority follows the same top-to-bottom
 order shown in the menu.
 
+Filters can be grouped. Rules with `filterGroupId: "advanced"` and no parent
+form the UI's advanced filter; rules with `parentFilterGroupId: "advanced"` and
+their own `filterGroupId` (the UI uses `advanced-<id>`) form a group nested one
+level inside it. The view's `filterMode` combines ungrouped rules with each
+top-level group as one member. A group's And/Or lives on its rules:
+`filterGroupMode` is the mode of the rule's `filterGroupId`, and
+`parentFilterGroupMode` (nested rules only) is the mode of its parent. Write a
+group's mode onto every rule in it; the first rule that stores one wins, and a
+group with none inherits the view's `filterMode`. `update-content-database-view`
+rejects a group mode on a rule without the matching group ID.
+
 New rows created from a filtered UI view inherit simple editable equality and
 checkbox filters as initial property values, resolving option labels back to
 stable option IDs for select, status, and multi-select filters, so a row

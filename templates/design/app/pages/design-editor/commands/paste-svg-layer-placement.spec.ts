@@ -6,7 +6,7 @@ import type { ElementInfo } from "@/components/design/types";
 import { insertClonedHtmlLayers } from "../clone-and-pen-edit";
 import { resolvePastedSvgInsertionOptions } from "./paste-svg-layer";
 
-vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+vi.mock("@/components/design/shader-source-coordination", () => ({
   isShaderWriteInFlight: () => false,
 }));
 

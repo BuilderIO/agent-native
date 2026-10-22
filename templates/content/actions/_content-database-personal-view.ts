@@ -30,6 +30,8 @@ export const filterSchema = z.object({
   value: z.string(),
   filterGroupId: z.string().optional(),
   parentFilterGroupId: z.string().optional(),
+  filterGroupMode: z.enum(["and", "or"]).optional(),
+  parentFilterGroupMode: z.enum(["and", "or"]).optional(),
 });
 
 const sidebarOrderItemIdSchema = z.string().min(1).max(256);

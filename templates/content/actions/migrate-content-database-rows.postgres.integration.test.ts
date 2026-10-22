@@ -831,11 +831,10 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       releaseHolder();
       await holder;
       await restore;
-      const deletionError = await deletionOutcome;
-      expect(deletionError).toBeInstanceOf(Error);
-      expect((deletionError as Error).message).toContain(
-        "Document must be in Trash and be a Trash root before permanent deletion",
-      );
+      expect(await deletionOutcome).toMatchObject({
+        errorCode: "scope_changed",
+        statusCode: 409,
+      });
 
       expect(
         (

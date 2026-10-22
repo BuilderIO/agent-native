@@ -1,0 +1,209 @@
+import { callActionWithRetry } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  isInAgentEmbed,
+  postNavigate,
+} from "@agent-native/core/client/navigation";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { IconExternalLink } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
+
+import SlideContentRenderer from "@/components/slides-2-runtime/SlideContentRenderer";
+import type { Slide } from "@/context/DeckContext";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
+import messages from "@/i18n/en-US";
+import type { AspectRatio } from "@/lib/aspect-ratios";
+
+import type { SlidePosition } from "../../shared/slide-number";
+
+export function meta() {
+  return [{ title: messages.raw.slidePreviewTitle }];
+}
+
+function SlideError({ message }: { message: string }) {
+  const t = useT();
+  return (
+    <div
+      className={
+        /* guard:allow-raw-color — slide preview errors remain on the fixed black stage. */ "flex h-screen w-screen items-center justify-center bg-black"
+      }
+    >
+      <div className="text-center">
+        <div
+          className={
+            /* guard:allow-raw-color — slide preview error copy contrasts with the fixed black stage. */ "text-sm font-medium text-white/60"
+          }
+        >
+          {t("raw.slideUnavailable")}
+        </div>
+        <div
+          className={
+            /* guard:allow-raw-color — slide preview error copy contrasts with the fixed black stage. */ "mt-1 text-xs text-white/35"
+          }
+        >
+          {message}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function SlideRoute() {
+  const t = useT();
+  const [params] = useSearchParams();
+  const deckId = params.get("deckId");
+  const slideNumberParam = params.get("slideNumber");
+  const slideIndexParam = params.get("slideIndex");
+
+  const [slide, setSlide] = useState<Slide | null>(null);
+  const [slidePosition, setSlidePosition] = useState<SlidePosition | undefined>(
+    undefined,
+  );
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio | undefined>(
+    undefined,
+  );
+  const [designSystemId, setDesignSystemId] = useState<string | null>(null);
+  const [deckTitle, setDeckTitle] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const loadRequestId = useRef(0);
+  const { designSystem } = useDeckDesignSystem(designSystemId, deckId);
+
+  const slideNumber =
+    slideNumberParam !== null ? parseInt(slideNumberParam, 10) : null;
+  const slideIndex =
+    slideNumber !== null
+      ? slideNumber - 1
+      : slideIndexParam !== null
+        ? parseInt(slideIndexParam, 10)
+        : 0;
+  const inEmbed = isInAgentEmbed();
+
+  useEffect(() => {
+    const nextTitle = deckTitle
+      ? `${normalizeDocumentTitle(deckTitle, t("styleInspector.slide"))} — ${t("navigation.brand")}`
+      : t("raw.slidePreviewTitle");
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [deckTitle, t]);
+
+  useEffect(() => {
+    const requestId = ++loadRequestId.current;
+    const isCurrentRequest = () => loadRequestId.current === requestId;
+
+    setLoading(true);
+    setError(null);
+    setSlide(null);
+    setSlidePosition(undefined);
+    setAspectRatio(undefined);
+    setDesignSystemId(null);
+    setDeckTitle(null);
+
+    async function loadSlide() {
+      try {
+        if (!deckId) {
+          throw new Error(t("raw.missingDeckId"));
+        }
+        if (
+          slideNumberParam !== null &&
+          (slideNumber === null || isNaN(slideNumber) || slideNumber < 1)
+        ) {
+          throw new Error(t("raw.invalidSlideNumber"));
+        }
+        if (slideIndexParam !== null && isNaN(slideIndex)) {
+          throw new Error(t("raw.invalidSlideIndex"));
+        }
+
+        const deck = await callActionWithRetry<{
+          title?: string;
+          slides?: Slide[];
+          aspectRatio?: AspectRatio;
+          designSystemId?: string | null;
+        }>("get-deck", { id: deckId }, { method: "GET" });
+        if (!isCurrentRequest()) return;
+
+        const slides: Slide[] = deck.slides ?? [];
+        if (slides.length === 0) {
+          throw new Error(t("raw.deckHasNoSlides"));
+        }
+        const idx = Math.max(0, Math.min(slideIndex, slides.length - 1));
+        setSlide(slides[idx]);
+        setSlidePosition({ number: idx + 1, count: slides.length });
+        setDeckTitle(deck.title ?? null);
+        setAspectRatio(deck.aspectRatio);
+        setDesignSystemId(deck.designSystemId ?? null);
+      } catch (err: unknown) {
+        if (!isCurrentRequest()) return;
+
+        const status = (err as { status?: number } | undefined)?.status;
+        if (status === 404) {
+          setError(t("raw.deckNotFound"));
+        } else if (status !== undefined) {
+          setError(t("raw.deckLoadFailedStatus", { status }));
+        } else {
+          setError(
+            err instanceof Error ? err.message : t("raw.couldNotLoadSlide"),
+          );
+        }
+      } finally {
+        if (isCurrentRequest()) setLoading(false);
+      }
+    }
+
+    void loadSlide();
+
+    return () => {
+      if (isCurrentRequest()) loadRequestId.current += 1;
+    };
+  }, [deckId, slideIndex, slideIndexParam, slideNumber, slideNumberParam, t]);
+
+  if (loading) {
+    return (
+      <div
+        className={
+          /* guard:allow-raw-color — preserve the fixed slide preview stage while loading. */ "h-screen w-screen bg-black"
+        }
+      />
+    );
+  }
+
+  if (error || !slide || !deckId) {
+    return <SlideError message={error ?? t("raw.slideNotFound")} />;
+  }
+
+  function handleOpenInApp() {
+    postNavigate(`/deck/${deckId}/present?slide=${slideIndex + 1}`);
+  }
+
+  return (
+    <div
+      className={
+        /* guard:allow-raw-color — shared slide preview uses a theme-independent black stage. */ "relative h-screen w-screen overflow-hidden bg-black"
+      }
+    >
+      <SlideContentRenderer
+        slide={slide}
+        slidePosition={slidePosition}
+        sourceDeckId={deckId}
+        aspectRatio={aspectRatio}
+        designSystem={designSystem}
+      />
+
+      {inEmbed && (
+        <button
+          onClick={handleOpenInApp}
+          className={
+            /* guard:allow-raw-color — preview control stays legible over the fixed black stage. */ "absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/70 backdrop-blur-sm hover:bg-white/20 hover:text-white"
+          }
+        >
+          <IconExternalLink className="h-3.5 w-3.5" />
+          {t("raw.openInApp")}
+        </button>
+      )}
+    </div>
+  );
+}

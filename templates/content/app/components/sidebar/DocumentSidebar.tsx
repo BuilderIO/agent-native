@@ -117,6 +117,7 @@ import {
   useEnsureContentSpaces,
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
+import { isRestoreBusyError } from "@/hooks/use-content-trash";
 import {
   useContentNavigationContext,
   useDocuments,
@@ -3134,8 +3135,11 @@ export function DocumentSidebar({
         toast.success(t("sidebar.databaseRestored"));
       } catch (err) {
         toast.error(t("sidebar.failedRestoreDatabase"), {
-          description:
-            err instanceof Error ? err.message : t("empty.genericError"),
+          description: isRestoreBusyError(err)
+            ? t("trash.restoreBusy")
+            : err instanceof Error
+              ? err.message
+              : t("empty.genericError"),
         });
       }
     },
@@ -3170,8 +3174,11 @@ export function DocumentSidebar({
         toast.success(t("sidebar.pageRestored"));
       } catch (err) {
         toast.error(t("sidebar.failedRestorePage"), {
-          description:
-            err instanceof Error ? err.message : t("empty.genericError"),
+          description: isRestoreBusyError(err)
+            ? t("trash.restoreBusy")
+            : err instanceof Error
+              ? err.message
+              : t("empty.genericError"),
         });
       }
     },

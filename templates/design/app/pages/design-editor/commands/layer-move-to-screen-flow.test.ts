@@ -2,7 +2,7 @@
 
 const shaderLocks = vi.hoisted(() => ({ fileIds: new Set<string>() }));
 
-vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+vi.mock("@/components/design/shader-source-coordination", () => ({
   isShaderWriteInFlight: (fileId: string) => shaderLocks.fileIds.has(fileId),
 }));
 

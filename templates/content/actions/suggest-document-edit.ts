@@ -16,6 +16,7 @@ import { z } from "zod";
 
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import {
+  findReplaceSuggestionSummary,
   markdownSuggestionOperationsForFindReplace,
   markdownSuggestionOperationSummary,
 } from "../shared/suggestion-diff.js";
@@ -234,9 +235,7 @@ export default defineAction({
 
     const effectiveSummary =
       args.summary?.trim() ||
-      (args.replace
-        ? `Replace "${args.find.slice(0, 80)}" with "${args.replace.slice(0, 80)}"`
-        : `Delete "${args.find.slice(0, 80)}"`);
+      findReplaceSuggestionSummary(args.find, args.replace ?? "");
     if (args.idempotencyKey) {
       await ensureSuggestionTables();
       const receipt = await getSuggestionByCreationKey(

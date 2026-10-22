@@ -15,7 +15,6 @@
  */
 
 import { parseEffectsFromHtml } from "@shared/native-effects";
-import { applyShaderToHtml } from "@shared/shader-fills";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -260,115 +259,34 @@ describe("EditPanel — a native fill shader on a frame drawn on the board", () 
   });
 });
 
-// A shader the agent wrote for this design, applied to another frame on the board.
-const AI_GLSL = `precision highp float;
-uniform vec2 u_resolution;
-uniform float u_time;
-uniform float u_speed;
-uniform vec3 u_tint;
-void main() {
-  vec2 uv = gl_FragCoord.xy / u_resolution;
-  gl_FragColor = vec4(u_tint * (0.5 + 0.5 * sin(u_time * u_speed + uv.x)), 1.0);
-}`;
-const AI_DEF = {
-  id: "an-shader-aurora01",
-  name: "Aurora Drift",
-  mode: "fill" as const,
-  glsl: AI_GLSL,
-  uniforms: {
-    u_speed: {
-      type: "float" as const,
-      value: 1,
-      min: 0,
-      max: 4,
-      step: 0.01,
-      label: "Speed",
-    },
-    u_tint: { type: "color" as const, value: "#4f2d8f", label: "Base" },
-  },
-};
-const OTHER_FRAME_ID = "frame-0a1b2c3d-0000-4000-8000-000000000001";
-const TWO_FRAMES = BOARD_HTML.replace(
+const SAVED_GLSL_BOARD = BOARD_HTML.replace(
+  `data-agent-native-node-id="${FRAME_ID}"`,
+  `data-agent-native-node-id="${FRAME_ID}" data-an-shader-fill="an-shader-aurora01"`,
+).replace(
   "</body>",
-  `<div data-agent-native-node-id="${OTHER_FRAME_ID}" data-an-primitive="frame"></div></body>`,
+  `<script type="application/x-agent-native-shader" data-shader-id="an-shader-aurora01" data-shader-name="Aurora Drift" data-shader-mode="fill">precision highp float;void main(){gl_FragColor=vec4(1.0);}</script></body>`,
 );
 
-describe("EditPanel — the board fill picker uses the native catalog", () => {
-  it("does not substitute legacy saved shaders for native definitions", async () => {
-    const withAi = applyShaderToHtml(TWO_FRAMES, {
-      nodeId: OTHER_FRAME_ID,
-      def: AI_DEF,
-      fallbackColor: "#4f2d8f",
-    }).html;
-    await openPicker(BOARD_ID, withAi);
-    act(() => byLabel("Shader")!.click());
-
-    expect(
-      popover().querySelector('[data-native-shader-panel="fill"]'),
-    ).not.toBeNull();
-    expect(nativeDefinitionButton("nebula")).not.toBeNull();
-    expect(byLabel("Aurora Drift")).toBeNull();
-    expect(popover().textContent).not.toContain("editPanel.shaders.presets");
-  });
-});
-
-// The frame itself carries the agent's shader.
-const SHADER_ON_FRAME = applyShaderToHtml(BOARD_HTML, {
-  nodeId: FRAME_ID,
-  def: AI_DEF,
-  fallbackColor: "#4f2d8f",
-}).html;
-
-/** What a removal must take out of the board: the definition, the runtime, the reference. */
-function expectNoShaderLeft(html: string) {
-  expect(html).not.toContain("application/x-agent-native-shader");
-  expect(html).not.toContain("data-agent-native-shader-runtime");
-  expect(html).not.toContain("data-an-shader-fill");
+function expectNoSavedShader(html: string) {
+  expect(html).not.toContain('data-an-shader-fill="an-shader-aurora01"');
+  expect(html).not.toContain('data-shader-id="an-shader-aurora01"');
 }
 
-async function openShaderMenu() {
-  const trigger = byLabel("editPanel.shaders.more")!;
-  await act(async () => {
-    trigger.focus();
-    trigger.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "ArrowDown",
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-  });
-  return document.querySelector<HTMLElement>('[role="menu"]')!;
-}
-
-describe("EditPanel — removing a shader from a frame on the board", () => {
-  it("Remove shader in the menu takes the agent's shader out of the board's HTML", async () => {
-    const edited = await openPicker(BOARD_ID, SHADER_ON_FRAME);
-    const menu = await openShaderMenu();
-    await act(async () =>
-      Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find((item) => item.textContent === "editPanel.shaders.removeShader")!
-        .click(),
-    );
-    await flush();
-
-    expect(mocks.toastError).not.toHaveBeenCalled();
-    expect(edited).toHaveBeenCalledTimes(1);
-    expectNoShaderLeft(edited.mock.calls[0]![0] as string);
-  });
-
-  it("removing the fill row takes the shader with it, in one write", async () => {
+describe("EditPanel — saved GLSL on a board frame", () => {
+  it("shows the saved shader without offering its old editor and removes its mount in one write", async () => {
     const edited = vi.fn();
     await act(async () =>
       root.render(
         <Host
           activeFileId={BOARD_ID}
           onEdited={edited}
-          initialBoard={SHADER_ON_FRAME}
+          initialBoard={SAVED_GLSL_BOARD}
         />,
       ),
     );
-
+    expect(container.textContent).toContain("Aurora Drift");
+    expect(container.querySelector("[data-shader-pane]")).toBeNull();
+    expect(container.querySelector('[aria-label="Edit code"]')).toBeNull();
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>(
@@ -377,79 +295,18 @@ describe("EditPanel — removing a shader from a frame on the board", () => {
         .click(),
     );
     await flush();
-
     expect(mocks.toastError).not.toHaveBeenCalled();
     expect(edited).toHaveBeenCalledTimes(1);
-    const html = edited.mock.calls[0]![0] as string;
-    expectNoShaderLeft(html);
-    // The frame keeps no fill behind: the fallback color went too.
-    expect(html).not.toContain("#4f2d8f");
+    expectNoSavedShader(edited.mock.calls[0]![0] as string);
   });
 
-  it("switching the paint away from Shader takes it off the frame", async () => {
-    const edited = await openPicker(BOARD_ID, SHADER_ON_FRAME);
-
-    await act(async () => byLabel("Solid")!.click());
-    await flush();
-
-    expect(edited).toHaveBeenCalledTimes(1);
-    expectNoShaderLeft(edited.mock.calls[0]![0] as string);
-  });
-});
-
-const shaderPane = () =>
-  popover().querySelector<HTMLElement>("[data-shader-pane]")?.dataset
-    .shaderPane;
-
-describe("EditPanel — reopening the picker on a frame on the board", () => {
-  it("opens on the Shader paint with the controls of the shader the frame has", async () => {
-    await openPicker(BOARD_ID, SHADER_ON_FRAME);
-
-    expect(byLabel("Shader")!.getAttribute("aria-pressed")).toBe("true");
-    expect(shaderPane()).toBe("controls");
-    // The controls, not the browser.
-    expect(popover().textContent).not.toContain(
-      "editPanel.shaders.createWithAi",
-    );
-    expect(
-      popover().querySelector(
-        'input[aria-label="editPanel.shaders.searchShaders"]',
-      ),
-    ).toBeNull();
-    // The agent's shader: a Custom preset select, and the uniforms it declares.
-    expect(popover().querySelector('[role="combobox"]')?.textContent).toBe(
-      "editPanel.shaders.custom",
-    );
-    expect(
-      popover().querySelector('input[aria-label="Base hex"]'),
-    ).not.toBeNull();
-    expect(
-      popover().querySelector('[aria-label="Speed"] [role="slider"]'),
-    ).not.toBeNull();
-    expect(byLabel("editPanel.shaders.more")).not.toBeNull();
-  });
-
-  it("shows the browser, not controls, for a frame without a shader", async () => {
-    await openPicker(BOARD_ID);
-    expect(byLabel("Solid")!.getAttribute("aria-pressed")).toBe("true");
-
+  it("offers the native catalog and applying a native Fill clears the saved GLSL mount", async () => {
+    const edited = await openPicker(BOARD_ID, SAVED_GLSL_BOARD);
     act(() => byLabel("Shader")!.click());
-
-    expect(
-      popover().querySelector('[data-native-shader-panel="fill"]'),
-    ).not.toBeNull();
-    expect(nativeDefinitionButton("mesh-anchors")).not.toBeNull();
-    expect(popover().textContent).not.toContain("editPanel.shaders.presets");
-    expect(popover().querySelector('[role="combobox"]')).toBeNull();
-  });
-
-  it("applies Nebula to the selected board frame through editor history", async () => {
-    const edited = await openPicker(BOARD_ID);
-
-    act(() => byLabel("Shader")!.click());
+    expect(nativeDefinitionButton("nebula")).not.toBeNull();
+    expect(popover().textContent).not.toContain("Aurora Drift");
     await act(async () => nativeDefinitionButton("nebula")!.click());
     await flush();
-
     expect(mocks.toastError).not.toHaveBeenCalled();
     expect(edited).toHaveBeenCalledTimes(1);
     const html = edited.mock.calls[0]![0] as string;
@@ -464,7 +321,7 @@ describe("EditPanel — reopening the picker on a frame on the board", () => {
         }),
       ]),
     );
-    expect(html).not.toContain("data-an-shader-fill");
+    expectNoSavedShader(html);
     expect(mocks.readSourceFile).not.toHaveBeenCalled();
   });
 });

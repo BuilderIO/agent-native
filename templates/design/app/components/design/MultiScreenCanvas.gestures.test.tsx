@@ -4007,10 +4007,23 @@ describe("canvas iframe identity", () => {
       expect(staticPreview).not.toBeNull();
       expect(staticIframe).not.toBeNull();
       expect(activeIframe).not.toBeNull();
-      expect(staticIframe!.getAttribute("sandbox")).toBe("");
-      expect(staticIframe!.getAttribute("sandbox")).not.toContain(
-        "allow-scripts",
+      expect(staticIframe!.getAttribute("sandbox")).toBe("allow-scripts");
+      const staticDocument = new DOMParser().parseFromString(
+        staticIframe!.srcdoc,
+        "text/html",
       );
+      const nonce = staticDocument
+        .querySelector('meta[name="an-native-static-script-nonce"]')
+        ?.getAttribute("content");
+      expect(nonce).toBeTruthy();
+      expect(
+        staticDocument
+          .querySelector('meta[http-equiv="Content-Security-Policy"]')
+          ?.getAttribute("content"),
+      ).toContain(`script-src 'nonce-${nonce}'`);
+      for (const script of staticDocument.querySelectorAll("script")) {
+        expect(script.getAttribute("nonce")).toBe(nonce);
+      }
       expect(staticIframe!.srcdoc).toContain("left-edge");
       expect(staticIframe!.srcdoc).toContain("right-edge");
       expect(staticIframe!.srcdoc).toContain(
@@ -4019,7 +4032,9 @@ describe("canvas iframe identity", () => {
       expect(staticIframe!.style.background).toBe(
         "var(--design-editor-canvas-bg)",
       );
-      expect(staticIframe!.srcdoc).not.toContain("<script");
+      expect(staticIframe!.srcdoc).not.toContain(
+        "window.shouldNeverRunInStaticPreview",
+      );
 
       const initialActiveIframe = activeIframe!;
       const initialActiveSrcdoc = initialActiveIframe.srcdoc;
