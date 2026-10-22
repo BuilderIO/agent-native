@@ -99,6 +99,14 @@ export interface SettingsPageDefinition {
   keywords?: string;
 }
 
+/** An app-owned page shown in the app group without entering the shared registry. */
+export type AppSettingsPageDefinition = Omit<
+  SettingsPageDefinition,
+  "group"
+> & {
+  group?: "app";
+};
+
 const PAGE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function defineSettingsPage(
@@ -113,6 +121,28 @@ export function defineSettingsPage(
     throw new Error(`Settings page ${definition.id} needs a labelKey or label`);
   }
   return Object.freeze({ ...definition });
+}
+
+/** Adds instance-owned pages after shared and registered pages. */
+export function mergeAppSettingsPages(
+  pages: readonly SettingsPageDefinition[],
+  appPages: readonly AppSettingsPageDefinition[] = [],
+): SettingsPageDefinition[] {
+  const existingIds = new Set(pages.map((page) => page.id));
+  const appIds = new Set<string>();
+  const additions = appPages.map((page) => {
+    if (existingIds.has(page.id)) {
+      throw new Error(
+        `App settings page id "${page.id}" conflicts with an existing page id.`,
+      );
+    }
+    if (appIds.has(page.id)) {
+      throw new Error(`Duplicate app settings page id "${page.id}".`);
+    }
+    appIds.add(page.id);
+    return defineSettingsPage({ ...page, group: "app" });
+  });
+  return [...pages, ...additions];
 }
 
 const registry = new Map<string, SettingsPageDefinition>();

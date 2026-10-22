@@ -74,8 +74,10 @@ import {
   SETTINGS_PAGE_GROUPS,
   getSettingsPages,
   isSettingsPageVisible,
+  mergeAppSettingsPages,
   sortSettingsPages,
   subscribeSettingsPages,
+  type AppSettingsPageDefinition,
   type SettingsPageContext,
   type SettingsPageDefinition,
   type SettingsPageGroup,
@@ -104,6 +106,8 @@ export interface SettingsShellProps extends SettingsBridgeInput {
   appIcon?: SettingsPageIcon;
   /** Scopes the app's changelog unread dot and usage. Defaults to the template id. */
   appId?: string | null;
+  /** App-owned pages and controls shown in this shell's app group. */
+  appSettingsPages?: readonly AppSettingsPageDefinition[];
   /** Raw CHANGELOG.md; enables the What's new unread dot. */
   whatsNewMarkdown?: string;
   enableSearch?: boolean;
@@ -339,6 +343,7 @@ function SettingsShellContent({
   className,
   navClassName,
   contentClassName,
+  appSettingsPages,
   value,
   initialValue,
   onValueChange,
@@ -415,7 +420,12 @@ function SettingsShellContent({
       BridgedTabSettingsPage,
     );
     return {
-      pages: sortSettingsPages([...declared, ...derived.pages]),
+      pages: sortSettingsPages(
+        mergeAppSettingsPages(
+          [...declared, ...derived.pages],
+          appSettingsPages,
+        ),
+      ),
       bridge: createSettingsBridge(
         {
           extraTabs,
@@ -445,6 +455,7 @@ function SettingsShellContent({
     appAreas,
     appGroupLabel,
     appLabs,
+    appSettingsPages,
     extraTabs,
     general,
     generalGroups,

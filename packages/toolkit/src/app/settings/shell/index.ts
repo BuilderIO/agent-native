@@ -22,6 +22,7 @@ export {
   sortSettingsPages,
   subscribeSettingsPages,
   unregisterSettingsPage,
+  type AppSettingsPageDefinition,
   type CoreSettingsPageId,
   type SettingsPageContext,
   type SettingsPageDefinition,
