@@ -97,7 +97,11 @@ import {
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
-import { encodeStateAsUpdate, type Doc as YDoc } from "yjs";
+import {
+  encodeStateAsUpdate,
+  type Doc as YDoc,
+  type Transaction as YTransaction,
+} from "yjs";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
@@ -2032,38 +2036,6 @@ export function isLocalEditorEdit(transaction: Transaction): boolean {
   );
 }
 
-// Where two versions of the page differ, as one span in each version.
-function changedSpan(from: ProseMirrorNode, to: ProseMirrorNode) {
-  const start = from.content.findDiffStart(to.content);
-  if (start === null) return null;
-  let { a: fromEnd, b: toEnd } = from.content.findDiffEnd(to.content)!;
-  // Repeated text can end the common suffix inside the common prefix.
-  const overlap = start - Math.min(fromEnd, toEnd);
-  if (overlap > 0) {
-    fromEnd += overlap;
-    toEnd += overlap;
-  }
-  return { start, fromEnd, toEnd };
-}
-
-// Whether the page still holds an edit that turned `before` into `edited`.
-// Another tab's change elsewhere on the page merges with it; a change that
-// reaches it, such as a seed or a restore, replaces it.
-function editStillOnPage({
-  before,
-  edited,
-  page,
-}: {
-  before: ProseMirrorNode;
-  edited: ProseMirrorNode;
-  page: ProseMirrorNode;
-}) {
-  const edit = changedSpan(before, edited);
-  if (!edit) return false;
-  const since = changedSpan(edited, page);
-  return !since || since.fromEnd < edit.start || since.start > edit.toEnd;
-}
-
 // A load or reconcile can briefly look like a local change that empties the
 // editor, so a change that leaves the page empty saves only with this
 // evidence. Commands that can empty a page, such as undo and the table menus,
@@ -3554,12 +3526,9 @@ export function VisualEditor({
   }, []);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
-  // The page before and after a person's typing that landed before the live
-  // copy's seed check finished.
-  const unseededEditRef = useRef<{
-    before: ProseMirrorNode;
-    edited: ProseMirrorNode;
-  } | null>(null);
+  // Set by a person's typing that lands before the live copy's seed check
+  // finishes, and cleared when a seed, a restore or another tab replaces it.
+  const unseededEditRef = useRef(false);
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
     hasUserEditIntentRef.current = true;
@@ -3849,15 +3818,6 @@ export function VisualEditor({
         observedDocumentRef.current = editor.state.doc;
         documentVersionRef.current = {};
       }
-      // The editor's own fix-ups, such as a copied block's rewritten source,
-      // don't replace the typing.
-      const unseededEdit = unseededEditRef.current;
-      if (
-        transaction.getMeta(EDITOR_NON_EDIT_META) === true &&
-        unseededEdit?.edited.eq(transaction.before)
-      ) {
-        unseededEditRef.current = { ...unseededEdit, edited: editor.state.doc };
-      }
       notifyHistoryStateChange({
         canUndo: editor.can().undo(),
         canRedo: editor.can().redo(),
@@ -3888,17 +3848,16 @@ export function VisualEditor({
       });
       if (guards.shouldIgnoreUpdate(transaction)) {
         // The guards drop every edit until the live copy's seed check
-        // finishes, so typing that lands first is saved once it does.
-        if (
+        // finishes, so typing that lands first is saved once it does, unless
+        // the seed replaces it.
+        if (guards.isSettingContentRef.current) {
+          unseededEditRef.current = false;
+        } else if (
           guards.initialSeedPending &&
-          !guards.isSettingContentRef.current &&
           userInitiated &&
           isLocalEditorEdit(transaction)
         ) {
-          unseededEditRef.current = {
-            before: unseededEditRef.current?.before ?? transaction.before,
-            edited: editor.state.doc,
-          };
+          unseededEditRef.current = true;
         }
         return;
       }
@@ -3918,7 +3877,7 @@ export function VisualEditor({
       if (replacementIntent) {
         onSuggestionReplacementIntentRef.current?.(replacementIntent);
       }
-      unseededEditRef.current = null;
+      unseededEditRef.current = false;
       void persistEditorContent(editor, { userInitiated });
     },
   });
@@ -4068,6 +4027,7 @@ export function VisualEditor({
             canonicalizeNfm(snapshot.content);
         }
         if (applied) {
+          unseededEditRef.current = false;
           draftEmissionGenerationRef.current += 1;
           acknowledgedRestoreRef.current = {
             documentId: documentId ?? null,
@@ -4447,18 +4407,28 @@ export function VisualEditor({
   guardsRef.current = collabState;
   useEffect(() => {
     if (!editor || editor.isDestroyed || !editable) return;
-    const unseededEdit = unseededEditRef.current;
-    if (collabState.initialSeedPending || !unseededEdit) return;
-    unseededEditRef.current = null;
-    // A seed, a restore or another tab's change that has replaced the typing
-    // since would be saved as this tab's edit. A change elsewhere on the page
-    // merged with it, and the page saves with both.
-    if (!editStillOnPage({ ...unseededEdit, page: editor.state.doc })) return;
+    if (collabState.initialSeedPending || !unseededEditRef.current) return;
+    unseededEditRef.current = false;
     hasUserEditIntentRef.current = true;
     if (isActiveSlashCommandDraft(editor)) return;
     if (shouldSkipMediaDraftPersistence(editor)) return;
     void persistEditorContent(editor, { userInitiated: true });
   }, [collabState.initialSeedPending, editable, editor, persistEditorContent]);
+  // Another tab's change that deletes what this tab wrote replaces the typing.
+  // A change elsewhere on the page merges with it, and the page saves both.
+  useEffect(() => {
+    if (!ydoc) return;
+    const dropReplacedEdit = (transaction: YTransaction) => {
+      if (
+        !transaction.local &&
+        transaction.deleteSet.clients.has(ydoc.clientID)
+      ) {
+        unseededEditRef.current = false;
+      }
+    };
+    ydoc.on("afterTransaction", dropReplacedEdit);
+    return () => ydoc.off("afterTransaction", dropReplacedEdit);
+  }, [ydoc]);
   // A live copy nobody has opened yet is empty until the server seeds it from
   // the stored body, a round trip after this editor mounts. The stored body
   // stands in for it until then, so the page never shows an empty editor.

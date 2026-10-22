@@ -202,8 +202,12 @@ describe("opening a page", () => {
     );
   }
 
+  // The server wrote the live copy, so none of it is this tab's own writing.
   function livePage(markdown: string) {
-    writeLiveCopy(ydoc, markdown);
+    const server = new Y.Doc();
+    writeLiveCopy(server, markdown);
+    Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(server));
+    server.destroy();
     return {
       content: markdown,
       documentId: "page-1",
@@ -680,57 +684,75 @@ describe("opening a page", () => {
     expectNoSave(opened);
   });
 
-  it("saves an edit made before the seed check that another tab's edit merges with", async () => {
-    const opened = mount(livePage("Alpha paragraph.\n\nCharlie paragraph."));
-    const peer = new Y.Doc();
-    Y.applyUpdate(peer, Y.encodeStateAsUpdate(ydoc));
-    editBeforeSeedCheck(opened.editor, "insertText", (editor) =>
-      editor.view.dispatch(editor.state.tr.insertText("New ", 1)),
-    );
-    const charlie = peer.getXmlFragment("default").get(1) as Y.XmlElement;
-    const text = charlie.get(0) as Y.XmlText;
-    text.insert(text.length, " Beta");
-    const peerSaved = docToNfm(
-      yXmlFragmentToProsemirrorJSON(peer.getXmlFragment("default")) as PMDoc,
-    );
-    act(() => {
-      Y.applyUpdate(
-        ydoc,
-        Y.encodeStateAsUpdate(peer, Y.encodeStateVector(ydoc)),
-        "remote",
+  it.each([
+    ["a paragraph after it", [2]],
+    ["paragraphs before and after it", [0, 2]],
+  ])(
+    "saves an edit made before the seed check that another tab's edit to %s merges with",
+    async (_, peerParagraphs) => {
+      const paragraphs = [
+        "Alpha paragraph.",
+        "Bravo paragraph.",
+        "Charlie paragraph.",
+      ];
+      const opened = mount(livePage(paragraphs.join("\n\n")));
+      const peer = new Y.Doc();
+      Y.applyUpdate(peer, Y.encodeStateAsUpdate(ydoc));
+      editBeforeSeedCheck(opened.editor, "insertText", (editor) =>
+        editor.view.dispatch(
+          editor.state.tr.insertText(
+            "New ",
+            editor.state.doc.child(0).nodeSize + 1,
+          ),
+        ),
       );
-    });
-    peer.destroy();
-    await settle();
-    expect(opened.editor.state.doc.textContent).toBe(
-      "New Alpha paragraph.Charlie paragraph. Beta",
-    );
-    // Until this tab saves, the stored body is the other tab's save.
-    const saved = opened.onChange.mock.lastCall?.[0] ?? peerSaved;
+      const fragment = peer.getXmlFragment("default");
+      for (const index of peerParagraphs) {
+        const text = (fragment.get(index) as Y.XmlElement).get(0) as Y.XmlText;
+        text.insert(text.length, " Beta");
+      }
+      const peerSaved = docToNfm(
+        yXmlFragmentToProsemirrorJSON(fragment) as PMDoc,
+      );
+      act(() => {
+        Y.applyUpdate(
+          ydoc,
+          Y.encodeStateAsUpdate(peer, Y.encodeStateVector(ydoc)),
+          "remote",
+        );
+      });
+      peer.destroy();
+      await settle();
+      const merged = paragraphs.map(
+        (text, index) =>
+          `${index === 1 ? "New " : ""}${text}${peerParagraphs.includes(index) ? " Beta" : ""}`,
+      );
+      expect(opened.editor.state.doc.textContent).toBe(merged.join(""));
+      // Until this tab saves, the stored body is the other tab's save.
+      const saved = opened.onChange.mock.lastCall?.[0] ?? peerSaved;
 
-    const liveCopy = Y.encodeStateAsUpdate(ydoc);
-    await act(async () => root.unmount());
-    ydoc.destroy();
-    ydoc = new Y.Doc();
-    Y.applyUpdate(ydoc, liveCopy);
-    root = createRoot(container);
-    const reopened = await open({
-      content: saved,
-      documentId: "page-1",
-      ydoc,
-      collabSynced: true,
-    });
-    expect(reopened.editor.state.doc.textContent).toBe(
-      "New Alpha paragraph.Charlie paragraph. Beta",
-    );
-    const stored = reopened.onChange.mock.lastCall?.[0] ?? saved;
-    expect(stored).toContain("New Alpha paragraph.");
-    expect(stored).toContain("Charlie paragraph. Beta");
-  });
+      const liveCopy = Y.encodeStateAsUpdate(ydoc);
+      await act(async () => root.unmount());
+      ydoc.destroy();
+      ydoc = new Y.Doc();
+      Y.applyUpdate(ydoc, liveCopy);
+      root = createRoot(container);
+      const reopened = await open({
+        content: saved,
+        documentId: "page-1",
+        ydoc,
+        collabSynced: true,
+      });
+      expect(reopened.editor.state.doc.textContent).toBe(merged.join(""));
+      const stored = reopened.onChange.mock.lastCall?.[0] ?? saved;
+      for (const text of merged) expect(stored).toContain(text);
+    },
+  );
 
   it("does not save the seed that replaces a page emptied before the seed check", async () => {
+    // Another tab seeded the live copy first and has edited it since.
     const stored = new Y.Doc();
-    writeLiveCopy(stored, "Alpha paragraph.");
+    writeLiveCopy(stored, "Alpha paragraph, edited in another tab.");
     const stateBase64 = btoa(
       String.fromCharCode(...Y.encodeStateAsUpdate(stored)),
     );
@@ -753,7 +775,9 @@ describe("opening a page", () => {
       ),
     );
     await vi.waitFor(() =>
-      expect(opened.editor.state.doc.textContent).toBe("Alpha paragraph."),
+      expect(opened.editor.state.doc.textContent).toBe(
+        "Alpha paragraph, edited in another tab.",
+      ),
     );
     await settle();
     expectNoSave(opened);
