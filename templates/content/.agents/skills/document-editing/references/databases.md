@@ -183,7 +183,10 @@ toolbar menus, and sort priority follows the same top-to-bottom order shown in
 the menu. "Does not contain" matches rows with an empty value; starts with and
 ends with do not. A text filter with no value is ignored.
 
-Date filter values are `YYYY-MM-DD`, a date with a time, or a relative token.
+Date filter values are `YYYY-MM-DD`, an ISO date and time
+(`YYYY-MM-DDTHH:mm`, with optional seconds and an optional offset such as `Z`
+or `+02:00`), or a relative token. Other formats, such as `10/22/2026` or
+`2026-10`, are not read.
 `equals`, `does_not_equal`, `before`, `after`, `on_or_before`, `on_or_after`,
 and each end of a `between` pair accept `today`, `tomorrow`, or `yesterday`;
 `is_within` takes `past_7_days`, `next_7_days`, `past_30_days`,
@@ -195,13 +198,19 @@ time zone (the browser's, or the `x-user-timezone` request header on the
 server, falling back to the server's zone). `update-content-database-view`
 and `update-content-database-personal-view` reject an unknown `is_within`
 token and a date they cannot read, such as `2026-02-30`; an empty value or an
-unfinished `between` end still saves. A value
-without a time covers its whole day and is compared with the date a row's value
-is written on, so "on or before today" includes a row due at 18:00 today and
-created/edited times fall on their UTC date. A value with a time is compared
-as a moment. A time written without an offset, like a date property's
-`2026-10-22T18:00`, is a wall-clock time read in the caller's time zone, so a
-filter means the same moment in the browser and on the server.
+unfinished `between` end still saves.
+
+When either the filter value or a row's value has no time, they are compared
+by calendar day. A value without a time covers its whole day and is compared
+with the date a row's value is written on, so "on or before today" includes a
+row due at 18:00 today and created/edited times fall on their UTC date. A row
+without a time is compared with the day a timed value falls on in the caller's
+time zone. When both have a time, they are compared as moments. A time written
+without an offset, like a date property's `2026-10-22T18:00`, is a wall-clock
+time read in the caller's time zone, so a filter means the same moment in the
+browser and on the server. A wall-clock time a daylight-saving change skips
+moves forward by the change, and one it repeats is the first of the two. A
+`between` whose start comes after its end is read the other way round.
 
 Filters can be grouped. Rules with `filterGroupId: "advanced"` and no parent
 form the UI's advanced filter; rules with `parentFilterGroupId: "advanced"` and

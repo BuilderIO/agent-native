@@ -721,9 +721,48 @@ describe("content database date filters", () => {
 
   it("compares a value written with a time as a moment", () => {
     expect(dateMatches("on_or_after", "2026-10-22T12:00")).toEqual([
+      "whole-day",
       "evening",
       "day-after",
     ]);
+    expect(dateMatches("after", "2026-10-22T12:00")).toEqual([
+      "evening",
+      "day-after",
+    ]);
+    expect(dateMatches("before", "2026-10-22T12:00")).toEqual([
+      "day-before",
+      "morning",
+    ]);
+  });
+
+  it("compares a row without a time by day against a value with one", () => {
+    // The whole-day row is 22 October, the day 08:00 falls on.
+    expect(dateMatches("equals", "2026-10-22T08:00")).toEqual([
+      "morning",
+      "whole-day",
+    ]);
+    expect(dateMatches("on_or_after", "2026-10-22T00:00")).toEqual([
+      "morning",
+      "whole-day",
+      "evening",
+      "day-after",
+    ]);
+  });
+
+  it("orders a range's day and time by when each starts and ends", () => {
+    // From 10:00 to the end of 22 October, written either way round.
+    expect(
+      dateMatches(
+        "between",
+        JSON.stringify(["2026-10-22T10:00", "2026-10-22"]),
+      ),
+    ).toEqual(["whole-day", "evening"]);
+    expect(
+      dateMatches(
+        "between",
+        JSON.stringify(["2026-10-23", "2026-10-22T10:00"]),
+      ),
+    ).toEqual(["whole-day", "evening", "day-after"]);
   });
 
   it("reads times without an offset in the caller's time zone", () => {
@@ -742,8 +781,10 @@ describe("content database date filters", () => {
         { today: TODAY, timeZone },
       ).map((row) => row.document.id);
     // The evening row's 18:00 is a wall-clock time: 22:00 UTC in New York and
-    // 09:00 UTC in Tokyo.
+    // 09:00 UTC in Tokyo. 21:00 UTC is still 22 October in New York but 23
+    // October in Tokyo, which decides the whole-day row.
     expect(onOrAfter("2026-10-22T21:00:00Z", "America/New_York")).toEqual([
+      "whole-day",
       "evening",
       "day-after",
     ]);
@@ -753,6 +794,7 @@ describe("content database date filters", () => {
     // A wall-clock bound against wall-clock rows reads the same in any zone.
     for (const timeZone of ["America/New_York", "Asia/Tokyo", "UTC"]) {
       expect(onOrAfter("2026-10-22T12:00", timeZone)).toEqual([
+        "whole-day",
         "evening",
         "day-after",
       ]);
@@ -926,6 +968,42 @@ describe("content database filter instants", () => {
     expect(iso("2026-03-08T03:30", "America/New_York")).toBe(
       "2026-03-08T07:30:00.000Z",
     );
+  });
+
+  it("moves a skipped time forward and takes the first of a repeated one", () => {
+    // 02:30 never happens on 8 March in New York; it reads as 03:30.
+    expect(iso("2026-03-08T02:30", "America/New_York")).toBe(
+      "2026-03-08T07:30:00.000Z",
+    );
+    expect(iso("2026-03-29T02:30", "Europe/Berlin")).toBe(
+      "2026-03-29T01:30:00.000Z",
+    );
+    // 01:30 on 1 November happens twice in New York; the first is daylight time.
+    expect(iso("2026-11-01T01:30", "America/New_York")).toBe(
+      "2026-11-01T05:30:00.000Z",
+    );
+    expect(iso("2026-10-25T02:30", "Europe/Berlin")).toBe(
+      "2026-10-25T00:30:00.000Z",
+    );
+  });
+
+  it("reads only an ISO date and time", () => {
+    for (const value of [
+      "2026-10",
+      "10/22/2026",
+      "5",
+      "Oct 22 2026 12:00",
+      "2026-10-22",
+      "2026-10-22T24:00",
+      "2026-10-22T12:60",
+      "2026-10-22T12:00+25:00",
+    ]) {
+      expect(contentDatabaseFilterInstant(value, "UTC"), value).toBeNaN();
+    }
+    expect(iso("2026-10-22 12:34:56.789+00", "Asia/Tokyo")).toBe(
+      "2026-10-22T12:34:56.789Z",
+    );
+    expect(iso("2026-10-22T12:00-0530")).toBe("2026-10-22T17:30:00.000Z");
   });
 
   it("keeps a written offset and falls back to this machine's zone", () => {

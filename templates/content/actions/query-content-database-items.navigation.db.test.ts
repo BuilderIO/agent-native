@@ -2060,6 +2060,30 @@ describe("Files navigation text and date filters", () => {
     }
   });
 
+  it("ties a cursor under a time without an offset to the caller's time zone", async () => {
+    await navigatedIds(created("on_or_after", "2026-10-22T13:00"), "UTC");
+    const page = (timezone: string, cursor?: string) =>
+      runWithRequestContext({ userEmail: OWNER, timezone }, () =>
+        action.run(
+          {
+            databaseId: DATABASE_ID,
+            navigation: { parentId: PARENT_ID, viewId: "default", cursor },
+            limit: 2,
+          },
+          { userEmail: OWNER } as any,
+        ),
+      ) as Promise<ContentDatabaseNavigationPageResponse>;
+    const first = await page("America/New_York");
+    const cursor = first.pagination.nextCursor!;
+    expect(cursor).toEqual(expect.any(String));
+    await expect(page("America/New_York", cursor)).resolves.toMatchObject({
+      items: expect.any(Array),
+    });
+    await expect(page("Asia/Tokyo", cursor)).rejects.toMatchObject({
+      errorCode: "invalid_navigation_cursor",
+    });
+  });
+
   it("resolves relative dates in the caller's time zone when the view is read", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-23T02:30:00.000Z"));

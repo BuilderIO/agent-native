@@ -215,6 +215,25 @@ export function isContentDatabaseRelativeDateRange(
   );
 }
 
+/**
+ * Whether a date filter holds a time. Such a filter can match other rows for a
+ * caller in another time zone, since a time without an offset is read in the
+ * caller's zone and a day against a time is the day it falls on there.
+ */
+export function contentDatabaseFilterHasTime(filter: ContentDatabaseFilter) {
+  if (
+    !contentDatabaseFilterComparesDates(filter) ||
+    filter.operator === "is_within"
+  ) {
+    return false;
+  }
+  const values =
+    filter.operator === "between"
+      ? contentDatabaseFilterDateRangeValues(filter.value)
+      : [filter.value];
+  return values.some((value) => DATE_TIME.test(value.trim()));
+}
+
 /** Whether the rows a filter matches depend on the day it is read. */
 export function contentDatabaseFilterIsRelative(filter: ContentDatabaseFilter) {
   if (filter.operator === "is_within") return true;
@@ -238,12 +257,16 @@ export function contentDatabaseFilterToday(
   timeZone?: string,
   now = new Date(),
 ) {
+  return dayInTimeZone(now, timeZone);
+}
+
+function dayInTimeZone(date: Date, timeZone: string | undefined) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timeZone && isKnownTimeZone(timeZone) ? timeZone : undefined,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(now);
+  }).formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((candidate) => candidate.type === type)?.value;
   return `${part("year")}-${part("month")}-${part("day")}`;
@@ -259,23 +282,31 @@ function isKnownTimeZone(timeZone: string) {
   }
 }
 
-const WALL_CLOCK_TIME =
-  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/;
+// An ISO date and time: minutes, optional seconds and fraction, and an
+// optional offset. A space may stand for the "T", as in the database's own
+// timestamps ("2026-10-22 12:34:56+00").
+const DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * The moment a date filter value or a row's date stands for, in milliseconds,
- * or NaN when it can't be read. A time written without an offset is a
- * wall-clock time, the way date properties store one, so it is read in
- * `timeZone`: the caller's zone. Without a zone, or with one this runtime does
- * not know, it is read in this machine's zone, which in the browser is the
- * caller's.
+ * or NaN when it isn't an ISO date and time that exists.
+ *
+ * A time written without an offset is a wall-clock time, the way date
+ * properties store one, so it is read in `timeZone`: the caller's zone.
+ * Without a zone, or with one this runtime does not know, it is read in this
+ * machine's zone, which in the browser is the caller's. A time a
+ * daylight-saving change skips moves forward by the change, and a time it
+ * repeats is the first of the two, as JavaScript's own dates do.
  */
 export function contentDatabaseFilterInstant(value: string, timeZone?: string) {
-  const trimmed = value.trim();
-  const wall = WALL_CLOCK_TIME.exec(trimmed);
-  if (!wall) return new Date(trimmed).getTime();
-  const [, year, month, day, hour, minute, second = "0", fraction = ""] = wall;
-  const asUtc = Date.UTC(
+  const match = DATE_TIME.exec(value.trim());
+  if (!match) return Number.NaN;
+  const [, year, month, day, hour, minute, second = "0", fraction = ""] = match;
+  const offset = match[8];
+  const fields = [
     Number(year),
     Number(month) - 1,
     Number(day),
@@ -283,22 +314,38 @@ export function contentDatabaseFilterInstant(value: string, timeZone?: string) {
     Number(minute),
     Number(second),
     Number(fraction.padEnd(3, "0").slice(0, 3)),
-  );
-  // Rejects a day or time past its end, such as February 30th.
+  ] as const;
+  const asUtc = Date.UTC(...fields);
+  // Rejects a day or time past its end, such as February 30th or 24:00.
   if (
-    !Number.isFinite(asUtc) ||
-    new Date(asUtc).toISOString().slice(0, 16) !==
-      `${year}-${month}-${day}T${hour}:${minute}`
+    new Date(asUtc).toISOString().slice(0, 19) !==
+    `${year}-${month}-${day}T${hour}:${minute}:${second.padStart(2, "0")}`
   ) {
     return Number.NaN;
   }
-  if (!timeZone || !isKnownTimeZone(timeZone)) {
-    return new Date(trimmed.replace(" ", "T")).getTime();
+  if (offset) {
+    if (/^z$/i.test(offset)) return asUtc;
+    const [, sign, hours, minutes = "0"] = /^([+-])(\d{2}):?(\d{2})?$/.exec(
+      offset,
+    )!;
+    if (Number(hours) > 23 || Number(minutes) > 59) return Number.NaN;
+    const ms = (Number(hours) * 60 + Number(minutes)) * 60 * 1000;
+    return sign === "+" ? asUtc - ms : asUtc + ms;
   }
-  // The offset is read again at the first guess, so a time near a
-  // daylight-saving change lands on the right side of it.
-  const guess = asUtc - timeZoneOffset(asUtc, timeZone);
-  return asUtc - timeZoneOffset(guess, timeZone);
+  if (!timeZone || !isKnownTimeZone(timeZone)) {
+    return new Date(...fields).getTime();
+  }
+  // The zone's offsets a day either side; a real zone changes at most once
+  // between them. A candidate is right when the zone's clock reads the wall
+  // time at that moment.
+  const before = asUtc - timeZoneOffset(asUtc - DAY_MS, timeZone);
+  const after = asUtc - timeZoneOffset(asUtc + DAY_MS, timeZone);
+  const valid = [before, after].filter(
+    (time) => time + timeZoneOffset(time, timeZone) === asUtc,
+  );
+  // Neither is right inside a skipped hour: keep the offset from before it,
+  // which moves the time forward.
+  return valid.length > 0 ? Math.min(...valid) : before;
 }
 
 /** How far `timeZone`'s clock is ahead of UTC at `time`, in milliseconds. */
@@ -439,7 +486,10 @@ export function contentDatabaseDateFilterCheck(
     const start = contentDatabaseFilterDateBound(startValue, today, timeZone);
     const end = contentDatabaseFilterDateBound(endValue, today, timeZone);
     if (!start || !end) return null;
-    return dateBoundText(start) <= dateBoundText(end)
+    // A day runs from its first moment to its last in the caller's zone, so a
+    // range is backwards only when its start begins after its end is over.
+    return dateBoundEdge(start, "first", timeZone) <=
+      dateBoundEdge(end, "last", timeZone)
       ? { op: "between", start, end }
       : { op: "between", start: end, end: start };
   }
@@ -447,8 +497,16 @@ export function contentDatabaseDateFilterCheck(
   return bound ? { op: DATE_COMPARISONS[filter.operator], bound } : null;
 }
 
-function dateBoundText(bound: ContentDatabaseDateFilterBound) {
-  return "day" in bound ? bound.day : bound.instant;
+function dateBoundEdge(
+  bound: ContentDatabaseDateFilterBound,
+  edge: "first" | "last",
+  timeZone: string | undefined,
+) {
+  if ("instant" in bound) return new Date(bound.instant).getTime();
+  return edge === "first"
+    ? contentDatabaseFilterInstant(`${bound.day}T00:00`, timeZone)
+    : contentDatabaseFilterInstant(`${addDays(bound.day, 1)}T00:00`, timeZone) -
+        1;
 }
 
 function dayDate(day: string) {
@@ -867,6 +925,13 @@ function compareDateToBound(
       documentPropertyDateKey(current);
     if (!day) return Number.NaN;
     return day < bound.day ? -1 : day > bound.day ? 1 : 0;
+  }
+  // A row without a time covers its whole day, so it is compared by day as
+  // well: the day the moment falls on in the caller's zone.
+  if (DAY_PATTERN.test(current.trim())) {
+    const day = dayInTimeZone(new Date(bound.instant), timeZone);
+    const rowDay = current.trim();
+    return rowDay < day ? -1 : rowDay > day ? 1 : 0;
   }
   return Math.sign(
     contentDatabaseFilterInstant(current, timeZone) -

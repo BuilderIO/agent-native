@@ -33,6 +33,7 @@ import type {
 import {
   contentDatabaseDateFilterCheck,
   contentDatabaseFilterComparesDates,
+  contentDatabaseFilterHasTime,
   contentDatabaseFilterIsRelative,
   contentDatabaseFilterOperatorNeedsValue,
   contentDatabaseFilterToday,
@@ -437,9 +438,13 @@ export async function getContentDatabaseNavigationPage(args: {
       personalView: personalView ?? null,
       effectiveSort,
       descending,
-      // A relative date filter matches other rows on another day.
+      // A relative date filter matches other rows on another day, and one
+      // with a time can in another time zone.
       ...(effectiveFilters.some(contentDatabaseFilterIsRelative)
         ? { today }
+        : {}),
+      ...(effectiveFilters.some(contentDatabaseFilterHasTime)
+        ? { timeZone: timeZone ?? null }
         : {}),
     }),
   ]);
