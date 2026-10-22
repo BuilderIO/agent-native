@@ -1,4 +1,4 @@
-import { ActionContractError } from "@agent-native/core";
+import { ActionContractError, embedApp } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { defineAction } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
@@ -19,7 +19,10 @@ import {
   markdownSuggestionOperationsForFindReplace,
   markdownSuggestionOperationSummary,
 } from "../shared/suggestion-diff.js";
-import { contentSuggestionPath } from "../shared/suggestion-link.js";
+import {
+  contentSuggestionPath,
+  contentSuggestionReviewPath,
+} from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 
@@ -165,15 +168,33 @@ export default defineAction({
   agentInputSchema: externalSuggestDocumentEditSchema,
   schema: suggestDocumentEditSchema,
   http: false,
+  // MCP Apps hosts embed this link as the inline review card. Every other
+  // caller gets a link that forwards to the suggestion on its page.
   link: ({ args, result }) => {
-    const suggestion = result as { suggestionId?: string };
+    const suggestion = result as {
+      suggestionId?: string;
+      suggestionIds?: string[];
+    };
     const resourceId =
       args.id ?? (result as { resourceId?: string }).resourceId;
     if (!suggestion.suggestionId || !resourceId) return null;
     return {
-      url: contentSuggestionPath(resourceId, suggestion.suggestionId),
-      label: "Open suggestion",
+      url: contentSuggestionReviewPath(
+        resourceId,
+        suggestion.suggestionIds ?? [suggestion.suggestionId],
+      ),
+      label: "Review suggestion",
     };
+  },
+  mcpApp: {
+    resource: embedApp({
+      title: "Review suggestion",
+      description:
+        "Show the suggested edit inline so the user can accept or reject it without leaving the conversation.",
+      iframeTitle: "Agent-Native Content",
+      openLabel: "Open in Content",
+      height: 440,
+    }),
   },
   run: async (args, ctx) => {
     const id = args.id;

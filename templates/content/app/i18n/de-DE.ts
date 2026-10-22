@@ -1218,6 +1218,10 @@ const comments = {
   proposalEditCount_other: "{{count}} Änderungen",
   acceptRemaining: "Übrige annehmen",
   rejectRemaining: "Übrige ablehnen",
+  acceptAll: "Alle annehmen",
+  rejectAll: "Alle ablehnen",
+  suggestionReviewReadOnly:
+    "Nur wer diese Seite bearbeiten kann, kann ihre Vorschläge annehmen oder ablehnen.",
   typeFilter: "Typ",
   statusFilter: "Status",
   authorFilter: "Person",

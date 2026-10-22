@@ -114,17 +114,27 @@ export function shouldRevalidate({
 
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
-export function isContentEditorPath(pathname: string): boolean {
+function appPathname(pathname: string): string {
   const basePath = appBasePath();
-  const appPathname =
-    basePath && pathname.startsWith(`${basePath}/`)
-      ? pathname.slice(basePath.length)
-      : pathname;
-  return /^\/page\/[^/]+\/?$/.test(appPathname);
+  return basePath && pathname.startsWith(`${basePath}/`)
+    ? pathname.slice(basePath.length)
+    : pathname;
+}
+
+export function isContentEditorPath(pathname: string): boolean {
+  return /^\/page\/[^/]+\/?$/.test(appPathname(pathname));
+}
+
+export function isContentSuggestionReviewPath(pathname: string): boolean {
+  return /^\/suggestions\/[^/]+\/?$/.test(appPathname(pathname));
 }
 
 export function computeSessionBypass(pathname: string): boolean {
-  return isContentEditorPath(pathname) && Boolean(getEmbedAuthToken());
+  return (
+    (isContentEditorPath(pathname) ||
+      isContentSuggestionReviewPath(pathname)) &&
+    Boolean(getEmbedAuthToken())
+  );
 }
 
 // The startup shell draws before the i18n provider exists, so it reads its

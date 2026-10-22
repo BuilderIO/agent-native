@@ -1734,6 +1734,10 @@ const enUS = {
     proposalEditCount_other: "{{count}} edits",
     acceptRemaining: "Accept remaining",
     rejectRemaining: "Reject remaining",
+    acceptAll: "Accept all",
+    rejectAll: "Reject all",
+    suggestionReviewReadOnly:
+      "Only people who can edit this page can accept or reject its suggestions.",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",

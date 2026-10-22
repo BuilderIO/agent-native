@@ -783,7 +783,7 @@ describe("suggest-document-edit", () => {
     );
   });
 
-  it("attaches the open-suggestion deep link", async () => {
+  it("links the inline review card for every edit the call made", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
       async () => {
@@ -798,7 +798,7 @@ describe("suggest-document-edit", () => {
             replace: "Edited body text.",
           },
           ctx,
-        )) as { suggestionId: string };
+        )) as { suggestionId: string; suggestionIds: string[]; url: string };
         const link = (
           action as unknown as { link: (input: unknown) => unknown }
         ).link({
@@ -806,9 +806,13 @@ describe("suggest-document-edit", () => {
           result,
         });
         expect(link).toEqual({
-          url: `/page/${id}?suggestion=${result.suggestionId}`,
-          label: "Open suggestion",
+          url: `/suggestions/${id}?ids=${result.suggestionIds.join(",")}`,
+          label: "Review suggestion",
         });
+        expect(result.url).toBe(
+          `/page/${id}?suggestion=${result.suggestionId}`,
+        );
+        expect(action.mcpApp?.resource?.html).toBeTruthy();
       },
     );
   });

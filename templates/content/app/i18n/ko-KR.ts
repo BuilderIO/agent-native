@@ -1175,6 +1175,10 @@ const comments = {
   proposalEditCount_other: "편집 {{count}}개",
   acceptRemaining: "나머지 수락",
   rejectRemaining: "나머지 거절",
+  acceptAll: "모두 수락",
+  rejectAll: "모두 거절",
+  suggestionReviewReadOnly:
+    "이 페이지를 편집할 수 있는 사용자만 제안을 수락하거나 거절할 수 있습니다.",
   typeFilter: "유형",
   statusFilter: "상태",
   authorFilter: "사용자",

@@ -1139,6 +1139,10 @@ const overrides = {
     proposalEditCount_other: "{{count}} 項編輯",
     acceptRemaining: "接受其餘編輯",
     rejectRemaining: "拒絕其餘編輯",
+    acceptAll: "全部接受",
+    rejectAll: "全部拒絕",
+    suggestionReviewReadOnly:
+      "只有可以編輯此頁面的人才能接受或拒絕其中的建議。",
     moreActions: "更多操作",
     addReaction: "新增回應",
     markUnread: "標為未讀",

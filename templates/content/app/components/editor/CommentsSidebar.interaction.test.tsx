@@ -356,7 +356,7 @@ describe("comment review interactions", () => {
     ).not.toBeNull();
     expect(container.querySelectorAll("[data-suggestion-id]")).toHaveLength(2);
     const accept = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("comments.acceptRemaining"),
+      button.textContent?.includes("comments.acceptAll"),
     );
     expect(accept).toBeDefined();
     act(() => accept!.click());
