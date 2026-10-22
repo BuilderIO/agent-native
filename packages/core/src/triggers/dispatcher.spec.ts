@@ -1116,6 +1116,10 @@ Respond to the fanout event.`,
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Module-level worker flag survives across tests; clearAllMocks only
+    // resets the startIntervalJob mock, so stop the worker or later inits
+    // early-return and never register a new handle.
+    stopTriggerQueueWorker();
     isProductionServerlessRuntimeMock.mockReturnValue(false);
     triggerQueueMocks.reset();
     resourceFingerprintAllOwnersMock.mockResolvedValue("fingerprint-unchanged");
