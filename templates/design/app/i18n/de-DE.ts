@@ -237,6 +237,23 @@ export default {
     expandSidebar: "Seitenleiste erweitern",
     collapseSidebar: "Seitenleiste einklappen",
   },
+  gettingStarted: {
+    title: "Erste Schritte",
+    progress: "{{completeCount}} von {{totalCount}} abgeschlossen",
+    collapse: "Einklappen",
+    expand: "Ausklappen",
+    completed: "Abgeschlossen",
+    loadError: "Checkliste konnte nicht geladen werden",
+    retry: "Erneut versuchen",
+    steps: {
+      createDesign: "Erstelle dein erstes Design",
+      addBrand: "Füge deine Marke hinzu",
+      useRealData: "Nutze deine echten Daten",
+      shareFeedback: "Für Feedback teilen",
+      inviteTeammate: "Teammitglied einladen",
+      saveTemplate: "Design als Vorlage speichern",
+    },
+  },
   settings: {
     agentTitle: "Agent verwalten",
     agentDescription:

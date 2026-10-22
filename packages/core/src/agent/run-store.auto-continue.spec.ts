@@ -79,15 +79,18 @@ describe("automatic continuation admission", () => {
   it("starts the continuation in the same turn and records what it continued", async () => {
     const { thread, turn, run } = await timeLimitStop();
     const { tryClaimRunSlot } = await freshRunStore();
+    const hasPendingQueuedSubmission = vi.fn(async () => true);
 
     const slot = await tryClaimRunSlot(thread, `${run}-next`, undefined, {
       turnId: turn,
       replayCompletedTurn: true,
       dispatchMode: "foreground",
       continueOf: { runId: run, trigger: "auto" },
+      hasPendingQueuedSubmission,
     });
 
     expect(slot).toEqual({ claimed: true, activeRunId: null });
+    expect(hasPendingQueuedSubmission).not.toHaveBeenCalled();
     const row = (await (
       await pglite.prepare(
         `SELECT turn_id, auto_continue_of FROM agent_runs WHERE id = ?`,

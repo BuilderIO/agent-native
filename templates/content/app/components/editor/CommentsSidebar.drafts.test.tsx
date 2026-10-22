@@ -540,11 +540,12 @@ it("renders exact marked hard-break replacement summaries without delimiter leak
   }
   try {
     await act(async () => root.render(<Harness />));
+    // Replacing a line break keeps what it replaces in view while collapsed.
     expect(
       [...container.querySelectorAll("strong")]
         .map((element) => element.textContent)
         .join(""),
-    ).toBe("Across");
+    ).toBe("AcrossUpperLower");
     await act(async () =>
       controller.setOpenReply(suggestion.threadId, suggestion.id, false),
     );
@@ -553,7 +554,9 @@ it("renders exact marked hard-break replacement summaries without delimiter leak
         .map((element) => element.textContent)
         .join(""),
     ).toBe("AcrossUpperLower");
-    expect(container.textContent).toContain("Upper↵Lower");
+    expect(container.innerHTML).toContain(
+      "<strong>Upper</strong><br><strong>Lower</strong>",
+    );
     expect(container.textContent).not.toContain("**");
     expect(container.textContent).not.toContain("<br>");
   } finally {
@@ -1122,6 +1125,148 @@ it("matches Notion operation order, disclosure, and full-line colors for draft a
         (line) => line.textContent === "Replace: “workflow”",
       )?.className,
     ).toContain("text-muted-foreground");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it.each([
+  ["joining paragraphs with a space", "\n", " ", "with: “·”", "Replace: “↵”"],
+  ["splitting a paragraph", " ", "\n", "with: “↵”", "Replace: “·”"],
+  ["swapping whitespace", "  ", "\t", "with: “⇥”", "Replace: “··”"],
+  [
+    "joining paragraphs inside a rewrite",
+    "first\nsecond",
+    "first second",
+    "with: “first·second”",
+    "Replace: “first↵second”",
+  ],
+])(
+  "shows what %s replaces on collapsed draft and saved cards",
+  async (_label, before, after, primary, replaced) => {
+    const operations = [
+      {
+        ordinal: 0,
+        kind: "replace_text",
+        before: { changedText: before },
+        after: { changedText: after },
+        schemaVersion: 1,
+      },
+    ];
+    const saved = suggestionFixture({
+      id: "saved-join",
+      revision: 1,
+      threadId: "thread-saved-join",
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations,
+    });
+    const draft: DraftSuggestion = {
+      durability: "draft",
+      id: "draft-join",
+      threadId: "draft-join",
+      authorEmail: "reviewer@example.test",
+      createdAt: "2026-09-06T12:01:00.000Z",
+      operations,
+      anchor: { from: 0, to: 1, prefix: "", suffix: "" },
+    };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    function Harness() {
+      const replyDrafts = useCommentReplyDrafts("document-join");
+      return (
+        <CommentsSidebar
+          replyDrafts={replyDrafts}
+          documentId="document-join"
+          suggestions={[saved]}
+          draftSuggestions={[draft]}
+          canComment
+          forceVisible
+        />
+      );
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      for (const id of [saved.id, draft.id]) {
+        const card = container.querySelector(`[data-suggestion-id="${id}"]`);
+        expect(card?.textContent).toContain(primary);
+        expect(card?.textContent).toContain(replaced);
+      }
+    } finally {
+      await act(async () => root.unmount());
+    }
+  },
+);
+
+it("names suggestion authors by display name before their email", async () => {
+  const ownEmail = "an-e2e-probe-agent@agents.example.test";
+  const operations = [
+    {
+      ordinal: 0,
+      kind: "insert_text",
+      before: { changedText: "" },
+      after: { changedText: "Added" },
+      schemaVersion: 1,
+    },
+  ];
+  const saved = (id: string, authorEmail: string) =>
+    suggestionFixture({
+      id,
+      revision: 1,
+      threadId: `thread-${id}`,
+      authorEmail,
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations,
+    });
+  const ownSaved = saved("own-saved", ownEmail);
+  const recordNamed = saved("pending-named", "reviewer@example.test");
+  const unnamed = saved("other-unnamed", "someone.else@example.test");
+  const draft: DraftSuggestion = {
+    durability: "draft",
+    id: "own-draft",
+    threadId: "own-draft",
+    authorEmail: ownEmail,
+    createdAt: "2026-09-06T12:01:00.000Z",
+    operations,
+    anchor: { from: 0, to: 5, prefix: "", suffix: "" },
+  };
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  function Harness({ presentation }: { presentation: "inline" | "history" }) {
+    const replyDrafts = useCommentReplyDrafts("document-authors");
+    return (
+      <CommentsSidebar
+        replyDrafts={replyDrafts}
+        documentId="document-authors"
+        suggestions={[ownSaved, recordNamed, unnamed]}
+        draftSuggestions={[draft]}
+        currentUserEmail={ownEmail}
+        currentUserName="Probe Agent"
+        presentation={presentation}
+        forceVisible
+      />
+    );
+  }
+  const cardText = (id: string) =>
+    container.querySelector(`[data-suggestion-id="${id}"]`)?.textContent ?? "";
+  try {
+    await act(async () => root.render(<Harness presentation="inline" />));
+    expect(cardText(draft.id)).toContain("Probe Agent");
+    expect(cardText(ownSaved.id)).toContain("Probe Agent");
+    expect(cardText(recordNamed.id)).toContain("Reviewer");
+    expect(cardText(unnamed.id)).toContain("someone.else");
+    expect(container.textContent).not.toContain("an-e2e-probe-agent");
+
+    await act(async () => root.render(<Harness presentation="history" />));
+    const authorFilters = [...container.querySelectorAll("button")].map(
+      (button) => button.textContent,
+    );
+    expect(authorFilters).toContain("Probe Agent");
+    expect(container.textContent).not.toContain("an-e2e-probe-agent");
   } finally {
     await act(async () => root.unmount());
   }

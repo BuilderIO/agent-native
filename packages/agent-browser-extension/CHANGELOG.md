@@ -1,5 +1,57 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.341
+
+### Patch Changes
+
+- Updated dependencies [6c3f3cb]
+- Updated dependencies [78abb26]
+- Updated dependencies [b07c13b]
+- Updated dependencies
+- Updated dependencies [642114a]
+  - @agent-native/core@0.217.0
+
+## 0.1.340
+
+### Patch Changes
+
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies
+- Updated dependencies [b28df00]
+  - @agent-native/core@0.216.0
+
+## 0.1.339
+
+### Patch Changes
+
+- Updated dependencies [6448b38]
+- Updated dependencies [9f4d2e7]
+- Updated dependencies [47d2072]
+- Updated dependencies [f43eec1]
+- Updated dependencies
+- Updated dependencies [4fd6b35]
+- Updated dependencies [34d2fdc]
+- Updated dependencies [f872004]
+- Updated dependencies [6448b38]
+- Updated dependencies [34d2fdc]
+- Updated dependencies [df1b3df]
+- Updated dependencies [6448b38]
+- Updated dependencies [c3d5580]
+- Updated dependencies [465d097]
+- Updated dependencies [34d2fdc]
+- Updated dependencies [34d2fdc]
+- Updated dependencies [32ecc17]
+- Updated dependencies [9205a78]
+- Updated dependencies [7ba1d99]
+- Updated dependencies [a1af4d8]
+- Updated dependencies [32ecc17]
+- Updated dependencies [44a85ea]
+- Updated dependencies [4b0bb1e]
+  - @agent-native/core@0.215.0
+
 ## 0.1.338
 
 ### Patch Changes
@@ -2355,33 +2407,5 @@
 
 - Updated dependencies [dc0978d]
   - @agent-native/core@0.168.11
-
-## 0.1.241
-
-### Patch Changes
-
-- Updated dependencies [d9b6279]
-  - @agent-native/core@0.168.10
-
-## 0.1.240
-
-### Patch Changes
-
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-- Updated dependencies [dd80d09]
-- Updated dependencies [127606d]
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-  - @agent-native/core@0.168.9
-
-## 0.1.239
-
-### Patch Changes
-
-- Updated dependencies [81fa180]
-  - @agent-native/core@0.168.8
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

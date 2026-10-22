@@ -95,7 +95,7 @@ export const CURATED_COMMUNITY_APP_SOURCES: readonly CuratedCommunityAppSource[]
         },
         {
           path: "package.json",
-          blobSha: "7b61d5ce35d3d7c8b93215928945eb9dd1bd880b",
+          blobSha: "dbf733f4e0b751a91398233040e275ec32955a07",
         },
         {
           path: "server/db/index.ts",

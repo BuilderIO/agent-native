@@ -6034,6 +6034,26 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     };
   }
 
+  // app/components/design/bridge/native-dom.ts
+  function isNativeNode(value) {
+    return typeof value === "object" && value !== null && "nodeType" in value && typeof value.nodeType === "number";
+  }
+  function isNativeElement(value) {
+    return isNativeNode(value) && value.nodeType === 1;
+  }
+  function isNativeHtmlElement(value) {
+    return isNativeElement(value) && value.namespaceURI === "http://www.w3.org/1999/xhtml";
+  }
+  function isNativeHtmlTag(value, tag) {
+    return isNativeHtmlElement(value) && value.localName === tag;
+  }
+  function isNativeSvgElement(value) {
+    return isNativeElement(value) && value.namespaceURI === "http://www.w3.org/2000/svg";
+  }
+  function isNativeSvgRoot(value) {
+    return isNativeSvgElement(value) && value.localName === "svg";
+  }
+
   // app/components/design/bridge/native-effect-output-geometry.ts
   function originCoordinate(token, size, axis2) {
     const fraction2 = token === "center" ? 0.5 : axis2 === "x" ? token === "left" ? 0 : token === "right" ? 1 : void 0 : token === "top" ? 0 : token === "bottom" ? 1 : void 0;
@@ -6778,7 +6798,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       for (const child of original.childNodes) {
         if (child.nodeType === Node.TEXT_NODE) {
           clone2.append(document.createTextNode(child.textContent ?? ""));
-        } else if (child instanceof Element) {
+        } else if (isNativeElement(child)) {
           clone2.append(copy(child));
         } else if (child.nodeType !== Node.COMMENT_NODE) {
           throw new NativeSvgSourceError(
@@ -7807,6 +7827,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.name = "NativeSourceError";
     }
   };
+  var NativeSourceCapabilityError = class extends NativeSourceError {
+  };
   function nativePresentationVisible(canvas, viewport) {
     if (!canvas.isConnected) return false;
     for (let node = canvas; node; node = node.parentElement) {
@@ -7908,20 +7930,20 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   }
   function assertLeafSupported(element, target, readStyle = getComputedStyle) {
     if (element.shadowRoot) {
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-shadow-dom",
         "Shadow DOM source content is unsupported."
       );
     }
-    if (element instanceof HTMLIFrameElement) {
-      throw new NativeSourceError(
+    if (isNativeHtmlTag(element, "iframe")) {
+      throw new NativeSourceCapabilityError(
         "source-iframe",
         "Iframe source content is unsupported."
       );
     }
     const style = readStyle(element);
     if (style.mixBlendMode !== "normal" || style.filter !== "none" || style.backdropFilter !== "none") {
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-css-composite",
         "CSS blend modes, filters, and backdrop filters need a separate compositor path."
       );
@@ -7932,12 +7954,28 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "source-transform",
           "The selected source target has a 3D or perspective transform."
         );
-    } else if (element instanceof HTMLElement) {
+    } else if (isNativeHtmlElement(element)) {
       nodeGlobalTransform(element, readStyle);
     }
     for (const animation of element.getAnimations({ subtree: false })) {
       if (animation.playState !== "running") continue;
-      const keyframes = animation.effect instanceof KeyframeEffect ? animation.effect.getKeyframes() : [];
+      const effect = animation.effect;
+      if (effect === null) continue;
+      if (!("getKeyframes" in effect) || typeof effect.getKeyframes !== "function") {
+        throw new NativeSourceError(
+          "source-animation",
+          "The running source animation's keyframes are unreadable."
+        );
+      }
+      let keyframes;
+      try {
+        keyframes = effect.getKeyframes();
+      } catch {
+        throw new NativeSourceError(
+          "source-animation",
+          "The running source animation's keyframes are unreadable."
+        );
+      }
       const keys2 = new Set(keyframes.flatMap((frame) => Object.keys(frame)));
       for (const key of keys2) {
         if (![
@@ -7949,7 +7987,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "translate",
           "scale"
         ].includes(key)) {
-          throw new NativeSourceError(
+          throw new NativeSourceCapabilityError(
             "source-animation",
             "An animated source changes pixels; cached DOM capture supports transform-only motion."
           );
@@ -7963,7 +8001,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     for (const pseudo of ["::before", "::after"]) {
       const content = getComputedStyle(element, pseudo).content;
       if (content && content !== "none" && content !== "normal") {
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-pseudo",
           "CSS pseudo-element content is unsupported."
         );
@@ -7976,7 +8014,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     );
   }
   function isInlineFlowChild(element) {
-    if (element instanceof HTMLBRElement) return true;
+    if (isNativeHtmlTag(element, "br")) return true;
     const display = getComputedStyle(element).display;
     return display === "contents" || display.startsWith("inline");
   }
@@ -8000,12 +8038,12 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         "[data-an-native-layer-instance],canvas[data-an-native-canvas]:not([data-an-native-presentation])"
       ))
         return false;
-      if (!(child instanceof HTMLElement) || child instanceof HTMLImageElement || child instanceof HTMLVideoElement || child instanceof HTMLCanvasElement || child instanceof HTMLIFrameElement || ["SCRIPT", "STYLE"].includes(child.tagName))
+      if (!isNativeHtmlElement(child) || isNativeHtmlTag(child, "img") || isNativeHtmlTag(child, "video") || isNativeHtmlTag(child, "canvas") || isNativeHtmlTag(child, "iframe") || ["SCRIPT", "STYLE"].includes(child.tagName))
         return false;
       const style = getComputedStyle(child);
       if (style.position === "absolute" || style.position === "fixed")
         return false;
-      if (child instanceof HTMLBRElement) continue;
+      if (isNativeHtmlTag(child, "br")) continue;
       if (child.textContent?.trim() && !isPureTextFlow(child)) return false;
     }
     return true;
@@ -8040,9 +8078,96 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     }
     return false;
   }
+  function nativeRenderedTextFlow(element) {
+    const clone = element.cloneNode(true);
+    const originals = [element, ...element.querySelectorAll("*")];
+    const copies = [clone, ...clone.querySelectorAll("*")];
+    for (let index = 0; index < originals.length; index++) {
+      const copy = copies[index];
+      copyComputedCss(originals[index], copy);
+      copy.removeAttribute("id");
+      copy.removeAttribute("data-agent-native-node-id");
+      for (const attribute of [...copy.attributes])
+        if (attribute.name.startsWith("data-an-native-"))
+          copy.removeAttribute(attribute.name);
+      copy.style.setProperty("animation", "none", "important");
+      copy.style.setProperty("transition", "none", "important");
+    }
+    const language = element.closest("[lang]")?.getAttribute("lang");
+    if (language !== void 0 && language !== null)
+      clone.setAttribute("lang", language);
+    clone.setAttribute("data-an-native-presentation", "");
+    for (const [name, value] of Object.entries({
+      position: "fixed",
+      left: "-100000px",
+      top: "0px",
+      opacity: "0",
+      visibility: "visible",
+      "pointer-events": "none",
+      width: \`\${element.getBoundingClientRect().width}px\`,
+      "min-width": "0px",
+      "max-width": "none",
+      "box-sizing": "border-box",
+      transform: "none",
+      translate: "none",
+      rotate: "none",
+      scale: "none"
+    }))
+      clone.style.setProperty(name, value, "important");
+    const nodes = /* @__PURE__ */ new Map();
+    const sourceWalker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const cloneWalker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+    for (let node = sourceWalker.nextNode(); node; node = sourceWalker.nextNode()) {
+      const copy = cloneWalker.nextNode();
+      if (!copy)
+        throw new NativeSourceCapabilityError(
+          "source-webfont-layout",
+          "The rendered text clone has a different text structure."
+        );
+      nodes.set(node, copy);
+    }
+    document.body.append(clone);
+    const fail = () => {
+      throw new NativeSourceCapabilityError(
+        "source-webfont-style",
+        "The browser could not preserve transformed text while measuring its rendered lines."
+      );
+    };
+    try {
+      if (typeof element.innerText !== "string" || clone.innerText !== element.innerText)
+        fail();
+    } catch (error) {
+      clone.remove();
+      throw error;
+    }
+    return {
+      read(node, start, end) {
+        const copy = nodes.get(node);
+        if (!copy?.parentNode || copy.textContent !== node.textContent)
+          return fail();
+        const value = copy.textContent ?? "";
+        const before = document.createTextNode(value.slice(0, start));
+        const after = document.createTextNode(value.slice(end));
+        const span = document.createElement("span");
+        span.style.cssText = "all:inherit!important;display:inline!important;position:static!important;float:none!important;margin:0!important;padding:0!important;border:0!important;contain:none!important";
+        span.textContent = value.slice(start, end);
+        copy.replaceWith(before, span, after);
+        try {
+          if (clone.innerText !== element.innerText || typeof span.innerText !== "string")
+            return fail();
+          return span.innerText;
+        } finally {
+          before.replaceWith(copy);
+          span.remove();
+          after.remove();
+        }
+      },
+      dispose: () => clone.remove()
+    };
+  }
   async function paintNativeTextFlow(element, canvas, mask, glyphColors, captureRoi) {
     if (!isPureTextFlow(element))
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-webfont-layout",
         "Canvas text capture needs a text-only flow without embedded media."
       );
@@ -8055,7 +8180,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     for (const ancestor of ancestors) {
       const matrix = nodeGlobalTransform(ancestor);
       if (Math.abs(matrix.a - 1) > 1e-5 || Math.abs(matrix.b) > 1e-5 || Math.abs(matrix.c) > 1e-5 || Math.abs(matrix.d - 1) > 1e-5)
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-webfont-transform-unsupported",
           "Viewport Range measurements cannot capture transformed webfont text in local coordinates."
         );
@@ -8076,76 +8201,81 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     if (captureRoi)
       context.translate(captureRoi.pixelOffset.x, captureRoi.pixelOffset.y);
     context.scale(scaleX, scaleY);
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const value = node.textContent ?? "";
-      if (!value.trim()) continue;
-      if (/[\\u200d\\uFE0F\\p{Mark}]/u.test(value))
-        throw new NativeSourceError(
-          "source-webfont-grapheme",
-          "Complex joined glyphs need browser-shaped text capture."
+    let rendered;
+    try {
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const value = node.textContent ?? "";
+        if (!value.trim()) continue;
+        if (/[\\u200d\\uFE0F\\p{Mark}]/u.test(value))
+          throw new NativeSourceCapabilityError(
+            "source-webfont-grapheme",
+            "Complex joined glyphs need browser-shaped text capture."
+          );
+        const parent = node.parentElement;
+        if (!parent || parent.closest("[data-an-native-canvas]")) continue;
+        const style = getComputedStyle(parent);
+        if (style.writingMode !== "horizontal-tb" || style.direction !== "ltr" || style.textDecorationLine !== "none" || style.textShadow !== "none" || style.fontVariantCaps !== "normal")
+          throw new NativeSourceCapabilityError(
+            "source-webfont-style",
+            "This text style needs browser-shaped glyph capture."
+          );
+        const renderedText = (start, end) => style.textTransform === "none" ? value.slice(start, end) : (rendered ?? (rendered = nativeRenderedTextFlow(element))).read(
+          node,
+          start,
+          end
         );
-      const parent = node.parentElement;
-      if (!parent || parent.closest("[data-an-native-canvas]")) continue;
-      const style = getComputedStyle(parent);
-      if (style.writingMode !== "horizontal-tb" || style.direction !== "ltr" || style.textTransform !== "none" || style.textDecorationLine !== "none" || style.textShadow !== "none" || style.fontVariantCaps !== "normal")
-        throw new NativeSourceError(
-          "source-webfont-style",
-          "This text style needs browser-shaped glyph capture."
-        );
-      const family = style.fontFamily;
-      const face = [...document.fonts].find(
-        (font) => family.split(",").some(
-          (name) => name.trim().replace(/^['"]|['"]$/g, "").toLowerCase() === font.family.replace(/^['"]|['"]$/g, "").toLowerCase()
-        )
-      );
-      if (face && face.status !== "loaded")
-        throw new NativeSourceError(
-          "source-webfont-pending",
-          \`Font \${face.family} is not loaded for Canvas2D capture.\`
-        );
-      context.font = \`\${style.fontStyle} \${style.fontWeight} \${style.fontSize} \${style.fontFamily}\`;
-      context.fontKerning = "normal";
-      context.letterSpacing = style.letterSpacing;
-      context.textBaseline = "alphabetic";
-      context.fillStyle = mask ? OPAQUE_COVERAGE_COLOR : glyphColors?.get(parent) ?? style.color;
-      const segments = [];
-      for (let index = 0; index < value.length; ) {
-        const segment = String.fromCodePoint(value.codePointAt(index));
-        segments.push({ index, segment });
-        index += segment.length;
-      }
-      let lineStart = 0;
-      let lineTop = Number.NaN;
-      let lineRect = null;
-      const drawLine = (end) => {
-        if (!lineRect || end <= lineStart) return;
-        const text = value.slice(lineStart, end);
-        const metric = context.measureText(text);
-        const ascent = metric.actualBoundingBoxAscent || Number.parseFloat(style.fontSize) * 0.8;
-        const descent = metric.actualBoundingBoxDescent || Number.parseFloat(style.fontSize) * 0.2;
-        const baseline = lineRect.top - bounds.top + (lineRect.height + ascent - descent) / 2;
-        context.fillText(text, lineRect.left - bounds.left, baseline);
-      };
-      for (const segment of segments) {
-        range.setStart(node, segment.index);
-        range.setEnd(node, segment.index + segment.segment.length);
-        const rect = range.getBoundingClientRect();
-        if (!rect.width && !rect.height) continue;
-        if (lineRect && Math.abs(rect.top - lineTop) > 1) {
-          drawLine(segment.index);
-          lineStart = segment.index;
-          lineRect = null;
+        const font = \`\${style.fontStyle} \${style.fontWeight} \${style.fontSize} \${style.fontFamily}\`;
+        context.font = font;
+        if (document.fonts && (typeof document.fonts.check !== "function" || !document.fonts.check(font, renderedText(0, value.length))))
+          throw new NativeSourceError(
+            "source-webfont-pending",
+            "The font for the rendered glyphs is not loaded for Canvas2D capture."
+          );
+        context.fontKerning = "normal";
+        context.letterSpacing = style.letterSpacing;
+        context.textBaseline = "alphabetic";
+        context.fillStyle = mask ? OPAQUE_COVERAGE_COLOR : glyphColors?.get(parent) ?? style.color;
+        const segments = [];
+        for (let index = 0; index < value.length; ) {
+          const segment = String.fromCodePoint(value.codePointAt(index));
+          segments.push({ index, segment });
+          index += segment.length;
         }
-        if (!lineRect) {
-          lineRect = rect;
-          lineTop = rect.top;
-          lineStart = segment.index;
+        let lineStart = 0;
+        let lineTop = Number.NaN;
+        let lineRect = null;
+        const drawLine = (end) => {
+          if (!lineRect || end <= lineStart) return;
+          const text = renderedText(lineStart, end);
+          const metric = context.measureText(text);
+          const ascent = metric.actualBoundingBoxAscent || Number.parseFloat(style.fontSize) * 0.8;
+          const descent = metric.actualBoundingBoxDescent || Number.parseFloat(style.fontSize) * 0.2;
+          const baseline = lineRect.top - bounds.top + (lineRect.height + ascent - descent) / 2;
+          context.fillText(text, lineRect.left - bounds.left, baseline);
+        };
+        for (const segment of segments) {
+          range.setStart(node, segment.index);
+          range.setEnd(node, segment.index + segment.segment.length);
+          const rect = range.getBoundingClientRect();
+          if (!rect.width && !rect.height) continue;
+          if (lineRect && Math.abs(rect.top - lineTop) > 1) {
+            drawLine(segment.index);
+            lineStart = segment.index;
+            lineRect = null;
+          }
+          if (!lineRect) {
+            lineRect = rect;
+            lineTop = rect.top;
+            lineStart = segment.index;
+          }
         }
+        drawLine(value.length);
       }
-      drawLine(value.length);
+    } finally {
+      rendered?.dispose();
+      context.restore();
+      range.detach();
     }
-    context.restore();
-    range.detach();
   }
   function preserveTextFlowStyles(original, clone) {
     for (let index = original.children.length - 1; index >= 0; index -= 1) {
@@ -8159,7 +8289,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       }
       assertLeafSupported(child);
       copyComputedCss(child, copy);
-      if (child instanceof HTMLElement) preserveTextFlowStyles(child, copy);
+      if (isNativeHtmlElement(child)) preserveTextFlowStyles(child, copy);
     }
   }
   function hasOwnPaint(element) {
@@ -8170,7 +8300,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   }
   function hasVisibleBoxPaint(style) {
     return style.backgroundImage !== "none" || // guard:allow-raw-color — this compares the browser's computed transparent pixel value.
-    style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent" || style.boxShadow !== "none" || style.outlineStyle && style.outlineStyle !== "none" && style.outlineStyle !== "hidden" || [
+    style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent" || hasVisibleBoxDecoration(style);
+  }
+  function hasVisibleBoxDecoration(style) {
+    return style.boxShadow !== "none" || style.outlineStyle && style.outlineStyle !== "none" && style.outlineStyle !== "hidden" || [
       style.borderTopWidth,
       style.borderRightWidth,
       style.borderBottomWidth,
@@ -8264,10 +8397,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   function sizeOf(element) {
     const rect = element.getBoundingClientRect();
     const width = Math.ceil(
-      element instanceof HTMLElement ? element.offsetWidth || rect.width : rect.width
+      isNativeHtmlElement(element) ? element.offsetWidth || rect.width : rect.width
     );
     const height = Math.ceil(
-      element instanceof HTMLElement ? element.offsetHeight || rect.height : rect.height
+      isNativeHtmlElement(element) ? element.offsetHeight || rect.height : rect.height
     );
     if (width <= 0 || height <= 0)
       throw new NativeSourceError(
@@ -8283,7 +8416,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     return { width, height };
   }
   function contentBoxOf(element) {
-    if (element instanceof SVGSVGElement) {
+    if (isNativeSvgRoot(element)) {
       let box;
       try {
         box = element.getBBox();
@@ -8531,7 +8664,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const cache = memo?.matches(target, space) ? memo.sizes : void 0;
     const cached = cache?.get(element);
     if (cached) return cached;
-    if (element instanceof SVGSVGElement) return nativeSvgViewportSize(element);
+    if (isNativeSvgRoot(element)) return nativeSvgViewportSize(element);
     if (element === document.documentElement && Number.isFinite(element.offsetWidth) && Number.isFinite(element.offsetHeight) && element.offsetWidth >= 0 && element.offsetHeight >= 0 && (element.offsetWidth === 0 || element.offsetHeight === 0))
       return { width: innerWidth, height: innerHeight };
     const size = { width: element.offsetWidth, height: element.offsetHeight };
@@ -8579,7 +8712,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   }
   function viewportToTargetAffine(target, readStyle = getComputedStyle, memo) {
     const inverted = invertNativeSourceAffine(
-      target instanceof SVGSVGElement ? nativeSvgViewportToClient(target) : viewportSourceAffine(target, readStyle, memo)
+      isNativeSvgRoot(target) ? nativeSvgViewportToClient(target) : viewportSourceAffine(target, readStyle, memo)
     );
     if (!inverted.ok)
       throw new NativeSourceError("source-transform", "source-transform");
@@ -8589,13 +8722,13 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     return viewportToTargetAffine(target);
   }
   function relativeAffine(element, target, space, localBox, readStyle = getComputedStyle, measuredSize, memo) {
-    if ((element instanceof SVGSVGElement || target instanceof SVGSVGElement) && (element instanceof HTMLElement || element instanceof SVGSVGElement) && (target instanceof HTMLElement || target instanceof SVGSVGElement)) {
+    if ((isNativeSvgRoot(element) || isNativeSvgRoot(target)) && (isNativeHtmlElement(element) || isNativeSvgRoot(element)) && (isNativeHtmlElement(target) || isNativeSvgRoot(target))) {
       const box2 = localBox ?? {
         x: 0,
         y: 0,
         ...measuredSize ?? sourceLayoutSize(element, target, space, memo)
       };
-      const elementToClient = element instanceof SVGSVGElement ? nativeSvgViewportToClient(element) : viewportSourceAffine(element, readStyle);
+      const elementToClient = isNativeSvgRoot(element) ? nativeSvgViewportToClient(element) : viewportSourceAffine(element, readStyle);
       const matrix2 = space === "target-viewport-axis-aligned" ? composeAffine(
         translated(
           -target.getBoundingClientRect().left,
@@ -8622,7 +8755,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         rect: geometry.physicalBounds
       };
     }
-    if (!(element instanceof HTMLElement) || !(target instanceof HTMLElement))
+    if (!isNativeHtmlElement(element) || !isNativeHtmlElement(target))
       throw new NativeSourceError(
         "source-transform",
         "A source has no HTML layout box."
@@ -8732,7 +8865,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         space === "target-local" ? target : void 0,
         readStyle
       );
-      if (!(node instanceof HTMLElement) && !(node instanceof SVGSVGElement))
+      if (!isNativeHtmlElement(node) && !isNativeSvgRoot(node))
         throw new NativeSourceError(
           "source-clip-unreadable",
           "A source clip has no HTML border box."
@@ -8897,9 +9030,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "nextElementSibling"
     ]) {
       let sibling = canvas[direction];
-      while (sibling instanceof HTMLCanvasElement && sibling.hasAttribute("data-an-native-backdrop-presentation"))
+      while (isNativeHtmlTag(sibling, "canvas") && sibling.hasAttribute("data-an-native-backdrop-presentation"))
         sibling = sibling[direction];
-      if ((sibling instanceof HTMLElement || sibling instanceof SVGSVGElement) && sibling.getAttribute("data-agent-native-node-id") === receiverNodeId)
+      if ((isNativeHtmlElement(sibling) || isNativeSvgRoot(sibling)) && sibling.getAttribute("data-agent-native-node-id") === receiverNodeId)
         return sibling;
     }
     throw new NativeSourceError(
@@ -8912,9 +9045,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const overflow = classifyNativeComputedOverflowClip(style);
     if (!overflow.ok)
       throw new NativeSourceError(\`source-\${overflow.reason}\`, overflow.detail);
-    if (target instanceof SVGSVGElement) {
+    if (isNativeSvgRoot(target)) {
       if (overflow.edge === "none")
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-svg-overflow-unsupported",
           "An SVG root needs a bounded vector viewport clip."
         );
@@ -9208,7 +9341,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const current = sourceStackingContext(element);
       const order = context ?? current.order;
       const precedes = uncertainFlexGridOrder || order.rank < receiverOrder.rank || order.rank === receiverOrder.rank && receiverOrder.phase === "positioned" && order.phase === "flow";
-      if (precedes && (element instanceof HTMLElement && (hasOwnPaint(element) || element instanceof HTMLImageElement || element instanceof HTMLVideoElement || element instanceof HTMLCanvasElement) || element instanceof SVGElement)) {
+      if (precedes && (isNativeHtmlElement(element) && (hasOwnPaint(element) || isNativeHtmlTag(element, "img") || isNativeHtmlTag(element, "video") || isNativeHtmlTag(element, "canvas")) || isNativeSvgElement(element))) {
         const rect = element.getBoundingClientRect();
         if (nativeBoxesOverlap(receiver, {
           x: rect.left,
@@ -9227,7 +9360,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     return false;
   }
   function rasterOwnedStyleNodes(element, phase) {
-    if (element instanceof SVGSVGElement)
+    if (isNativeSvgRoot(element))
       return [element, ...element.querySelectorAll("*")];
     if (phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage" || phase === "outer-shadow" || phase === "inset-shadow" || phase === "outline" || phase === "media-underlay" || phase === "media-overlay")
       return [element];
@@ -9411,8 +9544,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         continue;
       }
       if (ownText && isInlineFlowChild(child)) {
-        if (!(child instanceof HTMLElement) || child instanceof HTMLImageElement || child instanceof HTMLCanvasElement || child instanceof HTMLVideoElement) {
-          throw new NativeSourceError(
+        if (!isNativeHtmlElement(child) || isNativeHtmlTag(child, "img") || isNativeHtmlTag(child, "canvas") || isNativeHtmlTag(child, "video")) {
+          throw new NativeSourceCapabilityError(
             "source-inline-media",
             "Inline media mixed into a text flow needs a separate source path."
           );
@@ -9421,7 +9554,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         continue;
       }
       if (ownText)
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-mixed-flow",
           "Block children mixed with direct text cannot be split without changing text layout."
         );
@@ -9523,7 +9656,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         node.style.boxShadow = "none";
         node.style.outlineColor = "transparent";
         for (const child of node.children)
-          if (child instanceof HTMLElement && !child.hasAttribute("data-an-native-canvas"))
+          if (isNativeHtmlElement(child) && !child.hasAttribute("data-an-native-canvas"))
             clearBox(child);
       };
       clearBox(clone);
@@ -9546,7 +9679,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       node.style.boxShadow = "none";
       node.style.opacity = "1";
       for (const child of node.children)
-        if (child instanceof HTMLElement) whiten(child);
+        if (isNativeHtmlElement(child)) whiten(child);
     };
     whiten(clone);
     return clone;
@@ -9677,9 +9810,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     };
   }
   function nativeLeafCaptureDensity(element, requested, phase = "all") {
-    const size = element instanceof SVGSVGElement ? nativeSvgViewportSize(element) : sizeOf(element);
+    const size = isNativeSvgRoot(element) ? nativeSvgViewportSize(element) : sizeOf(element);
     const style = getComputedStyle(element);
-    const paint = element instanceof SVGSVGElement ? { x: 0, y: 0, ...size } : nativeOwnPaintCaptureBox(style, phase, size);
+    const paint = isNativeSvgRoot(element) ? { x: 0, y: 0, ...size } : nativeOwnPaintCaptureBox(style, phase, size);
     const overflow = classifyNativeComputedOverflowClip(style);
     if (!overflow.ok)
       throw new NativeSourceError(\`source-\${overflow.reason}\`, overflow.detail);
@@ -9901,7 +10034,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const canvasText = phase !== "background" && phase !== "border" && phase !== "coverage" && phase !== "inner-coverage" && phase !== "outer-shadow" && phase !== "inset-shadow" && phase !== "outline" && phase !== "media-underlay" && phase !== "media-overlay" && (hasDirectText(element) || isSourceTextFlow(element) || phase === "foreground" || phase === "glyph") && nativeTextFlowUsesDocumentFont(element);
     if (canvasText) {
       if (!isPureTextFlow(element))
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-webfont-layout",
           "Webfont text mixed with independent child paint needs a separate source path."
         );
@@ -9910,7 +10043,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         node.style.setProperty("-webkit-text-fill-color", "transparent");
         node.style.textShadow = "none";
         for (const child of node.children)
-          if (child instanceof HTMLElement) clearText(child);
+          if (isNativeHtmlElement(child)) clearText(child);
       };
       clearText(clone);
     }
@@ -10034,35 +10167,35 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     return true;
   }
   function unchangedAttributeMutation(record5) {
-    return record5.type === "attributes" && record5.target instanceof Element && record5.attributeName !== null && record5.oldValue === record5.target.getAttribute(record5.attributeName);
+    return record5.type === "attributes" && isNativeElement(record5.target) && record5.attributeName !== null && record5.oldValue === record5.target.getAttribute(record5.attributeName);
   }
   function runtimeCanvasMutation(record5) {
     const runtimeCanvas = "canvas[data-an-native-canvas],canvas[data-an-native-presentation]";
-    if (record5.target instanceof Element && record5.target.closest(runtimeCanvas))
+    if (isNativeElement(record5.target) && record5.target.closest(runtimeCanvas))
       return true;
     if (record5.type !== "childList") return false;
     const changed = [...record5.addedNodes, ...record5.removedNodes];
     return changed.length > 0 && changed.every(
-      (node) => node instanceof Element && node.matches(runtimeCanvas)
+      (node) => isNativeElement(node) && node.matches(runtimeCanvas)
     );
   }
   function omittedSourceMutation(record5) {
-    const target = record5.target instanceof Element ? record5.target : record5.target.parentElement;
+    const target = isNativeElement(record5.target) ? record5.target : record5.target.parentElement;
     if (target?.closest(OMIT)) return true;
     if (record5.type !== "childList") return false;
     const changed = [...record5.addedNodes, ...record5.removedNodes];
-    return changed.length > 0 && changed.every((node) => node instanceof Element && node.matches(OMIT));
+    return changed.length > 0 && changed.every((node) => isNativeElement(node) && node.matches(OMIT));
   }
   function isNativeSourceOmittedMutation(record5) {
     return runtimeCanvasMutation(record5) || omittedSourceMutation(record5);
   }
   function isNativeSvgVectorGroup(element) {
-    return element instanceof HTMLElement && element.hasAttribute("data-an-svg-vector-group");
+    return isNativeHtmlElement(element) && element.hasAttribute("data-an-svg-vector-group");
   }
   var CachedLeaf = class {
     constructor(element, onCapture, density, raster = async (element2, canvas, density2) => {
-      if (!(element2 instanceof HTMLElement))
-        throw new NativeSourceError(
+      if (!isNativeHtmlElement(element2))
+        throw new NativeSourceCapabilityError(
           "source-inline-svg",
           "An SVG source needs its vector raster path."
         );
@@ -10100,7 +10233,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             continue;
           if (record5.type === "attributes" && document.documentElement.hasAttribute(
             "data-an-native-source-idle-observer"
-          ) && record5.target instanceof Element && record5.attributeName) {
+          ) && isNativeElement(record5.target) && record5.attributeName) {
             const target = record5.target;
             this.onObservedAttribute({
               targetTag: target.tagName.toLowerCase(),
@@ -10314,10 +10447,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     }
   }
   function staticDomRecord(record5) {
-    if (record5.node instanceof SVGSVGElement) {
+    if (isNativeSvgRoot(record5.node)) {
       return validateNativeSvgPrimitiveMarkup(record5.node.outerHTML);
     }
-    if (!(record5.node instanceof HTMLElement)) return "unknown";
+    if (!isNativeHtmlElement(record5.node)) return "unknown";
     try {
       for (const pseudo of [void 0, "::before", "::after"]) {
         const style = getComputedStyle(record5.node, pseudo);
@@ -10381,9 +10514,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.bodyStructureObserver = null;
       this.wakeDynamicSource = (event) => {
         const scope = this.placement === "backdrop" ? document.body : this.target;
-        if (!(event.target instanceof Node)) return;
+        if (!isNativeNode(event.target)) return;
         const withinSource = scope.contains(event.target);
-        const ancestorAnimation = (event.type.startsWith("animation") || event.type.startsWith("transition")) && event.target instanceof Element && event.target.contains(scope);
+        const ancestorAnimation = (event.type.startsWith("animation") || event.type.startsWith("transition")) && isNativeElement(event.target) && event.target.contains(scope);
         if (withinSource || ancestorAnimation) this.onDirty();
       };
       this.onFontLoaded = () => this.invalidateAll("font");
@@ -10414,7 +10547,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         let moved = false;
         const scope = this.placement === "backdrop" ? document.body : this.target;
         for (const record5 of records) {
-          if (!(record5.target instanceof Element)) continue;
+          if (!isNativeElement(record5.target)) continue;
           if (unchangedAttributeMutation(record5) || runtimeCanvasMutation(record5))
             continue;
           if (record5.target.closest(OMIT) || !(scope.contains(record5.target) || record5.target.contains(scope)))
@@ -10480,7 +10613,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         });
     }
     omit(element) {
-      if (!(element instanceof HTMLCanvasElement) || !element.hasAttribute("data-an-native-backdrop-presentation"))
+      if (!isNativeHtmlTag(element, "canvas") || !element.hasAttribute("data-an-native-backdrop-presentation"))
         return element.matches(OMIT);
       if (element.matches(
         "[data-agent-native-edit-overlay],[data-agent-native-editor-chrome],[data-agent-native-editor-chrome-host]"
@@ -10496,7 +10629,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       return !(element.compareDocumentPosition(receiver) & Node.DOCUMENT_POSITION_FOLLOWING);
     }
     authoredContentTextPaint(element) {
-      if (!(element instanceof HTMLElement) || this.targetCapture !== "content" || element !== this.target || !element.hasAttribute("data-an-native-text-suppressed"))
+      if (!isNativeHtmlElement(element) || this.targetCapture !== "content" || element !== this.target || !element.hasAttribute("data-an-native-text-suppressed"))
         return void 0;
       if (!hasDirectText(element) || [...element.children].some(
         (child) => !child.matches(
@@ -10612,16 +10745,28 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     }
     needsContinuousFrames() {
       const scope = this.placement === "backdrop" ? document.body : this.target;
-      if (scope instanceof HTMLVideoElement && !scope.paused && !scope.ended || [...scope.querySelectorAll("video")].some(
-        (video) => !video.paused && !video.ended
-      ) || scope instanceof HTMLCanvasElement && !scope.hasAttribute("data-an-native-canvas") && !scope.hasAttribute("data-an-native-presentation") || scope.querySelector(
-        "canvas:not([data-an-native-canvas]):not([data-an-native-presentation])"
+      const captured = (element) => {
+        for (let current = element; current; current = current.parentElement)
+          if (this.omit(current)) return false;
+        return true;
+      };
+      if ([scope, ...scope.querySelectorAll("video,canvas")].some(
+        (element) => captured(element) && (isNativeHtmlTag(element, "video") && !element.paused && !element.ended || isNativeHtmlTag(element, "canvas") && !element.hasAttribute("data-an-native-canvas") && !element.hasAttribute("data-an-native-presentation"))
       ))
         return true;
-      const animated = (element) => typeof element.getAnimations === "function" && element.getAnimations({ subtree: true }).some((animation) => animation.playState === "running");
-      if (animated(scope)) return true;
+      const running = (animation) => {
+        if (animation.playState !== "running") return false;
+        try {
+          const target = animation.effect?.target;
+          return !isNativeElement(target) || captured(target);
+        } catch {
+          return true;
+        }
+      };
+      if (typeof scope.getAnimations === "function" && scope.getAnimations({ subtree: true }).some(running))
+        return true;
       for (let parent = scope.parentElement; parent; parent = parent.parentElement)
-        if (typeof parent.getAnimations === "function" && parent.getAnimations({ subtree: false }).some((animation) => animation.playState === "running"))
+        if (typeof parent.getAnimations === "function" && parent.getAnimations({ subtree: false }).some(running))
           return true;
       return false;
     }
@@ -10632,7 +10777,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.invalidateAll("explicit");
     }
     groupLocalBackdropReceiver(element) {
-      if (this.placement !== "layer" && this.placement !== "fill" || !this.groupLocalBackdropSource || !(element instanceof HTMLCanvasElement) || !element.hasAttribute("data-an-native-backdrop-presentation") || !element.getAttribute("data-an-native-canvas") || !this.target.contains(element))
+      if (this.placement !== "layer" && this.placement !== "fill" || !this.groupLocalBackdropSource || !isNativeHtmlTag(element, "canvas") || !element.hasAttribute("data-an-native-backdrop-presentation") || !element.getAttribute("data-an-native-canvas") || !this.target.contains(element))
         return null;
       return nativeBackdropReceiver(element);
     }
@@ -10946,7 +11091,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         this.mediaPaintLeaves.delete(element);
     }
     isolationPath(element, groupClips, ownOpacityBaked, layerOutputOpacityDeferred = false, readStyle = getComputedStyle) {
-      const isBackdropCanvas = (node) => node instanceof HTMLCanvasElement && node.hasAttribute("data-an-native-backdrop-presentation") && !!node.getAttribute("data-an-native-canvas");
+      const isBackdropCanvas = (node) => isNativeHtmlTag(node, "canvas") && node.hasAttribute("data-an-native-backdrop-presentation") && !!node.getAttribute("data-an-native-canvas");
       const receiverForCanvas = nativeBackdropReceiver;
       const pairedBackdropCanvas = (node) => {
         for (const direction of [
@@ -11023,8 +11168,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           const style = readStyle(current);
           if (current !== stop && !transformOwner && hasSourceTransform(style))
             transformOwner = current;
-          if (!(current === record5.node && current instanceof SVGSVGElement) && hasUnsupportedSourceMask(style.clipPath, style.maskImage))
-            throw new NativeSourceError(
+          if (!(current === record5.node && isNativeSvgRoot(current)) && hasUnsupportedSourceMask(style.clipPath, style.maskImage))
+            throw new NativeSourceCapabilityError(
               "source-mask-unsupported",
               "CSS clip-path and masks need an explicit source mask compositor."
             );
@@ -11095,7 +11240,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       if (element.querySelector(
         "[data-an-native-canvas],[data-an-native-fill-instance],[data-an-native-layer-instance]"
       ))
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-svg-group-native-composition-unsupported",
           "An SVG vector group with nested native effects needs a composed vector source."
         );
@@ -11103,7 +11248,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     async rasterSvgVectorGroup(element, canvas, density) {
       this.assertSvgVectorGroupComposition(element);
       const children = [...element.children].filter((child) => !this.omit(child));
-      if (hasDirectText(element) || children.some((child) => !(child instanceof SVGSVGElement)))
+      if (hasDirectText(element) || children.some((child) => !isNativeSvgRoot(child)))
         throw new NativeSourceError(
           "receiver-svg-group-unsupported",
           "An imported SVG vector group contains non-vector content."
@@ -11115,7 +11260,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           return [];
         assertLeafSupported(svg);
         if (!supportsNativeOutput2D(style))
-          throw new NativeSourceError(
+          throw new NativeSourceCapabilityError(
             "source-svg-transform-unsupported",
             "An SVG vector group has unsupported child geometry."
           );
@@ -11143,8 +11288,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       if (metrics) metrics.recordDirectStyleReads += 1;
       const style = getComputedStyle(element);
       if (style.display === "none" || style.visibility === "hidden") return;
-      if (element instanceof SVGSVGElement && element.hasAttribute("transform"))
-        throw new NativeSourceError(
+      if (isNativeSvgRoot(element) && element.hasAttribute("transform"))
+        throw new NativeSourceCapabilityError(
           "source-svg-transform-unsupported",
           "An SVG root transform needs an affine vector source path."
         );
@@ -11152,7 +11297,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
         if (metrics) metrics.recordDirectStyleReads += 1;
         if (!supportsNativeOutput2D(getComputedStyle(ancestor)))
-          throw new NativeSourceError(
+          throw new NativeSourceCapabilityError(
             "source-svg-transform-unsupported",
             "An SVG source has a transformed HTML layout boundary."
           );
@@ -11160,7 +11305,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       }
       if (isNativeSvgVectorGroup(element))
         this.assertSvgVectorGroupComposition(element);
-      const size = element instanceof SVGSVGElement ? nativeSvgViewportSize(element) : sourceLayoutSize(element, this.target, this.coordinateSpace, memo);
+      const size = isNativeSvgRoot(element) ? nativeSvgViewportSize(element) : sourceLayoutSize(element, this.target, this.coordinateSpace, memo);
       const geometry = relativeAffine(
         element,
         this.target,
@@ -11186,7 +11331,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const isolationPath = this.isolationPath(
         element,
         sourceClip.groupClips,
-        element instanceof SVGSVGElement
+        isNativeSvgRoot(element)
       );
       if (!isolationPath || sourceClip.clip.width <= 0 || sourceClip.clip.height <= 0)
         return;
@@ -11201,9 +11346,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           () => nativeLeafCaptureDensity(
             element,
             this.density,
-            element instanceof SVGSVGElement ? "all" : "coverage"
+            isNativeSvgRoot(element) ? "all" : "coverage"
           ),
-          (node, canvas, density) => node instanceof SVGSVGElement ? rasterNativeSvgSource(
+          (node, canvas, density) => isNativeSvgRoot(node) ? rasterNativeSvgSource(
             node,
             canvas,
             density,
@@ -11243,7 +11388,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             density: nativeLeafCaptureDensity(
               element,
               this.density,
-              element instanceof SVGSVGElement ? "all" : "coverage"
+              isNativeSvgRoot(element) ? "all" : "coverage"
             ),
             maxDimension: 4096,
             maxPixels: 8388608
@@ -11294,7 +11439,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     record(element, out, paintPhase = "all", metrics, memo, allowVisibleTargetOverflow = false) {
       if (!element.isConnected || this.omit(element)) return;
       if (element.hasAttribute("data-an-native-receiver-suppressed")) return;
-      if (element instanceof SVGSVGElement)
+      if (isNativeSvgRoot(element))
         return this.recordSvg(
           element,
           out,
@@ -11302,12 +11447,12 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           memo,
           allowVisibleTargetOverflow
         );
-      if (element instanceof SVGElement)
-        throw new NativeSourceError(
+      if (isNativeSvgElement(element))
+        throw new NativeSourceCapabilityError(
           "source-inline-svg",
           "An SVG fragment outside an SVG root cannot be captured."
         );
-      if (!(element instanceof HTMLElement)) return;
+      if (!isNativeHtmlElement(element)) return;
       const recordStyles = memo?.styles ?? /* @__PURE__ */ new Map();
       const readRecordStyle = (node) => {
         let style2 = recordStyles.get(node);
@@ -11331,7 +11476,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const visibility = groupLocalReceiver ? readCountedRecordStyle(groupLocalReceiver) : style;
       if (visibility.display === "none" || visibility.visibility === "hidden" || visibility.visibility === "collapse")
         return;
-      if (element instanceof HTMLCanvasElement && element.hasAttribute("data-an-shader-canvas")) {
+      if (isNativeHtmlTag(element, "canvas") && element.hasAttribute("data-an-shader-canvas")) {
         for (let node = element; node; node = node.parentElement) {
           const ancestorStyle = readCountedRecordStyle(node);
           if (ancestorStyle.display === "none" || ancestorStyle.visibility !== "visible" || authoredOpacity(node, readRecordStyle) <= 0)
@@ -11351,7 +11496,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         };
         const visible = intersect(box2, sourceBounds);
         if (visible.width > 0 && visible.height > 0)
-          throw new NativeSourceError(
+          throw new NativeSourceCapabilityError(
             "source-legacy-shader-unsupported",
             "A visible legacy WebGL shader has no synchronized texture and clock source for native composition."
           );
@@ -11372,7 +11517,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const missingRootBox = element === document.documentElement && (element.offsetWidth === 0 || element.offsetHeight === 0);
       if (hasEmptySourceLayout(ownSize) || missingRootBox) {
         if (!isCanvasBackgroundOnly(element, style) && (hasDirectText(element) || hasVisibleBoxPaint(style)))
-          throw new NativeSourceError(
+          throw new NativeSourceCapabilityError(
             "source-empty-own-paint-unsupported",
             "A zero-size source has own paint that cannot be captured faithfully."
           );
@@ -11390,8 +11535,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       );
       const box = geometry.rect;
       if (box.width <= 0 || box.height <= 0) return;
-      const nativeInstanceId = element instanceof HTMLCanvasElement ? element.getAttribute("data-an-native-canvas") : null;
-      const media = element instanceof HTMLImageElement || element instanceof HTMLVideoElement || element instanceof HTMLCanvasElement && !nativeInstanceId;
+      const nativeInstanceId = isNativeHtmlTag(element, "canvas") ? element.getAttribute("data-an-native-canvas") : null;
+      const media = isNativeHtmlTag(element, "img") || isNativeHtmlTag(element, "video") || isNativeHtmlTag(element, "canvas") && !nativeInstanceId;
       const ownOverflow = classifyNativeComputedOverflowClip(style);
       if (!ownOverflow.ok)
         throw new NativeSourceError(
@@ -11491,7 +11636,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         return recordMediaPaint(() => void 0);
       }
       const mediaBox = sourceClip.clips[0]?.localBox ?? geometry.localBox;
-      if (element instanceof HTMLImageElement) {
+      if (isNativeHtmlTag(element, "img")) {
         const imageSourceUrl = element.currentSrc || element.src;
         assertLocalAsset(imageSourceUrl);
         return afterMaybePromise(
@@ -11542,7 +11687,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           }
         );
       }
-      if (element instanceof HTMLVideoElement) {
+      if (isNativeHtmlTag(element, "video")) {
         assertLocalAsset(element.currentSrc || element.src);
         if (!element.videoWidth || !element.videoHeight || element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA)
           throw new NativeSourceError(
@@ -11586,7 +11731,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         recordStyles.clear();
         return recordMediaPaint(appendVideo);
       }
-      if (element instanceof HTMLCanvasElement) {
+      if (isNativeHtmlTag(element, "canvas")) {
         if (nativeInstanceId) {
           out.push({
             ...common,
@@ -11757,7 +11902,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       if (isNativeSvgVectorGroup(element) && element.hasAttribute("data-an-native-receiver-suppressed"))
         return false;
       if (metrics) metrics.walkNodeVisits += 1;
-      if (element instanceof HTMLElement && element !== this.target) {
+      if (isNativeHtmlElement(element) && element !== this.target) {
         if (metrics) metrics.walkDirectLayoutSizeReads += 1;
         initialSize = sourceLayoutSize(
           element,
@@ -11776,8 +11921,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
                 overflow.detail
               );
             if (overflow.edge !== "none") {
-              if (hasDirectText(element) || hasVisibleBoxPaint(style))
-                throw new NativeSourceError(
+              if (hasDirectText(element) || hasVisibleBoxDecoration(style) || overflow.outset > 0 && hasVisibleBoxPaint(style))
+                throw new NativeSourceCapabilityError(
                   "source-empty-own-paint-unsupported",
                   "A zero-size clipped source has own paint that cannot be captured faithfully."
                 );
@@ -11789,10 +11934,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const captureTargetContent = element === this.target && this.targetCapture === "content";
       const fillInstance = captureTargetContent ? null : element.getAttribute("data-an-native-fill-instance");
       const layerInstance = (element !== this.target || this.targetCapture === "appearance") && element.getAttribute("data-an-native-layer-instance");
-      const replacementInstance = layerInstance || fillInstance;
+      const replacementInstance = initialSize && hasEmptySourceLayout(initialSize) ? null : layerInstance || fillInstance;
       if (replacementInstance) {
         const presentations = [...element.parentElement?.children ?? []].filter(
-          (child) => child instanceof HTMLCanvasElement && child.hasAttribute("data-an-native-presentation") && child.dataset.anNativeCanvas === replacementInstance
+          (child) => isNativeHtmlTag(child, "canvas") && child.hasAttribute("data-an-native-presentation") && child.dataset.anNativeCanvas === replacementInstance
         );
         if (presentations.length !== 1)
           throw new NativeSourceError(
@@ -11897,7 +12042,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "canvas[data-an-native-canvas]:not([data-an-native-presentation])"
         )
       );
-      const boxBeforeNativeFill = fillCanvases.length > 0 && element instanceof HTMLElement && !hasDirectText(element);
+      const boxBeforeNativeFill = fillCanvases.length > 0 && isNativeHtmlElement(element) && !hasDirectText(element);
       if (boxBeforeNativeFill) {
         if (yield this.record(
           element,
@@ -11930,8 +12075,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         ))
           crossedAsyncBoundary = true;
       }
-      if (element instanceof SVGSVGElement) return crossedAsyncBoundary;
-      if (element instanceof HTMLElement) {
+      if (isNativeSvgRoot(element)) return crossedAsyncBoundary;
+      if (isNativeHtmlElement(element)) {
         let size = initialSize;
         if (crossedAsyncBoundary || !size) {
           if (metrics) metrics.walkDirectLayoutSizeReads += 1;
@@ -11972,7 +12117,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     recordTargetBackdropPresentations(out, metrics, memo, side) {
       const presentations = [];
       const direction = side === "before" ? "previousElementSibling" : "nextElementSibling";
-      for (let sibling = this.target[direction]; sibling instanceof HTMLCanvasElement && sibling.hasAttribute("data-an-native-backdrop-presentation"); sibling = sibling[direction])
+      for (let sibling = this.target[direction]; isNativeHtmlTag(sibling, "canvas") && sibling.hasAttribute("data-an-native-backdrop-presentation"); sibling = sibling[direction])
         if (side === "before") presentations.unshift(sibling);
         else presentations.push(sibling);
       for (const canvas of presentations) {
@@ -12155,14 +12300,14 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const style = source === root ? rootStyle : getComputedStyle(source);
       const alpha = solidBackgroundAlpha(style.backgroundColor);
       if (alpha === null || getComputedStyle(root).opacity !== "1" || source !== root && style.opacity !== "1")
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-viewport-background-unsupported",
           "The CSS canvas background extends beyond the root box and needs a supported opaque solid source."
         );
       const hasImage = style.backgroundImage !== "none";
       if (!hasImage && alpha === 0) return null;
       if (!supportedViewportBackgroundImage(style.backgroundImage))
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-viewport-background-image-unsupported",
           "The CSS canvas background uses an image type the native renderer cannot capture."
         );
@@ -12235,8 +12380,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       const clip = backdrop ? intersect(rect, {
         x: 0 - insets.left,
         y: 0 - insets.top,
-        width: (this.target instanceof SVGSVGElement ? nativeSvgViewportSize(this.target).width : this.target.offsetWidth) + insets.left + insets.right,
-        height: (this.target instanceof SVGSVGElement ? nativeSvgViewportSize(this.target).height : this.target.offsetHeight) + insets.top + insets.bottom
+        width: (isNativeSvgRoot(this.target) ? nativeSvgViewportSize(this.target).width : this.target.offsetWidth) + insets.left + insets.right,
+        height: (isNativeSvgRoot(this.target) ? nativeSvgViewportSize(this.target).height : this.target.offsetHeight) + insets.top + insets.bottom
       }) : viewport;
       if (clip.width <= 0 || clip.height <= 0) return null;
       return {
@@ -12309,7 +12454,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       if (isNativeSvgVectorGroup(target))
         this.assertSvgVectorGroupComposition(target);
       assertLeafSupported(target, target);
-      const size = target instanceof SVGSVGElement ? nativeSvgViewportSize(target) : { width: target.offsetWidth, height: target.offsetHeight };
+      const size = isNativeSvgRoot(target) ? nativeSvgViewportSize(target) : { width: target.offsetWidth, height: target.offsetHeight };
       const density = nativeLeafCaptureDensity(
         target,
         Math.max(1, this.density),
@@ -12320,7 +12465,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         this.trackLeaf(
           target,
           key,
-          target instanceof SVGSVGElement ? "svg" : "own-paint"
+          isNativeSvgRoot(target) ? "svg" : "own-paint"
         );
         this.receiverLeaf = new CachedLeaf(
           target,
@@ -12331,7 +12476,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
             "coverage"
           ),
           async (element, canvas, scale) => {
-            if (element instanceof SVGSVGElement) {
+            if (isNativeSvgRoot(element)) {
               await rasterNativeSvgSource(
                 element,
                 canvas,
@@ -12418,7 +12563,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         cssBox: expected.plan.cssBox,
         ...size,
         revision: this.receiverLeaf.revision,
-        geometryKind: target instanceof SVGSVGElement ? "svg-silhouette" : isNativeSvgVectorGroup(target) ? "svg-group-silhouette" : "box"
+        geometryKind: isNativeSvgRoot(target) ? "svg-silhouette" : isNativeSvgVectorGroup(target) ? "svg-group-silhouette" : "box"
       };
     }
     async readSvgFillPhase(svg, phase) {
@@ -12500,7 +12645,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "source-placement-invalid",
           "Only a Fill target has an authored background capture."
         );
-      if (this.target instanceof SVGSVGElement)
+      if (isNativeSvgRoot(this.target))
         return this.readSvgFillPhase(this.target, phase);
       const style = getComputedStyle(this.target);
       if (style.borderImageOutset && style.borderImageOutset.split(/\\s+/).some((value) => Number.parseFloat(value) > 0))
@@ -12532,7 +12677,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "source-disposed",
           "The source provider was disposed."
         );
-      if (this.placement !== "fill" || !(this.target instanceof HTMLElement) || !isPureTextFlow(this.target))
+      if (this.placement !== "fill" || !isNativeHtmlElement(this.target) || !isPureTextFlow(this.target))
         throw new NativeSourceError(
           "fill-text-complex",
           "A Fill text foreground needs a text-only flow."
@@ -12564,7 +12709,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       return this.markReplayRead(out);
     }
     hasFillGlyph() {
-      return !(this.target instanceof SVGSVGElement) && isPureTextFlow(this.target) && Boolean(this.target.textContent?.trim());
+      return !isNativeSvgRoot(this.target) && isPureTextFlow(this.target) && Boolean(this.target.textContent?.trim());
     }
     async readFillForeground() {
       if (this.disposed)
@@ -12577,10 +12722,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "fill-foreground-unavailable",
           "Only a Fill target has a foreground phase."
         );
-      if (this.target instanceof SVGSVGElement) return this.markReplayRead([]);
+      if (isNativeSvgRoot(this.target)) return this.markReplayRead([]);
       if (isPureTextFlow(this.target)) return this.markReplayRead([]);
       if (hasDirectText(this.target))
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "fill-mixed-text-layout-unsupported",
           "Direct text mixed with independent child paint needs an ordered text source."
         );
@@ -12718,8 +12863,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           "source-capture-geometry-stale",
           "The Layer records no longer match the current source epoch."
         );
-      const width = this.target instanceof SVGSVGElement ? nativeSvgViewportSize(this.target).width : this.target.offsetWidth;
-      const height = this.target instanceof SVGSVGElement ? nativeSvgViewportSize(this.target).height : this.target.offsetHeight;
+      const width = isNativeSvgRoot(this.target) ? nativeSvgViewportSize(this.target).width : this.target.offsetWidth;
+      const height = isNativeSvgRoot(this.target) ? nativeSvgViewportSize(this.target).height : this.target.offsetHeight;
       if (![width, height].every((value) => Number.isFinite(value) && value > 0))
         throw new NativeSourceError(
           "source-capture-geometry-invalid",
@@ -12781,7 +12926,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           if (staticDomRecord(record5) === "unknown") safety = "unknown";
           continue;
         }
-        if (record5.kind !== "image" || !(record5.source instanceof HTMLImageElement)) {
+        if (record5.kind !== "image" || !isNativeHtmlTag(record5.source, "img")) {
           safety = "unknown";
           continue;
         }
@@ -13359,7 +13504,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
   }
   function assertDeclarativeSource(root, owned) {
     for (const element of sourceElements(root, owned)) {
-      if (element instanceof HTMLCanvasElement)
+      if (isNativeHtmlTag(element, "canvas"))
         throw failure(
           "composition-canvas-source",
           "An authored canvas needs an explicit deterministic source contract."
@@ -13369,7 +13514,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
           "composition-scripted-source",
           "An authored event handler can change pixels outside the composition clock."
         );
-      if (element instanceof HTMLScriptElement) {
+      if (isNativeHtmlTag(element, "script")) {
         if (element.type === "application/x-agent-native-effects") continue;
         if (element.type === NATIVE_EMBEDDED_ASSETS_SCRIPT_TYPE && element.hasAttribute(NATIVE_EMBEDDED_ASSETS_ATTR)) {
           let boundary = "embedded-attributes";
@@ -13487,7 +13632,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
   }
   function animationTarget(animation) {
     const target = animation.effect?.target;
-    return target instanceof Element ? target : null;
+    return isNativeElement(target) ? target : null;
   }
   function relevantAnimations(doc, root, owned) {
     if (typeof doc.getAnimations !== "function")
@@ -13781,7 +13926,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
         await deadline.awaitBounded(animation.ready);
       }
       const sourceVideos = [
-        ...root instanceof HTMLVideoElement ? [root] : [],
+        ...isNativeHtmlTag(root, "video") ? [root] : [],
         ...root.querySelectorAll("video")
       ];
       if (sourceVideos.length > MAX_SOURCE_VIDEOS)
@@ -17058,6 +17203,11 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     }
     if (canvas.parentElement !== document.documentElement || canvas.previousElementSibling !== body)
       document.documentElement.insertBefore(canvas, body.nextSibling);
+  }
+
+  // app/components/design/bridge/native-scene-presentation-element.ts
+  function isNativeScenePresentationElement(element) {
+    return isNativeHtmlElement(element) || isNativeSvgRoot(element);
   }
 
   // app/components/design/bridge/native-simulation-timeline.ts
@@ -20887,6 +21037,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
   };
 
   // app/components/design/bridge/native-worker-scene-host.ts
+  var NativeWorkerSceneSourceError = class extends NativeSourceError {
+    constructor(captureFailure) {
+      super("worker-scene-source-unsupported", captureFailure.message);
+      this.captureFailure = captureFailure;
+    }
+  };
   function planNativeWorkerSceneGeometry(input) {
     const { viewport, pixelRatio: requestedRatio } = input;
     if (![
@@ -20966,8 +21122,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     return nativeWorkerOutputRecords(records, sizes);
   }
-  function nativeWorkerTargetGeometry(target, pixelRatio, cssWidth, cssHeight) {
-    const rect = target.getBoundingClientRect();
+  function nativeWorkerTargetDrawable(rect) {
+    if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.width < 0 || rect.height < 0)
+      throw new NativeSourceError(
+        "worker-target-geometry-invalid",
+        "A native effect target has unavailable or oversized geometry."
+      );
+    return rect.width > 0 && rect.height > 0;
+  }
+  function nativeWorkerTargetGeometry(rect, pixelRatio, cssWidth, cssHeight) {
     const width = Math.max(1, Math.ceil(cssWidth * pixelRatio));
     const height = Math.max(1, Math.ceil(cssHeight * pixelRatio));
     if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0 || width > NATIVE_WORKER_MAX_DIMENSION || height > NATIVE_WORKER_MAX_DIMENSION || width * height > NATIVE_WORKER_MAX_PIXELS)
@@ -20982,13 +21145,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     };
   }
   var NativeWorkerSceneHost = class {
-    constructor(workerSource, sceneId, clock, onCommitted, onFailure, layout, sceneGeometry, sceneCadence, getClockOrigin) {
+    constructor(workerSource, sceneId, clock, onCommitted, onFailure, layout, sceneGeometry, sceneCadence, getClockOrigin, hasPresentationToRetire, beforeCommit) {
       this.onCommitted = onCommitted;
       this.onFailure = onFailure;
       this.layout = layout;
       this.sceneGeometry = sceneGeometry;
       this.sceneCadence = sceneCadence;
       this.getClockOrigin = getClockOrigin;
+      this.hasPresentationToRetire = hasPresentationToRetire;
+      this.beforeCommit = beforeCommit;
       this.targets = /* @__PURE__ */ new Map();
       this.textMasks = /* @__PURE__ */ new Map();
       this.assetRevisions = /* @__PURE__ */ new Map();
@@ -21132,26 +21297,35 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.targets.delete(id);
       }
       this.entries = [...entries];
-      for (const target of this.markedTargets) {
-        target.removeAttribute("data-an-native-fill-instance");
-        target.removeAttribute("data-an-native-layer-instance");
-      }
-      this.markedTargets.clear();
       for (const entry of entries) {
         const existing = this.targets.get(entry.instance.id);
         if (existing) existing.entry = entry;
         else this.targets.set(entry.instance.id, this.createTarget(entry));
       }
+      this.restoreEntryMarkersAndVisibility();
+      this.requestUpdate();
+    }
+    restoreEntryMarkersAndVisibility() {
+      for (const target of this.markedTargets) {
+        target.removeAttribute("data-an-native-fill-instance");
+        target.removeAttribute("data-an-native-layer-instance");
+      }
+      this.markedTargets.clear();
       const topFill = /* @__PURE__ */ new Map();
       const topLayer = /* @__PURE__ */ new Map();
-      for (const entry of entries) {
+      for (const entry of this.entries) {
         if (entry.instance.placement === "fill")
           topFill.set(entry.target, entry.instance.id);
         if (entry.instance.placement === "layer")
           topLayer.set(entry.target, entry.instance.id);
       }
-      for (const entry of entries) {
+      for (const entry of this.entries) {
         const state = this.targets.get(entry.instance.id);
+        if (!state)
+          throw new NativeWorkerHostError(
+            "worker-instance-state-missing",
+            "A native worker instance is unavailable."
+          );
         this.markedTargets.add(entry.target);
         if (topFill.get(entry.target) === entry.instance.id)
           entry.target.setAttribute(
@@ -21165,7 +21339,6 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         state.marker.style.visibility = topLayer.get(entry.target) === entry.instance.id || topFill.get(entry.target) === entry.instance.id && !topLayer.has(entry.target) || entry.instance.placement === "backdrop" ? "visible" : "hidden";
       }
-      this.requestUpdate();
     }
     setEntriesAndWait(entries, instanceId, timeoutMs = 15e3) {
       const entry = entries.find(
@@ -21273,18 +21446,25 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     currentCameraSource(pixelRatio) {
       const committed = this.committedScene();
       const cadence = this.sceneCadence();
-      if (!this.visible || this.disposed || this.capturingExport || this.preparingExport || !committed || this.provider.sourceEpoch?.() !== committed.publication.sourceEpoch || this.provider.authoredSourceEpoch?.() !== committed.publication.authoredEpoch || innerWidth !== committed.publication.rootWidth || innerHeight !== committed.publication.rootHeight || !Number.isFinite(pixelRatio) || pixelRatio <= 0 || Math.abs(pixelRatio - committed.scene.pixelRatio) > 1e-6 || (committed.scene.frameRateTarget ?? 60) !== cadence.frameRateTarget || (committed.scene.compact ?? false) !== cadence.compact || this.entries.length !== committed.publication.payloads.size)
+      if (!this.visible || this.disposed || this.capturingExport || this.preparingExport || !committed || this.provider.sourceEpoch?.() !== committed.publication.sourceEpoch || this.provider.authoredSourceEpoch?.() !== committed.publication.authoredEpoch || innerWidth !== committed.publication.rootWidth || innerHeight !== committed.publication.rootHeight || !Number.isFinite(pixelRatio) || pixelRatio <= 0 || Math.abs(pixelRatio - committed.scene.pixelRatio) > 1e-6 || (committed.scene.frameRateTarget ?? 60) !== cadence.frameRateTarget || (committed.scene.compact ?? false) !== cadence.compact || this.entries.length !== committed.publication.authoredPayloads.size)
         return null;
       for (const entry of this.entries) {
-        const expected = committed.publication.payloads.get(entry.instance.id);
+        const expected = committed.publication.authoredPayloads.get(
+          entry.instance.id
+        );
         const epoch = committed.publication.targetEpochs.get(entry.instance.id);
         const state = this.targets.get(entry.instance.id);
         const target = committed.scene.targets.find(
           (candidate) => candidate.instanceId === entry.instance.id
         );
-        if (!expected || expected.payload !== JSON.stringify(entry.instance) || expected.definitionHash !== entry.definitionHash || !epoch || !state || state.entry.target !== entry.target || state.provider.sourceEpoch?.() !== epoch.source || state.provider.authoredSourceEpoch?.() !== epoch.authored || !target)
+        if (!expected || expected.payload !== JSON.stringify(entry.instance) || expected.definitionHash !== entry.definitionHash || !epoch || !state || state.entry.target !== entry.target || state.provider.sourceEpoch?.() !== epoch.source || state.provider.authoredSourceEpoch?.() !== epoch.authored)
           return null;
         const rect = entry.target.getBoundingClientRect();
+        if (!nativeWorkerTargetDrawable(rect)) {
+          if (target) return null;
+          continue;
+        }
+        if (!target) return null;
         if (Math.abs(rect.x - target.rect.x) > 1e-3 || Math.abs(rect.y - target.rect.y) > 1e-3 || Math.abs(rect.width - target.rect.width) > 1e-3 || Math.abs(rect.height - target.rect.height) > 1e-3)
           return null;
       }
@@ -21361,14 +21541,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }, 1e4);
     }
     async updateLoop() {
-      if (this.disposed || this.updating) return;
+      if (this.disposed || this.holdingLastFrame || this.updating) return;
       this.updating = true;
       try {
-        while (this.dirty && !this.disposed && !this.capturingExport && this.visible) {
+        while (this.dirty && !this.disposed && !this.holdingLastFrame && !this.capturingExport && this.visible) {
           this.dirty = false;
           try {
             await this.sendSnapshot();
           } catch (error) {
+            if (this.disposed || this.holdingLastFrame) return;
             this.assetRevisions.clear();
             this.onFailure(
               error instanceof Error ? error : new Error(String(error))
@@ -21392,7 +21573,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if ([...body.childNodes].some(
         (node) => node.nodeType === Node.TEXT_NODE && !!node.textContent?.trim()
       ) || [...body.children].some(
-        (child) => !(child instanceof HTMLElement || child instanceof SVGSVGElement)
+        (child) => !isNativeScenePresentationElement(child)
       ))
         throw new NativeSourceError(
           "scene-direct-content-unsupported",
@@ -21446,7 +21627,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const nativeOutputSizes = /* @__PURE__ */ new Map();
         const extents = /* @__PURE__ */ new Map();
         const previousByTarget = /* @__PURE__ */ new Map();
-        for (const entry of this.entries) {
+        const targetRects = /* @__PURE__ */ new Map();
+        const drawableEntries = this.entries.filter((entry) => {
+          let rect = targetRects.get(entry.target);
+          if (!rect) {
+            rect = entry.target.getBoundingClientRect();
+            targetRects.set(entry.target, rect);
+          }
+          return nativeWorkerTargetDrawable(rect);
+        });
+        for (const entry of drawableEntries) {
           const state = this.targets.get(entry.instance.id);
           if (!state || state.entry.target !== entry.target)
             throw new NativeSourceError(
@@ -21454,14 +21644,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               "A native worker target changed during scene capture."
             );
           const layout = this.layout(entry.target);
-          const visible = entry.target.getBoundingClientRect();
+          const visible = targetRects.get(entry.target);
           const displayScale = Math.max(
             visible.width / layout.width,
             visible.height / layout.height
           );
           const targetPixelRatio = pixelRatio * displayScale;
           const geometry = nativeWorkerTargetGeometry(
-            entry.target,
+            visible,
             targetPixelRatio,
             layout.width,
             layout.height
@@ -21555,10 +21745,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             \`\${options ? \`export:\${generation}:\` : ""}\${entry.instance.id}:provider:\${state.captureScope}:epoch:\${targetSourceEpoch}\`,
             receiver,
             needsGeometry,
-            needsInterior && entry.target instanceof SVGSVGElement
+            needsInterior && isNativeSvgRoot(entry.target)
           );
           let cornerRadii;
-          if (entry.instance.clip === "bounds" && entry.target instanceof HTMLElement) {
+          if (entry.instance.clip === "bounds" && isNativeHtmlElement(entry.target)) {
             const radius = resolveNativeClipRadii({
               width: outputExtent.sourceWidth,
               height: outputExtent.sourceHeight,
@@ -21692,10 +21882,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             ...fillPhases ? { fillPhases } : {}
           });
         }
-        for (const entry of this.entries) {
+        for (const entry of drawableEntries) {
           if (entry.instance.placement !== "backdrop") continue;
-          const owners = this.entries.filter(
-            (candidate, index) => (candidate.instance.placement === "layer" || candidate.instance.placement === "fill" && this.entries.every(
+          const owners = drawableEntries.filter(
+            (candidate, index) => (candidate.instance.placement === "layer" || candidate.instance.placement === "fill" && drawableEntries.every(
               (other, otherIndex) => otherIndex <= index || other.instance.placement !== "fill" || other.target !== candidate.target
             )) && candidate.target !== entry.target && candidate.target.contains(entry.target)
           );
@@ -21724,7 +21914,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
           if (nearest) child.groupLocalOwnerId = nearest.instance.id;
           if (!nearest || nearest.instance.placement !== "fill") continue;
-          if (!(nearest.target instanceof HTMLElement))
+          if (!isNativeHtmlElement(nearest.target))
             throw new NativeSourceError(
               "source-inline-svg",
               "An SVG Fill cannot contain a nested HTML Backdrop."
@@ -21790,10 +21980,17 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             records2
           );
         }
-        const rawRootRecords = await this.provider.readScene(
-          void 0,
-          "scene-presentation"
-        );
+        let rawRootRecords;
+        try {
+          rawRootRecords = await this.provider.readScene(
+            void 0,
+            "scene-presentation"
+          );
+        } catch (error) {
+          if (!options && error instanceof NativeSourceCapabilityError)
+            throw new NativeWorkerSceneSourceError(error);
+          throw error;
+        }
         if (this.provider.needsContinuousFrames() || await this.provider.replaySafety(
           rawRootRecords,
           "committed-native"
@@ -21852,8 +22049,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           compact: cadence.compact,
           clock: this.snapshotClock(viewport, !!options, sourceClock),
           requiredAssets,
-          definitions: nativeWorkerDefinitions(this.entries),
-          instances: this.entries.map((entry) => entry.instance),
+          definitions: nativeWorkerDefinitions(drawableEntries),
+          instances: drawableEntries.map((entry) => entry.instance),
           targets: targetSnapshots,
           records,
           ...selected ? { backdropRecords: normalizedRootRecords } : {}
@@ -21891,6 +22088,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           ),
           rootRecords: rawRootRecords,
           payloads: new Map(
+            drawableEntries.map((entry) => [
+              entry.instance.id,
+              {
+                payload: JSON.stringify(entry.instance),
+                definitionHash: entry.definitionHash
+              }
+            ])
+          ),
+          authoredPayloads: new Map(
             this.entries.map((entry) => [
               entry.instance.id,
               {
@@ -22007,7 +22213,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       };
     }
     async textMask(snapshot, entry, width, height, cssWidth, sourceEpoch, generation, isExport) {
-      if (!(entry.target instanceof HTMLElement))
+      if (!isNativeHtmlElement(entry.target))
         throw new NativeSourceError(
           "source-inline-svg",
           "An SVG Fill uses vector coverage rather than a text mask."
@@ -22092,16 +22298,17 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.requestUpdate();
         return;
       }
-      const cameraOnly = this.canReuseCommittedPresentation(publication);
+      const replacedPresentation = this.hasPresentationToRetire?.() === true;
+      const cameraOnly = !replacedPresentation && this.canReuseCommittedPresentation(publication);
+      const paintedChildren = /* @__PURE__ */ new Set();
+      const authoredOpacities = /* @__PURE__ */ new Map();
       if (!cameraOnly) {
         const body = document.body;
-        const paintedChildren = /* @__PURE__ */ new Set();
         for (const record5 of publication.rootRecords) {
           const root = scenePaintRoot(record5.node, body);
           if (root && root !== this.canvas && !root.matches(OMIT_SCENE_CHILD))
             paintedChildren.add(root);
         }
-        const authoredOpacities = /* @__PURE__ */ new Map();
         for (const child of paintedChildren) {
           const opacity = child.getAttribute("data-an-native-authored-opacity") ?? getComputedStyle(child).opacity;
           const value = Number(opacity);
@@ -22116,6 +22323,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
           authoredOpacities.set(child, opacity);
         }
+      }
+      this.beforeCommit?.();
+      if (replacedPresentation) this.restoreEntryMarkersAndVisibility();
+      if (!cameraOnly) {
         for (const old of this.suppressed) {
           if (paintedChildren.has(old)) continue;
           old.removeAttribute("data-an-native-scene-suppressed");
@@ -22173,7 +22384,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       });
       if (drainCamera) this.requestUpdate();
       for (const waiter of this.publicationWaiters) {
-        const expected = publication.payloads.get(waiter.instanceId);
+        const expected = publication.authoredPayloads.get(waiter.instanceId);
         const committedScene = this.committedSceneSnapshot;
         if (publication.generation < waiter.minimumGeneration || expected?.payload !== waiter.payload || expected.definitionHash !== waiter.definitionHash || waiter.expectedTimeSeconds !== null && (committedScene?.clock.timeSeconds !== waiter.expectedTimeSeconds || message.timeSeconds !== waiter.expectedTimeSeconds))
           continue;
@@ -22184,7 +22395,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     canReuseCommittedPresentation(publication) {
       const committed = this.committed;
-      if (!committed || committed.sourceEpoch !== publication.sourceEpoch || committed.authoredEpoch !== publication.authoredEpoch || committed.rootWidth !== publication.rootWidth || committed.rootHeight !== publication.rootHeight || committed.targetEpochs !== publication.targetEpochs || committed.rootRecords !== publication.rootRecords || committed.payloads !== publication.payloads || this.canvas.style.visibility !== "visible" || !document.documentElement.hasAttribute("data-an-native-scene-managed"))
+      if (!committed || committed.sourceEpoch !== publication.sourceEpoch || committed.authoredEpoch !== publication.authoredEpoch || committed.rootWidth !== publication.rootWidth || committed.rootHeight !== publication.rootHeight || committed.targetEpochs !== publication.targetEpochs || committed.rootRecords !== publication.rootRecords || committed.payloads !== publication.payloads || committed.authoredPayloads !== publication.authoredPayloads || this.canvas.style.visibility !== "visible" || !document.documentElement.hasAttribute("data-an-native-scene-managed"))
         return false;
       for (const entry of this.entries) {
         if (entry.target.getAttribute("data-an-native-status") !== "ready" || entry.target.getAttribute("data-an-native-backend") !== "webgpu-worker" || entry.target.hasAttribute("data-an-native-error") || entry.target.hasAttribute("data-an-native-error-message"))
@@ -22273,15 +22484,22 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
         assets = captured.assets;
         const { scene } = captured;
-        const hiddenSourceStillCurrent = () => scene.authoredEpoch === hiddenAuthoredEpoch && this.provider.sourceEpoch?.() === scene.sourceEpoch && this.provider.authoredSourceEpoch?.() === hiddenAuthoredEpoch && scene.instances.length === hiddenPayloads.length && scene.targets.length === hiddenPayloads.length && !hiddenPayloads.some((expected, index) => {
+        const hiddenSourceStillCurrent = () => scene.authoredEpoch === hiddenAuthoredEpoch && this.provider.sourceEpoch?.() === scene.sourceEpoch && this.provider.authoredSourceEpoch?.() === hiddenAuthoredEpoch && this.entries.length === hiddenPayloads.length && captured.publication.authoredPayloads.size === hiddenPayloads.length && !hiddenPayloads.some((expected, index) => {
           const entry = this.entries[index];
-          const target = scene.targets[index];
-          const instance = scene.instances[index];
+          const target = scene.targets.find(
+            (item) => item.instanceId === expected.id
+          );
+          const instance = scene.instances.find(
+            (item) => item.id === expected.id
+          );
+          const payload = captured.publication.authoredPayloads.get(
+            expected.id
+          );
           const provider = this.targets.get(expected.id)?.provider;
           const capturedEpoch = captured.publication.targetEpochs.get(
             expected.id
           );
-          return !entry || !target || !instance || instance.id !== expected.id || target.instanceId !== expected.id || JSON.stringify(instance) !== expected.payload || JSON.stringify(entry.instance) !== expected.payload || target.definitionHash !== expected.definitionHash || entry.definitionHash !== expected.definitionHash || !capturedEpoch || provider?.sourceEpoch?.() !== capturedEpoch.source || provider.authoredSourceEpoch?.() !== capturedEpoch.authored;
+          return !entry || !payload || payload.payload !== expected.payload || payload.definitionHash !== expected.definitionHash || !!target !== !!instance || instance && JSON.stringify(instance) !== expected.payload || JSON.stringify(entry.instance) !== expected.payload || target && target.definitionHash !== expected.definitionHash || entry.definitionHash !== expected.definitionHash || !capturedEpoch || provider?.sourceEpoch?.() !== capturedEpoch.source || provider.authoredSourceEpoch?.() !== capturedEpoch.authored;
         });
         if (hiddenExport) {
           if (!hiddenSourceStillCurrent())
@@ -22490,12 +22708,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       );
     });
   }
-  function isNativeScenePresentationElement(element) {
-    return element instanceof HTMLElement || element instanceof SVGSVGElement;
-  }
   function nativePresentationTargetLayout(target) {
     const style = getComputedStyle(target);
-    if (target instanceof HTMLElement)
+    if (isNativeHtmlElement(target))
       return {
         width: target.offsetWidth,
         height: target.offsetHeight,
@@ -22508,7 +22723,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         scale: style.scale
       };
     const parent = target.parentElement;
-    if (!(parent instanceof HTMLElement))
+    if (!isNativeHtmlElement(parent))
       throw new NativeSourceError(
         "source-inline-svg",
         "A native SVG target needs an HTML parent."
@@ -22590,6 +22805,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.workerPreviewBase = null;
       this.legacyDraftSession = false;
       this.workerCapabilityBlocked = false;
+      this.workerRootSourceBlocked = false;
+      this.workerSourceRetryTimer = 0;
       this.workerRecoveryAttempts = 0;
       this.workerRecoveryQueued = false;
       this.cameraReportedState = "idle";
@@ -23131,6 +23348,56 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           this.scanning = null;
         }
       };
+      this.onWorkerSceneFailure = (error) => {
+        const code = error instanceof NativeWorkerSceneSourceError ? error.captureFailure.code : error instanceof NativeSourceError || error instanceof NativeWorkerHostError ? error.code : "worker-scene-failed";
+        if (error instanceof NativeWorkerSceneSourceError || [
+          "worker-continuous-source-unsupported",
+          "worker-unavailable",
+          "gpu-unavailable",
+          "canvas-unavailable"
+        ].includes(code)) {
+          if (error instanceof NativeWorkerSceneSourceError) {
+            this.workerRootSourceBlocked = true;
+            clearTimeout(this.workerSourceRetryTimer);
+            this.workerSourceRetryTimer = 0;
+          } else this.workerCapabilityBlocked = true;
+          queueMicrotask(() => this.requestScan());
+        }
+        if ([
+          "gpu-device-lost",
+          "gpu-uncaptured-error",
+          "worker-failed",
+          "worker-init-timeout"
+        ].includes(code) && this.workerRecoveryAttempts < 2 && !this.workerRecoveryQueued) {
+          this.workerRecoveryAttempts += 1;
+          this.workerRecoveryQueued = true;
+          queueMicrotask(() => {
+            const failed = this.workerScene;
+            if (failed?.committedScene()) {
+              this.retiringWorkerScene?.dispose();
+              this.retiringWorkerScene = failed;
+              failed.holdLastFrame();
+            } else failed?.dispose();
+            if (this.workerScene === failed) this.workerScene = null;
+            this.workerRecoveryQueued = false;
+            window.setTimeout(
+              () => this.requestScan(),
+              100 * this.workerRecoveryAttempts
+            );
+          });
+        }
+        this.issue(code, error.message);
+        for (const entry of this.workerEntries) {
+          const status = this.workerScene?.committedScene() ? "last-good" : "error";
+          entry.target.setAttribute("data-an-native-status", status);
+          entry.target.setAttribute("data-an-native-error", code);
+          this.postStatus(entry.instance.id, entry.instance.nodeId, status, {
+            code,
+            message: error.message,
+            instanceId: entry.instance.id
+          });
+        }
+      };
       this.scanOnce = async () => {
         if (this.disposed) return;
         if (this.running) await this.running;
@@ -23413,14 +23680,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           definitionHash: entry.hash,
           target: entry.target
         }));
-        const workerCapable = workerEntries.length > 0 && rejectedIds.size === 0 && this.colorRequested === "srgb" && this.dynamicRangeRequested === "sdr" && !this.legacyDraftSession && !this.workerCapabilityBlocked && !window.frameElement?.hasAttribute(
+        const workerCapable = workerEntries.length > 0 && rejectedIds.size === 0 && this.colorRequested === "srgb" && this.dynamicRangeRequested === "sdr" && !this.legacyDraftSession && !this.workerCapabilityBlocked && !this.workerRootSourceBlocked && !window.frameElement?.hasAttribute(
           "data-native-catalog-preview-renderer"
         ) && typeof Worker !== "undefined" && typeof HTMLCanvasElement.prototype.transferControlToOffscreen === "function" && workerEntries.every(
           ({ definition, instance, target }) => !definition.simulation && !definition.feedback && !definition.statelessCompute && !definition.resourceGraph && !definition.interaction && definition.passes.every(
             (pass) => pass.kind === "render" && !pass.previousFrameReads?.length
           ) && nativeWorkerSupportsInputResources(
             planNativeInputResources(definition, instance),
-            target instanceof SVGSVGElement
+            isNativeSvgRoot(target)
           )
         );
         if (workerCapable) {
@@ -23449,20 +23716,6 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               },
               (_publication, message) => {
                 this.workerRecoveryAttempts = 0;
-                if (this.retiringWorkerScene) {
-                  this.retiringWorkerScene.dispose({
-                    preservePresentationState: true
-                  });
-                  this.retiringWorkerScene = null;
-                }
-                if (this.mounts.size || this.scenePresentation) {
-                  for (const [id, mount] of this.mounts) {
-                    this.unmount(mount);
-                    this.mounts.delete(id);
-                  }
-                  if (this.scenePresentation) this.releaseScenePresentation();
-                  this.workerScene?.setEntries(this.workerEntries);
-                }
                 if (message.contentChanged)
                   for (const committed of message.committedInstances) {
                     const entry = this.workerEntries.find(
@@ -23476,57 +23729,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                       );
                   }
               },
-              (error) => {
-                const code = error instanceof NativeSourceError || error instanceof NativeWorkerHostError ? error.code : "worker-scene-failed";
-                if ([
-                  "worker-continuous-source-unsupported",
-                  "worker-unavailable",
-                  "gpu-unavailable",
-                  "canvas-unavailable"
-                ].includes(code)) {
-                  this.workerCapabilityBlocked = true;
-                  queueMicrotask(() => this.requestScan());
-                }
-                if ([
-                  "gpu-device-lost",
-                  "gpu-uncaptured-error",
-                  "worker-failed",
-                  "worker-init-timeout"
-                ].includes(code) && this.workerRecoveryAttempts < 2 && !this.workerRecoveryQueued) {
-                  this.workerRecoveryAttempts += 1;
-                  this.workerRecoveryQueued = true;
-                  queueMicrotask(() => {
-                    const failed = this.workerScene;
-                    if (failed?.committedScene()) {
-                      this.retiringWorkerScene?.dispose();
-                      this.retiringWorkerScene = failed;
-                      failed.holdLastFrame();
-                    } else failed?.dispose();
-                    if (this.workerScene === failed) this.workerScene = null;
-                    this.workerRecoveryQueued = false;
-                    window.setTimeout(
-                      () => this.requestScan(),
-                      100 * this.workerRecoveryAttempts
-                    );
-                  });
-                }
-                this.issue(code, error.message);
-                for (const entry of this.workerEntries) {
-                  const status = this.workerScene?.committedScene() ? "last-good" : "error";
-                  entry.target.setAttribute("data-an-native-status", status);
-                  entry.target.setAttribute("data-an-native-error", code);
-                  this.postStatus(
-                    entry.instance.id,
-                    entry.instance.nodeId,
-                    status,
-                    {
-                      code,
-                      message: error.message,
-                      instanceId: entry.instance.id
-                    }
-                  );
-                }
-              },
+              this.onWorkerSceneFailure,
               nativePresentationTargetLayout,
               () => {
                 this.refreshPreviewViewport();
@@ -23544,7 +23747,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 frameRateTarget: this.previewStatus().frameRateTarget,
                 compact: this.previewPolicy.isOverviewCompact()
               }),
-              () => this.clockOrigin
+              () => this.clockOrigin,
+              () => this.hasWorkerPresentationToRetire(),
+              () => this.prepareWorkerSceneCommit()
             ));
             this.workerScene.setVisible(
               document.visibilityState !== "hidden" && this.refreshPreviewViewport()
@@ -25197,6 +25402,23 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 "composition-instance-stale",
                 "The requested native scene differs from the worker preview."
               );
+            const committedScene = workerScene.committedScene();
+            const presentedInstances = new Map(
+              committedScene?.scene.instances.map((instance) => [
+                instance.id,
+                instance
+              ])
+            );
+            if (!committedScene || presentedInstances.size !== committedScene.scene.instances.length || committedScene.scene.instances.some((instance) => {
+              const current = this.workerEntries.find(
+                (entry) => entry.instance.id === instance.id
+              );
+              return !current || JSON.stringify(current.instance) !== JSON.stringify(instance);
+            }))
+              throw new NativeSourceError(
+                "composition-instance-stale",
+                "The committed worker scene differs from its authored effects."
+              );
             const timeSeconds = this.currentTime();
             const exported = await workerScene.captureExportScene({
               cropRect: region.region,
@@ -25211,7 +25433,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             const currentRoots = options.selectedNodeIds ? resolveNativeExportSelection(document, options.selectedNodeIds) : void 0;
             if (exported.previewGeneration !== null && workerScene.committedScene()?.scene.generation !== exported.previewGeneration || selectedRoots && (currentRoots?.length !== selectedRoots.length || currentRoots.some(
               (root, index) => root !== selectedRoots[index]
-            )) || exported.width !== region.width || exported.height !== region.height || exported.rgba.byteLength !== region.width * region.height * 4)
+            )) || exported.width !== region.width || exported.height !== region.height || exported.rgba.byteLength !== region.width * region.height * 4 || exported.committedInstances.length !== presentedInstances.size || new Set(
+              exported.committedInstances.map((instance) => instance.instanceId)
+            ).size !== exported.committedInstances.length || exported.committedInstances.some(
+              (instance) => !presentedInstances.has(instance.instanceId)
+            ))
               throw new NativeSourceError(
                 "composition-preview-stale",
                 "The worker scene changed during native still capture."
@@ -25243,7 +25469,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 };
               })
             );
-            if (committedInstances.length !== this.workerEntries.length)
+            if (committedInstances.length !== presentedInstances.size)
               throw new NativeSourceError(
                 "composition-instance-stale",
                 "The worker still omitted a native effect."
@@ -26107,6 +26333,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const authoredRecords = records.filter(
           (record5) => record5.target !== this.runtimeScript && !isNativeSourceOmittedMutation(record5)
         );
+        if (this.workerRootSourceBlocked && authoredRecords.length) {
+          clearTimeout(this.workerSourceRetryTimer);
+          this.workerSourceRetryTimer = window.setTimeout(() => {
+            this.workerSourceRetryTimer = 0;
+            if (this.disposed || !this.workerRootSourceBlocked) return;
+            this.workerRootSourceBlocked = false;
+            this.requestScan();
+          }, 100);
+        }
         if (this.compositionAbort && authoredRecords.length)
           this.compositionAbort.abort(
             new NativeSourceError(
@@ -26119,14 +26354,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           return;
         }
         for (const record5 of authoredRecords) {
-          if (record5.type !== "attributes" || !(record5.target instanceof Element))
+          if (record5.type !== "attributes" || !isNativeElement(record5.target))
             continue;
           for (const mount of this.mounts.values())
             if (record5.target === mount.target || record5.target.contains(mount.target))
               mount.authoredStyleDirty = true;
         }
       };
-      const encoded = runtimeScript instanceof HTMLScriptElement ? runtimeScript.getAttribute(
+      const encoded = isNativeHtmlTag(runtimeScript, "script") ? runtimeScript.getAttribute(
         "data-agent-native-export-initial-pixel-ratio"
       ) : null;
       if (encoded === null) this.exportInitialPixelRatio = null;
@@ -26139,7 +26374,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         this.exportInitialPixelRatio = ratio;
       }
-      const encodedEpoch = runtimeScript instanceof HTMLScriptElement ? runtimeScript.getAttribute("data-agent-native-animation-epoch-ms") : null;
+      const encodedEpoch = isNativeHtmlTag(runtimeScript, "script") ? runtimeScript.getAttribute("data-agent-native-animation-epoch-ms") : null;
       if (encodedEpoch !== null) {
         const epoch = Number(encodedEpoch);
         if (!Number.isFinite(epoch) || epoch <= 0 || epoch > 864e13 || String(epoch) !== encodedEpoch)
@@ -28756,6 +28991,22 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         )
       );
     }
+    hasWorkerPresentationToRetire() {
+      return Boolean(
+        this.retiringWorkerScene || this.mounts.size || this.scenePresentation
+      );
+    }
+    prepareWorkerSceneCommit() {
+      if (this.retiringWorkerScene) {
+        this.retiringWorkerScene.dispose({ preservePresentationState: true });
+        this.retiringWorkerScene = null;
+      }
+      for (const [id, mount] of this.mounts) {
+        this.unmount(mount);
+        this.mounts.delete(id);
+      }
+      if (this.scenePresentation) this.releaseScenePresentation();
+    }
     releasePresentationParent(parent) {
       const owner = this.positionedParents.get(parent);
       if (owner === 1) {
@@ -28764,7 +29015,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       } else if (owner) this.positionedParents.set(parent, owner - 1);
     }
     presentationFollowsTarget(target, canvas) {
-      for (let sibling = target.nextElementSibling; sibling instanceof HTMLCanvasElement; sibling = sibling.nextElementSibling) {
+      for (let sibling = target.nextElementSibling; isNativeHtmlTag(sibling, "canvas"); sibling = sibling.nextElementSibling) {
         if (sibling === canvas) return true;
         const owner = this.mounts.get(sibling.dataset.anNativeCanvas ?? "");
         if (owner?.target !== target) break;
@@ -28790,7 +29041,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if (this.presentationFollowsTarget(target, canvas)) return parent;
       let insertionPoint = target;
       if (instance.placement === "backdrop")
-        while (insertionPoint.nextElementSibling instanceof HTMLCanvasElement && insertionPoint.nextElementSibling !== canvas && insertionPoint.nextElementSibling.hasAttribute(
+        while (isNativeHtmlTag(insertionPoint.nextElementSibling, "canvas") && insertionPoint.nextElementSibling !== canvas && insertionPoint.nextElementSibling.hasAttribute(
           "data-an-native-backdrop-presentation"
         ) && insertionPoint.nextElementSibling.getAttribute(
           "data-an-native-backdrop-receiver-node-id"
@@ -30059,7 +30310,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             [uploadWidth, uploadHeight]
           );
         } catch (directError) {
-          if (scale >= 1 && !(record5.source instanceof HTMLImageElement)) {
+          if (scale >= 1 && !isNativeHtmlTag(record5.source, "img")) {
             throw new NativeSourceError(
               "source-gpu-upload",
               \`A \${record5.kind} source could not be uploaded to WebGPU: \${String(directError)}\`
@@ -32802,7 +33053,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       capture.borrowed = void 0;
       capture.borrowedImages = void 0;
       if (capture.replaySafety === "immutable" && binding.capture === "content" && scene.length === 1 && scene.every(
-        (record5) => record5.kind === "image" && record5.source instanceof HTMLImageElement && !!record5.imageSourceUrl && (record5.source.currentSrc || record5.source.src) === record5.imageSourceUrl
+        (record5) => record5.kind === "image" && isNativeHtmlTag(record5.source, "img") && !!record5.imageSourceUrl && (record5.source.currentSrc || record5.source.src) === record5.imageSourceUrl
       )) {
         const images = scene.map((record5) => ({
           source: record5.source,
@@ -33475,8 +33726,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           \`The camera input is \${state}.\`
         );
       }
-      const width = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
-      const height = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+      const width = isNativeHtmlTag(source, "video") ? source.videoWidth : source.width;
+      const height = isNativeHtmlTag(source, "video") ? source.videoHeight : source.height;
       if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 || width > Math.min(MAX_DIMENSION, 1920) || height > Math.min(MAX_DIMENSION, 1080) || width * height > MAX_PIXELS)
         throw new NativeSourceError(
           "input-camera-size",
@@ -33670,7 +33921,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const receiverInteriorRequested = [...inputPlan.inputs.values()].some(
         (binding) => binding.kind === "builtin" && binding.source === "receiver-interior"
       );
-      const svgInterior = receiverInteriorRequested && mount.target instanceof SVGSVGElement;
+      const svgInterior = receiverInteriorRequested && isNativeSvgRoot(mount.target);
       const receiverGeometry = receiverGeometryRequested || svgInterior ? await this.receiverGeometryTextures(mount, svgInterior) : null;
       if (!receiverGeometry) this.releaseReceiverGeometry(mount);
       for (const [name, binding] of inputPlan.inputs) {
@@ -34152,7 +34403,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     async textMask(mount) {
       if (mount.instance.clip !== "text") return this.white;
-      if (!(mount.target instanceof HTMLElement))
+      if (!isNativeHtmlElement(mount.target))
         throw new NativeSourceError(
           "source-inline-svg",
           "An SVG Fill uses vector paint coverage rather than a text mask."
@@ -34955,7 +35206,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     async stageFillLocalBackdrop(parent, child, prefix, prefixExtent, encoder, transaction, authoredSourceEpoch) {
       const ancestor = parent.target;
-      if (!(ancestor instanceof HTMLElement))
+      if (!isNativeHtmlElement(ancestor))
         throw new NativeSourceError(
           "source-inline-svg",
           "An SVG Fill cannot contain a nested HTML Backdrop."
@@ -37099,11 +37350,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if (this.previewDirty || this.draft || this.instancePreview || this.compositionPixelRatio !== null || this.exportInitialPixelRatio !== null || this.scenePresentation || !this.canPrepareStatelessFrame() || this.presentationMirrorCapture || this.presentationFaultHold || this.presentationFaultLatch.pending())
         return false;
       return [...this.mounts.values()].every((mount) => {
-        if (mount.instance.placement !== "fill" || mount.instance.clip === "text" || !(mount.target instanceof HTMLElement) || !mount.provider || !this.hasPresentationGeometry(mount.target) || this.offscreen(mount) || mount.definition.passes.length !== 1 || mount.outputExtent?.expanded)
+        if (mount.instance.placement !== "fill" || mount.instance.clip === "text" || !isNativeHtmlElement(mount.target) || !mount.provider || !this.hasPresentationGeometry(mount.target) || this.offscreen(mount) || mount.definition.passes.length !== 1 || mount.outputExtent?.expanded)
           return false;
         const style = getComputedStyle(mount.target);
         return style.boxShadow === "none" && (style.outlineStyle === "none" || style.outlineWidth === "0px") && [...mount.target.childNodes].every(
-          (node) => node instanceof Element ? node.hasAttribute("data-an-native-canvas") : node.nodeType !== Node.TEXT_NODE || !node.textContent?.trim()
+          (node) => isNativeElement(node) ? node.hasAttribute("data-an-native-canvas") : node.nodeType !== Node.TEXT_NODE || !node.textContent?.trim()
         );
       });
     }
@@ -39502,7 +39753,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         subtree: true
       });
       const affectsEffects = (node) => {
-        if (!(node instanceof Element)) return false;
+        if (!isNativeElement(node)) return false;
         return node.matches(
           \`script[type="\${SCRIPT_TYPE}"],[data-agent-native-node-id]\`
         ) || !!node.querySelector(
@@ -39516,8 +39767,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               \`script[type="\${SCRIPT_TYPE}"]\`
             );
           if (record5.type === "attributes")
-            return record5.target instanceof Element && (record5.target instanceof HTMLScriptElement || record5.attributeName === "data-agent-native-node-id");
-          if (record5.target instanceof HTMLScriptElement && record5.target.type === SCRIPT_TYPE)
+            return isNativeElement(record5.target) && (isNativeHtmlTag(record5.target, "script") || record5.attributeName === "data-agent-native-node-id");
+          if (isNativeHtmlTag(record5.target, "script") && record5.target.type === SCRIPT_TYPE)
             return true;
           return [...record5.addedNodes, ...record5.removedNodes].some(
             affectsEffects
@@ -39616,6 +39867,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.previewHostParent = null;
         window.removeEventListener("message", this.onMessage);
         clearTimeout(this.rescanTimer);
+        clearTimeout(this.workerSourceRetryTimer);
         clearTimeout(this.deviceRetryTimer);
         if (this.scenePresentation && !this.hasCurrentScenePresentation(this.scenePresentation))
           this.unpublishScenePresentation(this.scenePresentation);

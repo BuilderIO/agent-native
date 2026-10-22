@@ -12,6 +12,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Session replay quotas count the compressed size Analytics stores, so recordings from other sites no longer use up the daily limit early
 - Preserve unknown replay availability in partial journeys
 
 ## 2026-10-20
@@ -134,6 +135,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Sessions can find people who made a Slides deck but didn't present or export it within 7 days, and the event catalog flags apps with no "used it" event (Sessions triage Lab)
 - A Content dashboard lists every blog article with its author, pageviews, and search clicks, and says when a source failed or isn't set up instead of showing zero
 - Data sources has a Google Search Console card that shows the service account to grant and turns on daily collection
 - Analytics can collect daily GA4 pageviews and Search Console clicks and impressions for each blog article

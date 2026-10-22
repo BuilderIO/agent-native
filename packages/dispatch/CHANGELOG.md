@@ -1,5 +1,46 @@
 # @agent-native/dispatch
 
+## 0.40.37
+
+### Patch Changes
+
+- b07c13b: `describe-workspace-apps` now shows each app's authored "when to use" guidance, so the agent sees the same text the ranking matched on. Workspace usage tools now say plainly that they have no customer data and point to the app's own customer or billing actions or the owning app, instead of leading with the owner/admin permission rule.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [6c3f3cb]
+- Updated dependencies [4c43f86]
+- Updated dependencies
+- Updated dependencies [9e4119f]
+  - @agent-native/toolkit@0.217.0
+
+## 0.40.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [31a1f1e]
+  - @agent-native/toolkit@0.216.0
+
+## 0.40.35
+
+### Patch Changes
+
+- 32ecc17: Refresh the curated community QR file pin to match the tracked template.
+- Release all public npm packages with a patch version bump.
+- 985e9de: Refresh the curated QR template pin after the Core 0.214.0 release.
+- 7d32864: Refresh the QR community app file pins during release versioning so they match the current template.
+- 5f880cd: Keep the QR community app package pin aligned with its current manifest.
+- 7ba1d99: Keep the curated QR app installer pinned to the current reviewed template manifest.
+- 0aa618c: Fix workspace app embeds when the target returns its start URL through MCP metadata.
+- 4b0bb1e: Usage metrics tools now say they only cover this organization's members and return a typed error pointing to the owning app when asked about an external customer's usage.
+- Updated dependencies [f8f4b9e]
+- Updated dependencies [0b58010]
+- Updated dependencies
+- Updated dependencies [4fd6b35]
+- Updated dependencies [11a11d9]
+- Updated dependencies [aa79d54]
+  - @agent-native/toolkit@0.215.0
+
 ## 0.40.34
 
 ### Patch Changes
@@ -1293,24 +1334,5 @@
 - a2f21dc: Keep workspace apps inline outside Builder.io embeds.
 - Updated dependencies [a2f21dc]
   - @agent-native/toolkit@0.16.6
-
-## 0.30.0
-
-### Minor Changes
-
-- a688849: Add organization groups and privacy controls for workspace apps. New apps use the organization default (organization-wide by default), while creators and organization admins can manage individual, group, and organization access from the shared popover.
-
-## 0.29.5
-
-### Patch Changes
-
-- Updated dependencies [0b57293]
-  - @agent-native/toolkit@0.16.5
-
-## 0.29.4
-
-### Patch Changes
-
-- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

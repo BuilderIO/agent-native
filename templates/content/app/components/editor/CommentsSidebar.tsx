@@ -45,7 +45,11 @@ import {
   findReplaceSuggestionSummary,
   suggestionDiffParts,
 } from "@shared/suggestion-diff";
-import type { SuggestionPresentationContext } from "@shared/suggestion-text";
+import {
+  suggestionAnchorText,
+  suggestionTextForDisplay,
+  type SuggestionPresentationContext,
+} from "@shared/suggestion-text";
 
 import {
   DropdownMenu,
@@ -195,6 +199,20 @@ function isAmbiguousCommentCreateError(error: unknown) {
           error.message,
         ) || error.name === "AbortError")
   );
+}
+
+/** The session's name for the signed-in person's own entries, if it has one. */
+function ownAuthorName(
+  authorEmail: string | null | undefined,
+  currentUserEmail?: string,
+  currentUserName?: string,
+) {
+  const name = currentUserName?.trim();
+  return name &&
+    authorEmail &&
+    authorEmail.trim().toLowerCase() === currentUserEmail?.trim().toLowerCase()
+    ? name
+    : null;
 }
 
 function cssEscape(value: string) {
@@ -757,6 +775,8 @@ interface CommentsSidebarOptions {
   onSelectedThreadChange?: (id: string | null) => void;
   onHoveredThreadChange?: (id: string | null) => void;
   currentUserEmail?: string;
+  /** The signed-in person's display name, for their own suggestions. */
+  currentUserName?: string;
   currentUserOrgId?: string;
   canComment?: boolean;
   canResolve?: boolean;
@@ -841,6 +861,7 @@ export function CommentsSidebar({
   onSelectedThreadChange,
   onHoveredThreadChange,
   currentUserEmail,
+  currentUserName,
   currentUserOrgId,
   canComment = true,
   canResolve = false,
@@ -1114,34 +1135,32 @@ export function CommentsSidebar({
   }, [canComment, presentation, selectedThreadId, selectedThreadIsOpen]);
   const historyAuthors = useMemo(() => {
     const authors = new Map<string, string>();
-    for (const suggestion of suggestions) {
-      if (suggestion.authorEmail) {
-        authors.set(
-          suggestion.authorEmail,
-          suggestion.authorEmail.split("@")[0],
-        );
-      }
-    }
-    for (const suggestion of draftSuggestions) {
-      if (suggestion.authorEmail) {
-        authors.set(
-          suggestion.authorEmail,
-          suggestion.authorEmail.split("@")[0],
-        );
-      }
-    }
+    // A name from any record outranks the email's local part from another.
+    const addAuthor = (email: string | null, name?: string | null) => {
+      if (!email) return;
+      const known =
+        name?.trim() || ownAuthorName(email, currentUserEmail, currentUserName);
+      if (known) authors.set(email, known);
+      else if (!authors.has(email)) authors.set(email, email.split("@")[0]);
+    };
+    for (const suggestion of suggestions) addAuthor(suggestion.authorEmail);
+    for (const suggestion of draftSuggestions)
+      addAuthor(suggestion.authorEmail);
     for (const thread of threads) {
       for (const comment of thread.comments) {
-        authors.set(
-          comment.author_email,
-          comment.author_name ?? comment.author_email.split("@")[0],
-        );
+        addAuthor(comment.author_email, comment.author_name);
       }
     }
     return [...authors.entries()].sort((left, right) =>
       left[1].localeCompare(right[1]),
     );
-  }, [draftSuggestions, suggestions, threads]);
+  }, [
+    currentUserEmail,
+    currentUserName,
+    draftSuggestions,
+    suggestions,
+    threads,
+  ]);
   // Suggestions edit the page body, so they sit in its tab.
   const historyBodyTabShown =
     activeHistoryTab === null || activeHistoryTab === commentTabKey(null);
@@ -1465,6 +1484,22 @@ export function CommentsSidebar({
     null,
   );
   const pendingCardRef = useRef<HTMLDivElement>(null);
+  // An inline group remounts under its next card once its leading edit is
+  // decided, so whether it is open has to outlive the group.
+  const [expandedProposalIds, setExpandedProposalIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const setProposalExpanded = useCallback(
+    (proposalId: string, expanded: boolean) =>
+      setExpandedProposalIds((current) => {
+        if (current.has(proposalId) === expanded) return current;
+        const next = new Set(current);
+        if (expanded) next.add(proposalId);
+        else next.delete(proposalId);
+        return next;
+      }),
+    [],
+  );
   const inlineProposalLeaders = useMemo(() => {
     const leaders = new Map<string, string>();
     for (const proposalId of inlineProposalMembers.keys()) {
@@ -2097,6 +2132,7 @@ export function CommentsSidebar({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         compact={compact}
         replyDrafts={replyDrafts}
         key={suggestion.id}
@@ -2144,6 +2180,8 @@ export function CommentsSidebar({
         (member) =>
           member.id === activeSuggestionId || member.id === focusSuggestionId,
       )}
+      expanded={expandedProposalIds.has(proposalId)}
+      onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
@@ -2176,6 +2214,7 @@ export function CommentsSidebar({
       surface={surface}
       onClose={onClose}
       currentUserEmail={currentUserEmail}
+      currentUserName={currentUserName}
       key={suggestion.id}
       marginTop={marginTop}
       onHeightChange={handleThreadCardHeightChange}
@@ -2667,6 +2706,8 @@ function ProposalGroup({
   totalCount,
   members,
   active,
+  expanded,
+  onExpandedChange,
   deciding,
   canDecide,
   onDecide,
@@ -2679,6 +2720,8 @@ function ProposalGroup({
   totalCount: number;
   members: ResourceSuggestion[];
   active: boolean;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
   deciding: boolean;
   canDecide: boolean;
   onDecide: (decision: SuggestionDecision) => void;
@@ -2686,11 +2729,10 @@ function ProposalGroup({
   children: ReactNode;
   t: ReturnType<typeof useT>;
 }) {
-  const [expanded, setExpanded] = useState(active);
   const groupRef = useRef<HTMLDivElement>(null);
   const detailsId = useId();
-  useEffect(() => {
-    if (active) setExpanded(true);
+  useLayoutEffect(() => {
+    if (active) onExpandedChange(true);
   }, [active]);
   useLayoutEffect(() => {
     const element = groupRef.current;
@@ -2714,7 +2756,7 @@ function ProposalGroup({
         type="button"
         aria-expanded={expanded}
         aria-controls={detailsId}
-        onClick={() => setExpanded((current) => !current)}
+        onClick={() => onExpandedChange(!expanded)}
         className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <IconChevronDown
@@ -2733,7 +2775,9 @@ function ProposalGroup({
           {summary}
         </span>
         <span className="shrink-0 text-muted-foreground">
-          {t("comments.proposalEditCount", { count: totalCount })}
+          {t("comments.proposalEditCount", {
+            count: pending.length || totalCount,
+          })}
         </span>
       </button>
       {expanded ? (
@@ -2796,6 +2840,19 @@ export function agentSuggestionReason(
   return reason;
 }
 
+/**
+ * A change that adds or removes a line break, or swaps one run of whitespace
+ * for another, doesn't say which lines it joins or splits, and a break alone
+ * reads as a lone "↵", so what it replaces is shown too.
+ */
+function changesLayout(removed: string, inserted: string) {
+  const before = suggestionAnchorText(removed);
+  const after = suggestionAnchorText(inserted);
+  return (
+    /\n/.test(before + after) || (/^\s+$/.test(before) && /^\s+$/.test(after))
+  );
+}
+
 function SuggestionOperationSummary({
   operations,
   expanded,
@@ -2851,6 +2908,18 @@ function SuggestionOperationSummary({
           : null;
       const hasSharedContext = diff?.some((part) => part.type === "equal");
       const richText = /[<>*_`\[\]]/.test(previousText + nextText);
+      const changed = (type: "delete" | "insert", whole: string) =>
+        diff && hasSharedContext
+          ? diff
+              .flatMap((part) => (part.type === type ? [part.text] : []))
+              .join("")
+          : whole;
+      const showReplaced =
+        expanded ||
+        changesLayout(
+          changed("delete", previousText),
+          changed("insert", nextText),
+        );
       const renderDiff = (side: "before" | "after") => {
         let offset = 0;
         const presentation =
@@ -2879,7 +2948,9 @@ function SuggestionOperationSummary({
                       to: from + part.text.length,
                     },
                   )
-                : part.text}
+                : part.type !== "equal" && /^\s+$/.test(part.text)
+                  ? suggestionTextForDisplay(part.text)
+                  : part.text}
             </span>
           );
         });
@@ -2897,7 +2968,7 @@ function SuggestionOperationSummary({
               : renderSuggestionText(nextText, nextPresentation)}
             {"”"}
           </div>
-          {expanded ? (
+          {showReplaced ? (
             <div className="text-muted-foreground">
               {t("comments.suggestionReplace")}: {"“"}
               {diff && hasSharedContext
@@ -2947,11 +3018,13 @@ function DraftSuggestionThreadView({
   surface = "rail",
   onClose,
   currentUserEmail,
+  currentUserName,
   t,
 }: {
   surface?: CommentSurface;
   onClose?: () => void;
   currentUserEmail?: string;
+  currentUserName?: string;
   marginTop?: number;
   onHeightChange: (threadId: string, height: number) => void;
   suggestion: DraftSuggestion;
@@ -2984,7 +3057,11 @@ function DraftSuggestionThreadView({
       {
         id: suggestion.id,
         author_email: suggestion.authorEmail ?? "",
-        author_name: null,
+        author_name: ownAuthorName(
+          suggestion.authorEmail,
+          currentUserEmail,
+          currentUserName,
+        ),
         created_at: suggestion.createdAt,
         content: "",
         mentions: [],
@@ -3102,11 +3179,13 @@ function SuggestionThreadView({
   surface = "rail",
   onClose,
   currentUserEmail,
+  currentUserName,
   t,
 }: {
   surface?: CommentSurface;
   onClose?: () => void;
   currentUserEmail?: string;
+  currentUserName?: string;
   compact: boolean;
   replyDrafts: ReturnType<typeof useCommentReplyDrafts>;
   marginTop?: number;
@@ -3182,6 +3261,11 @@ function SuggestionThreadView({
         author_email: suggestion.authorEmail ?? "",
         author_name:
           root?.authorName ??
+          ownAuthorName(
+            suggestion.authorEmail,
+            currentUserEmail,
+            currentUserName,
+          ) ??
           (suggestion.authorEmail ? null : suggestion.actorKind),
         created_at: suggestion.createdAt,
         content: "",
@@ -3192,6 +3276,11 @@ function SuggestionThreadView({
         author_email: comment.authorEmail ?? "",
         author_name:
           comment.authorName ??
+          ownAuthorName(
+            comment.authorEmail,
+            currentUserEmail,
+            currentUserName,
+          ) ??
           (comment.authorEmail ? null : comment.createdBy),
         created_at: comment.createdAt,
         content: comment.body,

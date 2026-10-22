@@ -1,5 +1,38 @@
 # @agent-native/scheduling
 
+## 0.2.42
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [6c3f3cb]
+- Updated dependencies [4c43f86]
+- Updated dependencies
+- Updated dependencies [9e4119f]
+  - @agent-native/toolkit@0.217.0
+
+## 0.2.41
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [31a1f1e]
+  - @agent-native/toolkit@0.216.0
+
+## 0.2.40
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [f8f4b9e]
+- Updated dependencies [0b58010]
+- Updated dependencies
+- Updated dependencies [4fd6b35]
+- Updated dependencies [11a11d9]
+- Updated dependencies [aa79d54]
+  - @agent-native/toolkit@0.215.0
+
 ## 0.2.39
 
 ### Patch Changes
@@ -1112,28 +1145,5 @@
 
 - Updated dependencies [e1ad535]
   - @agent-native/toolkit@0.4.1
-
-## 0.1.18
-
-### Patch Changes
-
-- Updated dependencies [9d8c83c]
-- Updated dependencies [9d8c83c]
-  - @agent-native/toolkit@0.4.0
-
-## 0.1.17
-
-### Patch Changes
-
-- Updated dependencies [277d115]
-  - @agent-native/toolkit@0.3.0
-
-## 0.1.16
-
-### Patch Changes
-
-- b24446e: Add `@agent-native/toolkit` for reusable app-building UI, move shared template primitives into it, and keep core UI shim imports working through compatibility re-exports.
-- Updated dependencies [b24446e]
-  - @agent-native/toolkit@0.2.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

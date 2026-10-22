@@ -198,6 +198,7 @@ const database = {
   listRowsMedium: "متوسط",
   listRowsBold: "عريض",
   listRowsNothing: "لا شيء",
+  listRowsPageText: "نص الصفحة",
   listRowsOneLine: "سطر واحد",
   listRowsLineCount: "{{count}} أسطر",
   listRowsNoStatus: "بلا حالة",

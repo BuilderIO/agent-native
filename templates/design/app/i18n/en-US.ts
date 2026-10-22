@@ -164,6 +164,23 @@ export default {
     expandSidebar: "Expand sidebar",
     collapseSidebar: "Collapse sidebar",
   },
+  gettingStarted: {
+    title: "Getting started",
+    progress: "{{completeCount}} of {{totalCount}} complete",
+    collapse: "Collapse",
+    expand: "Expand",
+    completed: "Completed",
+    loadError: "Couldn't load your checklist",
+    retry: "Retry",
+    steps: {
+      createDesign: "Create your first design",
+      addBrand: "Add your brand",
+      useRealData: "Use your real data",
+      shareFeedback: "Share for feedback",
+      inviteTeammate: "Invite a teammate",
+      saveTemplate: "Save a design as a template",
+    },
+  },
   settings: {
     agentTitle: "Manage agent",
     agentDescription:

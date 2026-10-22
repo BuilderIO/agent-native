@@ -1,5 +1,7 @@
 import type {
+  AgentSubmissionReference,
   AgentSubmissionPayload,
+  AgentRunOptions,
   AgentSuggestion,
 } from "@agent-native/agentkit/protocol";
 
@@ -201,17 +203,7 @@ export interface AgentChatStructuredMessage {
   content: AgentChatStructuredContentPart[];
 }
 
-export interface AgentChatReference {
-  type: "file" | "skill" | "mention" | "agent" | "custom-agent";
-  path: string;
-  name: string;
-  source: string;
-  refType?: string;
-  refId?: string;
-  slotKey?: string;
-  slotLabel?: string;
-  metadata?: Record<string, unknown>;
-}
+export type AgentChatReference = AgentSubmissionReference;
 
 export type MentionItemMedia =
   | {
@@ -270,6 +262,8 @@ export interface MentionProvider {
 export interface AgentChatAttachment {
   type: string;
   name: string;
+  id?: string;
+  mediaType?: string;
   displayOnly?: boolean;
   data?: string;
   url?: string;
@@ -279,6 +273,7 @@ export interface AgentChatAttachment {
   storageRequired?: boolean;
   storageUploadFailed?: boolean;
   contentType?: string;
+  referenceUrl?: string;
   text?: string;
 }
 
@@ -298,6 +293,7 @@ export interface AgentChatRequest {
   agentKitMessageId?: string;
   /** Original queue-shaped submit used for idempotent direct/queued admission. */
   submissionPayload?: AgentSubmissionPayload;
+  options?: AgentRunOptions;
   actionScope?: AgentActionScope;
   queuedMessageId?: string;
   queuedMessageClaimId?: string;

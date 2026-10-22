@@ -129,7 +129,11 @@ function syncResult(
 
 function renderLine(
   source: ContentDatabaseSource | null,
-  { canEdit = true, pageCount = 4 } = {},
+  {
+    canEdit = true,
+    pageCount = 4,
+    onOpenSource,
+  }: { canEdit?: boolean; pageCount?: number; onOpenSource?: () => void } = {},
 ) {
   renderUi(
     <GitHubSourceStatusLine
@@ -137,6 +141,7 @@ function renderLine(
       documentId="doc-1"
       canEdit={canEdit}
       pageCount={pageCount}
+      onOpenSource={onOpenSource}
     />,
   );
 }
@@ -176,6 +181,18 @@ describe("GitHub source status line", () => {
     );
     expect(edit?.getAttribute("href")).toBe(FOLDER_URL);
     expect(line.querySelector('[role="alert"]')).toBe(null);
+  });
+
+  it("opens the folder's page in Sources from where the pages come from", async () => {
+    const onOpenSource = vi.fn();
+    renderLine(githubSource(), { onOpenSource });
+    await click(button("From the docs folder on GitHub"));
+    expect(onOpenSource).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps where the pages come from as plain text with no Sources to open", () => {
+    renderLine(githubSource());
+    expect(queryButton("From the docs folder on GitHub")).toBe(null);
   });
 
   it("names the repository when the whole repository is linked", () => {

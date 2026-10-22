@@ -3,24 +3,58 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-21
+## 2026-10-22
 
 ### Fixed
 
+- Collapsed shader layers no longer interrupt other shaders on the canvas
+- Shader fills keep rendering when other screen content cannot be captured
+- Shader fills and effects render correctly on canvas elements created or updated in the editor.
+
+## 2026-10-21
+
+### Added
+
+- Pulsing Border adds moving color highlights along an element’s outline, with concentrated bright cores, colored falloff, and controls for motion and shape.
+
+### Improved
+
+- Effect thumbnails now show how shaders treat the Agent-Native mark against a quiet tonal background, making their differences easier to judge.
+- Native shader previews use less GPU memory when many mesh effects are visible.
+- Pulsing Border uses the standard Linear and Angular gradient picker for its moving border colors, with up to eight editable stops and a separate Background color. Thickness sets the bright edge, Softness feathers it, Bloom adjusts glow brightness, and Glow spread sets the halo radius. Smoke, margins, offsets, and layout settings stay grouped in collapsible sections.
+
+### Fixed
+
+- Native effects now render consistently in the editor, presentation, board overview, and design previews.
+- Opening Design no longer shows PNG export errors when no export was requested
+- Shader previews recover from temporary GPU and image failures, and PNG exports stay bound to the correct editor document.
 - Journey canvases accept partial Analytics samples when replay counts are unknown
 - Design generation now counts file renames and type changes as saved output.
 - Design reports uncertain generation outcomes clearly and confirms completed file deletions
 - Generation offers a retry when a completed run saved no design files
 
+### Removed
+
+- Remove obsolete shader catalogs and GLSL authoring controls in favor of native WebGPU shaders. Existing GLSL designs keep rendering and can be removed or replaced.
+
 ## 2026-10-20
+
+### Added
+
+- Folded Mesh adds an animated sculpted fill with editable color, shape, lighting, and noise bands.
 
 ### Improved
 
+- Shader previews reuse validated scene data while panning, including public views.
 - Phones now see a page that shares or emails the link to a larger screen, instead of an editor that isn't built for small screens.
 - Suggested prompts and the quieter Skip prompt action now share one row.
 
 ### Fixed
 
+- Read-only Design views render native shader previews in nested frames.
+- Selected screens with shader effects can be exported together as a PNG
+- Shader previews stay aligned while you zoom.
+- Signed-out sessions no longer watch for private PNG export requests
 - Public Design previews no longer show spurious export errors
 - Screen image uploads no longer overwrite edits made during the upload.
 - Failed Design generations now show an error and retry action instead of appearing complete

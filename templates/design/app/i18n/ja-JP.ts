@@ -239,6 +239,23 @@ export default {
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
   },
+  gettingStarted: {
+    title: "はじめに",
+    progress: "{{totalCount}}件中{{completeCount}}件完了",
+    collapse: "折りたたむ",
+    expand: "展開",
+    completed: "完了",
+    loadError: "チェックリストを読み込めませんでした",
+    retry: "再試行",
+    steps: {
+      createDesign: "最初のデザインを作成",
+      addBrand: "ブランドを追加",
+      useRealData: "実際のデータを使う",
+      shareFeedback: "フィードバックのために共有",
+      inviteTeammate: "チームメイトを招待",
+      saveTemplate: "デザインをテンプレートとして保存",
+    },
+  },
   settings: {
     agentTitle: "エージェントを管理",
     agentDescription:
