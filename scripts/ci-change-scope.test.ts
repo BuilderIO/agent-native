@@ -695,6 +695,61 @@ test("routes Design pin attestation inputs to core regression", () => {
   assert.deepEqual(unrelatedUnitTest.designCanvasE2eDiagnosticSpecs, []);
 });
 
+test("runs Design browser lanes only for the package paths Design proves", () => {
+  for (const path of [
+    "packages/creative-context/src/server/index.ts",
+    "packages/toolkit/src/ui/popover.tsx",
+    "packages/toolkit/src/design-tweaks/scrub-input.tsx",
+    "packages/toolkit/src/app/styles/agent-native.css",
+    "packages/core/src/collab/client.ts",
+    "packages/core/src/shared/motion-easing.ts",
+    "packages/core/package.json",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, false, path);
+    assert.equal(scope.checks.design_canvas_core_regression, true, path);
+    assert.equal(scope.checks.design_canvas_broad_workflows, true, path);
+    assert.equal(scope.checks.design_pr_e2e, true, path);
+  }
+
+  for (const path of [
+    "packages/toolkit/src/app/settings/shell/SettingsShell.tsx",
+    "packages/toolkit/src/app/org/OrgSwitcher.tsx",
+    "packages/toolkit/src/app/shared/CommandMenu.tsx",
+    "packages/toolkit/src/editor/DragHandle.ts",
+    "packages/core/src/server/builder-oauth.ts",
+    "packages/core/src/org/workspace-app-access.ts",
+    "packages/core/src/cli/index.ts",
+    "packages/recap-cli/src/index.ts",
+    "packages/toolkit/src/ui/popover.spec.tsx",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, false, path);
+    assert.equal(scope.checks.design_canvas_core_regression, false, path);
+    assert.equal(scope.checks.design_canvas_broad_workflows, false, path);
+    assert.equal(scope.checks.design_pr_e2e, false, path);
+  }
+
+  for (const path of [
+    "templates/design/app/entry.client.tsx",
+    "templates/design/scripts/runtime-budget.json",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.design_pr_e2e, true, path);
+  }
+
+  for (const path of [
+    "pnpm-lock.yaml",
+    ".github/workflows/design-e2e.yml",
+    "scripts/prebuild-workspace-packages.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, true, path);
+    assert.equal(scope.checks.design_canvas_core_regression, true, path);
+    assert.equal(scope.checks.design_canvas_broad_workflows, true, path);
+    assert.equal(scope.checks.design_pr_e2e, true, path);
+  }
+});
+
 test("routes shared Design E2E support modules and keeps dedicated lanes", () => {
   for (const path of [
     "templates/design/e2e/helpers.ts",
@@ -797,12 +852,21 @@ test("selects focused Design core regression for its runtime dependencies", () =
     "templates/design/e2e/drag-and-drop.drag-feedback.spec.ts",
     "templates/design/e2e/ai-sidebar-reporter-path.spec.ts",
     "packages/core/src/file-upload/registry.ts",
-    "packages/core/src/agent/production-agent.ts",
-    "packages/toolkit/src/app/chat/chat/run-recovery.tsx",
-    "packages/agentkit/src/protocol/agui.ts",
   ]) {
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.checks.design_canvas_core_regression, true, path);
+  }
+
+  for (const path of [
+    "packages/core/src/agent/production-agent.ts",
+    "packages/toolkit/src/app/chat/chat/run-recovery.tsx",
+    "packages/toolkit/src/app/agentkit/react/styles.css",
+    "packages/agentkit/src/protocol/agui.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.design_canvas_core_regression, false, path);
+    assert.equal(scope.checks.design_canvas_broad_workflows, true, path);
+    assert.equal(scope.checks.design_pr_e2e, true, path);
   }
 
   assert.deepEqual(

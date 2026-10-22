@@ -27,8 +27,39 @@ permissions:
   contents: read
 
 jobs:
+  # The path filter is coarse; the classifier decides whether a package change
+  # can move what these browser specs prove.
+  change-scope:
+    name: Determine Design E2E scope
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      design_pr_e2e: ${{ steps.scope.outputs.design_pr_e2e }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Classify changed paths
+        id: scope
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_PR_TITLE: ${{ github.event.pull_request.title }}
+        run: node --experimental-strip-types scripts/ci-change-scope.ts
+
   e2e:
     name: ${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/16', matrix.shard) }}
+    needs: change-scope
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'pull_request' ||
+      (needs.change-scope.result == 'success' && needs.change-scope.outputs.design_pr_e2e == 'true')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

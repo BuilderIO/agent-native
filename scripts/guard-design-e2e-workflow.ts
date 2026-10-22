@@ -18,8 +18,15 @@ const workflow = parse(
     queue?: unknown;
   };
   jobs?: {
+    "change-scope"?: {
+      if?: unknown;
+      outputs?: Record<string, unknown>;
+      steps?: Array<{ id?: unknown; run?: unknown }>;
+    };
     e2e?: {
       name?: unknown;
+      needs?: unknown;
+      if?: unknown;
       "timeout-minutes"?: unknown;
       strategy?: { matrix?: { shard?: unknown; include?: unknown } };
       steps?: Array<{
@@ -85,6 +92,20 @@ assert.equal(
 );
 assert.equal(workflow.concurrency?.["cancel-in-progress"], true);
 assert.equal(workflow.concurrency?.queue, undefined);
+const scopeJob = workflow.jobs?.["change-scope"];
+assert.equal(scopeJob?.if, "github.event_name == 'pull_request'");
+assert.deepEqual(scopeJob?.outputs, {
+  design_pr_e2e: "${{ steps.scope.outputs.design_pr_e2e }}",
+});
+assert.equal(
+  scopeJob?.steps?.find((step) => step.id === "scope")?.run,
+  "node --experimental-strip-types scripts/ci-change-scope.ts",
+);
+assert.equal(workflow.jobs?.e2e?.needs, "change-scope");
+assert.equal(
+  workflow.jobs?.e2e?.if,
+  "${{ !cancelled() && (github.event_name != 'pull_request' || (needs.change-scope.result == 'success' && needs.change-scope.outputs.design_pr_e2e == 'true')) }}",
+);
 const jobTimeout = workflow.jobs?.e2e?.["timeout-minutes"];
 assert.equal(jobTimeout, 90);
 assert.equal(

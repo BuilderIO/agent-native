@@ -152,6 +152,67 @@ const DESIGN_CANVAS_CONFIG_FILES = new Set([
   "templates/design/vite.config.ts",
 ]);
 
+// Shared package paths whose behaviour Design's browser lanes are the main
+// proof of. Design reaches over 80% of Core and Toolkit source through package
+// barrels, and every other template reaches the same files, so an import graph
+// selects nearly every package change. Other package changes are proven per PR
+// by their own suites and in Design by the nightly full run.
+const DESIGN_CANVAS_PACKAGE_FILES = new Set([
+  "packages/core/package.json",
+  "packages/core/src/client/design-system-tier-limit.ts",
+  "packages/core/src/client/motion-text.css",
+  "packages/core/src/client/motion-text.tsx",
+  "packages/core/src/client/use-pinch-zoom.ts",
+  "packages/core/src/client/zoom-gesture.ts",
+  "packages/core/src/index.ts",
+  "packages/core/src/server/builder-design-systems.ts",
+  "packages/core/src/server/collab-plugin.ts",
+  "packages/core/src/server/design-token-utils.ts",
+  "packages/core/src/server/visual-edit-bridge-capability.ts",
+  "packages/core/src/shared/inline-bytes.ts",
+  "packages/core/src/tailwind.preset.ts",
+  "packages/core/src/testing.ts",
+  "packages/toolkit/package.json",
+  "packages/toolkit/src/clipboard.ts",
+  "packages/toolkit/src/index.ts",
+]);
+
+const DESIGN_CANVAS_PACKAGE_PATH_PREFIXES = [
+  "packages/creative-context/",
+  "packages/core/src/brand-kit/",
+  "packages/core/src/client/collab/",
+  "packages/core/src/client/uploads/",
+  "packages/core/src/collab/",
+  "packages/core/src/file-upload/",
+  "packages/core/src/private-blob/",
+  "packages/core/src/shared/motion-",
+  "packages/toolkit/src/canvas-annotations/",
+  "packages/toolkit/src/canvas-interactions/",
+  "packages/toolkit/src/collab-ui/",
+  "packages/toolkit/src/design-system/",
+  "packages/toolkit/src/design-tweaks/",
+  "packages/toolkit/src/ui/",
+] as const;
+
+// The broad lane's AI sidebar loopback proves the model receives uploaded
+// image bytes through Design's chat, so chat and agent runtime select it.
+const DESIGN_CHAT_PACKAGE_FILES = new Set([
+  "packages/core/src/client/agent-chat.ts",
+  "packages/core/src/server/agent-chat-plugin.ts",
+  "packages/core/src/server/attachment-actions.ts",
+  "packages/toolkit/src/agentkit.ts",
+]);
+
+const DESIGN_CHAT_PACKAGE_PATH_PREFIXES = [
+  "packages/agentkit/",
+  "packages/core/src/agent/",
+  "packages/core/src/client/agent-chat/",
+  "packages/core/src/client/chat/",
+  "packages/toolkit/src/app/agentkit/",
+  "packages/toolkit/src/app/chat/",
+  "packages/toolkit/src/composer/",
+] as const;
+
 const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
   "packages/core/src/app-config/analytics.ts",
   "packages/core/src/client/analytics.ts",
@@ -264,6 +325,7 @@ const CHECK_NAMES = [
   "neon_connection_budget",
   "design_canvas_core_regression",
   "design_canvas_broad_workflows",
+  "design_pr_e2e",
   "pre_auth_session_replay_e2e",
   "slides_chat_e2e",
   "slides_authoring_e2e",
@@ -1019,6 +1081,27 @@ function isDesignDndRuntimePath(path: string): boolean {
   return designAppSource || designSharedRuntimeSource;
 }
 
+function isDesignCanvasPackagePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    DESIGN_CANVAS_PACKAGE_FILES.has(path) ||
+    DESIGN_CANVAS_PACKAGE_PATH_PREFIXES.some((prefix) =>
+      path.startsWith(prefix),
+    ) ||
+    (path.startsWith("packages/toolkit/src/") &&
+      path.endsWith(".css") &&
+      !isDesignChatPackagePath(path))
+  );
+}
+
+function isDesignChatPackagePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    DESIGN_CHAT_PACKAGE_FILES.has(path) ||
+    DESIGN_CHAT_PACKAGE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
+}
+
 function isContentConvergenceRuntimePath(path: string): boolean {
   if (CONTENT_CONVERGENCE_FILES.has(path)) {
     return true;
@@ -1190,10 +1273,8 @@ function buildChecks(
   const slidesChatE2eChanged = slidesE2eChanged || agentkitChanged;
   const designCanvasInteractionE2eChanged =
     changedPaths.some(isDesignDndRuntimePath) ||
-    coreChanged ||
-    toolkitChanged ||
-    agentkitChanged ||
-    hasPath(changedPaths, "packages/creative-context/");
+    changedPaths.some(isDesignCanvasPackagePath);
+  const designChatE2eChanged = changedPaths.some(isDesignChatPackagePath);
   const designCanvasPinAttestationChanged = changedPaths.some((path) =>
     DESIGN_CANVAS_PIN_ATTESTATION_FILES.has(path),
   );
@@ -1262,7 +1343,12 @@ function buildChecks(
     neon_connection_budget: coreChanged,
     design_canvas_core_regression:
       designCanvasInteractionE2eChanged || designCanvasPinAttestationChanged,
-    design_canvas_broad_workflows: designCanvasInteractionE2eChanged,
+    design_canvas_broad_workflows:
+      designCanvasInteractionE2eChanged || designChatE2eChanged,
+    design_pr_e2e:
+      hasPath(changedPaths, "templates/design/") ||
+      changedPaths.some(isDesignCanvasPackagePath) ||
+      designChatE2eChanged,
     pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
