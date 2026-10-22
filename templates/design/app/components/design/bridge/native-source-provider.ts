@@ -34,7 +34,12 @@ import {
   classifyNativeImageReplaySafety,
   type NativeReplaySafety,
 } from "./native-image-replay-safety";
+import {
+  resolveOpaquePublicAsset,
+  resolveOpaquePublicImage,
+} from "./native-opaque-public-asset";
 import { fitNativeRasterDensity } from "./native-preview-geometry";
+import { trustedOpaquePreviewParentOrigin } from "./native-preview-viewport-transport";
 import {
   composeNativeSourceAffine,
   invertNativeSourceAffine,
@@ -357,24 +362,47 @@ function authoredOpacity(
 
 export function nativeDocumentOrigin(): string {
   if (location.origin !== "null") return location.origin;
+  const parentOrigin =
+    window.frameElement?.ownerDocument.defaultView?.location.origin;
+  if (
+    parentOrigin &&
+    parentOrigin !== "null" &&
+    /^https?:$/.test(new URL(parentOrigin).protocol)
+  )
+    return parentOrigin;
   try {
-    const origin = window.parent.location.origin;
-    if (origin && origin !== "null") return origin;
+    return trustedOpaquePreviewParentOrigin(document.referrer);
   } catch {
     throw new NativeSourceError(
       "source-origin-unavailable",
       "The parent source origin could not be verified.",
     );
   }
-  throw new NativeSourceError(
-    "source-origin-unavailable",
-    "The source document has no trusted inherited origin.",
-  );
+}
+
+function nativeAssetUrl(raw: string): URL {
+  try {
+    return new URL(raw);
+  } catch {
+    const base = document.baseURI;
+    let resolvedBase: string;
+    try {
+      resolvedBase = /^https?:$/.test(new URL(base).protocol)
+        ? base
+        : document.referrer;
+      return new URL(raw, resolvedBase);
+    } catch {
+      throw new NativeSourceError(
+        "source-asset-url-unreadable",
+        "The source asset URL could not be resolved.",
+      );
+    }
+  }
 }
 
 function assertLocalAsset(raw: string): void {
   if (!raw || raw.startsWith("data:") || raw.startsWith("blob:")) return;
-  const url = new URL(raw, document.baseURI);
+  const url = nativeAssetUrl(raw);
   if (url.origin !== nativeDocumentOrigin()) {
     throw new NativeSourceError(
       "source-cross-origin",
@@ -2962,7 +2990,7 @@ async function inlineMediaPaintImages(
       let sourceUrl: URL;
       try {
         assertLocalAsset(raw);
-        sourceUrl = new URL(raw, document.baseURI);
+        sourceUrl = nativeAssetUrl(raw);
       } catch (error) {
         if (error instanceof NativeSourceError) throw error;
         throw new NativeSourceError(
@@ -2971,7 +2999,7 @@ async function inlineMediaPaintImages(
         );
       }
       const image = new Image();
-      image.src = sourceUrl.href;
+      image.src = await resolveOpaquePublicAsset(sourceUrl.href);
       try {
         await image.decode();
       } catch {
@@ -3621,10 +3649,10 @@ export class CachedLeaf<T extends HTMLElement | SVGSVGElement = HTMLElement> {
 
 function afterMaybePromise<T>(
   value: T | Promise<T>,
-  continuation: (resolved: T) => void,
+  continuation: (resolved: T) => void | Promise<void>,
 ): void | Promise<void> {
   if (value instanceof Promise) return value.then(continuation);
-  continuation(value);
+  return continuation(value);
 }
 
 function normalizeCachedLeafError(error: unknown, element?: Element): unknown {
@@ -3662,7 +3690,7 @@ async function readReplayImageSafety(
 ): Promise<NativeReplaySafety> {
   try {
     if (raw.length > MAX_REPLAY_IMAGE_BYTES * 2) return "unknown";
-    const url = new URL(raw, document.baseURI);
+    const url = nativeAssetUrl(raw);
     if (
       url.protocol !== "data:" &&
       url.protocol !== "blob:" &&
@@ -3672,7 +3700,8 @@ async function readReplayImageSafety(
     if (!["data:", "blob:", "http:", "https:"].includes(url.protocol))
       return "unknown";
     const network = url.protocol === "http:" || url.protocol === "https:";
-    const response = await fetch(url.href, {
+    const readableUrl = await resolveOpaquePublicAsset(url.href);
+    const response = await fetch(readableUrl, {
       signal,
       ...(network
         ? {
@@ -5305,48 +5334,53 @@ class SceneProvider implements NativeSceneProvider {
     if (element instanceof HTMLImageElement) {
       const imageSourceUrl = element.currentSrc || element.src;
       assertLocalAsset(imageSourceUrl);
-      const imageWidth = element.naturalWidth;
-      const imageHeight = element.naturalHeight;
-      const imageRendering = style.imageRendering;
-      if (!element.complete || imageWidth <= 0)
-        throw new NativeSourceError(
-          "source-image-pending",
-          "An image source has not finished loading.",
-        );
-      const image = mediaPlacement(
-        element,
-        mediaBox,
-        imageWidth,
-        imageHeight,
-        style,
+      return afterMaybePromise(
+        resolveOpaquePublicImage(element, imageSourceUrl),
+        (source) => {
+          const imageWidth = source.naturalWidth;
+          const imageHeight = source.naturalHeight;
+          const imageRendering = style.imageRendering;
+          if (!source.complete || imageWidth <= 0)
+            throw new NativeSourceError(
+              "source-image-pending",
+              "An image source has not finished loading.",
+            );
+          const image = mediaPlacement(
+            element,
+            mediaBox,
+            imageWidth,
+            imageHeight,
+            style,
+          );
+          const imageRect = relativeAffine(
+            element,
+            this.target,
+            this.coordinateSpace,
+            image.rect,
+            readRecordStyle,
+            undefined,
+            memo,
+          ).rect;
+          const appendImage = () => {
+            if (metrics) metrics.recordDirectAffineReads += 1;
+            out.push({
+              ...common,
+              rect: imageRect,
+              localBox: image.rect,
+              uv: image.uv,
+              kind: "image",
+              imageRendering: { value: imageRendering },
+              source,
+              imageSourceUrl,
+              width: imageWidth,
+              height: imageHeight,
+              revision: this.assetRevision,
+            });
+          };
+          recordStyles.clear();
+          return recordMediaPaint(appendImage);
+        },
       );
-      const imageRect = relativeAffine(
-        element,
-        this.target,
-        this.coordinateSpace,
-        image.rect,
-        readRecordStyle,
-        undefined,
-        memo,
-      ).rect;
-      const appendImage = () => {
-        if (metrics) metrics.recordDirectAffineReads += 1;
-        out.push({
-          ...common,
-          rect: imageRect,
-          localBox: image.rect,
-          uv: image.uv,
-          kind: "image",
-          imageRendering: { value: imageRendering },
-          source: element,
-          imageSourceUrl,
-          width: imageWidth,
-          height: imageHeight,
-          revision: this.assetRevision,
-        });
-      };
-      recordStyles.clear();
-      return recordMediaPaint(appendImage);
     }
     if (element instanceof HTMLVideoElement) {
       assertLocalAsset(element.currentSrc || element.src);
@@ -6891,7 +6925,11 @@ class SceneProvider implements NativeSceneProvider {
         continue;
       }
       const url = record.imageSourceUrl;
-      if (!url || (record.source.currentSrc || record.source.src) !== url) {
+      const localUrl = url ? await resolveOpaquePublicAsset(url) : null;
+      if (
+        !url ||
+        (record.source.currentSrc || record.source.src) !== localUrl
+      ) {
         safety = "unknown";
         continue;
       }
@@ -6910,7 +6948,7 @@ class SceneProvider implements NativeSceneProvider {
       }
       const imageSafety = await cached.result;
       if (!unchanged()) return "unknown";
-      if ((record.source.currentSrc || record.source.src) !== url)
+      if ((record.source.currentSrc || record.source.src) !== localUrl)
         return "unknown";
       if (imageSafety === "dynamic") return "dynamic";
       if (imageSafety === "unknown") safety = "unknown";

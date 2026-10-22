@@ -30,6 +30,9 @@ const listIntegrationUsageBudgetsMock = vi.hoisted(() => vi.fn());
 const reserveIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const insertAuditEventMock = vi.hoisted(() =>
+  vi.fn<typeof import("../audit/store.js").insertAuditEvent>(),
+);
 const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
@@ -193,6 +196,10 @@ vi.mock("../usage/store.js", () => ({
   recordUsage: vi.fn(),
 }));
 
+vi.mock("../audit/store.js", () => ({
+  insertAuditEvent: insertAuditEventMock,
+}));
+
 vi.mock("../agent/run-manager.js", async () => ({
   ...(await vi.importActual<typeof import("../agent/run-manager.js")>(
     "../agent/run-manager.js",
@@ -312,6 +319,7 @@ function pendingTask(
 describe("integration webhook handler engine resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    insertAuditEventMock.mockResolvedValue(undefined);
     preloadJevContextWithStatusMock.mockResolvedValue({
       context: "",
       relevantAppsContext:
@@ -440,6 +448,7 @@ describe("integration webhook handler engine resolution", () => {
         }),
       ).rejects.toThrow("thread setup failed");
 
+      expect(insertAuditEventMock).toHaveBeenCalledOnce();
       expect(reserveIntegrationUsageBudgetMock).toHaveBeenCalledOnce();
       expect(releaseIntegrationUsageBudgetMock).toHaveBeenCalledWith(
         expect.objectContaining({ budgetId: "budget-org" }),

@@ -27,6 +27,11 @@ export default defineAction({
     channels: z.array(channel).min(1).optional(),
     enabled: z.boolean().optional(),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (
     { operation, scope, ruleId, appId, unit, period, limit, channels, enabled },
     ctx,

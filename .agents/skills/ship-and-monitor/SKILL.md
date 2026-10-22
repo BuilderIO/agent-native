@@ -91,6 +91,10 @@ After `/new-branch`:
    post-merge feedback or a release/deploy failure appears, fix it on the fresh
    branch, run the smallest meaningful check, and invoke `/ship` for the
    follow-up.
+5. When beta verification is in scope, correct a beta update already posted in
+   an owned feedback thread if the matching publish fails or the affected site
+   is still not current 24 hours after the update. The task running that check
+   owns the correction.
 
 When deployed proof is in scope, keep configured, source-tested, built-runtime,
 beta-deployed, production-promoted, and observed-live claims separate. A merge

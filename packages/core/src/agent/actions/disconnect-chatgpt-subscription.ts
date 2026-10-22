@@ -23,6 +23,11 @@ export default defineAction({
         "Remove the user's unusable credential from the older experimental ChatGPT flow.",
       ),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   run: async (_args, ctx) => {
     const email = ctx?.userEmail;
     if (!email) fail("Not authenticated.", { statusCode: 401 });

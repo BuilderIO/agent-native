@@ -4428,12 +4428,16 @@ const DEFAULT_VITE_WATCH_IGNORED_DIRS = new Set([
 export function defaultViteWatchIgnored(
   root: string,
 ): (file: string) => boolean {
-  return (file) =>
-    path
-      .relative(root, file)
-      .split(/[\\/]/)
+  return (file) => {
+    const segments = path.relative(root, file).split(/[\\/]/);
+    return segments
       .slice(0, -1)
-      .some((segment) => DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment));
+      .some((segment, index) =>
+        segment === ".generated" && index === 0 && segments[1] === "bridge"
+          ? false
+          : DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment),
+      );
+  };
 }
 
 function forceServeOnly(pluginOrPreset: any): any {
