@@ -1,0 +1,115 @@
+name: Run a Slides authoring shard
+description: >-
+  Install the browsers one Slides rich-text authoring shard needs and run its
+  checks. Shared by the PR job in ci.yml and the nightly run on main, so the
+  two cannot drift apart. The caller checks out the repo and runs setup-pnpm.
+
+inputs:
+  shard:
+    description: One of chromium-authoring, corpus-and-firefox, or webkit.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Playwright browser cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: playwright-${{ runner.os }}-
+
+    - name: Install Playwright browsers
+      shell: bash
+      run: |
+        case "${{ inputs.shard }}" in
+          chromium-authoring) browsers="chromium" ;;
+          corpus-and-firefox) browsers="chromium firefox" ;;
+          webkit) browsers="webkit" ;;
+          *) echo "::error::Unknown Slides authoring shard: ${{ inputs.shard }}"; exit 1 ;;
+        esac
+        for browser in $browsers; do
+          if [ "$browser" = chromium ]; then
+            pnpm exec playwright install --only-shell --with-deps chromium
+          else
+            pnpm exec playwright install --with-deps "$browser"
+          fi
+        done
+
+    - name: Check IME Escape preserves inline slide text editing
+      if: inputs.shard == 'chromium-authoring'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+
+    - name: Check mobile PowerPoint import pending status
+      if: inputs.shard == 'chromium-authoring'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
+
+    - name: Check typing fidelity across Slides text surfaces in Chromium
+      if: inputs.shard == 'chromium-authoring'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+
+    - name: Check typing fidelity across Slides text surfaces in WebKit
+      if: inputs.shard == 'webkit'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
+
+    - name: Check rich-text authoring parity in Slides
+      if: inputs.shard == 'chromium-authoring'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
+
+    - name: Check rich-text authoring parity in Slides WebKit
+      if: inputs.shard == 'webkit'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
+
+    - name: Check rich-text authoring against the committed corpus
+      if: inputs.shard == 'corpus-and-firefox'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
+
+    - name: Run deterministic authoring smoke in Chromium
+      if: inputs.shard == 'corpus-and-firefox'
+      shell: bash
+      working-directory: templates/slides
+      run: >-
+        pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+        --seed 16 --steps 80 --browser chromium
+
+    - name: Run absolute-layout authoring smoke in Chromium
+      if: inputs.shard == 'corpus-and-firefox'
+      shell: bash
+      working-directory: templates/slides
+      run: >-
+        pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+        --seed 2 --steps 80 --browser chromium
+
+    - name: Run deterministic authoring smoke in WebKit
+      if: inputs.shard == 'webkit'
+      shell: bash
+      working-directory: templates/slides
+      env:
+        SLIDES_AUTHORING_FUZZ_TRACE: "1"
+      run: >-
+        pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+        --seed 16 --steps 80 --browser webkit
+
+    - name: Run deterministic authoring smoke in Firefox
+      if: inputs.shard == 'corpus-and-firefox'
+      shell: bash
+      working-directory: templates/slides
+      env:
+        SLIDES_AUTHORING_FUZZ_TRACE: "1"
+      run: >-
+        pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+        --seed 16 --steps 80 --browser firefox

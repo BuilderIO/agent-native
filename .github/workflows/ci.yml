@@ -51,6 +51,7 @@ jobs:
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
+      slides_authoring_matrix: ${{ steps.scope.outputs.slides_authoring_matrix }}
       slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
       changeset: ${{ steps.scope.outputs.changeset }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
@@ -1578,14 +1579,7 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - shard: chromium-authoring
-            browsers: chromium
-          - shard: corpus-and-firefox
-            browsers: chromium firefox
-          - shard: webkit
-            browsers: webkit
+      matrix: ${{ fromJSON(needs.change-scope.outputs.slides_authoring_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -1593,89 +1587,9 @@ jobs:
         with:
           restore-dist-cache: "true"
 
-      - name: Restore Playwright browser cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/slides-authoring-shard
         with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-
-      - name: Install Playwright browsers
-        run: |
-          for browser in ${{ matrix.browsers }}; do
-            if [ "$browser" = chromium ]; then
-              pnpm exec playwright install --only-shell --with-deps chromium
-            else
-              pnpm exec playwright install --with-deps "$browser"
-            fi
-          done
-
-      - name: Check IME Escape preserves inline slide text editing
-        if: matrix.shard == 'chromium-authoring'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
-
-      - name: Check mobile PowerPoint import pending status
-        if: matrix.shard == 'chromium-authoring'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
-
-      - name: Check typing fidelity across Slides text surfaces in Chromium
-        if: matrix.shard == 'chromium-authoring'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
-
-      - name: Check typing fidelity across Slides text surfaces in WebKit
-        if: matrix.shard == 'webkit'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
-
-      - name: Check rich-text authoring parity in Slides
-        if: matrix.shard == 'chromium-authoring'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
-
-      - name: Check rich-text authoring parity in Slides WebKit
-        if: matrix.shard == 'webkit'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
-
-      - name: Check rich-text authoring against the committed corpus
-        if: matrix.shard == 'corpus-and-firefox'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
-
-      - name: Run deterministic authoring smoke in Chromium
-        if: matrix.shard == 'corpus-and-firefox'
-        working-directory: templates/slides
-        run: >-
-          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
-          --seed 16 --steps 80 --browser chromium
-
-      - name: Run absolute-layout authoring smoke in Chromium
-        if: matrix.shard == 'corpus-and-firefox'
-        working-directory: templates/slides
-        run: >-
-          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
-          --seed 2 --steps 80 --browser chromium
-
-      - name: Run deterministic authoring smoke in WebKit
-        if: matrix.shard == 'webkit'
-        working-directory: templates/slides
-        env:
-          SLIDES_AUTHORING_FUZZ_TRACE: "1"
-        run: >-
-          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
-          --seed 16 --steps 80 --browser webkit
-
-      - name: Run deterministic authoring smoke in Firefox
-        if: matrix.shard == 'corpus-and-firefox'
-        working-directory: templates/slides
-        env:
-          SLIDES_AUTHORING_FUZZ_TRACE: "1"
-        run: >-
-          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
-          --seed 16 --steps 80 --browser firefox
+          shard: ${{ matrix.shard }}
 
   brain-evals:
     name: Brain evals

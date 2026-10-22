@@ -267,6 +267,7 @@ const CHECK_NAMES = [
   "pre_auth_session_replay_e2e",
   "slides_chat_e2e",
   "slides_authoring_e2e",
+  "slides_authoring_full",
   "slides_oracle",
   "changeset",
 ] as const;
@@ -314,6 +315,24 @@ export const QUERY_BUDGET_SHARD_COUNT = 2;
 // Apps the SSR cold-start smoke builds and imports. Shared packages rebuild
 // every one; a template change rebuilds only that template.
 export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
+
+// Slides authoring splits into browser shards. Shared-package changes run only
+// the first; Slides changes and full runs run all three, and the nightly run on
+// main covers the rest for shared-package changes.
+export const SLIDES_AUTHORING_SHARDS = [
+  "chromium-authoring",
+  "corpus-and-firefox",
+  "webkit",
+] as const;
+
+export function slidesAuthoringMatrix(full: boolean): {
+  include: { shard: string }[];
+} {
+  const shards = full
+    ? SLIDES_AUTHORING_SHARDS
+    : SLIDES_AUTHORING_SHARDS.slice(0, 1);
+  return { include: shards.map((shard) => ({ shard })) };
+}
 
 type CheckName = (typeof CHECK_NAMES)[number];
 
@@ -1266,6 +1285,7 @@ function buildChecks(
     pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
+    slides_authoring_full: hasPath(changedPaths, "templates/slides/"),
     slides_oracle: changedPaths.some(isSlidesOraclePath),
     changeset: changedPaths.some(isChangesetPath),
   };
@@ -1434,6 +1454,7 @@ function writeOutputs(scope: ChangeScope): void {
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
+      `slides_authoring_matrix=${JSON.stringify(slidesAuthoringMatrix(scope.checks.slides_authoring_full))}`,
       `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(

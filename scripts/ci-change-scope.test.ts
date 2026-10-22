@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   QUERY_BUDGET_APPS,
+  SLIDES_AUTHORING_SHARDS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
   shardQueryBudgetApps,
@@ -27,6 +28,7 @@ import {
   normalizeChangedPath,
   runtimeSourceChangesInTestTitledPr,
   scriptTestsForPaths,
+  slidesAuthoringMatrix,
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
 import {
@@ -271,8 +273,81 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
   assert.equal(full.checks.slides_authoring_e2e, true);
 });
 
+test("runs every Slides authoring shard for Slides and full runs, one for shared packages", () => {
+  const allShards = [...SLIDES_AUTHORING_SHARDS];
+  const shardsFor = (paths: string[]) =>
+    slidesAuthoringMatrix(
+      classifyChangedPaths(paths).checks.slides_authoring_full,
+    ).include.map((entry) => entry.shard);
+
+  assert.deepEqual(
+    shardsFor(["templates/slides/app/components/editor/Editor.tsx"]),
+    allShards,
+  );
+  assert.deepEqual(shardsFor(["pnpm-lock.yaml"]), allShards);
+  assert.deepEqual(shardsFor([".github/workflows/ci.yml"]), allShards);
+  assert.deepEqual(shardsFor(["scripts/new-ci-tool.ts"]), allShards);
+
+  for (const path of [
+    "packages/core/src/index.ts",
+    "packages/toolkit/src/app/chat/AgentKitAssistantChat.tsx",
+    "packages/creative-context/src/index.ts",
+  ]) {
+    assert.deepEqual(shardsFor([path]), ["chromium-authoring"], path);
+    assert.equal(
+      classifyChangedPaths([path]).checks.slides_authoring_e2e,
+      true,
+      path,
+    );
+  }
+
+  // Mixed changes take the wider run.
+  assert.deepEqual(
+    shardsFor(["packages/core/src/index.ts", "templates/slides/app/root.tsx"]),
+    allShards,
+  );
+});
+
+test("the nightly run and the shard action cover every Slides authoring shard", () => {
+  const nightly = readFileSync(
+    ".github/workflows/slides-authoring-nightly.yml",
+    "utf8",
+  );
+  const action = readFileSync(
+    ".github/actions/slides-authoring-shard/action.yml",
+    "utf8",
+  );
+
+  assert.match(nightly, /^\s+schedule:/mu);
+  assert.doesNotMatch(nightly, /^\s+pull_request:/mu);
+  assert.match(
+    nightly,
+    new RegExp(`shard: \\[${SLIDES_AUTHORING_SHARDS.join(", ")}\\]`, "u"),
+  );
+  for (const shard of SLIDES_AUTHORING_SHARDS) {
+    assert.match(action, new RegExp(`^\\s+${shard}\\) browsers=`, "mu"), shard);
+    assert.match(
+      action,
+      new RegExp(`inputs\\.shard == '${shard}'`, "u"),
+      shard,
+    );
+  }
+  for (const workflow of [
+    nightly,
+    readFileSync(".github/workflows/ci.yml", "utf8"),
+  ]) {
+    assert.match(
+      workflow,
+      /uses: \.\/\.github\/actions\/slides-authoring-shard/u,
+    );
+  }
+});
+
 test("retains Slides parity and corpus gates while keeping the full soak manual", () => {
-  const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const ciWorkflow = readFileSync(
+    ".github/actions/slides-authoring-shard/action.yml",
+    "utf8",
+  );
   const soakWorkflow = readFileSync(
     ".github/workflows/slides-authoring-fuzz-soak.yml",
     "utf8",
@@ -3656,6 +3731,8 @@ test(
         ".github/workflows/ci.yml",
         ".github/workflows/design-e2e.yml",
         ".github/workflows/slides-authoring-fuzz-soak.yml",
+        ".github/workflows/slides-authoring-nightly.yml",
+        ".github/actions/slides-authoring-shard/action.yml",
         "templates/design/e2e/global-setup.ts",
         "templates/design/playwright.config.ts",
         "templates/design/e2e/css-style-helpers.ts",

@@ -1,0 +1,36 @@
+name: Slides authoring nightly
+
+# PRs that change only shared packages run one Slides authoring shard. This runs
+# all three against main so a WebKit, Firefox, or corpus break from shared code
+# is caught within a day.
+on:
+  schedule:
+    - cron: "43 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: slides-authoring-nightly
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  slides-authoring:
+    name: Slides rich-text authoring (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [chromium-authoring, corpus-and-firefox, webkit]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - uses: ./.github/actions/slides-authoring-shard
+        with:
+          shard: ${{ matrix.shard }}
