@@ -1597,7 +1597,8 @@ function mountActionRoutesInternal(
                   userEmail,
                   orgId: orgId ?? null,
                   appId: options?.appId,
-                  caller,
+                  // A frontend header without UI proof is still an HTTP caller.
+                  caller: caller === "frontend" ? "http" : caller,
                   actionName: name,
                 }))
               ) {

@@ -1,8 +1,13 @@
 import { embedApp } from "@agent-native/core";
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
+  compareAndSetAppState,
   deleteAppState,
   deleteAppStateByPrefix,
   listAppState,
@@ -173,7 +178,7 @@ export default defineAction({
     "Outside agents require human approval to delete drafts.",
   schema: manageDraftSchema,
   needsApproval: (args, ctx) =>
-    (ctx?.caller === "mcp" || ctx?.caller === "a2a") &&
+    isOutsideAgentCall(ctx) &&
     args.action !== "create" &&
     args.action !== "update",
   allowPersistentApproval: false,
@@ -281,6 +286,11 @@ export default defineAction({
         fail(`Invalid draft ID "${rawId}"`, {
           errorCode: "draft_invalid_id",
         });
+      if (await readAppState(`compose-${id}`))
+        fail(`Draft "${id}" already exists; use update to revise it.`, {
+          errorCode: "draft_already_exists",
+          statusCode: 409,
+        });
       const signature = await readConfiguredSignature();
       const ownerEmail = getRequestUserEmail();
       const body = appendSignatureToBody(args.body || "", signature);
@@ -317,7 +327,20 @@ export default defineAction({
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
       const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
       if (accountEmail) draft.accountEmail = accountEmail;
-      await writeAppState(`compose-${id}`, draft);
+      const created = await compareAndSetAppState(`compose-${id}`, null, draft);
+      if (!created) {
+        if (savedGmailDraft?.created && ownerEmail) {
+          await deleteGmailDraft({
+            ownerEmail,
+            accountEmail: savedGmailDraft.accountEmail,
+            draftId: savedGmailDraft.draftId,
+          });
+        }
+        fail(`Draft "${id}" already exists; use update to revise it.`, {
+          errorCode: "draft_already_exists",
+          statusCode: 409,
+        });
+      }
       track(
         "draft_created",
         {

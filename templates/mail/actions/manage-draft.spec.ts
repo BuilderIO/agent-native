@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
   readAppState: vi.fn(),
   writeAppState: vi.fn(),
+  compareAndSetAppState: vi.fn(),
   deleteAppState: vi.fn(),
   deleteAppStateByPrefix: vi.fn(),
   listAppState: vi.fn(),
@@ -26,7 +27,8 @@ vi.mock("@agent-native/core", () => ({
   embedApp: vi.fn(() => ({})),
 }));
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (config: unknown) => config,
   fail: (message: string, options: Record<string, unknown>) => {
     const error = Object.assign(new Error(message), options);
@@ -37,6 +39,7 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: mocks.readAppState,
   writeAppState: mocks.writeAppState,
+  compareAndSetAppState: mocks.compareAndSetAppState,
   deleteAppState: mocks.deleteAppState,
   deleteAppStateByPrefix: mocks.deleteAppStateByPrefix,
   listAppState: mocks.listAppState,
@@ -93,6 +96,13 @@ beforeEach(() => {
   mocks.readAppState.mockImplementation((key: string) => appState.get(key));
   mocks.writeAppState.mockImplementation(
     (key: string, value: unknown) => void appState.set(key, value),
+  );
+  mocks.compareAndSetAppState.mockImplementation(
+    (key: string, expected: unknown, next: unknown) => {
+      if ((appState.get(key) ?? null) !== expected) return false;
+      appState.set(key, next);
+      return true;
+    },
   );
 });
 
@@ -614,7 +624,75 @@ describe("manage-draft approval", () => {
         operation !== "create" && operation !== "update",
       );
       expect(await needsApproval(args, { caller: "tool" })).toBe(false);
-      expect(await needsApproval(args)).toBe(false);
+      for (const networkProtocol of ["a2a", "mcp"] as const) {
+        expect(
+          await needsApproval(args, { caller: "tool", networkProtocol }),
+        ).toBe(operation !== "create" && operation !== "update");
+      }
+      expect(await needsApproval(args, { caller: "webmcp" })).toBe(
+        operation !== "create" && operation !== "update",
+      );
+      expect(await needsApproval(args, { caller: "frontend" })).toBe(false);
+      expect(await needsApproval(args)).toBe(
+        operation !== "create" && operation !== "update",
+      );
     },
   );
+});
+
+describe("manage-draft create collisions", () => {
+  it("refuses an existing ID without changing the draft or saving another Gmail draft", async () => {
+    const existing = {
+      id: "existing",
+      to: "recipient@example.com",
+      subject: "Keep this draft",
+      body: "Original body",
+      savedDraftId: "gmail-original",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+    };
+    appState.set("compose-existing", existing);
+
+    await expect(
+      action.run({ action: "create", id: "existing", body: "Replacement" }),
+    ).rejects.toMatchObject({
+      errorCode: "draft_already_exists",
+      statusCode: 409,
+    });
+
+    expect(appState.get("compose-existing")).toEqual(existing);
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("preserves a concurrently created draft and removes only its own new Gmail draft", async () => {
+    const competingDraft = {
+      id: "same-id",
+      body: "Concurrent draft",
+      savedDraftId: "gmail-competing",
+    };
+    mocks.saveGmailDraft.mockImplementationOnce(async () => {
+      appState.set("compose-same-id", competingDraft);
+      return {
+        draftId: "gmail-new",
+        accountEmail: "owner@example.com",
+        created: true,
+      };
+    });
+
+    await expect(
+      action.run({ action: "create", id: "same-id", body: "New draft" }),
+    ).rejects.toMatchObject({
+      errorCode: "draft_already_exists",
+      statusCode: 409,
+    });
+
+    expect(appState.get("compose-same-id")).toEqual(competingDraft);
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledExactlyOnceWith({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "gmail-new",
+    });
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
 });

@@ -92,6 +92,7 @@ export type {
   CommitActionOptions,
 } from "./action-receipt.js";
 export { ACTION_EXECUTION_KEY };
+export { isOutsideAgentCall } from "./outside-agent-call.js";
 
 /**
  * An action's recorder for a call refused before its run, kept on its

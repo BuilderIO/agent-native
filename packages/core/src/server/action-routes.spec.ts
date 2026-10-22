@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { A2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isOutsideAgentCall } from "../outside-agent-call.js";
 import {
   getRequestContext,
   getRequestRunContext,
@@ -444,6 +445,7 @@ describe("mountActionRoutes", () => {
       | "a2a";
     type Gate =
       | "needsApproval true"
+      | "outside provenance"
       | "predicate false"
       | "predicate throws"
       | "no needsApproval";
@@ -451,6 +453,12 @@ describe("mountActionRoutes", () => {
 
     const gates: Record<Gate, Record<string, unknown>> = {
       "needsApproval true": { needsApproval: true },
+      "outside provenance": {
+        needsApproval: (
+          _args: unknown,
+          ctx: Parameters<typeof isOutsideAgentCall>[0],
+        ) => isOutsideAgentCall(ctx),
+      },
       "predicate false": { needsApproval: () => false },
       "predicate throws": {
         needsApproval: () => {
