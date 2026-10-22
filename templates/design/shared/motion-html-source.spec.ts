@@ -374,6 +374,47 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it.each([
+    ["Alpine initialization", "x-init"],
+    ["Alpine effect", "x-effect"],
+  ])(
+    "rejects sibling %s directives that can mutate a document-selected Motion target",
+    (_label, directive) => {
+      const sourceWithTargetId = html.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1>',
+      );
+      const mutatingDirective = `${directive}="document.querySelector('#hero-title').style.opacity = '0'"`;
+      const source = sourceWithTargetId.replace(
+        "</main>",
+        `<button ${mutatingDirective}>Toggle</button>\n  </main>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining(directive),
+      });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+
+      const generated = apply(sourceWithTargetId).source.replace(
+        "</main>",
+        `<button ${mutatingDirective}>Toggle</button>\n  </main>`,
+      );
+      expect(readMotionHtmlSource(generated, "index.html")).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-target" },
+      });
+    },
+  );
+
   it("allows native handlers that are static or select only unrelated markup", () => {
     const safeTargetHandler = html.replace(
       '<h1 data-agent-native-node-id="hero-title">Hello</h1>',

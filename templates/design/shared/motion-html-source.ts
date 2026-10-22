@@ -402,15 +402,22 @@ function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
   return (
     ((normalized === "x-data" || normalized === "v-scope") &&
       !isStaticRuntimeScopeData(value)) ||
-    normalized === "x-init" ||
-    normalized.startsWith("x-init.") ||
-    normalized === "x-effect" ||
-    normalized.startsWith("x-effect.") ||
+    isRuntimeLifecycleMutationAttribute(name) ||
     normalized === "x-on" ||
     normalized.startsWith("x-on:") ||
     normalized === "v-on" ||
     normalized.startsWith("v-on:") ||
     normalized.startsWith("@")
+  );
+}
+
+function isRuntimeLifecycleMutationAttribute(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    normalized === "x-init" ||
+    normalized.startsWith("x-init.") ||
+    normalized === "x-effect" ||
+    normalized.startsWith("x-effect.")
   );
 }
 
@@ -681,7 +688,8 @@ function assertExecutableScriptsSafe(
 
     const targetMutatingHandler = node.attrs?.find(
       ({ name, value }) =>
-        isEventHandlerAttribute(name) &&
+        (isEventHandlerAttribute(name) ||
+          isRuntimeLifecycleMutationAttribute(name)) &&
         handlerMayMutateMotionTarget(
           value,
           node,
