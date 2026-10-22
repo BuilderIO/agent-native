@@ -78,8 +78,11 @@ const HELD_REVISION_FIELD = "reconciledRevision";
 
 const JOIN_READ_ONLY = new PluginKey("collabJoinReadOnly");
 
-/** Evidence for one stored revision; a revision that moves needs its own. */
-type JoinEvidence = { ydoc: YDoc; revision: string } & (
+/**
+ * Evidence for one stored revision, learned on one awareness; a revision or
+ * an awareness that moves needs its own.
+ */
+type JoinEvidence = { ydoc: YDoc; revision: string; target: Awareness } & (
   | { status: "pending" }
   | { status: "ready"; claims: Set<string>; current: () => boolean }
   | { status: "failed"; error: unknown }
@@ -538,10 +541,11 @@ export function useCollabReconcile({
     editor.setEditable(editableRef.current, false);
   };
   // Every revision a collaborator reported holding since this client started
-  // joining its doc. The live doc keeps the updates behind a report, so a
-  // presence list that later leaves the collaborator out, an older or partial
-  // one included, does not take the report back. Recorded on every change, so
-  // none is missed between two reads.
+  // joining its doc, on any awareness it had for it. The live doc keeps the
+  // updates behind a report, so a presence list that later leaves the
+  // collaborator out, an older, partial or new one included, does not take
+  // the report back. Recorded on every change, so none is missed between two
+  // reads.
   const joinClaimsRef = useRef<{
     ydoc: YDoc;
     awareness: Awareness;
@@ -551,8 +555,8 @@ export function useCollabReconcile({
   const readJoinClaims = (doc: YDoc, target: Awareness) => {
     let current = joinClaimsRef.current;
     if (current?.ydoc !== doc || current.awareness !== target) {
+      const claims = current?.ydoc === doc ? current.claims : new Set<string>();
       stopJoinClaims();
-      const claims = new Set<string>();
       const record = () => {
         target.getStates().forEach((state, clientId) => {
           if (clientId === doc.clientID || clientId === AGENT_CLIENT_ID) return;
@@ -575,18 +579,20 @@ export function useCollabReconcile({
   const joinEvidenceRequestRef = useRef<{
     ydoc: YDoc;
     revision: string;
+    at: number;
     cancel: () => void;
   } | null>(null);
   // When the stored body must have reached a joining doc. Evidence asked for
   // again about the same revision keeps it, and must arrive by then too, so
   // asking again cannot put the failure off; a retry or a newer revision sets
-  // a new one.
+  // a new one. Before any evidence arrives, a request asked again keeps the
+  // deadline of the one it replaces, for the same reason.
   const joinBodyDeadlineRef = useRef<{
     ydoc: YDoc;
     revision: string;
     at: number;
   } | null>(null);
-  const requestJoinEvidence = (doc: YDoc, revision: string) => {
+  const requestJoinEvidence = (doc: YDoc, revision: string, by?: number) => {
     const discover = discoverCollabPeersRef.current;
     const catchUp = requestCollabSyncRef.current;
     const target = heldRevisionAwarenessRef.current;
@@ -600,6 +606,11 @@ export function useCollabReconcile({
       return;
     current?.cancel();
     readJoinClaims(doc, target);
+    const bodyDeadline = joinBodyDeadlineRef.current;
+    const at =
+      bodyDeadline?.ydoc === doc && bodyDeadline.revision === revision
+        ? Math.min(Date.now() + JOIN_EVIDENCE_TIMEOUT_MS, bodyDeadline.at)
+        : (by ?? Date.now() + JOIN_EVIDENCE_TIMEOUT_MS);
     let settled = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let unapplied: ReturnType<typeof setTimeout> | undefined;
@@ -611,12 +622,13 @@ export function useCollabReconcile({
     joinEvidenceRequestRef.current = {
       ydoc: doc,
       revision,
+      at,
       cancel: () => {
         stop();
         clearTimeout(unapplied);
       },
     };
-    putJoinEvidence({ ydoc: doc, revision, status: "pending" });
+    putJoinEvidence({ ydoc: doc, revision, target, status: "pending" });
     holdJoinReadOnly();
     const settle = (evidence: Exclude<JoinEvidence, { status: "pending" }>) => {
       if (settled) return;
@@ -646,22 +658,22 @@ export function useCollabReconcile({
             "The stored body did not reach this document; leaving it as it is until a retry",
             error,
           );
-          putJoinEvidence({ ydoc: doc, revision, status: "failed", error });
+          putJoinEvidence({
+            ydoc: doc,
+            revision,
+            target,
+            status: "failed",
+            error,
+          });
         },
         Math.max(0, at - Date.now()),
       );
     };
     const fail = (error: unknown) =>
-      settle({ ydoc: doc, revision, status: "failed", error });
-    const bodyDeadline = joinBodyDeadlineRef.current;
+      settle({ ydoc: doc, revision, target, status: "failed", error });
     const watchdog = setTimeout(
       () => fail(new Error("Timed out")),
-      bodyDeadline?.ydoc === doc && bodyDeadline.revision === revision
-        ? Math.max(
-            0,
-            Math.min(JOIN_EVIDENCE_TIMEOUT_MS, bodyDeadline.at - Date.now()),
-          )
-        : JOIN_EVIDENCE_TIMEOUT_MS,
+      Math.max(0, at - Date.now()),
     );
     const attempt = async () => {
       const discovered = await discover();
@@ -682,6 +694,7 @@ export function useCollabReconcile({
             return settle({
               ydoc: doc,
               revision,
+              target,
               status: "ready",
               claims,
               current,
@@ -721,27 +734,34 @@ export function useCollabReconcile({
     joinBodyDeadlineRef.current = null;
     requestJoinEvidence(doc, revision);
   };
-  // Evidence a joining doc may act on: ready, about this revision, still
-  // current, and holding every report collaborators made. A report made since
-  // is not covered by its catch-up, so it catches up again.
+  // Evidence a joining doc may act on: ready, about this revision, learned on
+  // the awareness this client has now, still current, and holding every report
+  // collaborators made. A report made since is not covered by its catch-up, so
+  // it catches up again. So does evidence learned or still asked for on an
+  // awareness this client no longer has: a report can come and go on the new
+  // one before that settles, and the old one never shows it.
   const currentJoinEvidence = (doc: YDoc, revision: string) => {
     const evidence = joinEvidenceRef.current;
     const target = heldRevisionAwarenessRef.current;
     if (
       evidence?.ydoc !== doc ||
-      evidence.status !== "ready" ||
+      evidence.status === "failed" ||
       evidence.revision !== revision ||
       !target
     )
       return null;
-    if (
-      evidence.current() &&
-      readJoinClaims(doc, target).size === evidence.claims.size
-    )
-      return evidence;
-    joinEvidenceRequestRef.current?.cancel();
+    if (evidence.target === target) {
+      if (evidence.status === "pending") return null;
+      if (
+        evidence.current() &&
+        readJoinClaims(doc, target).size === evidence.claims.size
+      )
+        return evidence;
+    }
+    const retired = joinEvidenceRequestRef.current;
+    retired?.cancel();
     joinEvidenceRequestRef.current = null;
-    requestJoinEvidence(doc, revision);
+    requestJoinEvidence(doc, revision, retired?.at);
     return null;
   };
   // The stored snapshot a joining doc takes as current, props or an
@@ -842,16 +862,20 @@ export function useCollabReconcile({
   // A doc the lead merged the stored body into also holds unsaved text, so it
   // never equals the stored body. The lead's report is how a waiting client
   // learns it arrived, and a report is trusted only after catching up again.
+  // Reports count on the awareness this client has from the moment it has it,
+  // and evidence learned or still asked for on an older one is asked for again.
   useEffect(() => {
     const target = heldRevisionTarget;
     if (
       !target ||
       !ydoc ||
       joinEvidence?.ydoc !== ydoc ||
-      joinEvidence.status !== "ready"
+      joinEvidenceRef.current !== joinEvidence
     )
       return;
     const evidence = joinEvidence;
+    readJoinClaims(ydoc, target);
+    if (evidence.status === "failed") return;
     const onChange = () => {
       if (joinEvidenceRef.current === evidence && !holdsStoredBody())
         currentJoinEvidence(ydoc, evidence.revision);
@@ -867,7 +891,9 @@ export function useCollabReconcile({
   // closed tab's presence expires, is checked by asking who else is open, and
   // only if that agrees does the join start over, as a retry does. A presence
   // list that leaves a collaborator out asks once, and changes that keep this
-  // client alone ask nothing.
+  // client alone ask nothing. A new awareness on the same doc that already
+  // shows none, after one showed a collaborator, is such a change too.
+  const accompaniedFailedJoinRef = useRef<JoinEvidence | null>(null);
   useEffect(() => {
     const target = heldRevisionTarget;
     if (
@@ -888,10 +914,12 @@ export function useCollabReconcile({
       return others;
     };
     let cancelled = false;
-    let company = accompanied();
+    let company =
+      accompaniedFailedJoinRef.current === evidence || accompanied();
     const onChange = () => {
       const had = company;
       company = accompanied();
+      if (company) accompaniedFailedJoinRef.current = evidence;
       const discover = discoverCollabPeersRef.current;
       if (!had || company || !discover) return;
       const confirm = async () => {
@@ -917,6 +945,7 @@ export function useCollabReconcile({
       );
     };
     target.on("change", onChange);
+    onChange();
     return () => {
       cancelled = true;
       target.off("change", onChange);
@@ -1927,6 +1956,7 @@ export function useCollabReconcile({
           putJoinEvidence({
             ydoc: evidence.ydoc,
             revision: evidence.revision,
+            target: evidence.target,
             status: "failed",
             error,
           });
