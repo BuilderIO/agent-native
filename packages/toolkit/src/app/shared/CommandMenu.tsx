@@ -304,6 +304,10 @@ interface AppCommandBase<TAppContext> {
   preview?:
     | ReactNode
     | ((context: AppCommandContext<TAppContext>) => ReactNode);
+  /** Content rendered at the end of this command's selected row. */
+  inlinePreview?:
+    | ReactNode
+    | ((context: AppCommandContext<TAppContext>) => ReactNode);
   visibleWhen?: (context: AppCommandContext<TAppContext>) => boolean;
   enabledWhen?: (context: AppCommandContext<TAppContext>) => boolean;
   deferSelect?: boolean;
@@ -877,9 +881,10 @@ export function CommandMenu<TAppContext = unknown>({
           firstEnabledAppCommand?.value ??
           NO_COMMAND_SELECTION)
         : undefined;
+  const selectedAppCommandValue = commandMenuValue ?? selectedCommandValue;
   const previewAppCommand =
     appCommandEntries.find(
-      (entry) => entry.value === (commandMenuValue ?? selectedCommandValue),
+      (entry) => entry.value === selectedAppCommandValue,
     ) ?? selectedAppCommand;
   const appPreview = previewAppCommand?.command.preview;
   const renderedAppPreview =
@@ -973,6 +978,12 @@ export function CommandMenu<TAppContext = unknown>({
             {commands.map((command) => {
               const value = `app-command:${group.id}:${command.id}`;
               const enabled = command.enabledWhen?.(appCommandContext) ?? true;
+              const inlinePreview =
+                value === selectedAppCommandValue
+                  ? typeof command.inlinePreview === "function"
+                    ? command.inlinePreview(appCommandContext)
+                    : command.inlinePreview
+                  : null;
               return (
                 <CommandItemPrimitive
                   key={command.id}
@@ -1002,6 +1013,14 @@ export function CommandMenu<TAppContext = unknown>({
                     <CommandShortcutPrimitive>
                       {command.shortcutHint}
                     </CommandShortcutPrimitive>
+                  ) : null}
+                  {inlinePreview != null ? (
+                    <div
+                      data-testid="command-menu-app-command-preview"
+                      className="ms-auto min-w-0"
+                    >
+                      {inlinePreview}
+                    </div>
                   ) : null}
                 </CommandItemPrimitive>
               );

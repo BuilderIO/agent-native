@@ -44,6 +44,7 @@ import {
   openAgentSettings,
   useCommandMenuNestedDialog,
   useCommandMenuShortcut,
+  type AppCommandContext,
   type AppCommandGroup,
   type CommandMenuItemMatchContext,
   type CommandMenuItemMatcher,
@@ -1834,6 +1835,132 @@ describe("CommandMenu", () => {
       document.querySelector('[data-testid="command-menu-inline-preview"]')
         ?.textContent,
     ).toContain("Selected preview");
+  });
+
+  it("renders opt-in app command previews in only the selected row", () => {
+    renderAppCommands({
+      groups: [
+        {
+          id: "results",
+          order: 1,
+          commands: [
+            {
+              id: "record",
+              order: 1,
+              label: "Meeting notes",
+              inlinePreview: <span>First row preview</span>,
+              onSelect() {},
+            },
+            {
+              id: "meeting-agenda",
+              order: 2,
+              label: "Meeting agenda",
+              inlinePreview: <span>Second row preview</span>,
+              onSelect() {},
+            },
+          ],
+        },
+      ],
+    });
+
+    const firstRow = document.querySelector(
+      '[cmdk-item][data-value="app-command:results:record"]',
+    );
+    const secondRow = document.querySelector(
+      '[cmdk-item][data-value="app-command:results:meeting-agenda"]',
+    );
+    expect(
+      firstRow?.querySelector(
+        '[data-testid="command-menu-app-command-preview"]',
+      )?.textContent,
+    ).toBe("First row preview");
+    expect(
+      secondRow?.querySelector(
+        '[data-testid="command-menu-app-command-preview"]',
+      ),
+    ).toBeNull();
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    act(() =>
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+    );
+
+    expect(
+      firstRow?.querySelector(
+        '[data-testid="command-menu-app-command-preview"]',
+      ),
+    ).toBeNull();
+    expect(
+      secondRow?.querySelector(
+        '[data-testid="command-menu-app-command-preview"]',
+      )?.textContent,
+    ).toBe("Second row preview");
+  });
+
+  it("passes app context and search to an app command row preview", () => {
+    const renderPreview = vi.fn(
+      ({
+        search: currentSearch,
+        appContext,
+      }: AppCommandContext<{ workspace: string }>) => (
+        <span>{`${currentSearch}|${appContext?.workspace}`}</span>
+      ),
+    );
+    renderAppCommands({
+      initialSelection: "none",
+      context: { workspace: "alpha" },
+      groups: [
+        {
+          id: "results",
+          order: 1,
+          commands: [
+            {
+              id: "workspace",
+              order: 1,
+              label: "Open workspace",
+              inlinePreview: renderPreview,
+              onSelect() {},
+            },
+          ],
+        },
+      ],
+    });
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    const moveDown = () =>
+      act(() =>
+        input!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        ),
+      );
+    moveDown();
+
+    expect(renderPreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        search: "",
+        appContext: { workspace: "alpha" },
+      }),
+    );
+    expect(
+      document.querySelector('[data-testid="command-menu-app-command-preview"]')
+        ?.textContent,
+    ).toBe("|alpha");
+
+    search("workspace");
+    moveDown();
+    expect(
+      document.querySelector(
+        '[cmdk-item][data-value="app-command:results:workspace"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      document.querySelector('[data-testid="command-menu-app-command-preview"]')
+        ?.textContent,
+    ).toBe("workspace|alpha");
   });
 
   it("hides the app preview when a non-app result is selected", () => {
