@@ -627,6 +627,8 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 .agentkit-transcript {
   grid-column: 1;
   grid-row: 2;
+  container-name: agentkit-transcript;
+  container-type: inline-size;
   inline-size: 100%;
   min-block-size: 0;
   overflow-y: auto;
@@ -681,6 +683,22 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   );
   padding: 1.5rem 1rem;
   padding-block-start: var(--agentkit-transcript-top-inset, 1.5rem);
+}
+
+.agentkit-transcript-content[data-lane-offset-mode="responsive"] {
+  inset-inline-start: var(--agentkit-transcript-lane-offset-inline, 0px);
+}
+
+@container agentkit-transcript (max-width: 74.999rem) {
+  .agentkit-transcript-content[data-lane-offset-mode="responsive"] {
+    inset-inline-start: clamp(
+      calc(
+        (100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / -2
+      ),
+      var(--agentkit-transcript-lane-offset-inline, 0px),
+      calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / 2)
+    );
+  }
 }
 
 .agentkit-scroll-to-bottom-control {

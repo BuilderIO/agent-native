@@ -6,6 +6,7 @@ import {
 
 import { AgentWidgetView } from "../../agentkit/react/components.js";
 import {
+  useAgentKit,
   useAgentThread,
   type AgentKitRenderProps,
 } from "../../agentkit/react/context.js";
@@ -30,6 +31,7 @@ export function AgentKitActionWidget({
   value: widget,
   threadId,
 }: AgentKitRenderProps<AgentWidget>) {
+  const { dataChartLayout } = useAgentKit();
   const thread = useAgentThread(threadId);
   const data = asRecord(widget.data);
   const toolCallId = data?.toolCallId;
@@ -93,6 +95,7 @@ export function AgentKitActionWidget({
     ...(relatedResults.length > 1 ? { relatedResults } : {}),
     widgetId: widget.id,
     isRunning: tool.status === "running",
+    dataChartLayout,
     chatUI: {
       renderer: widget.kind,
       ...(widget.title ? { title: widget.title } : {}),

@@ -47,6 +47,7 @@ import React, {
   useRef,
 } from "react";
 
+import type { AgentChatDataChartLayout } from "../../agentkit/react/data-chart-layout.js";
 import {
   workedForRowChevronStyle,
   workedForRowSummaryStyle,
@@ -647,6 +648,7 @@ export function ToolCallDisplay({
   isLatestRunning = isRunning,
   isActiveTail,
   workedForRowLayout,
+  dataChartLayout,
   formatWorkedForDuration,
 }: {
   toolName: string;
@@ -670,6 +672,7 @@ export function ToolCallDisplay({
   repeatCount?: number;
   isActiveTail?: boolean;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
   /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
@@ -758,6 +761,7 @@ export function ToolCallDisplay({
       repeatCount={repeatCount}
       context={builderContext}
       workedForRowLayout={workedForRowLayout}
+      dataChartLayout={dataChartLayout}
       formatWorkedForDuration={formatWorkedForDuration}
     />,
   );
@@ -782,6 +786,7 @@ function ToolCallDisplayGeneric({
   repeatCount,
   context,
   workedForRowLayout,
+  dataChartLayout,
   formatWorkedForDuration,
 }: {
   toolName: string;
@@ -805,6 +810,7 @@ function ToolCallDisplayGeneric({
   repeatCount?: number;
   context?: string;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
@@ -919,6 +925,7 @@ function ToolCallDisplayGeneric({
     resultJson: parsedResult,
     isRunning,
     isActiveTail,
+    dataChartLayout,
     ...(typeof toolCallId === "string"
       ? { widgetId: `${toolCallId}:chat-ui` }
       : {}),
