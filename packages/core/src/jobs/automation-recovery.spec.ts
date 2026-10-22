@@ -265,6 +265,55 @@ describe("automation worker recovery", () => {
     });
   });
 
+  describe("job runner ticks", () => {
+    const runnerHistory = { ...history, runId: null, threadId: null };
+
+    it("leaves a runner tick active until its hard timeout instead of settling it as stopped", async () => {
+      mocks.history.mockResolvedValue(runnerHistory);
+      expect(
+        await inspectAutomationRecovery(
+          resource,
+          { ...meta, runner: "workflow" },
+          now,
+        ),
+      ).toEqual({ state: "active" });
+      expect(mocks.reap).not.toHaveBeenCalled();
+    });
+
+    it("settles a runner tick as interrupted once its hard timeout has passed", async () => {
+      mocks.history.mockResolvedValue({
+        ...runnerHistory,
+        startedAt: now.getTime() - 600_001,
+      });
+      expect(
+        await inspectAutomationRecovery(
+          resource,
+          {
+            ...meta,
+            runner: "workflow",
+            lastRun: new Date(now.getTime() - 600_001).toISOString(),
+          },
+          now,
+        ),
+      ).toMatchObject({
+        state: "settle",
+        status: "error",
+        errorCode: "background_automation_interrupted",
+      });
+    });
+
+    it("still settles an unlinked agent firing without a runner immediately", async () => {
+      mocks.history.mockResolvedValue(runnerHistory);
+      expect(
+        await inspectAutomationRecovery(resource, meta, now),
+      ).toMatchObject({
+        state: "settle",
+        status: "error",
+        errorCode: "background_automation_interrupted",
+      });
+    });
+  });
+
   it("settles a completed turn or history without rerunning it after a crash in finalization", async () => {
     mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
     expect(await inspectAutomationRecovery(resource, meta, now)).toMatchObject({

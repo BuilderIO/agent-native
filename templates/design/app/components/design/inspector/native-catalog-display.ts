@@ -10,6 +10,7 @@ import enUS from "@/i18n/en-US";
 type Catalog = typeof enUS.editPanel.shaders.nativeCatalog;
 export type NativeCatalogDisplayKey =
   | `editPanel.shaders.nativeCatalog.definitions.${keyof Catalog["definitions"]}`
+  | `editPanel.shaders.nativeCatalog.groups.${keyof Catalog["groups"]}`
   | `editPanel.shaders.nativeCatalog.properties.${keyof Catalog["properties"]}`
   | `editPanel.shaders.nativeCatalog.options.${keyof Catalog["options"]}`
   | `editPanel.shaders.nativeCatalog.presets.${keyof Catalog["presets"]}`;
@@ -87,12 +88,16 @@ export function nativeCatalogPropertyKey(
   label: string,
 ): NativeCatalogDisplayKey | null {
   if (!exactRegisteredDefinition(definition)) return null;
-  if (
-    !Object.values(definition.properties).some(
-      (property) => property.label === label,
-    )
-  )
-    return null;
+  const isRegisteredLabel = Object.values(definition.properties).some(
+    (property) =>
+      property.label === label ||
+      (property.type === "record-array" &&
+        (property.itemLabel === label ||
+          Object.values(property.fields).some(
+            (field) => field.label === label,
+          ))),
+  );
+  if (!isRegisteredLabel) return null;
   const key = labelKey(label);
   if (
     !Object.prototype.hasOwnProperty.call(
@@ -102,6 +107,22 @@ export function nativeCatalogPropertyKey(
   )
     return null;
   return `editPanel.shaders.nativeCatalog.properties.${key}` as NativeCatalogDisplayKey;
+}
+
+export function nativeCatalogGroupKey(
+  definition: EffectDefinition,
+  group: string,
+): NativeCatalogDisplayKey | null {
+  if (!exactRegisteredDefinition(definition)) return null;
+  const key = group.toLowerCase();
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      enUS.editPanel.shaders.nativeCatalog.groups,
+      key,
+    )
+  )
+    return null;
+  return `editPanel.shaders.nativeCatalog.groups.${key}` as NativeCatalogDisplayKey;
 }
 
 export function nativeCatalogOptionKey(

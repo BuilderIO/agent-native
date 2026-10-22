@@ -12,7 +12,9 @@ import {
 import {
   getRequestOrgId,
   getRequestUserEmail,
+  getRequestContext,
   getSession,
+  readOrgMemberRole,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import type { H3Event } from "h3";
@@ -68,18 +70,23 @@ export async function resolveOrgRole(
   userEmail: string,
   orgId: string,
 ): Promise<string | null> {
-  const { rows } = await getDbExec()
-    .execute({
-      sql: `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 AND federation_removal_pending_at IS NULL LIMIT 1`,
-      args: [orgId, userEmail.toLowerCase()],
-    })
-    .catch((error: unknown) => {
-      throw new DbAdminConnectionError(
-        503,
-        `Couldn't verify your organization role: ${redactDbAdminError(error)}`,
-      );
-    });
-  return readString((rows[0] ?? {}) as Record<string, unknown>, "role");
+  const request = getRequestContext();
+  if (
+    request?.a2aIdentityAssurance === "org-member" &&
+    (request.orgId?.trim() !== orgId.trim() ||
+      request.userEmail?.trim().toLowerCase() !==
+        userEmail.trim().toLowerCase())
+  ) {
+    return null;
+  }
+  try {
+    return await readOrgMemberRole(orgId, userEmail);
+  } catch (error) {
+    throw new DbAdminConnectionError(
+      503,
+      `Couldn't verify your organization role: ${redactDbAdminError(error)}`,
+    );
+  }
 }
 
 export async function requireAnalyticsAdminContext(input?: {

@@ -6,6 +6,7 @@ import {
   NATIVE_EFFECT_DEFINITION_CATALOG,
 } from "./native-effect-presets";
 import {
+  getNativeEffectRecordFieldPresentation,
   getNativeEffectPropertyPresentation,
   getNativeEffectPropertyPresentations,
   NATIVE_EFFECT_PROPERTY_PRESENTATIONS,
@@ -28,6 +29,36 @@ function definition(id: string, version?: number) {
 }
 
 describe("native effect display units", () => {
+  it("uses nested Folded Mesh record-field units for display and round trips", () => {
+    const folded = definition("folded-mesh", 3);
+    const lights = folded.properties.lights;
+    const noiseBands = folded.properties.noiseBands;
+    if (lights.type !== "record-array" || noiseBands.type !== "record-array")
+      throw new Error("Expected Folded Mesh record arrays");
+    const fields = [
+      lights.fields.positionX,
+      lights.fields.exponent,
+      noiseBands.fields.frequency,
+      noiseBands.fields.parabolaPower,
+    ];
+    const expected = [
+      { unit: "%", displayScale: 100, step: 1 },
+      { unit: "%", displayScale: 100 / 32, step: 1 },
+      { unit: "×", displayScale: 1, step: 1 },
+      { unit: "%", displayScale: 100 / 8, step: 0.5 },
+    ];
+    fields.forEach((field, index) => {
+      const presentation = getNativeEffectRecordFieldPresentation(field)!;
+      expect(presentation).toMatchObject(expected[index]!);
+      expect(
+        nativeEffectValueFromDisplay(
+          nativeEffectValueToDisplay(field.default as number, presentation),
+          presentation,
+        ),
+      ).toBeCloseTo(field.default as number, 10);
+    });
+  });
+
   it("reviews every numeric property of the current shader catalog and compatible versions", () => {
     expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toEqual(
       NATIVE_EFFECT_DEFINITION_CATALOG,
@@ -131,6 +162,38 @@ describe("native effect display units", () => {
     ["color-grade", 2, "warmth", -0.5, -50, "%"],
     ["color-grade", 2, "brightness", -0.2, -20, "%"],
     ["posterize", 1, "levels", 5, 5, ""],
+    ["folded-mesh", 1, "scale", 1, 100, "%"],
+    ["folded-mesh", 1, "twist", Math.PI / 2, 90, "°"],
+    ["folded-mesh", 1, "depth", 0.62, 62, "%"],
+    ["folded-mesh", 1, "softness", 0.3, 30, "%"],
+    ["folded-mesh", 2, "timeOffset", -12.5, -12.5, "s"],
+    ["folded-mesh", 2, "contrast", 1, 100, "%"],
+    ["folded-mesh", 2, "saturation", 1.25, 125, "%"],
+    ["folded-mesh", 2, "hueShift", Math.PI / 2, 90, "°"],
+    ["folded-mesh", 2, "displacementAmount", 0.62, 62, "%"],
+    ["folded-mesh", 2, "displacementFrequencyX", 12.7, 12.7, "×"],
+    ["folded-mesh", 2, "displacementFrequencyY", 1.1, 1.1, "×"],
+    ["folded-mesh", 2, "positionX", 1.5, 150, "%"],
+    ["folded-mesh", 2, "positionY", -0.5, -50, "%"],
+    ["folded-mesh", 2, "positionZ", 0.25, 25, "%"],
+    ["folded-mesh", 2, "rotationX", Math.PI / 2, 90, "°"],
+    ["folded-mesh", 2, "rotationY", Math.PI / 2, 90, "°"],
+    ["folded-mesh", 2, "rotationZ", Math.PI / 2, 90, "°"],
+    ["folded-mesh", 2, "scaleX", 1, 100, "%"],
+    ["folded-mesh", 2, "scaleY", 1.5, 150, "%"],
+    ["folded-mesh", 2, "scaleZ", 0.75, 75, "%"],
+    ["folded-mesh", 2, "twistX", Math.PI / 2, 90, "°"],
+    ["folded-mesh", 2, "twistY", -Math.PI / 2, -90, "°"],
+    ["folded-mesh", 2, "twistZ", Math.PI, 180, "°"],
+    ["folded-mesh", 2, "foldConcentrationX", 0.5, 50, "%"],
+    ["folded-mesh", 2, "foldConcentrationY", 0.12, 12, "%"],
+    ["folded-mesh", 2, "foldConcentrationZ", 0.5, 50, "%"],
+    ["folded-mesh", 2, "glowAmount", 0.45, 45, "%"],
+    ["folded-mesh", 2, "glowSpread", 0.45, 45, "%"],
+    ["folded-mesh", 2, "glowFocus", 0.5, 50, "%"],
+    ["folded-mesh", 2, "lineDensity", 300, 300, ""],
+    ["folded-mesh", 2, "lineThickness", 0.5, 50, "%"],
+    ["folded-mesh", 2, "compressionResponse", 1, 100, "%"],
     ["mesh-anchors", 5, "detail", 4, 4, ""],
     ["grain-gradient", 3, "grain", 0.065, 6.5, "%"],
   ] as const)(

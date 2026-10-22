@@ -11,6 +11,7 @@ import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { isOrgMember } from "../org/membership.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -322,19 +323,7 @@ export async function workspaceUserGroupRole(
   if (!normalizedOrgId || !normalizedEmail) {
     return null;
   }
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT role FROM org_members
-          WHERE org_id = ? AND LOWER(email) = ?
-            AND federation_removal_pending_at IS NULL
-          LIMIT 1`,
-    args: [normalizedOrgId, normalizedEmail],
-  });
-  const role = String(
-    (rows[0] as Record<string, unknown> | undefined)?.role ?? "",
-  );
-  return role === "owner" || role === "admin" || role === "member"
-    ? role
-    : null;
+  return readOrgMemberRole(normalizedOrgId, normalizedEmail);
 }
 
 export async function upsertWorkspaceUserGroup(

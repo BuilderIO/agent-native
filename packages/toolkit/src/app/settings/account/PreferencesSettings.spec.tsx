@@ -25,6 +25,9 @@ vi.mock("../VoiceTranscriptionSection.js", () => ({
     <div data-testid="voice" data-compact={String(!!compact)} />
   ),
 }));
+vi.mock("./ThemeFamilySettings.js", () => ({
+  ThemeFamilySettings: () => <div data-testid="theme-family-settings" />,
+}));
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 
@@ -70,12 +73,14 @@ describe("PreferencesSettings", () => {
     const groups = [...container.querySelectorAll("section")];
     expect(groups.map((group) => group.id)).toEqual([
       "language-region",
+      "appearance",
       "voice-input",
     ]);
     expect(groups[0]!.querySelector("h2")?.textContent).toBe(
       "Language and region",
     );
-    expect(groups[1]!.querySelector("h2")?.textContent).toBe("Voice input");
+    expect(groups[1]!.querySelector("h2")?.textContent).toBe("Appearance");
+    expect(groups[2]!.querySelector("h2")?.textContent).toBe("Voice input");
 
     const language = container.querySelector("#interface-language");
     expect(language?.textContent).toContain("Interface language");
@@ -90,8 +95,14 @@ describe("PreferencesSettings", () => {
       "Used for timestamps and scheduled automations.",
     );
 
+    const themeFamily = container.querySelector("#theme-family");
+    expect(themeFamily?.textContent).toContain("Theme family");
     expect(
-      groups[1]!
+      themeFamily?.querySelector('[data-testid="theme-family-settings"]'),
+    ).not.toBeNull();
+
+    expect(
+      groups[2]!
         .querySelector('[data-testid="voice"]')
         ?.getAttribute("data-compact"),
     ).toBe("true");

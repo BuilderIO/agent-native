@@ -9,6 +9,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { trackDesignCreated } from "./_design-tracking.js";
 
@@ -113,6 +114,7 @@ export default defineAction({
       id: newId,
       title: newTitle,
       fileCount: files.length,
+      _receipt: designOutputWriteReceipt(newId, files.length),
     };
   },
 });

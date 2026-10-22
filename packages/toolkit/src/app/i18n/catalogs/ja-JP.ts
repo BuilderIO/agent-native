@@ -769,6 +769,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "検索中...",
   "history.untitledChat": "チャット",
   "history.yesterday": "昨日",
+  "history.mine": "自分のチャット",
+  "history.sharedWithYou": "共有されたチャット",
+  "history.showAll": "すべて表示",
+  "history.showLess": "表示を減らす",
+  "history.loadMore": "さらに読み込む",
+  "history.loadingMore": "読み込み中...",
+  "history.retry": "再試行",
+  "history.loadFailed": "チャットを読み込めませんでした",
+  "history.loadMoreFailed": "チャットをさらに読み込めませんでした",
+  "history.emptyMine": "チャットはまだありません",
+  "history.emptyShared": "共有されたチャットはありません",
+  "history.ownedBy": "所有者: {{name}}",
+  "history.accessDirect": "共有されたチャット",
+  "history.accessOrganization": "組織と共有",
   "integrations.availableSection": "利用可能な連携",
   "integrations.connectedSection": "接続済み",
   "integrations.goToApiKeys": "API キーへ移動",
@@ -1462,6 +1476,17 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "閲覧者",
   "share.viewerDescription": "閲覧可能",
   "share.userGroup": "ユーザーグループ",
+  "share.ownedByAnyone": "所有者を問わない",
+  "share.ownedByMe": "自分が所有",
+  "share.sharedWithMe": "自分と共有",
+  "share.confirmOrganizationTitle": "組織と共有しますか？",
+  "share.confirmOrganizationTitleNamed": "{{organization}} と共有しますか？",
+  "share.confirmOrganizationDescription":
+    "新しいメンバーを含む、組織内のすべてのユーザーが、これを開いて、メッセージやファイルなどを含むすべての内容を見られるようになります。この設定は後から変更できます。",
+  "share.confirmOrganizationDescriptionNamed":
+    "新しいメンバーを含む、{{organization}} のすべてのユーザーが、これを開いて、メッセージやファイルなどを含むすべての内容を見られるようになります。この設定は後から変更できます。",
+  "share.confirmOrganizationAction": "組織と共有",
+  "share.confirmOrganizationSharing": "共有しています...",
   "status.resuming": "再開中",
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",
@@ -1511,6 +1536,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "作業しました",
   "tool.workedFor": "{{duration}} 作業しました",
   "widget.chart": "チャート",
+  "widget.chartActions": "チャート操作",
+  "widget.dataSources": "データソース",
+  "widget.tableActions": "テーブル操作",
   "widget.dataChart": "データチャート",
   "widget.dataInsights": "データインサイト",
   "widget.dataTable": "データテーブル",
@@ -1987,9 +2015,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "詳しい情報",
   "settingsOrg.general.workspaceUrl": "ワークスペースの URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "別のデプロイからこのワークスペースにメンバーを案内します。",
+    "この組織のアプリディレクトリをデプロイ間で接続します。",
   "settingsOrg.general.workspaceUrlHelp":
-    "別のデプロイにアクセスしたメンバーは、空のアプリではなくこのワークスペースに移動します。",
+    "他のデプロイはこの URL を使ってワークスペースアプリを検出します。メンバーが自動的にリダイレクトされることはありません。",
   "settingsOrg.general.editWorkspaceUrl": "ワークスペースの URL を編集",
   "settingsOrg.general.removeWorkspaceUrl": "ワークスペースの URL を削除",
   "settingsOrg.general.setWorkspaceUrl": "URL を設定",
@@ -2006,6 +2034,9 @@ const messages: ToolkitAgentChatTranslation = {
     "設定済み。このワークスペースのアプリが互いを検証できます。",
   "settingsOrg.auth.sharedSecretNotSet":
     "未設定。このワークスペースのアプリが互いを検証できます。",
+  "settingsOrg.auth.memberDelegation": "組織メンバーの本人確認を委任",
+  "settingsOrg.auth.memberDelegationHelp":
+    "この組織の共有シークレットを持つ接続済みアプリは、このアプリを呼び出す際に現在のメンバーであれば誰でもその本人であると主張できます。このアプリは最新のメンバー一覧を確認し、委任された組織アクセスをメンバー権限に制限します。",
   "settingsOrg.auth.secretNotSetValue": "未設定",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "表示",
@@ -2065,6 +2096,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "言語と地域",
   "settingsShell.account.languageDescription":
     "すべてのデバイスに適用されます。",
+  "settingsShell.account.appearance": "外観",
+  "settingsShell.account.themeFamily": "テーマ",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "アプリのオリジナルカラー",
+  "settingsShell.account.themeFamilySaveError":
+    "テーマを更新できませんでした。もう一度お試しください。",
   "settingsShell.account.manage": "管理",
   "settingsShell.account.name": "名前",
   "settingsShell.account.nameDescription":
@@ -3179,6 +3216,18 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "レポートは添付されませんでした。",
   "reportProblem.agentMessage":
     "アプリで問題が発生しました。添付の問題レポートをもとに、何が起きたのか説明してください。",
+  "unsupportedDevice.title": "より大きな画面で開いてください",
+  "unsupportedDevice.titleDeck": "このデッキはより大きな画面で開いてください",
+  "unsupportedDevice.titleDesign":
+    "このデザインはより大きな画面で開いてください",
+  "unsupportedDevice.body":
+    "{{app}}はiPad、タブレット、デスクトップで使えます。リンクを自分に送って、続きはそちらで。",
+  "unsupportedDevice.email": "リンクをメールで送る",
+  "unsupportedDevice.share": "リンクを共有",
+  "unsupportedDevice.copy": "リンクをコピー",
+  "unsupportedDevice.copyFailed": "リンクをコピーできませんでした",
+  "unsupportedDevice.copied": "リンクをコピーしました",
+  "unsupportedDevice.emailSubject": "パソコンで{{app}}を開く",
 };
 
 export default messages;

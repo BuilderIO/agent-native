@@ -1018,23 +1018,27 @@ export async function getContentDatabasePageResponse(
                 items.map((item) => item.documentId),
               ),
               isNull(schema.documents.trashedAt),
-              database.systemRole === "workspaces"
-                ? workspacesVisibleDocumentIds?.length
-                  ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
+              database.systemRole === "favorites"
+                ? favoritesVisibleDocumentQuery
+                  ? inArray(schema.documents.id, favoritesVisibleDocumentQuery)
                   : sql`1 = 0`
-                : database.systemRole === "files" && database.orgId
-                  ? and(
-                      eq(schema.documents.orgId, database.orgId),
-                      or(
-                        eq(schema.documents.visibility, "org"),
-                        eq(schema.documents.visibility, "public"),
-                      ),
-                      or(
-                        eq(schema.documents.hideFromSearch, 0),
-                        isNull(schema.documents.hideFromSearch),
-                      ),
-                    )
-                  : eq(schema.documents.ownerEmail, database.ownerEmail),
+                : database.systemRole === "workspaces"
+                  ? workspacesVisibleDocumentIds?.length
+                    ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
+                    : sql`1 = 0`
+                  : database.systemRole === "files" && database.orgId
+                    ? and(
+                        eq(schema.documents.orgId, database.orgId),
+                        or(
+                          eq(schema.documents.visibility, "org"),
+                          eq(schema.documents.visibility, "public"),
+                        ),
+                        or(
+                          eq(schema.documents.hideFromSearch, 0),
+                          isNull(schema.documents.hideFromSearch),
+                        ),
+                      )
+                    : eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )
       : [];

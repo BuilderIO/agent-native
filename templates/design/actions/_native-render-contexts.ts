@@ -1,8 +1,9 @@
 import { fail } from "@agent-native/core/action";
 import {
-  compareAndSetAppState,
+  compareAndSetManyAppState,
   getCurrentRequestBrowserTabId,
   readAppState,
+  type AppStateCompareAndSetOperation,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -10,13 +11,18 @@ import {
   NATIVE_RENDER_CONTEXT_LEDGER_KEY,
   NATIVE_RENDER_CONTEXT_LIMIT,
   NATIVE_RENDER_CONTEXT_TTL_MS,
+  nativeLocalExportRevisionKey,
+  nativeLocalExportStateKey,
   nativeRenderContextLedgerSchema,
   nativeRenderContextSchema,
   type NativeRenderContext,
 } from "../shared/native-local-export.js";
 import {
   classifyNativeLocalExportNavigation,
-  markNativeLocalExportDocumentReplaced,
+  expireNativeLocalExportState,
+  planNativeLocalExportDocumentRegistration,
+  readNativeLocalExportRevision,
+  readNativeLocalExportState,
 } from "./_native-local-export-server.js";
 
 function readLedger(raw: Record<string, unknown> | null): {
@@ -79,6 +85,7 @@ export async function registerNativeRenderContext(
     const context: NativeRenderContext = {
       tabId: parsedTabId.data,
       designId,
+      documentId,
       expiresAt: now + NATIVE_RENDER_CONTEXT_TTL_MS,
     };
     const contexts = [
@@ -93,16 +100,39 @@ export async function registerNativeRenderContext(
         statusCode: 409,
       });
     const next = { schemaVersion: 1 as const, contexts };
-    if (
-      await compareAndSetAppState(NATIVE_RENDER_CONTEXT_LEDGER_KEY, raw, next)
-    ) {
-      await markNativeLocalExportDocumentReplaced(
-        designId,
-        parsedTabId.data,
-        documentId,
-      );
-      return context;
-    }
+    const revision = await readNativeLocalExportRevision(
+      designId,
+      parsedTabId.data,
+    );
+    const exportRaw = await readNativeLocalExportState(
+      designId,
+      parsedTabId.data,
+    );
+    const exportCurrent = exportRaw
+      ? await expireNativeLocalExportState(exportRaw)
+      : null;
+    const exportNext = exportCurrent
+      ? planNativeLocalExportDocumentRegistration(exportCurrent, documentId)
+      : null;
+    const operations: AppStateCompareAndSetOperation[] = [
+      {
+        key: NATIVE_RENDER_CONTEXT_LEDGER_KEY,
+        expectedValue: raw,
+        nextValue: next,
+      },
+      {
+        key: nativeLocalExportRevisionKey(designId, parsedTabId.data),
+        expectedValue: revision,
+        nextValue: { schemaVersion: 1, revision: crypto.randomUUID() },
+      },
+    ];
+    if (exportCurrent && exportNext !== exportCurrent)
+      operations.push({
+        key: nativeLocalExportStateKey(designId, parsedTabId.data),
+        expectedValue: exportCurrent,
+        nextValue: exportNext,
+      });
+    if (await compareAndSetManyAppState(operations)) return context;
   }
   fail("Native editor context changed concurrently. Retry.", {
     errorCode: "native_export_context_conflict",
@@ -112,27 +142,49 @@ export async function registerNativeRenderContext(
 
 export async function listNativeRenderContexts(
   designId: string,
+  targetTabId?: string,
 ): Promise<NativeRenderContext[]> {
+  return (await readNativeRenderContextSnapshot(designId, targetTabId))
+    .contexts;
+}
+
+export async function readNativeRenderContextSnapshot(
+  designId: string,
+  targetTabId?: string,
+): Promise<{
+  contexts: NativeRenderContext[];
+  rawLedger: Record<string, unknown> | null;
+}> {
   await assertAccess("design", designId, "viewer");
-  const ledger = readLedger(
-    await readAppState(NATIVE_RENDER_CONTEXT_LEDGER_KEY),
-  );
+  const rawLedger = await readAppState(NATIVE_RENDER_CONTEXT_LEDGER_KEY);
+  const ledger = readLedger(rawLedger);
   const now = Date.now();
   const candidates = ledger.contexts.filter(
-    (entry) => entry.designId === designId && entry.expiresAt > now,
+    (entry) =>
+      entry.designId === designId &&
+      entry.expiresAt > now &&
+      (!targetTabId || entry.tabId === targetTabId),
   );
   const active = await Promise.all(
     candidates.map(async (entry) =>
       (await navigationMatches(designId, entry.tabId)) ? entry : null,
     ),
   );
-  return active.filter((entry): entry is NativeRenderContext => entry !== null);
+  return {
+    contexts: active.filter(
+      (entry): entry is NativeRenderContext => entry !== null,
+    ),
+    rawLedger,
+  };
 }
 
 export async function resolveNativeRenderContextTarget(
   designId: string,
   targetTabId: string,
-): Promise<string> {
+): Promise<{
+  context: NativeRenderContext;
+  rawLedger: Record<string, unknown>;
+}> {
   const parsedTabId =
     nativeRenderContextSchema.shape.tabId.safeParse(targetTabId);
   if (!parsedTabId.success)
@@ -140,11 +192,14 @@ export async function resolveNativeRenderContextTarget(
       errorCode: "native_export_context_not_found",
       statusCode: 404,
     });
-  const active = await listNativeRenderContexts(designId);
-  if (!active.some((entry) => entry.tabId === targetTabId))
+  const snapshot = await readNativeRenderContextSnapshot(designId, targetTabId);
+  const context = snapshot.contexts.find(
+    (entry) => entry.tabId === targetTabId,
+  );
+  if (!context || !snapshot.rawLedger)
     fail("No live matching Design editor context was found.", {
       errorCode: "native_export_context_not_found",
       statusCode: 404,
     });
-  return targetTabId;
+  return { context, rawLedger: snapshot.rawLedger };
 }

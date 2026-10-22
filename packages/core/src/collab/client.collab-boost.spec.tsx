@@ -35,11 +35,18 @@ class FakeEventSource {
 
 const USER = { name: "Me", email: "me@example.test", color: "#111111" };
 
-function Probe({ docId }: { docId: string }) {
+function Probe({
+  docId,
+  requestSource,
+}: {
+  docId: string;
+  requestSource?: string;
+}) {
   useCollaborativeDoc({
     docId,
     user: USER,
     activityResource: { resourceType: "design", resourceId: "d1" },
+    requestSource,
   });
   return null;
 }
@@ -71,13 +78,15 @@ describe("collab poll boost from presence", () => {
     });
   }
 
-  async function mountRefused() {
+  async function mountRefused(requestSource?: string) {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
     roots.push(root);
     containers.push(container);
-    act(() => root.render(<Probe docId="boost-doc" />));
+    act(() =>
+      root.render(<Probe docId="boost-doc" requestSource={requestSource} />),
+    );
     await advance(50);
     const source = FakeEventSource.instances[0];
     source.readyState = FakeEventSource.CLOSED;
@@ -286,6 +295,75 @@ describe("collab poll boost from presence", () => {
         requestSource: "other-tab",
         resourceType: "design",
         resourceId: "d2",
+      },
+    ];
+    await advance(13_000);
+    const at = sharedPolls;
+    await advance(30_000);
+    expect(sharedPolls - at).toBeLessThanOrEqual(1);
+  });
+
+  // Content and Plan post under a tab id of their own (`chat-…`), not
+  // getBrowserTabId(), and a lone editor's every update comes back in its polls.
+  it("does not boost for its own updates under the app's request source, but does for another tab's", async () => {
+    await mountRefused("chat-own-tab");
+    await advance(13_000);
+    ownPollEvents = [
+      {
+        source: "collab",
+        type: "yjs-update",
+        version: baselineVersion + 1,
+        cursorId: "own-update",
+        docId: "boost-doc",
+        requestSource: "chat-own-tab",
+        resourceType: "design",
+        resourceId: "d1",
+      },
+    ];
+    await advance(13_000);
+    const ownAt = sharedPolls;
+    await advance(30_000);
+    expect(sharedPolls - ownAt).toBeLessThanOrEqual(1);
+
+    ownPollEvents = [
+      {
+        source: "collab",
+        type: "yjs-update",
+        version: baselineVersion + 2,
+        cursorId: "other-update",
+        docId: "boost-doc",
+        requestSource: "chat-other-tab",
+        resourceType: "design",
+        resourceId: "d1",
+      },
+    ];
+    await advance(13_000);
+    const otherAt = sharedPolls;
+    await advance(30_000);
+    expect(sharedPolls - otherAt).toBeGreaterThanOrEqual(10);
+  });
+
+  // Plan keeps presence open on a resource under one source while its
+  // markdown editors come and go under another.
+  it("does not boost for a closed doc's late echo while another doc keeps the resource open", async () => {
+    await mountRefused("chat-closed-doc");
+    await advance(13_000);
+    act(() =>
+      roots[0].render(
+        <Probe docId="remaining-doc" requestSource="chat-remaining-doc" />,
+      ),
+    );
+    await advance(13_000);
+    ownPollEvents = [
+      {
+        source: "collab",
+        type: "yjs-update",
+        version: baselineVersion + 1,
+        cursorId: "late-echo",
+        docId: "boost-doc",
+        requestSource: "chat-closed-doc",
+        resourceType: "design",
+        resourceId: "d1",
       },
     ];
     await advance(13_000);

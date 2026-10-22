@@ -187,6 +187,21 @@ describe("useResourceAccessGate", () => {
     ).toBe(false);
   });
 
+  it("checks every 12 seconds while the resource is in Trash, so a restore reopens it", () => {
+    render({ state: "trashed" });
+    const options = mocks.useActionQuery.mock.calls[0][2];
+
+    expect(
+      options.refetchInterval({ state: { data: { state: "trashed" } } }),
+    ).toBe(12_000);
+    expect(
+      options.refetchInterval({ state: { data: { state: "missing" } } }),
+    ).toBe(false);
+
+    render({ state: "allowed", role: "owner" });
+    expect(onAccessGranted).toHaveBeenCalledTimes(1);
+  });
+
   it("asks for access with a trimmed note, then checks the status again", async () => {
     render({ state: "denied", canRequest: true });
 

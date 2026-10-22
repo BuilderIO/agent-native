@@ -24,6 +24,7 @@ export interface AutomationDetailsField {
 
 export interface AutomationDetailsDialogProps {
   open: boolean;
+  resourceId: string;
   name: string;
   triggerSummary: string;
   fields: AutomationDetailsField[];
@@ -52,6 +53,7 @@ function RunStatusDot({ status }: { status: string }) {
 }
 
 export function AutomationDetailsDialog({
+  resourceId,
   open,
   name,
   triggerSummary,
@@ -66,7 +68,7 @@ export function AutomationDetailsDialog({
   onClose,
 }: AutomationDetailsDialogProps) {
   const t = useT();
-  const runsQuery = useAutomationRuns(scope, open ? name : null, open);
+  const runsQuery = useAutomationRuns(open ? { resourceId } : null, open);
   const runs = runsQuery.data ?? [];
 
   return (

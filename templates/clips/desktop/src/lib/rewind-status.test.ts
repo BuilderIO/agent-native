@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { ScreenMemoryConfig, ScreenMemoryStatus } from "../shared/config";
+import type {
+  RewindCaptureMode,
+  ScreenMemoryActiveSegment,
+  ScreenMemoryConfig,
+  ScreenMemoryStatus,
+} from "../shared/config";
 import { getRewindStatusPresentation } from "./rewind-status";
 
 const config: ScreenMemoryConfig = {
@@ -17,6 +22,19 @@ const config: ScreenMemoryConfig = {
   excludedBundleIds: [],
   excludePrivateWindows: true,
 };
+
+function activeSegment(
+  captureMode: RewindCaptureMode,
+): ScreenMemoryActiveSegment {
+  return {
+    id: "segment-1-0",
+    path: "/tmp/rewind/segment-1-0.mov",
+    mimeType: "video/quicktime",
+    startedAt: "2026-10-16T12:00:00Z",
+    durationMs: 1000,
+    captureMode,
+  };
+}
 
 function status(patch: Partial<ScreenMemoryStatus> = {}): ScreenMemoryStatus {
   return {
@@ -52,9 +70,9 @@ describe("getRewindStatusPresentation", () => {
     },
     {
       name: "recording",
-      input: status(),
+      input: status({ activeSegment: activeSegment("visuals") }),
       kind: "recording",
-      title: "Rewind is remembering",
+      title: "Rewind is remembering screen only",
     },
     {
       name: "excluded",
@@ -123,16 +141,53 @@ describe("getRewindStatusPresentation", () => {
   it("keeps live capture truthful while surfacing an auxiliary error", () => {
     const error = "Could not write visual index metadata.";
     const presentation = getRewindStatusPresentation({
-      status: status({ state: "recording", lastError: error }),
+      status: status({
+        state: "recording",
+        activeSegment: activeSegment("visuals"),
+        lastError: error,
+      }),
       config,
     });
 
     expect(presentation.kind).toBe("recording");
-    expect(presentation.title).toBe("Rewind is remembering");
+    expect(presentation.title).toBe("Rewind is remembering screen only");
     expect(presentation.detail).toBe(error);
     expect(presentation.isLive).toBe(true);
     expect(presentation.hasError).toBe(true);
   });
+
+  it.each([
+    {
+      configured: "visuals",
+      captured: "visuals-audio",
+      title: "Rewind is remembering screen + audio",
+    },
+    {
+      configured: "visuals-audio",
+      captured: "visuals-audio",
+      title: "Rewind is remembering screen + audio",
+    },
+    {
+      configured: "visuals-audio",
+      captured: "visuals",
+      title: "Rewind is remembering screen only",
+    },
+  ] as const)(
+    "names audio from the $captured segment when Remember is $configured",
+    ({ configured, captured, title }) => {
+      const captureConfig = { ...config, captureMode: configured };
+      const presentation = getRewindStatusPresentation({
+        status: status({
+          config: captureConfig,
+          activeSegment: activeSegment(captured),
+        }),
+        config: captureConfig,
+      });
+
+      expect(presentation.title).toBe(title);
+      expect(presentation.isLive).toBe(true);
+    },
+  );
 
   it("uses native config when status and observed config disagree", () => {
     const presentation = getRewindStatusPresentation({

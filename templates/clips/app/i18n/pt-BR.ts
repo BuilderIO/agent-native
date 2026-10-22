@@ -1995,6 +1995,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}}",
     couldNotStartRecording: "Could not start recording",
+    intakeStorageUnavailable:
+      "O proprietário deste link precisa conectar um armazenamento de vídeo antes que você possa gravar. Peça que ele faça isso e tente novamente.",
+    streamingStorageUnavailable:
+      "O armazenamento atual não oferece suporte ao envio retomável exigido pelo Clips. Configure um provedor compatível ou peça a um proprietário ou administrador do workspace para fazer isso. Depois, inicie uma nova gravação.",
     couldNotStartRecorder: "Could not start recorder",
     openSettings: "Open settings",
     openedRecorderInNewTab: "Opened recorder in a new tab",
@@ -2026,6 +2030,8 @@ const messages = {
     sessionExpired: "Session expired",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording.",
+    accountMismatch:
+      "A conta conectada mudou depois que você começou a preparar a gravação. Volte para a conta que estava usando no início e tente novamente.",
     logIn: "Log in",
     betterInDesktop: "Better in the desktop app",
     desktopAppDescription:
@@ -2039,8 +2045,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab",
     retryUpload: "Tentar enviar novamente",
     tryAgain: "Tentar novamente",
-    storageConnectedReopeningRecorder:
-      "Armazenamento conectado. Reabrindo o gravador...",
+    storageConnectedRecorderReady:
+      "Armazenamento conectado. Inicie uma nova gravação quando estiver pronto.",
     connectStorageToFinish:
       "Na próxima tela, use o armazenamento do Builder.io (armazenamento e IA no plano gratuito) ou configure um armazenamento compatível com S3. Clips concluirá o salvamento.",
     connectStorageToRetryLoom:

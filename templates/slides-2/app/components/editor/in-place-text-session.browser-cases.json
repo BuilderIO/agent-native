@@ -1,0 +1,983 @@
+[
+  {
+    "id": "backspace-delete-001",
+    "area": "backspace-delete",
+    "title": "Backspace mid-word deletes one character",
+    "html": "<p>foo b|ar</p>",
+    "steps": ["Backspace"],
+    "expected": "<p>foo |ar</p>"
+  },
+  {
+    "id": "backspace-delete-003",
+    "area": "backspace-delete",
+    "title": "Alt+Backspace with caret after a space",
+    "html": "<p>foo |bar</p>",
+    "steps": ["Alt+Backspace"],
+    "expected": "<p>|bar</p>",
+    "macOnly": true
+  },
+  {
+    "id": "backspace-delete-005",
+    "area": "backspace-delete",
+    "title": "Mod+Backspace mid-line deletes to line start",
+    "html": "<p>foo bar| baz</p>",
+    "steps": ["Mod+Backspace"],
+    "expected": "<p>| baz</p>",
+    "macOnly": true
+  },
+  {
+    "id": "backspace-delete-021",
+    "area": "backspace-delete",
+    "title": "Heading after an empty paragraph at Backspace",
+    "html": "<p></p><h2>|Head</h2>",
+    "steps": ["Backspace"],
+    "expected": "<h2>|Head</h2>"
+  },
+  {
+    "id": "backspace-delete-022",
+    "area": "backspace-delete",
+    "title": "Empty first heading at document start",
+    "html": "<h1>|</h1>",
+    "steps": ["Backspace"],
+    "expected": "<p>|</p>"
+  },
+  {
+    "id": "backspace-delete-028",
+    "area": "backspace-delete",
+    "title": "Delete in empty paragraph before a heading",
+    "html": "<p>|</p><h2>Head</h2>",
+    "steps": ["Delete"],
+    "expected": "<h2>|Head</h2>"
+  },
+  {
+    "id": "backspace-delete-032",
+    "area": "backspace-delete",
+    "title": "Backspace at start of nested list item",
+    "html": "<ul><li>a<ul><li>|b</li></ul></li></ul>",
+    "steps": ["Backspace"],
+    "expected": "<ul><li>a</li><li>|b</li></ul>"
+  },
+  {
+    "id": "backspace-delete-034",
+    "area": "backspace-delete",
+    "title": "Backspace in empty list item after text item",
+    "html": "<ul><li>a</li><li>|</li></ul>",
+    "steps": ["Backspace"],
+    "expected": "<ul><li>a</li></ul><p>|</p>"
+  },
+  {
+    "id": "backspace-delete-037",
+    "area": "backspace-delete",
+    "title": "Backspace at start of paragraph after blockquote",
+    "html": "<blockquote><p>a</p></blockquote><p>|b</p>",
+    "steps": ["Backspace"],
+    "expected": "<blockquote><p>a|b</p></blockquote>"
+  },
+  {
+    "id": "backspace-delete-044",
+    "area": "backspace-delete",
+    "title": "Enter in list item then Backspace",
+    "html": "<ul><li>a|</li></ul>",
+    "steps": ["Enter", "Backspace", "Backspace"],
+    "expected": "<ul><li>a|</li></ul>"
+  },
+  {
+    "id": "clipboard-008",
+    "area": "clipboard",
+    "title": "Plain paste at end of link text does not extend the link",
+    "html": "<p><a href=\"https://x.co\">go|</a></p>",
+    "steps": ["paste-text:Z", "type:q"],
+    "expected": "<p><a href=\"https://x.co\">go</a>Zq|</p>"
+  },
+  {
+    "id": "clipboard-014",
+    "area": "clipboard",
+    "title": "URL inside a sentence pasted over selection",
+    "html": "<p>[click]</p>",
+    "steps": ["paste-text:see https://a.co"],
+    "expected": "<p>see <a href=\"https://a.co\">https://a.co</a>|</p>"
+  },
+  {
+    "id": "clipboard-015",
+    "area": "clipboard",
+    "title": "Bare www domain pasted over selection",
+    "html": "<p>[docs]</p>",
+    "steps": ["paste-text:www.example.com"],
+    "expected": "<p>[<a href=\"http://www.example.com\">docs</a>]</p>"
+  },
+  {
+    "id": "clipboard-016",
+    "area": "clipboard",
+    "title": "Email address pasted over selection",
+    "html": "<p>[mail]</p>",
+    "steps": ["paste-text:me@example.com"],
+    "expected": "<p>[<a href=\"mailto:me@example.com\">mail</a>]</p>"
+  },
+  {
+    "id": "clipboard-017",
+    "area": "clipboard",
+    "title": "URL pasted at a collapsed caret is plain text",
+    "html": "<p>see |here</p>",
+    "steps": ["paste-text:https://a.co"],
+    "expected": "<p>see <a href=\"https://a.co\">https://a.co</a>|here</p>"
+  },
+  {
+    "id": "clipboard-018",
+    "area": "clipboard",
+    "title": "Inline marks in pasted HTML survive, then typing",
+    "html": "<p>a|b</p>",
+    "steps": ["paste-html:<b>X</b><i>Y</i>", "type:z"],
+    "expected": "<p>a<b>X</b><i>Yz</i>|b</p>"
+  },
+  {
+    "id": "clipboard-020",
+    "area": "clipboard",
+    "title": "Google Docs wrapper with font-weight normal",
+    "html": "<p>a|b</p>",
+    "steps": [
+      "paste-html:<b style=\"font-weight:normal\" id=\"docs-internal-guid-1\"><span style=\"font-weight:700\">Hi</span> there</b>"
+    ],
+    "expected": "<p>a<b>Hi</b> there|b</p>"
+  },
+  {
+    "id": "clipboard-021",
+    "area": "clipboard",
+    "title": "Bare URL text in pasted HTML",
+    "html": "<p>a|b</p>",
+    "steps": ["paste-html:see https://a.co now"],
+    "expected": "<p>asee <a href=\"https://a.co\">https://a.co</a> now|b</p>"
+  },
+  {
+    "id": "clipboard-023",
+    "area": "clipboard",
+    "title": "Block paste into empty paragraph, then undo",
+    "html": "<p>|</p>",
+    "steps": ["paste-html:<h2>T</h2><p>b</p>", "undo"],
+    "expected": "<p>|</p>"
+  },
+  {
+    "id": "clipboard-035",
+    "area": "clipboard",
+    "title": "Plain numbered line in an empty paragraph",
+    "html": "<p>|</p>",
+    "steps": ["paste-text:1. a"],
+    "expected": "<ol><li>a|</li></ol>"
+  },
+  {
+    "id": "enter-split-001",
+    "area": "enter-split",
+    "title": "Enter mid-paragraph splits at the caret",
+    "html": "<p>Hel|lo</p>",
+    "steps": ["Enter", "type:abc"],
+    "expected": "<p>Hel</p><p>abc|lo</p>"
+  },
+  {
+    "id": "enter-split-004",
+    "area": "enter-split",
+    "title": "Enter in an empty paragraph",
+    "html": "<p>|</p>",
+    "steps": ["Enter", "type:x"],
+    "expected": "<p></p><p>x|</p>"
+  },
+  {
+    "id": "enter-split-005",
+    "area": "enter-split",
+    "title": "Repeated Enter in an empty paragraph",
+    "html": "<p>|</p>",
+    "steps": ["Enter", "Enter", "Enter", "type:x"],
+    "expected": "<p></p><p></p><p></p><p>x|</p>"
+  },
+  {
+    "id": "enter-split-010",
+    "area": "enter-split",
+    "title": "Enter in an empty h2",
+    "html": "<h2>|</h2>",
+    "steps": ["Enter", "type:abc"],
+    "expected": "<h2></h2><p>abc|</p>"
+  },
+  {
+    "id": "enter-split-016",
+    "area": "enter-split",
+    "title": "Shift+Enter at end of link leaves the link",
+    "html": "<p><a href=x>ab|</a></p>",
+    "steps": ["Shift+Enter", "type:c"],
+    "expected": "<p><a href=\"x\">ab</a><br>c|</p>"
+  },
+  {
+    "id": "enter-split-026",
+    "area": "enter-split",
+    "title": "Enter on empty nested item that is not last",
+    "html": "<ul><li>A<ul><li>|</li><li>B</li></ul></li></ul>",
+    "steps": ["Enter", "type:x"],
+    "expected": "<ul><li>A</li><li>x|<ul><li>B</li></ul></li></ul>"
+  },
+  {
+    "id": "enter-split-027",
+    "area": "enter-split",
+    "title": "Repeated Enter on empty nested item",
+    "html": "<ul><li>A<ul><li>|</li></ul></li></ul>",
+    "steps": ["Enter", "Enter", "type:x"],
+    "expected": "<ul><li>A</li></ul><p>x|</p>"
+  },
+  {
+    "id": "enter-split-040",
+    "area": "enter-split",
+    "title": "Select all across blocks then Enter",
+    "html": "<h1>Ti|tle</h1><p>body</p>",
+    "steps": ["Mod+a", "Enter", "type:x"],
+    "expected": "<h1></h1><p>x|</p>"
+  },
+  {
+    "id": "enter-split-042",
+    "area": "enter-split",
+    "title": "Enter at start of heading then Backspace",
+    "html": "<h1>|Title</h1>",
+    "steps": ["Enter", "Backspace", "type:x"],
+    "expected": "<h1>x|Title</h1>"
+  },
+  {
+    "id": "enter-split-045",
+    "area": "enter-split",
+    "title": "Enter at end of list item then Backspace",
+    "html": "<ul><li>ab|</li></ul>",
+    "steps": ["Enter", "Backspace", "type:x"],
+    "expected": "<ul><li>ab</li></ul><p>x|</p>"
+  },
+  {
+    "id": "headings-blocks-005",
+    "area": "headings-blocks",
+    "title": "Mod+Alt+1 on a caret inside a list item",
+    "html": "<ul><li>Ti|tle</li></ul>",
+    "steps": ["Mod+Alt+1"],
+    "expected": "<ul><li>Ti|tle</li></ul>",
+    "macOnly": true
+  },
+  {
+    "id": "headings-blocks-006",
+    "area": "headings-blocks",
+    "title": "Heading shortcut then undo restores the paragraph",
+    "html": "<p>Hel|lo</p>",
+    "steps": ["Mod+Alt+1", "undo"],
+    "expected": "<p>Hel|lo</p>",
+    "macOnly": true
+  },
+  {
+    "id": "headings-blocks-009",
+    "area": "headings-blocks",
+    "title": "Typing '> ' at the start of an empty paragraph starts a quote",
+    "html": "<p>|</p>",
+    "steps": ["type:> ", "type:Hi"],
+    "expected": "<blockquote><p>Hi|</p></blockquote>"
+  },
+  {
+    "id": "headings-blocks-010",
+    "area": "headings-blocks",
+    "title": "Typing '# ' at the start of a paragraph converts it to an h1",
+    "html": "<p>|Hi</p>",
+    "steps": ["type:# "],
+    "expected": "<h1>|Hi</h1>"
+  },
+  {
+    "id": "headings-blocks-012",
+    "area": "headings-blocks",
+    "title": "Enter at the end of an h2 creates a new block after it",
+    "html": "<h2>Title|</h2>",
+    "steps": ["Enter", "type:ab"],
+    "expected": "<h2>Title</h2><p>ab|</p>"
+  },
+  {
+    "id": "headings-blocks-014",
+    "area": "headings-blocks",
+    "title": "Enter in the middle of an h2",
+    "html": "<h2>Ti|tle</h2>",
+    "steps": ["Enter", "type:ab"],
+    "expected": "<h2>Ti</h2><h2>ab|tle</h2>"
+  },
+  {
+    "id": "headings-blocks-015",
+    "area": "headings-blocks",
+    "title": "Enter in an empty h1 that is the only block",
+    "html": "<h1>|</h1>",
+    "steps": ["Enter", "type:ab"],
+    "expected": "<h1></h1><p>ab|</p>"
+  },
+  {
+    "id": "headings-blocks-016",
+    "area": "headings-blocks",
+    "title": "Enter at end of heading then Backspace on the new empty block",
+    "html": "<h2>Title|</h2>",
+    "steps": ["Enter", "Backspace", "type:x"],
+    "expected": "<h2>Titlex|</h2>"
+  },
+  {
+    "id": "headings-blocks-023",
+    "area": "headings-blocks",
+    "title": "Backspace at the start of a paragraph after a blockquote holding an h2",
+    "html": "<blockquote><h2>a</h2></blockquote><p>|b</p>",
+    "steps": ["Backspace"],
+    "expected": "<blockquote><h2>a|b</h2></blockquote>"
+  },
+  {
+    "id": "headings-blocks-034",
+    "area": "headings-blocks",
+    "title": "Forward Delete at the end of an h2 before a paragraph",
+    "html": "<h2>Title|</h2><p>Body</p>",
+    "steps": ["Delete"],
+    "expected": "<h2>Title|Body</h2>"
+  },
+  {
+    "id": "history-001",
+    "area": "history",
+    "title": "Two typed runs with no pause undo as one step back to the original",
+    "html": "<p>Hel|lo</p>",
+    "steps": ["type:ab", "type:cd", "undo"],
+    "expected": "<p>Hel|lo</p>"
+  },
+  {
+    "id": "history-003",
+    "area": "history",
+    "title": "Repeated undo on an empty paragraph restores the empty paragraph exactly",
+    "html": "<p>|</p>",
+    "steps": ["type:hello", "undo", "undo"],
+    "expected": "<p>|</p>"
+  },
+  {
+    "id": "history-004",
+    "area": "history",
+    "title": "Redo after undo returns the identical typed document",
+    "html": "<p>|ab</p>",
+    "steps": ["type:xy", "Mod+z", "Mod+Shift+z"],
+    "expected": "<p>xy|ab</p>"
+  },
+  {
+    "id": "history-005",
+    "area": "history",
+    "title": "A new edit after undo makes redo a no-op",
+    "html": "<p>He|llo</p>",
+    "steps": ["type:x", "Mod+z", "type:y", "Mod+Shift+z"],
+    "expected": "<p>Hey|llo</p>"
+  },
+  {
+    "id": "history-006",
+    "area": "history",
+    "title": "Two Backspace presses in a word undo as two steps",
+    "html": "<p>ab|c</p>",
+    "steps": ["Backspace", "Backspace", "undo"],
+    "expected": "<p>ab|c</p>"
+  },
+  {
+    "id": "history-007",
+    "area": "history",
+    "title": "Two Backspaces in a word then two undos return the original text",
+    "html": "<p>ab|c</p>",
+    "steps": ["Backspace", "Backspace", "undo", "undo"],
+    "expected": "<p>ab|c</p>"
+  },
+  {
+    "id": "history-018",
+    "area": "history",
+    "title": "Breaking out of a list after an edit, then undoing back through the break",
+    "html": "<ul><li>|ab</li></ul>",
+    "steps": ["type:x", "Backspace", "Backspace", "undo"],
+    "expected": "<ul><li>|ab</li></ul>"
+  },
+  {
+    "id": "history-019",
+    "area": "history",
+    "title": "Backspace at start of a blockquote paragraph breaks out, then undo",
+    "html": "<blockquote><p>|ab</p></blockquote>",
+    "steps": ["type:x", "Backspace", "Backspace", "undo"],
+    "expected": "<blockquote><p>|ab</p></blockquote>"
+  },
+  {
+    "id": "history-036",
+    "area": "history",
+    "title": "Typing a bullet marker and its space, then undoing twice, returns an empty paragraph",
+    "html": "<p>|</p>",
+    "steps": ["type:*", "type: ", "undo", "undo"],
+    "expected": "<p>|</p>"
+  },
+  {
+    "id": "history-037",
+    "area": "history",
+    "title": "Enter on an empty ordered list item exits the list, then undo",
+    "html": "<ol><li>ab</li><li>|</li></ol>",
+    "steps": ["Enter", "undo"],
+    "expected": "<ol><li>ab</li><li>|</li></ol>"
+  },
+  {
+    "id": "inline-marks-001",
+    "area": "inline-marks",
+    "title": "Partial range with one bold run gets bold applied to all",
+    "html": "<p>[ab<b>cd</b>e]</p>",
+    "steps": ["Mod+b"],
+    "expected": "<p>[<b>abcde</b>]</p>"
+  },
+  {
+    "id": "inline-marks-003",
+    "area": "inline-marks",
+    "title": "Partial bold range selected backward",
+    "html": "<p>[ab<b>cd</b>e]</p>",
+    "backward": true,
+    "steps": ["Mod+b"],
+    "expected": "<p>[<b>abcde</b>]</p>"
+  },
+  {
+    "id": "inline-marks-005",
+    "area": "inline-marks",
+    "title": "Range runs one character past a bold run",
+    "html": "<p>[<b>ab</b>c]d</p>",
+    "steps": ["Mod+b"],
+    "expected": "<p>[<b>abc</b>]d</p>"
+  },
+  {
+    "id": "inline-marks-006",
+    "area": "inline-marks",
+    "title": "Plain range that touches a bold run edge",
+    "html": "<p>[ab]<b>cd</b></p>",
+    "steps": ["Mod+b"],
+    "expected": "<p>[<b>ab</b>]<b>cd</b></p>"
+  },
+  {
+    "id": "inline-marks-008",
+    "area": "inline-marks",
+    "title": "Collapsed caret bold applies to the next typed text",
+    "html": "<p>a|c</p>",
+    "steps": ["Mod+b", "type:x"],
+    "expected": "<p>a<b>x</b>|c</p>"
+  },
+  {
+    "id": "inline-marks-009",
+    "area": "inline-marks",
+    "title": "ArrowRight drops a pending bold",
+    "html": "<p>a|c</p>",
+    "steps": ["Mod+b", "ArrowRight", "type:x"],
+    "expected": "<p>acx|</p>"
+  },
+  {
+    "id": "inline-marks-011",
+    "area": "inline-marks",
+    "title": "Pending bold on an empty paragraph after idle time",
+    "html": "<p>|</p>",
+    "steps": [
+      "Mod+b",
+      "settle",
+      "settle",
+      "settle",
+      "settle",
+      "settle",
+      "type:x"
+    ],
+    "expected": "<p><b>x</b>|</p>"
+  },
+  {
+    "id": "inline-marks-012",
+    "area": "inline-marks",
+    "title": "ArrowLeft at block start with pending italic",
+    "html": "<p>|</p>",
+    "steps": ["Mod+i", "ArrowLeft", "type:x"],
+    "expected": "<p><i>x</i>|</p>"
+  },
+  {
+    "id": "inline-marks-013",
+    "area": "inline-marks",
+    "title": "Toggle bold on then off at a collapsed caret",
+    "html": "<p>a|c</p>",
+    "steps": ["Mod+b", "Mod+b", "type:x"],
+    "expected": "<p>ax|c</p>"
+  },
+  {
+    "id": "inline-marks-029",
+    "area": "inline-marks",
+    "title": "Select all then italic across mixed blocks",
+    "html": "<p><b>|ab</b>cd</p><p>ef</p>",
+    "steps": ["Mod+a", "Mod+i"],
+    "expected": "<p>[<b><i>ab</i></b><i>cd</i></p><p><i>ef</i>]</p>"
+  },
+  {
+    "id": "input-rules-003",
+    "area": "input-rules",
+    "title": "Ordered marker '1. ' then text in an empty paragraph",
+    "html": "<p>|</p>",
+    "steps": ["type:1. ", "type:a"],
+    "expected": "<ol><li>a|</li></ol>"
+  },
+  {
+    "id": "input-rules-004",
+    "area": "input-rules",
+    "title": "'1) ' is not an ordered-list marker",
+    "html": "<p>|</p>",
+    "steps": ["type:1) ", "type:a"],
+    "expected": "<p>1) a|</p>"
+  },
+  {
+    "id": "input-rules-022",
+    "area": "input-rules",
+    "title": "Ordered marker joins the list above when the number continues it",
+    "html": "<ol><li>a</li></ol><p>|</p>",
+    "steps": ["type:2. ", "type:b"],
+    "expected": "<ol><li>a</li><li>b|</li></ol>"
+  },
+  {
+    "id": "input-rules-024",
+    "area": "input-rules",
+    "title": "Ordered marker with a larger number starts at that number",
+    "html": "<p>|</p>",
+    "steps": ["type:25. ", "type:x"],
+    "expected": "<ol><li>x|</li></ol>"
+  },
+  {
+    "id": "input-rules-030",
+    "area": "input-rules",
+    "title": "Bold rule at block start, then typed text is plain",
+    "html": "<p>|</p>",
+    "steps": ["type:**bo**", "type:x"],
+    "expected": "<p><b>bo</b>x|</p>"
+  },
+  {
+    "id": "input-rules-032",
+    "area": "input-rules",
+    "title": "Mod+z right after a bold markdown rule",
+    "html": "<p>|</p>",
+    "steps": ["type:**bo**", "Mod+z"],
+    "expected": "<p>**bo**|</p>"
+  },
+  {
+    "id": "input-rules-033",
+    "area": "input-rules",
+    "title": "Inline code markers at block start, then typed text is plain",
+    "html": "<p>|</p>",
+    "steps": ["type:`x`", "type:y"],
+    "expected": "<p><code>x</code>y|</p>"
+  },
+  {
+    "id": "input-rules-034",
+    "area": "input-rules",
+    "title": "Double backticks do not form inline code",
+    "html": "<p>|</p>",
+    "steps": ["type:``x``"],
+    "expected": "<p>``x``|</p>"
+  },
+  {
+    "id": "input-rules-036",
+    "area": "input-rules",
+    "title": "Strikethrough tildes then typed text",
+    "html": "<p>|</p>",
+    "steps": ["type:~~x~~", "type:y"],
+    "expected": "<p><s>x</s>y|</p>"
+  },
+  {
+    "id": "input-rules-037",
+    "area": "input-rules",
+    "title": "Triple-star markers choose bold plus italic over bold alone",
+    "html": "<p>|</p>",
+    "steps": ["type:***x***"],
+    "expected": "<p>***x***|</p>"
+  },
+  {
+    "id": "links-002",
+    "area": "links",
+    "title": "Enter right after a bare URL autolinks it without trailing whitespace",
+    "html": "<p>https://a.com/x|</p>",
+    "steps": ["Enter", "type:ab", "Backspace", "Backspace"],
+    "expected": "<p><a href=\"https://a.com/x\">https://a.com/x</a></p><p>|</p>"
+  },
+  {
+    "id": "links-005",
+    "area": "links",
+    "title": "Bare domain with no path or www does not autolink",
+    "html": "<p>example.com|</p>",
+    "steps": ["type: ", "type:x"],
+    "expected": "<p>example.com x|</p>"
+  },
+  {
+    "id": "links-009",
+    "area": "links",
+    "title": "Typing a URL-looking word inside an existing link does not nest a new link",
+    "html": "<p><a href='https://a.com'>https://b.com|</a></p>",
+    "steps": ["type: ", "type:x"],
+    "expected": "<p><a href=\"https://a.com\">https://b.com</a> x|</p>"
+  },
+  {
+    "id": "links-010",
+    "area": "links",
+    "title": "Enter at the end of a URL inside a list item",
+    "html": "<ul><li>see https://a.com/x|</li></ul>",
+    "steps": ["Enter", "type:ab", "Backspace", "undo"],
+    "expected": "<ul><li>see <a href=\"https://a.com/x\">https://a.com/x</a></li><li>ab|</li></ul>"
+  },
+  {
+    "id": "links-011",
+    "area": "links",
+    "title": "Space after a URL inside a blockquote paragraph",
+    "html": "<blockquote><p>see https://a.com/x|</p></blockquote>",
+    "steps": ["type: ", "type:ok", "Backspace"],
+    "expected": "<blockquote><p>see <a href=\"https://a.com/x\">https://a.com/x</a> o|</p></blockquote>"
+  },
+  {
+    "id": "links-013",
+    "area": "links",
+    "title": "Typing at the end of a link then undoing it leaves the caret at the link end, and the next typing lands after the link",
+    "html": "<p><a href='https://a.com'>example|</a></p>",
+    "steps": ["type:x", "undo", "type:y"],
+    "expected": "<p><a href=\"https://a.com\">example</a>y|</p>"
+  },
+  {
+    "id": "links-022",
+    "area": "links",
+    "title": "Shift+Enter at the end of a link inserts the line break outside the link",
+    "html": "<p><a href='https://a.com'>foo|</a></p>",
+    "steps": ["Shift+Enter", "type:x"],
+    "expected": "<p><a href=\"https://a.com\">foo</a><br>x|</p>"
+  },
+  {
+    "id": "links-030",
+    "area": "links",
+    "title": "Pasting a phrase with a URL over a selection replaces the text",
+    "html": "<p>[click here]</p>",
+    "steps": ["paste-text:see https://a.com"],
+    "expected": "<p>see <a href=\"https://a.com\">https://a.com</a>|</p>"
+  },
+  {
+    "id": "links-032",
+    "area": "links",
+    "title": "Pasting a URL over a selection inside bold text",
+    "html": "<p><b>[click]</b> here</p>",
+    "steps": ["paste-text:https://a.com"],
+    "expected": "<p>[<a href=\"https://a.com\"><b>click</b></a>] here</p>"
+  },
+  {
+    "id": "links-033",
+    "area": "links",
+    "title": "Pasting a URL over part of an existing link keeps the old href on the remainder",
+    "html": "<p><a href='https://old.com'>a[bc]d</a></p>",
+    "steps": ["paste-text:https://new.com"],
+    "expected": "<p><a href=\"https://old.com\">a</a>[<a href=\"https://new.com\">bc</a>]<a href=\"https://old.com\">d</a></p>"
+  },
+  {
+    "id": "lists-004",
+    "area": "lists",
+    "title": "Bullet toggle joins a preceding same-type list; undoing the typing that follows keeps the join",
+    "html": "<ul><li>a</li></ul><p>|b</p>",
+    "steps": ["Mod+Shift+8", "type:x", "Mod+z"],
+    "expected": "<ul><li>a</li><li>|b</li></ul>"
+  },
+  {
+    "id": "lists-005",
+    "area": "lists",
+    "title": "Bullet toggle on a paragraph between two bullet lists bridges them",
+    "html": "<ul><li>a</li></ul><p>|b</p><ul><li>c</li></ul>",
+    "steps": ["Mod+Shift+8"],
+    "expected": "<ul><li>a</li><li>|b</li><li>c</li></ul>"
+  },
+  {
+    "id": "lists-006",
+    "area": "lists",
+    "title": "Bullet toggle next to an ordered list does not merge across list types",
+    "html": "<ol><li>a</li></ol><p>|b</p><ul><li>c</li></ul>",
+    "steps": ["Mod+Shift+8"],
+    "expected": "<ol><li>a</li></ol><ul><li>|b</li><li>c</li></ul>"
+  },
+  {
+    "id": "lists-008",
+    "area": "lists",
+    "title": "Ordered toggle inside a nested bullet switches only the innermost list",
+    "html": "<ol><li>a<ul><li>|b</li></ul></li></ol>",
+    "steps": ["Mod+Shift+7", "type:x"],
+    "expected": "<ol><li>a<ol><li>x|b</li></ol></li></ol>"
+  },
+  {
+    "id": "lists-018",
+    "area": "lists",
+    "title": "Typing a number marker after an existing ordered list joins that list",
+    "html": "<ol><li>a</li></ol><p>|</p>",
+    "steps": ["type:2. x"],
+    "expected": "<ol><li>a</li><li>x|</li></ol>"
+  },
+  {
+    "id": "lists-025",
+    "area": "lists",
+    "title": "Two adjacent bullet lists merge after one item is indented",
+    "html": "<ul><li>a</li></ul><ul><li>|b</li></ul>",
+    "steps": ["Tab", "type:x"],
+    "expected": "<ul><li>a<ul><li>x|b</li></ul></li></ul>"
+  },
+  {
+    "id": "lists-033",
+    "area": "lists",
+    "title": "Enter on an empty nested item outdents one level",
+    "html": "<ul><li>a<ul><li>|</li></ul></li></ul>",
+    "steps": ["Enter", "type:x"],
+    "expected": "<ul><li>a</li><li>x|</li></ul>"
+  },
+  {
+    "id": "lists-039",
+    "area": "lists",
+    "title": "Enter on an empty nested item then Backspace",
+    "html": "<ul><li>a<ul><li>|</li></ul></li></ul>",
+    "steps": ["Enter", "Backspace", "type:x"],
+    "expected": "<ul><li>a</li></ul><p>x|</p>"
+  },
+  {
+    "id": "lists-041",
+    "area": "lists",
+    "title": "Backspace at the start of a nested item",
+    "html": "<ul><li>a<ul><li>|b</li></ul></li></ul>",
+    "steps": ["Backspace", "type:x", "Mod+z"],
+    "expected": "<ul><li>a</li><li>|b</li></ul>"
+  },
+  {
+    "id": "lists-043",
+    "area": "lists",
+    "title": "Delete at the end of an item whose nested list follows",
+    "html": "<ul><li>A|<ul><li>B</li></ul></li></ul>",
+    "steps": ["Delete", "type:x"],
+    "expected": "<ul><li>Ax|B</li></ul>"
+  },
+  {
+    "id": "selection-nav-008",
+    "area": "selection-nav",
+    "title": "Shift+Down from paragraph into list then Backspace",
+    "html": "<p>in|tro</p><ul><li>item one</li><li>two</li></ul>",
+    "steps": ["Shift+ArrowDown", "Shift+ArrowDown", "Backspace"],
+    "expected": "<p>in|two</p>"
+  },
+  {
+    "id": "selection-nav-009",
+    "area": "selection-nav",
+    "title": "Backward range shrinks from the focus side on Shift+ArrowRight",
+    "html": "<p>[abc]</p>",
+    "backward": true,
+    "steps": ["Shift+ArrowRight", "Backspace"],
+    "expected": "<p>a|</p>"
+  },
+  {
+    "id": "selection-nav-010",
+    "area": "selection-nav",
+    "title": "Alt+ArrowLeft mid-word moves to the word start",
+    "html": "<p>wonder|ful words</p>",
+    "steps": ["Alt+ArrowLeft", "type:X"],
+    "expected": "<p>X|wonderful words</p>",
+    "macOnly": true
+  },
+  {
+    "id": "selection-nav-011",
+    "area": "selection-nav",
+    "title": "Alt+ArrowRight twice from word end skips a space",
+    "html": "<p>hello| world again</p>",
+    "steps": ["Alt+ArrowRight", "Alt+ArrowRight", "type:_"],
+    "expected": "<p>hello world again_|</p>",
+    "macOnly": true
+  },
+  {
+    "id": "selection-nav-012",
+    "area": "selection-nav",
+    "title": "Alt+Shift+ArrowRight extends by word then bolds",
+    "html": "<p>one |two three</p>",
+    "steps": ["Alt+Shift+ArrowRight", "Mod+b"],
+    "expected": "<p>one [<b>two</b>] three</p>",
+    "macOnly": true
+  },
+  {
+    "id": "selection-nav-014",
+    "area": "selection-nav",
+    "title": "Alt+Backspace at trailing space removes word and spaces",
+    "html": "<p>hello world |</p>",
+    "steps": ["Alt+Backspace", "type:X"],
+    "expected": "<p>hello X|</p>",
+    "macOnly": true
+  },
+  {
+    "id": "selection-nav-022",
+    "area": "selection-nav",
+    "title": "Shift+Home from second paragraph is native and crosses no block",
+    "html": "<p>first</p><p>sec|ond</p>",
+    "steps": ["Shift+Home", "Backspace"],
+    "expected": "<p>|ond</p>",
+    "macOnly": true
+  },
+  {
+    "id": "selection-nav-024",
+    "area": "selection-nav",
+    "title": "Mod+a selects whole document, then typing replaces all",
+    "html": "<p>al|pha</p><p>beta</p>",
+    "steps": ["Mod+a", "type:X"],
+    "expected": "<p>X|</p>"
+  },
+  {
+    "id": "selection-nav-025",
+    "area": "selection-nav",
+    "title": "Mod+a then Backspace converts a heading to a paragraph",
+    "html": "<h1>|Title</h1><p>body</p>",
+    "steps": ["Mod+a", "Backspace"],
+    "expected": "<h1>|</h1>"
+  },
+  {
+    "id": "selection-nav-026",
+    "area": "selection-nav",
+    "title": "Mod+a inside a list then typing keeps list structure",
+    "html": "<ul><li>o|ne</li><li>two</li></ul><p>para</p>",
+    "steps": ["Mod+a", "type:Q"],
+    "expected": "<ul><li>Q|</li></ul>"
+  },
+  {
+    "id": "user-reported-001",
+    "area": "user-reported",
+    "title": "Backspace at the start of a bulleted item turns it into a plain paragraph",
+    "html": "<ul><li>|Item</li></ul>",
+    "steps": ["Backspace"],
+    "expected": "<p>|Item</p>"
+  },
+  {
+    "id": "user-reported-002",
+    "area": "user-reported",
+    "title": "Backspace in an empty bulleted item clears the bullet",
+    "html": "<ul><li>|</li></ul>",
+    "steps": ["Backspace"],
+    "expected": "<p>|</p>"
+  },
+  {
+    "id": "user-reported-003",
+    "area": "user-reported",
+    "title": "One Undo after typing reverts only that typing",
+    "html": "<p>ab|c</p>",
+    "steps": ["type:X", "Mod+z"],
+    "expected": "<p>ab|c</p>"
+  },
+  {
+    "id": "user-reported-004",
+    "area": "user-reported",
+    "title": "Undo after a second edit reverts only the latest edit",
+    "html": "<p>ab|c</p>",
+    "steps": ["type:X", "settle", "type:Y", "settle", "Mod+z"],
+    "expected": "<p>ab|c</p>"
+  },
+  {
+    "id": "user-reported-007",
+    "area": "user-reported",
+    "title": "Typing '1. ' in an empty paragraph creates an ordered list",
+    "html": "<p>|</p>",
+    "steps": ["type:1. item"],
+    "expected": "<ol><li>item|</li></ol>"
+  },
+  {
+    "id": "user-reported-008",
+    "area": "user-reported",
+    "title": "Typing '# ' on a new line after Enter creates a heading",
+    "html": "<p>Intro|</p>",
+    "steps": ["Enter", "type:# Title"],
+    "expected": "<p>Intro</p><h1>Title|</h1>"
+  },
+  {
+    "id": "user-reported-009",
+    "area": "user-reported",
+    "title": "Typing '> ' in an empty paragraph creates a blockquote",
+    "html": "<p>|</p>",
+    "steps": ["type:> quote"],
+    "expected": "<blockquote><p>quote|</p></blockquote>"
+  },
+  {
+    "id": "user-reported-011",
+    "area": "user-reported",
+    "title": "Enter at the end of a list item creates a new item in the same list",
+    "html": "<ul><li>one|</li></ul>",
+    "steps": ["Enter", "type:two"],
+    "expected": "<ul><li>one</li><li>two|</li></ul>"
+  },
+  {
+    "id": "user-reported-013",
+    "area": "user-reported",
+    "title": "Enter on an empty last list item exits the list into a paragraph",
+    "html": "<ul><li>one</li><li>|</li></ul>",
+    "steps": ["Enter"],
+    "expected": "<ul><li>one</li></ul><p>|</p>"
+  },
+  {
+    "id": "user-reported-014",
+    "area": "user-reported",
+    "title": "Entering and leaving edit mode on a list adds no trailing paragraph",
+    "html": "<ul><li>One|</li><li>Two</li></ul>",
+    "steps": ["Escape"],
+    "expected": "<ul><li>One|</li><li>Two</li></ul>"
+  },
+  {
+    "id": "whitespace-typing-002",
+    "area": "whitespace-typing",
+    "title": "Trailing space at end of paragraph, then a letter",
+    "html": "<p>a|</p>",
+    "steps": ["type: ", "type:b"],
+    "expected": "<p>a b|</p>"
+  },
+  {
+    "id": "whitespace-typing-003",
+    "area": "whitespace-typing",
+    "title": "Two spaces typed mid-word",
+    "html": "<p>a|b</p>",
+    "steps": ["type:  "],
+    "expected": "<p>a&nbsp; |b</p>"
+  },
+  {
+    "id": "whitespace-typing-004",
+    "area": "whitespace-typing",
+    "title": "Run of spaces at end of paragraph accumulates",
+    "html": "<p>ab|</p>",
+    "steps": ["type:  ", "type:  "],
+    "expected": "<p>ab&nbsp; &nbsp;&nbsp;|</p>"
+  },
+  {
+    "id": "whitespace-typing-015",
+    "area": "whitespace-typing",
+    "title": "Doubled spaces then letter in an empty bullet item",
+    "html": "<ul><li>|</li></ul>",
+    "steps": ["type:  ", "type:x"],
+    "expected": "<ul><li>&nbsp; x|</li></ul>"
+  },
+  {
+    "id": "whitespace-typing-027",
+    "area": "whitespace-typing",
+    "title": "Space typed after the end of a link",
+    "html": "<p><a href=\"https://example.com\">go|</a></p>",
+    "steps": ["type: ", "type:x"],
+    "expected": "<p><a href=\"https://example.com\">go</a> x|</p>"
+  },
+  {
+    "id": "whitespace-typing-030",
+    "area": "whitespace-typing",
+    "title": "Shift+Enter in an empty paragraph leaves no placeholder",
+    "html": "<p>|</p>",
+    "steps": ["Shift+Enter"],
+    "expected": "<p><br>|</p>"
+  },
+  {
+    "id": "whitespace-typing-033",
+    "area": "whitespace-typing",
+    "title": "Fast typed sentence with doubled spaces",
+    "html": "<p>|</p>",
+    "steps": ["type:the quick  brown  fox"],
+    "expected": "<p>the quick&nbsp; brown&nbsp; fox|</p>"
+  },
+  {
+    "id": "whitespace-typing-035",
+    "area": "whitespace-typing",
+    "title": "Toggle bold collapsed around typed spaces",
+    "html": "<p>a|</p>",
+    "steps": ["type:b", "Mod+b", "type: c", "Mod+b", "type: d"],
+    "expected": "<p>ab<b> c</b> d|</p>"
+  },
+  {
+    "id": "whitespace-typing-042",
+    "area": "whitespace-typing",
+    "title": "Empty block after Enter in an empty bullet item, then space",
+    "html": "<ol><li>|</li></ol>",
+    "steps": ["Enter", "type: x"],
+    "expected": "<p>&nbsp;x|</p>"
+  },
+  {
+    "id": "whitespace-typing-044",
+    "area": "whitespace-typing",
+    "title": "Space typed in an empty blockquote paragraph then Enter",
+    "html": "<blockquote><p>|</p></blockquote>",
+    "steps": ["type: ", "Enter", "type:x"],
+    "expected": "<blockquote><p>&nbsp;</p><p>x|</p></blockquote>"
+  }
+]

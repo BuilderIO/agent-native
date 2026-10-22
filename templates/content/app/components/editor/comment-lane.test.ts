@@ -133,6 +133,28 @@ it("does not shift the lane right when the reading column already reaches it", (
   expect(offset).toHaveBeenLastCalledWith(0);
 });
 
+it("measures the open Blocks field tab, not a hidden one", async () => {
+  const { container, lane } = fixture();
+  const notes = editor(container, 672);
+  const notesPanel = document.createElement("div");
+  notesPanel.hidden = true;
+  notesPanel.append(notes);
+  container.prepend(notesPanel);
+  const body = editor(container);
+  const bodyPanel = document.createElement("div");
+  bodyPanel.append(body);
+  container.prepend(bodyPanel);
+  const offset = vi.fn();
+  stop = observeCommentLane(container, lane, offset);
+  expect(offset).toHaveBeenLastCalledWith(-64);
+  bodyPanel.hidden = true;
+  notesPanel.hidden = false;
+  await flushMount();
+  expect(offset).toHaveBeenLastCalledWith(-128);
+  expect(observed.has(notes)).toBe(true);
+  expect(observed.has(body)).toBe(false);
+});
+
 it("cleans up pending work and listeners when the lane closes", async () => {
   const { container, lane } = fixture();
   editor(container);

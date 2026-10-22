@@ -5,12 +5,17 @@ import {
   __resetBlockFieldSaveRegistry,
   acquireBlockFieldSaveController,
   activeControllerCount,
+  blockFieldRevision,
   blockFieldSaveImplRef,
+  createBlockFieldPersistenceRef,
+  readBlockFieldEditorState,
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
   forgetBlockFieldSaveController,
+  isBlockFieldDeleting,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
+  setBlockFieldDeleting,
 } from "./blockFieldSaveRegistry";
 
 afterEach(() => {
@@ -116,6 +121,48 @@ describe("blockFieldSaveRegistry", () => {
 
     expect(saved).toContain("unsaved final edit");
     expect(activeControllerCount()).toBe(0);
+  });
+
+  it("retains an uncertain reverted write across release and refuses reads and navigation until undo is accepted", async () => {
+    vi.useFakeTimers();
+    const key = "doc:field";
+    let stored = "Saved";
+    let available = true;
+    let loseResponse = true;
+    blockFieldSaveImplRef(key).current = async (value) => {
+      if (!available) throw new Error("offline");
+      stored = value;
+      if (loseResponse) throw new Error("response lost after commit");
+    };
+    const controller = acquireBlockFieldSaveController(
+      key,
+      factoryFor(key, stored),
+    );
+    controller.change("Committed edit");
+    await controller.flush();
+    controller.change("Saved");
+    available = false;
+    await expect(flushBlockFieldSaveController("doc", "field")).rejects.toThrow(
+      "could not be saved",
+    );
+    await expect(
+      flushAllBlockFieldSaveControllersForDocument("doc"),
+    ).rejects.toThrow("could not be saved");
+    await expect(releaseBlockFieldSaveController(key)).resolves.toBe(false);
+    expect(peekBlockFieldSaveController(key)).toBe(controller);
+    expect(stored).toBe("Committed edit");
+    expect(acquireBlockFieldSaveController(key, factoryFor(key, stored))).toBe(
+      controller,
+    );
+    available = true;
+    loseResponse = false;
+    await flushBlockFieldSaveController("doc", "field");
+    await flushAllBlockFieldSaveControllersForDocument("doc");
+    expect(stored).toBe("Saved");
+    await expect(releaseBlockFieldSaveController(key)).resolves.toBe(true);
+    expect(
+      acquireBlockFieldSaveController(key, factoryFor(key, stored)).lastSaved,
+    ).toBe("Saved");
   });
 
   it("reopen BEFORE the flush settles reuses the same controller (eviction cancelled)", async () => {
@@ -306,6 +353,183 @@ describe("blockFieldSaveRegistry", () => {
     await expect(flushBlockFieldSaveController("doc", "notes")).rejects.toThrow(
       "could not be saved",
     );
+  });
+
+  it("requires every mounted projection's live controller and observes its visual version", async () => {
+    const first = createBlockFieldPersistenceRef();
+    const second = createBlockFieldPersistenceRef();
+    acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      first,
+    );
+    acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      second,
+    );
+    first.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    expect(readBlockFieldEditorState("doc:notes")?.clean).toBe(false);
+    await expect(flushBlockFieldSaveController("doc", "notes")).rejects.toThrow(
+      "unavailable",
+    );
+    let version = {};
+    second.current = {
+      get version() {
+        return version;
+      },
+      flushLatest: vi.fn(async () => true),
+    };
+    const before = readBlockFieldEditorState("doc:notes")!;
+    expect(before.clean).toBe(true);
+    expect(readBlockFieldEditorState("doc:notes")!.visualVersion).toBe(
+      before.visualVersion,
+    );
+    version = {};
+    expect(readBlockFieldEditorState("doc:notes")!.visualVersion).not.toBe(
+      before.visualVersion,
+    );
+    const changed = readBlockFieldEditorState("doc:notes")!.visualVersion;
+    const controller = second.current;
+    second.current = null;
+    second.current = controller;
+    expect(readBlockFieldEditorState("doc:notes")!.visualVersion).not.toBe(
+      changed,
+    );
+    second.current = { version: {}, flushLatest: vi.fn(async () => false) };
+    await expect(flushBlockFieldSaveController("doc", "notes")).rejects.toThrow(
+      "could not be saved",
+    );
+  });
+
+  it("drains the exact live serializer through single-field and all-field barriers", async () => {
+    const saved: string[] = [];
+    blockFieldSaveImplRef("doc:notes").current = async (value) => {
+      saved.push(value);
+    };
+    const editor = createBlockFieldPersistenceRef();
+    const controller = acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      editor,
+    );
+    let text = "first un-emitted body";
+    editor.current = {
+      version: {},
+      flushLatest: vi.fn(async () => {
+        controller.change(text);
+        await controller.flush();
+        return controller.isClean;
+      }),
+    };
+    await flushBlockFieldSaveController("doc", "notes");
+    text = "second un-emitted body";
+    await flushAllBlockFieldSaveControllersForDocument("doc");
+    expect(saved).toEqual(["first un-emitted body", "second un-emitted body"]);
+    expect(editor.current.flushLatest).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases only its own projection and ignores retired cleanup after deletion and reacquisition", async () => {
+    const first = createBlockFieldPersistenceRef();
+    const second = createBlockFieldPersistenceRef();
+    first.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    second.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      first,
+    );
+    acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      second,
+    );
+    await expect(
+      releaseBlockFieldSaveController("doc:notes", first),
+    ).resolves.toBe(false);
+    expect(readBlockFieldEditorState("doc:notes")?.clean).toBe(true);
+    forgetBlockFieldSaveController("doc:notes");
+    const current = createBlockFieldPersistenceRef();
+    current.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    const save = acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      current,
+    );
+    await expect(
+      releaseBlockFieldSaveController("doc:notes", second),
+    ).resolves.toBe(false);
+    expect(readBlockFieldEditorState("doc:notes")?.clean).toBe(true);
+    expect(peekBlockFieldSaveController("doc:notes")).toBe(save);
+    await flushBlockFieldSaveController("doc", "notes");
+    expect(current.current.flushLatest).toHaveBeenCalledOnce();
+    expect(second.current.flushLatest).not.toHaveBeenCalled();
+    await expect(
+      releaseBlockFieldSaveController("doc:notes", current),
+    ).resolves.toBe(true);
+    expect(readBlockFieldEditorState("doc:notes")).toBeUndefined();
+    expect(activeControllerCount()).toBe(0);
+  });
+
+  it("keeps a reopened projection alive when the old release's save settles", async () => {
+    const first = createBlockFieldPersistenceRef();
+    first.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    let finish!: () => void;
+    blockFieldSaveImplRef("doc:notes").current = () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    const controller = acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      first,
+    );
+    controller.change("pending old mount");
+    const released = releaseBlockFieldSaveController("doc:notes", first);
+    const second = createBlockFieldPersistenceRef();
+    second.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    expect(
+      acquireBlockFieldSaveController(
+        "doc:notes",
+        factoryFor("doc:notes"),
+        second,
+      ),
+    ).toBe(controller);
+    await act(() => finish());
+    await expect(released).resolves.toBe(false);
+    const before = readBlockFieldEditorState("doc:notes")!;
+    expect(before.clean).toBe(true);
+    first.current = null;
+    expect(readBlockFieldEditorState("doc:notes")!.visualVersion).toBe(
+      before.visualVersion,
+    );
+    await expect(
+      releaseBlockFieldSaveController("doc:notes", second),
+    ).resolves.toBe(true);
+    expect(activeControllerCount()).toBe(0);
+  });
+
+  it("keeps a field's revision for as long as its controller", async () => {
+    const key = "doc:notes";
+    blockFieldSaveImplRef(key).current = () => Promise.resolve();
+    acquireBlockFieldSaveController(key, factoryFor(key));
+    const revision = blockFieldRevision(key, 4);
+    revision.base = 7;
+    expect(blockFieldRevision(key, 4)).toBe(revision);
+
+    await releaseBlockFieldSaveController(key);
+
+    expect(blockFieldRevision(key, 4)).toEqual({ base: 4, stale: false });
+  });
+
+  it("clears a field's delete mark when the field is forgotten", () => {
+    const key = "doc:notes";
+    setBlockFieldDeleting(key, true);
+    expect(isBlockFieldDeleting(key)).toBe(true);
+
+    forgetBlockFieldSaveController(key);
+
+    expect(isBlockFieldDeleting(key)).toBe(false);
   });
 });
 

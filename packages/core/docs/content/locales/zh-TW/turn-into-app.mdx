@@ -43,6 +43,10 @@ npx @agent-native/core@latest skills add turn-into-app
 
 在瀏覽器主機上，skill 需要 Agent-Native Dispatch MCP 連接器（`https://dispatch.agent-native.com/mcp`，OAuth），並呼叫其 `start-workspace-app-creation` 動作。主機無法執行或檢查應用程式，因此在 Dispatch 回傳的分支建構完成之前，報告會維持待處理或未驗證狀態。skill 只會回報 Dispatch 實際回傳的內容，絕不捏造分支 URL。對於 ChatGPT 專案，或任何僅公開 MCP 的主機，請將 skill 指示放入專案指示或知識檔案中。
 
+## 本機先決條件
+
+在本機主機上，請先安裝 Node.js 22.22.0 或更新版本（包含 npm 和 npx）以及 pnpm，再開始操作。瀏覽器主機使用 Dispatch，不會執行這些命令。
+
 ## 來源 {#sources}
 
 - **對話。** 最近一次具體且可重複的工作就是產品。

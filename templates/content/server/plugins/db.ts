@@ -1470,16 +1470,22 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 123,
+      name: "content-comment-blocks-field-targets",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_name TEXT`,
+    },
+    {
+      version: 124,
       name: "content-preview-draft-base-content-hash",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_content_hash TEXT`,
     },
     {
-      version: 124,
+      version: 125,
       name: "preview-draft-originating-title-base",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_title TEXT`,
     },
     {
-      version: 125,
+      version: 126,
       name: "preview-draft-recovery-choice-lookup",
       sql: `CREATE INDEX IF NOT EXISTS document_versions_owner_recovery_group_idx
         ON document_versions (owner_email, group_id, created_at, id)

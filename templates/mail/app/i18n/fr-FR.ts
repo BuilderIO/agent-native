@@ -446,6 +446,7 @@ const messages = {
       tryDifferentKeywords: "Essayez d’autres mots-clés",
       nothingHere: "Rien ici pour l’instant",
       loadingMore: "Chargement...",
+      openAllMailForOlder: "Ouvrir tous les e-mails pour les anciens messages",
     },
     toasts: {
       noEmailSelected: "Aucun email sélectionné.",
@@ -479,6 +480,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Message envoyé.",
       failedToSaveDraft: "Échec de l'enregistrement du brouillon.",
+      failedToRefreshInbox:
+        "Impossible d'actualiser la boîte de réception. Réessayez dans un instant.",
       failedToDeleteDraft: "Échec de la suppression du brouillon.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
