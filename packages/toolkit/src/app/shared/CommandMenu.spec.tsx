@@ -1473,16 +1473,11 @@ describe("CommandMenu", () => {
       document.querySelector('[cmdk-item][aria-selected="true"]'),
     ).toBeNull();
 
-    act(() =>
-      input!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-      ),
+    const backButton = document.querySelector<HTMLButtonElement>(
+      '[data-testid="command-menu-page-back"]',
     );
-    act(() =>
-      input!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-      ),
-    );
+    expect(backButton).toBeTruthy();
+    act(() => backButton!.click());
     expect(document.body.textContent).toContain("Open tools");
     expect(
       document.querySelector('[cmdk-item][aria-selected="true"]'),
@@ -2040,6 +2035,70 @@ describe("CommandMenu", () => {
     expect(document.querySelector('[role="status"]')?.textContent).toContain(
       "No matching records",
     );
+  });
+
+  it("uses the explicit list's rows instead of the default result signal", () => {
+    const hasDefaultResults = vi.fn(() => true);
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          renderResults={() => (
+            <CommandMenu.Group heading="Default results">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Default result
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          )}
+          renderResultsHasItems={hasDefaultResults}
+          renderContent={({ renderList }) => renderList(null)}
+          emptyState="No matching records"
+        >
+          {null}
+        </CommandMenu>,
+      );
+    });
+
+    expect(document.body.textContent).not.toContain("Default result");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "No matching records",
+    );
+    expect(hasDefaultResults).not.toHaveBeenCalled();
+  });
+
+  it("does not show the empty state beside custom list rows", () => {
+    const hasDefaultResults = vi.fn(() => false);
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          renderResults={() => null}
+          renderResultsHasItems={hasDefaultResults}
+          renderContent={({ renderList }) =>
+            renderList(
+              <CommandMenu.Group heading="Custom results">
+                <CommandMenu.Item onSelect={() => undefined}>
+                  Custom result
+                </CommandMenu.Item>
+              </CommandMenu.Group>,
+            )
+          }
+          emptyState="No matching records"
+        >
+          {null}
+        </CommandMenu>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Custom result");
+    expect(document.querySelector('[role="status"]')).toBeNull();
+    expect(hasDefaultResults).not.toHaveBeenCalled();
   });
 
   it("honors first and none initial selection modes", () => {

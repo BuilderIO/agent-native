@@ -463,7 +463,7 @@ export interface CommandMenuProps<TAppContext = unknown> {
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
   renderResults?: (search: string) => ReactNode;
-  /** Reports whether the dynamic results contain selectable rows. */
+  /** Reports whether the default `renderResults` output has selectable rows. */
   renderResultsHasItems?: (search: string) => boolean;
   renderResultsPosition?: "before" | "after";
   renderContent?: (options: {
@@ -877,9 +877,12 @@ export function CommandMenu<TAppContext = unknown>({
     setTimeout(() => command.onSelect?.(appCommandContext), 50);
   };
 
-  const renderList = (results: ReactNode = dynamicResults) => {
-    const hasDynamicItems =
-      renderResultsHasItems?.(search) ?? hasCommandItems(results);
+  const renderList = (results?: ReactNode) => {
+    const usesDefaultResults = results === undefined;
+    const renderedResults = usesDefaultResults ? dynamicResults : results;
+    const hasDynamicItems = usesDefaultResults
+      ? (renderResultsHasItems?.(search) ?? hasCommandItems(renderedResults))
+      : hasCommandItems(renderedResults);
     const hasResults = hasCommandResults || hasDynamicItems;
     const list = (
       <CommandListPrimitive>
@@ -904,7 +907,7 @@ export function CommandMenu<TAppContext = unknown>({
           </CommandGroup>
         ) : null}
 
-        {renderResultsPosition === "before" ? results : null}
+        {renderResultsPosition === "before" ? renderedResults : null}
 
         {filteredAppGroups.map(({ group, commands }) => (
           <CommandGroup key={group.id} heading={group.heading}>
@@ -949,7 +952,7 @@ export function CommandMenu<TAppContext = unknown>({
 
         {hasChildrenResults && filteredChildren}
 
-        {renderResultsPosition === "after" ? results : null}
+        {renderResultsPosition === "after" ? renderedResults : null}
 
         {!hasResults && !activeAppPage && emptyState != null ? (
           <div
