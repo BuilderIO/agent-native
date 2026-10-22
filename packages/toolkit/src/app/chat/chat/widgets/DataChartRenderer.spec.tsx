@@ -112,7 +112,7 @@ describe("DataChartRenderer theme colors", () => {
     expect(markup).toContain(">1.0</text>");
   });
 
-  it("keeps a configured right plot inset while sizing the category labels", () => {
+  it("keeps positive value labels outside horizontal bars with a right inset", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
         chart={{
@@ -137,9 +137,8 @@ describe("DataChartRenderer theme colors", () => {
       /<text[^>]*x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">3<\/text>/,
     );
     expect(maximumBarValueLabel).not.toBeNull();
-    expect(Number(maximumBarValueLabel?.[1]) + 8).toBeLessThanOrEqual(
-      plotRightEdge,
-    );
+    expect(Number(maximumBarValueLabel?.[1])).toBeGreaterThan(plotRightEdge);
+    expect(Number(maximumBarValueLabel?.[1]) + 8).toBeLessThanOrEqual(640);
   });
 
   it("rejects inset combinations that leave no positive plot area", () => {
@@ -279,6 +278,44 @@ describe("DataChartRenderer theme colors", () => {
     expect(Number(finalTick?.[1])).toBeLessThan(640);
     expect(Number(finalTick?.[1]) + 4).toBeLessThanOrEqual(640);
     expect(Number(finalTick?.[2])).toBeLessThan(340);
+  });
+
+  it("keeps vertical axis ticks and category labels clear at a zero bottom inset", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Monday", value: 0 },
+            { day: "Tuesday", value: 1 },
+          ],
+          valueAxisTickInterval: 0.5,
+        }}
+        layout={{ labelFontSize: 12, plotInsets: { bottom: 0 } }}
+      />,
+    );
+    const minimumTick = markup.match(
+      /<text(?=[^>]*data-value-axis-tick="true")(?=[^>]*>0<\/text>)[^>]*y="([\d.]+)"/,
+    );
+    const categoryLabel = markup.match(
+      /<text[^>]*y="([\d.]+)"[^>]*>Tuesday<\/text>/,
+    );
+    const plotBaseline = Math.max(
+      ...Array.from(
+        markup.matchAll(/<line[^>]*y1="([\d.]+)" y2="([\d.]+)"/g),
+        (match) =>
+          match[1] === match[2] ? Number(match[1]) : Number.NEGATIVE_INFINITY,
+      ),
+    );
+
+    expect(minimumTick).not.toBeNull();
+    expect(Number(minimumTick?.[1]) + 3).toBeLessThanOrEqual(360);
+    expect(categoryLabel).not.toBeNull();
+    expect(Number(categoryLabel?.[1]) - plotBaseline).toBeGreaterThanOrEqual(
+      12,
+    );
   });
 
   it("uses the requested chart content height", () => {

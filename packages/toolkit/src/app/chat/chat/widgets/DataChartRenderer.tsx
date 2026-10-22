@@ -300,6 +300,10 @@ function ChartBody({
       (chart.xAxisTitle ? axisTitleFontSize * 0.8 + 6 : 0)
     : 0;
   const axisTitleBottomInset = chart.xAxisTitle ? 16 : 0;
+  const minimumVerticalCategoryBottom =
+    isHorizontalBar || layout?.plotInsets?.bottom === undefined
+      ? 0
+      : labelFontSize + 12 + (chart.xAxisTitle ? axisTitleFontSize + 2 : 0);
   const configuredTopInset = inset(layout?.plotInsets?.top, "top", MARGIN.top);
   const configuredBottomInset = inset(
     layout?.plotInsets?.bottom,
@@ -370,12 +374,16 @@ function ChartBody({
           )
         : Math.max(
             inset(layout.plotInsets.right, "right", MARGIN.right),
+            horizontalPositiveValueWidth > 0
+              ? horizontalPositiveValueWidth + 13
+              : 0,
             horizontalValueTickLabelInset,
           ),
     bottom:
       Math.max(
         configuredBottomInset,
         minimumHorizontalTickBottom - axisTitleBottomInset,
+        minimumVerticalCategoryBottom - axisTitleBottomInset,
       ) + axisTitleBottomInset,
   };
   const plotWidth = WIDTH - margin.left - margin.right;
@@ -529,7 +537,10 @@ function ChartBody({
               <text
                 data-value-axis-tick="true"
                 x={margin.left - VALUE_AXIS_TICK_LABEL_INSET}
-                y={Math.max(tick.y + 4, labelFontSize)}
+                y={Math.min(
+                  Math.max(tick.y + 4, labelFontSize),
+                  HEIGHT - labelFontSize * 0.25,
+                )}
                 fill={labelColor}
                 fontSize={labelFontSize}
                 textAnchor="end"
@@ -568,6 +579,15 @@ function ChartBody({
         }
 
         const label = labelFor(row[chart.xKey]);
+        const categoryLabelY =
+          layout?.plotInsets?.bottom === undefined
+            ? HEIGHT - 12
+            : chart.xAxisTitle
+              ? HEIGHT - axisTitleFontSize - 12
+              : Math.max(
+                  HEIGHT - 12,
+                  HEIGHT - margin.bottom + labelFontSize + 1,
+                );
         const x =
           chart.type === "bar"
             ? margin.left + (index + 0.5) * (plotWidth / chart.data.length)
@@ -581,7 +601,7 @@ function ChartBody({
           <text
             key={`${index}-${String(row[chart.xKey] ?? "")}`}
             x={x}
-            y={HEIGHT - 12}
+            y={categoryLabelY}
             fill={labelColor}
             fontSize={labelFontSize}
             textAnchor={
@@ -677,10 +697,7 @@ function ChartBody({
             );
             const valueLabelX =
               isHorizontalBar && value >= 0
-                ? Math.min(
-                    valueX + 5,
-                    WIDTH - margin.right - valueLabelWidth - 4,
-                  )
+                ? Math.min(valueX + 5, WIDTH - valueLabelWidth - 4)
                 : valueX + (value < 0 ? -5 : 5);
             return (
               <g key={`${rowIndex}-${series.key}`}>
