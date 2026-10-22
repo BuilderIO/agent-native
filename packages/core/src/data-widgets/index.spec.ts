@@ -273,6 +273,23 @@ describe("data widget helpers", () => {
     ).toBe(false);
   });
 
+  it("rejects over-bound value axes when creating chart results", () => {
+    const chartSeries = {
+      type: "bar" as const,
+      xKey: "day",
+      series: [{ key: "value", label: "Value" }],
+      data: [{ day: "Monday", value: 3 }],
+      valueAxisTickInterval: 0.001,
+    };
+
+    expect(() => createDataChartWidgetResult({ chartSeries })).toThrow(
+      "Invalid data-chart widget payload",
+    );
+    expect(() => createDataInsightsWidgetResult({ chartSeries })).toThrow(
+      "Invalid data-chart widget payload",
+    );
+  });
+
   it("rejects chart presentation values outside the supported range", () => {
     const baseChart = {
       type: "bar" as const,
