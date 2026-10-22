@@ -29,7 +29,11 @@ vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
   useFeatureFlags: () => ({}),
 }));
 vi.mock("../../chat/AgentSidebar.js", () => ({
-  AgentToggleButton: () => <button type="button">agent</button>,
+  AgentToggleButton: () => (
+    <button type="button" data-testid="shared-agent-toggle">
+      agent
+    </button>
+  ),
 }));
 
 const appState = vi.hoisted(() => ({
@@ -285,6 +289,28 @@ describe("SettingsShell", () => {
     expect(
       getSettingsPages().some((page) => page.id === "mail-preferences"),
     ).toBe(false);
+  });
+
+  it("mounts an app chat panel and replaces the shared toggle by default", async () => {
+    await render({
+      agentPanel: <div data-testid="app-agent-panel">Local chat</div>,
+      agentToggle: (
+        <button type="button" data-testid="app-agent-toggle">
+          Open chat
+        </button>
+      ),
+    });
+
+    const shell = container.querySelector<HTMLElement>("[data-settings-shell]");
+    const panel = shell?.querySelector('[data-testid="app-agent-panel"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.parentElement).toBe(shell);
+    expect(
+      shell?.querySelector('[data-testid="app-agent-toggle"]'),
+    ).not.toBeNull();
+    expect(
+      shell?.querySelector('[data-testid="shared-agent-toggle"]'),
+    ).toBeNull();
   });
 
   it("rejects app page ids that would replace an existing page", () => {

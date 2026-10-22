@@ -47,6 +47,7 @@ import {
   useState,
   useSyncExternalStore,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import { useInRouterContext, useLocation, useNavigate } from "react-router";
 
@@ -108,6 +109,10 @@ export interface SettingsShellProps extends SettingsBridgeInput {
   appId?: string | null;
   /** App-owned pages and controls shown in this shell's app group. */
   appSettingsPages?: readonly AppSettingsPageDefinition[];
+  /** Optional app chat surface rendered beside the settings shell. */
+  agentPanel?: ReactNode;
+  /** Replaces the shared agent toggle when an app owns its chat state. */
+  agentToggle?: ReactNode;
   /** Raw CHANGELOG.md; enables the What's new unread dot. */
   whatsNewMarkdown?: string;
   enableSearch?: boolean;
@@ -344,6 +349,8 @@ function SettingsShellContent({
   navClassName,
   contentClassName,
   appSettingsPages,
+  agentPanel,
+  agentToggle,
   value,
   initialValue,
   onValueChange,
@@ -864,9 +871,13 @@ function SettingsShellContent({
               </div>
             </div>
             <div className="absolute end-3.5 top-3.5">
-              <Suspense fallback={null}>
-                <AgentToggleButton showWhenOpen />
-              </Suspense>
+              {agentToggle === undefined ? (
+                <Suspense fallback={null}>
+                  <AgentToggleButton showWhenOpen />
+                </Suspense>
+              ) : (
+                agentToggle
+              )}
             </div>
           </header>
           <div className="mx-auto w-full max-w-[824px] px-4 pb-28 pt-1 min-[760px]:px-8">
@@ -877,6 +888,7 @@ function SettingsShellContent({
             ) : null}
           </div>
         </div>
+        {agentPanel}
       </div>
     </SettingsShellProvider>
   );
