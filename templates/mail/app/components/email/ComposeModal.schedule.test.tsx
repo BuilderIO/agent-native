@@ -1549,4 +1549,86 @@ describe("ComposeModal scheduling", () => {
     expect(onDiscard).not.toHaveBeenCalled();
     expect(onRestoreAfterSend).toHaveBeenCalledWith(draft.id);
   });
+
+  it("reports card sends as progress instead of toasts", async () => {
+    vi.useFakeTimers();
+    let resolveSend!: (result: { id: string }) => void;
+    mockSendEmailAsync.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSend = resolve;
+      }),
+    );
+    const onDiscard = vi.fn();
+    const onSendProgress = vi.fn();
+    const { getByRole, queryByLabelText, queryByPlaceholderText } = render(
+      <ComposeModal
+        presentation="card"
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={onDiscard}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onSendProgress={onSendProgress}
+      />,
+    );
+
+    // The card has no window controls, and a reply's subject sits in its header.
+    expect(queryByLabelText("mail.compose.closeAllDrafts")).toBeNull();
+    expect(queryByPlaceholderText("mail.compose.subject")).toBeNull();
+
+    fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    expect(onSendProgress).toHaveBeenLastCalledWith({
+      status: "queued",
+      undo: expect.any(Function),
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(onSendProgress).toHaveBeenLastCalledWith({ status: "sending" });
+
+    await act(async () => {
+      resolveSend({ id: "sent-1" });
+      await Promise.resolve();
+    });
+
+    expect(onSendProgress).toHaveBeenLastCalledWith({ status: "sent" });
+    expect(onDiscard).toHaveBeenCalledWith(replyDraft.id);
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+
+  it("shows a card draft's copied recipients without a click", () => {
+    const copied = { ...replyDraft, cc: "theo@example.com" };
+    const { container } = render(
+      <ComposeModal
+        presentation="card"
+        drafts={[copied]}
+        activeId={copied.id}
+        activeDraft={copied}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onSendProgress={vi.fn()}
+      />,
+    );
+
+    const cc = container.querySelector<HTMLInputElement>(
+      'input[data-recipient-field="cc"]:not([data-mail-recipient-input])',
+    );
+    expect(cc?.value).toBe("theo@example.com");
+    // An empty Bcc row would only take room from the message.
+    expect(
+      container.querySelector('input[data-recipient-field="bcc"]'),
+    ).toBeNull();
+  });
 });

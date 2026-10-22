@@ -907,6 +907,8 @@ export function useComposeState() {
     activeId: resolvedActiveId,
     activeDraft,
     isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
     open,
     update,
     close,

@@ -35,6 +35,16 @@ function composeDeepLink(draft: Pick<ComposeState, "id">): string {
   });
 }
 
+// MCP Apps hosts embed the compact draft card; "Open in Mail" keeps the full
+// inbox deep link.
+function draftCardEmbed(draft: Pick<ComposeState, "id">, deepLink: string) {
+  return {
+    embed: true,
+    path: `/draft?id=${encodeURIComponent(draft.id)}`,
+    deepLinkUrl: deepLink,
+  } as const;
+}
+
 function draftChange(
   verb: "created" | "updated",
   draft: Pick<ComposeState, "id" | "subject" | "to">,
@@ -174,7 +184,8 @@ export default defineAction({
         "Open the generated draft in the real Mail compose UI with contact autocomplete, aliases, formatting, attachments, and sending controls.",
       iframeTitle: "Agent-Native Mail",
       openLabel: "Open in Mail",
-      height: 900,
+      // A chat card's app document is 560px tall, under the shell's 44px bar.
+      height: 604,
     }),
   },
   run: async (args, ctx) => {
@@ -325,6 +336,7 @@ export default defineAction({
         id,
         draft,
         deepLink,
+        ...draftCardEmbed(draft, deepLink),
         message: `Created draft ${id}`,
         change: draftChange("created", draft, deepLink),
       };
@@ -477,6 +489,7 @@ export default defineAction({
         id: safeId,
         draft,
         deepLink,
+        ...draftCardEmbed(draft, deepLink),
         message: `Updated draft ${safeId}`,
         change: draftChange("updated", draft, deepLink),
       };

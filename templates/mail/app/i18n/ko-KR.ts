@@ -759,6 +759,15 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "이메일 초안 - Mail",
+    },
+    draftCard: {
+      loadFailed: "이 초안을 불러오지 못했습니다.",
+      notFoundTitle: "초안을 찾을 수 없음",
+      notFoundDescription: "이미 보냈거나 삭제했을 수 있습니다.",
+      threadUnavailable: "이 대화의 이전 메시지를 불러오지 못했습니다.",
+      earlierMessages: "이전 메시지 ({{count}})",
+      deleted: "초안을 삭제했습니다.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

@@ -785,6 +785,16 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "Borrador de correo - Mail",
+    },
+    draftCard: {
+      loadFailed: "No se pudo cargar este borrador.",
+      notFoundTitle: "No se encontró el borrador",
+      notFoundDescription: "Es posible que ya se haya enviado o eliminado.",
+      threadUnavailable:
+        "No se pudieron cargar los mensajes anteriores de esta conversación.",
+      earlierMessages: "Mensajes anteriores ({{count}})",
+      deleted: "Borrador eliminado.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

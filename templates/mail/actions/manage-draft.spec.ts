@@ -497,6 +497,34 @@ describe("manage-draft deep link", () => {
       params: { composeDraftId: "compact-draft" },
     });
   });
+
+  it("embeds the draft card and keeps the inbox deep link to open Mail", async () => {
+    mocks.buildDeepLink.mockReturnValue(
+      "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+    );
+
+    const created = await action.run({
+      action: "create",
+      id: "card-draft",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+    });
+    const updated = await action.run({
+      action: "update",
+      id: "card-draft",
+      body: "Revised body",
+    });
+
+    for (const result of [created, updated]) {
+      expect(result).toMatchObject({
+        embed: true,
+        path: "/draft?id=card-draft",
+        deepLink: "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+        deepLinkUrl: "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+      });
+    }
+  });
 });
 
 describe("manage-draft call-shape guidance", () => {
