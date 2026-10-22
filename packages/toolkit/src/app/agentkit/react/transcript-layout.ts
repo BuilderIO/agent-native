@@ -34,6 +34,8 @@ export interface AgentChatWorkedForRowLayout {
   chevronSize?: number;
   /** Space between the chevron and label, in CSS pixels. */
   iconGap?: number;
+  /** Signed margin before the row, in CSS pixels. */
+  marginBlockStart?: number;
   /** Label font size, in CSS pixels. */
   fontSize?: number;
   /** Label line height, in CSS pixels. */
@@ -58,12 +60,27 @@ function workedForRowLength(
   return `${value}px`;
 }
 
+function workedForRowOffset(
+  value: number | undefined,
+  name: keyof AgentChatWorkedForRowLayout,
+) {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`workedForRowLayout.${name} must be finite`);
+  }
+  return `${value}px`;
+}
+
 export function workedForRowSummaryStyle(
   layout?: AgentChatWorkedForRowLayout,
 ): CSSProperties | undefined {
   if (!layout) return undefined;
   return {
     gap: workedForRowLength(layout.iconGap, "iconGap"),
+    marginBlockStart: workedForRowOffset(
+      layout.marginBlockStart,
+      "marginBlockStart",
+    ),
     fontSize: workedForRowLength(layout.fontSize, "fontSize", true),
     lineHeight: workedForRowLength(layout.lineHeight, "lineHeight", true),
     paddingBlock: workedForRowLength(layout.paddingBlock, "paddingBlock"),

@@ -1817,6 +1817,7 @@ describe("AgentChat lifecycle", () => {
     const workedForRowLayout = {
       chevronSize: 12,
       iconGap: 8,
+      marginBlockStart: -12,
       fontSize: 13,
       lineHeight: 16,
       paddingBlock: 2,
@@ -1852,6 +1853,10 @@ describe("AgentChat lifecycle", () => {
     const work = tree.container.querySelector<HTMLDetailsElement>(
       ".agentkit-activities",
     )!;
+    expect(
+      work.querySelector<HTMLElement>(".agentkit-activities-summary")?.style
+        .marginBlockStart,
+    ).toBe("-12px");
     expect(work.open).toBe(false);
     expect(
       tree.container.querySelectorAll(".agentkit-activities"),
