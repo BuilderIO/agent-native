@@ -458,6 +458,41 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
+  it("writes an unbound Source with its previous credentials", async () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({
+      changeSets: [approvedChangeSet],
+      metadata: { builderSpacePublicKey: null, connectionId: null },
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      pushModeConfirmation: "autosave",
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({ source: builderSource, execution });
+
+    await executeBuilderSourceExecutionWithDeps(
+      {
+        databaseId: "database-1",
+        changeSetId: approvedChangeSet.id,
+        idempotencyKey: plan.idempotencyKey,
+        pushModeConfirmation: "autosave",
+      },
+      deps,
+    );
+
+    expect(deps.executeWrite).toHaveBeenCalledWith({
+      request: plan.payload.request,
+      expectedSourceSpace: null,
+      expectedSourceConnectionId: null,
+      requireSourceBinding: false,
+    });
+  });
+
   it("executes one validated ready plan and reconciles after success", async () => {
     const approvedChangeSet = changeSet();
     const builderSource = source({ changeSets: [approvedChangeSet] });

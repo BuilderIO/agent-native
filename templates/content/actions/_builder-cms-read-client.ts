@@ -204,6 +204,15 @@ type BuilderMcpToolResult = {
   content?: BuilderMcpContentPart[];
 };
 
+export const RETRYABLE_BUILDER_SOURCE_BINDING_ERRORS = new Set([
+  "builder_connection_required",
+  "builder_oauth_reauthorization_required",
+  "builder_source_binding_invalid",
+  "builder_source_binding_required",
+  "builder_source_connection_mismatch",
+  "builder_source_space_mismatch",
+]);
+
 const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
 const BUILDER_CMS_MAX_READ_LIMIT = 10_000;
 const BUILDER_CMS_PAGE_SIZE = 100;
@@ -1666,10 +1675,9 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
   while (entries.length < requestedLimit) {
     if (args.maxPages && pagesRead >= args.maxPages) break;
     const pageLimit = readPageLimit(requestedLimit - entries.length);
-    // A continuation re-reads its saved cursor entry so a count-preserving
+    // Each page re-reads the previous page's last entry so a count-preserving
     // edit before the offset (delete + append) cannot silently skip a row.
-    const anchored =
-      pagesRead === 0 && startOffset > 0 && Boolean(startAfterId);
+    const anchored = offset > 0 && Boolean(cursor);
     const url = new URL("/api/v1/query-data", BUILDER_OAUTH_READ_HOST);
     url.searchParams.set("apiKey", publicKey);
     url.searchParams.set("query.modelId", modelId);
@@ -1746,7 +1754,7 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
         { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
-    if (anchored && normalizedEntries[0]?.id !== startAfterId) {
+    if (anchored && normalizedEntries[0]?.id !== cursor) {
       fail(
         "Builder query-data collection changed before the saved cursor; restart the source refresh.",
         { errorCode: "builder_source_changed", statusCode: 409 },
@@ -1887,7 +1895,7 @@ function builderGeneralEntryRequestFailure(error: unknown) {
     error.message,
     reason,
     error.errorCode,
-    false,
+    RETRYABLE_BUILDER_SOURCE_BINDING_ERRORS.has(error.errorCode),
   );
 }
 

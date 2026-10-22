@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, exists, isNull, lt, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
@@ -762,20 +766,6 @@ export function realExecutionDeps(
       );
     }
   };
-  const cleanupCommittedPrevious = async (prepared: {
-    previousReference: string | null;
-    nextReference: string | null;
-  }) => {
-    if (
-      prepared.previousReference &&
-      prepared.previousReference !== prepared.nextReference
-    ) {
-      await cleanupBuilderPrivatePayload(
-        prepared.previousReference,
-        "superseded execution payload",
-      );
-    }
-  };
   const updateStoredPayload = async (
     prepared: Awaited<ReturnType<typeof storedPayloadJson>>,
     update: (tx: ReturnType<typeof getDb>) => PromiseLike<unknown>,
@@ -812,7 +802,6 @@ export function realExecutionDeps(
         .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
         .limit(1);
       if (current?.payloadJson === prepared.payloadJson) {
-        await cleanupCommittedPrevious(prepared);
         return "committed" as const;
       }
       if (current) {
@@ -971,7 +960,6 @@ export function realExecutionDeps(
           statusCode: 409,
         });
       }
-      await cleanupCommittedPrevious(prepared);
     },
     claimExecution: async (args) => {
       const prepared = await storedPayloadJson(args.executionId, args.payload);
@@ -1083,8 +1071,6 @@ export function realExecutionDeps(
       }
       if (builderExecutionAffectedRows(result) === 0) {
         await discardUncommittedPayload(prepared);
-      } else {
-        await cleanupCommittedPrevious(prepared);
       }
       return builderExecutionAffectedRows(result) > 0;
     },
@@ -1145,8 +1131,6 @@ export function realExecutionDeps(
       }
       if (builderExecutionAffectedRows(result) === 0) {
         await discardUncommittedPayload(prepared);
-      } else {
-        await cleanupCommittedPrevious(prepared);
       }
       return builderExecutionAffectedRows(result) > 0;
     },
@@ -1253,7 +1237,6 @@ export function realExecutionDeps(
         }
         throw error;
       }
-      await cleanupCommittedPrevious(prepared);
     },
     markExecutionFailed: async (args) => {
       let prepared: Awaited<ReturnType<typeof storedPayloadJson>>;
@@ -1376,10 +1359,50 @@ export function realExecutionDeps(
           statusCode: 409,
         });
       }
-      await cleanupCommittedPrevious(prepared);
     },
     releaseExecutionClaim: async (args) => {
-      const prepared = await storedPayloadJson(args.executionId, args.payload);
+      let prepared: Awaited<ReturnType<typeof storedPayloadJson>>;
+      try {
+        prepared = await storedPayloadJson(args.executionId, args.payload);
+      } catch (error) {
+        if (
+          !isActionContractError(error) ||
+          error.errorCode !== "BUILDER_PRIVATE_PAYLOAD_UNAVAILABLE"
+        ) {
+          throw error;
+        }
+        // Nothing was sent, so the stored payload is still accurate. Blob
+        // storage being down must not hold the claim until its lease expires.
+        const result = await getDb()
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: args.restore.state,
+            summary: args.summary,
+            lastError: args.lastError,
+            attemptToken: args.restore.attemptToken ?? null,
+            updatedAt:
+              args.restore.state === "running"
+                ? args.restore.updatedAt
+                : args.now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+              eq(schema.contentDatabaseSourceExecutions.state, "running"),
+              eq(
+                schema.contentDatabaseSourceExecutions.attemptToken,
+                args.attemptToken,
+              ),
+            ),
+          );
+        if (builderExecutionAffectedRows(result) === 0) {
+          fail("Builder execution changed before its claim was released.", {
+            errorCode: "builder_execution_changed",
+            statusCode: 409,
+          });
+        }
+        return;
+      }
       let result;
       try {
         result = await updateStoredPayload(prepared, (tx) =>
@@ -1427,7 +1450,6 @@ export function realExecutionDeps(
           statusCode: 409,
         });
       }
-      await cleanupCommittedPrevious(prepared);
     },
     executeWrite: (args) => executeBuilderCmsWrite(args),
     readLiveEntry: async (args) => {
@@ -1903,7 +1925,10 @@ export async function executeBuilderSourceExecutionWithDeps(
           request: plan.payload.request,
           expectedSourceSpace: source.metadata.builderSpacePublicKey,
           expectedSourceConnectionId: source.metadata.connectionId,
-          requireSourceBinding: true,
+          requireSourceBinding: Boolean(
+            source.metadata.builderSpacePublicKey ||
+            source.metadata.connectionId,
+          ),
         }),
       );
     } catch (error) {

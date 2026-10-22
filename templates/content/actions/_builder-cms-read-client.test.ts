@@ -691,8 +691,8 @@ describe("Builder CMS read client", () => {
         apiKey: "selected-space-key",
         "query.modelId": "model-uuid",
         "sort.id": "1",
-        offset: fetchImpl.mock.calls.length === 2 ? "0" : "2",
-        limit: fetchImpl.mock.calls.length === 2 ? "3" : "1",
+        offset: fetchImpl.mock.calls.length === 2 ? "0" : "1",
+        limit: fetchImpl.mock.calls.length === 2 ? "3" : "2",
         fetchTotalCount: "true",
       });
       expect(input.searchParams.get("noCache")).toBe("true");
@@ -724,6 +724,12 @@ describe("Builder CMS read client", () => {
               }
             : {
                 results: [
+                  {
+                    id: "published-1",
+                    modelId: "model-uuid",
+                    published: "published",
+                    data: { title: "Published" },
+                  },
                   {
                     id: "z-draft-2",
                     modelId: "model-uuid",
@@ -760,6 +766,58 @@ describe("Builder CMS read client", () => {
       },
     });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects a later page when an entry before it was replaced between pages", async () => {
+    let queryCalls = 0;
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(async (input: URL) => {
+      if (input.pathname === "/api/v1/models") {
+        return new Response(
+          JSON.stringify({
+            models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+          }),
+          { status: 200 },
+        );
+      }
+      queryCalls += 1;
+      // After the first page, entry-1 is deleted and entry-5 added: the count
+      // holds while every later entry shifts one place earlier.
+      const offset = Number(input.searchParams.get("offset"));
+      const limit = Number(input.searchParams.get("limit"));
+      const ids =
+        queryCalls === 1
+          ? ["entry-1", "entry-2"]
+          : ["entry-2", "entry-3", "entry-4", "entry-5"].slice(
+              offset,
+              offset + limit,
+            );
+      return new Response(
+        JSON.stringify({
+          results: ids.map((id) => ({ id, modelId: "model-uuid", data: {} })),
+          totalCount: 4,
+        }),
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        limit: 4,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      message: expect.stringContaining("changed before the saved cursor"),
+    });
   });
 
   it("rejects a refresh continuation when an entry is inserted before its saved cursor", async () => {
@@ -984,15 +1042,17 @@ describe("Builder CMS read client", () => {
           { status: 200 },
         );
       }
+      const duplicate = {
+        id: "duplicate-entry",
+        modelId: "model-uuid",
+        data: { title: "Duplicate" },
+      };
       return new Response(
         JSON.stringify({
-          results: [
-            {
-              id: "duplicate-entry",
-              modelId: "model-uuid",
-              data: { title: "Duplicate" },
-            },
-          ],
+          results:
+            fetchImpl.mock.calls.length === 2
+              ? [duplicate]
+              : [duplicate, duplicate],
           totalCount: 2,
         }),
         { status: 200 },
@@ -1407,7 +1467,7 @@ describe("Builder CMS read client", () => {
     },
   );
 
-  it("classifies a credential lane mismatch as non-retryable access denial", async () => {
+  it("keeps a credential lane mismatch retryable for after the source reconnects", async () => {
     resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
@@ -1430,7 +1490,7 @@ describe("Builder CMS read client", () => {
     ).rejects.toMatchObject({
       reason: "access_denied",
       providerStatus: "builder_source_connection_mismatch",
-      retryable: false,
+      retryable: true,
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });

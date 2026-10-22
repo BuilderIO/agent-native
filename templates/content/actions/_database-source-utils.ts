@@ -81,6 +81,7 @@ import {
 } from "./_builder-cms-blob-custody.js";
 import {
   BuilderCmsContentEntryReadError,
+  RETRYABLE_BUILDER_SOURCE_BINDING_ERRORS,
   readBuilderCmsContentEntryResult,
   readBuilderCmsContentEntries,
   readBuilderCmsModelFields,
@@ -1008,15 +1009,6 @@ class BuilderBodyHydrationError extends Error {
     this.name = "BuilderBodyHydrationError";
   }
 }
-
-const RETRYABLE_BUILDER_SOURCE_BINDING_ERRORS = new Set([
-  "builder_connection_required",
-  "builder_oauth_reauthorization_required",
-  "builder_source_binding_invalid",
-  "builder_source_binding_required",
-  "builder_source_connection_mismatch",
-  "builder_source_space_mismatch",
-]);
 
 export function builderBodyHydrationFailureEvidence(error: unknown) {
   if (

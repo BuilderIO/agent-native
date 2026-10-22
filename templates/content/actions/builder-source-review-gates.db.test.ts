@@ -589,6 +589,81 @@ describe("Builder source review execution gates", () => {
     });
   });
 
+  it("releases an unsent claim with its stored payload when blob storage is down", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const db = getDb();
+    const validatedAt = "2026-06-29T16:00:00.000Z";
+    const executionId = `release-without-blob-${counter}`;
+    await db.insert(schema.contentDatabaseSourceExecutions).values({
+      id: executionId,
+      ownerEmail: OWNER,
+      sourceId: seeded.sourceId,
+      changeSetId: seeded.changeSetId,
+      adapter: "builder-cms",
+      pushMode: "autosave",
+      state: "ready",
+      idempotencyKey: `builder-cms:${seeded.sourceId}:${seeded.changeSetId}:autosave`,
+      summary: "Ready.",
+      payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+      attemptToken: null,
+      lastError: null,
+      createdAt: validatedAt,
+      updatedAt: validatedAt,
+    });
+    const deps = realExecutionDeps(seeded.sourceId, seeded.changeSetId);
+    await expect(
+      deps.claimExecution({
+        executionId,
+        changeSetId: seeded.changeSetId,
+        expected: {
+          state: "ready",
+          updatedAt: validatedAt,
+          attemptToken: null,
+        },
+        summary: "Running.",
+        payload: { request: { method: "PATCH" } },
+        now: "2026-06-29T16:01:00.000Z",
+        staleBefore: "2026-06-29T15:51:00.000Z",
+        attemptToken: "attempt-1",
+      }),
+    ).resolves.toBe(true);
+    const [claimed] = await db
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
+
+    privateBlobs.setPutsUnavailable(true);
+    try {
+      await deps.releaseExecutionClaim({
+        executionId,
+        attemptToken: "attempt-1",
+        restore: { state: "blocked", attemptToken: null },
+        summary: "Blocked before write.",
+        payload: { request: { method: "PATCH" }, livePreflight: {} },
+        lastError: "The Builder entry changed after review.",
+        now: "2026-06-29T16:02:00.000Z",
+      });
+    } finally {
+      privateBlobs.setPutsUnavailable(false);
+    }
+    const [released] = await db
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
+    expect(released).toMatchObject({
+      state: "blocked",
+      attemptToken: null,
+      lastError: "The Builder entry changed after review.",
+      payloadJson: claimed!.payloadJson,
+    });
+    await expect(storedExecutionPayload(released)).resolves.toEqual({
+      request: { method: "PATCH" },
+    });
+  });
+
   it("keeps a claimed Builder execution available for reconciliation during disconnect", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
