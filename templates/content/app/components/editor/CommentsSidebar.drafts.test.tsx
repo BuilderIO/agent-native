@@ -1259,6 +1259,8 @@ it("names suggestion authors by display name before their email", async () => {
     anchor: { from: 0, to: 5, prefix: "", suffix: "" },
   };
   const container = document.createElement("div");
+  // Attached, so the Filter menu can open inside the panel.
+  document.body.append(container);
   const root = createRoot(container);
   function Harness({ presentation }: { presentation: "inline" | "history" }) {
     const replyDrafts = useCommentReplyDrafts("document-authors");
@@ -1286,13 +1288,23 @@ it("names suggestion authors by display name before their email", async () => {
     expect(container.textContent).not.toContain("an-e2e-probe-agent");
 
     await act(async () => root.render(<Harness presentation="history" />));
-    const authorFilters = [...container.querySelectorAll("button")].map(
-      (button) => button.textContent,
+    // The people to filter by are in the Filter menu.
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-discussion-filter-trigger]")!
+        .click(),
     );
+    const authorFilters = [
+      ...document.querySelectorAll(
+        '[data-discussion-filter-group="person"] [data-discussion-filter-option]',
+      ),
+    ].map((option) => option.textContent);
     expect(authorFilters).toContain("Probe Agent");
     expect(container.textContent).not.toContain("an-e2e-probe-agent");
+    expect(document.body.textContent).not.toContain("an-e2e-probe-agent");
   } finally {
     await act(async () => root.unmount());
+    container.remove();
   }
 });
 
