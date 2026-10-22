@@ -472,6 +472,9 @@ describe("SettingsShell", () => {
       expect(search("database")[0]).toBe(
         "DatabaseOrganization › Infrastructure",
       );
+      expect(search("web search")[0]).toBe(
+        "Web searchOrganization › Infrastructure",
+      );
     });
 
     it("opens the first hit on Enter and flashes its row", async () => {

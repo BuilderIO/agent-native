@@ -158,6 +158,12 @@ const INFRA_PAGE_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
     anchor: "voice",
   },
   {
+    id: "infra:web-search",
+    labelKey: "agentChat.settingsShell.search.webSearch",
+    keywords: "web search internet search engine research brave tavily",
+    anchor: "web-search",
+  },
+  {
     id: "infra:images",
     labelKey: infraRow("images"),
     keywords: "image generation images slides design gemini openai",

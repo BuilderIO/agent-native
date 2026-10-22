@@ -511,8 +511,7 @@ test("the Rectangle tool draws a board rectangle outside the screen; radius 1 sa
   expectOnlyChanged(before, await app.savedNodes(id), []);
 });
 
-// fixme: fails on current main after the merge: Error: centred on the release y: 103, expected 100.57134900774274
-test.fixme("dragging a board rectangle into the frame reparents it there, and one undo puts it back on the board", async ({
+test("dragging a board rectangle into the frame reparents it there, and one undo puts it back on the board", async ({
   app,
 }) => {
   const id = await openFixture(app, ICON_GRID_HTML);
@@ -528,7 +527,13 @@ test.fixme("dragging a board rectangle into the frame reparents it there, and on
     .locator(`[data-agent-native-node-id="${rectId}"]`)
     .boundingBox())!;
   const release = await snappedPagePoint(app, { x: 100, y: 100 });
-  await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  const { scale } = await app.pagePoint(0, 0);
+  // The pointer only reaches whole page pixels, so the grab sits a fraction off the centre.
+  const grab = {
+    x: Math.round(rect.x + rect.width / 2),
+    y: Math.round(rect.y + rect.height / 2),
+  };
+  await page.mouse.move(grab.x, grab.y);
   await page.mouse.down();
   await page.mouse.move(release.page.x, release.page.y, { steps: 20 });
   await page.mouse.up();
@@ -541,12 +546,12 @@ test.fixme("dragging a board rectangle into the frame reparents it there, and on
   const landed = await app.designRect(rectId);
   expectNear(
     landed.x + landed.width / 2,
-    release.design.x,
+    release.design.x + (rect.x + rect.width / 2 - grab.x) / scale,
     "centred on the release x",
   );
   expectNear(
     landed.y + landed.height / 2,
-    release.design.y,
+    release.design.y + (rect.y + rect.height / 2 - grab.y) / scale,
     "centred on the release y",
   );
   expectOnlyChanged(before, await app.savedNodes(id), [rectId]);

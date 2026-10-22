@@ -111,6 +111,7 @@ interface Harness {
       | "readTurnStartedAt"
       | "emitRunText"
       | "isTurnAborted"
+      | "isRunAborted"
       | "markRunAborted"
     >
   >;
@@ -129,6 +130,7 @@ function makeHarness(overrides?: {
     readTurnStartedAt:
       overrides?.readTurnStartedAt ?? vi.fn(async () => Date.now()),
     isTurnAborted: vi.fn(async () => false),
+    isRunAborted: vi.fn(async () => false),
     emitRunText: vi.fn(async () => {}),
     insertRun: vi.fn(async () => {
       callOrder.push("insertRun");
@@ -146,7 +148,7 @@ function makeHarness(overrides?: {
       })),
     updateRunHeartbeat: vi.fn(async () => {}),
     updateRunStatusIfRunning: vi.fn(async () => true),
-    markRunAborted: vi.fn(async () => {}),
+    markRunAborted: vi.fn(async () => true),
     setRunTerminalReason: vi.fn(async () => {}),
     setRunError: vi.fn(async () => {}),
     recordRunDiagnostic: vi.fn(async () => {}),
@@ -206,6 +208,91 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     expect(h.deps.markRunAborted).toHaveBeenCalledWith("run-chunk0", "user");
   });
 
+  it("accepts an existing abort with a different terminal reason", async () => {
+    const h = makeHarness();
+    h.deps.isTurnAborted = vi.fn(async () => true);
+    h.deps.markRunAborted = vi.fn(async () => false);
+    h.deps.isRunAborted = vi.fn(async () => true);
+
+    await runChain(h);
+
+    expect(h.deps.insertRun).not.toHaveBeenCalled();
+    expect(h.deps.markRunAborted).toHaveBeenCalledWith("run-chunk0", "user");
+    expect(h.deps.isRunAborted).toHaveBeenCalledWith("run-chunk0");
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.recordRunDiagnostic).not.toHaveBeenCalledWith(
+      "run-chunk0",
+      RUN_DIAG_STAGE.workerThrew,
+      expect.stringContaining("Could not confirm durable abort"),
+    );
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+  });
+
+  it("does not dispatch until the predecessor terminal marker succeeds", async () => {
+    const h = makeHarness();
+    h.deps.markBackgroundContinuationChunkTerminal = vi.fn(async () => false);
+
+    await runChain(h);
+
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+  });
+
+  it("does not dispatch when the turn is aborted after the predecessor terminal marker", async () => {
+    const h = makeHarness();
+    h.deps.isTurnAborted = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+
+    await runChain(h);
+
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.markRunAborted).toHaveBeenCalledWith("run-next", "user");
+    expect(h.deps.markRunAborted).not.toHaveBeenCalledWith(
+      "run-chunk0",
+      "user",
+    );
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+  });
+
+  it("reports when the successor abort does not persist after a turn abort", async () => {
+    const h = makeHarness();
+    h.deps.isTurnAborted = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    h.deps.markRunAborted = vi.fn(async (runId) => runId !== "run-next");
+
+    await runChain(h);
+
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-chunk0",
+      expect.any(String),
+      expect.stringContaining(
+        "Could not confirm durable abort for continuation run(s): run-next",
+      ),
+    );
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+  });
+
   it("PRE-INSERTS the successor row before the dispatch fires, then marks the chunk terminal", async () => {
     const h = makeHarness();
     const run = timeoutBoundaryRun();
@@ -249,7 +336,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       },
     });
 
-    expect(h.callOrder).toEqual(["insertRun", "dispatch", "markTerminal"]);
+    expect(h.callOrder).toEqual(["insertRun", "markTerminal", "dispatch"]);
 
     expect(h.deps.insertRun).toHaveBeenCalledWith(
       "run-next",
@@ -484,14 +571,8 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       RUN_DIAG_STAGE.workerThrew,
       expect.stringContaining("chain_dispatch_deferred"),
     );
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-chunk0",
-      "truncated",
-    );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
     expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
       "run-chunk0",
       RUN_DIAG_STAGE.workerThrew,
@@ -499,7 +580,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     );
     expect(
       h.deps.markBackgroundContinuationChunkTerminal,
-    ).not.toHaveBeenCalled();
+    ).toHaveBeenCalledOnce();
     // With this chunk terminal, the thread slot is free — the client's
     // existing auto_continue re-POST (it still receives the terminal event)
     // is a second, faster fallback alongside the sweep. See
@@ -758,14 +839,11 @@ describe("chainServerDrivenContinuation — worker proven in background function
       "run-next",
       "errored",
     );
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-chunk0",
-      "truncated",
-    );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
   });
 });
 
@@ -828,14 +906,11 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
       backgroundFunctionRuntimeExpected: true,
     });
     expect(readClaim).toHaveBeenCalledWith("run-next");
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-chunk0",
-      "truncated",
-    );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-next",
       "errored",
@@ -906,14 +981,11 @@ describe("chainServerDrivenContinuation — Netlify loop-protection 508 is class
 
     expect(dispatchMock).toHaveBeenCalledTimes(1);
 
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-chunk0",
-      "truncated",
-    );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
     expect(h.deps.setRunTerminalReason).not.toHaveBeenCalledWith(
       "run-chunk0",
       "background_continuation_dispatch_failed",
@@ -957,14 +1029,11 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
 
     expect(dispatchMock).not.toHaveBeenCalled();
     expect(h.deps.insertRun).toHaveBeenCalled();
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-chunk0",
-      "truncated",
-    );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
     expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
       "run-chunk0",
       RUN_DIAG_STAGE.workerThrew,
@@ -994,10 +1063,10 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
     });
 
     expect(dispatchMock).not.toHaveBeenCalled();
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
   });
 
   it("applies uniformly on the durable-background dispatch target too (Background Functions do not escape Netlify's loop protection)", async () => {
@@ -1010,10 +1079,10 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
     });
 
     expect(dispatchMock).not.toHaveBeenCalled();
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-chunk0",
-      "background_continuation_dispatch_deferred",
-    );
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).toHaveBeenCalledOnce();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalled();
   });
 });
 

@@ -14,6 +14,7 @@ type SessionStatus =
 
 const mocks = vi.hoisted(() => ({
   addBytesProcessed: vi.fn(),
+  recordQueryCost: vi.fn(),
   callAction: vi.fn(),
   session: {
     session: null as {
@@ -32,6 +33,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("./cost-tracker", () => ({
   addBytesProcessed: mocks.addBytesProcessed,
+  recordQueryCost: mocks.recordQueryCost,
 }));
 
 import { useSqlQuery } from "./sql-query";
@@ -130,6 +132,7 @@ describe("useSqlQuery retained results", () => {
       defaultOptions: { queries: { retry: false } },
     });
     mocks.addBytesProcessed.mockReset();
+    mocks.recordQueryCost.mockReset();
     mocks.callAction.mockReset();
     mocks.session.session = userA;
     mocks.session.status = "authenticated";

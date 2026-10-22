@@ -1,4 +1,5 @@
 import type { PublicAgentActionConfig } from "../action.js";
+import type { AgentProfileMetadata } from "../shared/agent-profile.js";
 
 export type {
   A2AAgentActivityPhase,
@@ -186,6 +187,7 @@ export interface A2AHandlerContext {
   metadata?: Record<string, unknown>;
   event?: unknown;
   sourceContext?: A2ASourceContext;
+  signal?: AbortSignal;
   writeArtifact: (name: string, content: string, mimeType?: string) => string;
 }
 
@@ -216,7 +218,11 @@ export interface A2AReadOnlyActionResult {
   action: string;
   status: "completed" | "failed";
   output: string;
+  /** Set when known: a call can fail after its side effect completed. */
+  completedSideEffect?: boolean;
 }
+
+export type A2AActionExecutionResult = Omit<A2AReadOnlyActionResult, "action">;
 
 export type A2AHandler = (
   message: Message,
@@ -230,17 +236,22 @@ export interface A2AConfig {
   version?: string;
   skills: AgentSkill[];
   authenticatedSkills?: AgentSkill[];
+  resolvePublicProfile?: () => Promise<AgentProfileMetadata>;
+  resolveAuthenticatedProfile?: (identity: {
+    userEmail: string;
+    orgId?: string;
+  }) => Promise<AgentProfileMetadata>;
   publicSkillsOnly?: boolean;
   handler?: A2AHandler;
   apiKeyEnv?: string;
   streaming?: boolean;
   connect?: boolean;
   durableBackgroundRuns?: boolean;
-  executeApproval?: (approval: A2AApprovalExecution) => Promise<{
-    status: "completed" | "failed";
-    output: string;
-  }>;
+  executeApproval?: (
+    approval: A2AApprovalExecution,
+    options: { signal: AbortSignal; threadId: string; turnId: string },
+  ) => Promise<A2AActionExecutionResult>;
   executeReadOnlyAction?: (
     invocation: A2AReadOnlyActionInvocation,
-  ) => Promise<Pick<A2AReadOnlyActionResult, "status" | "output">>;
+  ) => Promise<A2AActionExecutionResult>;
 }

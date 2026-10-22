@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildShaderRuntimeScriptTag } from "../../../../shared/shader-fills";
-import { withLocalRuntimes } from "./local-runtime";
+import { withLocalRuntimes, withNativeShaderRuntime } from "./local-runtime";
 
 const URLS = {
   tailwind: "http://localhost:3000/assets/tailwind.js",
@@ -145,5 +145,36 @@ describe("withLocalRuntimes", () => {
       const bare = doc("<script>window.ready = true;</script>");
       expect(withLocalRuntimes(bare, URLS)).toBe(bare);
     });
+  });
+});
+
+describe("withNativeShaderRuntime", () => {
+  const manifest = `<script type="application/x-agent-native-effects">{"schemaVersion":2,"definitions":[],"instances":[]}</script>`;
+
+  it("loads the committed native runtime once for a native manifest", () => {
+    const document = `<html><body><main>Design</main>${manifest}</body></html>`;
+    const injected = withNativeShaderRuntime(document);
+    expect(injected).toContain(
+      'data-agent-native-native-shader-runtime data-runtime-version="2"',
+    );
+    expect(
+      injected.indexOf("data-agent-native-native-shader-runtime"),
+    ).toBeGreaterThan(injected.indexOf(manifest));
+    expect(withNativeShaderRuntime(injected)).toBe(injected);
+  });
+
+  it("leaves a document without native effects untouched", () => {
+    const document = "<html><body><main>Design</main></body></html>";
+    expect(withNativeShaderRuntime(document)).toBe(document);
+    expect(withNativeShaderRuntime(document, true)).toContain(
+      'data-agent-native-native-shader-runtime data-runtime-version="2"',
+    );
+  });
+
+  it("rejects an unrecognized runtime marker rather than accepting its code", () => {
+    const document = `<html><body>${manifest}<script data-agent-native-native-shader-runtime data-runtime-version="2">other code</script></body></html>`;
+    expect(() => withNativeShaderRuntime(document)).toThrow(
+      "Native shader runtime marker has unrecognized content",
+    );
   });
 });

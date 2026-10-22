@@ -41,6 +41,8 @@ const MOTION_PATH_LENGTH_STEPS = 512;
 export const MOTION_DEFAULT_PLAYBACK_MODE: MotionPlaybackMode = "once";
 export const MOTION_TIMELINE_DEFAULT_DURATION_MS = 2_000;
 export const MOTION_TIMELINE_MAX_DURATION_MS = 120_000;
+export const MOTION_TIMELINE_MAX_CONTENT_END_MS =
+  MOTION_TIMELINE_MAX_DURATION_MS * 2;
 
 export interface MotionKeyframe {
   t: number;
@@ -50,13 +52,104 @@ export interface MotionKeyframe {
 }
 
 export interface MotionTrack {
+  id?: string;
   targetNodeId: string;
   property: string;
   keyframes: MotionKeyframe[];
+  composition?: "replace" | "add";
   enabled?: boolean;
   delayMs?: number;
   durationMs?: number;
   timelinePlaybackMode?: MotionPlaybackMode;
+}
+
+/** Repeated Position tracks compose additively only for the bounded px subset. */
+export function isAdditiveMotionPositionTrack(track: MotionTrack): boolean {
+  return (
+    track.property === "translate" &&
+    track.keyframes.length > 0 &&
+    track.keyframes.every(
+      (keyframe) =>
+        keyframe.motionPath === undefined &&
+        parseMotionPosition(keyframe.value) !== null,
+    )
+  );
+}
+
+const MOTION_TRACK_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+let motionTrackIdCounter = 0;
+
+export function isMotionTrackId(value: unknown): value is string {
+  return typeof value === "string" && MOTION_TRACK_ID_PATTERN.test(value);
+}
+
+export function createMotionTrackId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `motion-track-${Date.now().toString(36)}-${(++motionTrackIdCounter).toString(36)}`
+  );
+}
+
+/** Gives missing or colliding track identities deterministic IDs in order. */
+export function withMotionTrackIds<T extends MotionTrack>(
+  tracks: readonly T[],
+): Array<T & { id: string }> {
+  const reservedIds = new Set(
+    tracks.flatMap((track) => (track.id === undefined ? [] : [track.id])),
+  );
+  const usedIds = new Set<string>();
+  return tracks.map((track, index) => {
+    let id = track.id;
+    if (id === undefined || usedIds.has(id)) {
+      const baseId = id ?? `legacy-track-${index.toString(36)}`;
+      const candidateId =
+        id === undefined ? baseId : `${baseId}-${index.toString(36)}`;
+      id = candidateId;
+      let suffix = 0;
+      while (reservedIds.has(id) || usedIds.has(id)) {
+        id = `${candidateId}-${++suffix}`;
+      }
+    }
+    usedIds.add(id);
+    return { ...track, id };
+  });
+}
+
+/** Keeps source-backed identities when an older caller omits track ids. */
+export function withMotionTrackIdsFromExisting<T extends MotionTrack>(
+  tracks: readonly T[],
+  existingTracks: readonly MotionTrack[],
+): Array<T & { id: string }> {
+  const reservedIds = new Set(
+    tracks.flatMap((track) => (track.id === undefined ? [] : [track.id])),
+  );
+  const usedIds = new Set<string>();
+  const existingByKey = new Map<string, string[]>();
+  for (const track of existingTracks) {
+    if (!isMotionTrackId(track.id)) continue;
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    const ids = existingByKey.get(key) ?? [];
+    ids.push(track.id);
+    existingByKey.set(key, ids);
+  }
+
+  const tracksWithExistingIds = tracks.map((track) => {
+    if (track.id !== undefined) {
+      usedIds.add(track.id);
+      return track;
+    }
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    const existingId = existingByKey
+      .get(key)
+      ?.find((id) => !reservedIds.has(id) && !usedIds.has(id));
+    if (existingId) {
+      usedIds.add(existingId);
+      return { ...track, id: existingId };
+    }
+    return track;
+  });
+
+  return withMotionTrackIds(tracksWithExistingIds);
 }
 
 export interface MotionTimeline {
@@ -158,8 +251,10 @@ export function createMotionTrack(
   const from = options.from ?? "0";
   const to = options.to ?? "1";
   return {
+    id: createMotionTrackId(),
     targetNodeId,
     property,
+    ...(property === "translate" ? { composition: "add" as const } : {}),
     keyframes: [
       { t: 0, value: from, ...(options.ease ? { ease: options.ease } : {}) },
       { t: 1, value: to, ...(options.ease ? { ease: options.ease } : {}) },
@@ -829,6 +924,7 @@ export interface MotionAutoKeyframeEdit {
   value: string;
   playheadT: number;
   timelineDurationMs: number;
+  trackId?: string;
 }
 
 export function applyMotionAutoKeyframe(
@@ -836,12 +932,19 @@ export function applyMotionAutoKeyframe(
   edit: MotionAutoKeyframeEdit,
   defaultEase?: MotionEase,
 ): MotionTrack[] | null {
-  const index = tracks.findIndex(
-    (track) =>
-      track.targetNodeId === edit.targetNodeId &&
-      track.property === edit.property,
+  const matchingIndices = tracks.flatMap((track, index) =>
+    track.targetNodeId === edit.targetNodeId && track.property === edit.property
+      ? [index]
+      : [],
   );
-  if (index === -1) return null;
+  const index =
+    (edit.trackId
+      ? matchingIndices.find(
+          (candidateIndex) => tracks[candidateIndex]?.id === edit.trackId,
+        )
+      : undefined) ??
+    (matchingIndices.length === 1 ? matchingIndices[0] : undefined);
+  if (index === undefined) return null;
   const track = tracks[index];
   const playheadMs =
     Math.min(1, Math.max(0, edit.playheadT)) * edit.timelineDurationMs;
@@ -872,7 +975,9 @@ export function applyMotionAutoKeyframe(
 }
 
 export interface MotionAnimationClip {
-  tracks: Array<Omit<MotionTrack, "targetNodeId" | "timelinePlaybackMode">>;
+  tracks: Array<
+    Omit<MotionTrack, "id" | "targetNodeId" | "timelinePlaybackMode">
+  >;
 }
 
 export function copyLayerAnimation(
@@ -885,7 +990,12 @@ export function copyLayerAnimation(
   if (layerTracks.length === 0) return null;
   return {
     tracks: layerTracks.map(
-      ({ targetNodeId: _node, timelinePlaybackMode: _mode, ...rest }) => ({
+      ({
+        id: _id,
+        targetNodeId: _node,
+        timelinePlaybackMode: _mode,
+        ...rest
+      }) => ({
         ...rest,
         keyframes: rest.keyframes.map((kf) => ({ ...kf })),
       }),
@@ -908,6 +1018,7 @@ export function pasteLayerAnimation(
       ),
   );
   const pasted: MotionTrack[] = clip.tracks.map((track) => ({
+    id: createMotionTrackId(),
     ...track,
     keyframes: track.keyframes.map((kf) => ({ ...kf })),
     targetNodeId,

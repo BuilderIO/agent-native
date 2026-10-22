@@ -314,7 +314,12 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enriquecimiento de contactos y datos de empresa",
       hubspotDescription: "Contactos, negocios y tickets de CRM",
-      gongDescription: "Llamadas recientes e inteligencia conversacional",
+      gongDescription: "Historial de llamadas de Gong",
+      gongAccessCheckFailed:
+        "No se pudo comprobar si tienes permiso para conectar Gong.",
+      gongKeyPlaceholder: "Clave de API de Gong",
+      gongKeyFormatHint:
+        "Introduce la clave de acceso y el secreto con el formato access_key:secret.",
       pylonDescription: "Incidencias de soporte y datos de cuenta",
       gongCalls: "Llamadas de Gong",
       deals: "Negocios",
@@ -438,6 +443,7 @@ const messages = {
       tryDifferentKeywords: "Prueba con otras palabras clave",
       nothingHere: "Nada aquí todavía",
       loadingMore: "Cargando más...",
+      openAllMailForOlder: "Abrir todo el correo para mensajes más antiguos",
     },
     toasts: {
       noEmailSelected: "No hay email seleccionado.",
@@ -469,6 +475,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensaje enviado.",
       failedToSaveDraft: "No se pudo guardar el borrador.",
+      failedToRefreshInbox:
+        "No se pudo actualizar la bandeja de entrada. Inténtalo de nuevo en un momento.",
       failedToDeleteDraft: "No se pudo eliminar el borrador.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",

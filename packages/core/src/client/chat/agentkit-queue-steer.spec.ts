@@ -344,7 +344,7 @@ describe("AgentKit queued steering", () => {
     await transport.dispose();
   });
 
-  it("cancels an active run and promotes a steered item through the real transport", async () => {
+  it("waits for dispatched work before cancelling and promoting a steered item", async () => {
     const threadId = "thread-queue-steer";
     const apiUrl = "/_agent-native/agent-chat";
     const queue: Array<
@@ -358,6 +358,7 @@ describe("AgentKit queued steering", () => {
     const cancellations: string[] = [];
     const mutations: string[] = [];
     let active = false;
+    let hasInFlightWork = false;
     let runNumber = 0;
     let releaseFirstRun: (() => void) | undefined;
     const fetcher = vi.fn(
@@ -374,7 +375,14 @@ describe("AgentKit queued steering", () => {
           activeReads.push(active);
           return json({
             active,
-            ...(active ? { status: "running", runId: "run-1" } : {}),
+            ...(active
+              ? {
+                  status: "running",
+                  runId: "run-1",
+                  turnId: "turn-1",
+                  hasInFlightWork,
+                }
+              : {}),
           });
         }
         if (url.endsWith(`/threads/${threadId}/queued`) && method === "POST") {
@@ -467,7 +475,10 @@ describe("AgentKit queued steering", () => {
             }
             turns.push(input);
             prompts.push(input.prompt ?? "");
-            if (currentRun === 1) active = true;
+            if (currentRun === 1) {
+              active = true;
+              hasInFlightWork = true;
+            }
             let release!: () => void;
             const stopped = new Promise<void>((resolve) => {
               release = resolve;
@@ -479,13 +490,17 @@ describe("AgentKit queued steering", () => {
               sessionId,
               events: (async function* () {
                 if (currentRun === 1) await stopped;
-                if (currentRun === 2) active = false;
+                if (currentRun === 2) {
+                  active = false;
+                  hasInFlightWork = false;
+                }
                 yield { type: "done", reason: "complete" } as const;
               })(),
               cancel: async () => {
                 cancellations.push(`run-${currentRun}`);
                 setTimeout(() => {
                   active = false;
+                  hasInFlightWork = false;
                 }, 700);
                 release();
                 return { status: "cancelled" } as const;
@@ -498,6 +513,7 @@ describe("AgentKit queued steering", () => {
         cancellations.push(runId ?? "");
         setTimeout(() => {
           active = false;
+          hasInFlightWork = false;
         }, 700);
         releaseFirstRun?.();
         return { status: "cancelled" };
@@ -544,12 +560,22 @@ describe("AgentKit queued steering", () => {
       expect(mutations).toEqual(["append", "claim", "release"]);
       expect(client.getThread(threadId).activeRunIds).toEqual(["run-1"]);
 
-      const steeredRun = await client.steerQueuedMessage(
+      const steering = client.steerQueuedMessage(
         threadId,
         queued.id,
         undefined,
         { interruptActiveRun: true },
       );
+      await vi.waitFor(() => {
+        expect(
+          mutations.filter((mutation) => mutation === "release"),
+        ).toHaveLength(2);
+      });
+      expect(cancellations).toEqual([]);
+      expect(queue[0]).not.toHaveProperty("promotionClaim");
+
+      hasInFlightWork = false;
+      const steeredRun = await steering;
 
       expect(cancellations).toEqual(["run-1"]);
       expect(active).toBe(false);

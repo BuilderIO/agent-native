@@ -43,6 +43,18 @@ async function openLayerStack(
   return submenu;
 }
 
+/** The e2e server has no AI provider, so the composer renders but stays disabled. */
+async function openAgentFromMenu(page: Page) {
+  await expect(page.locator("[data-design-agent-panel]")).toBeHidden();
+  await page
+    .getByRole("menuitem", { name: "Edit with Agent", exact: true })
+    .click();
+  await expect(page.getByText("Select layer", { exact: true })).toBeHidden();
+  await expect(
+    page.locator("[data-design-agent-panel] .ProseMirror"),
+  ).toBeVisible();
+}
+
 async function selectedTreeLabel(page: Page) {
   return (
     (await page
@@ -162,8 +174,7 @@ test("Select layer on a non-active overview screen preserves exact screen and la
   expect(await app.savedHtml(designId, "about.html")).toBe(aboutBaseline);
 });
 
-// fixme: #7453 removed the canvas menu's "Edit with AI…" entry this test opens (Edit with Agent now opens the agent sidebar); re-author against the new entry point
-test.fixme("Select layer on a non-active overview screen routes selection to that exact screen", async ({
+test("Select layer on a non-active overview screen routes selection to that exact screen", async ({
   app,
   page,
 }) => {
@@ -191,85 +202,27 @@ test.fixme("Select layer on a non-active overview screen routes selection to tha
   await expect.poll(() => selectedTreeLabel(page)).toContain("Nested child");
 
   await openLayerStack(app, "about.html", false);
-  const editWithAi = page.getByRole("menuitem", {
-    name: "Edit with AI…",
-    exact: true,
-  });
-  await editWithAi.hover();
-  await expect(editWithAi).toHaveAttribute("data-state", "open");
-  const editMenu = page.getByRole("menu").last();
-  await editMenu.getByText("Nested child", { exact: true }).click();
-
-  await expect(
-    page.getByText("Ask or change selection", { exact: true }),
-  ).toBeVisible();
-  const editPrompt = page.getByRole("textbox", { name: "Leave feedback…" });
-  await expect(editPrompt).toBeVisible();
-  await expect(editPrompt).toBeFocused();
-  await expect(
-    page.getByRole("button", { name: "Comment", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Edit with AI", exact: true }),
-  ).toBeVisible();
-  const editPopover = page
-    .locator("[data-review-popover]")
-    .filter({ has: editPrompt })
-    .last();
+  await openAgentFromMenu(page);
   await expect
-    .poll(async () => (await editPopover.boundingBox())?.width ?? 0)
-    .toBeGreaterThanOrEqual(300);
-  await page.waitForTimeout(500);
-  const editPromptBox = await editPrompt.boundingBox();
-  expect(editPromptBox).not.toBeNull();
-  await page.mouse.move(
-    editPromptBox!.x + editPromptBox!.width / 2,
-    editPromptBox!.y + editPromptBox!.height / 2,
-    { steps: 12 },
-  );
-  await page.mouse.down();
-  await page.mouse.up();
-  await editPrompt.pressSequentially("Make this heading more concise");
-  await expect(editPrompt).toHaveValue("Make this heading more concise");
-  await expect(
-    page.getByText("Ask or change selection", { exact: true }),
-  ).toBeVisible();
+    .poll(() => new URL(page.url()).searchParams.get("screen"))
+    .toBe(aboutId);
 
   await app.settled();
   expect(await app.savedHtml(designId, "about.html")).toBe(aboutBaseline);
 });
 
-// fixme: #7453 removed the canvas menu's "Edit with AI…" entry this test opens (Edit with Agent now opens the agent sidebar); re-author against the new entry point
-test.fixme("Edit with AI opened from direct mode accepts textarea input", async ({
+test("Edit with Agent opened from direct mode opens the Agent panel and leaves the design unchanged", async ({
   app,
   page,
 }) => {
   const designId = await app.seed(STACK_HTML);
   await app.open(designId);
   await enterDirectMode(page);
+  const baselineContent = await app.savedHtml(designId);
 
   await openLayerStack(app, undefined, false);
-  const editWithAi = page.getByRole("menuitem", {
-    name: "Edit with AI…",
-    exact: true,
-  });
-  await editWithAi.hover();
-  await expect(editWithAi).toHaveAttribute("data-state", "open");
-  await page
-    .getByRole("menu")
-    .last()
-    .getByText("Nested child", { exact: true })
-    .click();
+  await openAgentFromMenu(page);
 
-  const editPrompt = page.getByRole("textbox", { name: "Leave feedback…" });
-  await expect(editPrompt).toBeVisible();
-  await expect(editPrompt).toBeFocused();
-  const editPromptBox = await editPrompt.boundingBox();
-  expect(editPromptBox).not.toBeNull();
-  await page.mouse.click(
-    editPromptBox!.x + editPromptBox!.width / 2,
-    editPromptBox!.y + editPromptBox!.height / 2,
-  );
-  await editPrompt.pressSequentially("Make this heading more concise");
-  await expect(editPrompt).toHaveValue("Make this heading more concise");
+  await app.settled();
+  expect(await app.savedHtml(designId)).toBe(baselineContent);
 });

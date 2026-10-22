@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "id": "slides-2",
+  "displayName": "Slides 2",
+  "description": "Create, visually edit, and present slide decks in Slides 2.",
+  "mcp": {
+    "serverName": "agent-native-slides-2"
+  },
+  "local": {
+    "template": "slides-2",
+    "sourcePath": ".",
+    "defaultUrl": "http://127.0.0.1:8087",
+    "commands": {
+      "install": "pnpm install",
+      "dev": "pnpm dev",
+      "start": "pnpm start"
+    }
+  },
+  "auth": {
+    "mode": "oauth",
+    "setup": "Use the Slides 2 actions if they are already available. For local development, start Slides 2 and follow the host's local MCP connection flow. Never ask the user to paste a token into chat."
+  },
+  "surfaces": [
+    {
+      "id": "deck-editor",
+      "action": "create-deck",
+      "path": "/deck"
+    }
+  ],
+  "skills": [
+    {
+      "path": ".agents/skills/create-deck",
+      "visibility": "both",
+      "exportAs": "create-deck"
+    },
+    {
+      "path": ".agents/skills/slide-editing",
+      "visibility": "both",
+      "exportAs": "slide-editing"
+    },
+    {
+      "path": ".agents/skills/apply-slide-comments",
+      "visibility": "both",
+      "exportAs": "apply-slide-comments"
+    },
+    {
+      "path": ".agents/skills/deck-management",
+      "visibility": "internal"
+    },
+    {
+      "path": ".agents/skills/design-systems",
+      "visibility": "both",
+      "exportAs": "design-systems"
+    },
+    {
+      "path": ".agents/skills/slide-design",
+      "visibility": "both",
+      "exportAs": "slide-design"
+    },
+    {
+      "path": ".agents/skills/creative-context",
+      "visibility": "internal"
+    },
+    {
+      "path": ".agents/skills/slide-images",
+      "visibility": "internal"
+    },
+    {
+      "path": ".agents/skills/analytics-data-for-decks",
+      "visibility": "internal"
+    }
+  ],
+  "hostAdapters": [
+    "codex-plugin",
+    "claude-marketplace",
+    "vercel-skills",
+    "plain-skill",
+    "claude-skill",
+    "chatgpt-mcp",
+    "generic-mcp"
+  ],
+  "chatgpt": {
+    "version": "1.0.3",
+    "interface": {
+      "displayName": "Agent-Native Slides 2",
+      "shortDescription": "On-brand presentations",
+      "longDescription": "Create and revise presentations in your Slides 2 workspace. Start from a brief, inspect decks, visually edit slides, and present the result. This connection edits presentations in Slides 2; it does not directly change PowerPoint or Google Slides files.",
+      "developerName": "Builder.io",
+      "category": "Creativity",
+      "capabilities": [
+        "Create presentations from a brief",
+        "Edit slides and decks",
+        "Apply workspace design systems"
+      ],
+      "supportURL": "https://www.agent-native.com/contact/",
+      "privacyPolicyURL": "https://www.agent-native.com/privacy/",
+      "termsOfServiceURL": "https://www.agent-native.com/terms/",
+      "defaultPrompt": [
+        "Create a 5-slide bakery deck for its June second location, targeting morning commuters; use cream and espresso-brown colors.",
+        "Create a June second-location launch deck for a bakery targeting morning commuters; cap the first-month budget at $20k.",
+        "Create a bakery catering sales deck for office managers planning team breakfasts; include pastry, coffee, and ordering steps."
+      ],
+      "keywords": [
+        "presentations",
+        "pitch decks",
+        "slide decks",
+        "sales decks",
+        "business updates"
+      ],
+      "logoPath": "public/chatgpt-plugin-icon.svg"
+    },
+    "review": {
+      "test_cases": {
+        "positive": [
+          {
+            "description": "Create a new editable presentation",
+            "prompt": "Create a five-slide pitch deck for a neighborhood bakery opening a second location. Use cream backgrounds and espresso-brown headings. Cover the opportunity, target audience of morning commuters, launch plan, a first-month budget assumption capped at $20,000, and next steps.",
+            "tools_triggered": "create-deck",
+            "expected_behavior": "Create one editable five-slide deck in the connected Slides 2 workspace, preserve the supplied facts and visual direction, and confirm its title and slides."
+          },
+          {
+            "description": "List saved presentations",
+            "prompt": "List the presentations in my Slides 2 workspace and confirm whether Quarterly Planning Demo is available.",
+            "tools_triggered": "list-decks",
+            "expected_behavior": "List only decks the connected account can access and confirm Quarterly Planning Demo by name."
+          },
+          {
+            "description": "Inspect the seeded planning deck",
+            "prompt": "Inspect the Quarterly Planning Demo deck and list its slide titles, including the Priorities slide.",
+            "tools_triggered": "list-decks, get-deck",
+            "expected_behavior": "Return the slide titles from the named demo deck, including Priorities, without changing the deck."
+          },
+          {
+            "description": "Add a slide to an identified deck",
+            "prompt": "Add a closing slide titled 'Owners & Next Steps' to Quarterly Planning Demo. Use its Priorities slide for context; repeat only owners, dates, or commitments already present and use 'TBD' for missing details. Leave all existing slides unchanged.",
+            "tools_triggered": "list-decks, get-deck, get-design-system, add-slide",
+            "expected_behavior": "Read the deck and its linked design-system context, then add one closing slide using only saved owners, dates, or commitments, label missing details TBD, and preserve all existing slides."
+          },
+          {
+            "description": "Duplicate an existing deck",
+            "prompt": "Duplicate the Quarterly Planning Demo deck as Quarterly Planning Draft.",
+            "tools_triggered": "list-decks, duplicate-deck",
+            "expected_behavior": "Create a separate copy with the requested title and leave the source deck intact."
+          }
+        ],
+        "negative": [
+          {
+            "description": "Unsupported deck deletion",
+            "prompt": "Delete every presentation in my workspace."
+          },
+          {
+            "description": "Direct editing of Google Slides",
+            "prompt": "Update the source Google Slides presentation and share the changes with my team."
+          },
+          {
+            "description": "Restore an earlier deck version",
+            "prompt": "Replace my current presentation with yesterday's saved version."
+          }
+        ]
+      },
+      "commerce": false,
+      "iframeJustification": "The plugin renders saved Slides 2 presentations inside ChatGPT. The widget and editor content use ChatGPT's host API with the built-in MCP Apps bridge; no remote bridge script is loaded."
+    }
+  }
+}

@@ -5,11 +5,17 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import {
   deleteNotification,
   notifyWithDelivery,
 } from "../notifications/index.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { ForbiddenError } from "../sharing/access.js";
+import {
+  USAGE_ALERT_MIGRATIONS,
+  USAGE_ALERT_MIGRATIONS_TABLE,
+} from "./migrations.js";
 import { builderCreditsFromCostCents } from "./store.js";
 
 const DAY_MS = 86_400_000;
@@ -245,6 +251,10 @@ export const usageAlertsStore = defineStore({
         }
       },
     },
+    ...fromMigrationEntries(
+      USAGE_ALERT_MIGRATIONS_TABLE,
+      USAGE_ALERT_MIGRATIONS,
+    ),
   ],
 });
 
@@ -260,15 +270,7 @@ async function resolveScope(
   const orgId = access.orgId?.trim() || null;
   let role: string | null = null;
   if (orgId) {
-    const result = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, ownerEmail],
-    });
-    const candidate = result.rows[0]?.role;
-    role = typeof candidate === "string" ? candidate : null;
+    role = await readOrgMemberRole(orgId, ownerEmail);
   }
   const canManage = scope === "user" || role === "owner" || role === "admin";
   if (scope === "workspace" && !canManage) {

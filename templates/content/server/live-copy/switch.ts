@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/collab";
 import { eq } from "drizzle-orm";
 
+import { assertSourceAllowsPageEdit } from "../../actions/_document-source.js";
 import { getDb, schema } from "../db/index.js";
 import {
   liveBodyWriterFlagsOn,
@@ -28,6 +29,9 @@ async function readPage(documentId: string) {
     .select({
       ...liveBodyWriterPageColumns,
       content: schema.documents.content,
+      sourceMode: schema.documents.sourceMode,
+      sourceRootPath: schema.documents.sourceRootPath,
+      sourcePath: schema.documents.sourcePath,
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId))
@@ -50,6 +54,7 @@ export async function switchPageToLiveCopy(
   for (let attempt = 0; attempt < CONVERSION_ATTEMPTS; attempt += 1) {
     const page = await readPage(documentId);
     if (!page) return { writePath: "legacy", reason: "no_page" };
+    assertSourceAllowsPageEdit(page);
     const gate = await liveBodyWriterGate(documentId);
     if (gate.writePath === "live_copy") return gate;
     if (!(await liveBodyWriterFlagsOn(page))) {

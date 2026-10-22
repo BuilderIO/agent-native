@@ -1461,16 +1461,31 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 122,
+      name: "content-comment-property-targets",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_name TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_value TEXT;
+        CREATE INDEX IF NOT EXISTS document_comments_document_idx
+          ON document_comments (document_id, owner_email)`,
+    },
+    {
+      version: 123,
+      name: "content-comment-blocks-field-targets",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_name TEXT`,
+    },
+    {
+      version: 124,
       name: "content-live-body-switch",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_body_switched_at TEXT`,
     },
     {
-      version: 123,
+      version: 125,
       name: "content-live-copy-version",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_copy_version INTEGER`,
     },
     {
-      version: 124,
+      version: 126,
       name: "content-document-body-steps",
       sql: `CREATE TABLE IF NOT EXISTS document_body_steps (
           id TEXT PRIMARY KEY,

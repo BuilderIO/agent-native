@@ -7,7 +7,7 @@
  * goes through this module so the scope rules live in one place.
  */
 
-import type { ActionCaller } from "../action.js";
+import type { AuditAttribution } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import {
   getRequestContext,
@@ -62,10 +62,7 @@ export type DefaultAgentEngineAuthority =
 export interface DefaultAgentEngineChangeMeta {
   /** Action or route name recorded on the audit event. */
   actionName: string;
-  caller?: ActionCaller;
-  threadId?: string;
-  turnId?: string;
-  runId?: string;
+  attribution: AuditAttribution;
 }
 
 export interface DefaultAgentEngineSelection {
@@ -340,14 +337,11 @@ async function recordDefaultAgentEngineAudit(input: {
     userEmail,
     orgId,
     status,
-    caller: meta.caller,
+    attribution: meta.attribution,
     args: {
       operation,
       ...(selection ?? {}),
       ...(input.reason ? { reason: input.reason } : {}),
     },
-    threadId: meta.threadId,
-    turnId: meta.turnId,
-    runId: meta.runId,
   });
 }

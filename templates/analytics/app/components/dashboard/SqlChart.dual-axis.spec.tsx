@@ -18,6 +18,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({ formatNumber: String }),
 }));
 
 vi.mock("@/lib/demo-chart-trend", () => ({
@@ -37,6 +38,7 @@ vi.mock("@/lib/sql-query", () => ({
 vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: () => null,
   ExtensionSlot: () => null,
+  isExtensionApiPath: () => false,
 }));
 
 import { resolveDualAxis } from "@/pages/adhoc/sql-dashboard/dual-axis";

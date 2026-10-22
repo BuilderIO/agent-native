@@ -17,10 +17,17 @@ import {
   keys as listKeys,
   set as setEntry,
 } from "idb-keyval";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 import type { AuthSession } from "../server/auth.js";
 import { actionErrorStatus } from "./action-failure-circuit.js";
+import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
 import { clientBuildId } from "./build-compatibility.js";
 import {
   getAccessDeniedActionQueryBinding,
@@ -296,9 +303,15 @@ async function waitForStorageClearWithinBound(
   }
 }
 
-function releaseWithoutCache(client: QueryClient, attempt: number): void {
+function releaseWithoutCache(
+  client: QueryClient,
+  attempt: number,
+  trustPrebindResults: boolean,
+): void {
   closeBinding();
-  client.removeQueries({ queryKey: ACTION_QUERY_KEY });
+  if (!trustPrebindResults) {
+    client.removeQueries({ queryKey: ACTION_QUERY_KEY });
+  }
   registerActionQueryCacheRevoker(client, () => {
     if (attempt !== bindAttemptGeneration || binding !== undefined) {
       return;
@@ -574,7 +587,7 @@ function trackRevokedScopeDelete(
 
 /** Stops persisting and drops this document's action results. Storage is
  * untouched. */
-function closeBinding(): void {
+function closeBinding(preserveActionQueries = false): void {
   bindingGeneration += 1;
   const closing = binding;
   binding = undefined;
@@ -589,7 +602,7 @@ function closeBinding(): void {
     .findAll({ queryKey: ACTION_QUERY_KEY })) {
     if (isAccessDeniedActionQuery(query)) {
       clearAccessDeniedActionQueryData(query);
-    } else {
+    } else if (!preserveActionQueries) {
       closing.client.removeQueries({ queryKey: query.queryKey, exact: true });
     }
   }
@@ -661,11 +674,12 @@ export async function bindActionQueryCache(
   options: { trustPrebindResults?: boolean } = {},
 ): Promise<void> {
   const attempt = ++bindAttemptGeneration;
+  const trustPrebindResults = options.trustPrebindResults === true;
   const bindDeadline = Date.now() + BIND_WAIT_BUDGET_MS;
   const remainingBindBudget = () => Math.max(0, bindDeadline - Date.now());
   let cacheSafety = readCacheSafetyState(true);
   if (!cacheSafety) {
-    releaseWithoutCache(client, attempt);
+    releaseWithoutCache(client, attempt, trustPrebindResults);
     return;
   }
   if (!storageClearInFlight) {
@@ -679,7 +693,7 @@ export async function bindActionQueryCache(
       );
     } catch (error) {
       if (attempt === bindAttemptGeneration) {
-        releaseWithoutCache(client, attempt);
+        releaseWithoutCache(client, attempt, trustPrebindResults);
       }
       throw error;
     }
@@ -687,16 +701,15 @@ export async function bindActionQueryCache(
       return;
     }
     if (!clearFinished || remainingBindBudget() <= 0) {
-      releaseWithoutCache(client, attempt);
+      releaseWithoutCache(client, attempt, trustPrebindResults);
       return;
     }
   }
   cacheSafety = readCacheSafetyState(true);
   if (!cacheSafety || cacheSafety.pendingClearIntents.length > 0) {
-    releaseWithoutCache(client, attempt);
+    releaseWithoutCache(client, attempt, trustPrebindResults);
     return;
   }
-  const trustPrebindResults = options.trustPrebindResults === true;
   const previousBinding = binding;
   const alreadyBoundClient = previousBinding?.client === client;
   const deniedBeforeBind = client
@@ -953,15 +966,18 @@ export async function bindActionQueryCache(
       });
     }
   } catch (error) {
-    if (binding === currentBinding) closeBinding();
+    if (binding === currentBinding) closeBinding(trustPrebindResults);
     throw error;
   }
 }
 
 /** Sign-out: stop, drop this document's results, and delete every stored
  * record. */
-export async function clearActionQueryCache(): Promise<void> {
+export async function clearActionQueryCache(
+  client?: QueryClient,
+): Promise<void> {
   closeBinding();
+  client?.removeQueries({ queryKey: ACTION_QUERY_KEY });
   const clear = beginStorageClear();
   const clearFinished = await waitForCleanup(
     clear,
@@ -986,6 +1002,7 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
     ? actionQueryCacheScope(session, clientBuildId())
     : null;
   const terminalUnauthenticated = status === "unauthenticated";
+  const [signedOutCacheCleared, setSignedOutCacheCleared] = useState(false);
   const bindAttempt = useMemo(
     () => ({
       trustPrebindResults:
@@ -995,12 +1012,21 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
   );
   const [settledAttempt, setSettledAttempt] = useState<object | null>(null);
 
+  useLayoutEffect(() => {
+    if (!terminalUnauthenticated) {
+      setSignedOutCacheCleared(false);
+      return;
+    }
+    const clearing = clearActionQueryCache(queryClient);
+    setSignedOutCacheCleared(true);
+    void clearing.catch((error) =>
+      console.warn("Unable to clear cached action results", error),
+    );
+  }, [queryClient, terminalUnauthenticated]);
+
   useEffect(() => {
     // A transient session reread does not replace a same-scope cache binding.
     if (terminalUnauthenticated) {
-      clearActionQueryCache().catch((error) =>
-        console.warn("Unable to clear cached action results", error),
-      );
       setSettledAttempt(bindAttempt);
       return;
     }
@@ -1025,12 +1051,25 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
     };
   }, [bindAttempt, queryClient, scope, terminalUnauthenticated]);
 
-  const restoring = scope !== null && settledAttempt !== bindAttempt;
+  const restoring =
+    scope !== null &&
+    settledAttempt !== bindAttempt &&
+    !bindAttempt.trustPrebindResults;
   const holdUntrustedChildren =
     scope !== null && !bindAttempt.trustPrebindResults && restoring;
+  const holdSignedOutChildren =
+    terminalUnauthenticated && !signedOutCacheCleared;
+  const trustedBindingPending =
+    scope !== null &&
+    settledAttempt !== bindAttempt &&
+    bindAttempt.trustPrebindResults;
   return (
-    <IsRestoringProvider value={restoring}>
-      {holdUntrustedChildren ? null : children}
-    </IsRestoringProvider>
+    <trustedActionQueryCacheBindingPendingContext.Provider
+      value={trustedBindingPending}
+    >
+      <IsRestoringProvider value={restoring}>
+        {holdUntrustedChildren || holdSignedOutChildren ? null : children}
+      </IsRestoringProvider>
+    </trustedActionQueryCacheBindingPendingContext.Provider>
   );
 }

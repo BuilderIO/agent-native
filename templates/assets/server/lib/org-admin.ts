@@ -1,11 +1,9 @@
-import { orgMembers } from "@agent-native/core/org";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import {
+  getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
-} from "@agent-native/core/server/request-context";
-import { and, eq, sql } from "drizzle-orm";
-
-import { getDb } from "../db/index.js";
+} from "@agent-native/core/server";
 
 export class ForbiddenAuditError extends Error {
   readonly statusCode = 403;
@@ -36,22 +34,28 @@ export async function assertOrgAdmin(): Promise<AdminScope> {
 
   const orgId = getRequestOrgId();
   if (!orgId) {
+    if (getRequestContext()?.a2aIdentityAssurance === "org-member") {
+      throw new ForbiddenAuditError(
+        "Could not verify the delegated organization scope; refusing audit access.",
+      );
+    }
     return { ownerEmail: email };
+  }
+
+  const request = getRequestContext();
+  if (
+    request?.a2aIdentityAssurance === "org-member" &&
+    (request.orgId?.trim() !== orgId.trim() ||
+      request.userEmail?.trim().toLowerCase() !== email.trim().toLowerCase())
+  ) {
+    throw new ForbiddenAuditError(
+      "Could not verify the delegated organization scope; refusing audit access.",
+    );
   }
 
   let role: string | null = null;
   try {
-    const [row] = await getDb()
-      .select({ role: orgMembers.role })
-      .from(orgMembers)
-      .where(
-        and(
-          eq(orgMembers.orgId, orgId),
-          sql`lower(${orgMembers.email}) = ${email.toLowerCase()}`,
-        ),
-      )
-      .limit(1);
-    role = row?.role?.toLowerCase() ?? null;
+    role = await readOrgMemberRole(orgId, email);
   } catch {
     throw new ForbiddenAuditError(
       "Could not verify org admin role; refusing audit access.",

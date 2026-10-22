@@ -3,7 +3,7 @@
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { downloadFile } from "../../../db-admin/export-utils.js";
 import { createToolkitI18nCatalog } from "../../../i18n.js";
@@ -23,7 +23,16 @@ vi.mock("../../../db-admin/export-utils.js", async (importOriginal) => {
 const roots: Root[] = [];
 const initialBasePath = process.env.VITE_APP_BASE_PATH;
 
-async function renderWidget(action: { label: string; href: string }) {
+async function renderWidget(
+  action: { label: string; href: string },
+  display?: {
+    sources?: Array<{ id?: string; label: string; href?: string }>;
+    actions?: Array<
+      | { id?: string; type: "link"; label: string; href: string }
+      | { id?: string; type: "copy"; label: string; text: string }
+    >;
+  },
+) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -36,6 +45,7 @@ async function renderWidget(action: { label: string; href: string }) {
       >
         <DataTableWidget
           action={action}
+          display={display}
           table={{
             title: "Responses",
             columns: [{ key: "name", label: "Name" }],
@@ -49,13 +59,18 @@ async function renderWidget(action: { label: string; href: string }) {
 }
 
 describe("DataTableWidget", () => {
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  });
+
   afterEach(() => {
     for (const root of roots.splice(0)) {
-      root.unmount();
+      act(() => root.unmount());
     }
     document.body.innerHTML = "";
     process.env.VITE_APP_BASE_PATH = initialBasePath;
     vi.mocked(downloadFile).mockClear();
+    vi.unstubAllGlobals();
   });
 
   it("does not render executable action URLs", async () => {
@@ -97,6 +112,25 @@ describe("DataTableWidget", () => {
     expect(
       container.querySelector('button[aria-label="Data table options"]'),
     ).toBeNull();
+  });
+
+  it("renders table source chips and overflow actions from display metadata", async () => {
+    const container = await renderWidget(
+      { label: "Open responses", href: "/forms/form-1" },
+      {
+        sources: [{ label: "Responses", href: "/sources/responses" }],
+        actions: [{ type: "copy", label: "Copy query", text: "select 1" }],
+      },
+    );
+
+    expect(
+      container.querySelector('button[aria-label="Table actions"]'),
+    ).not.toBeNull();
+    expect(
+      Array.from(container.querySelectorAll("a")).some((link) =>
+        link.textContent?.includes("Responses"),
+      ),
+    ).toBe(true);
   });
 
   it("exports visible table rows from the visible CSV download", async () => {

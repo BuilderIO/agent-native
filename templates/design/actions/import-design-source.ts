@@ -22,6 +22,7 @@ import {
 } from "../server/lib/import-design-files.js";
 import { MAX_UPLOAD_BYTES } from "../server/lib/request-body-limits.js";
 import { MAX_FIG_FRAME_HTML_BYTES } from "../shared/fig-to-frames.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { deleteDesignFilesByOperationSourcePrefix } from "./delete-file.js";
 
 const MAX_HTML_IMPORT_BYTES = MAX_FIG_FRAME_HTML_BYTES;
@@ -170,6 +171,9 @@ async function importFigFrames(args: {
   return {
     designId,
     files,
+    ...(saved?.files.length
+      ? { _receipt: designOutputWriteReceipt(designId, saved.files.length) }
+      : {}),
     warnings: saved?.warnings ?? [],
     placedFrames: saved?.placedFrames ?? [],
     overview: true,
@@ -287,6 +291,14 @@ export default defineAction({
       });
       return {
         ...saved,
+        ...(saved.files.length
+          ? {
+              _receipt: designOutputWriteReceipt(
+                resolvedDesignId,
+                saved.files.length,
+              ),
+            }
+          : {}),
         stats: { sourceKind: "html-string", frameCount: saved.files.length },
         ...checkpointSkippedResultField(htmlCheckpoint),
       };
@@ -304,6 +316,14 @@ export default defineAction({
     });
     return {
       ...figmaPasteResult,
+      ...(figmaPasteResult.files.length
+        ? {
+            _receipt: designOutputWriteReceipt(
+              resolvedDesignId,
+              figmaPasteResult.files.length,
+            ),
+          }
+        : {}),
       ...checkpointSkippedResultField(figmaPasteCheckpoint),
     };
   },

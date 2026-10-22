@@ -285,4 +285,10 @@ export const ORG_MIGRATIONS = [
         ON private_icon_assets (owner_email, org_id, created_at);
     `,
   },
+  {
+    version: 1035,
+    name: "organization-a2a-member-delegation",
+    sql: `ALTER TABLE organizations
+          ADD COLUMN IF NOT EXISTS a2a_member_delegation_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+  },
 ];

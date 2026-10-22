@@ -220,13 +220,15 @@ export default defineAction({
       });
 
       await ensureDocumentFilesMembership(db, existing.id, now);
-      await setFavoriteMembership({
-        db,
-        userEmail,
-        documentId: existing.id,
-        favorite: localDocument.isFavorite,
-        now,
-      });
+      await db.transaction((tx) =>
+        setFavoriteMembership({
+          db: tx,
+          userEmail,
+          documentId: existing.id,
+          favorite: localDocument.isFavorite,
+          now,
+        }),
+      );
 
       const [row] = await db
         .select()
@@ -297,13 +299,15 @@ export default defineAction({
           );
         });
         await ensureDocumentFilesMembership(db, documentId, now);
-        await setFavoriteMembership({
-          db,
-          userEmail,
-          documentId,
-          favorite: localDocument.isFavorite,
-          now,
-        });
+        await db.transaction((tx) =>
+          setFavoriteMembership({
+            db: tx,
+            userEmail,
+            documentId,
+            favorite: localDocument.isFavorite,
+            now,
+          }),
+        );
       },
     );
 
