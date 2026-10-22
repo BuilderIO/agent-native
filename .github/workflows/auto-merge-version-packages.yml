@@ -48,6 +48,20 @@ jobs:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
+      - name: Verify manual release dispatcher is an administrator
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          DISPATCH_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          dispatch_permission=$(gh api "repos/$REPO/collaborators/$DISPATCH_ACTOR/permission" --jq '.permission')
+          if [ "$dispatch_permission" != "admin" ]; then
+            echo "::error::Manual release merge dispatch requires repository administrator access." >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.base.sha }}

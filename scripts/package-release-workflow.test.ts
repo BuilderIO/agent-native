@@ -762,6 +762,10 @@ importers:
     const releasePrContext = autoMergeSteps.find(
       (step) => step.name === "Verify release PR identity and event-bound SHAs",
     );
+    const manualDispatcherGate = autoMergeSteps.find(
+      (step) =>
+        step.name === "Verify manual release dispatcher is an administrator",
+    );
     const majorPromotionGuard = autoMergeSteps.find(
       (step) => step.name === "Refuse unattended major promotions",
     );
@@ -802,6 +806,23 @@ importers:
     assert.equal(
       (checkout.with as Workflow).ref,
       "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.base.sha }}",
+    );
+    assert(manualDispatcherGate);
+    assert.match(
+      String(manualDispatcherGate.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String((manualDispatcherGate.env as Workflow).DISPATCH_ACTOR),
+      /github\.triggering_actor/,
+    );
+    assert.match(
+      String(manualDispatcherGate.run),
+      /collaborators\/\$DISPATCH_ACTOR\/permission/,
+    );
+    assert.match(
+      String(manualDispatcherGate.run),
+      /dispatch_permission" != "admin"/,
     );
     assert(releasePrContext);
     assert.match(String(releasePrContext.run), /\.user\.login/);
