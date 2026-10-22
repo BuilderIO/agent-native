@@ -270,6 +270,37 @@ describe("DataChartRenderer theme colors", () => {
     expect(numericLabels).toHaveLength(1);
   });
 
+  it("keeps long horizontal value labels inside the chart canvas", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Low", value: -1.9e50 },
+            { day: "High", value: 1.9e50 },
+          ],
+          valueAxisTickInterval: 1e50,
+        }}
+      />,
+    );
+    const valueTickLabels = Array.from(
+      markup.matchAll(
+        /<text x="([\d.]+)" y="340"[^>]*text-anchor="middle">([^<]+)<\/text>/g,
+      ),
+      (match) => ({ x: Number(match[1]), label: match[2] ?? "" }),
+    );
+
+    expect(valueTickLabels).toHaveLength(1);
+    for (const tick of valueTickLabels) {
+      const estimatedWidth = tick.label.length * 11 * 0.65;
+      expect(tick.x - estimatedWidth / 2).toBeGreaterThanOrEqual(0);
+      expect(tick.x + estimatedWidth / 2).toBeLessThanOrEqual(640);
+    }
+  });
+
   it("formats very small custom intervals without collapsing labels to zero", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer

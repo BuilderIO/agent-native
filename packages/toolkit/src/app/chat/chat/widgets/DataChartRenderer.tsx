@@ -141,18 +141,20 @@ function ChartBody({
             (_, index) => (firstTick + index) * tickInterval,
           );
         })();
+  const valueTickLabels = gridTickValues.map((value) =>
+    tickInterval === undefined
+      ? formatTick(value)
+      : formatAxisTick(value, tickInterval),
+  );
+  const valueTickLabelWidth = Math.max(
+    0,
+    ...valueTickLabels.map((label) => estimateTextWidth(label, labelFontSize)),
+  );
   const customValueTickLabelWidth =
-    tickInterval !== undefined
-      ? Math.max(
-          0,
-          ...gridTickValues.map((value) =>
-            estimateTextWidth(
-              formatAxisTick(value, tickInterval),
-              labelFontSize,
-            ),
-          ),
-        )
-      : 0;
+    tickInterval === undefined ? 0 : valueTickLabelWidth;
+  const horizontalValueTickLabelInset = isHorizontalBar
+    ? Math.ceil(valueTickLabelWidth / 2) + 2
+    : 0;
   const customValueTickWidth = isHorizontalBar ? 0 : customValueTickLabelWidth;
   const horizontalCategoryWidth = isHorizontalBar
     ? Math.max(
@@ -203,11 +205,19 @@ function ChartBody({
   const margin = {
     ...MARGIN,
     left:
-      Math.max(categoryMargin, customValueTickWidth + 16) +
+      Math.max(
+        categoryMargin,
+        customValueTickWidth + 16,
+        horizontalValueTickLabelInset,
+      ) +
       (horizontalNegativeValueWidth > 0
         ? horizontalNegativeValueWidth + 13
         : 0),
-    right: Math.max(MARGIN.right, horizontalPositiveValueWidth + 13),
+    right: Math.max(
+      MARGIN.right,
+      horizontalPositiveValueWidth + 13,
+      horizontalValueTickLabelInset,
+    ),
     bottom: MARGIN.bottom + (chart.xAxisTitle ? 16 : 0),
   };
   const plotWidth = WIDTH - margin.left - margin.right;
@@ -223,7 +233,7 @@ function ChartBody({
   const yForRow = (index: number) =>
     margin.top + ((index + 0.5) * plotHeight) / Math.max(1, chart.data.length);
   const axisLabelMinSpacing = isHorizontalBar
-    ? customValueTickLabelWidth + 8
+    ? valueTickLabelWidth + 8
     : labelFontSize + 4;
   const visibleAxisLabelCount = Math.max(
     1,
@@ -298,9 +308,7 @@ function ChartBody({
                 fontSize={labelFontSize}
                 textAnchor="middle"
               >
-                {tickInterval === undefined
-                  ? formatTick(tick.value)
-                  : formatAxisTick(tick.value, tickInterval)}
+                {valueTickLabels[tick.index]}
               </text>
             ) : null}
           </g>
