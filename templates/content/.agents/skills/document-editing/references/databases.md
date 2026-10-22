@@ -201,7 +201,8 @@ token and a date they cannot read, such as `2026-02-30`, in every form they
 accept; an empty value or an unfinished `between` end still saves, and such a
 filter is skipped when rows are read until it's filled in. Only filters
 a save adds or changes are checked, so a view still holding an unreadable date
-from before these checks saves with other edits.
+from before these checks saves with other edits. Each view is compared with its
+own saved filters, and a new one, such as a duplicated view, with every view's.
 
 When either the filter value or a row's value has no time, they are compared
 by calendar day. A value without a time covers its whole day and is compared

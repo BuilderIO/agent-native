@@ -857,7 +857,10 @@ export async function runReplaceContentDatabaseViews(input: {
 
 /**
  * The first unreadable date among the filters `next` adds or changes from
- * `saved`, across every view and the config's own filters.
+ * `saved`. Each view is compared with its own saved filters, and a new view
+ * with every saved view's, since "Duplicate view" copies another view's
+ * filters. The config's own filters are the active view's, so the views cover
+ * them.
  */
 export function viewConfigDateFilterError(
   next: ContentDatabaseViewConfig,
@@ -870,15 +873,17 @@ export function viewConfigDateFilterError(
       definition.type as DocumentPropertyType,
     ]),
   );
-  const filters = (config: ContentDatabaseViewConfig) => [
-    ...config.filters,
-    ...config.views.flatMap((view) => view.filters),
-  ];
-  return contentDatabaseChangedDateFilterValueError(
-    filters(next),
-    filters(saved),
-    (key) => typeById.get(key),
-  );
+  const savedById = new Map(saved.views.map((view) => [view.id, view.filters]));
+  const everySaved = saved.views.flatMap((view) => view.filters);
+  for (const view of next.views) {
+    const error = contentDatabaseChangedDateFilterValueError(
+      view.filters,
+      savedById.get(view.id) ?? everySaved,
+      (key) => typeById.get(key),
+    );
+    if (error) return error;
+  }
+  return null;
 }
 
 export function filterIsCompatible(

@@ -663,12 +663,8 @@ describe("ordinary property and table-view setup", () => {
       ),
     ).resolves.toMatchObject({ value: { filters: [stale, filters[0]] } });
 
-    const replace = async (
-      idempotencyKey: string,
-      nextFilters: typeof filters,
-    ) => {
-      const viewConfig = await withDefaultFilters(nextFilters);
-      return asOwner(async () =>
+    const replaceConfig = (idempotencyKey: string, viewConfig: unknown) =>
+      asOwner(async () =>
         updateView.run({
           operation: "replace",
           target,
@@ -677,7 +673,10 @@ describe("ordinary property and table-view setup", () => {
           viewConfig,
         } as never),
       );
-    };
+    const replace = async (
+      idempotencyKey: string,
+      nextFilters: typeof filters,
+    ) => replaceConfig(idempotencyKey, await withDefaultFilters(nextFilters));
     await expect(
       replace("keep-stale-date-replace", [stale]),
     ).resolves.toMatchObject({ receipt: { outcome: "updated" } });
@@ -700,9 +699,53 @@ describe("ordinary property and table-view setup", () => {
       errorCode: "invalid_filter",
     });
 
+    // Each view is compared with its own saved filters. A new view, as
+    // "Duplicate view" makes, may copy any saved view's.
+    const withCopy = async (copyFilters: typeof filters) => {
+      const config = await withDefaultFilters([stale, filters[0]!]);
+      const source = config.views.find((view) => view.id === "default")!;
+      return {
+        ...config,
+        views: [
+          ...config.views.filter((view) => view.id !== "copy"),
+          { ...source, id: "copy", name: "Copy", filters: copyFilters },
+        ],
+      };
+    };
+    await expect(
+      replaceConfig("duplicate-stale-view", await withCopy([stale])),
+    ).resolves.toMatchObject({ receipt: { outcome: "updated" } });
+    await expect(
+      replaceConfig("copy-without-stale", await withCopy([filters[0]!])),
+    ).resolves.toMatchObject({ receipt: { outcome: "updated" } });
+    await expect(
+      replaceConfig("copy-stale-into-view", await withCopy([stale])),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+
     await expect(savePersonal(stale)).resolves.toMatchObject({
       overrides: { views: [{ filters: [stale] }] },
     });
+    await expect(
+      asOwner(() =>
+        updatePersonalView.run(
+          {
+            databaseId: created.database.id,
+            overrides: {
+              version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+              views: [
+                {
+                  id: "copy",
+                  sorts: [],
+                  filters: [stale],
+                  filterMode: "and",
+                },
+              ],
+            },
+          },
+          { userEmail: owner },
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "invalid_filter" });
     const { database: final } = await asOwner(() =>
       readDatabase.run({ databaseId: created.database.id }),
     );

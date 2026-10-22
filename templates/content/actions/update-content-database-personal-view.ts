@@ -232,23 +232,30 @@ export default defineAction({
         .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
         .from(schema.contentDatabases)
         .where(eq(schema.contentDatabases.id, databaseId));
-      const sharedConfig = parseDatabaseViewConfig(database?.viewConfigJson);
+      const sharedFilters = new Map(
+        parseDatabaseViewConfig(database?.viewConfigJson).views.map((view) => [
+          view.id,
+          view.filters,
+        ]),
+      );
       const { value } = await mutateSetting(async (tx, current) => {
         const currentOverrides =
           current === null ? null : personalViewOverridesSchema.parse(current);
-        // Filters copied from the shared View or saved here before pass, so
-        // an old unreadable date doesn't block other changes.
-        const dateError = contentDatabaseChangedDateFilterValueError(
-          requested.views.flatMap((view) => view.filters),
-          [
-            ...sharedConfig.filters,
-            ...sharedConfig.views.flatMap((view) => view.filters),
-            ...(currentOverrides?.views.flatMap((view) => view.filters) ?? []),
-          ],
-          (key) => typeById.get(key),
-        );
-        if (dateError) {
-          fail(dateError, { statusCode: 400, errorCode: "invalid_filter" });
+        // Filters already in the same shared View or saved here for it
+        // before pass, so an old unreadable date doesn't block other changes.
+        for (const view of requested.views) {
+          const dateError = contentDatabaseChangedDateFilterValueError(
+            view.filters,
+            [
+              ...(sharedFilters.get(view.id) ?? []),
+              ...(currentOverrides?.views.find((saved) => saved.id === view.id)
+                ?.filters ?? []),
+            ],
+            (key) => typeById.get(key),
+          );
+          if (dateError) {
+            fail(dateError, { statusCode: 400, errorCode: "invalid_filter" });
+          }
         }
         const requestedItemIds = [
           ...new Set([
