@@ -181,9 +181,11 @@ export function SuggestionReviewCard({
     suggestionsQuery.isError ||
     (!loading && groups.length === 0);
 
+  // Inline MCP App frames clamp the document's height and hide its overflow,
+  // so a card taller than the frame scrolls inside itself.
   return (
     <main
-      className="min-h-screen bg-background text-sm text-foreground"
+      className="h-dvh overflow-y-auto bg-background text-sm text-foreground"
       data-suggestion-review-card
     >
       <div className="grid grid-cols-1 gap-3 p-4">
@@ -228,6 +230,7 @@ export function SuggestionReviewCard({
                     canDecide={canDecide}
                     busy={() => deciding}
                     conflict={(suggestion) =>
+                      suggestion.status === "pending" &&
                       unplaceable.get(suggestion.id) === suggestion.revision
                     }
                     onDecide={(suggestion, decision) =>

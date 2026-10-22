@@ -187,6 +187,28 @@ describe("SuggestionReviewCard", () => {
     expect(button("editor.rejectSuggestion")!.disabled).toBe(false);
   });
 
+  it("drops the conflict once the changed edit is rejected", async () => {
+    review.decide.mockRejectedValueOnce({ errorCode: "suggestion_stale" });
+    render();
+    await act(async () => button("editor.acceptSuggestion")!.click());
+
+    review.decide.mockResolvedValueOnce({});
+    review.refetch.mockImplementation(async () => {
+      review.suggestions = [
+        suggestion("edit-0", "proposal-1", operations[0]!, "rejected"),
+        suggestion("edit-1", "proposal-1", operations[1]!),
+      ];
+      return { data: { suggestions: review.suggestions } };
+    });
+    await act(async () => button("editor.rejectSuggestion")!.click());
+    render();
+
+    expect(host.textContent).not.toContain("editor.toolbar.conflict");
+    expect(host.querySelector('[role="status"]')?.textContent).toBe(
+      "comments.rejected",
+    );
+  });
+
   it("shows how an edit ended when someone decided it elsewhere first", async () => {
     review.decide.mockRejectedValue({
       errorCode: "suggestion_conflict",

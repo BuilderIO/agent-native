@@ -193,7 +193,7 @@ export default defineAction({
         "Show the suggested edit inline so the user can accept or reject it without leaving the conversation.",
       iframeTitle: "Agent-Native Content",
       openLabel: "Open in Content",
-      height: 440,
+      height: 520,
     }),
   },
   run: async (args, ctx) => {

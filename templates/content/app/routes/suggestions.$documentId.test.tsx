@@ -5,10 +5,20 @@ import { createRoot, type Root } from "react-dom/client";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const embed = vi.hoisted(() => ({ token: null as string | null }));
+const embed = vi.hoisted(() => ({
+  token: null as string | null,
+  hostTheme: undefined as string | undefined,
+}));
 
 vi.mock("@agent-native/core/client/host", () => ({
   getEmbedAuthToken: () => embed.token,
+}));
+vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+  useMcpAppHostContext: () => ({
+    context: embed.hostTheme ? { theme: embed.hostTheme } : null,
+    capabilities: null,
+    version: undefined,
+  }),
 }));
 vi.mock("@/components/editor/SuggestionReviewCard", () => ({
   SuggestionReviewCard: (props: {
@@ -30,6 +40,7 @@ let root: Root;
 
 beforeEach(() => {
   embed.token = null;
+  embed.hostTheme = undefined;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -65,6 +76,22 @@ describe("suggestion review route", () => {
     expect(host.querySelector("[data-card='doc-1']")?.textContent).toBe(
       "s1|s2",
     );
+  });
+
+  it("follows the theme the MCP Apps host reports", () => {
+    embed.token = "scoped-embed-ticket";
+    embed.hostTheme = "dark";
+    const themes: unknown[] = [];
+    const onTheme = (event: Event) =>
+      themes.push((event as CustomEvent<{ theme?: string }>).detail.theme);
+    window.addEventListener("agent-native:theme-change", onTheme);
+    try {
+      open("/suggestions/doc-1?ids=s1");
+    } finally {
+      window.removeEventListener("agent-native:theme-change", onTheme);
+    }
+
+    expect(themes).toEqual(["dark"]);
   });
 
   it("sends a browser tab to the first suggestion on its page", () => {
