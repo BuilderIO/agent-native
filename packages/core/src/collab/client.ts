@@ -43,7 +43,7 @@ export interface UseCollaborativeDocOptions {
    * email scopes what is kept.
    */
   durableUpdates?: boolean;
-  /** Keeps updates pending until the server reports a known live-copy outcome. */
+  /** Keeps updates pending until a current strict subscriber receives a known live-copy outcome. */
   requireLiveCopyOutcome?: boolean;
   /**
    * Called for each update the server acknowledged, with the live-copy
@@ -618,7 +618,15 @@ class CollabDocConnection {
     }
     for (const entry of stored) {
       try {
-        Y.applyUpdate(this.ydoc, base64ToUint8Array(entry.raw), OUTBOX_ORIGIN);
+        const update = base64ToUint8Array(entry.raw);
+        if (this.requiresLiveCopyOutcome) {
+          Y.applyUpdate(this.ydoc, update, "remote");
+          // The initial state may already contain this update, but its
+          // outcome still needs to reach the current strict owner.
+          this.handleDocUpdate(update, OUTBOX_ORIGIN);
+        } else {
+          Y.applyUpdate(this.ydoc, update, OUTBOX_ORIGIN);
+        }
         // Kept nowhere else while this connection cannot keep its own.
         if (this.snapshot.durableUpdatesFailed) continue;
       } catch {
@@ -1055,16 +1063,17 @@ class CollabDocConnection {
           (sub) => sub.onUpdateAcknowledged !== undefined,
         );
         if (
+          this.disposed ||
           listeners.some(
             (sub) =>
               sub.requireLiveCopyOutcome &&
               !acknowledgementScopes.has(sub.acknowledgementScope),
           ) ||
-          (requireLiveCopyOutcome &&
-            acknowledgementScopes.size > 0 &&
-            !listeners.some((sub) =>
+          !listeners.some(
+            (sub) =>
+              sub.requireLiveCopyOutcome &&
               acknowledgementScopes.has(sub.acknowledgementScope),
-            ))
+          )
         )
           throw new Error(
             "The live-copy acknowledgment no longer has its subscriber.",

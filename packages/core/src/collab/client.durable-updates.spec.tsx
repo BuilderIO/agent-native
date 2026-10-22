@@ -160,6 +160,34 @@ describe("collab durable updates", () => {
     return release;
   }
 
+  function serveCommittedUpdates() {
+    const server = new Y.Doc();
+    const requests: RequestInit[] = [];
+    onTestFinished(() => server.destroy());
+    const originalFetch = fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (/\/collab\/[^/]+\/state/.test(String(input))) {
+          return new Response(
+            JSON.stringify({
+              state: btoa(
+                String.fromCharCode(...Y.encodeStateAsUpdate(server)),
+              ),
+            }),
+          );
+        }
+        const isUpdate = /\/collab\/[^/]+\/update/.test(String(input));
+        if (isUpdate) requests.push(init ?? {});
+        const response = await originalFetch(input, init);
+        if (isUpdate && response.ok)
+          Y.applyUpdate(server, decode(JSON.parse(String(init?.body)).update));
+        return response;
+      }),
+    );
+    return { server, requests };
+  }
+
   it("keeps an unacknowledged update until the server acknowledges it", async () => {
     const result = await mountReady({ durableUpdates: true });
     updateResponses = ["offline"];
@@ -537,12 +565,130 @@ describe("collab durable updates", () => {
     const reopened = await mountReady({
       durableUpdates: true,
       requireLiveCopyOutcome: true,
+      onUpdateAcknowledged: vi.fn(),
     });
     await expect(reopened().flushUpdates()).resolves.toBe(true);
     const server = new Y.Doc();
     for (const update of sentUpdates) Y.applyUpdate(server, update);
     expect(server.getText("t").toString()).toBe("survives closing");
     expect(outboxKeys()).toEqual([]);
+  });
+
+  it.each([
+    ["before", "derived"],
+    ["before", "not_derived"],
+    ["before", null],
+    ["during", "derived"],
+    ["during", "not_derived"],
+    ["during", null],
+  ] as const)(
+    "retains strict custody when the last owner leaves %s keepalive (%s)",
+    async (when, liveCopy) => {
+      const { server, requests } = serveCommittedUpdates();
+      const oldAck = vi.fn();
+      const first = await mountReady({
+        durableUpdates: true,
+        requireLiveCopyOutcome: true,
+        onUpdateAcknowledged: oldAck,
+      });
+      updateResponses = [liveCopy ? { ok: true, liveCopy } : { ok: true }];
+      first().ydoc!.getText("t").insert(0, "retained once");
+      if (when === "before") {
+        act(() => root.render(null));
+        _resetCollabDocRegistryForTests();
+      } else {
+        const release = holdUpdateResponse();
+        window.dispatchEvent(new Event("pagehide"));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        act(() => root.render(null));
+        release();
+      }
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(sentUpdates).toHaveLength(1);
+      expect(requests[0]?.keepalive).toBe(true);
+      expect(server.getText("t").toString()).toBe("retained once");
+      expect(oldAck).not.toHaveBeenCalled();
+      expect(outboxKeys()).toHaveLength(1);
+
+      _resetCollabDocRegistryForTests();
+      const ownerAck = vi.fn();
+      updateResponses = [{ ok: true, liveCopy: "unchanged" }];
+      const reopened = await mountReady({
+        durableUpdates: true,
+        requireLiveCopyOutcome: true,
+        onUpdateAcknowledged: ownerAck,
+      });
+      expect(reopened().ydoc!.getText("t").toString()).toBe("retained once");
+      expect(outboxKeys()).toHaveLength(1);
+      await expect(reopened().flushUpdates()).resolves.toBe(true);
+      expect(ownerAck).toHaveBeenCalledExactlyOnceWith({
+        liveCopy: "unchanged",
+      });
+      expect(outboxKeys()).toEqual([]);
+
+      updateResponses = [{ ok: true, liveCopy: "derived" }];
+      reopened().ydoc!.getText("t").insert(13, " + later");
+      await expect(reopened().flushUpdates()).resolves.toBe(true);
+      expect(reopened().updatesRefused).toBe(false);
+      expect(server.getText("t").toString()).toBe("retained once + later");
+      expect(ownerAck).toHaveBeenCalledTimes(2);
+      expect(oldAck).not.toHaveBeenCalled();
+      expect(outboxKeys()).toEqual([]);
+    },
+  );
+
+  it("retains a disposed strict connection's receipt even with its old subscriber", async () => {
+    serveCommittedUpdates();
+    const ack = vi.fn();
+    const first = await mountReady({
+      durableUpdates: true,
+      requireLiveCopyOutcome: true,
+      onUpdateAcknowledged: ack,
+    });
+    updateResponses = [{ ok: true, liveCopy: "not_derived" }];
+    first().ydoc!.getText("t").insert(0, "disposed owner");
+    _resetCollabDocRegistryForTests();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(ack).not.toHaveBeenCalled();
+    expect(outboxKeys()).toHaveLength(1);
+  });
+
+  it("does not hand strict custody to an ordinary subscriber", async () => {
+    const oldAck = vi.fn();
+    const first = await mountReady({
+      durableUpdates: true,
+      requireLiveCopyOutcome: true,
+      onUpdateAcknowledged: oldAck,
+    });
+    first().ydoc!.getText("t").insert(0, "strict work");
+    const ordinaryAck = vi.fn();
+    const ordinary = await mountReady({
+      durableUpdates: true,
+      onUpdateAcknowledged: ordinaryAck,
+    });
+    updateResponses = [{ ok: true, liveCopy: "not_derived" }];
+    await expect(ordinary().flushUpdates()).resolves.toBe(false);
+    expect(outboxKeys()).toHaveLength(1);
+    expect(ordinaryAck).not.toHaveBeenCalled();
+    const ownerAck = vi.fn();
+    const owner = await mountReady({
+      durableUpdates: true,
+      requireLiveCopyOutcome: true,
+      onUpdateAcknowledged: ownerAck,
+    });
+    updateResponses = [{ ok: true, liveCopy: "not_derived" }];
+    await expect(owner().flushUpdates()).resolves.toBe(true);
+    expect(ownerAck).toHaveBeenCalledExactlyOnceWith({
+      liveCopy: "not_derived",
+    });
+    expect(outboxKeys()).toEqual([]);
+    expect(oldAck).not.toHaveBeenCalled();
   });
 
   it("retries a receipt when strict delivery acquires a new subscriber mid-request", async () => {
