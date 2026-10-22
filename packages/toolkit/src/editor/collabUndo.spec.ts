@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
-import { Editor } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { Editor, Extension } from "@tiptap/core";
+import { Plugin, TextSelection } from "@tiptap/pm/state";
 import { prosemirrorToYDoc, yUndoPluginKey } from "@tiptap/y-tiptap";
 import { afterEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
@@ -20,22 +20,60 @@ afterEach(() => {
   while (editors.length) editors.pop()!.destroy();
 });
 
-function collabEditor() {
+/** Answers every change with a transaction of its own, as highlight plugins do. */
+const AnswerEveryChange = Extension.create({
+  name: "answerEveryChange",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        view: () => ({
+          update: (view, previous) => {
+            if (view.state.doc.eq(previous.doc)) return;
+            view.dispatch(view.state.tr.setMeta("answered", true));
+          },
+        }),
+      }),
+    ];
+  },
+});
+
+function pageUpdate(page: string) {
   const seed = new Editor({
     extensions: createRichMarkdownExtensions(),
-    content: PAGE,
+    content: page,
   });
-  const ydoc = new Y.Doc();
-  Y.applyUpdate(
-    ydoc,
-    Y.encodeStateAsUpdate(prosemirrorToYDoc(seed.state.doc, "default")),
+  const update = Y.encodeStateAsUpdate(
+    prosemirrorToYDoc(seed.state.doc, "default"),
   );
   seed.destroy();
+  return update;
+}
+
+function collabEditor(page = PAGE, extensions: Extension[] = []) {
+  const ydoc = new Y.Doc();
+  Y.applyUpdate(ydoc, pageUpdate(page));
+  const editor = new Editor({
+    extensions: [...createRichMarkdownExtensions({ ydoc }), ...extensions],
+  });
+  editors.push(editor);
+  return { editor, ydoc };
+}
+
+const LAST_HEADING = `Paragraph block
+
+### Heading three`;
+
+/** Opens a page ending in a heading, from Yjs or from a provider that syncs after. */
+async function editorWithLastHeading(arrives: "before" | "after") {
+  if (arrives === "before") return collabEditor(LAST_HEADING).editor;
+  const ydoc = new Y.Doc();
   const editor = new Editor({
     extensions: createRichMarkdownExtensions({ ydoc }),
   });
   editors.push(editor);
-  return { editor, ydoc };
+  Y.applyUpdate(ydoc, pageUpdate(LAST_HEADING), "provider");
+  await Promise.resolve();
+  return editor;
 }
 
 /** Ends the undo manager's capture window, like a pause between edits. */
@@ -54,6 +92,10 @@ function type(editor: Editor, text: string) {
     const { from, to } = editor.state.selection;
     editor.view.dispatch(editor.state.tr.insertText(char, from, to));
   }
+}
+
+function undoManager(editor: Editor) {
+  return yUndoPluginKey.getState(editor.state)!.undoManager;
 }
 
 function firstBlock(editor: Editor) {
@@ -98,6 +140,37 @@ describe("collaborative undo around block type changes", () => {
     expect(firstBlock(editor)).toBe("heading3: Paragraph block");
     expect(editor.state.selection.head).toBe(4);
   });
+
+  it("keeps the caret in its block when a plugin answers a redo", () => {
+    const { editor } = collabEditor(PAGE, [AnswerEveryChange]);
+    placeCaret(editor, 4);
+    pause(editor);
+    editor.commands.setHeading({ level: 3 });
+
+    editor.commands.undo();
+    editor.commands.redo();
+    expect(firstBlock(editor)).toBe("heading3: Paragraph block");
+    editor.commands.undo();
+    expect(firstBlock(editor)).toBe("paragraph: Paragraph block");
+    expect(editor.state.selection.head).toBe(4);
+  });
+
+  for (const arrives of ["before", "after"] as const) {
+    it(`keeps the paragraph added after a last heading out of undo history when the page arrives ${arrives} the editor`, async () => {
+      const editor = await editorWithLastHeading(arrives);
+      expect(editor.state.doc.lastChild!.type.name).toBe("paragraph");
+      expect(undoManager(editor).undoStack).toHaveLength(0);
+
+      placeCaret(editor, 4);
+      pause(editor);
+      editor.commands.setHeading({ level: 2 });
+      editor.commands.undo();
+      editor.commands.undo();
+      expect(editor.state.doc.lastChild!.type.name).toBe("paragraph");
+      editor.commands.redo();
+      expect(firstBlock(editor)).toBe("heading2: Paragraph block");
+    });
+  }
 
   it("leaves the caret alone when a collaborator edits after an undo", () => {
     const { editor, ydoc } = collabEditor();

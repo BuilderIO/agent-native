@@ -1,6 +1,6 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { AllSelection, NodeSelection, TextSelection } from "@tiptap/pm/state";
-import type { Selection } from "@tiptap/pm/state";
+import type { Plugin, Selection, Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import {
   getRelativeSelection,
@@ -17,6 +17,8 @@ interface SyncBinding {
   type: Y.XmlFragment;
   mapping: Map<unknown, unknown>;
   beforeTransactionSelection: unknown;
+  mux: (write: () => void) => void;
+  _prosemirrorChanged: (doc: ProseMirrorNode) => void;
 }
 
 interface SavedSelection {
@@ -26,6 +28,7 @@ interface SavedSelection {
 }
 
 const repairedManagers = new WeakSet<Y.UndoManager>();
+const unwrittenFollowUps = new WeakSet<SyncBinding>();
 
 function idKey(client: number, clock: number) {
   return `${client}:${clock}`;
@@ -189,6 +192,69 @@ function caretAtSamePlace(doc: ProseMirrorNode, place: CaretPlace) {
     doc,
     start + Math.min(place.offset, node.content.size),
   );
+}
+
+/**
+ * y-sync and y-undo read every transaction as a change of its own. y-sync
+ * takes whether a change enters undo history from the batch's last
+ * transaction, but a transaction a plugin appends belongs to the change it
+ * answers: the trailing paragraph added after an undo or a collaborator's edit
+ * became an undoable edit, and undoing it brought it straight back as a new
+ * edit, which cleared the redo stack. y-undo saves the selection from before
+ * the latest transaction as the one an undo restores, so a plugin that
+ * answered an undo or redo with a selection-only transaction saved the caret
+ * y-tiptap had guessed after it instead.
+ */
+export function foldFollowUpTransactions(plugin: Plugin): void {
+  const field = plugin.spec.state;
+  const key = plugin.spec.key;
+  if (!field || (key !== ySyncPluginKey && key !== yUndoPluginKey)) return;
+  const apply = field.apply;
+  plugin.spec.state = {
+    ...field,
+    apply(tr, value, oldState, newState) {
+      const next = apply.call(this, tr, value, oldState, newState);
+      if (key === yUndoPluginKey) {
+        return tr.docChanged ? next : { ...next, prevSel: value.prevSel };
+      }
+      const change = tr.getMeta("appendedTransaction") as
+        | Transaction
+        | undefined;
+      if (
+        change?.getMeta("addToHistory") === false &&
+        tr.getMeta("addToHistory") === undefined
+      ) {
+        next.addToHistory = false;
+        if (tr.docChanged) unwrittenFollowUps.add(next.binding);
+      }
+      return next;
+    },
+  };
+}
+
+/**
+ * Writes to Yjs, outside undo history, what plugins appended to a change that
+ * came from Yjs, such as the first render or an undo. y-sync holds a lock
+ * while it applies such a change, so it cannot write them then, and its next
+ * update would write them as part of whatever transaction comes next, usually
+ * the user's first click or edit.
+ */
+export function writeFollowUps(view: EditorView, later = false): void {
+  const binding = ySyncPluginKey.getState(view.state)?.binding as
+    | SyncBinding
+    | undefined;
+  if (!binding || !unwrittenFollowUps.has(binding)) return;
+  const write = () => {
+    if (!unwrittenFollowUps.delete(binding) || view.isDestroyed) return;
+    binding.mux(() => {
+      binding.doc.transact((transaction) => {
+        transaction.meta.set("addToHistory", false);
+        binding._prosemirrorChanged(view.state.doc);
+      }, ySyncPluginKey);
+    });
+  };
+  if (later) queueMicrotask(write);
+  else write();
 }
 
 /**

@@ -41,7 +41,11 @@ import type { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
 import { createCodeBlockNode } from "./CodeBlockNode.js";
-import { repairCollabUndo } from "./collabUndo.js";
+import {
+  foldFollowUpTransactions,
+  repairCollabUndo,
+  writeFollowUps,
+} from "./collabUndo.js";
 import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
 import { TaskListPasteNormalization } from "./TaskListPaste.js";
 
@@ -55,6 +59,7 @@ const CollaborationWithSafeInitialSelection = Collaboration.extend({
     const plugins = this.parent?.() ?? [];
 
     for (const plugin of plugins) {
+      foldFollowUpTransactions(plugin);
       const originalView = plugin.spec.view;
       if (!originalView) continue;
 
@@ -93,11 +98,20 @@ const CollaborationWithSafeInitialSelection = Collaboration.extend({
           }
         };
 
+        let pluginView: ReturnType<typeof originalView>;
         try {
-          return originalView(view);
+          pluginView = originalView(view);
         } finally {
           binding._forceRerender = originalForceRerender;
         }
+        writeFollowUps(view);
+        return {
+          ...pluginView,
+          update: (updatedView, previousState) => {
+            pluginView.update?.(updatedView, previousState);
+            writeFollowUps(updatedView, true);
+          },
+        };
       };
     }
 
