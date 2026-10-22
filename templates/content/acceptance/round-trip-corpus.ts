@@ -630,6 +630,14 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
       "<columns>\n\t<column>\n\t\t- a\n\t\t\t```\n\t\t\tx\n\t\t\t```\n\t</column>\n</columns>",
   },
   {
+    id: "untabbed-callout-fence-close-below-opener",
+    origin: "agent",
+    markdown: "<callout>\n- x\n\t```\ncode\n```\nafter\n</callout>",
+    canonical:
+      "<callout>\n\t- x\n\t\t````\n\t\tcode\n\t\t```\n\t\tafter\n\t\t````\n</callout>",
+    note: "A close shallower than its fence is code text, as in the same lines outside a callout; the fence ends at `</callout>`.",
+  },
+  {
     id: "untabbed-details-with-tabbed-summary-in-callout",
     origin: "agent",
     markdown:
@@ -1183,6 +1191,14 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     unrepresentable:
       "The details reader takes the fence line in the equation for a fence, so `code` stays below its body and is not read.",
     losses: ["dropped-source", "reparse-mismatch"],
+  },
+  {
+    id: "refuse-untabbed-callout-paragraph-then-deeper-fence",
+    origin: "agent",
+    markdown: "<callout>\nx\n\t```\ncode\n```\nafter\n</callout>",
+    unrepresentable:
+      "The editor saves a code block one tab under a paragraph at the paragraph's depth, as on main; every line, `after` included, is kept.",
+    losses: ["editor-mismatch"],
   },
   {
     id: "refuse-columns-empty",
