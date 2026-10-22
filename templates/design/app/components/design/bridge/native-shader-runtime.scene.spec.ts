@@ -361,6 +361,7 @@ type SceneRuntime = {
   previewTargetDensities: Map<Element, number>;
   previewBudgetDensities: Map<string, number>;
   planPreviewTargetDensities(): boolean;
+  unmount(mount: unknown): void;
   layout(mount: unknown): void;
   offscreen(mount: unknown): boolean;
   renderMount(
