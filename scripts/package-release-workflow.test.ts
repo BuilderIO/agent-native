@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -166,6 +173,135 @@ describe("npm package release workflow", () => {
     ) as { snapshot?: { useCalculatedVersion?: boolean } };
 
     assert.equal(config.snapshot?.useCalculatedVersion, true);
+  });
+
+  it("links snapshot-rewritten ranges to the workspace when refreshing the lockfile", () => {
+    type Manifest = {
+      version?: string;
+      dependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+    };
+    const readManifest = (file: string) =>
+      JSON.parse(readFileSync(file, "utf8")) as Manifest;
+    const core = "@agent-native/core";
+    const coreVersion = readManifest("packages/core/package.json").version;
+    const dispatchPeer = readManifest("packages/dispatch/package.json")
+      .peerDependencies?.[core];
+    const qrRange = readManifest("templates/community/qr/package.json")
+      .dependencies?.[core];
+    assert(coreVersion && dispatchPeer && qrRange);
+
+    const dir = mkdtempSync(path.join(tmpdir(), "an-snapshot-links-"));
+    const write = (file: string, content: unknown) => {
+      const target = path.join(dir, file);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(
+        target,
+        typeof content === "string"
+          ? content
+          : `${JSON.stringify(content, null, 2)}\n`,
+      );
+    };
+    const fixtureManifest = (file: string) =>
+      readManifest(path.join(dir, file));
+
+    try {
+      write("package.json", { name: "snapshot-fixture", private: true });
+      write(
+        "pnpm-workspace.yaml",
+        "packages:\n  - packages/*\n  - templates/community/*\n",
+      );
+      write(".changeset/config.json", {
+        ...JSON.parse(readFileSync(".changeset/config.json", "utf8")),
+        changelog: false,
+        fixed: [],
+        ignore: [],
+      });
+      write(".changeset/core-patch.md", `---\n"${core}": patch\n---\n\nFix.\n`);
+      write("packages/core/package.json", { name: core, version: coreVersion });
+      write("packages/dispatch/package.json", {
+        name: "@agent-native/dispatch",
+        version: "1.0.0",
+        peerDependencies: { [core]: dispatchPeer },
+        devDependencies: { [core]: "workspace:*" },
+      });
+      write("templates/community/qr/package.json", {
+        name: "qr",
+        private: true,
+        dependencies: { [core]: qrRange },
+      });
+
+      const version = spawnSync(
+        process.execPath,
+        [
+          createRequire(import.meta.url).resolve("@changesets/cli/bin.js"),
+          "version",
+          "--snapshot",
+          "nightly",
+        ],
+        { cwd: dir, encoding: "utf8" },
+      );
+      assert.equal(version.status, 0, version.stderr);
+
+      const snapshot = fixtureManifest("packages/core/package.json").version;
+      assert.match(String(snapshot), /-nightly-/);
+      assert.equal(
+        fixtureManifest("packages/dispatch/package.json").peerDependencies?.[
+          core
+        ],
+        snapshot,
+      );
+      assert.equal(
+        fixtureManifest("templates/community/qr/package.json").dependencies?.[
+          core
+        ],
+        snapshot,
+      );
+
+      for (const [jobName, stepName] of [
+        ["publish-nightly", "Create nightly snapshot versions"],
+        ["publish-dev-snapshot", "Create dev snapshot versions"],
+      ]) {
+        const step = ((jobs[jobName] as Workflow).steps as Workflow[]).find(
+          (candidate) => candidate.name === stepName,
+        );
+        assert(step, stepName);
+        const install = String(step.run)
+          .split("\n")
+          .map((line) => line.trim())
+          .find((line) => line.startsWith("pnpm install"));
+        assert(install, stepName);
+
+        // Offline: an unpublished snapshot must resolve to the workspace.
+        rmSync(path.join(dir, "pnpm-lock.yaml"), { force: true });
+        const result = spawnSync(`${install} --offline`, {
+          cwd: dir,
+          encoding: "utf8",
+          shell: true,
+        });
+        assert.equal(
+          result.status,
+          0,
+          `${stepName}: ${result.stdout}${result.stderr}`,
+        );
+        const lock = parse(
+          readFileSync(path.join(dir, "pnpm-lock.yaml"), "utf8"),
+        ) as {
+          importers: Record<
+            string,
+            { dependencies?: Record<string, { version: string }> }
+          >;
+        };
+        assert.equal(
+          lock.importers["templates/community/qr"]?.dependencies?.[core]
+            ?.version,
+          "link:../../../packages/core",
+          stepName,
+        );
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("supports the next fixed-group Core patch without the incompatible gap release", () => {
