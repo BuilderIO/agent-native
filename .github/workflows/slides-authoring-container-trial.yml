@@ -77,9 +77,6 @@ jobs:
     container:
       image: ${{ needs.build-image.outputs.image }}
       options: --ipc=host
-      # Firefox refuses to start as root when $HOME belongs to another user.
-      env:
-        HOME: /root
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -94,6 +91,11 @@ jobs:
         with:
           restore-dist-cache: "true"
           native-canvas-deps: "false"
+
+      # Firefox refuses to start as root when $HOME belongs to another user, and
+      # the runner resets HOME to /github/home for every container step.
+      - name: Use root's home for Firefox
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/slides-authoring-shard
         with:
