@@ -174,6 +174,8 @@ export function suggestionTextPresentation(
 
 // Each suggestion is presented from its own copy of the Page, and the editor
 // asks again on every highlight rebuild, so recent Pages keep their results.
+// Each Page keeps its 256 most recent ranges: while a suggestion is being
+// drafted its Page stays the same and its range keeps changing.
 const presentationsBySource = new Map<
   string,
   Map<string, SuggestionPresentationNode[] | null>
@@ -188,7 +190,12 @@ export function suggestionTextPresentationForSource(
   if (known) {
     presentationsBySource.delete(context.source);
     presentationsBySource.set(context.source, known);
-    if (known.has(key)) return known.get(key)!;
+    if (known.has(key)) {
+      const presentation = known.get(key)!;
+      known.delete(key);
+      known.set(key, presentation);
+      return presentation;
+    }
   } else {
     if (presentationsBySource.size >= 128)
       presentationsBySource.delete(presentationsBySource.keys().next().value!);
@@ -199,6 +206,7 @@ export function suggestionTextPresentationForSource(
     content,
     context,
   );
+  if (known.size >= 256) known.delete(known.keys().next().value!);
   known.set(key, presentation);
   return presentation;
 }
