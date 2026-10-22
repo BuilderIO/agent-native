@@ -309,6 +309,10 @@ export function findThreadPosition(
 }
 
 /** Whether a thread's tab is on the page but not open. */
+function sameThreadIds(a: ReadonlySet<string>, b: ReadonlySet<string>) {
+  return a.size === b.size && [...b].every((threadId) => a.has(threadId));
+}
+
 function threadTabHidden(
   scrollContainer: HTMLElement,
   fieldId: string | null,
@@ -1421,7 +1425,11 @@ export function CommentsSidebar({
   const [threadPositions, setThreadPositions] = useState<
     Map<string, CommentThreadPosition>
   >(new Map());
-  const [threadPositionsMeasured, setThreadPositionsMeasured] = useState(false);
+  // The threads the last measurement looked for. One that came after it, such
+  // as a comment posted while highlights are hidden, hasn't been looked for.
+  const [measuredThreadIds, setMeasuredThreadIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   // Threads whose highlight waits in a tab that isn't open: still on the page.
   const [hiddenTabThreadIds, setHiddenTabThreadIds] = useState<
     ReadonlySet<string>
@@ -1841,7 +1849,6 @@ export function CommentsSidebar({
   const hasPendingComment = !!displayedPendingComment;
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
-    setThreadPositionsMeasured(!!container);
     const layoutContainer = alignToAnchors ? sidebarRef.current : null;
     const nextPendingPosition =
       hasPendingComment && alignToAnchors
@@ -1856,6 +1863,7 @@ export function CommentsSidebar({
     if (!container || measuredThreads.length === 0) {
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
       setHiddenTabThreadIds((prev) => (prev.size === 0 ? prev : new Set()));
+      setMeasuredThreadIds((prev) => (prev.size === 0 ? prev : new Set()));
       return;
     }
     // With highlights hidden there are no marks to measure, and guessing from
@@ -1878,11 +1886,12 @@ export function CommentsSidebar({
       else if (threadTabHidden(container, fieldId))
         hiddenTabIds.add(thread.threadId);
     }
+    const lookedFor = new Set(measuredThreads.map((thread) => thread.threadId));
     setHiddenTabThreadIds((prev) =>
-      prev.size === hiddenTabIds.size &&
-      [...hiddenTabIds].every((threadId) => prev.has(threadId))
-        ? prev
-        : hiddenTabIds,
+      sameThreadIds(prev, hiddenTabIds) ? prev : hiddenTabIds,
+    );
+    setMeasuredThreadIds((prev) =>
+      sameThreadIds(prev, lookedFor) ? prev : lookedFor,
     );
     setThreadPositions((prev) => {
       if (
@@ -2319,7 +2328,7 @@ export function CommentsSidebar({
             : null
         }
         anchorUnavailable={
-          threadPositionsMeasured &&
+          measuredThreadIds.has(thread.threadId) &&
           !!thread.quotedText &&
           !thread.resolved &&
           !threadPositions.has(thread.threadId) &&

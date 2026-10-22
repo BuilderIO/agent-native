@@ -122,6 +122,8 @@ let highlights: {
   visible: boolean;
   onChange?: (visible: boolean) => void;
 } = { visible: true };
+// The page the panel measures highlights in. Empty, it measures nothing.
+const page: { current: HTMLDivElement | null } = { current: null };
 
 function Owner({
   presentation,
@@ -145,6 +147,7 @@ function Owner({
       presentation={presentation}
       highlightsVisible={highlights.visible}
       onHighlightsVisibleChange={highlights.onChange}
+      scrollContainerRef={page}
     />
   );
 }
@@ -165,6 +168,9 @@ describe("the Discussion panel", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    page.current?.remove();
+    page.current = null;
+    threads = fixtureThreads;
     queryClient.clear();
     window.localStorage.clear();
   });
@@ -459,5 +465,46 @@ describe("the Discussion panel", () => {
 
     expect(actions.create).toHaveBeenCalledOnce();
     expect(richEditorValue(richEditor(composer)!)).toBe("Try again later");
+  });
+
+  it("doesn't call a highlight unavailable before it has been looked for", async () => {
+    const nextFrame = () =>
+      act(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          ),
+      );
+    const unavailable = (id: string) =>
+      container.querySelector(
+        `[data-thread-card="${id}"] [data-comment-anchor-unavailable]`,
+      );
+    page.current = document.createElement("div");
+    page.current.innerHTML =
+      '<div class="ProseMirror"><p><span data-comment-thread="text-1">Quoted line</span></p></div>';
+    document.body.append(page.current);
+    render();
+    await nextFrame();
+    expect(unavailable("text-1")).toBeNull();
+
+    // Hiding highlights takes their marks off the page, so a comment posted
+    // now can't be measured.
+    highlights = { visible: false };
+    page.current.innerHTML =
+      '<div class="ProseMirror"><p>Quoted line</p><p>Second line</p></div>';
+    threads = [...fixtureThreads, thread("text-2", "Second line")];
+    render();
+    await nextFrame();
+    expect(card("text-2")).not.toBeNull();
+    expect(unavailable("text-2")).toBeNull();
+
+    // Shown again, the highlights are measured, and a missing quote is flagged.
+    highlights = { visible: true };
+    page.current.innerHTML =
+      '<div class="ProseMirror"><p><span data-comment-thread="text-1">Quoted line</span></p></div>';
+    render();
+    await nextFrame();
+    expect(unavailable("text-1")).toBeNull();
+    expect(unavailable("text-2")).not.toBeNull();
   });
 });
