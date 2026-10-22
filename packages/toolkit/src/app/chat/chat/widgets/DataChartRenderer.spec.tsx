@@ -356,7 +356,7 @@ describe("DataChartRenderer theme colors", () => {
     }
   });
 
-  it("keeps horizontal bar value labels within compacted gutters", () => {
+  it("keeps extreme horizontal bar labels within the chart at large font sizes", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
         chart={{
@@ -365,17 +365,19 @@ describe("DataChartRenderer theme colors", () => {
           xKey: "day",
           series: [{ key: "value", label: "Value" }],
           data: [
-            { day: "Low", value: -1e300 },
-            { day: "High", value: 1e300 },
+            { day: "Low", value: -1.2345678901234567e300 },
+            { day: "Middle", value: 6.172839450617284e299 },
+            { day: "High", value: 1.2345678901234567e300 },
           ],
           showValueLabels: true,
+          valueLabelFontSize: 24,
           valueAxisTickInterval: 1e299,
         }}
       />,
     );
     const valueLabels = Array.from(
       markup.matchAll(
-        /<text x="([\d.]+)" y="([\d.]+)"[^>]*text-anchor="(start|end)">(-?1e\+300)<\/text>/g,
+        /<text x="([\d.-]+)" y="([\d.]+)"[^>]*font-size="24"[^>]*text-anchor="(start|end)">([^<]+)<\/text>/g,
       ),
       (match) => ({
         x: Number(match[1]),
@@ -384,15 +386,25 @@ describe("DataChartRenderer theme colors", () => {
       }),
     );
 
-    expect(valueLabels).toHaveLength(2);
+    expect(valueLabels).toHaveLength(3);
     for (const label of valueLabels) {
-      const estimatedWidth = label.label.length * 11 * 0.65;
+      const estimatedWidth = label.label.length * 24 * 0.65;
       const leftEdge =
         label.anchor === "end" ? label.x - estimatedWidth : label.x;
       const rightEdge =
         label.anchor === "end" ? label.x : label.x + estimatedWidth;
       expect(leftEdge).toBeGreaterThanOrEqual(0);
       expect(rightEdge).toBeLessThanOrEqual(640);
+    }
+
+    const bars = Array.from(
+      markup.matchAll(/<rect x="([\d.-]+)" y="[\d.-]+" width="([\d.-]+)"/g),
+      (match) => ({ x: Number(match[1]), width: Number(match[2]) }),
+    );
+    expect(bars).toHaveLength(3);
+    for (const bar of bars) {
+      expect(bar.x).toBeGreaterThanOrEqual(0);
+      expect(bar.x + bar.width).toBeLessThanOrEqual(640);
     }
   });
 

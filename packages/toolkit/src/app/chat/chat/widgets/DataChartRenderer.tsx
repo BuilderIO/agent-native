@@ -14,7 +14,7 @@ const WIDTH = 640;
 const HEIGHT = 360;
 const MARGIN = { top: 14, right: 18, bottom: 34, left: 46 };
 const MAX_LABEL_LENGTH = 16;
-const MAX_HORIZONTAL_TICK_LABEL_WIDTH = WIDTH - 8;
+const MIN_HORIZONTAL_PLOT_WIDTH = 32;
 const LABEL_FONT_FAMILIES = {
   sans: "var(--font-sans, ui-sans-serif, system-ui, sans-serif)",
   serif: "ui-serif, Georgia, Cambria, serif",
@@ -58,11 +58,6 @@ function formatAxisTick(value: number, interval: number): string {
   return value.toFixed(decimalPlaces);
 }
 
-function formatCompactTick(value: number): string {
-  const [mantissa = "0", exponent = "0"] = value.toExponential(15).split("e");
-  return `${mantissa.replace(/\.?0+$/, "")}e${exponent}`;
-}
-
 function labelFor(value: unknown): string {
   const characters = Array.from(value == null ? "" : String(value));
   return characters.length > MAX_LABEL_LENGTH
@@ -77,10 +72,50 @@ function estimateTextWidth(text: string, fontSize: number): number {
   }, 0);
 }
 
-function formatHorizontalValueLabel(value: number, fontSize: number): string {
+function formatCompactTick(
+  value: number,
+  fontSize: number,
+  maxWidth: number,
+): string {
+  for (let fractionDigits = 15; fractionDigits >= 0; fractionDigits -= 1) {
+    const [mantissa = "0", exponent = "0"] = value
+      .toExponential(fractionDigits)
+      .split("e");
+    const label = `${mantissa.replace(/\.?0+$/, "")}e${exponent}`;
+    if (estimateTextWidth(label, fontSize) <= maxWidth) return label;
+  }
+  return value.toExponential(0);
+}
+
+function maximumHorizontalLabelWidth(
+  categoryMargin: number,
+  includeValueLabels: boolean,
+): number {
+  let lower = 0;
+  let upper = WIDTH;
+  while (lower < upper) {
+    const candidate = Math.ceil((lower + upper) / 2);
+    const axisInset = Math.ceil(candidate / 2) + 2;
+    const valueLabelInset = includeValueLabels ? candidate + 13 : 0;
+    const leftMargin = Math.max(categoryMargin, axisInset) + valueLabelInset;
+    const rightMargin = Math.max(MARGIN.right, axisInset, valueLabelInset);
+    if (WIDTH - leftMargin - rightMargin >= MIN_HORIZONTAL_PLOT_WIDTH) {
+      lower = candidate;
+    } else {
+      upper = candidate - 1;
+    }
+  }
+  return lower;
+}
+
+function formatHorizontalValueLabel(
+  value: number,
+  fontSize: number,
+  maxWidth: number,
+): string {
   const label = formatTick(value);
-  return estimateTextWidth(label, fontSize) > MAX_HORIZONTAL_TICK_LABEL_WIDTH
-    ? formatCompactTick(value)
+  return estimateTextWidth(label, fontSize) > maxWidth
+    ? formatCompactTick(value, fontSize, maxWidth)
     : label;
 }
 
@@ -154,14 +189,32 @@ function ChartBody({
             (_, index) => (firstTick + index) * tickInterval,
           );
         })();
+  const horizontalCategoryWidth = isHorizontalBar
+    ? Math.max(
+        0,
+        ...chart.data.map((row) =>
+          estimateTextWidth(labelFor(row[chart.xKey]), labelFontSize),
+        ),
+      )
+    : 0;
+  const categoryMargin =
+    Math.max(MARGIN.left, horizontalCategoryWidth + 14) +
+    (chart.yAxisTitle ? 20 : 0);
+  const categoryLabelX = categoryMargin - 8;
+  const horizontalTextWidthLimit = isHorizontalBar
+    ? maximumHorizontalLabelWidth(
+        categoryMargin,
+        Boolean(chart.showValueLabels),
+      )
+    : 0;
   const valueTickLabels = gridTickValues.map((value) => {
     const label =
       tickInterval === undefined
         ? formatTick(value)
         : formatAxisTick(value, tickInterval);
     return isHorizontalBar &&
-      estimateTextWidth(label, labelFontSize) > MAX_HORIZONTAL_TICK_LABEL_WIDTH
-      ? formatCompactTick(value)
+      estimateTextWidth(label, labelFontSize) > horizontalTextWidthLimit
+      ? formatCompactTick(value, labelFontSize, horizontalTextWidthLimit)
       : label;
   });
   const valueTickLabelWidth = Math.max(
@@ -174,14 +227,6 @@ function ChartBody({
     ? Math.ceil(valueTickLabelWidth / 2) + 2
     : 0;
   const customValueTickWidth = isHorizontalBar ? 0 : customValueTickLabelWidth;
-  const horizontalCategoryWidth = isHorizontalBar
-    ? Math.max(
-        0,
-        ...chart.data.map((row) =>
-          estimateTextWidth(labelFor(row[chart.xKey]), labelFontSize),
-        ),
-      )
-    : 0;
   const horizontalPositiveValueWidth =
     isHorizontalBar && chart.showValueLabels
       ? Math.max(
@@ -195,6 +240,7 @@ function ChartBody({
                   formatHorizontalValueLabel(
                     value,
                     chart.valueLabelFontSize ?? 11,
+                    horizontalTextWidthLimit,
                   ),
                   chart.valueLabelFontSize ?? 11,
                 ),
@@ -215,6 +261,7 @@ function ChartBody({
                   formatHorizontalValueLabel(
                     value,
                     chart.valueLabelFontSize ?? 11,
+                    horizontalTextWidthLimit,
                   ),
                   chart.valueLabelFontSize ?? 11,
                 ),
@@ -222,10 +269,6 @@ function ChartBody({
           ),
         )
       : 0;
-  const categoryMargin =
-    Math.max(MARGIN.left, horizontalCategoryWidth + 14) +
-    (chart.yAxisTitle ? 20 : 0);
-  const categoryLabelX = categoryMargin - 8;
   const margin = {
     ...MARGIN,
     left:
@@ -530,7 +573,11 @@ function ChartBody({
                     }
                   >
                     {isHorizontalBar
-                      ? formatHorizontalValueLabel(value, valueLabelFontSize)
+                      ? formatHorizontalValueLabel(
+                          value,
+                          valueLabelFontSize,
+                          horizontalTextWidthLimit,
+                        )
                       : formatTick(value)}
                   </text>
                 ) : null}
