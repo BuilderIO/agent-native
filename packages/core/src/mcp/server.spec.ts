@@ -376,14 +376,19 @@ function makeWebEvent(opts: MakeEventOpts): any {
     authorization: "Bearer test-access-token",
     ...(opts.headers ?? {}),
   };
-  const reqUrl = `https://mail.agent-native.com${opts.path ?? "/"}`;
+  const host = headers.host || "mail.agent-native.com";
+  const protocol = /^(localhost|127\.0\.0\.1)(:|$)/.test(host)
+    ? "http"
+    : "https";
+  const reqUrl = `${protocol}://${host}${opts.path ?? "/"}`;
   const webReq = new Request(reqUrl, {
     method: opts.method ?? "POST",
     headers,
   });
+  Object.assign(webReq, { context: { clientAddress: opts.ip } });
   const event: any = {
     method: opts.method ?? "POST",
-    url: { pathname: (opts.path ?? "/").split("?")[0] },
+    url: new URL(reqUrl),
     path: opts.path ?? "/",
     req: webReq,
     _headers: headers,
@@ -428,13 +433,13 @@ function makeWebEvent(opts: MakeEventOpts): any {
   return event;
 }
 
-vi.mock("h3", () => ({
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
   defineEventHandler: (fn: any) => fn,
   getMethod: (event: any) => event.method ?? "GET",
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   getRequestHeader: (event: any, name: string) =>
     event._headers?.[name.toLowerCase()],
-  getRequestIP: (event: any) => event._ip,
   getQuery: (event: any) => event._query ?? {},
   setResponseStatus: (event: any, code: number) => {
     event._status = code;
@@ -722,7 +727,10 @@ async function callWeb(
     opts.routePath,
   );
   expect(res).toBeInstanceOf(Response);
-  const response = res as Response;
+  return readWebResponse(res as Response);
+}
+
+async function readWebResponse(response: Response): Promise<any> {
   const ct = response.headers.get("content-type") || "";
   const text = await response.text();
   if (ct.includes("text/event-stream")) {
@@ -2379,6 +2387,154 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     await expect(
       createMCPServerForRequest(configWithReadOnlyMismatch as any, undefined),
     ).rejects.toThrow(/readOnlyHint must match its readOnly action setting/);
+  });
+
+  describe("trusted widget request origin", () => {
+    beforeEach(() => {
+      vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it.each([false, true])(
+      "uses the raw request origin for widget tickets despite untrusted forwarded headers (Node: %s)",
+      async (node) => {
+        const actual = await vi.importActual<
+          typeof import("../server/embed-session.js")
+        >("../server/embed-session.js");
+        embedSessionMocks.createEmbedSessionTicket.mockImplementationOnce(
+          async (input) => ({
+            ...(await actual.createEmbedSessionTicket(
+              input as Parameters<typeof actual.createEmbedSessionTicket>[0],
+            )),
+            targetPath: input.targetPath,
+          }),
+        );
+        const event = makeWebEvent({
+          node,
+          ip: "203.0.113.20",
+          headers: {
+            ...(await mcpAppsAuthHeaders()),
+            "x-forwarded-host": "attacker.example",
+            "x-forwarded-proto": "http",
+            "x-forwarded-for": "127.0.0.1",
+          },
+          body: {
+            jsonrpc: "2.0",
+            id: 138,
+            method: "tools/call",
+            params: { name: "echo-thing", arguments: { value: "hello" } },
+          },
+        });
+        const response = await handleMcpRequest(
+          event,
+          scopedWidgetConfig(config),
+        );
+        expect(response).toBeInstanceOf(Response);
+        const called = await readWebResponse(response as Response);
+        expect(called.result.isError).not.toBe(true);
+        const startUrl = new URL(
+          called.result._meta["agent-native/embedStart"].startUrl,
+        );
+        expect(startUrl.origin).toBe("https://mail.agent-native.com");
+        expect(startUrl.pathname).toBe("/_agent-native/embed/start");
+        expect(startUrl.searchParams.get("__an_mcp_chat_bridge")).toBe("1");
+        const ticket = startUrl.searchParams.get("ticket");
+        expect(ticket).toBeTruthy();
+        expect(
+          embedSessionMocks.createEmbedSessionTicket,
+        ).toHaveBeenCalledOnce();
+        await expect(
+          actual.readMcpDirectoryWidgetRenewalTicket(ticket!, {
+            audienceHost: "mail.agent-native.com",
+          }),
+        ).resolves.toMatchObject({ ownerEmail: "oauth@example.com" });
+        await expect(
+          actual.readMcpDirectoryWidgetRenewalTicket(ticket!, {
+            audienceHost: "attacker.example",
+          }),
+        ).resolves.toBeNull();
+        expect(JSON.stringify(called)).not.toContain("attacker.example");
+      },
+    );
+
+    it("uses validated forwarded authority from a loopback proxy for widget tickets", async () => {
+      const event = makeWebEvent({
+        ip: "::ffff:127.0.0.1",
+        headers: {
+          ...(await mcpAppsAuthHeaders()),
+          host: "127.0.0.1:8100",
+          "x-forwarded-host": "mail.agent-native.com, internal.gateway:3000",
+          "x-forwarded-proto": "https, http",
+        },
+        body: {
+          jsonrpc: "2.0",
+          id: 138,
+          method: "tools/call",
+          params: { name: "echo-thing", arguments: { value: "hello" } },
+        },
+      });
+      const response = await handleMcpRequest(
+        event,
+        scopedWidgetConfig(config),
+      );
+      expect(response).toBeInstanceOf(Response);
+      const called = await readWebResponse(response as Response);
+      expect(called.result._meta["agent-native/embedStart"].startUrl).toBe(
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-picker-ticket&__an_mcp_chat_bridge=1",
+      );
+      expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      { "x-forwarded-host": "mail.agent-native.com/path" },
+      { "x-forwarded-host": "", "x-forwarded-proto": "https" },
+      { "x-forwarded-proto": "javascript" },
+    ])(
+      "rejects invalid trusted proxy authority before minting: %j",
+      async (headers) => {
+        const event = makeWebEvent({
+          ip: "127.0.0.1",
+          headers: { ...(await mcpAppsAuthHeaders()), ...headers },
+          body: {
+            jsonrpc: "2.0",
+            id: 138,
+            method: "tools/call",
+            params: { name: "echo-thing", arguments: { value: "hello" } },
+          },
+        });
+        await expect(
+          handleMcpRequest(event, scopedWidgetConfig(config)),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(
+          embedSessionMocks.createEmbedSessionTicket,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it("does not recover missing raw authority from untrusted forwarded headers", async () => {
+      const event = makeWebEvent({
+        ip: "203.0.113.20",
+        headers: {
+          ...(await mcpAppsAuthHeaders()),
+          "x-forwarded-host": "attacker.example",
+          "x-forwarded-proto": "https",
+        },
+        body: {
+          jsonrpc: "2.0",
+          id: 138,
+          method: "tools/call",
+          params: { name: "echo-thing", arguments: { value: "hello" } },
+        },
+      });
+      delete event.url;
+      event.req = { headers: event.req.headers, url: "/" };
+      await expect(
+        handleMcpRequest(event, scopedWidgetConfig(config)),
+      ).rejects.toThrow();
+      expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    });
   });
 
   it("mints a regular MCP widget embed ticket from an action link", async () => {

@@ -113,6 +113,11 @@ describe("server/auth", () => {
     vi.doUnmock("../org/auth-policy.js");
     vi.doUnmock("../org/workspace-app-access.js");
     vi.doUnmock("./embed-session.js");
+    vi.doUnmock("./framework-request-handler.js");
+    vi.doUnmock("@agent-native/core/action");
+    vi.doUnmock("@agent-native/core/server");
+    vi.doUnmock("@agent-native/core/labs/server");
+    vi.doUnmock("@agent-native/core/sharing");
     vi.doUnmock("./email.js");
     vi.doUnmock("./request-origin.js");
     vi.doUnmock("./sentry.js");
@@ -9002,7 +9007,8 @@ describe("server/auth", () => {
       vi.doMock("./legacy-auth-migration.js", () => ({
         resolveCanonicalUserForLegacySession: vi.fn(async () => null),
       }));
-      vi.doMock("../org/context.js", () => ({
+      vi.doMock("../org/context.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
         resolveOrgIdForEmailViaEvent: vi.fn(async () => "org-cookie"),
       }));
       vi.doMock("./embed-session.js", async (importOriginal) => ({
@@ -9150,6 +9156,148 @@ describe("server/auth", () => {
         await expect(getBrowserCookieSession(event)).resolves.toBeNull();
       },
     );
+
+    it("names the missing custom browser hook and warns only once", async () => {
+      vi.doMock("./framework-request-handler.js", () => ({
+        getH3App: (app: any) => app,
+      }));
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const { autoMountAuth } = await import("./auth.js");
+        await autoMountAuth(createMockApp(), {
+          getSession: async () => ({ email: credentialOwner }),
+        });
+        const { mountUiActionCapabilityRoute } =
+          await import("./ui-action-capability.js");
+        const mounted = createMockApp();
+        mountUiActionCapabilityRoute(mounted);
+        const handler = mounted.use.mock.calls[0][1];
+        for (let i = 0; i < 2; i++) {
+          const event = createMockEvent({
+            headers: {
+              cookie: "custom-login=browser",
+              "sec-fetch-site": "same-origin",
+            },
+          });
+          await expect(handler(event)).resolves.toEqual({
+            error: expect.stringContaining("AuthOptions.getBrowserSession"),
+          });
+          expect(event.res.status).toBe(401);
+        }
+        expect(
+          warn.mock.calls.filter(([message]) =>
+            String(message).includes("AuthOptions.getBrowserSession"),
+          ),
+        ).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it.each([false, true])(
+      "refuses bearer capability minting with an explicit browser hook (cookie=%s)",
+      async (cookie) => {
+        vi.doMock("./framework-request-handler.js", () => ({
+          getH3App: (app: any) => app,
+        }));
+        const { autoMountAuth } = await import("./auth.js");
+        const getBrowserSession = vi.fn(async () => ({ email: cookieOwner }));
+        await autoMountAuth(createMockApp(), {
+          getSession: async () => ({ email: credentialOwner }),
+          getBrowserSession,
+        });
+        const { mountUiActionCapabilityRoute } =
+          await import("./ui-action-capability.js");
+        const mounted = createMockApp();
+        mountUiActionCapabilityRoute(mounted);
+        const event = createMockEvent({
+          headers: {
+            authorization: "Bearer bearer-login",
+            "sec-fetch-site": "same-origin",
+            ...(cookie ? { cookie: "custom-login=browser" } : {}),
+          },
+        });
+        await expect(mounted.use.mock.calls[0][1](event)).resolves.toEqual({
+          error: "Authentication required",
+        });
+        expect(event.res.status).toBe(401);
+        expect(event.res.headers.get("set-cookie")).toBeNull();
+        expect(getBrowserSession).not.toHaveBeenCalled();
+      },
+    );
+
+    it("uses Design's signed Builder cookie to mint a capability and run a UI-only action", async () => {
+      vi.stubEnv("BUILDER_IDENTITY", "1");
+      vi.stubEnv("OAUTH_STATE_SECRET", "test-builder-ui-capability-secret");
+      vi.doMock("@agent-native/core/action", () => import("../action.js"));
+      vi.doMock("@agent-native/core/server", () => ({
+        registerDelegatedBuilderCredentials: vi.fn(),
+      }));
+      vi.doMock("@agent-native/core/labs/server", () => ({
+        registerHostLabOverrides: vi.fn(),
+      }));
+      vi.doMock("@agent-native/core/sharing", () => ({
+        registerHostAccessResolver: vi.fn(),
+      }));
+      vi.doMock("./framework-request-handler.js", () => ({
+        getH3App: (app: any) => app,
+      }));
+      const {
+        BUILDER_IDENTITY_COOKIE,
+        encodeIdentityCookie,
+        getBuilderIdentitySession,
+      } =
+        await import("../../../../templates/design/server/lib/builder-identity.js");
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      await autoMountAuth(createMockApp(), {
+        getSession: getBuilderIdentitySession,
+        getBrowserSession: getBuilderIdentitySession,
+        trustCustomEmailVerification: true,
+      });
+      const { mountUiActionCapabilityRoute } =
+        await import("./ui-action-capability.js");
+      const mounted = createMockApp();
+      mountUiActionCapabilityRoute(mounted);
+      const cookie = `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({ uid: "builder-user", email: cookieOwner })}`;
+      const event = createMockEvent({
+        path: "/_agent-native/ui-capability",
+        headers: { cookie, "sec-fetch-site": "same-origin" },
+      });
+      await expect(mounted.use.mock.calls[0][1](event)).resolves.toEqual({
+        ok: true,
+      });
+      expect(event.res.status).toBe(200);
+      const capabilityCookie = event.res.headers
+        .get("set-cookie")!
+        .split(";")[0];
+      expect(capabilityCookie).toMatch(/^agent-native-ui-capability=/);
+
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const run = vi.fn(async () => ({ exported: true }));
+      const actions = createMockApp();
+      mountActionRoutes(
+        actions,
+        { "render-export-png": { uiOnly: true, run } as any },
+        {
+          getOwnerFromEvent: async (request) =>
+            (await getSession(request))?.email,
+          resolveOrgId: async () => "org-cookie",
+        },
+      );
+      const request = createJsonPostEvent(
+        "/_agent-native/actions/render-export-png",
+        {},
+        {
+          cookie: `${cookie}; ${capabilityCookie}`,
+          "x-agent-native-frontend": "1",
+          "sec-fetch-site": "same-origin",
+        },
+      );
+      await expect(actions.use.mock.calls[0][1](request)).resolves.toEqual({
+        exported: true,
+      });
+      expect(run).toHaveBeenCalledOnce();
+    }, 30_000);
 
     it("does not use the desktop SSO fallback as a browser cookie session", async () => {
       vi.stubEnv("NODE_ENV", "development");

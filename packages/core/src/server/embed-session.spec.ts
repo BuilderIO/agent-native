@@ -1581,7 +1581,7 @@ describe("requestMatchesEmbedTarget", () => {
   });
 
   it.each(["bearer", "cookie"] as const)(
-    "recognizes a presented ordinary %s session independently of route eligibility and expiry",
+    "distinguishes explicit %s credentials from ambient cookies by route eligibility and expiry",
     async (transport) => {
       vi.useFakeTimers();
       try {
@@ -1599,13 +1599,22 @@ describe("requestMatchesEmbedTarget", () => {
         event.req.method = "POST";
         await expect(resolveEmbedSessionFromRequest(event)).resolves.toBeNull();
         expect(hasExplicitEmbedSessionCredential(event)).toBe(false);
-        expect(hasPresentedEmbedSessionCredential(event)).toBe(true);
+        expect(hasPresentedEmbedSessionCredential(event)).toBe(
+          transport === "bearer",
+        );
+        const document = credentialEvent("/inbox", token, transport);
+        expect(hasPresentedEmbedSessionCredential(document)).toBe(true);
         vi.advanceTimersByTime(2_000);
         expect(verifyEmbedSessionToken(token)).toMatchObject({
           ok: false,
           reason: "expired",
         });
-        expect(hasPresentedEmbedSessionCredential(event)).toBe(true);
+        expect(hasPresentedEmbedSessionCredential(event)).toBe(
+          transport === "bearer",
+        );
+        expect(hasPresentedEmbedSessionCredential(document)).toBe(
+          transport === "bearer",
+        );
         const invalid = credentialEvent(
           "/_agent-native/actions/get-document",
           "invalid-stale-token",
@@ -1618,7 +1627,63 @@ describe("requestMatchesEmbedTarget", () => {
     },
   );
 
+  it.each([
+    {
+      path: "/inbox?documentId=doc-1",
+      host: "mail.test",
+      base: "",
+      presented: true,
+    },
+    {
+      path: "/inbox?documentId=doc-2",
+      host: "mail.test",
+      base: "",
+      presented: false,
+    },
+    {
+      path: "/inbox?documentId=doc-1&extra=1",
+      host: "mail.test",
+      base: "",
+      presented: false,
+    },
+    { path: "/settings", host: "mail.test", base: "", presented: false },
+    {
+      path: "/inbox?documentId=doc-1",
+      host: "calendar.test",
+      base: "",
+      presented: false,
+    },
+    {
+      path: "/calendar/inbox?documentId=doc-1",
+      host: "mail.test",
+      base: "/calendar",
+      presented: false,
+    },
+  ])(
+    "classifies an ambient cookie from its signed target: $host $path",
+    async ({ path, host, base, presented }) => {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "mail.test",
+        targetPath: "/inbox?documentId=doc-1",
+      });
+      process.env.APP_BASE_PATH = base;
+      const event = credentialEvent(path, token, "cookie", {
+        host,
+        referer: "http://mail.test/inbox?documentId=doc-1",
+      });
+      expect(hasPresentedEmbedSessionCredential(event)).toBe(presented);
+      if (!presented)
+        await expect(resolveEmbedSessionFromRequest(event)).resolves.toBeNull();
+    },
+  );
+
   it("recognizes explicit embed markers without treating an unrelated cookie as embed credentials", () => {
+    expect(
+      hasPresentedEmbedSessionCredential(
+        fakeEvent("/_agent-native/actions/get-document?embedded=1"),
+      ),
+    ).toBe(true);
     expect(
       hasPresentedEmbedSessionCredential(
         fakeEvent(
@@ -2536,11 +2601,43 @@ describe("requestMatchesEmbedTarget", () => {
       "x-forwarded-proto": "https",
     });
 
-    setEmbedSessionCookie(event, "embed-token");
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/",
+    });
+    setEmbedSessionCookie(event, token);
 
     const cookie = event.res.headers.get("set-cookie") ?? "";
-    expect(cookie).toContain(`${EMBED_SESSION_COOKIE}=embed-token`);
+    expect(cookie).toContain(`${EMBED_SESSION_COOKIE}=${token}`);
     expect(cookie).not.toMatch(/Domain=\.agent-native\.com/i);
+  });
+
+  it("caps cookie Max-Age at the signed token's remaining lifetime", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-22T12:00:00.000Z"));
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/inbox",
+        ttlSeconds: 60,
+      });
+      vi.advanceTimersByTime(20_250);
+      const event = fakeEvent("/inbox");
+      setEmbedSessionCookie(event, token);
+      expect(event.res.headers.get("set-cookie")).toMatch(/Max-Age=39(?:;|$)/i);
+      vi.advanceTimersByTime(39_750);
+      expect(verifyEmbedSessionToken(token)).toMatchObject({
+        ok: false,
+        reason: "expired",
+      });
+      const expired = fakeEvent("/inbox");
+      setEmbedSessionCookie(expired, token);
+      expect(expired.res.headers.get("set-cookie")).toMatch(
+        /Max-Age=0(?:;|$)/i,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("allows Vite module runtime requests with the embed query token", async () => {

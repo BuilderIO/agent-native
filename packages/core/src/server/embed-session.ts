@@ -1337,7 +1337,7 @@ export async function resolveEmbedSessionTokenForHost(
       return null;
     }
     scope = session.scope;
-  } else if (claims.exp < Math.floor(Date.now() / 1000)) {
+  } else if (claims.exp * 1000 <= Date.now()) {
     return null;
   }
   if (widgetCapability && !isMcpDirectoryWidgetCapabilityScope(scope)) {
@@ -1786,7 +1786,7 @@ export function verifyEmbedSessionToken(
   ) {
     return { ok: false, reason: "claims" };
   }
-  if (!options.allowExpired && claims.exp < Math.floor(Date.now() / 1000)) {
+  if (!options.allowExpired && claims.exp * 1000 <= Date.now()) {
     return { ok: false, reason: "expired" };
   }
   claims.targetPath = normalizeEmbedTargetPath(claims.targetPath) ?? "/";
@@ -1830,9 +1830,18 @@ export function setEmbedSessionCookie(event: H3Event, token: string): void {
     setCookie(event, EMBED_SESSION_COOKIE, "", { ...attrs, maxAge: 0 });
     return;
   }
+  const verified = verifyEmbedSessionToken(token);
   setCookie(event, EMBED_SESSION_COOKIE, token, {
     ...attrs,
-    maxAge: DEFAULT_TOKEN_TTL_SECONDS,
+    maxAge: verified.ok
+      ? Math.max(
+          0,
+          Math.min(
+            DEFAULT_TOKEN_TTL_SECONDS,
+            Math.floor(verified.claims.exp - Date.now() / 1000),
+          ),
+        )
+      : 0,
   });
 }
 
@@ -1924,13 +1933,26 @@ export function hasExplicitEmbedSessionCredential(event: H3Event): boolean {
 export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {
   if (
     queryToken(event) ||
+    isEmbedModeRequest(event) ||
     getHeader(event, EMBED_TARGET_HEADER) !== undefined ||
     getQuery(event)?.[EMBED_TARGET_QUERY_PARAM] !== undefined
   ) {
     return true;
   }
-  return [bearerToken(event), getCookie(event, EMBED_SESSION_COOKIE)].some(
-    (token) => verifyEmbedSessionToken(token, { allowExpired: true }).ok,
+  if (verifyEmbedSessionToken(bearerToken(event), { allowExpired: true }).ok) {
+    return true;
+  }
+  const cookie = verifyEmbedSessionToken(
+    getCookie(event, EMBED_SESSION_COOKIE),
+  );
+  if (!cookie.ok || !embedTokenMatchesRequestAudience(event, cookie.claims)) {
+    return false;
+  }
+  // A live capability can restrict browser proof minting without authorizing it.
+  return (
+    embedSessionAllowsRequest(event, cookie.claims) ||
+    (isEmbedCapabilityScope(cookie.claims.scope) &&
+      requestPathname(event) === "/_agent-native/ui-capability")
   );
 }
 

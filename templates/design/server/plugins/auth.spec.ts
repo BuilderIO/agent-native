@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/server", () => ({
   createAuthPlugin: mocks.createAuthPlugin,
   registerAuthPublicPaths: mocks.registerAuthPublicPaths,
+  registerDelegatedBuilderCredentials: vi.fn(),
 }));
 
 import authPlugin from "./auth.js";
@@ -67,5 +68,24 @@ describe("design auth plugin", () => {
         "/_agent-native/actions/delete-review-comment",
       ]),
     );
+  });
+
+  it("declares Builder identity as an explicit cookie-only browser provider", async () => {
+    vi.stubEnv("BUILDER_IDENTITY", "1");
+    vi.resetModules();
+    try {
+      const { getBuilderIdentitySession } =
+        await import("../lib/builder-identity.js");
+      await import("./auth.js");
+      expect(mocks.createAuthPlugin).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          getSession: getBuilderIdentitySession,
+          getBrowserSession: getBuilderIdentitySession,
+        }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 });

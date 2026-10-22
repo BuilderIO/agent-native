@@ -789,8 +789,18 @@ describe("mountActionRoutes", () => {
   });
 
   it.each(
-    (["valid", "expired", "invalid"] as const).flatMap((credential) =>
-      [true, false].map((needsApproval) => ({ credential, needsApproval })),
+    (
+      [
+        "other-target",
+        "expired",
+        "invalid",
+        "marked",
+        "live-capability",
+      ] as const
+    ).flatMap((credential) =>
+      (credential === "live-capability" ? [true] : [true, false]).map(
+        (needsApproval) => ({ credential, needsApproval }),
+      ),
     ),
   )(
     "keeps a real $credential embed cookie separate from browser authority (approval: $needsApproval)",
@@ -815,6 +825,7 @@ describe("mountActionRoutes", () => {
         embedSessions.hasPresentedEmbedSessionCredential,
       );
       const owner = "owner@example.com";
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
       mockGetBrowserCookieSession.mockResolvedValue({ email: owner } as any);
       mockHasUiActionCapability.mockReturnValue(true);
       const issuedAt =
@@ -829,6 +840,9 @@ describe("mountActionRoutes", () => {
               audienceHost: "app.example.com",
               targetPath: "/page/doc-1",
               ttlSeconds: 60,
+              ...(credential === "live-capability"
+                ? { scope: "capability:visual-edit:design:doc-1" }
+                : {}),
             });
       issuedAt?.mockRestore();
       const mounted: Array<{ path: string; handler: any }> = [];
@@ -838,7 +852,13 @@ describe("mountActionRoutes", () => {
         {
           use: (path: string, handler: any) => mounted.push({ path, handler }),
         },
-        { "update-document": { run, needsApproval } as any },
+        {
+          "update-document": {
+            run,
+            needsApproval,
+            capabilityScopes: ["visual-edit"],
+          } as any,
+        },
         { getOwnerFromEvent },
       );
       const event: any = {
@@ -848,21 +868,24 @@ describe("mountActionRoutes", () => {
           origin: "https://app.example.com",
           "sec-fetch-site": "same-origin",
           "x-agent-native-frontend": "1",
+          ...(credential === "marked"
+            ? { "x-agent-native-embed-target": "/page/doc-1" }
+            : {}),
           cookie: `better-auth.session_token=test-session; an_ui_capability=test-capability; ${EMBED_SESSION_COOKIE}=${token}`,
         },
         req: {
           method: "POST",
           url: "https://app.example.com/_agent-native/actions/update-document",
-          json: async () => ({ id: "doc-1" }),
+          json: async () => ({ id: "doc-1", designId: "doc-1" }),
         },
       };
-      await expect(
-        embedSessions.resolveEmbedSessionFromRequest(event),
-      ).resolves.toBeNull();
-      expect(embedSessions.hasPresentedEmbedSessionCredential(event)).toBe(
-        credential !== "invalid",
-      );
-      if (credential === "invalid") {
+      if (credential === "live-capability") {
+        await expect(mounted[0]!.handler(event)).resolves.toMatchObject({
+          errorCode: "approval_required",
+        });
+        expect(event._status).toBe(409);
+        expect(run).not.toHaveBeenCalled();
+      } else if (credential !== "marked") {
         await expect(mounted[0]!.handler(event)).resolves.toEqual({ ok: true });
         expect(run).toHaveBeenCalledOnce();
         expect(getOwnerFromEvent).toHaveBeenCalledOnce();

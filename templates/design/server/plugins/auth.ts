@@ -15,6 +15,7 @@ export default createToolkitAuthPlugin({
   ...(isBuilderIdentityEnabled()
     ? {
         getSession: getBuilderIdentitySession,
+        getBrowserSession: getBuilderIdentitySession,
         trustCustomEmailVerification: true,
       }
     : {}),
