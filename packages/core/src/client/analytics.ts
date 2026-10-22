@@ -2727,6 +2727,15 @@ function createTrackingAliasId(): string | undefined {
     : undefined;
 }
 
+function pageHasGoogleTags(): boolean {
+  const holder = window as Window & { __AN_CONSENT_LAYERS__?: unknown };
+  return Boolean(
+    holder.__AN_CONSENT_LAYERS__ ||
+    window.__AGENT_NATIVE_GA_GTAG__ ||
+    window.gtag,
+  );
+}
+
 function emitBrowserTrackingEvent(
   name: string,
   props: Record<string, unknown>,
@@ -2742,7 +2751,9 @@ function emitBrowserTrackingEvent(
     sendGtag = true,
   } = options;
   const amplitudeProps = amplitudeEventProperties(name, props);
-  if (sendGtag) {
+  // Without Google tags there is nothing to hold, and asking for the region
+  // would be a request a scoped embed (an MCP App widget) may not make.
+  if (sendGtag && pageHasGoogleTags()) {
     whenConsentDecided(() => {
       if (consentDecision("performance") !== true) return;
       const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;

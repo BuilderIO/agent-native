@@ -1604,6 +1604,23 @@ describe("browser analytics pageviews", () => {
     );
   });
 
+  it("asks for no consent region when the page has no Google tags", async () => {
+    const { session } = installBrowser();
+    delete (window as Window & { gtag?: unknown }).gtag;
+    session.clear();
+    const { fetchMock } = installFetch();
+    const { trackEvent } = await freshAnalytics();
+
+    trackEvent("custom_event", { value: "no tags" });
+    await tick();
+
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/consent-region"),
+      ),
+    ).toEqual([]);
+  });
+
   it("uses the configured native client platform for every pageview", async () => {
     installBrowser("https://mail.agent-native.com/inbox");
     const { analyticsCalls } = installFetch();
