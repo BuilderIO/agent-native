@@ -439,7 +439,7 @@ function decide(decision){
 setBusy(true);
 result.textContent=data.messages.saving;
 fetch(location.pathname,{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({decision:decision,csrfToken:data.csrfToken})})
-.then(function(r){return r.json().catch(function(){return null;});})
+.then(function(r){return r.json();})
 .then(function(body){if(!(body&&show(body.state,body.expiresAt))){result.textContent=data.messages.saveFailed;setBusy(false);}})
 .catch(function(){result.textContent=data.messages.saveFailed;setBusy(false);});
 }
@@ -469,15 +469,9 @@ function wantsJson(event: H3Event): boolean {
 }
 
 function grantIdFrom(event: H3Event): string | undefined {
+  // A grant id is a UUID, so it never needs percent-decoding.
   const segment = (event.path || "").split("?")[0].replace(/^\/+/, "");
-  if (!segment || segment.includes("/")) return undefined;
-  let id: string;
-  try {
-    id = decodeURIComponent(segment);
-  } catch {
-    return undefined;
-  }
-  return GRANT_ID.test(id) ? id : undefined;
+  return GRANT_ID.test(segment) ? segment : undefined;
 }
 
 export async function handleMcpApprovalRequest(
@@ -555,8 +549,8 @@ export async function handleMcpApprovalRequest(
     setResponseStatus(event, 415);
     return { error: "Send the decision as JSON" };
   }
-  const body = (await readBody<Record<string, unknown>>(event)) ?? {};
-  const decision = body.decision;
+  const body = await readBody<Record<string, unknown> | undefined>(event);
+  const decision = body?.decision;
   if (decision !== "approve" && decision !== "deny") {
     setResponseStatus(event, 400);
     return { error: 'decision must be "approve" or "deny"' };
@@ -566,10 +560,8 @@ export async function handleMcpApprovalRequest(
     return { error: "Approval not found" };
   }
   const expected = await decisionToken(id, owner.email, owner.orgId);
-  if (
-    typeof body.csrfToken !== "string" ||
-    !sameToken(body.csrfToken, expected)
-  ) {
+  const csrfToken = body?.csrfToken;
+  if (typeof csrfToken !== "string" || !sameToken(csrfToken, expected)) {
     setResponseStatus(event, 403);
     return { error: "This page is out of date. Reload it and decide again." };
   }
