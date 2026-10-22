@@ -10,6 +10,7 @@ import {
   setCookie,
   deleteCookie,
   getHeader,
+  normalizeRoute,
 } from "h3";
 import type { H3Event } from "h3";
 
@@ -3928,7 +3929,12 @@ function createAuthGuardFn(
     const publicPaths = resolveAuthPublicPaths(config.publicPaths);
     const exactPublicPaths = resolveAuthExactPublicPaths(app);
 
-    const url = `${event.url.pathname}${event.url.search}`;
+    // h3 mounts can mutate both event.url and the Node request's parsed URL.
+    const requestUrl = new URL(
+      event.node?.req?.url ?? event.req.url,
+      "http://agent-native.invalid",
+    );
+    const url = `${normalizeRoute(requestUrl.pathname)}${requestUrl.search}`;
     const requestPath = url;
     const previewCallbackRelay =
       await netlifyPreviewGoogleOAuthCallbackRelayResponse(event);
