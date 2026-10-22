@@ -116,6 +116,7 @@ describe("CommandMenu", () => {
   function renderAppCommands<TAppContext>({
     groups,
     context,
+    filterLauncherSlot,
     embeddedChatSlot,
     initialSelection,
     footerSlot,
@@ -145,6 +146,11 @@ describe("CommandMenu", () => {
     showSignOutCommand?: boolean;
     showAgentFallback?: boolean;
     open?: boolean;
+    filterLauncherSlot?: (options: {
+      search: string;
+      appContext: TAppContext | undefined;
+      close: () => void;
+    }) => React.ReactNode;
     embeddedChatSlot?: (options: {
       search: string;
       appContext: TAppContext | undefined;
@@ -162,6 +168,7 @@ describe("CommandMenu", () => {
           showSignOutCommand={showSignOutCommand}
           appCommandGroups={groups}
           commandContext={context}
+          filterLauncherSlot={filterLauncherSlot}
           embeddedChatSlot={embeddedChatSlot}
           initialSelection={initialSelection}
           footerSlot={footerSlot}
@@ -216,6 +223,9 @@ describe("CommandMenu", () => {
 
   it("filters app docs entries through the shared search field", () => {
     renderMenu();
+    expect(
+      document.querySelector('[data-testid="command-menu-filter-launchers"]'),
+    ).toBeNull();
 
     search("logs");
     expect(document.body.textContent).toContain(
@@ -1928,6 +1938,47 @@ describe("CommandMenu", () => {
     expect(document.querySelector('[cmdk-item][aria-selected="true"]')).toBe(
       selectedBefore,
     );
+  });
+
+  it("passes palette context to filter launchers and keeps their keys out of command navigation", () => {
+    renderAppCommands({
+      groups: [],
+      context: { workspace: "alpha" },
+      filterLauncherSlot: ({ search: currentSearch, appContext, close }) => (
+        <button type="button" onClick={close}>
+          {currentSearch}:{appContext?.workspace}:Filter records
+        </button>
+      ),
+    });
+
+    search("revenue");
+    const slot = document.querySelector(
+      '[data-testid="command-menu-filter-launchers"]',
+    );
+    expect(slot?.textContent).toContain("revenue:alpha:Filter records");
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const dialogKeyDown = vi.fn();
+    dialog?.addEventListener("keydown", dialogKeyDown);
+    const arrowDown = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    const tab = new KeyboardEvent("keydown", {
+      key: "Tab",
+      bubbles: true,
+      cancelable: true,
+    });
+    const launcher = slot?.querySelector("button");
+    expect(launcher).toBeTruthy();
+    act(() => launcher!.dispatchEvent(arrowDown));
+    expect(dialogKeyDown).not.toHaveBeenCalled();
+    act(() => launcher!.dispatchEvent(tab));
+    expect(dialogKeyDown).toHaveBeenCalledOnce();
+
+    act(() => launcher!.click());
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("keeps disabled items searchable and unselectable", () => {

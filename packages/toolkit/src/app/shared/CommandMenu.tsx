@@ -514,6 +514,8 @@ export interface CommandMenuProps<TAppContext = unknown> {
   appCommandGroups?: AppCommandGroup<TAppContext>[];
   /** State read by visibility and enabled predicates for app commands. */
   commandContext?: TAppContext;
+  /** Optional app-owned filter controls shown between the search field and results. */
+  filterLauncherSlot?: (context: AppCommandContext<TAppContext>) => ReactNode;
   /** Optional app chat surface rendered beneath the command results. */
   embeddedChatSlot?: (context: AppCommandContext<TAppContext>) => ReactNode;
   /** Content shown below the results with shared spacing and note semantics. */
@@ -549,6 +551,7 @@ export function CommandMenu<TAppContext = unknown>({
   showSignOutCommand = true,
   appCommandGroups,
   commandContext,
+  filterLauncherSlot,
   embeddedChatSlot,
   footerSlot,
 }: CommandMenuProps<TAppContext>) {
@@ -1285,6 +1288,16 @@ export function CommandMenu<TAppContext = unknown>({
                 placeholder={placeholder}
                 aria-label={inputLabel}
               />
+
+              {open && filterLauncherSlot ? (
+                <div
+                  data-testid="command-menu-filter-launchers"
+                  className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2"
+                  onKeyDown={stopCommandNavigation}
+                >
+                  {filterLauncherSlot(appCommandContext)}
+                </div>
+              ) : null}
 
               {open && renderContent
                 ? renderContent({ search, renderList })
