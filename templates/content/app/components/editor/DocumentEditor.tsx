@@ -1,5 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { readClientAppState } from "@agent-native/core/client/application-state";
 import {
   isReconcileLeadClient,
   useCollaborativeDoc,
@@ -40,6 +40,12 @@ import type {
   DocumentSyncStatus,
 } from "@shared/api";
 import { commentPropertyTarget } from "@shared/comment-property-target";
+import { DOCUMENT_FLUSH_PROTOCOL } from "@shared/document-flush-protocol";
+import {
+  claimedEditorSave,
+  editorSaveState,
+  publishesEditorSaveState,
+} from "@shared/editor-save-state";
 import { LIVE_BODY_SHADOW_FLAG } from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
@@ -119,6 +125,7 @@ import {
   useContentSpaces,
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
+import { isPrivateDocumentEditorPath } from "@/hooks/use-db-sync";
 import {
   documentPropertiesResponseMatchesScope,
   useDocumentProperties,
@@ -190,6 +197,8 @@ import {
 import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
+  peekBlockFieldSaveController,
+  readBlockFieldEditorState,
 } from "./blockFieldSaveRegistry";
 import {
   blockFieldVisit,
@@ -231,6 +240,11 @@ import {
   documentEditorTitleRegionClassName,
   type DocumentEditorIconRow,
 } from "./document-editor-layout";
+import {
+  createDocumentFlushParticipant,
+  createFlushObservedRef,
+  type FlushLocalSnapshot,
+} from "./document-flush-participant";
 import { createHistorySession } from "./document-history-session";
 import {
   saveDocumentWithRebase,
@@ -279,7 +293,12 @@ import {
   savePageWithRecovery,
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
-import { trackPendingDocumentPersistence } from "./pending-document-persistence";
+import {
+  settleAcceptedDocumentPersistence,
+  settleRevertedDocumentPersistence,
+  trackPendingDocumentPersistence,
+  type DocumentPersistenceFailure,
+} from "./pending-document-persistence";
 import {
   bodyCommentThreads,
   openThreadsByProperty,
@@ -2002,6 +2021,7 @@ type PendingDocumentSave = {
 };
 
 type DocumentSaveOptions = {
+  persistenceSequence?: number;
   telemetryOrigin?: "recovery";
   historySessionId?: string;
   editorSessionId?: string;
@@ -3053,7 +3073,15 @@ function PageEditorSessionBody({
     },
     [flushRequestKey],
   );
-  useDbSync({ onEvent: handleFlushRequestEvent });
+  // Content's root sync hook already runs the shared transport on editor
+  // pages; this subscribes the flush mailbox to it. Without it a request
+  // reaches an editor with unsaved edits only during a chat run in this tab.
+  useDbSync({
+    onEvent: handleFlushRequestEvent,
+    realtime: isPrivateDocumentEditorPath(location.pathname)
+      ? { reason: "an agent can ask this open editor to save before it reads" }
+      : undefined,
+  });
   const historySessionRef = useRef(createHistorySession());
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promotedBuilderBodyRef = useRef<string | null>(null);
@@ -3062,7 +3090,9 @@ function PageEditorSessionBody({
   const tryReleaseCreationCollaborationRef = useRef<() => void>(() => {});
   const initialCreationSaveStartedRef = useRef(false);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const queuedDocumentSavesRef = useRef(0);
   const activeContentSavesRef = useRef(0);
+  const publishEditorSaveStateRef = useRef<() => void>(() => undefined);
   const liveMarkdownRef = useRef<string | null>(null);
   const remoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const convergedSaveAttemptRef = useRef<string | null>(null);
@@ -3092,9 +3122,18 @@ function PageEditorSessionBody({
   });
   const isInitializedRef = useRef(false);
   const prevDocIdRef = useRef<string | null>(null);
-  const localTitleRef = useRef(localTitle);
+  const localSnapshotEpochRef = useRef(0);
+  const localTitleRef = useRef(
+    createFlushObservedRef(localTitle, () => {
+      localSnapshotEpochRef.current += 1;
+    }),
+  ).current;
   localTitleRef.current = localTitle;
-  const localContentRef = useRef(localContent);
+  const localContentRef = useRef(
+    createFlushObservedRef(localContent, () => {
+      localSnapshotEpochRef.current += 1;
+    }),
+  ).current;
   const contentEditVersionRef = useRef(0);
   const confirmedContentEditVersionRef = useRef(0);
   const contentObservationEpochRef = useRef(0);
@@ -3505,6 +3544,11 @@ function PageEditorSessionBody({
   useEffect(() => {
     if (!awareness || !collabEnabled) return;
     awareness.setLocalStateField("canFlushDocument", editorCanEdit);
+    awareness.setLocalStateField(
+      "documentFlushProtocol",
+      DOCUMENT_FLUSH_PROTOCOL,
+    );
+    awareness.setLocalStateField("editorSessionId", editorSessionIdRef.current);
     return () => {
       awareness.setLocalStateField("canFlushDocument", false);
     };
@@ -3650,8 +3694,9 @@ function PageEditorSessionBody({
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
 
   const pendingPersistenceRef = useRef(new Set<Promise<unknown>>());
+  const persistenceSequenceRef = useRef(0);
   const persistenceErrorsRef = useRef(
-    new Map<keyof DocumentUpdates, unknown>(),
+    new Map<keyof DocumentUpdates, DocumentPersistenceFailure>(),
   );
   const persistDocumentUpdatesUntracked = useCallback(
     async (
@@ -3863,9 +3908,17 @@ function PageEditorSessionBody({
   );
   const persistDocumentUpdates = useCallback(
     (updates: DocumentUpdates, options: DocumentSaveOptions = {}) => {
+      options.persistenceSequence = ++persistenceSequenceRef.current;
+      const persistenceIdentity = {
+        editorSessionId: options.editorSessionId ?? editorSessionIdRef.current!,
+        editGeneration:
+          options.editGeneration ?? editorEditGenerationRef.current,
+        saveAttemptId: options.saveAttemptId,
+        persistenceSequence: options.persistenceSequence,
+      };
       const fields = Object.keys(updates) as (keyof DocumentUpdates)[];
       const request = persistDocumentUpdatesUntracked(updates, options);
-      trackPendingDocumentPersistence(
+      const tracked = trackPendingDocumentPersistence(
         pendingPersistenceRef.current,
         request,
         (result) => {
@@ -3879,7 +3932,10 @@ function PageEditorSessionBody({
               "The page changed before the latest edit could be saved.",
             );
             for (const field of fields) {
-              persistenceErrorsRef.current.set(field, error);
+              persistenceErrorsRef.current.set(field, {
+                error,
+                ...persistenceIdentity,
+              });
             }
           } else {
             if (
@@ -3914,19 +3970,27 @@ function PageEditorSessionBody({
                 lastSavedContentRef.current.revision = result.revision;
               }
             }
-            for (const field of fields) {
-              persistenceErrorsRef.current.delete(field);
-            }
+            settleAcceptedDocumentPersistence(
+              persistenceErrorsRef.current,
+              fields,
+              persistenceIdentity,
+            );
           }
         },
         (error) => {
           if (!(error instanceof AbandonedPageSaveError)) {
             for (const field of fields) {
-              persistenceErrorsRef.current.set(field, error);
+              persistenceErrorsRef.current.set(field, {
+                error,
+                ...persistenceIdentity,
+              });
             }
           }
         },
       );
+      publishEditorSaveStateRef.current();
+      const publish = () => publishEditorSaveStateRef.current();
+      void tracked.then(publish, publish);
       return request;
     },
     [persistDocumentUpdatesUntracked],
@@ -4344,6 +4408,14 @@ function PageEditorSessionBody({
         }
       } else {
         saved = await persistDocumentUpdates(updates, options);
+        if (
+          isDocumentUpdateConflict(saved) &&
+          (updates.title === undefined ||
+            saved.document.title === updates.title) &&
+          (updates.content === undefined ||
+            saved.document.content === updates.content)
+        )
+          saved = saved.document;
       }
       if (
         isDocumentUpdateConflict(saved) ||
@@ -4353,6 +4425,11 @@ function PageEditorSessionBody({
         return { contentPersisted: false };
       }
       const savedAt = saved?.updatedAt ?? new Date().toISOString();
+      settleAcceptedDocumentPersistence(
+        persistenceErrorsRef.current,
+        Object.keys(updates) as (keyof DocumentUpdates)[],
+        options,
+      );
       adoptConfirmedSaveWatermarks({
         saved,
         savedAt,
@@ -4682,7 +4759,9 @@ function PageEditorSessionBody({
         (authoredContentIntentRef.current?.editGeneration === editGeneration
           ? authoredContentIntentRef.current
           : undefined);
-      return enqueueDocumentSave(documentSaveQueueRef, () =>
+      queuedDocumentSavesRef.current += 1;
+      publishEditorSaveStateRef.current();
+      const queued = enqueueDocumentSave(documentSaveQueueRef, () =>
         runPageSaveIfSessionActive(
           () =>
             !options.requireActiveEditorSession ||
@@ -4750,6 +4829,12 @@ function PageEditorSessionBody({
             }),
         ),
       );
+      const settle = () => {
+        queuedDocumentSavesRef.current -= 1;
+        publishEditorSaveStateRef.current();
+      };
+      void queued.then(settle, settle);
+      return queued;
     },
     [
       clearRecoveryDraft,
@@ -4765,6 +4850,69 @@ function PageEditorSessionBody({
     null,
   );
   const retryPendingSaveDelayRef = useRef(800);
+  // Primary read receipts cover title/body; metadata errors still block navigation.
+  const readPrimaryPersistenceError = useCallback(
+    () =>
+      persistenceErrorsRef.current.get("title") ??
+      persistenceErrorsRef.current.get("content"),
+    [],
+  );
+  const readEditorSaveState = useCallback(() => {
+    const fieldsMatchingSaved: (keyof DocumentUpdates)[] = [];
+    if (localTitleRef.current === lastSavedTitleRef.current.title)
+      fieldsMatchingSaved.push("title");
+    if (localContentRef.current === lastSavedContentRef.current.content)
+      fieldsMatchingSaved.push("content");
+    settleRevertedDocumentPersistence(
+      persistenceErrorsRef.current,
+      fieldsMatchingSaved,
+      {
+        editorSessionId: editorSessionIdRef.current!,
+        editGeneration: editorEditGenerationRef.current,
+        persistenceSequence: persistenceSequenceRef.current,
+      },
+    );
+    return editorSaveState({
+      saveQueued:
+        saveTimeoutRef.current !== null ||
+        pendingDocumentSaveRef.current !== null ||
+        queuedDocumentSavesRef.current > 0 ||
+        retryPendingSaveTimerRef.current !== null ||
+        remoteSaveTimerRef.current !== null,
+      saveInFlight:
+        activeContentSavesRef.current > 0 ||
+        pendingPersistenceRef.current.size > 0,
+      recoveryPending:
+        reconcileRecoveryStateRef.current !== null ||
+        recoveryDraftRef.current !== null ||
+        readPrimaryPersistenceError() !== undefined,
+      localTitle: localTitleRef.current,
+      localContent: localContentRef.current,
+      savedTitle: lastSavedTitleRef.current,
+      savedContent: lastSavedContentRef.current,
+    });
+  }, [readPrimaryPersistenceError]);
+  publishEditorSaveStateRef.current = () => {
+    const awareness = collabAwarenessRef.current;
+    if (!awareness || isLocalFileDocument || isLinkedLocalSourceDocument)
+      return;
+    const local = awareness.getLocalState();
+    if (!local) return;
+    const state = readEditorSaveState();
+    if (publishesEditorSaveState(local, state)) return;
+    awareness.setLocalState({ ...local, ...state });
+  };
+  useEffect(() => {
+    publishEditorSaveStateRef.current();
+  }, [
+    awareness,
+    collabEnabled,
+    document,
+    documentReconcileConflict,
+    editorCanEdit,
+    localContent,
+    localTitle,
+  ]);
   const creationCollaborationReleaseRunningRef = useRef(false);
   const tryReleaseCreationCollaboration = useCallback(async () => {
     if (creationCollaborationReleaseRunningRef.current) return;
@@ -4867,6 +5015,7 @@ function PageEditorSessionBody({
     retryPendingSaveDelayRef.current = Math.min(delay * 2, 30_000);
     retryPendingSaveTimerRef.current = setTimeout(() => {
       retryPendingSaveTimerRef.current = null;
+      publishEditorSaveStateRef.current();
       const snapshot = pendingSaveRetrySnapshot(
         result,
         pending,
@@ -4901,6 +5050,7 @@ function PageEditorSessionBody({
         })
         .catch(handleBackgroundSaveError);
     }, delay);
+    publishEditorSaveStateRef.current();
   };
   const flushPendingDocumentSave = useCallback(
     (pending: PendingDocumentSave) => {
@@ -5003,6 +5153,7 @@ function PageEditorSessionBody({
       if (retryPendingSaveTimerRef.current)
         clearTimeout(retryPendingSaveTimerRef.current);
       retryPendingSaveTimerRef.current = null;
+      publishEditorSaveStateRef.current();
     };
   }, []);
   const prepareHistoryRestore = useCallback(async (): Promise<string> => {
@@ -5161,6 +5312,7 @@ function PageEditorSessionBody({
       });
       pendingDocumentSaveRef.current = pending;
       saveTimeoutRef.current = pending.timeout;
+      publishEditorSaveStateRef.current();
     },
     [
       flushPendingDocumentSave,
@@ -5353,121 +5505,123 @@ function PageEditorSessionBody({
     queryClient,
   ]);
 
-  const flushRequestInFlightRef = useRef(new Set<string>());
+  const flushParticipantInputsRef = useRef<{
+    snapshot: (propertyId?: string) => FlushLocalSnapshot;
+    drain: (propertyId?: string) => Promise<void>;
+  }>(null!);
+  flushParticipantInputsRef.current = {
+    snapshot: (propertyId) => {
+      const identity =
+        editorSessionActiveRef.current &&
+        currentDocumentRef.current.id === documentId &&
+        canEditRef.current
+          ? editorSessionIdRef.current!
+          : "inactive";
+      if (propertyId) {
+        const field = readBlockFieldEditorState(`${documentId}:${propertyId}`);
+        const controller = field?.controller;
+        return {
+          identity,
+          generation: controller?.version ?? -1,
+          observation: 0,
+          valueEpoch: controller?.version ?? -1,
+          visualVersion: field?.visualVersion ?? null,
+          title: "",
+          content: controller?.pending ?? "",
+          clean: identity !== "inactive" && field?.clean === true,
+          claim: null,
+        };
+      }
+      const save = readEditorSaveState();
+      const controller = editorPersistenceControllerRef.current;
+      return {
+        identity,
+        generation: editorEditGenerationRef.current,
+        observation: contentObservationEpochRef.current,
+        valueEpoch: localSnapshotEpochRef.current,
+        visualVersion: controller?.version ?? null,
+        title: localTitleRef.current,
+        content: localContentRef.current,
+        clean:
+          identity !== "inactive" &&
+          controller !== null &&
+          save.unsavedEdits === false,
+        claim:
+          save.unsavedEdits === false
+            ? { kind: "document", save: claimedEditorSave(save)! }
+            : null,
+      };
+    },
+    drain: async (propertyId) => {
+      if (propertyId) {
+        if (!peekBlockFieldSaveController(`${documentId}:${propertyId}`))
+          throw new Error("The requested Blocks field editor is unavailable.");
+        await flushBlockFieldSaveController(documentId, propertyId);
+        return;
+      }
+      if (reconcileRecoveryStateRef.current || recoveryDraftRef.current)
+        throw new Error("The document has unresolved recovery work.");
+      while (pendingPersistenceRef.current.size > 0)
+        await Promise.allSettled([...pendingPersistenceRef.current]);
+      await documentSaveQueueRef.current;
+      const controller = editorPersistenceControllerRef.current;
+      if (!controller)
+        throw new Error("The primary Blocks field editor is unavailable.");
+      const persisted = await controller.flushLatest();
+      if (!persisted)
+        throw new Error("The live document could not be saved before syncing.");
+      const pending = pendingDocumentSaveRef.current;
+      if (pending) {
+        clearTimeout(pending.timeout);
+        saveTimeoutRef.current = null;
+        pendingDocumentSaveRef.current = null;
+        await flushPendingDocumentSave(pending);
+      }
+      await documentSaveQueueRef.current;
+      while (pendingPersistenceRef.current.size > 0)
+        await Promise.allSettled([...pendingPersistenceRef.current]);
+      const error = readPrimaryPersistenceError();
+      if (error !== undefined) throw error.error;
+    },
+  };
+  const flushParticipantRef = useRef<ReturnType<
+    typeof createDocumentFlushParticipant
+  > | null>(null);
+  if (!flushParticipantRef.current) {
+    flushParticipantRef.current = createDocumentFlushParticipant({
+      documentId: () => currentDocumentRef.current.id,
+      identity: () =>
+        collabClientIdRef.current === null
+          ? null
+          : {
+              clientId: collabClientIdRef.current,
+              editorSessionId: editorSessionIdRef.current!,
+            },
+      snapshot: (propertyId) =>
+        flushParticipantInputsRef.current.snapshot(propertyId),
+      drain: (propertyId) =>
+        flushParticipantInputsRef.current.drain(propertyId),
+    });
+  }
   useEffect(() => {
     if (!editorCanEdit || isLocalFileDocument) return;
     let active = true;
-    const flushPath = agentNativePath(
-      `/_agent-native/application-state/${flushRequestKey}`,
-    );
-
-    async function flushIfRequested() {
+    const readRequest = async () => {
       try {
-        const res = await fetch(flushPath);
-        if (res.ok) {
-          const pending = (await res.json()) as {
-            id?: string;
-            ts?: number;
-            requestId?: string;
-            propertyId?: string;
-            status?: "pending" | "success" | "error";
-            error?: string;
-          } | null;
-          if (pending && active) {
-            if (pending.status === "error" || pending.status === "success") {
-              return;
-            }
-            const requestIdentity =
-              pending.requestId ??
-              `${pending.id ?? documentId}:${pending.ts ?? 0}`;
-            if (flushRequestInFlightRef.current.has(requestIdentity)) return;
-            flushRequestInFlightRef.current.add(requestIdentity);
-            const title = localTitleRef.current;
-            const content = localContentRef.current;
-            const updates: Record<string, string> = {};
-            if (title !== lastSavedTitleRef.current.title)
-              updates.title = title;
-            if (content !== lastSavedContentRef.current.content) {
-              updates.content = content;
-            }
-            try {
-              if (pending.propertyId) {
-                await flushBlockFieldSaveController(
-                  documentId,
-                  pending.propertyId,
-                );
-              } else if (Object.keys(updates).length > 0) {
-                const saved = await persistDocumentUpdatesRef.current(updates);
-                if (
-                  isDocumentUpdateConflict(saved) ||
-                  isDocumentUpdateSuperseded(saved) ||
-                  isDocumentUpdatePreservationRequired(saved)
-                ) {
-                  throw new Error(
-                    "The document changed while preparing it for sync.",
-                  );
-                }
-                const savedAt = saved?.updatedAt ?? new Date().toISOString();
-                adoptConfirmedSaveWatermarks({
-                  saved,
-                  savedAt,
-                  title,
-                  content,
-                  updates,
-                  lastSavedTitleRef,
-                  lastSavedContentRef,
-                });
-              }
-              await fetch(flushPath, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-Agent-Native-CSRF": "1",
-                },
-                body: JSON.stringify({
-                  expected: pending,
-                  next: {
-                    id: pending.id ?? documentId,
-                    ts: pending.ts ?? Date.now(),
-                    requestId: pending.requestId,
-                    status: "success",
-                  },
-                }),
-              }).catch(() => {});
-            } catch (error) {
-              await fetch(flushPath, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-Agent-Native-CSRF": "1",
-                },
-                body: JSON.stringify({
-                  expected: pending,
-                  next: {
-                    id: pending.id ?? documentId,
-                    ts: pending.ts ?? Date.now(),
-                    requestId: pending.requestId,
-                    status: "error",
-                    error:
-                      error instanceof Error
-                        ? error.message
-                        : t("editor.liveDocumentSaveBeforeSyncFailed"),
-                  },
-                }),
-              }).catch(() => {});
-            } finally {
-              flushRequestInFlightRef.current.delete(requestIdentity);
-            }
-          }
-        }
-      } catch {
-        // Best-effort read. A later app-state event will wake the reader again.
+        const request = await readClientAppState(flushRequestKey);
+        if (active) await flushParticipantRef.current!(request);
+      } catch (error) {
+        console.error("Document flush mailbox read failed", {
+          documentId,
+          error,
+        });
       }
-    }
-
-    void flushIfRequested();
+    };
+    void readRequest();
+    window.addEventListener("focus", readRequest);
     return () => {
       active = false;
+      window.removeEventListener("focus", readRequest);
     };
   }, [
     documentId,
@@ -5475,7 +5629,6 @@ function PageEditorSessionBody({
     flushRequestKey,
     flushRequestWake,
     isLocalFileDocument,
-    t,
   ]);
 
   const handleTitleChange = useCallback(
@@ -5483,6 +5636,7 @@ function PageEditorSessionBody({
       if (!documentCanonicalMutationsEnabled(editorCanEdit, isSuggesting))
         return;
       localTitleRef.current = newTitle;
+      publishEditorSaveStateRef.current();
       editorEditGenerationRef.current += 1;
       journalCurrentDraft(
         newTitle,
@@ -6987,6 +7141,7 @@ function PageEditorSessionBody({
         candidateContent: newContent,
       };
       localContentRef.current = newContent;
+      publishEditorSaveStateRef.current();
       journalCurrentDraft(
         localTitleRef.current,
         newContent,
@@ -7109,6 +7264,7 @@ function PageEditorSessionBody({
       if (content === localContentRef.current) return;
       contentObservationEpochRef.current += 1;
       localContentRef.current = content;
+      publishEditorSaveStateRef.current();
       setLocalContent(content);
       if (
         !isSuggesting &&
@@ -7133,6 +7289,11 @@ function PageEditorSessionBody({
         handleContentChange(newContent);
         return "retained";
       }
+      if (
+        newContent === localContentRef.current &&
+        !readEditorSaveState().unsavedEdits
+      )
+        return "unchanged";
       authoredContentBaseRef.current.edited(newContent);
       return (await handleContentSaveNow({
         localTitle: localTitleRef.current,
@@ -7141,7 +7302,12 @@ function PageEditorSessionBody({
         ? "persisted"
         : "failed";
     },
-    [editorCanEdit, handleContentChange, handleContentSaveNow],
+    [
+      editorCanEdit,
+      handleContentChange,
+      handleContentSaveNow,
+      readEditorSaveState,
+    ],
   );
 
   const handleBaseAwareReconcile = useCallback(
@@ -8214,12 +8380,6 @@ function PageEditorSessionBody({
 
     const title = localTitleRef.current;
     const content = localContentRef.current;
-    if (title === lastSavedTitleRef.current.title) {
-      persistenceErrorsRef.current.delete("title");
-    }
-    if (content === lastSavedContentRef.current.content) {
-      persistenceErrorsRef.current.delete("content");
-    }
     const hasUnsavedPrimaryEdit =
       title !== lastSavedTitleRef.current.title ||
       content !== lastSavedContentRef.current.content;
@@ -8266,7 +8426,7 @@ function PageEditorSessionBody({
       await Promise.allSettled([...pendingPersistenceRef.current]);
     }
     const persistenceError = persistenceErrorsRef.current.values().next().value;
-    if (persistenceError !== undefined) throw persistenceError;
+    if (persistenceError !== undefined) throw persistenceError.error;
 
     if (
       localTitleRef.current !== lastSavedTitleRef.current.title ||
