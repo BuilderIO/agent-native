@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { PANEL_DRILLDOWN_MAX_SQL_LENGTH } from "../../shared/panel-drilldown";
 import {
-  assertBigQueryTemplateLiteralContexts,
+  assertRecordTemplateLiteralContexts,
   assertReadOnlySql,
 } from "./read-only-sql";
 
-describe("assertBigQueryTemplateLiteralContexts", () => {
+describe("assertRecordTemplateLiteralContexts", () => {
   it.each([
     ["adjacent triple-quoted slots", "'''", "{{a}}", "'''"],
     ["unmatched braces", "'", "{{", "'"],
@@ -18,7 +18,9 @@ describe("assertBigQueryTemplateLiteralContexts", () => {
       const room = PANEL_DRILLDOWN_MAX_SQL_LENGTH - 20;
       const sql = `SELECT ${open}${unit.repeat(Math.floor(room / unit.length))}${close}`;
       const start = performance.now();
-      expect(() => assertBigQueryTemplateLiteralContexts(sql)).not.toThrow();
+      expect(() =>
+        assertRecordTemplateLiteralContexts(sql, "bigquery"),
+      ).not.toThrow();
       expect(performance.now() - start).toBeLessThan(2000);
     },
   );

@@ -353,7 +353,7 @@ export function PanelDrilldownDialog({
             <p className="p-4 text-sm text-destructive">{error}</p>
           ) : rows.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">
-              {!activeQuery.data?.partial && !activeQuery.data?.truncated
+              {totalMatching === allRows.length
                 ? t("sqlDashboard.drilldownNoRecords")
                 : allRows.length === 0
                   ? t("sqlDashboard.drilldownNoRecordsIncomplete")

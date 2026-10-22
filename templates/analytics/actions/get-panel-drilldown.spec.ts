@@ -109,6 +109,81 @@ describe("get-panel-drilldown", () => {
     },
   );
 
+  it.each([
+    "SELECT visitor FROM events WHERE page = '{{drillX}}' AND app IN ({{appFilter:list}}) LIMIT 500",
+    "SELECT visitor FROM events WHERE note = 'o''brien {{drillX}}' AND day >= DATE '2026-10-01'",
+    "SELECT visitor FROM events WHERE path = '\\{{drillX}}' -- {{ not a slot\n LIMIT 500",
+    "SELECT visitor FROM events WHERE page = '{{drillX}}{{drillSeries}}' /* note */",
+  ])("accepts quoted first-party record template slots: %s", async (sql) => {
+    await expect(
+      getPanelDrilldown.run({
+        ...panel,
+        panelSource: "first-party",
+        drilldown: { sql },
+      }),
+    ).resolves.toEqual({ drilldown: { sql } });
+  });
+
+  it.each([
+    [
+      "SELECT visitor FROM events WHERE page = {{drillX}}",
+      /require ordinary quoted strings/,
+    ],
+    ['SELECT "{{drillX}}" FROM events', /require ordinary quoted strings/],
+    [
+      "SELECT visitor FROM events WHERE page = E'{{drillX}}'",
+      /plain quoted strings/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE page = E'\\'' AND x' = '{{drillX}}'",
+      /plain quoted strings/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE page = U&'{{drillX}}'",
+      /plain quoted strings/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE day = DATE'{{drillX}}'",
+      /plain quoted strings/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE page = $ '$ = '{{drillX}}'",
+      /must not use \$/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE page = $q$x$q$ AND a = '{{drillX}}'",
+      /must not use \$/,
+    ],
+    ["SELECT visitor FROM events WHERE `'` = '{{drillX}}'", /must not use \$/],
+    [
+      "SELECT visitor FROM events WHERE 1 # '{{drillX}}' = 1",
+      /must not use \$/,
+    ],
+    [
+      "SELECT visitor FROM events /* /* */ WHERE page = '{{drillX}}' */",
+      /must not nest comments/,
+    ],
+    [
+      "SELECT visitor FROM events -- '{{drillX}}'",
+      /must not occur in comments/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE {{?appFilter}}app = '{{appFilter}}'{{/appFilter}}",
+      /must not use conditional blocks/,
+    ],
+  ])(
+    "rejects first-party record template slots that could reach code: %s",
+    async (sql, error) => {
+      await expect(
+        getPanelDrilldown.run({
+          ...panel,
+          panelSource: "first-party",
+          drilldown: { sql },
+        }),
+      ).rejects.toThrow(error);
+    },
+  );
+
   it("retains catalog lookup and an explicit aggregate-only result", async () => {
     const drilldown = { sql: "SELECT visitor FROM events LIMIT 500" };
     mocks.getFirstPartyDrilldown

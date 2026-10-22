@@ -496,7 +496,12 @@ a triple-quoted string's own delimiters (an empty value could join the quotes),
 and variables attached to SQL identifiers or literal prefixes. Doubled quotes
 (`''`) are refused too: GoogleSQL reads them as two literals, so escape quotes
 with a backslash. Static raw regex literals are allowed.
-Declared BigQuery record templates do not support `{{?variable}}…{{/variable}}`
+Declared first-party templates follow the same position rules in PostgreSQL
+syntax: scalar variables go inside plain `'…'` strings (`''` escapes a quote),
+never in `"…"` identifiers. Lookup also refuses `E`, `U&`, `B`, `X` and `N`
+strings, a prefix touching its quote (write `DATE '2026-10-01'`), `$`,
+backticks or `#` outside strings, and nested block comments.
+Declared record templates do not support `{{?variable}}…{{/variable}}`
 blocks, which could assemble new literal contexts after validation. Use SQL
 `CASE` expressions with ordinary variables for optional filters.
 Its SQL can return `COUNT(*) OVER () AS total_matching` alongside a bounded

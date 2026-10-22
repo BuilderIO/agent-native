@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { getFirstPartyDrilldown } from "../server/lib/first-party-metric-catalog";
-import { assertBigQueryTemplateLiteralContexts } from "../server/lib/read-only-sql";
+import { assertRecordTemplateLiteralContexts } from "../server/lib/read-only-sql";
 import { PANEL_DRILLDOWN_MAX_SQL_LENGTH } from "../shared/panel-drilldown";
 
 export default defineAction({
@@ -42,8 +42,11 @@ export default defineAction({
         { errorCode: "unsupported_drilldown_source", statusCode: 422 },
       );
     }
-    if (drilldown && panelSource === "bigquery") {
-      assertBigQueryTemplateLiteralContexts(drilldown.sql);
+    if (drilldown) {
+      assertRecordTemplateLiteralContexts(
+        drilldown.sql,
+        panelSource === "bigquery" ? "bigquery" : "standard",
+      );
     }
     return {
       drilldown:

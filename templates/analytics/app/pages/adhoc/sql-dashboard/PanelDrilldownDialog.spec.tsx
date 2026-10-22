@@ -372,17 +372,19 @@ describe("PanelDrilldownDialog metadata lookup", () => {
   );
 
   it.each([
-    ["complete", "sqlDashboard.drilldownNoRecords"],
-    ["partial", "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
-    ["truncated", "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
+    ["complete", 1, "sqlDashboard.drilldownNoRecords"],
+    ["partial", 1, "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
+    ["truncated", 1, "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
+    ["complete", 5, "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
+    ["complete", undefined, "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
   ])(
-    "says what a filter that hides every loaded row proves: %s",
-    async (state, message) => {
+    "says what a filter that hides every loaded row proves: %s, %s matching",
+    async (state, total, message) => {
       mocks.actionQuery = {
         data: { drilldown: { sql: "SELECT record FROM events LIMIT 500" } },
         isSuccess: true,
       };
-      mocks.sqlRows = [{ record: "loaded" }];
+      mocks.sqlRows = [{ record: "loaded", total_matching: total }];
       mocks.sqlPartial = state === "partial";
       mocks.sqlTruncated = state === "truncated";
       await render();

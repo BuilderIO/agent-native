@@ -43,6 +43,7 @@ function sanitizeSqlForInspection(
       /\{\{\w+(?::list)?\}\}/.test(sql.slice(quoteStart, end)) &&
       (rawString ||
         state === "backtick" ||
+        (dialect === "standard" && state === "double") ||
         /\{\{\w+:list\}\}/.test(sql.slice(quoteStart, end)))
     ) {
       rejectSourceSql(
@@ -60,7 +61,12 @@ function sanitizeSqlForInspection(
       }
       if (variable && state === "code") {
         const adjacent = `${sql[i - 1] ?? ""}${sql[i + variable[0].length] ?? ""}`;
-        if (!variable[1] || /[\p{ID_Continue}$'"`\\{}]/u.test(adjacent)) {
+        if (
+          !variable[1] ||
+          /[\p{ID_Continue}$'"`\\{}]/u.test(adjacent) ||
+          // A list renders quoted items, so `U&` before it makes a U& string.
+          (dialect === "standard" && sql[i - 1] === "&")
+        ) {
           rejectSourceSql(
             "Scalar SQL template variables require ordinary quoted strings; list variables require standalone SQL positions.",
           );
@@ -105,6 +111,16 @@ function sanitizeSqlForInspection(
       continue;
     }
     if (state === "block") {
+      // PostgreSQL nests block comments, so its comment would outlast this
+      // scan's and hide which slots are quoted.
+      if (
+        validateTemplateVariables &&
+        dialect === "standard" &&
+        ch === "/" &&
+        next === "*"
+      ) {
+        rejectSourceSql("First-party record templates must not nest comments.");
+      }
       if (ch === "*" && next === "/") {
         out += "  ";
         i += 1;
@@ -156,7 +172,7 @@ function sanitizeSqlForInspection(
       if (ch === quote && next === quote) {
         // GoogleSQL closes the literal here; reading `''` as an escape would
         // place later slots inside a string GoogleSQL treats as code.
-        if (validateTemplateVariables) {
+        if (validateTemplateVariables && dialect === "bigquery") {
           rejectSourceSql(
             "BigQuery record templates must not use doubled quotes inside a string; use a backslash escape.",
           );
@@ -189,6 +205,21 @@ function sanitizeSqlForInspection(
       i += 1;
       state = "block";
       continue;
+    }
+    // First-party SQL is lexed as PostgreSQL, then re-quoted for GoogleSQL.
+    // Prefixed and dollar-quoted strings, backticks and `#` read differently
+    // across those steps and this scan, which could leave a slot in code.
+    if (validateTemplateVariables && dialect === "standard") {
+      if (ch === "$" || ch === "`" || ch === "#") {
+        rejectSourceSql(
+          "First-party record templates must not use $, ` or # outside strings.",
+        );
+      }
+      if (ch === "'" && /[\p{ID_Continue}$&]/u.test(sql[i - 1] ?? "")) {
+        rejectSourceSql(
+          "First-party record templates must use plain quoted strings: put a space between a prefix such as DATE and its quote, and don't use E, U&, B, X or N strings.",
+        );
+      }
     }
     if (ch === "'" || ch === '"' || ch === "`") {
       quoteStart = i;
@@ -224,13 +255,16 @@ function sanitizeSqlForInspection(
   return out;
 }
 
-export function assertBigQueryTemplateLiteralContexts(sql: string): void {
+export function assertRecordTemplateLiteralContexts(
+  sql: string,
+  dialect: "bigquery" | "standard",
+): void {
   if (/\{\{\?\w+\}\}/.test(sql)) {
     rejectSourceSql(
-      "BigQuery record templates must not use conditional blocks. Use SQL CASE expressions with ordinary template variables.",
+      "Record templates must not use conditional blocks. Use SQL CASE expressions with ordinary template variables.",
     );
   }
-  sanitizeSqlForInspection(sql, "bigquery", true);
+  sanitizeSqlForInspection(sql, dialect, true);
 }
 
 export function assertReadOnlySql(
