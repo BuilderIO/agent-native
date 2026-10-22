@@ -183,8 +183,8 @@ pnpm exec agent-native add-app <slug> --template chat
 
 Read the generated `AGENTS.md` and any `build-an-app` skill. This skill
 overrides guidance that skips the design record, screenshots, or build; leaves
-`DESIGN.md` unchanged; omits `AUTH_DISABLED`; or stops the dev server. Use
-another first-party template only if it materially fits.
+`DESIGN.md` unchanged; omits `AUTH_DISABLED` or says not to set it; or stops
+the dev server. Use another first-party template only if it materially fits.
 
 If a scaffold or install step fails, times out (no output for 5 minutes), or is
 denied, the app does not exist yet. Retry once where a retry could help, then
