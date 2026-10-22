@@ -1078,17 +1078,19 @@ function styleAliasHasActualMutationSink(
   source: string,
   identifier: string,
 ): boolean {
-  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return (
-    new RegExp(
-      `\\b${escaped}\\s*(?:(?:\\.\\s*[A-Za-z_$][\\w$]*|\\[\\s*[^\\]]+\\s*\\])\\s*(?:=(?!=)|\\+=|-=|\\+\\+|--)|(?:\\?\\.|\\.)\\s*(?:setProperty|removeProperty)\\s*\\()`,
-      "i",
-    ).test(source) ||
-    new RegExp(
-      `\\bObject\\s*\\.\\s*assign\\s*\\(\\s*${escaped}(?:\\s*[,\\)])`,
-      "i",
-    ).test(source)
-  );
+  return identifierAliases(source, identifier).some((alias) => {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return (
+      new RegExp(
+        `\\b${escaped}\\s*(?:(?:\\.\\s*[A-Za-z_$][\\w$]*|\\[\\s*[^\\]]+\\s*\\])\\s*(?:=(?!=)|\\+=|-=|\\+\\+|--)|(?:\\?\\.|\\.)\\s*(?:setProperty|removeProperty)\\s*\\()`,
+        "i",
+      ).test(source) ||
+      new RegExp(
+        `\\bObject\\s*\\.\\s*assign\\s*\\(\\s*${escaped}(?:\\s*[,\\)])`,
+        "i",
+      ).test(source)
+    );
+  });
 }
 
 function destructuredBindingsMayMutate(

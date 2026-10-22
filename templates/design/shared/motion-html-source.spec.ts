@@ -850,6 +850,7 @@ describe("HTML Motion source adapter", () => {
   it("allows read-only destructured selector results and iterations", () => {
     const handlers = [
       `onclick="const { style } = document.querySelector('#hero-title'); document.title = style.opacity"`,
+      `onclick="const { style } = document.querySelector('#hero-title'); const styleAlias = style; document.title = styleAlias.opacity"`,
       `onclick="document.querySelectorAll('#hero-title').forEach(({ style }) => { const opacity = style.opacity })"`,
       `onclick="[...this.ownerDocument.querySelectorAll('#hero-title')].forEach(target => { const opacity = target.style.opacity })"`,
       `onclick="for (const target of [...this.ownerDocument.querySelectorAll('#hero-title')]) { const opacity = target.style.opacity }"`,
@@ -1047,6 +1048,14 @@ describe("HTML Motion source adapter", () => {
     [
       "an aliased destructured style binding from a document selector",
       `onclick="const { style: targetStyle } = document.querySelector('#hero-title'); targetStyle.removeProperty('opacity')"`,
+    ],
+    [
+      "a chained destructured style alias",
+      `onclick="const { style: targetStyle } = this.ownerDocument.querySelector('#hero-title'); const s = targetStyle; s.opacity = '0'"`,
+    ],
+    [
+      "a chained destructured style alias passed to Object.assign",
+      `onclick="const { style: targetStyle } = this.ownerDocument.querySelector('#hero-title'); const s = targetStyle; Object.assign(s, { opacity: '0' })"`,
     ],
     [
       "a destructured querySelectorAll callback",
