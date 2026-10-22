@@ -13,6 +13,8 @@ const TABLE = [
   "After the table.",
 ].join("\n");
 
+const GRIP = '[aria-label="Open block menu or drag to reorder"]';
+
 function cell(page: Page, text: string) {
   return page
     .locator(`${EDITOR} :is(td, th)`)
@@ -145,9 +147,7 @@ test.describe("inline table controls", () => {
     await expect(page.locator(`${EDITOR} tr`)).toHaveCount(4);
 
     await cell(page, "Alpha").hover();
-    await page
-      .locator('[aria-label="Open block menu or drag to reorder"]')
-      .click();
+    await page.locator(GRIP).click();
     await page.getByRole("menu").getByText("Delete", { exact: true }).click();
     await expect(page.locator(`${EDITOR} table`)).toHaveCount(0);
     await expect.poll(() => savedTableRows(page, id)).toBe(0);
@@ -178,7 +178,7 @@ test.describe("inline table controls", () => {
 
     await cell(page, "Item").hover();
     await page.getByRole("button", { name: "Row options" }).click();
-    await page.getByRole("menuitem", { name: "Header row" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Header row" }).click();
     await expect(page.getByTestId("header-row-switch")).toHaveAttribute(
       "data-state",
       "unchecked",
@@ -199,7 +199,7 @@ test.describe("inline table controls", () => {
 
     await cell(page, "Alpha").hover();
     await page.getByRole("button", { name: "Column options" }).click();
-    await page.getByRole("menuitem", { name: "Header column" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Header column" }).click();
     await expect(page.getByTestId("header-column-switch")).toHaveAttribute(
       "data-state",
       "checked",
@@ -213,6 +213,221 @@ test.describe("inline table controls", () => {
     await expect(
       page.locator(`${EDITOR} .content-table-header-cell`),
     ).toHaveText(["Item", "Alpha", "Beta"]);
+  });
+
+  test("the table's block menu sets its headers and width, and they are saved", async ({
+    page,
+  }) => {
+    const id = await openTablePage(page, "Table block menu");
+    const savedContent = async () => (await getDocument(page, id)).content;
+
+    await cell(page, "Alpha").hover();
+    await page.locator(GRIP).click();
+    const menu = page.getByRole("menu", { name: "Block actions" });
+    const switchNamed = (name: string) =>
+      menu.getByRole("menuitemcheckbox", { name });
+    await expect(switchNamed("Header row")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    await switchNamed("Header column").click();
+    await switchNamed("Fit to width").click();
+    await expect(switchNamed("Header column")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(switchNamed("Fit to width")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect
+      .poll(savedContent)
+      .toContain(
+        '<table fit-page-width="true" header-row="true" header-column="true">',
+      );
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await page.reload();
+    await expect(cell(page, "Alpha")).toBeVisible();
+    await expect(page.locator(`${EDITOR} th[scope="col"]`)).toHaveText([
+      "Item",
+      "State",
+      "Notes",
+    ]);
+    await expect(page.locator(`${EDITOR} th[scope="row"]`)).toHaveText([
+      "Alpha",
+      "Beta",
+    ]);
+    const tableBox = (await page.locator(`${EDITOR} table`).boundingBox())!;
+    const textBox = (await page.getByText("Before the table.").boundingBox())!;
+    expect(Math.abs(tableBox.width - textBox.width)).toBeLessThanOrEqual(1);
+  });
+
+  test("row and column colours are saved", async ({ page }) => {
+    const id = await openTablePage(page, "Table colours");
+    const savedContent = async () => (await getDocument(page, id)).content;
+
+    await cell(page, "Ready").hover();
+    await page.getByRole("button", { name: "Row options" }).click();
+    await page.getByRole("menuitem", { name: "Color" }).hover();
+    await page.getByRole("menuitemradio", { name: "Blue background" }).click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+
+    // The last column's Color submenu opens to the left. A submenu stays open
+    // for a pointer on its way to it, not for one that jumps there.
+    await cell(page, "First").hover();
+    await page.getByRole("button", { name: "Column options" }).click();
+    await page.getByRole("menuitem", { name: "Color" }).hover();
+    const red = page.getByRole("menuitemradio", { name: "Red text" });
+    const redBox = (await red.boundingBox())!;
+    await page.mouse.move(
+      redBox.x + redBox.width / 2,
+      redBox.y + redBox.height / 2,
+      { steps: 8 },
+    );
+    await red.click();
+
+    await expect.poll(savedContent).toContain('<tr color="blue_bg">');
+    await expect.poll(savedContent).toContain('<col color="red"/>');
+    await page.reload();
+    await expect(
+      page.locator(`${EDITOR} tr.content-block-bg--blue`),
+    ).toHaveText(/Beta/);
+    // A row's own colour covers its column's.
+    await expect(cell(page, "First")).toHaveClass(/content-block-color--red/);
+    await expect(cell(page, "Second")).not.toHaveClass(
+      /content-block-color--red/,
+    );
+  });
+
+  test("a colour can be chosen from the keyboard", async ({ page }) => {
+    const id = await openTablePage(page, "Table colour keys");
+
+    await cell(page, "Ready").hover();
+    await page.getByRole("button", { name: "Row options" }).focus();
+    await page.keyboard.press("ArrowDown");
+    await page.getByRole("menuitem", { name: "Color" }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(
+      page.getByRole("menuitemradio", { name: "Default text" }),
+    ).toBeFocused();
+    await page.keyboard.type("Gray b");
+    await expect(
+      page.getByRole("menuitemradio", { name: "Gray background" }),
+    ).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect
+      .poll(async () => (await getDocument(page, id)).content)
+      .toContain('<tr color="gray_bg">');
+  });
+
+  test("Escape closes a table menu within 100 ms", async ({ page }) => {
+    await openTablePage(page, "Table menu escape");
+    await cell(page, "Ready").hover();
+    await page.getByRole("button", { name: "Row options" }).click();
+    await expect(page.getByRole("menu")).toBeVisible();
+
+    await page.evaluate(() => {
+      const target = window as unknown as { menuClosed?: Promise<number> };
+      target.menuClosed = new Promise((resolve) => {
+        let start = 0;
+        addEventListener(
+          "keydown",
+          (event) => {
+            if (event.key === "Escape") start = performance.now();
+          },
+          { capture: true, once: true },
+        );
+        const observer = new MutationObserver(() => {
+          if (!start || document.querySelector("[role='menu']")) return;
+          observer.disconnect();
+          resolve(performance.now() - start);
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+      });
+    });
+    await page.keyboard.press("Escape");
+    const closedAfter = await page.evaluate(
+      () => (window as unknown as { menuClosed: Promise<number> }).menuClosed,
+    );
+    expect(closedAfter).toBeLessThan(100);
+  });
+
+  test("Enter and Space on the add controls add a column and a row", async ({
+    page,
+  }) => {
+    await openTablePage(page, "Table add keys");
+    const headerCells = page.locator(`${EDITOR} tr:first-child :is(td, th)`);
+
+    await page.getByTestId("table-column-handle").focus();
+    await page.keyboard.press("Enter");
+    await expect(headerCells).toHaveCount(4);
+    await page.keyboard.press("Space");
+    await expect(headerCells).toHaveCount(5);
+
+    await page.getByTestId("table-row-handle").focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator(`${EDITOR} tr`)).toHaveCount(4);
+  });
+
+  test("adding a column leaves the caret where it was", async ({ page }) => {
+    await openTablePage(page, "Table add caret");
+    await cell(page, "Alpha").click();
+
+    await cell(page, "First").hover();
+    await page.getByTestId("table-column-handle").click();
+    await expect(
+      page.locator(`${EDITOR} tr:first-child :is(td, th)`),
+    ).toHaveCount(4);
+    expect(await caretCell(page)).toBe("Alpha");
+    await expect(page.locator(`${EDITOR} .selectedCell`)).toHaveCount(0);
+  });
+
+  test("a cell selection shows no text formatting toolbar", async ({
+    page,
+  }) => {
+    await openTablePage(page, "Table cell selection");
+    const from = (await cell(page, "Alpha").boundingBox())!;
+    const to = (await cell(page, "Ready").boundingBox())!;
+
+    await page.mouse.move(from.x + 10, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + 10, to.y + to.height / 2, { steps: 5 });
+    await page.mouse.up();
+
+    await expect(page.locator(`${EDITOR} .selectedCell`)).toHaveCount(4);
+    await page.waitForTimeout(300);
+    await expect(page.locator(".bubble-toolbar")).toBeHidden();
+  });
+
+  test("the row and column handles stay while the caret is in a cell", async ({
+    page,
+  }) => {
+    await openTablePage(page, "Table caret handles");
+    await cell(page, "Ready").click();
+    await page.mouse.move(5, 5);
+
+    await expect(page.getByRole("button", { name: "Row options" })).toHaveCSS(
+      "opacity",
+      "1",
+    );
+    await expect(
+      page.getByRole("button", { name: "Column options" }),
+    ).toHaveCSS("opacity", "1");
+  });
+
+  test("the block grip stays on screen at phone width", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openTablePage(page, "Table phone grip");
+
+    await page.getByText("Before the table.").hover();
+    const grip = page.locator(GRIP);
+    await expect(grip).toHaveCSS("opacity", "1");
+    expect((await grip.boundingBox())!.x).toBeGreaterThanOrEqual(0);
   });
 
   test("a table wider than a phone keeps its add-column control on screen", async ({
@@ -264,6 +479,29 @@ test.describe("inline table controls", () => {
 
 test.describe("inline table controls on a touch screen", () => {
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test("taps open the table's menus and set its width and colours", async ({
+    page,
+  }) => {
+    const id = await openTablePage(page, "Table touch menus");
+    const savedContent = async () => (await getDocument(page, id)).content;
+
+    await cell(page, "Alpha").tap();
+    await page.locator(GRIP).tap();
+    const fit = page.getByRole("menuitemcheckbox", { name: "Fit to width" });
+    await fit.tap();
+    await expect(fit).toHaveAttribute("aria-checked", "true");
+    await expect.poll(savedContent).toContain('fit-page-width="true"');
+    await page.getByRole("menuitem", { name: "Insert block below" }).tap();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+
+    await cell(page, "Ready").tap();
+    await page.getByRole("button", { name: "Row options" }).tap();
+    await page.getByRole("menuitem", { name: "Color" }).tap();
+    await page.getByRole("menuitemradio", { name: "Green background" }).tap();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect.poll(savedContent).toContain('<tr color="green_bg">');
+  });
 
   test("a tap on the cell under the hidden add-column control edits that cell", async ({
     page,

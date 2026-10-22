@@ -52,7 +52,7 @@ function reportLoss(kind: NfmParseLossKind, sample: string): void {
   activeLossSink?.push({ kind, sample });
 }
 
-const BASE_COLORS = [
+export const NFM_BASE_COLORS = [
   "gray",
   "brown",
   "orange",
@@ -62,11 +62,11 @@ const BASE_COLORS = [
   "purple",
   "pink",
   "red",
-];
+] as const;
 export const NFM_COLORS = new Set<string>([
   "default",
-  ...BASE_COLORS,
-  ...BASE_COLORS.map((c) => `${c}_bg`),
+  ...NFM_BASE_COLORS,
+  ...NFM_BASE_COLORS.map((c) => `${c}_bg`),
 ]);
 function isColor(value: string | null | undefined): value is string {
   return !!value && NFM_COLORS.has(value) && value !== "default";

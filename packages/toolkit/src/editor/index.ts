@@ -73,6 +73,7 @@ export {
   DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
   type DragHandleDropContext,
   type DragHandleDropPlacement,
+  type DragHandleMenuRequest,
   type DragHandleOptions,
 } from "./DragHandle.js";
 export {

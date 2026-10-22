@@ -16,6 +16,7 @@ import {
   PluginKey,
   type EditorState,
 } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -275,6 +276,9 @@ function selectionIncludesBubbleToolbarExcludedNode(
   from: number,
   to: number,
 ) {
+  // Selected cells are a rectangle, not the text between from and to: that
+  // range also crosses the cells beside them.
+  if (state.selection instanceof CellSelection) return true;
   if (
     state.selection instanceof NodeSelection &&
     BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(state.selection.node.type.name)
@@ -712,15 +716,35 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       );
     };
 
+    // A click into the unfocused editor focuses it before placing its caret.
+    // Drawing the old selection's fill then redraws the editor, which writes
+    // that selection back over the click; the click's own selection update
+    // draws the fill instead.
+    let pressing = false;
+    const startPress = () => {
+      pressing = true;
+    };
+    const endPress = () => {
+      pressing = false;
+    };
+    const syncAfterFocus = () => {
+      if (!pressing) syncSelectionFill();
+    };
+    const editorDom = editor.view.dom;
+
     editor.on("selectionUpdate", syncSelectionFill);
-    editor.on("focus", syncSelectionFill);
+    editor.on("focus", syncAfterFocus);
     editor.on("blur", syncSelectionFill);
+    editorDom.addEventListener("mousedown", startPress, true);
+    window.addEventListener("mouseup", endPress, true);
     syncSelectionFill();
 
     return () => {
       editor.off("selectionUpdate", syncSelectionFill);
-      editor.off("focus", syncSelectionFill);
+      editor.off("focus", syncAfterFocus);
       editor.off("blur", syncSelectionFill);
+      editorDom.removeEventListener("mousedown", startPress, true);
+      window.removeEventListener("mouseup", endPress, true);
       editor.unregisterPlugin(selectionFillPluginKey);
     };
   }, [editor, openLinkInput]);

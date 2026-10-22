@@ -11,8 +11,8 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { TextSelection } from "@tiptap/pm/state";
-import { findTable } from "@tiptap/pm/tables";
+import { TextSelection, type Transaction } from "@tiptap/pm/state";
+import { findTable, TableMap } from "@tiptap/pm/tables";
 import { Editor } from "@tiptap/react";
 import {
   useEffect,
@@ -36,7 +36,25 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { ColorSubmenu } from "./ColorSubmenu";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
+import { instantCloseMenuClass, menuIconClass } from "./menu-classes";
+import { MenuSwitchItem } from "./MenuSwitchItem";
+import {
+  attrsWithDuplicatedColumn,
+  deleteTableColumn,
+  deleteTableRow,
+  findTableByIndex,
+  getColumnColor,
+  getRowColor,
+  getTableHeaders,
+  insertTableColumn,
+  insertTableRow,
+  setColumnColor,
+  setRowColor,
+  setTableHeaders,
+  type TableAt,
+} from "./table-commands";
 
 interface TableHoverControlsProps {
   editor: Editor;
@@ -95,7 +113,7 @@ const ROW_OPTIONS_HIT_WIDTH =
 const ROW_OPTIONS_HIT_HEIGHT =
   ROW_OPTIONS_MARKER_HEIGHT_PX + TABLE_HANDLE_HIT_PADDING * 2;
 const ROW_OPTIONS_MENU_ALIGN_OFFSET = ROW_OPTIONS_HIT_HEIGHT / 2;
-const ROW_OPTIONS_MENU_HEIGHT = 260;
+const ROW_OPTIONS_MENU_HEIGHT = 290;
 const EDGE_HANDLE_LENGTH = 56;
 const COLUMN_EDGE_HANDLE_HIT_WIDTH =
   EDGE_HANDLE_THICKNESS + TABLE_HANDLE_HIT_PADDING * 2;
@@ -107,8 +125,6 @@ const ROW_EDGE_HANDLE_HIT_HEIGHT =
   EDGE_HANDLE_THICKNESS + TABLE_HANDLE_HIT_PADDING * 2;
 const EDGE_HANDLE_TOOLTIP_DELAY = 350;
 const MENU_COLLISION_PADDING = 8;
-
-const menuIconClass = "size-4 shrink-0 text-muted-foreground";
 
 // A reference preview inside a cell brings its own tables, so these keep only
 // the rows and cells that belong to the given table or row.
@@ -132,18 +148,6 @@ function getTableDimensions(table: HTMLElement) {
     rowCount: rows.length,
     columnCount: getCells(rows[0]).length,
   };
-}
-
-function getLastColumnCell(table: HTMLElement) {
-  const firstRow = getRows(table)[0];
-  const cells = getCells(firstRow);
-  return cells[cells.length - 1] ?? null;
-}
-
-function getLastRowCell(table: HTMLElement) {
-  const rows = getRows(table);
-  const cells = getCells(rows[rows.length - 1]);
-  return cells[0] ?? null;
 }
 
 // A reference preview renders its own read-only editor, tables included,
@@ -275,28 +279,6 @@ function getCellPos(
   return pos;
 }
 
-function findTableNodeByIndex(
-  doc: ProseMirrorNode,
-  tableIndex: number,
-): { node: ProseMirrorNode; pos: number } | null {
-  let currentIndex = -1;
-  let result: { node: ProseMirrorNode; pos: number } | null = null;
-
-  doc.descendants((node, pos) => {
-    if (node.type.name !== "table") return true;
-
-    currentIndex += 1;
-    if (currentIndex === tableIndex) {
-      result = { node, pos };
-      return false;
-    }
-
-    return true;
-  });
-
-  return result;
-}
-
 function copyNode(node: ProseMirrorNode) {
   return node.copy(node.content);
 }
@@ -306,46 +288,12 @@ function createEmptyCell(editor: Editor, cell: ProseMirrorNode) {
   return cell.type.create(cell.attrs, Fragment.from(paragraph), cell.marks);
 }
 
-function isHeaderCellNode(cell: ProseMirrorNode | undefined) {
-  return cell?.type.name === "tableHeader";
-}
-
-function hasHeaderRowAtAddress(
-  doc: ProseMirrorNode,
-  address: SelectedCellAddress | null,
-) {
-  if (!address) return false;
-
-  const table = findTableNodeByIndex(doc, address.tableIndex);
-  const firstRow = table ? getChildren(table.node)[0] : null;
-  const cells = firstRow ? getChildren(firstRow) : [];
-  return cells.length > 0 && cells.every(isHeaderCellNode);
-}
-
-function hasHeaderColumnAtAddress(
-  doc: ProseMirrorNode,
-  address: SelectedCellAddress | null,
-) {
-  if (!address) return false;
-
-  const table = findTableNodeByIndex(doc, address.tableIndex);
-  const rows = table ? getChildren(table.node) : [];
-  return (
-    rows.length > 0 &&
-    rows.every((row) => isHeaderCellNode(getChildren(row)[0]))
-  );
-}
-
-// The menus and edge controls act while they, not the editor, hold focus, and
-// Content saves an unfocused change only when it is marked as the user's.
-function userEditChain(editor: Editor) {
-  return editor
-    .chain()
-    .focus()
-    .command(({ tr }) => {
-      tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
-      return true;
-    });
+// The column a cell starts in, counting merged cells' columns.
+function getColumnIndex(table: TableAt, address: SelectedCellAddress) {
+  const cellPos = getCellPos(table.node, table.pos, address);
+  return cellPos === null
+    ? address.columnIndex
+    : TableMap.get(table.node).colCount(cellPos - table.pos - 1);
 }
 
 function getTargetElement(target: EventTarget | null) {
@@ -480,11 +428,17 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   // outside the editor: Ctrl+Z there runs the browser's own undo on cell text.
   // The menus aren't modal, so a click elsewhere both closes them and lands;
   // refocusing the editor after it would put back the cell the menu acted on.
+  // Radix refocuses a tick after the menu goes, by which time that click (or
+  // the other table menu, opening) may already hold focus.
   const returnFocusToEditor = (event: Event) => {
     event.preventDefault();
     const dismissedOutside = menuDismissedOutsideRef.current;
     menuDismissedOutsideRef.current = false;
-    if (!dismissedOutside) getMountedEditorView(editor)?.focus();
+    const focusTaken =
+      !!document.activeElement && document.activeElement !== document.body;
+    if (!dismissedOutside && !focusTaken) {
+      getMountedEditorView(editor)?.focus();
+    }
   };
   const noteMenuDismissedOutside = () => {
     menuDismissedOutsideRef.current = true;
@@ -624,31 +578,66 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     }
   };
 
-  const runAtCell = (cell: HTMLElement | null, action: () => void) => {
-    if (!selectCellForCommand(cell)) return;
-    action();
-    requestAnimationFrame(() => {
-      selectedCellRef.current = getCellFromEditorSelection(editor) ?? cell;
-      syncOverlay();
-    });
+  // The menus and edge controls act while they, not the editor, hold focus, and
+  // Content saves an unfocused change only when it is marked as the user's.
+  // The caret stays put: moved into the table, it would outline that cell.
+  const editTable = (
+    tableIndex: number | undefined,
+    edit: (tr: Transaction, table: TableAt) => void,
+  ) => {
+    const view = getMountedEditorView(editor);
+    if (!view || tableIndex === undefined) return;
+    const table = findTableByIndex(view.state.doc, tableIndex);
+    if (!table) return;
+    const tr = view.state.tr;
+    edit(tr, table);
+    if (tr.docChanged) {
+      view.dispatch(tr.setMeta(LOCAL_FILE_USER_EDIT_META, true));
+    }
+  };
+
+  const getTableIndex = (table: HTMLElement) => {
+    const view = getMountedEditorView(editor);
+    const index = view ? getEditorTables(view.dom).indexOf(table) : -1;
+    return index < 0 ? undefined : index;
   };
 
   const addColumnAtEnd = (table: HTMLElement) => {
-    runAtCell(getLastColumnCell(table), () => {
-      userEditChain(editor).addColumnAfter().run();
+    editTable(getTableIndex(table), (tr, target) => {
+      insertTableColumn(tr, target, TableMap.get(target.node).width);
     });
     requestAnimationFrame(() => {
-      const scrollport =
-        getCellFromEditorSelection(editor)?.closest(".tableWrapper");
+      const scrollport = table.closest(".tableWrapper");
       scrollport?.scrollTo({ left: scrollport.scrollWidth });
     });
   };
 
   const addRowAtEnd = (table: HTMLElement) => {
-    runAtCell(getLastRowCell(table), () => {
-      userEditChain(editor).addRowAfter().run();
+    editTable(getTableIndex(table), (tr, target) => {
+      insertTableRow(tr, target, target.node.childCount);
     });
   };
+
+  // Menu actions on the selected cell's row or column.
+  const editAtCell = (
+    address: SelectedCellAddress | null,
+    edit: (
+      tr: Transaction,
+      table: TableAt,
+      cell: { row: number; column: number },
+    ) => void,
+  ) => {
+    if (!address) return;
+    editTable(address.tableIndex, (tr, table) =>
+      edit(tr, table, {
+        row: address.rowIndex,
+        column: getColumnIndex(table, address),
+      }),
+    );
+  };
+
+  const deleteTableAt = (tr: Transaction, table: TableAt) =>
+    tr.delete(table.pos, table.pos + table.node.nodeSize);
 
   const getSelectedCellElement = () =>
     selectedCell?.isConnected
@@ -753,7 +742,14 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     replaceTable(
       context.table.pos,
       context.table.node,
-      context.table.node.copy(Fragment.fromArray(nextRows)),
+      context.table.node.type.create(
+        attrsWithDuplicatedColumn(
+          context.table.node,
+          getColumnIndex(context.table, context.address),
+        ),
+        Fragment.fromArray(nextRows),
+        context.table.node.marks,
+      ),
       {
         ...context.address,
         columnIndex: context.address.columnIndex + 1,
@@ -804,129 +800,43 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     );
   };
 
-  const toggleHeaderRow = (address: SelectedCellAddress | null) => {
-    if (!address || address.rowIndex !== 0) return;
-
-    const table = findTableNodeByIndex(editor.state.doc, address.tableIndex);
-    if (!table) return;
-
-    const tableCell = editor.schema.nodes.tableCell;
-    const tableHeader = editor.schema.nodes.tableHeader;
-    if (!tableCell || !tableHeader) return;
-
-    const rows = getChildren(table.node);
-    const firstRowCells = getChildren(rows[0]);
-    const enableHeaderRow = !firstRowCells.every(isHeaderCellNode);
-    const keepHeaderColumn =
-      rows.length > 0 &&
-      rows.every((row) => isHeaderCellNode(getChildren(row)[0]));
-
-    const nextRows = rows.map((row, rowIndex) => {
-      if (rowIndex !== 0) return row;
-
-      return row.copy(
-        Fragment.fromArray(
-          getChildren(row).map((rowCell, columnIndex) => {
-            const targetType =
-              enableHeaderRow || (columnIndex === 0 && keepHeaderColumn)
-                ? tableHeader
-                : tableCell;
-            return targetType.create(
-              rowCell.attrs,
-              rowCell.content,
-              rowCell.marks,
-            );
-          }),
-        ),
-      );
+  // The header switches keep their menu open and focused.
+  const toggleHeader = (
+    address: SelectedCellAddress | null,
+    axis: "row" | "column",
+  ) => {
+    editTable(address?.tableIndex, (tr, table) => {
+      setTableHeaders(tr, table, {
+        [axis]: !getTableHeaders(table.node)[axis],
+      });
     });
-
-    replaceTable(
-      table.pos,
-      table.node,
-      table.node.copy(Fragment.fromArray(nextRows)),
-      address,
-      { keepMenuFocus: true },
-    );
-  };
-
-  const toggleHeaderColumn = (address: SelectedCellAddress | null) => {
-    if (!address || address.columnIndex !== 0) return;
-
-    const table = findTableNodeByIndex(editor.state.doc, address.tableIndex);
-    if (!table) return;
-
-    const tableCell = editor.schema.nodes.tableCell;
-    const tableHeader = editor.schema.nodes.tableHeader;
-    if (!tableCell || !tableHeader) return;
-
-    const rows = getChildren(table.node);
-    const enableHeaderColumn = !rows.every((row) =>
-      isHeaderCellNode(getChildren(row)[0]),
-    );
-    const keepHeaderRow = getChildren(rows[0]).every(isHeaderCellNode);
-
-    const nextRows = rows.map((row, rowIndex) => {
-      const cells = getChildren(row);
-      const firstCell = cells[0];
-      if (!firstCell) return row;
-
-      const targetType =
-        enableHeaderColumn || (rowIndex === 0 && keepHeaderRow)
-          ? tableHeader
-          : tableCell;
-      cells[0] = targetType.create(
-        firstCell.attrs,
-        firstCell.content,
-        firstCell.marks,
-      );
-      return row.copy(Fragment.fromArray(cells));
-    });
-
-    replaceTable(
-      table.pos,
-      table.node,
-      table.node.copy(Fragment.fromArray(nextRows)),
-      address,
-      { keepMenuFocus: true },
-    );
   };
 
   const adjustColumnCount = (table: HTMLElement, targetCount: number) => {
-    let { columnCount } = getTableDimensions(table);
     const nextCount = Math.max(1, Math.min(MAX_DRAG_COLUMNS, targetCount));
-
-    while (columnCount < nextCount) {
-      if (!selectCellForCommand(getLastColumnCell(table))) break;
-      userEditChain(editor).addColumnAfter().run();
-      columnCount += 1;
-    }
-
-    while (columnCount > nextCount) {
-      if (!selectCellForCommand(getLastColumnCell(table))) break;
-      userEditChain(editor).deleteColumn().run();
-      columnCount -= 1;
-    }
-
+    editTable(getTableIndex(table), (tr, target) => {
+      let columnCount = TableMap.get(target.node).width;
+      for (; columnCount < nextCount; columnCount += 1) {
+        insertTableColumn(tr, target, columnCount);
+      }
+      for (; columnCount > nextCount; columnCount -= 1) {
+        deleteTableColumn(tr, target, columnCount - 1);
+      }
+    });
     requestAnimationFrame(syncOverlay);
   };
 
   const adjustRowCount = (table: HTMLElement, targetCount: number) => {
-    let { rowCount } = getTableDimensions(table);
     const nextCount = Math.max(1, Math.min(MAX_DRAG_ROWS, targetCount));
-
-    while (rowCount < nextCount) {
-      if (!selectCellForCommand(getLastRowCell(table))) break;
-      userEditChain(editor).addRowAfter().run();
-      rowCount += 1;
-    }
-
-    while (rowCount > nextCount) {
-      if (!selectCellForCommand(getLastRowCell(table))) break;
-      userEditChain(editor).deleteRow().run();
-      rowCount -= 1;
-    }
-
+    editTable(getTableIndex(table), (tr, target) => {
+      let rowCount = target.node.childCount;
+      for (; rowCount < nextCount; rowCount += 1) {
+        insertTableRow(tr, target, rowCount);
+      }
+      for (; rowCount > nextCount; rowCount -= 1) {
+        deleteTableRow(tr, target, rowCount - 1);
+      }
+    });
     requestAnimationFrame(syncOverlay);
   };
 
@@ -1224,9 +1134,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     selectedRect && selectedScrollport
       ? clampToScrollport(selectedRect, selectedScrollport)
       : null;
-  const selectedDimensions = selectedTable
-    ? getTableDimensions(selectedTable)
-    : { rowCount: 0, columnCount: 0 };
   const selectedCellAddress = selectedCellAddressRef.current;
   const selectedRowOverlayRect =
     rowMenuOpen && selectedTable
@@ -1238,14 +1145,26 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       : null;
   const canToggleHeaderColumn = selectedCellAddress?.columnIndex === 0;
   const canToggleHeaderRow = selectedCellAddress?.rowIndex === 0;
-  const headerColumnEnabled =
-    Boolean(selectedTable) && canToggleHeaderColumn
-      ? hasHeaderColumnAtAddress(editor.state.doc, selectedCellAddress)
-      : false;
-  const headerRowEnabled =
-    Boolean(selectedTable) && canToggleHeaderRow
-      ? hasHeaderRowAtAddress(editor.state.doc, selectedCellAddress)
-      : false;
+  const selectedTableAt =
+    selectedTable && selectedCellAddress
+      ? findTableByIndex(editor.state.doc, selectedCellAddress.tableIndex)
+      : null;
+  const selectedHeaders = selectedTableAt
+    ? getTableHeaders(selectedTableAt.node)
+    : { row: false, column: false };
+  const headerColumnEnabled = canToggleHeaderColumn && selectedHeaders.column;
+  const headerRowEnabled = canToggleHeaderRow && selectedHeaders.row;
+  const selectedRowColor =
+    selectedTableAt && selectedCellAddress
+      ? getRowColor(selectedTableAt.node, selectedCellAddress.rowIndex)
+      : null;
+  const selectedColumnColor =
+    selectedTableAt && selectedCellAddress
+      ? getColumnColor(
+          selectedTableAt.node,
+          getColumnIndex(selectedTableAt, selectedCellAddress),
+        )
+      : null;
   const viewportWidth =
     typeof window === "undefined"
       ? Number.POSITIVE_INFINITY
@@ -1415,53 +1334,36 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
             <DropdownMenuContent
               align={columnMenuAlign}
               alignOffset={columnMenuAlignOffset}
+              className={instantCloseMenuClass}
               collisionPadding={MENU_COLLISION_PADDING}
               onCloseAutoFocus={returnFocusToEditor}
               onInteractOutside={noteMenuDismissedOutside}
             >
               <DropdownMenuLabel>{t("database.column")}</DropdownMenuLabel>
               {canToggleHeaderColumn ? (
-                <DropdownMenuItem
-                  className="gap-2"
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    toggleHeaderColumn(selectedCellAddress);
-                  }}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    toggleHeaderColumn(selectedCellAddress);
-                  }}
+                <MenuSwitchItem
+                  checked={headerColumnEnabled}
+                  icon={<IconTableColumn className={menuIconClass} />}
+                  onToggle={() => toggleHeader(selectedCellAddress, "column")}
+                  switchTestId="header-column-switch"
                 >
-                  <IconTableColumn className={menuIconClass} />
                   {t("database.headerColumn")}
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "ml-auto flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors",
-                      headerColumnEnabled
-                        ? "bg-primary"
-                        : "bg-muted-foreground/25",
-                    )}
-                    data-state={headerColumnEnabled ? "checked" : "unchecked"}
-                    data-testid="header-column-switch"
-                  >
-                    <span
-                      className={cn(
-                        "size-4 rounded-full bg-background shadow-sm transition-transform",
-                        headerColumnEnabled && "translate-x-4",
-                      )}
-                    />
-                  </span>
-                </DropdownMenuItem>
+                </MenuSwitchItem>
               ) : null}
+              <ColorSubmenu
+                onChange={(color) =>
+                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                    setColumnColor(tr, table, cell.column, color),
+                  )
+                }
+                value={selectedColumnColor}
+              />
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() =>
-                  runAtCell(getSelectedCellElement(), () => {
-                    userEditChain(editor).addColumnBefore().run();
-                  })
+                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                    insertTableColumn(tr, table, cell.column),
+                  )
                 }
               >
                 <IconArrowLeft className={menuIconClass} />
@@ -1470,9 +1372,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() =>
-                  runAtCell(getSelectedCellElement(), () => {
-                    userEditChain(editor).addColumnAfter().run();
-                  })
+                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                    insertTableColumn(tr, table, cell.column + 1),
+                  )
                 }
               >
                 <IconArrowRight className={menuIconClass} />
@@ -1496,11 +1398,11 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <DropdownMenuItem
                 className="gap-2 text-destructive focus:text-destructive"
                 onSelect={() =>
-                  runAtCell(getSelectedCellElement(), () => {
-                    if (selectedDimensions.columnCount <= 1) {
-                      userEditChain(editor).deleteTable().run();
+                  editAtCell(selectedCellAddress, (tr, table, cell) => {
+                    if (TableMap.get(table.node).width <= 1) {
+                      deleteTableAt(tr, table);
                     } else {
-                      userEditChain(editor).deleteColumn().run();
+                      deleteTableColumn(tr, table, cell.column);
                     }
                   })
                 }
@@ -1563,6 +1465,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
             <DropdownMenuContent
               align={rowMenuAlign}
               alignOffset={rowMenuAlignOffset}
+              className={instantCloseMenuClass}
               collisionPadding={MENU_COLLISION_PADDING}
               onCloseAutoFocus={returnFocusToEditor}
               onInteractOutside={noteMenuDismissedOutside}
@@ -1570,47 +1473,29 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
             >
               <DropdownMenuLabel>{t("database.row")}</DropdownMenuLabel>
               {canToggleHeaderRow ? (
-                <DropdownMenuItem
-                  className="gap-2"
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    toggleHeaderRow(selectedCellAddress);
-                  }}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    toggleHeaderRow(selectedCellAddress);
-                  }}
+                <MenuSwitchItem
+                  checked={headerRowEnabled}
+                  icon={<IconTableRow className={menuIconClass} />}
+                  onToggle={() => toggleHeader(selectedCellAddress, "row")}
+                  switchTestId="header-row-switch"
                 >
-                  <IconTableRow className={menuIconClass} />
                   {t("database.headerRow")}
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "ml-auto flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors",
-                      headerRowEnabled
-                        ? "bg-primary"
-                        : "bg-muted-foreground/25",
-                    )}
-                    data-state={headerRowEnabled ? "checked" : "unchecked"}
-                    data-testid="header-row-switch"
-                  >
-                    <span
-                      className={cn(
-                        "size-4 rounded-full bg-background shadow-sm transition-transform",
-                        headerRowEnabled && "translate-x-4",
-                      )}
-                    />
-                  </span>
-                </DropdownMenuItem>
+                </MenuSwitchItem>
               ) : null}
+              <ColorSubmenu
+                onChange={(color) =>
+                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                    setRowColor(tr, table, cell.row, color),
+                  )
+                }
+                value={selectedRowColor}
+              />
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() =>
-                  runAtCell(getSelectedCellElement(), () => {
-                    userEditChain(editor).addRowBefore().run();
-                  })
+                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                    insertTableRow(tr, table, cell.row),
+                  )
                 }
               >
                 <IconArrowUp className={menuIconClass} />
@@ -1619,9 +1504,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <DropdownMenuItem
                 className="gap-2"
                 onSelect={() =>
-                  runAtCell(getSelectedCellElement(), () => {
-                    userEditChain(editor).addRowAfter().run();
-                  })
+                  editAtCell(selectedCellAddress, (tr, table, cell) =>
+                    insertTableRow(tr, table, cell.row + 1),
+                  )
                 }
               >
                 <IconArrowDown className={menuIconClass} />
@@ -1645,11 +1530,11 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               <DropdownMenuItem
                 className="gap-2 text-destructive focus:text-destructive"
                 onSelect={() =>
-                  runAtCell(getSelectedCellElement(), () => {
-                    if (selectedDimensions.rowCount <= 1) {
-                      userEditChain(editor).deleteTable().run();
+                  editAtCell(selectedCellAddress, (tr, table, cell) => {
+                    if (table.node.childCount <= 1) {
+                      deleteTableAt(tr, table);
                     } else {
-                      userEditChain(editor).deleteRow().run();
+                      deleteTableRow(tr, table, cell.row);
                     }
                   })
                 }
@@ -1696,6 +1581,10 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   data-table-edge="column"
                   data-table-id={tableId}
                   data-testid="table-column-handle"
+                  // Enter and Space; a pointer adds on release instead.
+                  onClick={(event) => {
+                    if (event.detail === 0) addColumnAtEnd(table);
+                  }}
                   onPointerDown={(event) =>
                     startHandlePointer("column", table, event)
                   }
@@ -1737,6 +1626,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   data-table-edge="row"
                   data-table-id={tableId}
                   data-testid="table-row-handle"
+                  onClick={(event) => {
+                    if (event.detail === 0) addRowAtEnd(table);
+                  }}
                   onPointerDown={(event) =>
                     startHandlePointer("row", table, event)
                   }

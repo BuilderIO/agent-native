@@ -37,7 +37,25 @@ export interface DragHandleOptions {
     },
   ) => void;
   handleDrop?: (data: unknown, context: DragHandleDropContext) => boolean;
+  /**
+   * Opens the app's own block menu in place of the built-in one. Returns a
+   * function that closes it, or null to open the built-in menu.
+   */
+  openMenu?: (request: DragHandleMenuRequest) => (() => void) | null;
 }
+
+export type DragHandleMenuRequest = {
+  view: EditorView;
+  /** The grip's box, or the block's when the grip has none. */
+  anchorRect: DOMRect;
+  /** The block as it is now, or null once it's gone. */
+  getBlock: () => { node: ProseMirrorNode; pos: number } | null;
+  duplicate: () => void;
+  remove: () => void;
+  insertBelow: () => void;
+  /** Tells the grip the menu closed. */
+  onClose: () => void;
+};
 
 const dragHandleKey = new PluginKey("dragHandle");
 const HOVER_SIDE_OUTSET_REM = 8;
@@ -400,8 +418,10 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     const getDragTransferData = this.options.getDragTransferData;
     const receiveDragTransferData = this.options.receiveDragTransferData;
     const handleDrop = this.options.handleDrop;
+    const openHostMenu = this.options.openMenu;
     let handle: HTMLElement | null = null;
     let menu: HTMLElement | null = null;
+    let hostMenu: { close: () => void } | null = null;
     let menuContext: DragHandleMenuContext | null = null;
     let currentBlock: HTMLElement | null = null;
     let dragStartPos: number | null = null;
@@ -497,7 +517,11 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       }
 
       const wrapperRect = wrapper.getBoundingClientRect();
-      const handleLeft = block.rect.left - wrapperRect.left - 24;
+      // A phone-width page leaves less than the grip's width beside the block.
+      const handleLeft = Math.max(
+        block.rect.left - wrapperRect.left - 24,
+        -wrapperRect.left,
+      );
 
       handle.style.display = "flex";
       handle.style.top = `${block.rect.top - wrapperRect.top + 2}px`;
@@ -574,6 +598,9 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     };
 
     const closeMenu = ({ hideGrip = false }: { hideGrip?: boolean } = {}) => {
+      const openHost = hostMenu;
+      hostMenu = null;
+      openHost?.close();
       menu?.remove();
       menu = null;
       menuContext = null;
@@ -591,11 +618,17 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       if (hideGrip) forceHideHandle();
     };
 
+    // An open app menu resolves its block on every render, so this reads no
+    // layout.
     const resolveMenuContext = (context: DragHandleMenuContext) => {
-      const latestBlock = getTopLevelBlocks(context.view).find(
-        (block) => block.node === context.sourceBlock,
-      );
-      const sourcePos = latestBlock?.pmPos ?? context.sourcePos;
+      let sourcePos = context.sourcePos;
+      let found = false;
+      context.view.state.doc.forEach((_node, offset) => {
+        if (!found && context.view.nodeDOM(offset) === context.sourceBlock) {
+          sourcePos = offset;
+          found = true;
+        }
+      });
       const sourceNode = context.view.state.doc.nodeAt(sourcePos);
       if (!sourceNode) return null;
 
@@ -760,6 +793,45 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
       closeMenu();
       selectBlockAt(resolved.view, resolved.sourcePos);
+
+      if (openHostMenu) {
+        const block: DragHandleMenuContext = {
+          view: resolved.view,
+          sourceBlock: resolved.sourceBlock,
+          sourcePos: resolved.sourcePos,
+          sourceNodeSize: resolved.sourceNodeSize,
+        };
+        const entry = { close: () => {} };
+        const close = openHostMenu({
+          view: resolved.view,
+          anchorRect,
+          getBlock: () => {
+            const latest = resolveMenuContext(block);
+            return latest
+              ? { node: latest.sourceNode, pos: latest.sourcePos }
+              : null;
+          },
+          duplicate: () => duplicateBlock(block),
+          remove: () => deleteBlock(block),
+          insertBelow: () => insertParagraphBelow(block),
+          onClose: () => {
+            if (hostMenu !== entry) return;
+            hostMenu = null;
+            closeMenu({ hideGrip: true });
+          },
+        });
+        if (close) {
+          entry.close = close;
+          hostMenu = entry;
+          handle?.setAttribute("aria-expanded", "true");
+          window.addEventListener("resize", handleMenuViewportChange);
+          window.addEventListener("scroll", handleMenuViewportChange, {
+            capture: true,
+          });
+          return;
+        }
+      }
+
       ensureDragHandleMenuStyles();
 
       const el = document.createElement("div");
@@ -995,7 +1067,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     };
 
     const hideHandle = () => {
-      if (menu) return;
+      if (menu || hostMenu) return;
       forceHideHandle();
     };
 
@@ -1054,7 +1126,14 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       buttons[nextIndex]?.focus({ preventScroll: true });
     }
 
-    function handleMenuViewportChange() {
+    function handleMenuViewportChange(event: Event) {
+      // A menu taller than the screen scrolls its own items.
+      if (
+        event.target instanceof Element &&
+        event.target.closest('[role="menu"]')
+      ) {
+        return;
+      }
       closeMenu({ hideGrip: true });
     }
 
@@ -1238,7 +1317,11 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             receiveDragTransferData,
             handleDrop,
             canHover: () =>
-              !!handle && !menu && !dragSession && editor.isEditable,
+              !!handle &&
+              !menu &&
+              !hostMenu &&
+              !dragSession &&
+              editor.isEditable,
             findHoverBlock: (clientX, clientY) =>
               findForgivingBlock(editorView, clientX, clientY),
             showHoverBlock: (block) => showHandleForBlock(editorView, block),

@@ -8,6 +8,7 @@ import {
   DRAG_HANDLE_UI_EVENT,
   DragHandle,
   dragPreviewTransform,
+  type DragHandleMenuRequest,
   type DragHandleOptions,
 } from "./DragHandle.js";
 
@@ -798,6 +799,124 @@ describe("DragHandle menu", () => {
     } finally {
       right.editor.destroy();
       left.editor.destroy();
+    }
+  });
+});
+
+describe("DragHandle app menu", () => {
+  it("opens the app's menu in place of the built-in one", () => {
+    const close = vi.fn();
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return close;
+      },
+    });
+    const uiEvents: unknown[] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) uiEvents.push(transaction.getMeta("uiEvent"));
+    });
+
+    try {
+      clickHandle(handle);
+
+      expect(document.querySelector(".an-rich-md-drag-menu")).toBeNull();
+      expect(requests).toHaveLength(1);
+      const [request] = requests;
+      expect(request.getBlock()?.node.textContent).toBe("First");
+      expect(request.anchorRect.top).toBe(2);
+      expect(handle.getAttribute("aria-expanded")).toBe("true");
+
+      // The grip stays on its block while the menu is open.
+      hoverAt(32, 52);
+      expect(handle.style.top).toBe("2px");
+
+      editor.commands.insertContentAt(0, "<p>Zero</p>");
+      expect(request.getBlock()?.pos).toBe(editor.state.doc.child(0).nodeSize);
+      request.duplicate();
+      expect(childText(editor, 1)).toBe("First");
+      expect(childText(editor, 2)).toBe("First");
+      expect(uiEvents.at(-1)).toBe(DRAG_HANDLE_UI_EVENT);
+
+      request.onClose();
+      expect(handle.getAttribute("aria-expanded")).toBe("false");
+      expect(handle.style.display).toBe("none");
+      expect(close).not.toHaveBeenCalled();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("opens the built-in menu when the app's declines", () => {
+    const { editor, handle } = mountEditor("<p>First</p>", {
+      openMenu: () => null,
+    });
+
+    try {
+      clickHandle(handle);
+      expect(getMenuItems().map((item) => item.textContent)).toEqual([
+        "Duplicate",
+        "Delete",
+        "Insert block below",
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("closes the app's menu when the page scrolls, but not when the menu does", () => {
+    const close = vi.fn();
+    const { editor, handle } = mountEditor("<p>First</p>", {
+      openMenu: () => close,
+    });
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    document.body.appendChild(menu);
+
+    try {
+      clickHandle(handle);
+      menu.dispatchEvent(new Event("scroll"));
+      expect(close).not.toHaveBeenCalled();
+
+      window.dispatchEvent(new Event("scroll"));
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(handle.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("closes the app's menu with the editor", () => {
+    const close = vi.fn();
+    const { editor, handle } = mountEditor("<p>First</p>", {
+      openMenu: () => close,
+    });
+
+    clickHandle(handle);
+    editor.destroy();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DragHandle grip position", () => {
+  it("keeps the grip on screen beside a block at the page's edge", () => {
+    const { editor, handle } = mountEditor(
+      "<p>First</p>",
+      {},
+      makeRect({ left: 0, top: 0, width: 390, height: 400 }),
+    );
+    setRect(
+      editor.view.nodeDOM(0) as HTMLElement,
+      makeRect({ left: 16, top: 0, width: 358, height: 24 }),
+    );
+
+    try {
+      hoverAt(40, 12);
+      expect(handle.style.display).toBe("flex");
+      expect(handle.style.left).toBe("0px");
+    } finally {
+      editor.destroy();
     }
   });
 });

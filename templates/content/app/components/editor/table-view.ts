@@ -27,11 +27,30 @@ export function readableTableMinWidth(colgroup: HTMLElement): number | null {
   return hasUnsizedColumn ? total : null;
 }
 
+// Fit to width keeps each sized column's share of the table, so the table
+// never outgrows the page. Tiptap writes the widths back in pixels on every
+// update and resize step; unsized columns share what the sized ones leave.
+export function fitTableColumns(colgroup: HTMLElement) {
+  const cols = Array.from(colgroup.children) as HTMLElement[];
+  if (cols.some((col) => col.style.width.endsWith("%"))) return;
+  const widths = cols.map((col) => Number.parseFloat(col.style.width) || 0);
+  if (widths.every((width) => width === 0)) return;
+  const total = widths.reduce(
+    (sum, width) => sum + (width || READABLE_TABLE_COLUMN_MIN_WIDTH),
+    0,
+  );
+  cols.forEach((col, index) => {
+    if (widths[index]) {
+      col.style.width = `${((widths[index] / total) * 100).toFixed(3)}%`;
+    }
+  });
+}
+
 export class ContentTableView extends TableView {
   // A column drag restyles the <col>s on every frame but writes the new width
   // to the document only on release, so the floor follows the <col>s.
   private readonly columnObserver = new MutationObserver(() =>
-    this.applyReadableMinWidth(),
+    this.applyColumnWidths(),
   );
 
   constructor(
@@ -41,7 +60,7 @@ export class ContentTableView extends TableView {
     HTMLAttributes: Record<string, unknown> = {},
   ) {
     super(node, cellMinWidth, view, HTMLAttributes);
-    this.applyReadableMinWidth();
+    this.applyColumnWidths();
     this.columnObserver.observe(this.colgroup, {
       attributeFilter: ["style"],
       childList: true,
@@ -51,7 +70,7 @@ export class ContentTableView extends TableView {
 
   override update(node: ProseMirrorNode) {
     if (!super.update(node)) return false;
-    this.applyReadableMinWidth();
+    this.applyColumnWidths();
     return true;
   }
 
@@ -59,8 +78,16 @@ export class ContentTableView extends TableView {
     this.columnObserver.disconnect();
   }
 
-  private applyReadableMinWidth() {
-    const minWidth = readableTableMinWidth(this.colgroup);
+  private applyColumnWidths() {
+    // An editable table's view is built without the table's attributes.
+    const fit = this.node.attrs.fitPageWidth === true;
+    if (fit) {
+      this.table.setAttribute("data-fit-page-width", "true");
+      fitTableColumns(this.colgroup);
+    } else {
+      this.table.removeAttribute("data-fit-page-width");
+    }
+    const minWidth = fit ? null : readableTableMinWidth(this.colgroup);
     if (minWidth === null) {
       this.table.style.removeProperty(READABLE_TABLE_MIN_WIDTH_PROPERTY);
     } else {
