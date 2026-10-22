@@ -524,6 +524,40 @@ describe("integrations plugin routes", () => {
       await app.hooks.callHook("close");
     });
 
+    it("reports a late continuation failure on close and permits a fresh service start", async () => {
+      vi.useFakeTimers();
+      let fail!: (error: Error) => void;
+      processDueA2AContinuationsMock.mockReturnValueOnce(
+        new Promise<void>((_resolve, reject) => {
+          fail = reject;
+        }),
+      );
+      const app = createLifecycleApp();
+      await createIntegrationsPlugin({ adapters: [adapter], callAgent: false })(
+        app,
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      const error = new Error("continuation failed during close");
+      const closing = app.hooks.callHook("close");
+      const failedClose = expect(closing).rejects.toMatchObject({
+        message: "Integration shutdown failed",
+        errors: [error],
+      });
+      fail(error);
+      await failedClose;
+
+      const restarted = createLifecycleApp();
+      await createIntegrationsPlugin({ adapters: [adapter], callAgent: false })(
+        restarted,
+      );
+      try {
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(processDueA2AContinuationsMock).toHaveBeenCalledTimes(2);
+      } finally {
+        await restarted.hooks.callHook("close");
+      }
+    });
+
     it("keeps recurring work running without clients and drains an admitted continuation on close", async () => {
       vi.useFakeTimers();
       let finish!: () => void;

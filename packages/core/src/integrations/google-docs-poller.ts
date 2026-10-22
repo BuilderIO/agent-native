@@ -69,6 +69,7 @@ export interface GoogleDocsPollerOptions {
 }
 
 let pollerJob: IntervalJobHandle | null = null;
+let pollerDrain: Promise<void> = Promise.resolve();
 let pollerStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeOptions: GoogleDocsPollerOptions | null = null;
 let pollerGeneration = 0;
@@ -81,7 +82,10 @@ function trackPending(pending: Promise<void>): Promise<void> {
   activeCallbacks.add(pending);
   void pending.then(
     () => activeCallbacks.delete(pending),
-    () => activeCallbacks.delete(pending),
+    () => {
+      // A child can fail before shutdown finishes waiting for its parent.
+      if (!closing) activeCallbacks.delete(pending);
+    },
   );
   return pending;
 }
@@ -1055,11 +1059,17 @@ function startPollLoop(
     }
   }
 
+  const generation = pollerGeneration;
   if (pollerStartTimer) clearTimeout(pollerStartTimer);
-  pollerStartTimer = setTimeout(() => {
-    pollerStartTimer = null;
-    pollerJob = startIntervalJob(poll, { intervalMs });
-  }, 5000);
+  pollerStartTimer = setTimeout(
+    trackCallback(async () => {
+      await pollerDrain;
+      if (closing || !isCurrentPollerGeneration(generation)) return;
+      pollerStartTimer = null;
+      pollerJob = startIntervalJob(poll, { intervalMs });
+    }),
+    5000,
+  );
 
   const email = getServiceAccountEmail();
   if (process.env.DEBUG) {
@@ -1077,7 +1087,10 @@ export async function stopGoogleDocsPoller(): Promise<void> {
     pollerStartTimer = null;
   }
   if (pollerJob) {
-    await pollerJob.stop();
+    // Disabling stops admission; shutdown still drains the in-flight poll.
+    pollerDrain = trackPending(pollerJob.stop()).catch((error: unknown) => {
+      console.error("[google-docs] Stopped poll failed:", error);
+    });
     pollerJob = null;
   }
   if (watchRenewalTimer) {
@@ -1120,10 +1133,12 @@ export function shutdownGoogleDocsPoller(): Promise<void> {
   watchCleanupTimers.clear();
   const draining = pollerJob?.stop();
   const pending = (async () => {
-    const results = await Promise.allSettled([...activeCallbacks, draining]);
+    const results = await Promise.allSettled([draining]);
     // An admitted poll may start a run while its own callback is draining.
     while (activeCallbacks.size) {
-      results.push(...(await Promise.allSettled([...activeCallbacks])));
+      const callbacks = [...activeCallbacks];
+      results.push(...(await Promise.allSettled(callbacks)));
+      for (const callback of callbacks) activeCallbacks.delete(callback);
     }
     pollerJob = null;
     const errors = results.filter((result) => result.status === "rejected");

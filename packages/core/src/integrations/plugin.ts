@@ -385,8 +385,12 @@ function startA2AContinuationRetryJob(
 async function stopA2AContinuationRetryJob(): Promise<void> {
   if (a2aContinuationStartupTimer) clearTimeout(a2aContinuationStartupTimer);
   a2aContinuationStartupTimer = null;
-  await a2aContinuationJob?.stop();
-  a2aContinuationJob = null;
+  const stoppingJob = a2aContinuationJob;
+  try {
+    await stoppingJob?.stop();
+  } finally {
+    if (a2aContinuationJob === stoppingJob) a2aContinuationJob = null;
+  }
 }
 
 export const BUILT_IN_INTEGRATION_ADAPTER_FACTORIES = Object.freeze([

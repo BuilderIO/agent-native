@@ -48,10 +48,12 @@ vi.mock("./remote-push-delivery.js", () => ({
 
 function deferred() {
   let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<void>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 beforeEach(() => {
@@ -126,6 +128,77 @@ describe("integration interval job", () => {
         expect(runOnce).toHaveBeenCalledTimes(1);
       } finally {
         gate.resolve();
+        await job.stop();
+      }
+    },
+  );
+
+  it.each([
+    { timedOut: false, reportsErrors: false },
+    { timedOut: false, reportsErrors: true },
+    { timedOut: true, reportsErrors: true },
+  ])(
+    "rejects every drain for a late failure without duplicate reporting ($timedOut, $reportsErrors)",
+    async ({ timedOut, reportsErrors }) => {
+      const gate = deferred();
+      const error = new Error("late attempt failed");
+      const onError = vi.fn();
+      const runOnce = vi.fn(() => gate.promise);
+      const job = startIntervalJob(runOnce, {
+        intervalMs: 1000,
+        timeoutMs: 2000,
+        onError: reportsErrors ? onError : undefined,
+      });
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        if (timedOut) await vi.advanceTimersByTimeAsync(2000);
+
+        const stopping = Promise.allSettled([job.stop(), job.stop()]);
+        gate.reject(error);
+        expect(await stopping).toEqual([
+          { status: "rejected", reason: error },
+          { status: "rejected", reason: error },
+        ]);
+        await expect(job.stop()).rejects.toBe(error);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(runOnce).toHaveBeenCalledTimes(1);
+        expect(onError).toHaveBeenCalledTimes(timedOut ? 1 : 0);
+        expect(onError).not.toHaveBeenCalledWith(error);
+      } finally {
+        gate.resolve();
+        await Promise.allSettled([job.stop()]);
+      }
+    },
+  );
+
+  it.each(["reason", "AbortError"])(
+    "resolves the drain for normal stop cancellation (%s)",
+    async (kind) => {
+      const onError = vi.fn();
+      const runOnce = vi.fn(
+        (signal: AbortSignal) =>
+          new Promise<void>((_resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () =>
+                reject(
+                  kind === "reason"
+                    ? signal.reason
+                    : new DOMException("Aborted", "AbortError"),
+                ),
+              { once: true },
+            );
+          }),
+      );
+      const job = startIntervalJob(runOnce, { intervalMs: 1000, onError });
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        await expect(job.stop()).resolves.toBeUndefined();
+        await expect(job.stop()).resolves.toBeUndefined();
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(runOnce).toHaveBeenCalledTimes(1);
+        expect(onError).not.toHaveBeenCalled();
+      } finally {
         await job.stop();
       }
     },
@@ -230,6 +303,26 @@ describe.each([
       await stop();
     }
   });
+});
+
+it("releases a failed pending-task drain so a later explicit start can run", async () => {
+  const gate = deferred();
+  const error = new Error("pending-task initialization failed");
+  mocks.ensurePendingTasksTable.mockReturnValueOnce(gate.promise);
+  startPendingTasksRetryJob();
+  await vi.advanceTimersByTimeAsync(10_000);
+  const stopping = Promise.allSettled([
+    stopPendingTasksRetryJob(),
+    stopPendingTasksRetryJob(),
+  ]);
+  gate.reject(error);
+  expect(await stopping).toEqual([
+    { status: "rejected", reason: error },
+    { status: "rejected", reason: error },
+  ]);
+  startPendingTasksRetryJob();
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(mocks.ensurePendingTasksTable).toHaveBeenCalledTimes(2);
 });
 
 it("retains the pending-task webhook URL through drain, then clears it", async () => {

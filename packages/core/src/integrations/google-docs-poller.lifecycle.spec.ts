@@ -47,6 +47,7 @@ vi.mock("../agent/run-manager.js", () => ({ startRun: mocks.startRun }));
 import {
   handlePushNotification,
   startGoogleDocsPoller,
+  stopGoogleDocsPoller,
   shutdownGoogleDocsPoller,
 } from "./google-docs-poller.js";
 
@@ -132,6 +133,61 @@ describe("Google Docs service lifecycle", () => {
     }
   });
 
+  it.each([false, true])(
+    "disables without waiting for a stalled poll and fences restart (shutdown=%s)",
+    async (shutdown) => {
+      mocks.config.mockImplementation(async (_platform, id) => ({
+        configData:
+          id === "page-token" ? { pageToken: "cursor" } : { enabled: true },
+      }));
+      const changes = deferred<any>();
+      mocks.changes.mockReturnValueOnce(changes.promise);
+      await startGoogleDocsPoller(options);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mocks.changes).toHaveBeenCalledOnce();
+
+      let disabled = false;
+      const disabling = stopGoogleDocsPoller().then(() => {
+        disabled = true;
+      });
+      let closing: Promise<void> | undefined;
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(disabled).toBe(true);
+        await disabling;
+        await startGoogleDocsPoller(options);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(mocks.changes).toHaveBeenCalledOnce();
+        // A second toggle must supersede the restart waiting on the old poll.
+        await stopGoogleDocsPoller();
+        await startGoogleDocsPoller(options);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(mocks.changes).toHaveBeenCalledOnce();
+
+        let closed = false;
+        if (shutdown) {
+          closing = shutdownGoogleDocsPoller().then(() => {
+            closed = true;
+          });
+          await vi.advanceTimersByTimeAsync(0);
+          expect(closed).toBe(false);
+        }
+        changes.resolve({ changes: [], nextPageToken: "next" });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.changes).toHaveBeenCalledTimes(shutdown ? 1 : 2);
+        if (shutdown) {
+          await closing;
+          expect(closed).toBe(true);
+          expect(vi.getTimerCount()).toBe(0);
+        }
+      } finally {
+        changes.resolve({ changes: [], nextPageToken: "next" });
+        await disabling;
+        await closing;
+      }
+    },
+  );
+
   it("cancels the pending first poll without reading configuration again", async () => {
     await startGoogleDocsPoller(options);
     await shutdownGoogleDocsPoller();
@@ -195,6 +251,57 @@ describe("Google Docs service lifecycle", () => {
       poll.resolve({ configData: { enabled: false } });
       finalized.resolve();
       await closing;
+    }
+  });
+
+  it("retains a late child failure while its parent poll is still draining", async () => {
+    await startGoogleDocsPoller(options);
+    const changes = deferred<any>();
+    const secondDocument = deferred<any>();
+    const finalized = deferred();
+    mocks.config.mockResolvedValueOnce({ configData: { enabled: true } });
+    mocks.changes.mockReturnValueOnce(changes.promise);
+    mocks.comments
+      .mockResolvedValueOnce([
+        {
+          id: "late-failed-child",
+          content: "@agent hello",
+          author: { displayName: "Test" },
+        },
+      ])
+      .mockReturnValueOnce(secondDocument.promise);
+    mocks.startRun.mockReturnValue({ finalized: finalized.promise });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.changes).toHaveBeenCalledOnce();
+    const closing = shutdownGoogleDocsPoller();
+    const outcome = Promise.allSettled([closing]);
+    try {
+      changes.resolve({
+        changes: [{ fileId: "child-document" }, { fileId: "blocked-document" }],
+        nextPageToken: "next",
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.startRun).toHaveBeenCalledOnce();
+      expect(mocks.comments).toHaveBeenCalledTimes(2);
+      const error = new Error("child failed before parent settled");
+      finalized.reject(error);
+      await vi.advanceTimersByTimeAsync(0);
+      secondDocument.resolve([]);
+      expect(await outcome).toEqual([
+        {
+          status: "rejected",
+          reason: expect.objectContaining({
+            message: "Google Docs shutdown failed",
+            errors: [error],
+          }),
+        },
+      ]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      changes.resolve({ changes: [], nextPageToken: "next" });
+      secondDocument.resolve([]);
+      finalized.resolve();
+      await outcome;
     }
   });
 

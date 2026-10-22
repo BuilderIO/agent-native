@@ -12,19 +12,29 @@ export function startIntervalJob(
   options: IntervalJobOptions,
 ): IntervalJobHandle {
   let stopped = false;
-  let drained = Promise.resolve();
+  let drained: Promise<{ error: unknown } | undefined> =
+    Promise.resolve(undefined);
   const job = startServerIntervalJob(async (signal) => {
     if (stopped) return;
 
-    let finish!: () => void;
-    drained = new Promise<void>((resolve) => {
+    let finish!: (failure?: { error: unknown }) => void;
+    drained = new Promise((resolve) => {
       finish = resolve;
     });
+    let failure: { error: unknown } | undefined;
     try {
       await runOnce(signal);
+    } catch (error) {
+      if (!stopped) throw error;
+      if (
+        error !== signal.reason &&
+        !(error instanceof Error && error.name === "AbortError")
+      ) {
+        failure = { error };
+      }
     } finally {
-      // Drain tracks callback settlement; the interval job owns error reporting.
-      finish();
+      // The poll engine suppresses post-stop errors; stop() must expose them.
+      finish(failure);
     }
   }, options);
 
@@ -34,7 +44,9 @@ export function startIntervalJob(
         stopped = true;
         job.stop();
       }
-      return drained;
+      return drained.then((failure) => {
+        if (failure) throw failure.error;
+      });
     },
   };
 }

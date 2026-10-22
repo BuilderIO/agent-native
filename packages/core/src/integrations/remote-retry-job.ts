@@ -48,6 +48,9 @@ export async function stopRemoteCommandsRetryJob(): Promise<void> {
     startupTimer = null;
   }
   const stoppingJob = job;
-  if (stoppingJob) await stoppingJob.stop();
-  if (job === stoppingJob) job = null;
+  try {
+    if (stoppingJob) await stoppingJob.stop();
+  } finally {
+    if (job === stoppingJob) job = null;
+  }
 }
