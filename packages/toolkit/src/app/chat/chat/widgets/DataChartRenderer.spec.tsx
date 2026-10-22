@@ -54,6 +54,7 @@ describe("DataChartRenderer theme colors", () => {
     expect(markup).toContain('fill="hsl(var(--chart-2, 199 89% 48%))"');
     expect(markup).toContain('fill="hsl(var(--chart-3, 151 55% 42%))"');
     expect(markup).toContain('fill="hsl(var(--chart-4, 35 92% 50%))"');
+    expect(markup).toContain('stroke="hsl(var(--chart-grid, var(--border)))"');
   });
 
   it("uses the requested chart content height", () => {

@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { DATA_WIDGET_MAX_CHART_POINTS } from "@agent-native/core/data-widgets";
 import { lazy, Suspense, useEffect, useState } from "react";
 
 import type {
@@ -27,6 +28,8 @@ export function DataChartWidget({
   const [mounted, setMounted] = useState(false);
   const contentHeight = chart.contentHeight;
   const contentPadding = chart.contentPadding ?? 0;
+  const hasOmittedRows =
+    chart.sampled || chart.data.length > DATA_WIDGET_MAX_CHART_POINTS;
 
   useEffect(() => {
     setMounted(true);
@@ -69,6 +72,11 @@ export function DataChartWidget({
           <LazyDataChartRenderer chart={chart} />
         </Suspense>
       )}
+      {hasOmittedRows ? (
+        <p className="px-3 pb-3 text-xs text-muted-foreground" role="status">
+          {t("agentChat.widget.chartRowsOmitted")}
+        </p>
+      ) : null}
       <DataWidgetSourceChips sources={display?.sources ?? []} />
     </div>
   );

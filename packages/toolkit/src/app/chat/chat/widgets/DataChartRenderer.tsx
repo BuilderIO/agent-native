@@ -245,7 +245,7 @@ function ChartBody({
               x2={tick.x}
               y1={margin.top}
               y2={HEIGHT - margin.bottom}
-              stroke="hsl(var(--border))"
+              stroke="hsl(var(--chart-grid, var(--border)))"
               strokeDasharray={tickInterval === undefined ? "3 3" : undefined}
             />
             <text
@@ -267,7 +267,7 @@ function ChartBody({
               x2={WIDTH - margin.right}
               y1={tick.y}
               y2={tick.y}
-              stroke="hsl(var(--border))"
+              stroke="hsl(var(--chart-grid, var(--border)))"
               strokeDasharray={tickInterval === undefined ? "3 3" : undefined}
             />
             <text
@@ -289,7 +289,7 @@ function ChartBody({
         x2={isHorizontalBar ? zeroX : WIDTH - margin.right}
         y1={isHorizontalBar ? margin.top : zeroY}
         y2={isHorizontalBar ? HEIGHT - margin.bottom : zeroY}
-        stroke="hsl(var(--border))"
+        stroke="hsl(var(--chart-grid, var(--border)))"
       />
       {chart.data.map((row, index) =>
         isHorizontalBar ? (

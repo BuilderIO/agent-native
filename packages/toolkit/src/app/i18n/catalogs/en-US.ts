@@ -1514,6 +1514,8 @@ const messages = {
   "tool.workedFor": "Worked for {{duration}}",
   "widget.chart": "Chart",
   "widget.chartActions": "Chart actions",
+  "widget.chartRowsOmitted":
+    "Some chart rows are not shown because the data exceeds the display limit.",
   "widget.dataSources": "Data sources",
   "widget.tableActions": "Table actions",
   "widget.dataChart": "Data chart",

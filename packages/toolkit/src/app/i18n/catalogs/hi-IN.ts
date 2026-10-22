@@ -1492,6 +1492,8 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.workedFor": "{{duration}} तक काम किया",
   "widget.chart": "चार्ट",
   "widget.chartActions": "चार्ट कार्रवाइयाँ",
+  "widget.chartRowsOmitted":
+    "डेटा प्रदर्शन सीमा से अधिक है, इसलिए चार्ट की कुछ पंक्तियाँ नहीं दिखाई गई हैं।",
   "widget.dataSources": "डेटा स्रोत",
   "widget.tableActions": "टेबल कार्रवाइयाँ",
   "widget.dataChart": "डेटा चार्ट",

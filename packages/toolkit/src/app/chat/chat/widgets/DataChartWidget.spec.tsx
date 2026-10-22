@@ -71,6 +71,8 @@ async function renderWidget(
       href: "javascript:alert(1)",
     },
   ],
+  sampled = false,
+  chartDataCount = 1,
 ) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -89,7 +91,11 @@ async function renderWidget(
             title: "Responses by day",
             xKey: "day",
             series: [{ key: "count", label: "Responses" }],
-            data: [{ day: "Mon", count: 2 }],
+            data: Array.from({ length: chartDataCount }, (_, index) => ({
+              day: `Day ${index}`,
+              count: index,
+            })),
+            sampled,
             actions: chartActions,
           }}
           display={{
@@ -176,6 +182,28 @@ describe("DataChartWidget display contract", () => {
 
     expect(window.location.pathname).toBe("/mounted/reports/1");
     expect(window.location.search).toBe("?tab=chart");
+  });
+
+  it("announces omitted chart rows and stays quiet for complete data", async () => {
+    const cappedContainer = await renderWidget(
+      undefined,
+      undefined,
+      false,
+      201,
+    );
+    const cappedDisclosure = cappedContainer.querySelector('[role="status"]');
+
+    expect(cappedDisclosure?.textContent).toBe(
+      "Some chart rows are not shown because the data exceeds the display limit.",
+    );
+
+    const sampledContainer = await renderWidget(undefined, undefined, true);
+    expect(sampledContainer.querySelector('[role="status"]')?.textContent).toBe(
+      "Some chart rows are not shown because the data exceeds the display limit.",
+    );
+
+    const completeContainer = await renderWidget();
+    expect(completeContainer.querySelector('[role="status"]')).toBeNull();
   });
 
   it("opens overflow links and copies the requested text", async () => {
