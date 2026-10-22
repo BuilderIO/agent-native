@@ -89,6 +89,7 @@ describe("BlockActionsMenu", () => {
         }
         return { node: target.state.doc.child(index), pos };
       },
+      dispatch: (tr) => target.view.dispatch(tr),
       duplicate: vi.fn(),
       remove: vi.fn(),
       insertBelow: vi.fn(),

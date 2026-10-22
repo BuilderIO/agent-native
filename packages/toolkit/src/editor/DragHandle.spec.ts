@@ -1020,10 +1020,73 @@ describe("DragHandle app menu", () => {
     }
   });
 
-  it("acts on the copy whose menu is open, not the block it copies", () => {
-    const { deliver, editor, handle, peer, requests } = mountCollaborative(
-      "<h1>First</h1><p>Second</p>",
+  it("lets go of its block once this editor moves it outside the menu", () => {
+    const { close, editor, handle, requests } = mountCollaborative(
+      "<p>First</p><p>Second</p><p>Third</p>",
     );
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+
+      const first = editor.state.doc.child(0);
+      const tr = editor.state.tr.delete(0, first.nodeSize);
+      editor.view.dispatch(tr.insert(tr.doc.content.size, first));
+
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      expect(editor.state.doc.textContent).toBe("SecondThirdFirst");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("lets go of a block the document has no element for once the document loads", () => {
+    const local = new Y.Doc();
+    const requests: DragHandleMenuRequest[] = [];
+    const close = vi.fn();
+    const starterKit = StarterKit.configure({ undoRedo: false });
+    const { editor, handle } = mountEditor(
+      "",
+      {
+        openMenu: (request) => {
+          requests.push(request);
+          return close;
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      [starterKit, Collaboration.configure({ document: local })],
+    );
+    const saved = new Y.Doc();
+    const loader = new Editor({
+      extensions: [starterKit, Collaboration.configure({ document: saved })],
+    });
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      expect(request.getBlock()?.node.textContent).toBe("");
+
+      loader.commands.setContent("<p>First</p><p>Second</p>");
+      Y.applyUpdate(local, Y.encodeStateAsUpdate(saved));
+
+      expect(childText(editor, 0)).toBe("First");
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      expect(editor.state.doc.textContent).toBe("FirstSecond");
+    } finally {
+      editor.destroy();
+      loader.destroy();
+    }
+  });
+
+  it("acts on the copy whose menu is open, not the block it copies", () => {
+    const { close, deliver, editor, handle, peer, requests } =
+      mountCollaborative("<h1>First</h1><p>Second</p>");
 
     try {
       clickHandle(handle);
@@ -1042,10 +1105,11 @@ describe("DragHandle app menu", () => {
       const request = requests[1];
 
       expect(request.getBlock()?.pos).toBe(copyPos);
-      editor.view.dispatch(
+      request.dispatch(
         editor.state.tr.setNodeMarkup(copyPos, undefined, { level: 2 }),
       );
       expect(request.getBlock()?.node.attrs.level).toBe(2);
+      expect(close).not.toHaveBeenCalled();
       deliver();
       expect(peer.state.doc.child(0).attrs.level).toBe(1);
       expect(peer.state.doc.child(1).attrs.level).toBe(2);

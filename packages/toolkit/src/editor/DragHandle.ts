@@ -10,7 +10,6 @@ import {
 import { type EditorView } from "@tiptap/pm/view";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import type {
-  Transaction as YTransaction,
   XmlElement as YXmlElement,
   XmlFragment as YXmlFragment,
   XmlText as YXmlText,
@@ -55,8 +54,14 @@ export type DragHandleMenuRequest = {
   view: EditorView;
   /** The grip's box, or the block's when the grip has none. */
   anchorRect: DOMRect;
-  /** The block as it is now, or null once it's gone. */
+  /**
+   * The block as it is now, or null once it's gone. In a collaborative
+   * editor the menu lets go of its block once anything but `dispatch` changes
+   * it, and closes.
+   */
   getBlock: () => { node: ProseMirrorNode; pos: number } | null;
+  /** Applies the menu's own edit to its block. */
+  dispatch: (tr: Transaction) => void;
   duplicate: () => void;
   remove: () => void;
   insertBelow: () => void;
@@ -148,8 +153,9 @@ type DragHandleMenuContext = {
 };
 
 type YBlock = {
-  element: YXmlElement | YXmlText;
-  /** Set once anything but this editor changes the block. */
+  /** Null while the block has no element yet. */
+  element: YXmlElement | YXmlText | null;
+  /** Set once anything but the menu changes the block. */
   changedElsewhere: boolean;
   unwatch: () => void;
 };
@@ -167,37 +173,51 @@ function getYBinding(view: EditorView): YBinding | null {
 // place among the document's elements. A node can't name it: a duplicate
 // shares its node with the original, and a peer's update draws every block
 // anew, after which ProseMirror can give a deleted block's DOM to the next.
-// Nor can the element alone once a peer changes it: y-tiptap moves a peer's
-// blocks by rewriting elements in place, so the element may now hold another
-// block, and the menu lets go of it.
+// Nor can the element alone once something else changes it: y-tiptap writes a
+// move, whether a peer's or a reload of the saved page, by rewriting elements
+// in place, so the element may now hold another block. The menu lets go of
+// its block on any change but its own.
+//
+// A block with no element yet, like a new page's empty first line, is known
+// by its DOM until the document changes at all: a loading document can give
+// its place to another block.
 function watchYBlock(
   view: EditorView,
   pos: number,
+  isMenuEdit: () => boolean,
   onChangedElsewhere: () => void,
 ): YBlock | undefined {
   const binding = getYBinding(view);
+  if (!binding) return undefined;
   const index = view.state.doc.resolve(pos).index();
-  const element = binding?.type.get(index);
-  if (!element || binding?.mapping.get(element) !== view.state.doc.child(index))
-    return undefined;
-  const observe = (_events: unknown, transaction: YTransaction) => {
-    if (transaction.origin === ySyncPluginKey || block.changedElsewhere) return;
+  const candidate = binding.type.get(index);
+  const element =
+    candidate && binding.mapping.get(candidate) === view.state.doc.child(index)
+      ? candidate
+      : null;
+  const watched = element ?? binding.type;
+  const observe = () => {
+    if (isMenuEdit() || block.changedElsewhere) return;
     block.changedElsewhere = true;
     onChangedElsewhere();
   };
   const block: YBlock = {
     element,
     changedElsewhere: false,
-    unwatch: () => element.unobserveDeep(observe),
+    unwatch: () => watched.unobserveDeep(observe),
   };
-  element.observeDeep(observe);
+  watched.observeDeep(observe);
   return block;
 }
 
-/** The block's index, or -1 once it is gone or a peer has changed it. */
+/**
+ * The block's index, -1 once it is gone or something else changed it, or
+ * null while it is known by its DOM.
+ */
 function findYBlockIndex(view: EditorView, block: YBlock) {
   const binding = getYBinding(view);
   if (!binding || block.changedElsewhere) return -1;
+  if (!block.element) return null;
   const index = binding.type.toArray().indexOf(block.element);
   return index !== -1 &&
     binding.mapping.get(block.element) === view.state.doc.maybeChild(index)
@@ -491,6 +511,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     let hostMenu: { close: () => void } | null = null;
     let menuContext: DragHandleMenuContext | null = null;
     let menuYBlock: YBlock | null = null;
+    let menuEditing = false;
     let currentBlock: HTMLElement | null = null;
     let dragStartPos: number | null = null;
     let dragSession: DragSession | null = null;
@@ -869,18 +890,21 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       if (!resolved) return;
 
       closeMenu();
+      const yBlock = watchYBlock(
+        resolved.view,
+        resolved.sourcePos,
+        () => menuEditing,
+        () => closeMenu({ hideGrip: true }),
+      );
+      menuYBlock = yBlock ?? null;
       selectBlockAt(resolved.view, resolved.sourcePos);
 
-      menuYBlock =
-        watchYBlock(resolved.view, resolved.sourcePos, () =>
-          closeMenu({ hideGrip: true }),
-        ) ?? null;
       const block: DragHandleMenuContext = {
         view: resolved.view,
         sourceBlock: resolved.sourceBlock,
         sourcePos: resolved.sourcePos,
         sourceNodeSize: resolved.sourceNodeSize,
-        yBlock: menuYBlock ?? undefined,
+        yBlock,
       };
 
       if (openHostMenu) {
@@ -893,6 +917,14 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             return latest
               ? { node: latest.sourceNode, pos: latest.sourcePos }
               : null;
+          },
+          dispatch: (tr) => {
+            menuEditing = true;
+            try {
+              resolved.view.dispatch(tr);
+            } finally {
+              menuEditing = false;
+            }
           },
           duplicate: () => duplicateBlock(block),
           remove: () => deleteBlock(block),

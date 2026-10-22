@@ -85,7 +85,8 @@ export function BlockActionsMenu({
   }, [editor]);
 
   // The switches show the table as it is, and the menu goes when its block
-  // does. The drag handle closes it when a collaborator changes the block.
+  // does. The drag handle closes it when anything but the menu changes the
+  // block.
   useEffect(() => {
     if (!request) return;
     const redraw = () => {
@@ -116,7 +117,7 @@ export function BlockActionsMenu({
     if (latest?.node.type.name !== "table") return;
     const tr = request.view.state.tr;
     edit(tr, latest);
-    request.view.dispatch(tr.setMeta(LOCAL_FILE_USER_EDIT_META, true));
+    request.dispatch(tr.setMeta(LOCAL_FILE_USER_EDIT_META, true));
   };
 
   // The grip selected the whole block, which typing would replace, so Escape
