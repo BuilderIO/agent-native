@@ -103,6 +103,13 @@ const SUPPORTED_PROPERTIES = new Set([
 ]);
 
 const CSS_IDENTIFIER = /^-?[_a-zA-Z][_a-zA-Z0-9-]*$/;
+const CSS_WIDE_KEYWORDS = new Set([
+  "inherit",
+  "initial",
+  "revert",
+  "revert-layer",
+  "unset",
+]);
 const RESERVED_ANIMATION_NAMES = new Set([
   "default",
   "inherit",
@@ -668,7 +675,7 @@ function resolveTransitionTargets(
           return ["*"];
         }
         targetNodeIds.add(resolution.targetNodeId);
-      } else if (resolution.status !== "unresolved") {
+      } else {
         return ["*"];
       }
     } catch {
@@ -840,15 +847,30 @@ function transitionDeclarationsConflict(
   animatedProperties: ReadonlySet<string>,
 ): boolean {
   let effectiveProperties: string[] | null = null;
+  let effectiveImportant = false;
   let hasTransitionBehavior = false;
   for (const declaration of declarations) {
     const property = normalizedTransitionProperty(declaration.prop);
     if (property === "transition") {
       hasTransitionBehavior = true;
-      effectiveProperties = transitionPropertyList(declaration.value, true);
+      if (
+        effectiveProperties === null ||
+        declaration.important ||
+        !effectiveImportant
+      ) {
+        effectiveProperties = transitionPropertyList(declaration.value, true);
+        effectiveImportant = declaration.important;
+      }
     } else if (property === "transition-property") {
       hasTransitionBehavior = true;
-      effectiveProperties = transitionPropertyList(declaration.value, false);
+      if (
+        effectiveProperties === null ||
+        declaration.important ||
+        !effectiveImportant
+      ) {
+        effectiveProperties = transitionPropertyList(declaration.value, false);
+        effectiveImportant = declaration.important;
+      }
     } else if (property.startsWith("transition-")) {
       hasTransitionBehavior = true;
     }
@@ -870,6 +892,7 @@ function transitionPropertyList(value: string, shorthand: boolean): string[] {
         const property = normalizedTransitionProperty(part.trim());
         if (property === "none") return "none";
         if (property === "all") return "*";
+        if (CSS_WIDE_KEYWORDS.has(property)) return "*";
         return CSS_IDENTIFIER.test(property) || property.startsWith("--")
           ? property
           : "*";

@@ -949,6 +949,46 @@ function Card(style = { animationName: "fade" }) {
     ).toMatchObject({ status: "valid", targetNodeIds: ["hero-title"] });
   });
 
+  it.each([
+    ["transition", "transition: opacity 1s"],
+    ["animation", "animation: hero-fade 1s"],
+  ])("rejects %s declarations in root CSS strings", (_label, cssText) => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" css={${JSON.stringify(cssText)}}>Hello</h1>`,
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+  });
+
+  it("allows a root CSS string with static non-motion declarations", () => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" css={"color: red"}>Hello</h1>',
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+    expect(apply(authored).source).toContain('css={"color: red"}');
+  });
+
   it("rejects Motion declarations in aliases under plain tag selector keys", () => {
     const authored = source
       .replace(
@@ -1413,6 +1453,20 @@ function Card() {
       status: "invalid",
       error: { code: "unsupported-authored-motion" },
     });
+  });
+
+  it("reads an existing managed timeline when CSS imports need no inline animation import", () => {
+    const managed = apply(source).source.replace(
+      'import React from "react";',
+      'import React from "react";\nimport styles from "./Card.module.css";',
+    );
+
+    expect(readMotionReactSource(managed, "src/Card.tsx")).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+      document: { tracks: [{ property: "opacity" }] },
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
   });
 
   it("preserves audio clips in managed source when React motion is edited", () => {

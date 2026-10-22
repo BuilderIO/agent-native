@@ -502,6 +502,7 @@ export function readMotionReactSource(
       modulePath,
       managedStyles,
       managedTargetNodeIds,
+      { allowManagedMotionWithUnresolvedStylesheets: true },
     );
     if (authoredMotion.document) {
       try {
@@ -767,8 +768,10 @@ function readAuthoredReactMotion(
   modulePath: string | undefined,
   managedStyles: readonly ManagedStyle[],
   managedTargetNodeIds: readonly string[] = [],
+  options: { allowManagedMotionWithUnresolvedStylesheets?: boolean } = {},
 ): AuthoredReactMotion {
   if (
+    !options.allowManagedMotionWithUnresolvedStylesheets &&
     managedTargetNodeIds.length > 0 &&
     hasUnresolvedReactStylesheet(sourceFile)
   ) {
@@ -1136,7 +1139,7 @@ function assertNoUnsupportedReactStylePropAnimations(
       const inspection = expression
         ? attributeName === "style"
           ? inspectReactStyleExpression(expression, sourceFile, new Set())
-          : inspectReactCssExpression(expression, sourceFile, new Set())
+          : inspectReactCssExpression(expression, sourceFile, new Set(), true)
         : "unknown";
       if (inspection !== "safe") {
         throw new MotionReactSourceError(
@@ -1206,6 +1209,7 @@ function inspectReactCssExpression(
   expression: TypeScript.Expression,
   sourceFile: TypeScript.SourceFile,
   resolving: Set<string>,
+  inspectRootCssString = false,
 ): ReactStyleInspection {
   while (
     ts.isParenthesizedExpression(expression) ||
@@ -1216,6 +1220,9 @@ function inspectReactCssExpression(
     expression = expression.expression;
   }
 
+  if (inspectRootCssString && isReactCssStringLiteral(expression)) {
+    return inspectReactCssString(expression.text);
+  }
   if (isStaticReactCssValueExpression(expression)) return "safe";
   if (ts.isObjectLiteralExpression(expression)) {
     for (const property of expression.properties) {
@@ -1255,6 +1262,7 @@ function inspectReactCssExpression(
     resolved.expression,
     sourceFile,
     resolving,
+    inspectRootCssString,
   );
   resolving.delete(declarationKey);
   return result;
@@ -1407,6 +1415,75 @@ function isReactMotionStylePropName(name: string): boolean {
       normalized,
     )
   );
+}
+
+function isReactCssStringLiteral(
+  expression: TypeScript.Expression,
+): expression is
+  | TypeScript.StringLiteral
+  | TypeScript.NoSubstitutionTemplateLiteral {
+  return (
+    ts.isStringLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression)
+  );
+}
+
+function inspectReactCssString(css: string): ReactStyleInspection {
+  const inspected = maskReactCssCommentsAndStrings(css);
+  if (inspected.includes("\\")) return "unknown";
+  const declarations = inspected.matchAll(/(?:^|[;{}\s])\s*([\w-]+)\s*:/g);
+  let foundDeclaration = false;
+  for (const declaration of declarations) {
+    foundDeclaration = true;
+    if (isReactMotionStylePropName(declaration[1]!)) return "motion";
+  }
+  if (foundDeclaration || inspected.trim().length === 0) return "safe";
+  return "unknown";
+}
+
+function maskReactCssCommentsAndStrings(css: string): string {
+  let result = "";
+  let quote: "'" | '"' | null = null;
+  for (let index = 0; index < css.length; index++) {
+    const character = css[index]!;
+    if (quote) {
+      if (character === "\\") {
+        result += " ";
+        const escaped = css[index + 1];
+        if (escaped !== undefined) {
+          result += escaped === "\n" ? "\n" : " ";
+          index++;
+        }
+      } else {
+        if (character === quote) quote = null;
+        result += character === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+    if (character === "/" && css[index + 1] === "*") {
+      result += "  ";
+      index++;
+      while (
+        index + 1 < css.length &&
+        !(css[index] === "*" && css[index + 1] === "/")
+      ) {
+        index++;
+        result += css[index] === "\n" ? "\n" : " ";
+      }
+      if (index + 1 < css.length) {
+        result += "  ";
+        index++;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      result += " ";
+      continue;
+    }
+    result += character;
+  }
+  return result;
 }
 
 function isStaticReactCssValueExpression(
