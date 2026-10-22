@@ -58,7 +58,7 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
     instructions:
-      'Build with create-form, then patch-form-fields for individual field changes and update-form for title/settings; publish with update-form { status: "published" }. Read a form with get-form, the workspace with list-forms. Analyze with response-insights (chart/table/combined) and list-responses / export-responses; never invent SQL.',
+      "Build a complete new form with create-form. For edits, publishing, existing forms, response analysis, or exports, use ask_app; include the form ID when known and describe the requested outcome. Never invent SQL or response data.",
   },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   nativeActionsInDev: true,
