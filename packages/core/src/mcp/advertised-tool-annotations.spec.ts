@@ -74,6 +74,8 @@ const MCP_SERVER_TOOLS = new Set([
   "create_embed_session",
 ]);
 const RUNTIME_TOOLS = new Set([
+  "create_workspace_app",
+  "list_templates",
   "core-send-email",
   "fetch",
   "web-request",
