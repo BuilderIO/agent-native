@@ -200,6 +200,9 @@ describe("HTML Motion source adapter", () => {
       ':style="style"',
       'x-bind:style="style"',
       'v-bind:style="style"',
+      'x-show="visible"',
+      ':class="{ active: visible }"',
+      'x-bind:class="classes"',
     ]) {
       const source = html.replace(
         '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
@@ -608,6 +611,51 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it.each([
+    [
+      "Array.from map callbacks",
+      `onclick="Array.from(document.querySelectorAll('#hero-title'), el => { el.style.opacity = '0' })"`,
+    ],
+    [
+      "for-of loops",
+      `onclick="for (const el of document.querySelectorAll('#hero-title')) { el.style.opacity = '0' }"`,
+    ],
+  ])(
+    "rejects querySelectorAll %s that mutate a Motion target",
+    (_label, handler) => {
+      const source = html
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">',
+          '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+        )
+        .replace("</main>", `<button ${handler}>Toggle</button>\n  </main>`);
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+
+      const generated = apply(
+        html.replace(
+          '<h1 data-agent-native-node-id="hero-title">',
+          '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+        ),
+      ).source.replace(
+        "</main>",
+        `<button ${handler}>Toggle</button>\n  </main>`,
+      );
+      expect(readMotionHtmlSource(generated)).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-target" },
+      });
+    },
+  );
+
   it("allows a sibling selector that resolves to a different stable HTML target", () => {
     const source = html
       .replace(
@@ -898,6 +946,42 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it("rejects executable scripts in nested iframe srcdoc documents", () => {
+    const escapeAttribute = (value: string) =>
+      value
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    const script =
+      "<script>parent.parent.document.body.classList.add('active')</script>";
+    const nestedIframe = `<iframe srcdoc="${escapeAttribute(script)}"></iframe>`;
+    const iframe = `<iframe srcdoc="${escapeAttribute(nestedIframe)}"></iframe>`;
+    const source = html.replace("</body>", `${iframe}\n</body>`);
+    const generated = apply(html).source.replace(
+      "</body>",
+      `${iframe}\n</body>`,
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining("nested frame"),
+    });
+    expect(() => apply(source)).toThrowError(
+      expect.objectContaining({ code: "unsupported-target" }),
+    );
+    expect(readMotionHtmlSource(generated)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
+
   it("removes managed Motion source while preserving unrelated executable scripts", () => {
     const written = apply(html).source;
     const script = '<script src="./site-behavior.js"></script>';
@@ -989,8 +1073,11 @@ describe("HTML Motion source adapter", () => {
       `@click="document.querySelector('[data-agent-native-node-id=hero-title]').style.setProperty('transition', 'opacity 1s')"`,
       "@click",
     ],
+    ["Alpine ancestor show directive", `x-show="visible"`, "x-show"],
+    ["Alpine ancestor class shorthand binding", `:class="classes"`, ":class"],
+    ["Alpine ancestor class binding", `x-bind:class="classes"`, "x-bind:class"],
   ])(
-    "rejects Motion target reads and writes when an ordinary ancestor has a %s",
+    "rejects Motion targets when an ordinary ancestor uses %s",
     (_label, attribute, expectedAttribute) => {
       const source = html.replace(
         '<main class="card">',

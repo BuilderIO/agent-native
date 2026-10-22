@@ -403,6 +403,12 @@ function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
     ((normalized === "x-data" || normalized === "v-scope") &&
       !isStaticRuntimeScopeData(value)) ||
     isRuntimeLifecycleMutationAttribute(name) ||
+    normalized === "x-show" ||
+    normalized.startsWith("x-show.") ||
+    normalized === ":class" ||
+    normalized.startsWith(":class.") ||
+    normalized === "x-bind:class" ||
+    normalized.startsWith("x-bind:class.") ||
     normalized === "x-on" ||
     normalized.startsWith("x-on:") ||
     normalized === "v-on" ||
@@ -558,12 +564,12 @@ function isExecutableScript(node: HtmlNode): boolean {
   return EXECUTABLE_SCRIPT_TYPES.has(type.split(";", 1)[0]!.trim());
 }
 
-function srcdocContainsExecutableScript(value: string): boolean {
+function srcdocContainsExecutableScriptOrNestedFrame(value: string): boolean {
   return parseHtml(value).nodes.some(
     (node) =>
       !node.insideTemplate &&
-      node.tagName === "script" &&
-      isExecutableScript(node),
+      ((node.tagName === "script" && isExecutableScript(node)) ||
+        node.tagName === "iframe"),
   );
 }
 
@@ -718,11 +724,11 @@ function assertExecutableScriptsSafe(
     if (
       node.tagName === "iframe" &&
       srcdoc &&
-      srcdocContainsExecutableScript(srcdoc)
+      srcdocContainsExecutableScriptOrNestedFrame(srcdoc)
     ) {
       sourceError(
         "unsupported-target",
-        "HTML Motion targets cannot be synchronized safely while an iframe srcdoc contains an executable script.",
+        "HTML Motion targets cannot be synchronized safely while an iframe srcdoc contains an executable script or nested frame.",
       );
     }
 
@@ -1123,6 +1129,16 @@ function selectorCallFeedsMutationSink(
     ) {
       return true;
     }
+    if (
+      arrayFromSelectorCallbackMayMutate(
+        source,
+        callStartIndex,
+        callEndIndex,
+      ) ||
+      querySelectorAllForOfMayMutate(source, callStartIndex, callEndIndex)
+    ) {
+      return true;
+    }
   }
 
   const assignment =
@@ -1137,6 +1153,87 @@ function selectorCallFeedsMutationSink(
   if (!remainingExpression || /^[;),&|?]/.test(remainingExpression))
     return false;
   return true;
+}
+
+function arrayFromSelectorCallbackMayMutate(
+  source: string,
+  callStartIndex: number,
+  callEndIndex: number,
+): boolean {
+  if (!/\bArray\s*\.\s*from\s*\(\s*$/.test(source.slice(0, callStartIndex)))
+    return false;
+
+  const callback =
+    /^\s*,\s*(?:async\s+)?(?:\(\s*([A-Za-z_$][\w$]*)(?:\s*,[^)]*)?\)|([A-Za-z_$][\w$]*))\s*=>/i.exec(
+      source.slice(callEndIndex),
+    );
+  const callbackParameter = callback?.[1] ?? callback?.[2];
+  return (
+    callbackParameter !== undefined &&
+    identifierMayFeedMutationSink(source.slice(callEndIndex), callbackParameter)
+  );
+}
+
+function querySelectorAllForOfMayMutate(
+  source: string,
+  callStartIndex: number,
+  callEndIndex: number,
+): boolean {
+  const prefix = source.slice(0, callStartIndex);
+  const forOfHeader = /\bfor\s*\(([^)]*\bof)\s*$/i.exec(prefix);
+  if (!forOfHeader) return false;
+
+  const binding = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*$/.exec(
+    forOfHeader[1]!,
+  );
+  if (!binding) return true;
+
+  const afterCall = source.slice(callEndIndex);
+  const loopHeaderEnd = /^\s*\)\s*/.exec(afterCall);
+  if (!loopHeaderEnd) return true;
+
+  const loopBody = afterCall.slice(loopHeaderEnd[0].length);
+  if (loopBody.startsWith("{")) {
+    const bodyEnd = findMatchingBlockEnd(loopBody, 0);
+    if (bodyEnd === null) return true;
+    return identifierMayFeedMutationSink(
+      loopBody.slice(1, bodyEnd),
+      binding[1]!,
+    );
+  }
+
+  const statementEnd = loopBody.indexOf(";");
+  const statement =
+    statementEnd < 0 ? loopBody : loopBody.slice(0, statementEnd);
+  return identifierMayFeedMutationSink(statement, binding[1]!);
+}
+
+function findMatchingBlockEnd(
+  source: string,
+  openBraceIndex: number,
+): number | null {
+  let depth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  let escaped = false;
+
+  for (let index = openBraceIndex; index < source.length; index++) {
+    const character = source[index]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === "{") {
+      depth++;
+    } else if (character === "}" && --depth === 0) {
+      return index;
+    }
+  }
+
+  return null;
 }
 
 const SELECTED_ELEMENT_MUTATION_SINK = new RegExp(
