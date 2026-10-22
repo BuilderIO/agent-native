@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
     reuseCompletedOnEnable?: boolean;
   }>,
   sqlError: null as unknown,
+  sqlLoading: false,
   sqlTruncated: false,
   sqlPartial: false,
   sqlCache: null as Map<string, Record<string, unknown>[]> | null,
@@ -64,7 +65,7 @@ vi.mock("@/lib/sql-query", () => ({
     if (options.enabled) mocks.sqlCache?.set(cacheKey, rows);
     return {
       data: { rows, truncated: mocks.sqlTruncated, partial: mocks.sqlPartial },
-      isLoading: false,
+      isLoading: mocks.sqlLoading,
       isFetching: false,
       error: mocks.sqlError,
     };
@@ -163,6 +164,7 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     mocks.sqlQueries.length = 0;
     mocks.drilldownQueryOptions.length = 0;
     mocks.sqlError = null;
+    mocks.sqlLoading = false;
     mocks.sqlTruncated = false;
     mocks.sqlPartial = false;
     mocks.sqlCache = null;
@@ -314,6 +316,59 @@ describe("PanelDrilldownDialog metadata lookup", () => {
       expect(csv).not.toContain("total");
       createObjectURL.mockRestore();
       click.mockRestore();
+    },
+  );
+
+  it("shows a complete empty record result as zero without an export warning", async () => {
+    mocks.actionQuery = {
+      data: { drilldown: { sql: "SELECT record FROM events LIMIT 500" } },
+      isSuccess: true,
+    };
+    mocks.sqlRows = [];
+    await render(PANEL, { ...DATUM, value: 0 });
+    expect(container.textContent).toContain(
+      'sqlDashboard.drilldownShowing {"shown":"localized:0","total":"localized:0"}',
+    );
+    expect(container.textContent).not.toContain(
+      "sqlDashboard.drilldownCsvTruncated",
+    );
+  });
+
+  it.each(["partial", "truncated"])(
+    "keeps an incomplete empty result unknown: %s",
+    async (state) => {
+      mocks.actionQuery = {
+        data: { drilldown: { sql: "SELECT record FROM events LIMIT 500" } },
+        isSuccess: true,
+      };
+      mocks.sqlRows = [];
+      mocks.sqlPartial = state === "partial";
+      mocks.sqlTruncated = state === "truncated";
+      await render();
+      expect(container.textContent).toContain(
+        'sqlDashboard.drilldownShowingLoaded {"shown":"localized:0","loaded":"localized:0"}',
+      );
+      expect(container.textContent).not.toContain(
+        "sqlDashboard.drilldownCsvTruncated",
+      );
+    },
+  );
+
+  it.each(["loading", "failed"])(
+    "does not show export warnings for a %s record query",
+    async (state) => {
+      mocks.actionQuery = {
+        data: { drilldown: { sql: "SELECT record FROM events LIMIT 500" } },
+        isSuccess: true,
+      };
+      mocks.sqlRows = [{ record: "previous" }];
+      mocks.sqlPartial = true;
+      mocks.sqlLoading = state === "loading";
+      mocks.sqlError = state === "failed" ? new Error("failed") : null;
+      await render();
+      expect(container.textContent).not.toContain(
+        "sqlDashboard.drilldownCsvTruncated",
+      );
     },
   );
 

@@ -172,6 +172,13 @@ export function PanelDrilldownDialog({
       : undefined) ?? activeQuery.data?.error;
   const loading =
     drilldownQuery.isLoading || activeQuery.isLoading || activeQuery.isFetching;
+  const settledResult =
+    hasDrilldownResult && activeQuery.data !== undefined && !loading && !error;
+  const completeEmptyResult =
+    settledResult &&
+    allRows.length === 0 &&
+    !activeQuery.data?.partial &&
+    !activeQuery.data?.truncated;
 
   const columns = useMemo(
     () =>
@@ -187,12 +194,13 @@ export function PanelDrilldownDialog({
     reportedTotal !== ""
       ? Number(reportedTotal)
       : null;
-  const totalMatching =
-    count !== null &&
-    !activeQuery.data?.partial &&
-    Number.isSafeInteger(count) &&
-    count >= allRows.length &&
-    (!activeQuery.data?.truncated || count > allRows.length)
+  const totalMatching = completeEmptyResult
+    ? 0
+    : count !== null &&
+        !activeQuery.data?.partial &&
+        Number.isSafeInteger(count) &&
+        count >= allRows.length &&
+        (!activeQuery.data?.truncated || count > allRows.length)
       ? count
       : hasRecordQuery ||
           activeQuery.data?.truncated ||
@@ -210,18 +218,20 @@ export function PanelDrilldownDialog({
     );
   }, [allRows, columns, filterText]);
   const csvTruncationMessage =
-    totalMatching === null
-      ? t("sqlDashboard.drilldownCsvTruncatedUnknownTotal", {
-          loaded: formatNumber(allRows.length),
-          exported: formatNumber(rows.length),
-        })
-      : totalMatching > allRows.length || activeQuery.data?.truncated
-        ? t("sqlDashboard.drilldownCsvTruncated", {
-            total: formatNumber(totalMatching),
+    !settledResult || allRows.length === 0
+      ? undefined
+      : totalMatching === null
+        ? t("sqlDashboard.drilldownCsvTruncatedUnknownTotal", {
             loaded: formatNumber(allRows.length),
             exported: formatNumber(rows.length),
           })
-        : undefined;
+        : totalMatching > allRows.length || activeQuery.data?.truncated
+          ? t("sqlDashboard.drilldownCsvTruncated", {
+              total: formatNumber(totalMatching),
+              loaded: formatNumber(allRows.length),
+              exported: formatNumber(rows.length),
+            })
+          : undefined;
 
   const isHighlighted = (row: Record<string, unknown>) =>
     !hasRecordQuery &&
