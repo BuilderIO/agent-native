@@ -45,6 +45,7 @@ import {
   useCommandMenuNestedDialog,
   useCommandMenuShortcut,
   type AppCommandGroup,
+  type CommandMenuItemMatcher,
   type CommandMenuDoc,
 } from "./CommandMenu.js";
 
@@ -115,24 +116,58 @@ describe("CommandMenu", () => {
     groups,
     context,
     embeddedChatSlot,
+    initialSelection,
+    footerSlot,
+    itemMatcher,
+    onSearchChange,
+    renderResults,
+    renderResultsPosition,
+    emptyState,
+    container: portalContainer,
+    showSettingsCommand,
+    showSignOutCommand,
+    showAgentFallback = false,
+    open = true,
   }: {
     groups: AppCommandGroup<TAppContext>[];
     context?: TAppContext;
+    initialSelection?: "first" | "none";
+    itemMatcher?: CommandMenuItemMatcher;
+    onSearchChange?: (search: string) => void;
+    renderResults?: (search: string) => React.ReactNode;
+    renderResultsPosition?: "before" | "after";
+    emptyState?: React.ReactNode;
+    container?: HTMLElement;
+    showSettingsCommand?: boolean;
+    showSignOutCommand?: boolean;
+    showAgentFallback?: boolean;
+    open?: boolean;
     embeddedChatSlot?: (options: {
       search: string;
       appContext: TAppContext | undefined;
       close: () => void;
     }) => React.ReactNode;
+    footerSlot?: React.ReactNode;
   }) {
     act(() => {
       root.render(
         <CommandMenu
-          open
+          open={open}
           onOpenChange={onOpenChange}
-          showAgentFallback={false}
+          showAgentFallback={showAgentFallback}
+          showSettingsCommand={showSettingsCommand}
+          showSignOutCommand={showSignOutCommand}
           appCommandGroups={groups}
           commandContext={context}
           embeddedChatSlot={embeddedChatSlot}
+          initialSelection={initialSelection}
+          footerSlot={footerSlot}
+          itemMatcher={itemMatcher}
+          onSearchChange={onSearchChange}
+          renderResults={renderResults}
+          renderResultsPosition={renderResultsPosition}
+          emptyState={emptyState}
+          container={portalContainer}
         >
           {null}
         </CommandMenu>,
@@ -1340,5 +1375,316 @@ describe("CommandMenu", () => {
     expect(closeButton).toBeTruthy();
     act(() => closeButton!.click());
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps disabled items searchable and unselectable", () => {
+    const onSelect = vi.fn();
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          showSettingsCommand={false}
+          showSignOutCommand={false}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item
+              value="locked-action"
+              keywords={["locked alias"]}
+              disabled
+              onSelect={onSelect}
+            >
+              Locked action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    search("locked alias");
+    const row = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="locked-action"]',
+    );
+    expect(row?.textContent).toContain("Locked action");
+    expect(row?.getAttribute("aria-disabled")).toBe("true");
+    act(() => row?.click());
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("uses an app matcher and reports each search change", () => {
+    const itemMatcher = vi.fn(
+      ({
+        query,
+        label,
+        value,
+        keywords,
+      }: Parameters<CommandMenuItemMatcher>[0]) =>
+        query === "alias" &&
+        label === "Open record" &&
+        value === "record" &&
+        keywords.includes("unrelated"),
+    );
+    const onSearchChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          showSettingsCommand={false}
+          showSignOutCommand={false}
+          itemMatcher={itemMatcher}
+          onSearchChange={onSearchChange}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item
+              value="record"
+              keywords={["unrelated"]}
+              onSelect={() => undefined}
+            >
+              Open record
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    search("alias");
+
+    expect(itemMatcher).toHaveBeenCalledWith({
+      query: "alias",
+      label: "Open record",
+      value: "record",
+      keywords: ["unrelated"],
+    });
+    expect(
+      document.querySelector('[cmdk-item][data-value="record"]'),
+    ).toBeTruthy();
+    expect(onSearchChange).toHaveBeenLastCalledWith("alias");
+    expect(onSearchChange.mock.calls.map(([query]) => query)).toEqual([
+      "alias",
+    ]);
+
+    search("unrelated");
+    expect(
+      document.querySelector('[cmdk-item][data-value="record"]'),
+    ).toBeNull();
+    expect(onSearchChange.mock.calls.map(([query]) => query)).toEqual([
+      "alias",
+      "unrelated",
+    ]);
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open={false}
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          onSearchChange={onSearchChange}
+        >
+          {null}
+        </CommandMenu>,
+      );
+    });
+    expect(onSearchChange).toHaveBeenLastCalledWith("");
+    expect(onSearchChange.mock.calls.map(([query]) => query)).toEqual([
+      "alias",
+      "unrelated",
+      "",
+    ]);
+  });
+
+  it("places dynamic results around app command groups", () => {
+    const groups = [
+      {
+        id: "app-actions",
+        order: 1,
+        heading: "App actions",
+        commands: [
+          {
+            id: "open-record",
+            order: 1,
+            label: "Open record",
+            keywords: ["match"],
+            onSelect() {},
+          },
+        ],
+      },
+    ];
+    const renderResults = () => (
+      <CommandMenu.Group heading="Live results">
+        <CommandMenu.Item onSelect={() => undefined}>
+          Live match
+        </CommandMenu.Item>
+      </CommandMenu.Group>
+    );
+
+    renderAppCommands({
+      groups,
+      renderResultsPosition: "after",
+      renderResults,
+    });
+    search("match");
+
+    const listText = document.querySelector("[cmdk-list]")?.textContent ?? "";
+    expect(listText.indexOf("Open record")).toBeGreaterThanOrEqual(0);
+    expect(listText.indexOf("Live match")).toBeGreaterThan(
+      listText.indexOf("Open record"),
+    );
+
+    renderAppCommands({ groups, renderResults });
+    search("match");
+    const defaultListText =
+      document.querySelector("[cmdk-list]")?.textContent ?? "";
+    expect(defaultListText.indexOf("Live match")).toBeLessThan(
+      defaultListText.indexOf("Open record"),
+    );
+  });
+
+  it("allows apps to hide Settings and Sign out while preserving their defaults", () => {
+    renderMenu();
+    expect(document.body.textContent).toContain("Settings");
+    expect(document.body.textContent).toContain("Log out");
+
+    renderAppCommands({
+      groups: [],
+      showSettingsCommand: false,
+      showSignOutCommand: false,
+    });
+    expect(document.body.textContent).not.toContain("Settings");
+    expect(document.body.textContent).not.toContain("Log out");
+  });
+
+  it("renders a custom empty state beside the agent fallback and palette footer", async () => {
+    actionMocks.callAction.mockResolvedValue({ engines: [], current: {} });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.includes("env-status")) return Response.json([]);
+        if (url.includes("agent-engine/status")) {
+          return Response.json({ configured: false });
+        }
+        return Response.json({});
+      }),
+    );
+
+    renderAppCommands({
+      groups: [],
+      emptyState: "No matching records",
+      footerSlot: <span>⌘ K to search</span>,
+      showAgentFallback: true,
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    search("no-such-command");
+
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "No matching records",
+    );
+    expect(document.querySelector('[role="note"]')?.textContent).toContain(
+      "⌘ K to search",
+    );
+    expect(document.body.textContent).toContain("Ask AI");
+  });
+
+  it("honors first and none initial selection modes", () => {
+    const groups = [
+      {
+        id: "actions",
+        order: 1,
+        commands: [
+          { id: "first", order: 1, label: "First", onSelect() {} },
+          { id: "second", order: 2, label: "Second", onSelect() {} },
+        ],
+      },
+    ];
+
+    renderAppCommands({ groups, initialSelection: "first" });
+    expect(
+      document.querySelector(
+        '[cmdk-item][data-value="app-command:actions:first"][aria-selected="true"]',
+      ),
+    ).toBeTruthy();
+
+    renderAppCommands({ groups, initialSelection: "none", open: false });
+    renderAppCommands({ groups, initialSelection: "none" });
+    expect(
+      document.querySelector('[cmdk-item][aria-selected="true"]'),
+    ).toBeNull();
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    act(() =>
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+    );
+    expect(
+      document.querySelector('[cmdk-item][aria-selected="true"]'),
+    ).toBeTruthy();
+
+    renderAppCommands({ groups, open: false });
+    renderAppCommands({ groups });
+    expect(
+      document.querySelector(
+        '[cmdk-item][data-value="app-command:actions:first"][aria-selected="true"]',
+      ),
+    ).toBeTruthy();
+  });
+
+  it("selects the first app result when it arrives after the menu opens", () => {
+    renderAppCommands({
+      groups: [],
+      initialSelection: "first",
+      showSettingsCommand: false,
+      showSignOutCommand: false,
+    });
+    expect(
+      document.querySelector('[cmdk-item][aria-selected="true"]'),
+    ).toBeNull();
+
+    renderAppCommands({
+      groups: [
+        {
+          id: "async-results",
+          order: 1,
+          commands: [
+            {
+              id: "first-result",
+              order: 1,
+              label: "First result",
+              onSelect() {},
+            },
+          ],
+        },
+      ],
+      initialSelection: "first",
+      showSettingsCommand: false,
+      showSignOutCommand: false,
+    });
+
+    expect(
+      document.querySelector(
+        '[cmdk-item][data-value="app-command:async-results:first-result"][aria-selected="true"]',
+      ),
+    ).toBeTruthy();
+  });
+
+  it("portals the menu into an app-provided container", () => {
+    const portalContainer = document.createElement("div");
+    portalContainer.dataset.testid = "command-menu-portal";
+    document.body.appendChild(portalContainer);
+
+    renderAppCommands({ groups: [], container: portalContainer });
+
+    expect(portalContainer.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(document.body.querySelector('[role="dialog"]')).toBe(
+      portalContainer.querySelector('[role="dialog"]'),
+    );
   });
 });
