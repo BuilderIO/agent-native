@@ -161,11 +161,14 @@ describe("opening a page", () => {
 
   // Renders without letting timers run, so the live copy's seed check, which
   // waits for a timer, hasn't finished yet.
-  function mount(props: Partial<VisualEditorProps> & { content: string }) {
+  function mount(
+    props: Partial<VisualEditorProps> & { content: string },
+    into = root,
+  ) {
     const onChange = vi.fn();
     const onSaveContent = vi.fn(() => true);
     const render = (next: Partial<VisualEditorProps> = {}) =>
-      root.render(
+      into.render(
         createElement(
           MemoryRouter,
           null,
@@ -682,6 +685,51 @@ describe("opening a page", () => {
       "Replaced in another tab.",
     );
     expectNoSave(opened);
+  });
+
+  it("saves what is left of an edit made before the seed check after another tab deletes part of it", async () => {
+    const page = livePage("Alpha paragraph.");
+    const peerContainer = document.createElement("div");
+    document.body.append(peerContainer);
+    const peerRoot = createRoot(peerContainer);
+    const peerDoc = new Y.Doc();
+    Y.applyUpdate(peerDoc, Y.encodeStateAsUpdate(ydoc));
+    const peer = mount({ ...page, ydoc: peerDoc }, peerRoot);
+    await settle(300);
+    const sync = (from: Y.Doc, to: Y.Doc) =>
+      act(() => {
+        Y.applyUpdate(
+          to,
+          Y.encodeStateAsUpdate(from, Y.encodeStateVector(to)),
+          "remote",
+        );
+      });
+
+    const opened = mount(page);
+    editBeforeSeedCheck(opened.editor, "insertText", (editor) =>
+      editor.view.dispatch(editor.state.tr.insertText("Early typing ", 1)),
+    );
+    sync(ydoc, peerDoc);
+    act(() => {
+      peer.editor.view.dispatch(peer.editor.state.tr.delete(7, 14));
+    });
+    sync(peerDoc, ydoc);
+    await settle();
+
+    expect(opened.editor.state.doc.textContent).toBe("Early Alpha paragraph.");
+    expect(peer.editor.state.doc.textContent).toBe("Early Alpha paragraph.");
+    const saves = [opened, peer].flatMap(({ onChange }) =>
+      onChange.mock.calls.map(([body], index) => ({
+        body,
+        order: onChange.mock.invocationCallOrder[index],
+      })),
+    );
+    saves.sort((a, b) => a.order - b.order);
+    expect(saves[saves.length - 1]?.body).toContain("Early Alpha paragraph.");
+
+    await act(async () => peerRoot.unmount());
+    peerDoc.destroy();
+    peerContainer.remove();
   });
 
   it.each([
