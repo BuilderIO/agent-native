@@ -9287,10 +9287,26 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               continue;
             }
 
+            if (responseCode === "run_slot_busy") {
+              // The thread's run slot is still held by a run that is ending. That
+              // is a wait, not a failed admission: release the claim without
+              // spending a retry or setting a backoff, so the completion drain
+              // for that run can claim this receipt. A backoff here would make
+              // that drain skip it until the recurring sweep.
+              await mutateThreadQueuedMessages(receipt.threadId, {
+                type: "release",
+                messageId: receipt.messageId,
+                claimId,
+              });
+              claimId = undefined;
+              deferReceipt(receipt.threadId);
+              await stream?.cancel().catch(() => {});
+              continue;
+            }
+
             const retryableAdmission =
               responseBody?.retryable === true ||
-              (responseBody?.retryable !== false &&
-                (responseStatus >= 500 || responseCode === "run_slot_busy"));
+              (responseBody?.retryable !== false && responseStatus >= 500);
             if (
               retryableAdmission &&
               retryCount < MAX_QUEUED_SUBMISSION_RETRIES

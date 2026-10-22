@@ -830,6 +830,77 @@ describe("queued submission inbox recurring sweep", () => {
     });
   }, 20_000);
 
+  it("keeps a run-slot-busy receipt claimable for the drain that runs when the slot frees", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const headMessageId = "run-slot-busy-head";
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: headMessageId, threadId, text: headMessageId },
+      },
+      { actor },
+    );
+    // The thread's slot is still held by the run that is ending.
+    inboxHarness.admissionFailure = {
+      messageId: headMessageId,
+      status: 409,
+      response: {
+        error: "Run already in progress for this thread",
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: null,
+      },
+    };
+    inboxHarness.admit = async (body) => {
+      const receipt = await getQueuedSubmissionReceipt(
+        String(body.threadId),
+        String(body.agentKitMessageId),
+      );
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId: receipt.threadId,
+          messageId: receipt.messageId,
+          runId: `run-${receipt.messageId}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${receipt.messageId}`;
+    };
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const runSweep = await createSweepHandler();
+
+    try {
+      await runSweep();
+      expect(inboxHarness.admissionAttempts).toEqual([headMessageId]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, headMessageId),
+      ).resolves.toMatchObject({ state: "queued" });
+
+      // The blocking run ends and its completion drain runs straight away,
+      // before any retry window could have elapsed.
+      inboxHarness.admissionFailure = null;
+      await runSweep();
+
+      expect(
+        inboxHarness.admissions.map((body) => body.agentKitMessageId),
+      ).toEqual([headMessageId]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, headMessageId),
+      ).resolves.toMatchObject({ state: "submitted" });
+    } finally {
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
   it("blocks a non-retryable thrown admission and advances the same-thread queue", async () => {
     const threadId = `thread-${randomUUID()}`;
     const headMessageId = "non-retryable-admission-head";
