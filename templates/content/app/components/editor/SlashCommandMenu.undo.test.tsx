@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { EditorContent } from "@tiptap/react";
-import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
+import { prosemirrorToYDoc, yUndoPluginKey } from "@tiptap/y-tiptap";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -93,6 +93,9 @@ describe("slash command undo", () => {
       });
       await act(async () => Promise.resolve());
       expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+      // A person pauses before picking the command, which ends the undo
+      // step that holds the typed query.
+      yUndoPluginKey.getState(editor.state)!.undoManager.stopCapturing();
 
       act(() => {
         document.dispatchEvent(

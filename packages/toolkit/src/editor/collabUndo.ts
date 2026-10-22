@@ -1,4 +1,4 @@
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Node as ProseMirrorNode, ResolvedPos } from "@tiptap/pm/model";
 import { AllSelection, NodeSelection, TextSelection } from "@tiptap/pm/state";
 import type { Plugin, Selection, Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
@@ -47,25 +47,15 @@ function followRestoredCopy(store: Y.Doc["store"], id: Y.ID) {
   return { struct, diff };
 }
 
-function stackItemMayChange(store: Y.Doc["store"], stackItem: StackItem) {
-  if (stackItem.deletions.clients.size > 0) return true;
-  for (const [client, ranges] of stackItem.insertions.clients) {
-    for (const { clock } of ranges) {
-      const { struct } = followRestoredCopy(store, Y.createID(client, clock));
-      if (struct instanceof Y.Item && !struct.deleted) return true;
-    }
-  }
-  return false;
-}
-
 /**
- * Where Yjs should stop deleting each restored copy of the insertions the
- * next undo or redo reverts, keyed by the copy's first id.
+ * Where Yjs should stop deleting each restored copy of the insertions an undo
+ * or redo may revert, keyed by the copy's first id. Yjs passes over entries
+ * that change nothing, such as an edit to a block a collaborator has since
+ * removed, so this covers the whole stack rather than guessing where it stops.
  */
 function restoredInsertionEnds(doc: Y.Doc, stack: StackItem[]) {
   const ends = new Map<string, number>();
-  for (let index = stack.length - 1; index >= 0; index -= 1) {
-    const stackItem = stack[index]!;
+  for (const stackItem of stack) {
     for (const [client, ranges] of stackItem.insertions.clients) {
       for (const { clock, len } of ranges) {
         let position = clock;
@@ -87,7 +77,6 @@ function restoredInsertionEnds(doc: Y.Doc, stack: StackItem[]) {
         }
       }
     }
-    if (stackItemMayChange(doc.store, stackItem)) break;
   }
   return ends;
 }
@@ -158,25 +147,35 @@ function savedSelection(
   return TextSelection.between(doc.resolve(anchor), doc.resolve(head));
 }
 
-interface CaretPlace {
-  selection: SavedSelection;
-  path: number[] | null;
+interface TextPlace {
+  path: number[];
   offset: number;
 }
 
-function caretPlace(view: EditorView, binding: SyncBinding): CaretPlace {
-  const { $head } = view.state.selection;
+interface CaretPlace {
+  selection: SavedSelection;
+  anchor: TextPlace | null;
+  head: TextPlace | null;
+}
+
+function textPlace($pos: ResolvedPos): TextPlace | null {
+  if (!$pos.parent.isTextblock) return null;
   return {
-    selection: getRelativeSelection(binding as never, view.state),
-    path: $head.parent.isTextblock
-      ? Array.from({ length: $head.depth }, (_, depth) => $head.index(depth))
-      : null,
-    offset: $head.parentOffset,
+    path: Array.from({ length: $pos.depth }, (_, depth) => $pos.index(depth)),
+    offset: $pos.parentOffset,
   };
 }
 
-function caretAtSamePlace(doc: ProseMirrorNode, place: CaretPlace) {
-  if (!place.path) return null;
+function caretPlace(view: EditorView, binding: SyncBinding): CaretPlace {
+  const { $anchor, $head } = view.state.selection;
+  return {
+    selection: getRelativeSelection(binding as never, view.state),
+    anchor: textPlace($anchor),
+    head: textPlace($head),
+  };
+}
+
+function positionAtSamePlace(doc: ProseMirrorNode, place: TextPlace) {
   let node = doc;
   let start = 0;
   for (const index of place.path) {
@@ -188,10 +187,14 @@ function caretAtSamePlace(doc: ProseMirrorNode, place: CaretPlace) {
     start += 1;
   }
   if (!node.isTextblock) return null;
-  return TextSelection.create(
-    doc,
-    start + Math.min(place.offset, node.content.size),
-  );
+  return start + Math.min(place.offset, node.content.size);
+}
+
+function caretAtSamePlace(doc: ProseMirrorNode, place: CaretPlace) {
+  const head = place.head && positionAtSamePlace(doc, place.head);
+  if (head === null) return null;
+  const anchor = place.anchor && positionAtSamePlace(doc, place.anchor);
+  return TextSelection.create(doc, anchor ?? head, head);
 }
 
 /**
@@ -270,7 +273,8 @@ export function writeFollowUps(view: EditorView, later = false): void {
  * caret's block was replaced or the caret ends at the start of the document.
  * A Yjs relative position is exact while its block survives, so the caret
  * stays there; when its block was replaced, an undo puts it back where it was
- * before the undone change and a redo keeps its offset in the new block.
+ * before the undone change and a redo keeps the selection's offsets in the
+ * new block.
  */
 export function repairCollabUndo(view: EditorView): () => void {
   const undoManager = yUndoPluginKey.getState(view.state)?.undoManager as

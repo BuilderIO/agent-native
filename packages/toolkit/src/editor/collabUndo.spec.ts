@@ -94,6 +94,31 @@ function type(editor: Editor, text: string) {
   }
 }
 
+function selectRange(editor: Editor, anchor: number, head: number) {
+  editor.view.dispatch(
+    editor.state.tr.setSelection(
+      TextSelection.create(editor.state.doc, anchor, head),
+    ),
+  );
+}
+
+function selection(editor: Editor) {
+  const { anchor, head } = editor.state.selection;
+  return { anchor, head };
+}
+
+/** Applies a collaborator's change to the page. */
+function fromPeer(ydoc: Y.Doc, change: (page: Y.XmlFragment) => void) {
+  const peer = new Y.Doc();
+  Y.applyUpdate(peer, Y.encodeStateAsUpdate(ydoc));
+  change(peer.getXmlFragment("default"));
+  Y.applyUpdate(
+    ydoc,
+    Y.encodeStateAsUpdate(peer, Y.encodeStateVector(ydoc)),
+    "remote",
+  );
+}
+
 function undoManager(editor: Editor) {
   return yUndoPluginKey.getState(editor.state)!.undoManager;
 }
@@ -124,6 +149,40 @@ describe("collaborative undo around block type changes", () => {
     editor.commands.redo();
     editor.commands.redo();
     expect(firstBlock(editor)).toBe("heading2: Paragraph block");
+  });
+
+  it("keeps a block's text when an undo passes over an edit a collaborator removed", () => {
+    const { editor, ydoc } = collabEditor();
+    placeCaret(editor, 1);
+    type(editor, "abc");
+    pause(editor);
+    editor.commands.deleteRange({ from: 22, to: 23 });
+    pause(editor);
+    editor.commands.deleteRange({ from: 1, to: 4 });
+    editor.commands.setHeading({ level: 2 });
+    editor.commands.undo();
+    expect(firstBlock(editor)).toBe("paragraph: abcParagraph block");
+
+    // The heading the second edit changed is gone, so that undo changes
+    // nothing and Yjs goes on to undo the typing.
+    fromPeer(ydoc, (page) => page.delete(1));
+    editor.commands.undo();
+    expect(firstBlock(editor)).toBe("paragraph: Paragraph block");
+  });
+
+  it("keeps a selected range through undo and redo of a type change", () => {
+    const { editor } = collabEditor();
+    selectRange(editor, 7, 2);
+    pause(editor);
+    editor.commands.setHeading({ level: 3 });
+
+    editor.commands.undo();
+    expect(firstBlock(editor)).toBe("paragraph: Paragraph block");
+    expect(selection(editor)).toEqual({ anchor: 7, head: 2 });
+
+    editor.commands.redo();
+    expect(firstBlock(editor)).toBe("heading3: Paragraph block");
+    expect(selection(editor)).toEqual({ anchor: 7, head: 2 });
   });
 
   it("keeps the caret in its block through undo and redo of a type change", () => {
@@ -181,15 +240,10 @@ describe("collaborative undo around block type changes", () => {
     editor.commands.undo();
     expect(editor.state.selection.head).toBe(10);
 
-    const peer = new Y.Doc();
-    Y.applyUpdate(peer, Y.encodeStateAsUpdate(ydoc));
-    const heading = peer.getXmlFragment("default").get(1) as Y.XmlElement;
-    (heading.get(0) as Y.XmlText).insert(0, "Remote ");
-    Y.applyUpdate(
-      ydoc,
-      Y.encodeStateAsUpdate(peer, Y.encodeStateVector(ydoc)),
-      "remote",
-    );
+    fromPeer(ydoc, (page) => {
+      const heading = page.get(1) as Y.XmlElement;
+      (heading.get(0) as Y.XmlText).insert(0, "Remote ");
+    });
 
     expect(editor.state.doc.child(1).textContent).toBe("Remote Heading three");
     expect(editor.state.selection.head).toBe(10);
