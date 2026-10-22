@@ -975,21 +975,21 @@ function folderRelative(run: SyncRun, repoPath: string) {
 }
 
 /**
- * Stores one image's bytes. Returns null when storage isn't set up, which
- * stops the run's uploads, or `"failed"` when this upload failed; a later
- * sync tries it again.
+ * Stores one image's bytes and returns its URL. Returns null when storage
+ * isn't set up, which stops the run's uploads, or `"failed"` when this upload
+ * failed; a later sync tries it again.
  */
 async function storeImage(
   run: SyncRun,
   file: Omit<Parameters<typeof uploadFile>[0], "ownerEmail">,
-): Promise<string | "failed" | null> {
+): Promise<{ url: string } | "failed" | null> {
   try {
     const uploaded = await asLinker(run.state, run.database.orgId, () =>
       uploadFile({ ...file, ownerEmail: run.database.ownerEmail }),
     );
     if (uploaded?.url) {
       run.uploadFailuresInARow = 0;
-      return uploaded.url;
+      return { url: uploaded.url };
     }
     run.storageMissing = true;
     return null;
@@ -1036,15 +1036,15 @@ async function uploadAsset(
     if (cached) return { sha, url: cached };
     if (storageDown(run)) return "no-storage";
     const extension = request.mediaType.split("/")[1]?.split("+")[0] ?? "img";
-    const url = await storeImage(run, {
+    const stored = await storeImage(run, {
       data,
       filename: `github-image.${extension}`,
       mimeType: request.mediaType,
     });
-    if (url === "failed") return url;
-    if (!url) return "no-storage";
-    run.assetUrlBySha.set(sha, url);
-    return { sha, url };
+    if (stored === "failed") return stored;
+    if (!stored) return "no-storage";
+    run.assetUrlBySha.set(sha, stored.url);
+    return { sha, url: stored.url };
   }
   const entry = run.files.blobs.get(request.path);
   const mimeType = importImageMediaType(request.path);
@@ -1064,15 +1064,15 @@ async function uploadAsset(
       signal: run.signal,
     }),
   );
-  const url = await storeImage(run, {
+  const stored = await storeImage(run, {
     data,
     filename: request.path.split("/").pop() ?? "image",
     mimeType,
   });
-  if (url === "failed") return url;
-  if (!url) return "no-storage";
-  run.assetUrlBySha.set(entry.sha, url);
-  return { sha: entry.sha, url };
+  if (stored === "failed") return stored;
+  if (!stored) return "no-storage";
+  run.assetUrlBySha.set(entry.sha, stored.url);
+  return { sha: entry.sha, url: stored.url };
 }
 
 /**
