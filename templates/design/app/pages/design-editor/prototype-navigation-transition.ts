@@ -130,28 +130,30 @@ function startFrameAnimation(
   });
 }
 
-function isFrameDocumentLoaded(
+type FrameDocumentLoadState = "loaded" | "pending" | "invalid-source";
+
+function getFrameDocumentLoadState(
   frame: HTMLIFrameElement,
   previousDocument: Document | null,
   sourceChanged: boolean,
-): boolean {
+): FrameDocumentLoadState {
+  const isSrcdoc = frame.hasAttribute("srcdoc");
+  const src = isSrcdoc ? null : frame.getAttribute("src");
+  const baseURI = frame.ownerDocument.baseURI;
+  if (src !== null && !URL.canParse(src, baseURI)) return "invalid-source";
+
   const current = frame.contentDocument;
   if (
     current?.readyState !== "complete" ||
     (sourceChanged && current === previousDocument)
   ) {
-    return false;
+    return "pending";
   }
-  if (frame.hasAttribute("srcdoc")) return current.URL === "about:srcdoc";
-  if (!frame.hasAttribute("src")) return true;
-  try {
-    return (
-      current.URL ===
-      new URL(frame.getAttribute("src")!, frame.ownerDocument.baseURI).href
-    );
-  } catch {
-    return false;
+  if (isSrcdoc) {
+    return current.URL === "about:srcdoc" ? "loaded" : "pending";
   }
+  if (src === null) return "loaded";
+  return current.URL === new URL(src, baseURI).href ? "loaded" : "pending";
 }
 
 function animateEntry(
@@ -208,7 +210,13 @@ function animateEntry(
     }
   };
 
-  if (isFrameDocumentLoaded(frame, previousDocument, sourceChanged)) {
+  const loadState = getFrameDocumentLoadState(
+    frame,
+    previousDocument,
+    sourceChanged,
+  );
+  if (loadState === "invalid-source") return "browser-fallback";
+  if (loadState === "loaded") {
     return start() ? "animated" : "browser-fallback";
   }
 

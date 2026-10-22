@@ -176,6 +176,27 @@ describe("runPrototypeNavigationTransition", () => {
     expect(animate).toHaveBeenCalledOnce();
   });
 
+  it("falls back immediately when the destination iframe source is invalid", () => {
+    const transition: MotionPrototypeNavigationTransition = {
+      ...dissolve,
+      transition: "move-in",
+      direction: "left",
+    };
+    const update = vi.fn(() => {
+      frame.setAttribute("src", "http://[");
+      Object.defineProperty(frame, "contentDocument", {
+        configurable: true,
+        value: { readyState: "complete", URL: "about:blank" },
+      });
+    });
+
+    expect(runPrototypeNavigationTransition(transition, update)).toBe(
+      "browser-fallback",
+    );
+    expect(update).toHaveBeenCalledOnce();
+    expect(animate).not.toHaveBeenCalled();
+  });
+
   it("removes a pending entrance load listener when a manual action cancels it", () => {
     const entrance: MotionPrototypeNavigationTransition = {
       ...instant,
