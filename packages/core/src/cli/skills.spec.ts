@@ -929,42 +929,125 @@ describe("agent-native skills", () => {
     );
   });
 
-  it("skips the browser sign-in on Ctrl+C and says how to finish it", async () => {
+  it("skips one sign-in on Ctrl+C and still installs the other selected skills", async () => {
     const root = tmpDir();
     const connectLog: string[] = [];
     let skipSignIn: (() => void) | undefined;
     const stopListening = vi.fn();
+    const exitCodeBefore = process.exitCode;
+    const runConnect = vi.fn(async () => {
+      if (runConnect.mock.calls.length === 1) {
+        skipSignIn?.();
+        // runConnect marks the aborted sign-in as failed.
+        process.exitCode = 1;
+      }
+    });
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await addAgentNativeSkill(
-      parseSkillsArgs([
-        "add",
-        "assets",
-        "--client",
-        "codex",
-        "--scope",
-        "project",
-      ]),
-      {
+    try {
+      await runSkills(["add", "--client", "codex", "--scope", "project"], {
         baseDir: root,
         isInteractive: () => true,
+        promptSkills: async () => ["assets", "content"],
+        promptGithubAction: async () => false,
         connectLog: (message) => connectLog.push(message),
         listenForSignInSkip: (skip) => {
           skipSignIn = skip;
           return stopListening;
         },
-        runConnect: async () => {
-          skipSignIn?.();
-        },
+        runConnect,
         runCommand: async () => 0,
-      },
-    );
+      });
 
-    expect(connectLog).toContain(
-      "Sign-in skipped. Assets is installed; to finish the sign-in later, " +
-        "run: npx @agent-native/core@latest connect " +
-        "https://assets.agent-native.com --client codex --scope project",
+      expect(connectLog).toContain(
+        "Sign-in skipped. Assets is installed; to finish the sign-in later, " +
+          "run: npx @agent-native/core@latest connect " +
+          "https://assets.agent-native.com --client codex --scope project",
+      );
+      expect(runConnect).toHaveBeenCalledTimes(2);
+      expect(runConnect.mock.calls[1]?.[0]?.[0]).toContain("content");
+      expect(
+        fs.existsSync(
+          path.join(root, ".agents", "skills", "content", "SKILL.md"),
+        ),
+      ).toBe(true);
+      expect(stopListening).toHaveBeenCalledTimes(2);
+      expect(process.exitCode).toBe(exitCodeBefore);
+    } finally {
+      process.exitCode = exitCodeBefore;
+    }
+  });
+
+  it("stops polling for the browser sign-in once Ctrl+C skips it", async () => {
+    const root = tmpDir();
+    const connectLog: string[] = [];
+    let skipSignIn: (() => void) | undefined;
+    const exitCodeBefore = process.exitCode;
+    let polls = 0;
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    vi.stubEnv("AGENT_NATIVE_NO_OPEN", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/connect/device/start")) {
+          return json({
+            device_code: "device-code",
+            user_code: "ABCD-EFGH",
+            verification_uri: "https://assets.agent-native.com/connect",
+            verification_uri_complete:
+              "https://assets.agent-native.com/connect?code=ABCD-EFGH",
+            interval: 1,
+            expires_in: 600,
+          });
+        }
+        if (url.endsWith("/connect/device/poll")) {
+          polls += 1;
+          skipSignIn?.();
+          return json({ status: "pending" });
+        }
+        return new Response("not found", { status: 404 });
+      }),
     );
-    expect(stopListening).toHaveBeenCalledTimes(1);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "assets",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+        ]),
+        {
+          baseDir: root,
+          isInteractive: () => true,
+          connectLog: (message) => connectLog.push(message),
+          listenForSignInSkip: (skip) => {
+            skipSignIn = skip;
+            return () => {};
+          },
+          runCommand: async () => 0,
+        },
+      );
+
+      expect(polls).toBe(1);
+      expect(result.connected).toBe(false);
+      expect(connectLog.at(-1)).toMatch(
+        /^Sign-in skipped\. Assets is installed/,
+      );
+      expect(process.exitCode).toBe(exitCodeBefore);
+    } finally {
+      process.exitCode = exitCodeBefore;
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 
   it("accepts image-generation aliases for the built-in Assets skill", async () => {
