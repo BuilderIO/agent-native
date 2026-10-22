@@ -284,6 +284,41 @@ describe("describe-workspace-apps", () => {
     expect(output).toContain("Agent-Native analytics agent");
   });
 
+  it("shows the authored when-to-use guidance the ranking matched on", async () => {
+    discoverAgents.mockResolvedValue([
+      agent({
+        id: "cs-account-health",
+        name: "CS Account Health",
+        description: "Customer success dashboard: account health and usage.",
+        whenToUse: [
+          "Look up AI credit usage for a customer account or user email.",
+        ],
+      }),
+      agent({
+        id: "adoption-kpis",
+        name: "Adoption KPIs",
+        description: "Workspace app for Adoption KPIs.",
+      }),
+    ]);
+
+    const summary = await run(
+      { query: "agent credits used by a customer user email" },
+      undefined,
+      "dispatch",
+    );
+    findAgent.mockResolvedValue(
+      (await discoverAgents()).find(
+        (peer: DiscoveredAgent) => peer.id === "cs-account-health",
+      ),
+    );
+    const detail = await run({ app: "cs-account-health" }, undefined, "coach");
+
+    const guidance =
+      "When to use: Look up AI credit usage for a customer account or user email.";
+    expect(summary).toContain(guidance);
+    expect(detail).toContain(guidance);
+  });
+
   it("lists the real app ids when the requested app does not exist", async () => {
     discoverAgents.mockResolvedValue([agent()]);
 

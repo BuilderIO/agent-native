@@ -197,12 +197,17 @@ export async function loadAllCapabilities(
 }
 
 export function purposeOf(peer: PeerCapabilities): string {
-  const manifest = peer.agent.description?.trim();
-  if (manifest) return truncate(manifest, MAX_DESCRIPTION_CHARS);
-  const card = peer.cardDescription?.trim();
-  return card
-    ? truncate(card, MAX_DESCRIPTION_CHARS)
+  const description =
+    peer.agent.description?.trim() || peer.cardDescription?.trim();
+  const purpose = description
+    ? truncate(description, MAX_DESCRIPTION_CHARS)
     : "(no description published)";
+  // Ranking matches on whenToUse; without it here the model picks between
+  // ranked apps by name alone and can overrule the ranking.
+  const whenToUse = peer.agent.whenToUse?.join("; ").trim();
+  return whenToUse
+    ? `${purpose}\nWhen to use: ${truncate(whenToUse, MAX_DESCRIPTION_CHARS)}`
+    : purpose;
 }
 
 export function formatCapabilitySummary(

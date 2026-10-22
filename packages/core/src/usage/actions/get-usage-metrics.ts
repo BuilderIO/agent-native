@@ -76,7 +76,7 @@ export default defineAction({
         }))
       ) {
         fail(
-          "Only organization owners and admins can look up another person's usage with get-usage-metrics. Usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data (see <relevant-apps> or run describe-workspace-apps with a query).",
+          'Usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data: find it with describe-workspace-apps query="<what you need>" (or <relevant-apps>) and delegate with call-agent. get-usage-metrics covers only this organization\'s own members, and only owners and admins can look up another member.',
           { errorCode: "usage_user_lookup_forbidden", statusCode: 403 },
         );
       }
