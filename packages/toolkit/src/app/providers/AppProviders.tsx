@@ -42,6 +42,10 @@ import { ClientOnly } from "../shared/ClientOnly.js";
 import { EnvironmentBadge } from "../shared/EnvironmentBadge.js";
 import { RouteTransitionIndicator } from "../shared/RouteTransitionIndicator.js";
 import { RuntimeConfigNotice } from "../shared/RuntimeConfigNotice.js";
+import {
+  UnsupportedDeviceGate,
+  type UnsupportedDeviceGateProps,
+} from "../shared/UnsupportedDeviceGate.js";
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -75,6 +79,14 @@ export interface AppProvidersProps {
   skipFirstRunOnboarding?: boolean;
 
   /**
+   * Replaces the app with a hand-off notice on touch screens smaller than an
+   * iPad. It sits outside the session gate so a phone never signs in just to
+   * be turned away, and applies under `sessionBypass`; omit it where the app
+   * renders inside a host, whose pane width says nothing about the device.
+   */
+  unsupportedDevice?: Omit<UnsupportedDeviceGateProps, "children">;
+
+  /**
    * False when the app is mounted inside another app's document (an
    * in-process host). The app then leaves `<html>`, `document.title` and the
    * document head alone: no next-themes class/color-scheme on the root
@@ -82,6 +94,8 @@ export interface AppProvidersProps {
    * theme by toggling `.dark` on the mount node instead.
    */
   ownsDocument?: boolean;
+
+  enableThemeFamily?: boolean;
 
   documentTitleFallback?: string;
 
@@ -385,6 +399,8 @@ function AgentEngineReadinessBootstrap() {
   return null;
 }
 
+const ThemeFamilySync = React.lazy(() => import("./ThemeFamilySync.js"));
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -483,6 +499,7 @@ export function AppProviders({
   skeletonLayout,
   sessionBypass = false,
   skipFirstRunOnboarding = false,
+  unsupportedDevice,
   disableWebMcp = false,
   webMcpExcludeActionNames,
   showEnvironmentBadge = false,
@@ -494,6 +511,7 @@ export function AppProviders({
   i18n,
   documentTitleFallback,
   ownsDocument = true,
+  enableThemeFamily = true,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? (
@@ -530,6 +548,11 @@ export function AppProviders({
         children
       ) : (
         <>
+          {ownsDocument && enableThemeFamily ? (
+            <React.Suspense fallback={null}>
+              <ThemeFamilySync />
+            </React.Suspense>
+          ) : null}
           <AgentEngineReadinessBootstrap />
           <FirstRunOnboardingStartupGate
             suppressSurface={skipFirstRunOnboarding}
@@ -540,6 +563,14 @@ export function AppProviders({
         </>
       )}
     </RequireSession>
+  );
+
+  const gated = unsupportedDevice ? (
+    <UnsupportedDeviceGate {...unsupportedDevice}>
+      {sessionGated}
+    </UnsupportedDeviceGate>
+  ) : (
+    sessionGated
   );
 
   return (
@@ -570,11 +601,11 @@ export function AppProviders({
           ownsDocument={ownsDocument}
         >
           {sessionBypass ? (
-            sessionGated
+            gated
           ) : (
             // Outside RequireSession on purpose: inside it, a signed-out session
             // unmounts the gate before it can clear the stored results.
-            <ActionQueryCacheGate>{sessionGated}</ActionQueryCacheGate>
+            <ActionQueryCacheGate>{gated}</ActionQueryCacheGate>
           )}
         </ProvidersInner>
       </ClientOnly>

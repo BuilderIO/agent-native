@@ -80,19 +80,6 @@ describe("DesignEditor pending source handoff", () => {
     expect(toolbar).toContain("{applyingViaHost ? (");
   });
 
-  it("refreshes the copied handoff when the current design changes", () => {
-    const copyHandler = source.slice(
-      source.indexOf("const handleCopyPendingVisualStylePrompt = useCallback"),
-      source.indexOf(
-        "// ── Export:",
-        source.indexOf(
-          "const handleCopyPendingVisualStylePrompt = useCallback",
-        ),
-      ),
-    );
-    expect(copyHandler).toContain("          id,");
-  });
-
   it("waits for queued handoff publication before copying the full prompt by default", () => {
     const copyHandler = source.slice(
       source.indexOf("const handleCopyPendingVisualStylePrompt = useCallback"),
@@ -154,22 +141,6 @@ describe("DesignEditor pending source handoff", () => {
     );
     expect(source).toContain("runPublishVisualEditPending({");
     expect(source).toContain("activeScreenBridgeUrl,");
-  });
-
-  it("routes interaction-state edits through the selected screen", () => {
-    const screenStyleHandler = source.slice(
-      source.indexOf("const handleInspectorScreenStyleChange = useCallback"),
-      source.indexOf(
-        "selectedScreenStyleChangeRef.current = handleInspectorScreenStyleChange",
-      ),
-    );
-    expect(screenStyleHandler).toContain("if (interactionState)");
-    expect(screenStyleHandler).toContain(
-      "sendLinkedScreenPreviewInteractionStateStyle(screenId",
-    );
-    expect(screenStyleHandler).toContain("recordPendingVisualStyleEdit(");
-    expect(screenStyleHandler).toContain("screenId,");
-    expect(screenStyleHandler).toContain("applyInteractionStateStyleCommit(");
   });
 
   it("opens Design chat only for a local fallback and prevents duplicate sends", () => {

@@ -555,4 +555,98 @@ function visibilityOption(
   t: ReturnType<typeof useT>,
 ): ShareOption<ShareVisibility> {
   const keys = {
-    private: ["share.private", "share.privateDe
+    private: ["share.private", "share.privateDescription"],
+    org: ["share.organization", "share.organizationDescription"],
+    public: ["share.public", "share.publicDescription"],
+  } as const;
+  return {
+    value: visibility,
+    label: t(keys[visibility][0]),
+    description: t(keys[visibility][1]),
+  };
+}
+
+function roleOption(
+  role: ShareRole,
+  t: ReturnType<typeof useT>,
+): ShareOption<ShareRole> {
+  const keys = {
+    viewer: ["share.viewer", "share.viewerDescription"],
+    commenter: ["share.commenter", "share.commenterDescription"],
+    editor: ["share.editor", "share.editorDescription"],
+    admin: ["share.admin", "share.adminDescription"],
+  } as const;
+  return {
+    value: role,
+    label: t(keys[role][0]),
+    description: t(keys[role][1]),
+  };
+}
+
+function buildPeople(
+  data: ResourceSharesResponse | undefined,
+  members: ShareOrgMember[],
+  t: ReturnType<typeof useT>,
+): ShareDialogPerson[] {
+  const people: ShareDialogPerson[] = [];
+  if (data?.ownerEmail) {
+    const label = displayName(data.ownerEmail, members);
+    people.push({
+      key: `owner:${data.ownerEmail}`,
+      label,
+      roleLabel: t("share.ownerRole"),
+      principalType: "owner",
+      avatarText: avatarText(label),
+      share: null,
+    });
+  }
+  for (const share of data?.shares ?? []) {
+    const label = principalLabel(share, members);
+    people.push({
+      key: `${share.principalType}:${share.principalId}`,
+      label,
+      roleLabel: capitalize(share.role),
+      principalType: share.principalType,
+      avatarText: share.principalType === "org" ? null : avatarText(label),
+      share,
+    });
+  }
+  return people;
+}
+
+function displayName(email: string, members: ShareOrgMember[]): string {
+  const normalized = email.trim().toLowerCase();
+  const match = members.find(
+    (member) => member.email.toLowerCase() === normalized,
+  );
+  if (match?.name?.trim()) return match.name;
+  return normalized.includes("@") ? email : "Unknown person";
+}
+
+function principalLabel(
+  share: ResourceShare,
+  members: ShareOrgMember[],
+): string {
+  const serverLabel = share.displayName?.trim();
+  if (serverLabel) return serverLabel;
+  if (share.principalType === "org") return "Organization";
+  return displayName(share.principalId, members);
+}
+
+function avatarText(label: string): string {
+  return (label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase();
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function getNotificationUrl(explicit?: string): string | undefined {
+  if (explicit) return explicit;
+  if (typeof window === "undefined") return undefined;
+  return window.location.href;
+}
+
+function createEmbedCode(embedUrl: string): string {
+  return `<div style="position:relative;padding-bottom:56.25%;height:0"><iframe src="${embedUrl}" frameborder="0" allowfullscreen allow="autoplay; picture-in-picture" style="position:absolute;inset:0;width:100%;height:100%"></iframe></div>`;
+}

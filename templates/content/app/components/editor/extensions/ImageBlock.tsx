@@ -54,6 +54,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { deleteNodeFromMenu } from "../editor-transaction-meta";
 import { createImagePickerId } from "../image-upload";
 import { storedBodyImageFailed } from "../stored-body-images";
 import type { ContentImageOptions } from "./ImageNode";
@@ -495,7 +496,6 @@ function buildAltTextArticleContext({
 export function ImageBlock({
   node,
   editor,
-  deleteNode,
   selected,
   updateAttributes,
   extension,
@@ -527,6 +527,7 @@ export function ImageBlock({
   const options = extension.options as ContentImageOptions;
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
   const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const alt = (node.attrs.alt as string) || "";
@@ -997,6 +998,27 @@ export function ImageBlock({
           </form>
         )}
       </div>
+    );
+  }
+
+  if (!src && !isEditable) {
+    // A read-only page can't add an image, so say what's missing instead.
+    return (
+      <NodeViewWrapper className="media-block-wrapper" data-drag-handle>
+        <div
+          className="media-empty-block__trigger media-empty-block__trigger--static"
+          role="img"
+          aria-label={alt || t("editor.media.imageUnavailable")}
+        >
+          <IconPhoto size={20} />
+          <span>{alt || t("editor.media.imageUnavailable")}</span>
+          {alt ? (
+            <span className="media-empty-block__note">
+              {t("editor.media.imageUnavailable")}
+            </span>
+          ) : null}
+        </div>
+      </NodeViewWrapper>
     );
   }
 

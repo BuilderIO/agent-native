@@ -8,6 +8,7 @@ import {
   acquireCollabPollBoost,
   noteCollabPollActivity,
   registerCollabActivityResource,
+  registerOwnCollabSource,
   subscribeSyncEvents,
   type SyncEvent,
 } from "../client/use-db-sync.js";
@@ -275,6 +276,7 @@ interface CollabDocSubscription {
   requestSource?: string;
   durableUpdates?: boolean;
   onUpdateAcknowledged?: (ack: CollabUpdateAck) => void;
+  acknowledgementScope: object;
   onSnapshot: (snapshot: CollabDocSnapshot) => void;
   onEvent: (event: SyncEvent) => void;
 }
@@ -346,6 +348,7 @@ class CollabDocConnection {
   private docMissing = false;
   private requestSource: string | undefined;
   private lastSetUser: CollabUser | null = null;
+  private userGeneration = 0;
 
   private pendingUpdates: Uint8Array[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -427,6 +430,7 @@ class CollabDocConnection {
     }
     if (!this.requestSource && sub.requestSource) {
       this.requestSource = sub.requestSource;
+      registerOwnCollabSource(sub.requestSource);
     }
     // Once kept, updates stay kept until acknowledged, even if the caller
     // stops asking.
@@ -638,6 +642,7 @@ class CollabDocConnection {
   setUser(user: CollabUser): void {
     if (this.disposed) return;
     const prev = this.lastSetUser;
+    if (prev?.email !== user.email) this.userGeneration++;
     if (prev && prev.email !== user.email) {
       if (this.pendingUpdates.length && this.retiredUpdatesKey) {
         retiredCollabUpdates.set(this.retiredUpdatesKey, this.pendingUpdates);
@@ -995,8 +1000,11 @@ class CollabDocConnection {
       () => controller.abort(),
       STATE_VECTOR_FETCH_TIMEOUT_MS,
     );
-    const ackListeners = Array.from(this.subscribers.values()).flatMap((sub) =>
-      sub.onUpdateAcknowledged ? [sub.onUpdateAcknowledged] : [],
+    const userGeneration = this.userGeneration;
+    const acknowledgementScopes = new Set(
+      Array.from(this.subscribers.values())
+        .filter((sub) => sub.onUpdateAcknowledged !== undefined)
+        .map((sub) => sub.acknowledgementScope),
     );
     let ack: CollabUpdateAck | null = null;
     try {
@@ -1012,7 +1020,8 @@ class CollabDocConnection {
       });
       // The same bytes are refused again, so a refused batch is sent in
       // halves, and a refused single update stops this tab's updates.
-      if (response.status === 413) {
+      if (this.keepsUnsentUpdates && response.status === 413) {
+        if (userGeneration !== this.userGeneration) return;
         if (toSend.length > 1) {
           this.updateBatchLimit = Math.ceil(toSend.length / 2);
         } else {
@@ -1021,7 +1030,8 @@ class CollabDocConnection {
         return;
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      if (ackListeners.length) ack = readUpdateAck(await response.json());
+      if (acknowledgementScopes.size)
+        ack = readUpdateAck(await response.json());
       const previous = this.pendingUpdates;
       const acknowledged = new Set(toSend);
       this.pendingUpdates = previous.filter(
@@ -1072,7 +1082,12 @@ class CollabDocConnection {
     }
     // After the bookkeeping, so a listener that throws cannot send an
     // acknowledged update again.
-    if (ack) for (const listener of ackListeners) listener(ack);
+    if (ack && !this.disposed && userGeneration === this.userGeneration) {
+      for (const sub of this.subscribers.values()) {
+        if (acknowledgementScopes.has(sub.acknowledgementScope))
+          sub.onUpdateAcknowledged?.(ack);
+      }
+    }
   }
 
   private startSync(): void {
@@ -1633,6 +1648,13 @@ export function useCollaborativeDoc(
     return getOrCreateCollabConnection(docId, baseUrl);
   }, [docId, baseUrl, generation]);
 
+  const acknowledgementScope = useMemo(
+    () => ({ conn, email: resolvedUser?.email }),
+    [conn, resolvedUser?.email],
+  );
+  const activeAcknowledgementScope = useRef(acknowledgementScope);
+  activeAcknowledgementScope.current = acknowledgementScope;
+
   const [snapshot, setSnapshot] = useState<CollabDocSnapshot>(() =>
     conn ? conn.snapshot : EMPTY_SNAPSHOT,
   );
@@ -1656,10 +1678,13 @@ export function useCollaborativeDoc(
       pauseWhenHidden,
       requestSource,
       durableUpdates,
+      acknowledgementScope,
       ...(wantsAcks
         ? {
-            onUpdateAcknowledged: (ack: CollabUpdateAck) =>
-              onUpdateAcknowledgedRef.current?.(ack),
+            onUpdateAcknowledged: (ack: CollabUpdateAck) => {
+              if (activeAcknowledgementScope.current === acknowledgementScope)
+                onUpdateAcknowledgedRef.current?.(ack);
+            },
           }
         : {}),
       onSnapshot: setSnapshot,
@@ -1677,6 +1702,7 @@ export function useCollaborativeDoc(
     requestSource,
     durableUpdates,
     wantsAcks,
+    acknowledgementScope,
   ]);
 
   useEffect(() => {

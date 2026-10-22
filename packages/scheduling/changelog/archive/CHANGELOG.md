@@ -1,3 +1,48 @@
+## 0.1.17
+
+### Patch Changes
+
+- Updated dependencies [277d115]
+  - @agent-native/toolkit@0.3.0
+
+## 0.1.16
+
+### Patch Changes
+
+- b24446e: Add `@agent-native/toolkit` for reusable app-building UI, move shared template primitives into it, and keep core UI shim imports working through compatibility re-exports.
+- Updated dependencies [b24446e]
+  - @agent-native/toolkit@0.2.0
+
+## 0.1.15
+
+### Patch Changes
+
+- 6338989: Add Traditional Chinese copy for shared scheduling booking-link components.
+
+## 0.1.14
+
+### Patch Changes
+
+- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
+
+## 0.1.13
+
+### Patch Changes
+
+- fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
+
+## 0.1.12
+
+### Patch Changes
+
+- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
+
+## 0.1.11
+
+### Patch Changes
+
+- 3c1d3eb: Update dispatch provider APIs and scheduling internals for the runtime refresh.
+
 ## 0.1.10
 
 ### Patch Changes

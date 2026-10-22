@@ -1,5 +1,7 @@
+import { Transform } from "@tiptap/pm/transform";
 import { describe, expect, it } from "vitest";
 
+import { createContentEditorStructuralSchema } from "./content-editor-structural-schema";
 import { resolveDocumentTextEdits } from "./document-text-edits";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 import {
@@ -105,6 +107,103 @@ describe("verified formatting coordinates in stored Markdown", () => {
       SuggestionFormattingMappingError,
     );
   });
+  it.each([
+    "x***\n**marked**",
+    "x**\n**marked**",
+    "**\nx\n**marked**",
+    "x\n**marked**\n**",
+  ])(
+    "keeps raw emphasis rewrites unmappable while word edits stay exact in %j",
+    (before) => {
+      const schema = createContentEditorStructuralSchema();
+      const doc = schema.nodeFromJSON(nfmToDoc(before));
+      let markedFrom = -1;
+      doc.descendants((node, position) => {
+        if (node.isText && node.text === "marked") markedFrom = position;
+      });
+      expect(markedFrom).toBeGreaterThanOrEqual(0);
+      const edited = new Transform(doc).replaceWith(
+        markedFrom,
+        markedFrom + 6,
+        schema.text("revised", [schema.marks.bold!.create()]),
+      ).doc;
+      const operations = suggestDocumentEdit(before, {
+        find: "marked",
+        replace: "revised",
+      });
+      expect(operations).toHaveLength(1);
+      expect(operations[0]!.anchor).toMatchObject({
+        from: before.indexOf("marked"),
+        to: before.indexOf("marked") + 6,
+      });
+      expect(
+        schema.nodeFromJSON(nfmToDoc(operations[0]!.after.markdown)).toJSON(),
+      ).toEqual(edited.toJSON());
+      const reformatted = before.replace("**marked**", "*marked*");
+      expect(() => markdownSuggestionOperations(before, reformatted)).toThrow(
+        SuggestionFormattingMappingError,
+      );
+      expect(
+        suggestionFormattingSourceRange(
+          before,
+          before.indexOf("marked"),
+          before.indexOf("marked") + 6,
+        ),
+      ).toBeNull();
+      expect(
+        suggestionFormattingSourceSlice(
+          before,
+          before.indexOf("marked"),
+          before.indexOf("marked") + 6,
+        ),
+      ).toBeNull();
+      const canonical = canonicalizeNfm(before);
+      expect(schema.nodeFromJSON(nfmToDoc(canonical)).toJSON()).toEqual(
+        doc.toJSON(),
+      );
+      const canonicalFrom = canonical.indexOf("marked");
+      expect(
+        suggestionFormattingSourceSlice(
+          canonical,
+          canonicalFrom,
+          canonicalFrom + 6,
+        ),
+      ).toEqual([{ type: "text", text: "marked", marks: [{ type: "bold" }] }]);
+      const formatting = markdownSuggestionOperations(
+        canonical,
+        canonical.replace("**marked**", "*marked*"),
+      );
+      expect(formatting).toHaveLength(1);
+      expect(formatting[0]!.kind).toBe("set_inline_mark");
+      const formatted = new Transform(doc)
+        .removeMark(markedFrom, markedFrom + 6, schema.marks.bold!)
+        .addMark(markedFrom, markedFrom + 6, schema.marks.italic!.create()).doc;
+      expect(
+        schema.nodeFromJSON(nfmToDoc(formatting[0]!.after.markdown)).toJSON(),
+      ).toEqual(formatted.toJSON());
+    },
+  );
+
+  it.each([1, 2, 3, 4])(
+    "refuses %i raw unmatched stars but maps their escaped/code spellings",
+    (length) => {
+      const stars = "*".repeat(length);
+      const raw = `x${stars}\n**marked**`;
+      expect(() => suggestionMarkedSourceRanges(raw)).toThrow(
+        SuggestionFormattingMappingError,
+      );
+      for (const before of [
+        `x${"\\*".repeat(length)}\n**marked**`,
+        `\`x${stars}\`\n**marked**`,
+      ]) {
+        const from = before.indexOf("marked");
+        expect(suggestionFormattingSourceSlice(before, from, from + 6)).toEqual(
+          [{ type: "text", text: "marked", marks: [{ type: "bold" }] }],
+        );
+        suggestDocumentEdit(before, { find: "marked", replace: "revised" });
+      }
+    },
+  );
   const divergences = [
     { name: "blank block separators", body: "Above\n\nold phrase\n\nBelow" },
     { name: "literal dollars", body: "Cost $60 for old phrase" },

@@ -415,10 +415,7 @@
     },
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
-<<<<<<< HEAD
-=======
     "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
->>>>>>> 81d6f0f993212a338d9af935fee780225677260d
     "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
     "./a2a": "./dist/a2a/index.js",
     "./mcp": "./dist/mcp/index.js",

@@ -23,6 +23,7 @@ const MAX_CONSTRAINTS = 8;
 type ConstraintProperty = {
   type?: unknown;
   default?: unknown;
+  defaultFrom?: unknown;
   min?: unknown;
   max?: unknown;
 };
@@ -262,9 +263,15 @@ export function validateResolvedParameterConstraints(
   for (const constraint of constraints) {
     const keys = constraintPropertyKeys(constraint);
     for (const key of keys) {
+      const property = properties[key];
+      const fallback = property?.defaultFrom;
       values[key] = own(params as Record<string, unknown>, key)
         ? params[key]
-        : properties[key]?.default;
+        : typeof fallback === "string" && properties[fallback]
+          ? own(params as Record<string, unknown>, fallback)
+            ? params[fallback]
+            : properties[fallback].default
+          : property?.default;
     }
   }
   return constraints.flatMap((constraint, index) => {

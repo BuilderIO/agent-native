@@ -10,7 +10,6 @@ import {
 } from "@tiptap/pm/model";
 import { useLayoutEffect, useRef, useState } from "react";
 
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   CONTENT_BODY_DOM_MARK,
   CONTENT_BODY_ELEMENT_TIMING,
@@ -735,8 +734,6 @@ export function StaticDocumentBody({
         imageBroken,
       }));
     } catch (error) {
-      // The editor draws this body from the live copy once it mounts; until
-      // then the page shows it loading rather than empty.
       console.error("[content] could not draw the stored body", error);
       setFailedContent(content);
       return;
@@ -750,11 +747,8 @@ export function StaticDocumentBody({
 
   if (failed) {
     return (
-      <div className="flex flex-col gap-3 px-8 py-6">
-        <Skeleton className="h-4 w-2/3" />
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-4 w-5/6" />
-        <Skeleton className="h-4 w-3/4" />
+      <div role="alert" className="px-8 py-6 text-sm text-destructive">
+        {t("empty.genericError")}
       </div>
     );
   }

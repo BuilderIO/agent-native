@@ -141,6 +141,25 @@ describe("collab durable updates", () => {
     root = createRoot(container);
   }
 
+  function holdUpdateResponse() {
+    const originalFetch = fetch;
+    let release!: () => void;
+    let held = false;
+    const responseGate = new Promise<void>((resolve) => (release = resolve));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const response = await originalFetch(input, init);
+        if (/\/collab\/[^/]+\/update/.test(String(input)) && !held) {
+          held = true;
+          await responseGate;
+        }
+        return response;
+      }),
+    );
+    return release;
+  }
+
   it("keeps an unacknowledged update until the server acknowledges it", async () => {
     const result = await mountReady({ durableUpdates: true });
     updateResponses = ["offline"];
@@ -220,6 +239,133 @@ describe("collab durable updates", () => {
     await expect(result().flushUpdates()).resolves.toBe(false);
     expect(outboxKeys()).toEqual([]);
   });
+
+  it("retries a refused update as before without durableUpdates", async () => {
+    const result = await mountReady({});
+    updateResponses = ["too_large", { ok: true }];
+    result().ydoc!.getText("t").insert(0, "a retained edit");
+    await expect(result().flushUpdates()).resolves.toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(sentUpdates).toHaveLength(2);
+    expect(result().updatesRefused).toBe(false);
+    await expect(result().flushUpdates()).resolves.toBe(true);
+  });
+
+  it("does not deliver a previous document's acknowledgment after navigation", async () => {
+    const oldAck = vi.fn();
+    const newAck = vi.fn();
+    const result = await mountReady({ onUpdateAcknowledged: oldAck });
+    const release = holdUpdateResponse();
+    result().ydoc!.getText("t").insert(0, "document A");
+    const flushing = result().flushUpdates();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(sentUpdates).toHaveLength(1);
+    await mountReady({ docId: "document-b", onUpdateAcknowledged: newAck });
+    await act(async () => {
+      release();
+      await flushing;
+    });
+    expect(oldAck).not.toHaveBeenCalled();
+    expect(newAck).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "does not deliver an earlier account's acknowledgment after switching (return=%s)",
+    async (returnToFirstAccount) => {
+      const ack = vi.fn();
+      const result = await mountReady({ onUpdateAcknowledged: ack });
+      const release = holdUpdateResponse();
+      result().ydoc!.getText("t").insert(0, "account A");
+      const flushing = result().flushUpdates();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(sentUpdates).toHaveLength(1);
+      await mountReady({
+        user: { ...USER, email: "grace@example.com" },
+        onUpdateAcknowledged: ack,
+      });
+      if (returnToFirstAccount)
+        await mountReady({ user: USER, onUpdateAcknowledged: ack });
+      await act(async () => {
+        release();
+        await flushing;
+      });
+      expect(ack).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([1, 2])(
+    "ignores a previous account's keepalive refusal (%s updates)",
+    async (updateCount) => {
+      const result = await mountReady({ durableUpdates: true });
+      updateResponses = ["too_large"];
+      const release = holdUpdateResponse();
+      for (let i = 0; i < updateCount; i++)
+        result().ydoc!.getText("t").insert(0, "account A ");
+      window.dispatchEvent(new Event("pagehide"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const request = vi
+        .mocked(fetch)
+        .mock.calls.find(([input]) =>
+          /\/collab\/[^/]+\/update/.test(String(input)),
+        );
+      expect(request?.[1]?.keepalive).toBe(true);
+      expect(sentUpdates).toHaveLength(1);
+
+      await mountReady({
+        durableUpdates: true,
+        user: { ...USER, email: "grace@example.com" },
+      });
+      const requestsBeforeAccountB = sentUpdates.length;
+      for (let i = 0; i < 3; i++)
+        result().ydoc!.getText("t").insert(0, "account B ");
+      await act(async () => {
+        release();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result().updatesRefused).toBe(false);
+      await expect(result().flushUpdates()).resolves.toBe(true);
+      expect(sentUpdates).toHaveLength(requestsBeforeAccountB + 1);
+    },
+  );
+
+  it.each([
+    { pollInterval: 5000 },
+    { pollIntervalWithSse: 60000 },
+    { pauseWhenHidden: false },
+  ])(
+    "delivers a held acknowledgment after changing transport options %j",
+    async (options) => {
+      const ack = vi.fn();
+      const result = await mountReady({ onUpdateAcknowledged: ack });
+      updateResponses = [
+        { ok: true, liveCopy: "not_derived", liveCopyReason: "flag_off" },
+      ];
+      const release = holdUpdateResponse();
+      result().ydoc!.getText("t").insert(0, "typed");
+      const flushing = result().flushUpdates();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(sentUpdates).toHaveLength(1);
+      await mountReady({ ...options, onUpdateAcknowledged: ack });
+      await act(async () => {
+        release();
+        await flushing;
+      });
+      expect(ack).toHaveBeenCalledExactlyOnceWith({
+        liveCopy: "not_derived",
+        liveCopyReason: "flag_off",
+      });
+    },
+  );
 
   it("reports when an update cannot be kept", async () => {
     const result = await mountReady({ durableUpdates: true });

@@ -1482,6 +1482,43 @@ describe("organization federation endpoint", () => {
     );
   });
 
+  it("rejects org-member assertions at the dedicated federation boundary", async () => {
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://mail.agent-native.com",
+        app_id: "mail",
+        scope: "org-member",
+        org_role: "owner",
+        federation_operation: "remove-member",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer org-member-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(verifyA2ATokenMock).toHaveBeenCalledWith(
+      "org-member-assertion",
+      expect.anything(),
+      expect.objectContaining({
+        globalSecretOnly: true,
+        verificationSecret: "test-mail-federation-secret",
+      }),
+    );
+    expect(verifyA2ATokenMock).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ verificationSecret: "test-a2a-secret" }),
+    );
+  });
+
   it("authorizes revocation from the central roster, not the asserted role", async () => {
     featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
       return flag.key === "organization.cross-app-federation";

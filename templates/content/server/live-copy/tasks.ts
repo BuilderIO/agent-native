@@ -16,7 +16,7 @@ import {
   LIVE_BODY_FIELD,
   materializeLiveBody,
 } from "../../shared/live-body.js";
-import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
+import { docToNfm, nfmToDoc, parseNfmWithLosses } from "../../shared/nfm.js";
 import { CONTENT_HOLDS_BODY_TASK, type HoldsBodyResult } from "./task-names.js";
 
 // The worker half of Content's live copy: every handler here runs in the
@@ -60,12 +60,17 @@ function deriveBody(doc: Y.Doc, field: string): string | LiveCopyTaskRefusal {
 }
 
 /**
- * The tree a Markdown body becomes in the editor. A body the schema cannot
- * represent in full is refused: the live copy would keep the rest and the
- * page would lose that part on its next commit.
+ * The tree a Markdown body becomes in the editor. A body the parser or the
+ * schema cannot keep in full is refused: the live copy would keep the rest
+ * and the page would lose that part on its next commit.
  */
 function buildBody(markdown: string): PMNode | LiveCopyTaskRefusal {
-  const parsed = nfmToDoc(markdown);
+  // What the parser dropped is in neither serialization compared below.
+  const { doc: parsed, losses } = parseNfmWithLosses(markdown);
+  if (losses.length > 0) {
+    const kinds = [...new Set(losses.map((loss) => loss.kind))].join(", ");
+    return refused("lossy", `the parser drops part of this body (${kinds})`);
+  }
   let root: PMNode;
   try {
     root = schema().nodeFromJSON(parsed);
@@ -170,7 +175,7 @@ export const tasks = {
   async [CONTENT_HOLDS_BODY_TASK](input: unknown): Promise<HoldsBodyResult> {
     const { base, stored, candidate } = holdsBodyInput(input);
     // The comparison reads the candidate in its parsed form, and a parse can
-    // drop text, such as an unindented callout child. Only an editor's own
+    // drop text, such as text directly inside a table. Only an editor's own
     // serialization says what the save holds.
     if (!isCanonical(candidate)) return "noncanonical";
     return bodyHoldsChanges(base, stored, candidate) ? "held" : "unheld";

@@ -9,7 +9,8 @@ import {
   LIVE_BODY_SHADOW_FLAG,
   LIVE_BODY_WRITER_FLAG,
 } from "../../shared/feature-flags.js";
-import { getDb, schema } from "../db/index.js";
+import { drizzleOverExec } from "../db/exec.js";
+import { schema } from "../db/index.js";
 
 // Decision D2 of the stored-form rebuild: a page's body is written through its
 // live copy only when the page is switched, its live copy holds the page's
@@ -180,19 +181,89 @@ async function ownerOrgIds(
   return rows.map((row) => String((row as { org_id: unknown }).org_id));
 }
 
-type ContentDb = Pick<ReturnType<typeof getDb>, "select">;
+// Request reads retain settings initialization and the request snapshot. A
+// transaction context is explicit: an executor's shape does not identify a
+// transaction. Ordinary database adapters enter through core's withDbExec.
+export type LiveBodyWriterReadContext =
+  | { kind: "request" }
+  | { kind: "transaction"; executor: DbExec };
 
-export type LiveBodyWriterReadOptions =
-  | { db?: ContentDb; transaction?: never }
-  | { db: ContentDb; transaction: DbExec };
+export type LiveBodyWriterReadOptions = {
+  context?: LiveBodyWriterReadContext;
+};
 
-export class LiveBodyWriterTransactionError extends Error {
-  readonly code = "LIVE_BODY_TRANSACTION_DB_REQUIRED";
+export class LiveBodyWriterContextError extends Error {
+  readonly code = "LIVE_BODY_READ_CONTEXT_INVALID";
 
   constructor() {
-    super("A live-body transaction read requires its matching row database.");
-    this.name = "LiveBodyWriterTransactionError";
+    super(
+      "A live-body read requires a request context or one explicit transaction executor.",
+    );
+    this.name = "LiveBodyWriterContextError";
   }
+}
+
+function contextFields(value: unknown, allowed: readonly string[]) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new LiveBodyWriterContextError();
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null)
+    throw new LiveBodyWriterContextError();
+  const fields = new Map<string, unknown>();
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string" || !allowed.includes(key))
+      throw new LiveBodyWriterContextError();
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    if (!Object.prototype.hasOwnProperty.call(descriptor, "value"))
+      throw new LiveBodyWriterContextError();
+    fields.set(key, descriptor.value);
+  }
+  for (const key of allowed) {
+    if (key in value && !fields.has(key))
+      throw new LiveBodyWriterContextError();
+  }
+  return fields;
+}
+
+function transactionExecutor(value: unknown): DbExec {
+  if (!value || typeof value !== "object")
+    throw new LiveBodyWriterContextError();
+  for (
+    let target = value;
+    target && target !== Object.prototype;
+    target = Object.getPrototypeOf(target)
+  ) {
+    const descriptor = Object.getOwnPropertyDescriptor(target, "execute");
+    if (!descriptor) continue;
+    if (
+      !Object.prototype.hasOwnProperty.call(descriptor, "value") ||
+      typeof descriptor.value !== "function"
+    )
+      throw new LiveBodyWriterContextError();
+    return { execute: descriptor.value.bind(value) };
+  }
+  throw new LiveBodyWriterContextError();
+}
+
+function readContext(options: LiveBodyWriterReadOptions): {
+  kind: "request" | "transaction";
+  executor: DbExec;
+} {
+  const optionsFields = contextFields(options, ["context"]);
+  if (!optionsFields.has("context"))
+    return { kind: "request", executor: getDbExec() };
+  const fields = contextFields(optionsFields.get("context"), [
+    "kind",
+    "executor",
+  ]);
+  if (fields.get("kind") === "request" && !fields.has("executor"))
+    return { kind: "request", executor: getDbExec() };
+  if (fields.get("kind") === "transaction" && fields.has("executor"))
+    return {
+      kind: "transaction",
+      executor: transactionExecutor(fields.get("executor")),
+    };
+  throw new LiveBodyWriterContextError();
 }
 
 /** The write path for a page, read without its row lock. */
@@ -200,9 +271,8 @@ export async function liveBodyWriterGate(
   docId: string,
   options: LiveBodyWriterReadOptions = {},
 ): Promise<LiveBodyWriterGate> {
-  if (options.transaction !== undefined && !options.db)
-    throw new LiveBodyWriterTransactionError();
-  const db = options.db ?? getDb();
+  const context = readContext(options);
+  const db = drizzleOverExec(context.executor);
   const [row] = await db
     .select(liveBodyWriterPageColumns)
     .from(schema.documents)
@@ -225,7 +295,11 @@ export async function liveBodyWriterGate(
     .from(schema.documents)
     .where(eq(schema.documents.id, docId))
     .limit(1);
-  return gateForMarkers(markers, async () => markers?.collabVersion, options);
+  return gateForMarkers(
+    markers,
+    async () => markers?.collabVersion,
+    context.kind === "transaction" ? { transaction: context.executor } : {},
+  );
 }
 
 /** True when `docId`'s body must be written through its live copy. */

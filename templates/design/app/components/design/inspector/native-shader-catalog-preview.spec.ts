@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 import { LIQUID_GLASS_EFFECT } from "@shared/native-effect-liquid-glass-v3";
-import { NATIVE_EFFECT_DEFINITION_CATALOG } from "@shared/native-effect-presets";
+import {
+  GRAIN_GRADIENT_EFFECT,
+  NATIVE_EFFECT_DEFINITION_CATALOG,
+} from "@shared/native-effect-presets";
+import { PULSING_BORDER_EFFECT } from "@shared/native-effect-pulsing-border";
 import { parseEffectsFromHtml } from "@shared/native-effects";
 import { describe, expect, it } from "vitest";
 
@@ -31,7 +35,7 @@ describe("native catalog preview scene", () => {
         expect(instance.seed).toBe(0);
       }
       expect(scene.width).toBe(Math.min(4, batch.length) * 160);
-      expect(scene.height).toBe(Math.ceil(batch.length / 4) * 100);
+      expect(scene.height).toBe(Math.ceil(batch.length / 4) * 120);
     }
   });
 
@@ -43,39 +47,102 @@ describe("native catalog preview scene", () => {
       )!;
       const scene = createNativeCatalogPreviewScene([definition], placement);
       const doc = new DOMParser().parseFromString(scene.html, "text/html");
-      const target = doc.querySelector(
-        '[data-agent-native-node-id="catalog-target-0"]',
-      )!;
-      const source =
-        placement === "layer"
-          ? target.firstElementChild
-          : target.previousElementSibling;
-      expect(source).not.toBeNull();
-      expect(source!.children).toHaveLength(3);
-      expect(source!.getAttribute("style")).toContain("background:lightgray");
+      expect(doc.querySelector("svg path")).not.toBeNull();
       expect(
         parseEffectsFromHtml(scene.html).document?.instances[0]?.placement,
       ).toBe(placement);
     },
   );
 
-  it("gives receiver geometry materials an authored rounded shape over the backdrop fixture", () => {
+  it("shows an authored rounded frame for a geometry Fill and the logo for its Layer preview", () => {
+    const fill = createNativeCatalogPreviewScene(
+      [PULSING_BORDER_EFFECT],
+      "fill",
+    );
+    const fillDoc = new DOMParser().parseFromString(fill.html, "text/html");
+    const fillTarget = fillDoc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="catalog-target-0"]',
+    )!;
+    expect(fillTarget.tagName.toLowerCase()).toBe("div");
+    expect(fillTarget.style.borderRadius).not.toBe("");
+    expect(fillTarget.style.backgroundColor).not.toBe("");
+    expect(fillDoc.querySelector("svg[data-agent-native-node-id]")).toBeNull();
+    expect(fillDoc.querySelector("svg[data-catalog-art]")).not.toBeNull();
+    expect(
+      parseEffectsFromHtml(fill.html).document?.instances[0]?.placement,
+    ).toBe("fill");
+
+    const layer = createNativeCatalogPreviewScene(
+      [PULSING_BORDER_EFFECT],
+      "layer",
+    );
+    const layerDoc = new DOMParser().parseFromString(layer.html, "text/html");
+    const layerTarget = layerDoc.querySelector<SVGSVGElement>(
+      '[data-agent-native-node-id="catalog-target-0"]',
+    )!;
+    expect(layerTarget.tagName.toLowerCase()).toBe("svg");
+    expect(layerTarget.querySelectorAll("path")).toHaveLength(2);
+    expect(
+      parseEffectsFromHtml(layer.html).document?.instances[0]?.placement,
+    ).toBe("layer");
+  });
+
+  it("uses the painted logo silhouette as receiver geometry over the backdrop fixture", () => {
     const scene = createNativeCatalogPreviewScene(
       [LIQUID_GLASS_EFFECT],
       "backdrop",
     );
     const doc = new DOMParser().parseFromString(scene.html, "text/html");
-    const target = doc.querySelector<HTMLElement>(
+    const target = doc.querySelector<SVGSVGElement>(
       '[data-agent-native-node-id="catalog-target-0"]',
     )!;
-    expect(target.getAttribute("style")).toContain("inset:12px");
-    expect(target.style.borderRadius).toBe("20px");
-    expect(target.previousElementSibling?.children).toHaveLength(3);
+    expect(target.tagName.toLowerCase()).toBe("svg");
+    expect(target.querySelectorAll("path")).toHaveLength(2);
+    expect(target.previousElementSibling?.tagName.toLowerCase()).toBe("svg");
     const parsed = parseEffectsFromHtml(scene.html);
     expect(parsed.errors).toEqual([]);
     expect(parsed.document?.definitions).toEqual([LIQUID_GLASS_EFFECT]);
     expect(parsed.document?.instances[0]?.params).toEqual({});
     expect(parsed.document?.instances[0]?.bindings).toBeUndefined();
+  });
+
+  it("leaves ordinary procedural Fill previews on their plain background", () => {
+    const definition = NATIVE_EFFECT_DEFINITION_CATALOG.find(
+      (candidate) => candidate.id === GRAIN_GRADIENT_EFFECT.id,
+    )!;
+    const scene = createNativeCatalogPreviewScene([definition], "fill");
+    const doc = new DOMParser().parseFromString(scene.html, "text/html");
+    expect(doc.querySelector("svg")).toBeNull();
+    expect(
+      doc.querySelector('[data-agent-native-node-id="catalog-target-0"]')
+        ?.children,
+    ).toHaveLength(0);
+  });
+
+  it("keeps SVG paint references local to each tile in a batched scene", () => {
+    const [definition, second] = NATIVE_EFFECT_DEFINITION_CATALOG.filter(
+      (candidate) => candidate.placements.includes("layer"),
+    );
+    expect(definition).toBeDefined();
+    expect(second).toBeDefined();
+    const scene = createNativeCatalogPreviewScene(
+      [definition!, second!],
+      "layer",
+    );
+    const doc = new DOMParser().parseFromString(scene.html, "text/html");
+    const ids = [...doc.querySelectorAll("svg [id]")].map((node) => node.id);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const svg of doc.querySelectorAll("svg"))
+      for (const node of svg.querySelectorAll("[fill], [stroke]"))
+        for (const paint of [
+          node.getAttribute("fill"),
+          node.getAttribute("stroke"),
+        ]) {
+          const reference = /url\(#([^)]+)\)/.exec(paint ?? "")?.[1];
+          if (reference)
+            expect(svg.querySelector(`[id="${reference}"]`)).not.toBeNull();
+        }
   });
 
   it("refuses changed WGSL and oversized batches before executing any preview", () => {
@@ -131,25 +198,31 @@ describe("native catalog preview scene", () => {
 
 describe("native catalog pixel crop", () => {
   it("copies exactly one tile's rows from the canonical straight RGBA sheet", () => {
-    const rgba = new Uint8Array(640 * 200 * 4);
-    for (let y = 0; y < 200; y += 1)
-      for (let x = 0; x < 640; x += 1)
-        rgba.set([x % 256, y, 7, 255], (y * 640 + x) * 4);
+    const rgba = new Uint8Array(1280 * 480 * 4);
+    for (let y = 0; y < 480; y += 1)
+      for (let x = 0; x < 1280; x += 1)
+        rgba.set([x % 256, y % 256, 7, 255], (y * 1280 + x) * 4);
     const cropped = cropNativeCatalogPreview(
-      { width: 640, height: 200, rgba, alpha: "straight", colorSpace: "srgb" },
+      {
+        width: 1280,
+        height: 480,
+        rgba,
+        alpha: "straight",
+        colorSpace: "srgb",
+      },
       5,
     );
-    expect(cropped.width).toBe(160);
-    expect(cropped.height).toBe(100);
-    expect([...cropped.rgba.slice(0, 4)]).toEqual([160, 100, 7, 255]);
-    expect([...cropped.rgba.slice(-4)]).toEqual([63, 199, 7, 255]);
+    expect(cropped.width).toBe(320);
+    expect(cropped.height).toBe(240);
+    expect([...cropped.rgba.slice(0, 4)]).toEqual([64, 240, 7, 255]);
+    expect([...cropped.rgba.slice(-4)]).toEqual([127, 223, 7, 255]);
   });
 
   it("refuses truncated pixels and crops outside the captured sheet", () => {
     const pixels = {
-      width: 160,
-      height: 100,
-      rgba: new Uint8Array(160 * 100 * 4),
+      width: 320,
+      height: 240,
+      rgba: new Uint8Array(320 * 240 * 4),
       alpha: "straight" as const,
       colorSpace: "srgb" as const,
     };

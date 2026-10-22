@@ -1,13 +1,18 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
+import { AppConfigurationError } from "@agent-native/core/app-config";
 import { writeAppState } from "@agent-native/core/application-state";
 import { captureError } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import type { UploadMode } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { eq } from "drizzle-orm";
-import { createError } from "h3";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withReservedHostedClipAllowance } from "../server/lib/hosted-clip-allowance.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   hostedStorageAuthFailure,
@@ -34,6 +39,7 @@ import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode
 import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
+  getHostedClipRecordingAllowance,
   HOSTED_STORAGE_UNAVAILABLE_REASON,
   releaseHostedClipRecording,
   resolveClipsVideoStorage,
@@ -42,6 +48,7 @@ import {
 import { DEFAULT_RECORDING_TITLE } from "../shared/title-source.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
+import { failStorageSetupRequired } from "./lib/storage-setup-error.js";
 
 /** The `sourceAppName` the native mobile app (packages/mobile-app) sends. */
 const MOBILE_APP_SOURCE_NAME = "Agent-Native Mobile";
@@ -127,17 +134,6 @@ export default defineAction({
     "Create a new recording row in 'uploading' status and return its id plus the chunk upload URL template. The frontend POSTs chunks to /api/uploads/:id/chunk?index=N&total=T&isFinal=0|1, then finalizes on the last chunk. Recorders can pass app/window title context for an immediate fallback title.",
   schema: createRecordingSchema,
   run: async (args, actionContext) => {
-    const db = getDb();
-    const ownerEmail = getCurrentOwnerEmail();
-    if (
-      args.expectedOwnerEmail &&
-      args.expectedOwnerEmail.toLowerCase() !== ownerEmail.toLowerCase()
-    ) {
-      fail("This recording belongs to another account.", {
-        errorCode: "recording_owner_mismatch",
-        statusCode: 409,
-      });
-    }
     const id = args.id || nanoid();
     const now = new Date().toISOString();
     const title = args.title?.trim() || DEFAULT_RECORDING_TITLE;
@@ -145,31 +141,85 @@ export default defineAction({
       args.titleSource ??
       (title === DEFAULT_RECORDING_TITLE ? "default" : "manual");
 
-    const { organizationId } = await requireOrganizationAccess(
-      args.organizationId,
-    );
-    const visibility = await getDefaultRecordingVisibility(
-      organizationId,
-      actionContext?.userEmail ?? ownerEmail,
-      args.visibility,
-    );
+    const prepared = await (async () => {
+      const db = getDb();
+      const ownerEmail = getCurrentOwnerEmail();
+      if (
+        args.expectedOwnerEmail &&
+        args.expectedOwnerEmail.toLowerCase() !== ownerEmail.toLowerCase()
+      ) {
+        fail("This recording belongs to another account.", {
+          errorCode: "recording_owner_mismatch",
+          statusCode: 409,
+        });
+      }
 
-    const spaceIds = await validateRecordingScope(db, {
-      organizationId,
-      ownerEmail,
-      spaceIds: args.spaceIds ?? [],
-      folderId: args.folderId,
+      const { organizationId } = await requireOrganizationAccess(
+        args.organizationId,
+      );
+      const visibility = await getDefaultRecordingVisibility(
+        organizationId,
+        actionContext?.userEmail ?? ownerEmail,
+        args.visibility,
+      );
+
+      const spaceIds = await validateRecordingScope(db, {
+        organizationId,
+        ownerEmail,
+        spaceIds: args.spaceIds ?? [],
+        folderId: args.folderId,
+      });
+
+      // The native mobile app names itself but sends no platform; read it from
+      // that name so its rows and events are not left "unknown".
+      const recordingPlatform =
+        args.recordingPlatform ??
+        (args.sourceAppName?.trim() === MOBILE_APP_SOURCE_NAME
+          ? "mobile"
+          : undefined);
+
+      await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
+
+      return {
+        db,
+        ownerEmail,
+        organizationId,
+        visibility,
+        spaceIds,
+        recordingPlatform,
+      };
+    })().catch((error: unknown) => {
+      if (isActionContractError(error)) throw error;
+      const details =
+        error && typeof error === "object"
+          ? (error as Record<string, unknown>)
+          : {};
+      const statusCode = details.statusCode ?? details.status;
+      if (statusCode === 401 || statusCode === 403) {
+        fail("Organization not found or access denied.", {
+          errorCode:
+            statusCode === 401
+              ? "authentication_required"
+              : "organization_access_denied",
+          statusCode,
+          details: { retryable: false, cleanupConfirmed: true },
+        });
+      }
+      console.warn("[create-recording] preparation failed:", error);
+      fail("Recording could not be prepared. Refresh and try again.", {
+        errorCode: "recording_preparation_failed",
+        statusCode: 503,
+        details: { retryable: true, cleanupConfirmed: true },
+      });
     });
-
-    // The native mobile app names itself but sends no platform; read it from
-    // that name so its rows and events are not left "unknown".
-    const recordingPlatform =
-      args.recordingPlatform ??
-      (args.sourceAppName?.trim() === MOBILE_APP_SOURCE_NAME
-        ? "mobile"
-        : undefined);
-
-    await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
+    const {
+      db,
+      ownerEmail,
+      organizationId,
+      visibility,
+      spaceIds,
+      recordingPlatform,
+    } = prepared;
 
     const storage = await resolveClipsVideoStorage({
       intent: "new",
@@ -177,6 +227,61 @@ export default defineAction({
       email: ownerEmail,
       sizeBytes: args.sizeBytes,
       requestHeaders: actionContext?.requestHeaders,
+    }).catch(async (error: unknown) => {
+      if (isActionContractError(error)) throw error;
+      if (error instanceof AppConfigurationError) {
+        console.error(
+          "[create-recording] storage configuration is invalid",
+          error,
+        );
+        fail("Video storage configuration is invalid. Contact support.", {
+          errorCode: "storage_configuration_invalid",
+          statusCode: 503,
+          details: { retryable: false, cleanupConfirmed: true },
+        });
+      }
+      console.warn("[create-recording] storage resolution failed:", error);
+      const authUserId = getRequestContext()?.authUserId;
+      // Hosted reservations require a stable authenticated user id.
+      let cleanupConfirmed = !authUserId;
+      if (authUserId) {
+        try {
+          const [recording] = await db
+            .select({ id: schema.recordings.id })
+            .from(schema.recordings)
+            .where(eq(schema.recordings.id, id))
+            .limit(1);
+          if (!recording) {
+            const allowance = await getHostedClipRecordingAllowance({
+              recordingId: id,
+              userId: authUserId,
+            });
+            if (!allowance || allowance.status === "released") {
+              cleanupConfirmed = true;
+            } else if (allowance.status === "reserved") {
+              await releaseHostedClipRecording({
+                recordingId: id,
+                userId: authUserId,
+              });
+              cleanupConfirmed = true;
+            }
+          }
+        } catch (cleanupError) {
+          console.error(
+            "[create-recording] hosted allowance cleanup could not be confirmed after storage resolution failed",
+            cleanupError,
+          );
+        }
+      }
+      fail("Video storage could not be checked. Refresh and try again.", {
+        errorCode: "storage_status_unavailable",
+        statusCode: 503,
+        details: {
+          ...(!cleanupConfirmed ? { recordingId: id } : {}),
+          retryable: cleanupConfirmed,
+          cleanupConfirmed,
+        },
+      });
     });
     if (storage.mode === "none") {
       fail(STORAGE_SETUP_REQUIRED_REASON, {
@@ -205,7 +310,7 @@ export default defineAction({
       storage.mode === "hosted" ? storage.maxClipBytes : MAX_UPLOAD_BYTES;
 
     try {
-      await db.insert(schema.recordings).values({
+      const recordingValues: typeof schema.recordings.$inferInsert = {
         id,
         organizationId,
         orgId: organizationId,
@@ -228,10 +333,63 @@ export default defineAction({
         storageMode,
         createdAt: now,
         updatedAt: now,
-      });
+      };
+      if (storageMode === "hosted") {
+        if (!hostedUserId) {
+          // guard:allow-bare-error — invariant: hosted storage requires a stable authenticated user id.
+          throw new Error(
+            "Hosted Clips reservation is missing its authenticated user id.",
+          );
+        }
+        await withReservedHostedClipAllowance({
+          recordingId: id,
+          userId: hostedUserId,
+          createRecording: (tx) =>
+            tx.insert(schema.recordings).values(recordingValues),
+        });
+      } else {
+        await db.insert(schema.recordings).values(recordingValues);
+      }
     } catch (error) {
-      await releaseHostedReservation();
-      throw error;
+      let recordingAbsentConfirmed = false;
+      try {
+        const [recording] = await db
+          .select({ id: schema.recordings.id })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, id))
+          .limit(1);
+        recordingAbsentConfirmed = !recording;
+      } catch (lookupError) {
+        console.error(
+          "[create-recording] row absence could not be confirmed after insert failure",
+          lookupError,
+        );
+      }
+
+      let reservationCleanupConfirmed = recordingAbsentConfirmed;
+      if (recordingAbsentConfirmed) {
+        try {
+          await releaseHostedReservation();
+        } catch (releaseError) {
+          reservationCleanupConfirmed = false;
+          console.error(
+            "[create-recording] hosted allowance could not be released after row creation failed",
+            releaseError,
+          );
+        }
+      }
+      const cleanupConfirmed =
+        recordingAbsentConfirmed && reservationCleanupConfirmed;
+      console.warn("[create-recording] row creation failed:", error);
+      fail("Recording could not be created. Refresh and try again.", {
+        errorCode: "recording_create_failed",
+        statusCode: 503,
+        details: {
+          retryable: cleanupConfirmed,
+          cleanupConfirmed,
+          ...(!recordingAbsentConfirmed ? { recordingId: id } : {}),
+        },
+      });
     }
 
     trackRecordingCreated({
@@ -260,18 +418,40 @@ export default defineAction({
         progress: 0,
         startedAt: now,
       });
-    } catch (error) {
-      await releaseHostedReservation();
-      await db
-        .update(schema.recordings)
-        .set({
-          status: "failed",
-          failureCode: "upload_state_initialization_failed",
-          failureReason: "Recording upload state could not be initialized.",
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(schema.recordings.id, id));
-      throw error;
+    } catch {
+      let cleanupConfirmed = true;
+      try {
+        await releaseHostedReservation();
+      } catch (releaseError) {
+        cleanupConfirmed = false;
+        console.error(
+          "[create-recording] hosted allowance could not be released after upload-state initialization failed",
+          releaseError,
+        );
+      }
+      try {
+        await db
+          .update(schema.recordings)
+          .set({
+            status: "failed",
+            failureCode: "upload_state_initialization_failed",
+            failureReason: "Recording upload state could not be initialized.",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.recordings.id, id));
+      } catch (updateError) {
+        console.error(
+          "[create-recording] failed upload state could not be persisted",
+          updateError,
+        );
+      }
+      // The intake caller can trash this known row even if persisting its
+      // failed status was the operation that broke.
+      fail("Recording upload state could not be initialized.", {
+        errorCode: "upload_state_initialization_failed",
+        statusCode: 503,
+        details: { recordingId: id, retryable: false, cleanupConfirmed },
+      });
     }
 
     console.log(`Created recording "${title}" (${id})`);
@@ -286,25 +466,43 @@ export default defineAction({
     });
     const streamingRequired = !bufferedFallbackAvailable;
 
-    const failUploadSetup = async (
+    const failUpload = async (
       reason: string,
       failure: ReturnType<typeof classifyInitialUploadFailure> = {
         failureCode: "storage_setup_required",
       },
-      reservationCleanupConfirmed = true,
+      uploadCleanupConfirmed = true,
     ): Promise<never> => {
       const failedAt = new Date().toISOString();
-      await db
-        .update(schema.recordings)
-        .set({
-          status: "failed",
-          failureCode: failure.failureCode,
-          failureReason: reason,
-          updatedAt: failedAt,
-        })
-        .where(eq(schema.recordings.id, id));
-      if (reservationCleanupConfirmed) {
-        await releaseHostedReservation();
+      try {
+        await db
+          .update(schema.recordings)
+          .set({
+            status: "failed",
+            failureCode: failure.failureCode,
+            failureReason: reason,
+            updatedAt: failedAt,
+          })
+          .where(eq(schema.recordings.id, id));
+      } catch (updateError) {
+        console.error(
+          "[create-recording] failed status could not be persisted after upload failure",
+          updateError,
+        );
+      }
+      // Intake retries may remove this row only when the provider session and
+      // its hosted reservation are both safe to discard.
+      let cleanupConfirmed = uploadCleanupConfirmed;
+      if (cleanupConfirmed) {
+        try {
+          await releaseHostedReservation();
+        } catch (releaseError) {
+          cleanupConfirmed = false;
+          console.error(
+            "[create-recording] hosted allowance could not be released after upload cleanup",
+            releaseError,
+          );
+        }
       } else if (storageMode === "hosted") {
         console.error(
           "[create-recording] hosted allowance remains reserved because upload cleanup was not confirmed",
@@ -317,29 +515,65 @@ export default defineAction({
         platform: recordingPlatform,
         ...failure,
       });
-      await writeAppState(`recording-upload-${id}`, {
-        recordingId: id,
-        status: "failed",
-        progress: 0,
-        failureReason: reason,
-        storageSetupRequired: failure.failureCode === "storage_setup_required",
-        updatedAt: failedAt,
-      });
-      throw createError({
-        statusCode: 503,
-        statusMessage: reason,
-        data: {
+      try {
+        await writeAppState(`recording-upload-${id}`, {
+          recordingId: id,
+          status: "failed",
+          progress: 0,
+          failureReason: reason,
+          storageSetupRequired:
+            failure.failureCode === "storage_setup_required",
+          updatedAt: failedAt,
+        });
+      } catch (stateError) {
+        console.warn(
+          "[create-recording] failed upload state could not be written:",
+          stateError,
+        );
+      }
+      if (failure.failureCode === "storage_setup_required") {
+        failStorageSetupRequired({
+          recordingId: id,
+          retryable: false,
+          cleanupConfirmed,
+        });
+      }
+      const retryable =
+        cleanupConfirmed &&
+        (failure.failureCode === "hosted_storage_unavailable" ||
+          failure.failureCode === "multipart_start_failed");
+      fail(
+        failure.failureCode === "hosted_storage_unavailable"
+          ? HOSTED_STORAGE_UNAVAILABLE_REASON
+          : failure.failureCode === "streaming_upload_unavailable"
+            ? reason
+            : "Video storage could not start an upload. Refresh and try again.",
+        {
           errorCode: failure.failureCode,
-          retryable: failure.failureCode !== "storage_setup_required",
+          statusCode: 503,
+          details: {
+            recordingId: id,
+            retryable,
+            cleanupConfirmed,
+            ...(failure.httpStatus
+              ? { providerStatus: failure.httpStatus }
+              : {}),
+          },
         },
-      });
+      );
     };
 
     if (
       streamingRequired &&
       (!streamingEnabled || !uploadProvider?.resumable)
     ) {
-      await failUploadSetup(STORAGE_SETUP_REQUIRED_REASON);
+      await failUpload(
+        "The current storage setup cannot start the resumable upload required by this recorder.",
+        {
+          failureCode: "streaming_upload_unavailable",
+          failureStage: "multipart_start",
+        },
+      );
     }
 
     if (
@@ -386,7 +620,8 @@ export default defineAction({
                 label: "create-recording",
               })
             : err instanceof S3MultipartStartError ||
-              /credentials are not configured/i.test(reason);
+              /credentials are not configured/i.test(reason) ||
+              /Builder\.io signed-URL request failed \(401\)/i.test(reason);
           if (startedSession && cleanupConfirmed) {
             await deleteResumableSession(id).catch((cleanupError: unknown) => {
               console.warn(
@@ -424,7 +659,7 @@ export default defineAction({
               // Error reporting must not mask the upload failure.
             }
           }
-          await failUploadSetup(
+          await failUpload(
             failure.failureCode === "hosted_storage_unavailable"
               ? HOSTED_STORAGE_UNAVAILABLE_REASON
               : reason

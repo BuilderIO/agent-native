@@ -190,6 +190,34 @@ describe("the static document body", () => {
       .filter(laidOut)
       .map(shape);
 
+  it("shows a render failure distinctly and recovers when the stored body changes", async () => {
+    const failure = new Error("snapshot serialization failed");
+    const parse = vi
+      .spyOn(getContentEditorSchema(), "nodeFromJSON")
+      .mockImplementationOnce(() => {
+        throw failure;
+      });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await show(imageStoredBody());
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+        "empty.genericError",
+      );
+
+      await show(
+        createElement(StaticDocumentBody, {
+          schema: getContentEditorSchema(),
+          content: "Recovered snapshot.",
+        }),
+      );
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(container.textContent).toBe("Recovered snapshot.");
+    } finally {
+      parse.mockRestore();
+      log.mockRestore();
+    }
+  });
+
   it("has a stand-in for every node the editor draws with a node view", () => {
     const viewed = resolveExtensions(createVisualEditorExtensions())
       .filter(

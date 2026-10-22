@@ -210,7 +210,10 @@ import { ExternalAgentNudge } from "./external-agent-host.js";
 import { fallbackChatTitle } from "./fallback-chat-title.js";
 import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
-import { reconcileSettledRun } from "./reconcile-settled-run.js";
+import {
+  isWaitingOnConnectionRequest,
+  reconcileSettledRun,
+} from "./reconcile-settled-run.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { SESSION_REPLAY_MASK_PROPS } from "./session-replay-privacy.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
@@ -2090,12 +2093,22 @@ export const AgentKitAssistantChat = forwardRef<
           threadId={threadId}
           load={agentKitLoad}
           onLoadError={onThreadRestoreLoadError}
-          slots={agentKitSlots}
+          slots={
+            props.workedForSummarySlot
+              ? {
+                  ...agentKitSlots,
+                  workedForSummary: props.workedForSummarySlot,
+                }
+              : agentKitSlots
+          }
           registry={agentKitRegistry}
           labels={labels}
+          resolveMessageContentOrder={props.resolveMessageContentOrder}
           branchNavigation={props.branchNavigation}
           loadRunUsage={loadRunUsage}
           buildFeedbackReport={formatFeedbackReport}
+          workedForRowLayout={props.workedForRowLayout}
+          formatWorkedForDuration={props.formatWorkedForDuration}
           onThreadForked={(thread) => props.onForkedThread?.(thread.id)}
           onCopyMessage={({ text }) => {
             const html = renderMarkdownToClipboardHtml(text);
@@ -4992,7 +5005,9 @@ const AgentKitAssistantChatBody = forwardRef<
             (activity) => activity.status === "running",
           )
         }
-        isAwaitingResponse={() => isRunning}
+        isAwaitingResponse={() =>
+          isRunning && !isWaitingOnConnectionRequest(thread)
+        }
         onServerSettled={reconcileServerSettled}
         onRetry={(runId) => {
           const lastUserMessage = [...thread.messages]
@@ -5041,6 +5056,7 @@ const AgentKitAssistantChatBody = forwardRef<
         className={props.className}
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}
         hasRenderedMessages={hasRenderedMessages}
+        transcriptLayout={props.transcriptLayout}
         emptyComposerPlacement={
           props.centerComposerWhenEmpty && !isRestoring ? "center" : "bottom"
         }
@@ -5974,6 +5990,7 @@ function AgentKitComposerSurface({
             })}
       />
       {props.composerSlot}
+      {props.composerContextBannerSlot}
       {showHomeIntro ? (
         <div className="agentkit-home-intro">{props.homeIntroSlot}</div>
       ) : null}
@@ -6456,6 +6473,8 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           chatUI={asRecord(metadata.chatUI) as never}
           activity={metadata.activity === true}
           isActiveTail={active === true}
+          workedForRowLayout={surface.props.workedForRowLayout}
+          formatWorkedForDuration={surface.props.formatWorkedForDuration}
         />
       </SuppressInlineOpenAppContext.Provider>
     </ChatRunningContext.Provider>

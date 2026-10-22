@@ -171,6 +171,10 @@
     {
       "name": "mcp-client-attribution",
       "checksum": "bc0ea72722e10241"
+    },
+    {
+      "name": "a2a-identity-assurance",
+      "checksum": "5ebfefc25224eaa5"
     }
   ],
   "auth_sessions": [
@@ -219,6 +223,12 @@
     {
       "name": "automation-runs-failure-alert-delivery",
       "checksum": "0ad391513d7c511c"
+    }
+  ],
+  "automation_sharing": [
+    {
+      "name": "baseline",
+      "checksum": "a0f55d915a8eb6dd"
     }
   ],
   "automation_trigger_events": [
@@ -347,6 +357,14 @@
     {
       "name": "chat-thread-inbox-interrupt-replay",
       "checksum": "904890f43aebd9fe"
+    },
+    {
+      "name": "chat-thread-inbox-thread-order-index",
+      "checksum": "78d46649cafade48"
+    },
+    {
+      "name": "chat-thread-inbox-retry-count",
+      "checksum": "b25ff25b6a61ccc9"
     }
   ],
   "checkpoints": [
@@ -753,6 +771,10 @@
     {
       "name": "private-icon-assets",
       "checksum": "005daf4cb4bf77f7"
+    },
+    {
+      "name": "organization-a2a-member-delegation",
+      "checksum": "3d01bcd4e7c259b0"
     }
   ],
   "pending_tasks": [
@@ -920,6 +942,10 @@
     },
     {
       "name": "indexes",
+      "checksum": null
+    },
+    {
+      "name": "removed-markers",
       "checksum": null
     }
   ],

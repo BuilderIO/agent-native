@@ -235,6 +235,113 @@ describe("AgentInteractionItem replay privacy", () => {
 });
 
 describe("AgentKitChat interactions", () => {
+  it("applies transcript layout values through clamped shared styles", async () => {
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-transcript-layout" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-layout">
+            <AgentKitChat
+              transcriptLayout={{
+                topInset: 5,
+                messageLaneWidth: 730,
+                messageLaneOffsetInline: -33,
+                messageGap: 12,
+                messageLineHeight: 20,
+                fontFamily: "IBM Plex Sans",
+                userBubbleLineHeight: 18,
+                userBubbleMaxWidth: 600,
+                userBubbleOffsetInline: -10,
+                userBubblePadding: { block: 8, inline: 13 },
+              }}
+              composerProps={{
+                autoFocus: false,
+                modelStatusChecksEnabled: false,
+                voiceEnabled: false,
+              }}
+            />
+          </AgentKitProvider>,
+        );
+      });
+
+      const transcript = container.querySelector<HTMLElement>(
+        ".agentkit-transcript-content",
+      );
+      expect(transcript).not.toBeNull();
+      expect(
+        transcript!.style.getPropertyValue("--agentkit-transcript-top-inset"),
+      ).toBe("5px");
+      expect(
+        transcript!.style.getPropertyValue("--agentkit-transcript-lane-width"),
+      ).toBe("730px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-transcript-lane-offset-inline",
+        ),
+      ).toBe("-33px");
+      expect(
+        transcript!.style.getPropertyValue("--agentkit-transcript-message-gap"),
+      ).toBe("12px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-transcript-message-line-height",
+        ),
+      ).toBe("20px");
+      expect(
+        transcript!.style.getPropertyValue("--agentkit-transcript-font-family"),
+      ).toBe("IBM Plex Sans");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-user-bubble-line-height",
+        ),
+      ).toBe("18px");
+      expect(
+        transcript!.style.getPropertyValue("--agentkit-user-bubble-max-width"),
+      ).toBe("600px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-user-bubble-offset-inline",
+        ),
+      ).toBe("-10px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-user-bubble-padding-block",
+        ),
+      ).toBe("8px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-user-bubble-padding-inline",
+        ),
+      ).toBe("13px");
+    } finally {
+      await act(async () => root.unmount());
+      await client.shutdown();
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it("preserves host submission disablement", async () => {
     const client = new AgentKitClient({
       transport: {

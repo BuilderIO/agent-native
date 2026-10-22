@@ -1,11 +1,18 @@
 import { planEffectGraph } from "../../../../shared/effect-graph";
+import type { EffectMeshSpec } from "../../../../shared/effect-graph";
 import {
+  nativeEffectUniformFloats,
   packNativeProperties,
   type EffectDefinition,
   type EffectInstance,
 } from "../../../../shared/native-effects";
 import { resolveNativeParameterAnimation } from "../../../../shared/native-parameter-animation";
 import { packNativeUniformClock } from "../../../../shared/native-uniform-timing";
+import {
+  acquireNativeMeshGrid,
+  nativeMeshGridBytes,
+  type NativeMeshGridLease,
+} from "./native-mesh-grid";
 import {
   NativePackedUniformArena,
   type NativePackedUniformFrame,
@@ -15,6 +22,10 @@ import type {
   NativeWorkerAsset,
   NativeWorkerEffectTarget,
   NativeWorkerScene,
+} from "./native-worker-protocol";
+import {
+  NATIVE_WORKER_MAX_DIMENSION,
+  NATIVE_WORKER_MAX_PIXELS,
 } from "./native-worker-protocol";
 
 declare const GPUTextureUsage: Readonly<{
@@ -26,8 +37,6 @@ declare const GPUTextureUsage: Readonly<{
 declare const GPUBufferUsage: Readonly<{ UNIFORM: number; COPY_DST: number }>;
 declare const GPUShaderStage: Readonly<{ VERTEX: number; FRAGMENT: number }>;
 
-const MAX_DIMENSION = 4096;
-const MAX_PIXELS = 8_388_608;
 const MAX_RESOURCE_BYTES = 402_653_184;
 const MAX_EFFECT_BYTES = 134_217_728;
 
@@ -61,11 +70,54 @@ type BindingResource = {
 
 export type NativeWorkerGpuBank = {
   textures: Map<string, TextureResource>;
+  depths: Map<string, TextureResource>;
   bindings: Map<string, BindingResource>;
   usedTextures: Set<string>;
+  usedDepths: Set<string>;
   usedBindings: Set<string>;
   sceneTexture: GPUTexture | null;
   generation: number;
+  compositionSignature: string | null;
+  width: number;
+  height: number;
+  pixelRatio: number;
+};
+
+export type NativeWorkerGpuFlightLease = {
+  readonly bank: NativeWorkerGpuBank;
+};
+
+export type NativeWorkerGpuFlightAcquisition =
+  | { status: "acquired"; lease: NativeWorkerGpuFlightLease }
+  | {
+      status: "capacity";
+      reason: "flight-limit" | "memory-budget" | "incompatible-scene";
+    };
+
+export class NativeWorkerGpuFlightCapacityError extends Error {
+  readonly reason = "memory-budget" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "NativeWorkerGpuFlightCapacityError";
+  }
+}
+
+type NativeWorkerGpuFlightSlot = {
+  bank: NativeWorkerGpuBank;
+  uniformBuffer: GPUBuffer | null;
+  uniformArena: NativePackedUniformArena<GPUBuffer> | null;
+  uniformFrame: NativePackedUniformFrame | null;
+  uniformUploaded: boolean;
+  uniformCount: number;
+  uniformOccurrences: Map<string, number>;
+  pendingFinalIndex: number;
+  reservedBytes: number;
+  uniformReservationBytes: number;
+  finalReservationBytes: number;
+  workReservationBytes: number;
+  activeLease: NativeWorkerGpuFlightLease | null;
+  submitted: boolean;
   compositionSignature: string | null;
   width: number;
   height: number;
@@ -86,6 +138,7 @@ export type NativeWorkerGpuFacade = {
     blend: boolean,
     textureCount: number,
     placement?: EffectInstance["placement"],
+    mesh?: boolean,
   ): Promise<GPURenderPipeline>;
   bind(
     bank: NativeWorkerGpuBank,
@@ -103,8 +156,10 @@ export type NativeWorkerGpuFacade = {
 function createBank(): NativeWorkerGpuBank {
   return {
     textures: new Map(),
+    depths: new Map(),
     bindings: new Map(),
     usedTextures: new Set(),
+    usedDepths: new Set(),
     usedBindings: new Set(),
     sceneTexture: null,
     generation: -1,
@@ -115,15 +170,18 @@ function createBank(): NativeWorkerGpuBank {
   };
 }
 
-function validSize(width: number, height: number): boolean {
+export function nativeWorkerTextureSizeValid(
+  width: number,
+  height: number,
+): boolean {
   return (
     Number.isSafeInteger(width) &&
     Number.isSafeInteger(height) &&
     width > 0 &&
     height > 0 &&
-    width <= MAX_DIMENSION &&
-    height <= MAX_DIMENSION &&
-    width * height <= MAX_PIXELS
+    width <= NATIVE_WORKER_MAX_DIMENSION &&
+    height <= NATIVE_WORKER_MAX_DIMENSION &&
+    width * height <= NATIVE_WORKER_MAX_PIXELS
   );
 }
 
@@ -139,21 +197,28 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
   readonly canvasFormat: GPUTextureFormat;
   readonly workingFormat: GPUTextureFormat = "rgba16float";
   private presentedColorSpace: NativeWorkerScene["colorSpace"] = "srgb";
-  private finalTextures: [TextureResource | null, TextureResource | null] = [
-    null,
-    null,
-  ];
-  private frontFinal = 0;
+  private finalTextures: [
+    TextureResource | null,
+    TextureResource | null,
+    TextureResource | null,
+  ] = [null, null, null];
+  private frontFinalIndex = 0;
+  private frontSlot: NativeWorkerGpuFlightSlot | null = null;
   private allocatedBytes = 0;
   private allocatedUniformBytes = 0;
+  private reservedBytes = 0;
   private transientBytes = 0;
   private sharedBudget: ((bytes: number, key: string) => void) | null = null;
-  private readonly uniformBuffer: GPUBuffer;
-  private uniformArena: NativePackedUniformArena<GPUBuffer>;
-  private uniformFrame: NativePackedUniformFrame | null = null;
-  private uniformUploaded = false;
-  private uniformCount = 0;
-  private readonly uniformOccurrences = new Map<string, number>();
+  private readonly flightSlots: NativeWorkerGpuFlightSlot[] = [];
+  private readonly leaseSlots = new WeakMap<
+    NativeWorkerGpuFlightLease,
+    NativeWorkerGpuFlightSlot
+  >();
+  private readonly bankSlots = new WeakMap<
+    NativeWorkerGpuBank,
+    NativeWorkerGpuFlightSlot
+  >();
+  private legacyLease: NativeWorkerGpuFlightLease | null = null;
   private readonly pipelineCache = new Map<
     string,
     Map<string, GPURenderPipeline>
@@ -164,6 +229,19 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
     number
   >();
   private readonly effectLayouts = new Map<number, GPUPipelineLayout>();
+  private readonly preparedPlans = new WeakMap<
+    EffectDefinition,
+    ReturnType<typeof planEffectGraph>
+  >();
+  private readonly preparedProperties = new WeakMap<
+    EffectInstance,
+    {
+      definition: EffectDefinition;
+      params: EffectInstance["params"];
+      packed: Float32Array;
+    }
+  >();
+  private readonly meshGrids = new Map<string, NativeMeshGridLease>();
   private readonly assets = new Map<string, TextureResource>();
   private white: GPUTexture;
   private transparent: GPUTexture;
@@ -188,14 +266,75 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
       minFilter: "nearest",
     });
     const uniformCapacity = 2_097_152;
-    this.uniformBuffer = device.createBuffer({
+    const uniformBuffer = device.createBuffer({
       size: uniformCapacity,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.uniformArena = this.createUniformArena(uniformCapacity);
+    const slot: NativeWorkerGpuFlightSlot = {
+      bank: this.bank,
+      uniformBuffer,
+      uniformArena: this.createUniformArena(uniformCapacity, uniformBuffer),
+      uniformFrame: null,
+      uniformUploaded: false,
+      uniformCount: 0,
+      uniformOccurrences: new Map(),
+      pendingFinalIndex: 1,
+      reservedBytes: 0,
+      uniformReservationBytes: 0,
+      finalReservationBytes: 0,
+      workReservationBytes: 0,
+      activeLease: null,
+      submitted: false,
+      compositionSignature: null,
+      width: 0,
+      height: 0,
+      pixelRatio: 0,
+    };
+    this.flightSlots.push(slot);
+    this.bankSlots.set(this.bank, slot);
     this.allocatedUniformBytes += uniformCapacity;
     this.white = this.createSolid([255, 255, 255, 255]);
     this.transparent = this.createSolid([0, 0, 0, 0]);
+  }
+
+  private get uniformArena(): NativePackedUniformArena<GPUBuffer> {
+    return this.flightSlots[0]!.uniformArena!;
+  }
+
+  private set uniformArena(value: NativePackedUniformArena<GPUBuffer>) {
+    this.flightSlots[0]!.uniformArena = value;
+  }
+
+  private get uniformBuffer(): GPUBuffer {
+    return this.flightSlots[0]!.uniformBuffer!;
+  }
+
+  private get uniformFrame(): NativePackedUniformFrame | null {
+    return this.flightSlots[0]!.uniformFrame;
+  }
+
+  private set uniformFrame(value: NativePackedUniformFrame | null) {
+    this.flightSlots[0]!.uniformFrame = value;
+  }
+
+  private get uniformUploaded(): boolean {
+    return this.flightSlots[0]!.uniformUploaded;
+  }
+
+  private set uniformUploaded(value: boolean) {
+    this.flightSlots[0]!.uniformUploaded = value;
+  }
+
+  private get uniformCount(): number {
+    return this.flightSlots[0]!.uniformCount;
+  }
+
+  private set uniformCount(value: number) {
+    this.flightSlots[0]!.uniformCount = value;
+  }
+
+  private get uniformOccurrences(): Map<string, number> {
+    return this.flightSlots[0]!.uniformOccurrences;
   }
 
   static async create(
@@ -239,45 +378,131 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
   }
 
   frontBank(): NativeWorkerGpuBank {
-    return this.bank;
+    return this.frontSlot?.bank ?? this.bank;
   }
 
   frontTexture(): GPUTexture | null {
-    return this.finalTextures[this.frontFinal]?.texture ?? null;
+    return this.finalTextures[this.frontFinalIndex]?.texture ?? null;
   }
 
-  beginFrame(): void {
-    if (this.uniformFrame)
+  tryAcquireFlight(
+    scene: NativeWorkerScene,
+    compositionSignature: string | null,
+  ): NativeWorkerGpuFlightAcquisition {
+    this.assertLive();
+    this.assertSceneSize(scene);
+    const active = this.flightSlots.filter((slot) => slot.activeLease);
+    if (active.length >= 2 || this.legacyLease)
+      return { status: "capacity", reason: "flight-limit" };
+    const slot =
+      this.flightSlots.find((candidate) => !candidate.activeLease) ?? null;
+    const reference = active[0];
+    if (
+      reference &&
+      (reference.compositionSignature !== compositionSignature ||
+        reference.width !== scene.width ||
+        reference.height !== scene.height ||
+        reference.pixelRatio !== scene.pixelRatio)
+    )
+      return { status: "capacity", reason: "incompatible-scene" };
+
+    const targetSlot = slot ?? this.createEmptyFlightSlot();
+    const pendingFinalIndex = this.findPendingFinalIndex(targetSlot);
+    if (pendingFinalIndex === null)
+      return { status: "capacity", reason: "flight-limit" };
+    targetSlot.pendingFinalIndex = pendingFinalIndex;
+    const isSecond = active.length > 0;
+    const uniformBytes = targetSlot.uniformBuffer ? 0 : 2_097_152;
+    const finalBytes = textureSize(
+      scene.width,
+      scene.height,
+      this.workingFormat,
+    );
+    const pendingFinal = this.finalTextures[targetSlot.pendingFinalIndex];
+    const finalReserve = Math.max(0, finalBytes - (pendingFinal?.bytes ?? 0));
+    const reusableWork =
+      targetSlot.compositionSignature === compositionSignature &&
+      targetSlot.width === scene.width &&
+      targetSlot.height === scene.height &&
+      targetSlot.pixelRatio === scene.pixelRatio;
+    const workReserve =
+      isSecond && !reusableWork && reference
+        ? this.bankBytes(reference.bank)
+        : 0;
+    const reservation = uniformBytes + finalReserve + workReserve;
+    try {
+      this.prepareBank(targetSlot, scene, compositionSignature);
+      this.reserveFlightBytes(
+        targetSlot,
+        reservation,
+        "flight:reserve",
+        uniformBytes,
+        finalReserve,
+        workReserve,
+      );
+      if (!targetSlot.uniformBuffer) this.createFlightUniforms(targetSlot);
+    } catch (error) {
+      this.releaseFlightReservation(targetSlot);
+      if (
+        isSecond &&
+        error instanceof NativeWorkerGpuError &&
+        (error.code === "gpu-budget-exceeded" ||
+          error.code === "gpu-shared-budget-exceeded")
+      )
+        return { status: "capacity", reason: "memory-budget" };
+      throw error;
+    }
+
+    const lease: NativeWorkerGpuFlightLease = Object.freeze({
+      bank: targetSlot.bank,
+    });
+    targetSlot.activeLease = lease;
+    targetSlot.submitted = false;
+    this.leaseSlots.set(lease, targetSlot);
+    return { status: "acquired", lease };
+  }
+
+  beginFrame(lease?: NativeWorkerGpuFlightLease): void {
+    const slot = lease
+      ? this.slotForLease(lease)
+      : this.legacySlotForRecording();
+    if (slot.uniformFrame)
       throw new NativeWorkerGpuError(
         "frame-pipeline-busy",
         "A worker GPU frame is already recording.",
       );
-    this.uniformFrame = this.uniformArena.beginFrame();
-    this.uniformUploaded = false;
-    this.uniformCount = 0;
-    this.uniformOccurrences.clear();
+    slot.uniformFrame = slot.uniformArena!.beginFrame();
+    slot.uniformUploaded = false;
+    slot.uniformCount = 0;
+    slot.uniformOccurrences.clear();
   }
 
-  uploadFrame(): void {
-    const frame = this.uniformFrame;
+  uploadFrame(lease?: NativeWorkerGpuFlightLease): void {
+    const slot = lease
+      ? this.slotForLease(lease)
+      : this.legacySlotForRecording();
+    const frame = slot.uniformFrame;
     if (!frame)
       throw new NativeWorkerGpuError(
         "uniform-frame-missing",
         "The GPU frame has no packed uniforms.",
       );
-    if (!this.uniformCount) return;
-    this.uniformArena.upload(frame);
-    this.uniformUploaded = true;
+    if (!slot.uniformCount) return;
+    slot.uniformArena!.upload(frame);
+    slot.uniformUploaded = true;
   }
 
-  finishFrame(): void {
-    const frame = this.uniformFrame;
+  finishFrame(lease?: NativeWorkerGpuFlightLease): void {
+    const slot = lease
+      ? this.slotForLease(lease)
+      : this.legacySlotForRecording();
+    const frame = slot.uniformFrame;
     if (!frame) return;
-    if (this.uniformUploaded) this.uniformArena.finishFrame(frame);
-    else this.uniformArena.abortFrame(frame);
-    this.uniformFrame = null;
-    this.uniformUploaded = false;
-    this.uniformCount = 0;
+    if (slot.uniformUploaded) slot.uniformArena!.finishFrame(frame);
+    else slot.uniformArena!.abortFrame(frame);
+    slot.uniformFrame = null;
+    slot.uniformUploaded = false;
+    slot.uniformCount = 0;
   }
 
   spareBank(
@@ -285,16 +510,39 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
     compositionSignature: string | null = null,
   ): NativeWorkerGpuBank {
     this.assertLive();
-    if (
-      !validSize(scene.width, scene.height) ||
-      !Number.isFinite(scene.pixelRatio) ||
-      scene.pixelRatio <= 0
-    )
+    if (this.legacyLease)
       throw new NativeWorkerGpuError(
-        "scene-size-invalid",
-        "The native worker scene has invalid full-resolution geometry.",
+        "frame-pipeline-busy",
+        "The prior exclusive GPU operation has not released its lease.",
       );
-    const bank = this.bank;
+    if (this.flightSlots.some((slot) => slot.activeLease))
+      throw new NativeWorkerGpuError(
+        "frame-pipeline-busy",
+        "An explicit worker flight is active during an exclusive GPU operation.",
+      );
+    this.assertSceneSize(scene);
+    const slot = this.frontSlot ?? this.flightSlots[0]!;
+    const pendingFinalIndex = this.findPendingFinalIndex(slot);
+    if (pendingFinalIndex === null)
+      throw new NativeWorkerGpuError(
+        "frame-pipeline-busy",
+        "No non-visible final texture is available for an exclusive GPU operation.",
+      );
+    slot.pendingFinalIndex = pendingFinalIndex;
+    this.prepareBank(slot, scene, compositionSignature);
+    this.legacyLease = Object.freeze({ bank: slot.bank });
+    this.leaseSlots.set(this.legacyLease, slot);
+    slot.activeLease = this.legacyLease;
+    slot.submitted = false;
+    return slot.bank;
+  }
+
+  private prepareBank(
+    slot: NativeWorkerGpuFlightSlot,
+    scene: NativeWorkerScene,
+    compositionSignature: string | null,
+  ): NativeWorkerGpuBank {
+    const bank = slot.bank;
     const densityChanged = bank.pixelRatio !== scene.pixelRatio;
     const resized =
       bank.width !== scene.width ||
@@ -309,14 +557,17 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
       bank.compositionSignature === compositionSignature &&
       !densityChanged;
     if (changed || resized) {
-      if (this.uniformFrame)
+      if (slot.uniformFrame)
         throw new NativeWorkerGpuError(
           "frame-pipeline-busy",
           "The GPU scene changed during an active packed frame.",
         );
       if (!reuseBindings) {
         bank.bindings.clear();
-        this.uniformArena = this.createUniformArena(2_097_152);
+        slot.uniformArena = this.createUniformArena(
+          2_097_152,
+          slot.uniformBuffer!,
+        );
       }
     }
     if (resized) {
@@ -329,33 +580,305 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
     bank.generation = scene.generation;
     bank.compositionSignature = compositionSignature;
     bank.usedTextures.clear();
+    bank.usedDepths.clear();
     bank.usedBindings.clear();
+    slot.compositionSignature = compositionSignature;
+    slot.width = scene.width;
+    slot.height = scene.height;
+    slot.pixelRatio = scene.pixelRatio;
     return bank;
   }
 
-  trimWork(bank: NativeWorkerGpuBank): void {
-    if (bank !== this.bank || this.uniformFrame)
+  markFlightSubmitted(lease: NativeWorkerGpuFlightLease): void {
+    this.slotForLease(lease).submitted = true;
+  }
+
+  releaseFlight(lease: NativeWorkerGpuFlightLease): void {
+    const slot = this.slotForLease(lease);
+    if (slot.uniformFrame)
+      throw new NativeWorkerGpuError(
+        "frame-pipeline-busy",
+        "A worker GPU flight cannot be released while recording uniforms.",
+      );
+    if (!slot.submitted) this.clearBank(slot.bank);
+    this.releaseFlightReservation(slot);
+    slot.activeLease = null;
+    slot.submitted = false;
+    if (this.legacyLease === lease) this.legacyLease = null;
+  }
+
+  endLegacyFlight(): void {
+    const lease = this.legacyLease;
+    if (!lease) return;
+    this.slotForLease(lease).submitted = true;
+    this.releaseFlight(lease);
+  }
+
+  private legacySlotForRecording(): NativeWorkerGpuFlightSlot {
+    if (this.legacyLease) return this.slotForLease(this.legacyLease);
+    if (this.flightSlots.some((slot) => slot.activeLease))
+      throw new NativeWorkerGpuError(
+        "frame-pipeline-busy",
+        "An exclusive GPU frame cannot overlap a worker flight.",
+      );
+    const slot = this.frontSlot ?? this.flightSlots[0]!;
+    const lease = Object.freeze({ bank: slot.bank });
+    this.legacyLease = lease;
+    slot.activeLease = lease;
+    slot.submitted = false;
+    this.leaseSlots.set(lease, slot);
+    return slot;
+  }
+
+  private assertSceneSize(scene: NativeWorkerScene): void {
+    if (
+      !nativeWorkerTextureSizeValid(scene.width, scene.height) ||
+      !Number.isFinite(scene.pixelRatio) ||
+      scene.pixelRatio <= 0
+    )
+      throw new NativeWorkerGpuError(
+        "scene-size-invalid",
+        "The native worker scene has invalid full-resolution geometry.",
+      );
+  }
+
+  private createEmptyFlightSlot(): NativeWorkerGpuFlightSlot {
+    const slot: NativeWorkerGpuFlightSlot = {
+      bank: createBank(),
+      uniformBuffer: null,
+      uniformArena: null,
+      uniformFrame: null,
+      uniformUploaded: false,
+      uniformCount: 0,
+      uniformOccurrences: new Map(),
+      pendingFinalIndex: 2,
+      reservedBytes: 0,
+      uniformReservationBytes: 0,
+      finalReservationBytes: 0,
+      workReservationBytes: 0,
+      activeLease: null,
+      submitted: false,
+      compositionSignature: null,
+      width: 0,
+      height: 0,
+      pixelRatio: 0,
+    };
+    this.flightSlots.push(slot);
+    this.bankSlots.set(slot.bank, slot);
+    return slot;
+  }
+
+  private createFlightUniforms(slot: NativeWorkerGpuFlightSlot): void {
+    const capacityBytes = 2_097_152;
+    const buffer = this.device.createBuffer({
+      size: capacityBytes,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    let arena: NativePackedUniformArena<GPUBuffer>;
+    try {
+      arena = this.createUniformArena(capacityBytes, buffer);
+    } catch (error) {
+      buffer.destroy();
+      throw error;
+    }
+    slot.uniformBuffer = buffer;
+    slot.uniformArena = arena;
+    this.commitFlightReservation(slot, capacityBytes, "uniform");
+    this.allocatedUniformBytes += capacityBytes;
+  }
+
+  private reserveFlightBytes(
+    slot: NativeWorkerGpuFlightSlot,
+    bytes: number,
+    key: string,
+    uniformBytes: number,
+    finalBytes: number,
+    workBytes: number,
+  ): void {
+    if (bytes <= 0) return;
+    if (this.resourceBytes() + bytes > MAX_RESOURCE_BYTES)
+      throw this.budgetError(bytes, key);
+    this.sharedBudget?.(bytes, key);
+    slot.reservedBytes += bytes;
+    slot.uniformReservationBytes += uniformBytes;
+    slot.finalReservationBytes += finalBytes;
+    slot.workReservationBytes += workBytes;
+    this.reservedBytes += bytes;
+  }
+
+  private findPendingFinalIndex(
+    slot: NativeWorkerGpuFlightSlot,
+  ): number | null {
+    const occupied = new Set<number>();
+    if (this.finalTextures[this.frontFinalIndex])
+      occupied.add(this.frontFinalIndex);
+    for (const candidate of this.flightSlots)
+      if (candidate !== slot && candidate.activeLease)
+        occupied.add(candidate.pendingFinalIndex);
+    for (let index = 0; index < this.finalTextures.length; index++)
+      if (!occupied.has(index)) return index;
+    return null;
+  }
+
+  private commitFlightReservation(
+    slot: NativeWorkerGpuFlightSlot,
+    bytes: number,
+    category: "uniform" | "final" | "work",
+  ): void {
+    const categoryKey = `${category}ReservationBytes` as const;
+    const committed = Math.min(bytes, slot[categoryKey]);
+    slot[categoryKey] -= committed;
+    slot.reservedBytes -= committed;
+    this.reservedBytes -= committed;
+  }
+
+  private releaseFlightReservation(slot: NativeWorkerGpuFlightSlot): void {
+    this.reservedBytes -= slot.reservedBytes;
+    slot.reservedBytes = 0;
+    slot.uniformReservationBytes = 0;
+    slot.finalReservationBytes = 0;
+    slot.workReservationBytes = 0;
+  }
+
+  private bankBytes(bank: NativeWorkerGpuBank): number {
+    return [...bank.textures.values(), ...bank.depths.values()].reduce(
+      (total, resource) => total + resource.bytes,
+      0,
+    );
+  }
+
+  private slotForLease(
+    lease: NativeWorkerGpuFlightLease,
+  ): NativeWorkerGpuFlightSlot {
+    const slot = this.leaseSlots.get(lease);
+    if (!slot || slot.activeLease !== lease)
+      throw new NativeWorkerGpuError(
+        "flight-lease-invalid",
+        "The GPU flight lease is no longer active.",
+      );
+    return slot;
+  }
+
+  private slotForBank(bank: NativeWorkerGpuBank): NativeWorkerGpuFlightSlot {
+    const slot = this.bankSlots.get(bank);
+    if (!slot)
+      throw new NativeWorkerGpuError(
+        "flight-bank-invalid",
+        "The GPU work bank does not belong to this scene.",
+      );
+    return slot;
+  }
+
+  private capacityError(slot: NativeWorkerGpuFlightSlot): Error | null {
+    return this.flightSlots.indexOf(slot) > 0 &&
+      slot.activeLease !== null &&
+      !slot.submitted
+      ? new NativeWorkerGpuFlightCapacityError(
+          "The second native worker flight exceeded the reserved GPU budget.",
+        )
+      : null;
+  }
+
+  trimWork(target: NativeWorkerGpuBank | NativeWorkerGpuFlightLease): void {
+    const isLease = !this.bankSlots.has(target as NativeWorkerGpuBank);
+    const slot = isLease
+      ? this.slotForLease(target as NativeWorkerGpuFlightLease)
+      : this.slotForBank(target as NativeWorkerGpuBank);
+    if (slot.uniformFrame)
       throw new NativeWorkerGpuError(
         "frame-pipeline-busy",
         "GPU work must finish before resource retirement.",
       );
+    const bank = slot.bank;
+    this.trimBank(bank);
+  }
+
+  // The caller must await the GPU submission fence before retiring encoded textures.
+  trimWorkExcept(
+    target: NativeWorkerGpuBank | NativeWorkerGpuFlightLease,
+    retained: GPUTexture | null,
+  ): void {
+    const isLease = !this.bankSlots.has(target as NativeWorkerGpuBank);
+    const slot = isLease
+      ? this.slotForLease(target as NativeWorkerGpuFlightLease)
+      : this.slotForBank(target as NativeWorkerGpuBank);
+    if (slot.activeLease && slot.activeLease !== this.legacyLease)
+      throw new NativeWorkerGpuError(
+        "frame-pipeline-busy",
+        "Work cannot be retired while an explicit worker flight owns the bank.",
+      );
+    if (slot.uniformFrame)
+      throw new NativeWorkerGpuError(
+        "frame-pipeline-busy",
+        "GPU work must finish before resource retirement.",
+      );
+    const bank = slot.bank;
+    bank.usedTextures.clear();
+    for (const [key, resource] of bank.textures)
+      if (resource.texture === retained) bank.usedTextures.add(key);
+    bank.usedDepths.clear();
+    bank.usedBindings.clear();
+    this.trimBank(bank);
+    if (!retained) bank.sceneTexture = null;
+  }
+
+  private trimBank(bank: NativeWorkerGpuBank): void {
     for (const [key, resource] of bank.textures) {
       if (bank.usedTextures.has(key)) continue;
       resource.texture.destroy();
       this.allocatedBytes -= resource.bytes;
       bank.textures.delete(key);
     }
+    for (const [key, resource] of bank.depths) {
+      if (bank.usedDepths.has(key)) continue;
+      resource.texture.destroy();
+      this.allocatedBytes -= resource.bytes;
+      bank.depths.delete(key);
+    }
     for (const key of bank.bindings.keys())
       if (!bank.usedBindings.has(key)) bank.bindings.delete(key);
   }
 
   stageFinal(
+    lease: NativeWorkerGpuFlightLease,
     scene: NativeWorkerScene,
     sceneTexture: GPUTexture,
     encoder: GPUCommandEncoder,
+  ): GPUTexture;
+  stageFinal(
+    scene: NativeWorkerScene,
+    sceneTexture: GPUTexture,
+    encoder: GPUCommandEncoder,
+  ): GPUTexture;
+  stageFinal(
+    leaseOrScene: NativeWorkerGpuFlightLease | NativeWorkerScene,
+    sceneOrTexture: NativeWorkerScene | GPUTexture,
+    textureOrEncoder: GPUTexture | GPUCommandEncoder,
+    maybeEncoder?: GPUCommandEncoder,
   ): GPUTexture {
     this.assertLive();
-    const index = 1 - this.frontFinal;
+    const explicitLease = this.leaseSlots.has(
+      leaseOrScene as NativeWorkerGpuFlightLease,
+    );
+    const lease = explicitLease
+      ? (leaseOrScene as NativeWorkerGpuFlightLease)
+      : this.legacyLease;
+    if (!lease)
+      throw new NativeWorkerGpuError(
+        "flight-lease-invalid",
+        "Final textures require an active GPU flight lease.",
+      );
+    const slot = this.slotForLease(lease);
+    const scene = (
+      explicitLease ? sceneOrTexture : leaseOrScene
+    ) as NativeWorkerScene;
+    const sceneTexture = (
+      explicitLease ? textureOrEncoder : sceneOrTexture
+    ) as GPUTexture;
+    const encoder = (
+      explicitLease ? maybeEncoder : textureOrEncoder
+    ) as GPUCommandEncoder;
+    const index = slot.pendingFinalIndex;
     let resource = this.finalTextures[index];
     if (
       resource &&
@@ -367,7 +890,7 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
     }
     if (!resource) {
       const bytes = textureSize(scene.width, scene.height, this.workingFormat);
-      this.ensureBudget(bytes, `final:${index}`);
+      this.ensureBudget(bytes, `final:${index}`, slot, "final");
       resource = {
         texture: this.device.createTexture({
           size: [scene.width, scene.height],
@@ -383,6 +906,7 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
         bytes,
       };
       this.finalTextures[index] = resource;
+      this.commitFlightReservation(slot, bytes, "final");
       this.allocatedBytes += bytes;
     }
     encoder.copyTextureToTexture(
@@ -394,25 +918,62 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
   }
 
   publish(
+    lease: NativeWorkerGpuFlightLease,
+    validatedFinal: GPUTexture,
+    scene: NativeWorkerScene,
+  ): void;
+  publish(
     bank: NativeWorkerGpuBank,
     validatedFinal: GPUTexture,
     scene: NativeWorkerScene,
+  ): void;
+  publish(
+    leaseOrBank: NativeWorkerGpuFlightLease | NativeWorkerGpuBank,
+    validatedFinal: GPUTexture,
+    scene: NativeWorkerScene,
   ): void {
-    this.validatePublication(bank, validatedFinal);
-    bank.sceneTexture = validatedFinal;
-    this.frontFinal = 1 - this.frontFinal;
+    const explicitLease = this.leaseSlots.has(
+      leaseOrBank as NativeWorkerGpuFlightLease,
+    );
+    const slot = explicitLease
+      ? this.slotForLease(leaseOrBank as NativeWorkerGpuFlightLease)
+      : this.slotForBank(leaseOrBank as NativeWorkerGpuBank);
+    if (explicitLease)
+      this.validatePublication(
+        leaseOrBank as NativeWorkerGpuFlightLease,
+        validatedFinal,
+      );
+    else this.validatePublication(slot.bank, validatedFinal);
+    const previousFront = this.frontFinalIndex;
+    const nextFront = slot.pendingFinalIndex;
+    slot.bank.sceneTexture = validatedFinal;
+    this.frontFinalIndex = nextFront;
+    slot.pendingFinalIndex = previousFront;
+    this.frontSlot = slot;
+    slot.submitted = true;
     void scene;
   }
 
   validatePublication(
+    lease: NativeWorkerGpuFlightLease,
+    validatedFinal: GPUTexture,
+  ): void;
+  validatePublication(
     bank: NativeWorkerGpuBank,
+    validatedFinal: GPUTexture,
+  ): void;
+  validatePublication(
+    leaseOrBank: NativeWorkerGpuFlightLease | NativeWorkerGpuBank,
     validatedFinal: GPUTexture,
   ): void {
     this.assertLive();
-    if (
-      bank !== this.bank ||
-      this.finalTextures[1 - this.frontFinal]?.texture !== validatedFinal
-    )
+    const explicitLease = this.leaseSlots.has(
+      leaseOrBank as NativeWorkerGpuFlightLease,
+    );
+    const slot = explicitLease
+      ? this.slotForLease(leaseOrBank as NativeWorkerGpuFlightLease)
+      : this.slotForBank(leaseOrBank as NativeWorkerGpuBank);
+    if (this.finalTextures[slot.pendingFinalIndex]?.texture !== validatedFinal)
       throw new NativeWorkerGpuError(
         "frame-order-invalid",
         "The validated GPU final texture is no longer spare.",
@@ -435,7 +996,10 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
   }
 
   reject(bank: NativeWorkerGpuBank): void {
-    if (bank !== this.bank) return;
+    const slot = this.bankSlots.get(bank);
+    if (!slot || slot === this.frontSlot) return;
+    if (slot.activeLease && slot.submitted) return;
+    if (slot.activeLease) this.releaseFlight(slot.activeLease);
     this.clearBank(bank);
   }
 
@@ -447,7 +1011,7 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
     format: GPUTextureFormat = this.workingFormat,
   ): GPUTexture {
     this.assertLive();
-    if (!validSize(width, height))
+    if (!nativeWorkerTextureSizeValid(width, height))
       throw new NativeWorkerGpuError(
         "resource-size-unsupported",
         "The native GPU texture exceeds its dimension limit.",
@@ -466,7 +1030,8 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
       bank.textures.delete(key);
     }
     const bytes = textureSize(width, height, format);
-    this.ensureBudget(bytes, `work:${key}`);
+    const slot = this.slotForBank(bank);
+    this.ensureBudget(bytes, `work:${key}`, slot, "work");
     const texture = this.device.createTexture({
       size: [width, height],
       format,
@@ -477,8 +1042,60 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
         GPUTextureUsage.COPY_DST,
     });
     bank.textures.set(key, { texture, width, height, format, bytes });
+    this.commitFlightReservation(slot, bytes, "work");
     this.allocatedBytes += bytes;
     return texture;
+  }
+
+  private meshDepth(
+    bank: NativeWorkerGpuBank,
+    width: number,
+    height: number,
+  ): GPUTexture {
+    const key = `depth24plus:${width}x${height}`;
+    bank.usedDepths.add(key);
+    const existing = bank.depths.get(key);
+    if (existing?.width === width && existing.height === height)
+      return existing.texture;
+    if (existing) {
+      existing.texture.destroy();
+      this.allocatedBytes -= existing.bytes;
+      bank.depths.delete(key);
+    }
+    const bytes = width * height * 4;
+    const slot = this.slotForBank(bank);
+    this.ensureBudget(bytes, `depth:${key}`, slot, "work");
+    const texture = this.device.createTexture({
+      size: [width, height],
+      format: "depth24plus",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    bank.depths.set(key, {
+      texture,
+      width,
+      height,
+      format: "depth24plus",
+      bytes,
+    });
+    this.commitFlightReservation(slot, bytes, "work");
+    this.allocatedBytes += bytes;
+    return texture;
+  }
+
+  private meshGrid(
+    mesh: EffectMeshSpec,
+    slot: NativeWorkerGpuFlightSlot,
+  ): NativeMeshGridLease {
+    const key = `${mesh.columns}x${mesh.rows}`;
+    const existing = this.meshGrids.get(key);
+    if (existing) return existing;
+    const bytes = nativeMeshGridBytes(mesh);
+    this.ensureBudget(bytes, `mesh:${key}`, slot, "work");
+    const lease = acquireNativeMeshGrid(this.device, mesh);
+    this.meshGrids.set(key, lease);
+    this.commitFlightReservation(slot, bytes, "work");
+    this.allocatedBytes += bytes;
+    return lease;
   }
 
   async pipeline(
@@ -487,6 +1104,7 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
     blend: boolean,
     textureCount: number,
     placement?: EffectInstance["placement"],
+    mesh = false,
   ): Promise<GPURenderPipeline> {
     this.assertLive();
     if (
@@ -499,7 +1117,7 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
         "The shader has more texture inputs than the GPU supports.",
       );
     const constants = nativeRenderPlacementConstants(wgsl, placement);
-    const key = JSON.stringify([format, blend, textureCount, constants]);
+    const key = JSON.stringify([format, blend, textureCount, constants, mesh]);
     const cached = this.pipelineCache.get(wgsl)?.get(key);
     if (cached) return cached;
     const module = this.device.createShaderModule({ code: wgsl });
@@ -549,6 +1167,15 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
         ],
       },
       primitive: { topology: "triangle-list" },
+      ...(mesh
+        ? {
+            depthStencil: {
+              format: "depth24plus" as const,
+              depthWriteEnabled: true,
+              depthCompare: "less" as const,
+            },
+          }
+        : {}),
     });
     if (this.disposed)
       throw new NativeWorkerGpuError(
@@ -583,18 +1210,20 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
     sampler = this.sampler,
   ): GPUBindGroup {
     this.assertLive();
-    const frame = this.uniformFrame;
+    const slot = this.slotForBank(bank);
+    const frame = slot.uniformFrame;
     if (!frame)
       throw new NativeWorkerGpuError(
         "uniform-frame-missing",
         "A draw was encoded without a worker uniform frame.",
       );
-    const occurrence = this.uniformOccurrences.get(key) ?? 0;
-    this.uniformOccurrences.set(key, occurrence + 1);
+    key = `${key}:uniform${values.byteLength}`;
+    const occurrence = slot.uniformOccurrences.get(key) ?? 0;
+    slot.uniformOccurrences.set(key, occurrence + 1);
     key = `${key}:${occurrence}`;
     bank.usedBindings.add(key);
-    const packed = this.uniformArena.write(frame, key, values);
-    this.uniformCount++;
+    const packed = slot.uniformArena!.write(frame, key, values);
+    slot.uniformCount++;
     const { size, offset } = packed;
     let binding = bank.bindings.get(key);
     if (
@@ -679,7 +1308,8 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
         "worker-capability-pass",
         `Effect ${instance.id} needs a temporal or non-render pass.`,
       );
-    const plan = planEffectGraph(definition);
+    const plan =
+      this.preparedPlans.get(definition) ?? planEffectGraph(definition);
     if (plan.errors.length)
       throw new NativeWorkerGpuError(
         "effect-graph-invalid",
@@ -693,6 +1323,20 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
           timeSeconds,
         )
       : instance.params;
+    const cached = this.preparedProperties.get(instance);
+    const packedProperties =
+      !instance.animation &&
+      cached?.definition === definition &&
+      cached.params === instance.params
+        ? cached.packed
+        : packNativeProperties(definition, params);
+    this.preparedPlans.set(definition, plan);
+    if (!instance.animation)
+      this.preparedProperties.set(instance, {
+        definition,
+        params: instance.params,
+        packed: packedProperties,
+      });
     const resources = new Map<string, GPUTexture>([
       ["source", source],
       ...inputs,
@@ -720,12 +1364,14 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
         );
       const width = spec?.size === "fixed" ? spec.width : target.width;
       const height = spec?.size === "fixed" ? spec.height : target.height;
-      if (!width || !height || !validSize(width, height))
+      if (!width || !height || !nativeWorkerTextureSizeValid(width, height))
         throw new NativeWorkerGpuError(
           "resource-size-unsupported",
           `Pass ${pass.id} exceeds effect bounds.`,
         );
-      resourceBytes += textureSize(width, height, format);
+      resourceBytes +=
+        textureSize(width, height, format) +
+        (pass.mesh ? width * height * 4 : 0);
       if (resourceBytes > MAX_EFFECT_BYTES)
         throw new NativeWorkerGpuError(
           "resource-budget-exceeded",
@@ -753,8 +1399,11 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
         false,
         reads.length,
         instance.placement,
+        pass.mesh !== undefined,
       );
-      const values = new Float32Array(136);
+      const values = new Float32Array(
+        8 + nativeEffectUniformFloats(definition),
+      );
       values.set([width, height, 1 / width, 1 / height], 0);
       values.set(
         packNativeUniformClock({
@@ -764,7 +1413,7 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
         }),
         4,
       );
-      values.set(packNativeProperties(definition, params), 8);
+      values.set(packedProperties, 8);
       const input = reads[0] ?? null;
       const bind = this.bind(
         bank,
@@ -775,6 +1424,10 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
         values,
         reads.slice(2),
       );
+      const depth = pass.mesh ? this.meshDepth(bank, width, height) : null;
+      const grid = pass.mesh
+        ? this.meshGrid(pass.mesh, this.slotForBank(bank))
+        : null;
       const render = encoder.beginRenderPass({
         colorAttachments: [
           {
@@ -784,10 +1437,23 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
             clearValue: { r: 0, g: 0, b: 0, a: 0 },
           },
         ],
+        ...(depth
+          ? {
+              depthStencilAttachment: {
+                view: depth.createView(),
+                depthLoadOp: "clear" as const,
+                depthStoreOp: "discard" as const,
+                depthClearValue: 1,
+              },
+            }
+          : {}),
       });
       render.setPipeline(pipeline);
       render.setBindGroup(0, bind);
-      render.draw(3);
+      if (grid) {
+        render.setIndexBuffer(grid.buffer, "uint32");
+        render.drawIndexed(grid.indexCount);
+      } else render.draw(3);
       render.end();
       resources.set(pass.output, output);
     }
@@ -823,6 +1489,36 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
     return JSON.stringify([assetId, revision]);
   }
 
+  retireIdleWorkForAssetUpload(asset: NativeWorkerAsset): void {
+    if (
+      this.flightSlots.some(
+        (slot) => slot.activeLease && slot.activeLease !== this.legacyLease,
+      )
+    )
+      throw new NativeWorkerGpuError(
+        "frame-pipeline-busy",
+        "Asset uploads cannot retire work while an explicit worker flight is active.",
+      );
+    if (
+      this.assets.has(NativeWorkerGpu.assetKey(asset.assetId, asset.revision))
+    )
+      return;
+    const width = asset.kind === "bitmap" ? asset.bitmap.width : asset.width;
+    const height = asset.kind === "bitmap" ? asset.bitmap.height : asset.height;
+    if (!nativeWorkerTextureSizeValid(width, height)) return;
+    const format =
+      asset.kind === "bitmap"
+        ? asset.sampleEncoding === "linear-data"
+          ? "rgba8unorm"
+          : "rgba8unorm-srgb"
+        : "rgba16float";
+    if (
+      this.resourceBytes() + textureSize(width, height, format) >
+      MAX_RESOURCE_BYTES
+    )
+      this.trimWorkExcept(this.bank, null);
+  }
+
   uploadAsset(asset: NativeWorkerAsset): void {
     try {
       this.assertLive();
@@ -837,8 +1533,12 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
       const height =
         asset.kind === "bitmap" ? asset.bitmap.height : asset.height;
       const format: GPUTextureFormat =
-        asset.kind === "bitmap" ? "rgba8unorm-srgb" : "rgba16float";
-      if (!validSize(width, height))
+        asset.kind === "bitmap"
+          ? asset.sampleEncoding === "linear-data"
+            ? "rgba8unorm"
+            : "rgba8unorm-srgb"
+          : "rgba16float";
+      if (!nativeWorkerTextureSizeValid(width, height))
         throw new NativeWorkerGpuError(
           "asset-size-invalid",
           `Asset ${asset.assetId} exceeds texture limits.`,
@@ -914,7 +1614,10 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
 
   resourceBytes(): number {
     return (
-      this.allocatedBytes + this.allocatedUniformBytes + this.transientBytes
+      this.allocatedBytes +
+      this.allocatedUniformBytes +
+      this.reservedBytes +
+      this.transientBytes
     );
   }
 
@@ -934,19 +1637,33 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.clearBank(this.bank);
+    for (const slot of this.flightSlots) {
+      this.clearBank(slot.bank);
+      this.releaseFlightReservation(slot);
+      slot.activeLease = null;
+      if (slot.uniformBuffer) {
+        slot.uniformBuffer.destroy();
+        this.allocatedUniformBytes -= 2_097_152;
+        slot.uniformBuffer = null;
+        slot.uniformArena = null;
+      }
+    }
+    this.legacyLease = null;
+    for (const grid of this.meshGrids.values()) {
+      grid.release();
+      this.allocatedBytes -= grid.bytes;
+    }
+    this.meshGrids.clear();
     this.retireAssets(new Set());
     for (const resource of this.finalTextures)
       if (resource) {
         resource.texture.destroy();
         this.allocatedBytes -= resource.bytes;
       }
-    this.finalTextures = [null, null];
+    this.finalTextures = [null, null, null];
     this.white.destroy();
     this.transparent.destroy();
     this.allocatedBytes -= 8;
-    this.uniformBuffer.destroy();
-    this.allocatedUniformBytes -= 2_097_152;
     this.context.unconfigure();
     if (this.ownsDevice) this.device.destroy();
   }
@@ -971,9 +1688,10 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
 
   private createUniformArena(
     capacityBytes: number,
+    buffer: GPUBuffer,
   ): NativePackedUniformArena<GPUBuffer> {
     return new NativePackedUniformArena({
-      buffer: this.uniformBuffer,
+      buffer,
       capacityBytes,
       alignment: this.device.limits.minUniformBufferOffsetAlignment,
       upload: (buffer, bytes) =>
@@ -1011,14 +1729,52 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
     });
   }
 
-  private ensureBudget(bytes: number, key: string): void {
+  private ensureBudget(
+    bytes: number,
+    key: string,
+    slot?: NativeWorkerGpuFlightSlot,
+    category?: "uniform" | "final" | "work",
+  ): void {
+    const reservedBytes =
+      category === "uniform"
+        ? slot?.uniformReservationBytes
+        : category === "final"
+          ? slot?.finalReservationBytes
+          : category === "work"
+            ? slot?.workReservationBytes
+            : 0;
+    const credit = Math.min(bytes, reservedBytes ?? 0);
+    const additional = bytes - credit;
     const allocated = this.resourceBytes();
-    if (allocated + bytes <= MAX_RESOURCE_BYTES) {
-      this.sharedBudget?.(bytes, key);
-      return;
+    if (allocated + additional > MAX_RESOURCE_BYTES)
+      throw (
+        this.capacityError(slot ?? this.flightSlots[0]!) ??
+        this.budgetError(bytes, key)
+      );
+    try {
+      if (additional) this.sharedBudget?.(additional, key);
+    } catch (error) {
+      if (
+        slot &&
+        error instanceof NativeWorkerGpuError &&
+        (error.code === "gpu-budget-exceeded" ||
+          error.code === "gpu-shared-budget-exceeded")
+      ) {
+        const capacityError = this.capacityError(slot);
+        if (capacityError) throw capacityError;
+      }
+      throw error;
     }
-    const work = [...this.bank.textures.values()].reduce(
-      (total, resource) => total + resource.bytes,
+  }
+
+  private budgetError(bytes: number, key: string): NativeWorkerGpuError {
+    const work = this.flightSlots.reduce(
+      (total, slot) =>
+        total +
+        [...slot.bank.textures.values(), ...slot.bank.depths.values()].reduce(
+          (subtotal, resource) => subtotal + resource.bytes,
+          0,
+        ),
       0,
     );
     const assets = [...this.assets.values()].reduce(
@@ -1029,9 +1785,10 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
       (total, resource) => total + (resource?.bytes ?? 0),
       0,
     );
-    throw new NativeWorkerGpuError(
+    const allocated = this.resourceBytes();
+    return new NativeWorkerGpuError(
       "gpu-budget-exceeded",
-      `The native worker GPU resources exceed their bounded budget: ${key} requests ${bytes} bytes with ${allocated} bytes allocated; work ${work} bytes/${this.bank.textures.size} textures, assets ${assets} bytes/${this.assets.size} textures, finals ${finals} bytes/${this.finalTextures.filter(Boolean).length} textures.`,
+      `The native worker GPU resources exceed their bounded budget: ${key} requests ${bytes} bytes with ${allocated} bytes allocated; work ${work} bytes, assets ${assets} bytes/${this.assets.size} textures, finals ${finals} bytes/${this.finalTextures.filter(Boolean).length} textures.`,
     );
   }
 
@@ -1041,8 +1798,14 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
       this.allocatedBytes -= resource.bytes;
     }
     bank.textures.clear();
+    for (const resource of bank.depths.values()) {
+      resource.texture.destroy();
+      this.allocatedBytes -= resource.bytes;
+    }
+    bank.depths.clear();
     bank.bindings.clear();
     bank.usedTextures.clear();
+    bank.usedDepths.clear();
     bank.usedBindings.clear();
     bank.sceneTexture = null;
     bank.generation = -1;

@@ -171,6 +171,11 @@ describe("embedded Agent-Native host fixture", () => {
         identity_id TEXT
       )
     `);
+    await getDbExec().execute({
+      sql: `INSERT INTO organizations (id, name, created_by, created_at, identity_authority, identity_id)
+        VALUES (?, ?, ?, ?, NULL, NULL)`,
+      args: ["host-org-1", "Host organization", "alice@host.test", Date.now()],
+    });
 
     await getDbExec().execute(`
       CREATE TABLE IF NOT EXISTS org_members (

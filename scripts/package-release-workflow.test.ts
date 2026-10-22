@@ -10,9 +10,23 @@ import { parse } from "yaml";
 import {
   DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
   NPM_PUBLISH_PACKAGE_NAMES,
+  ensureLocalRuntimeDependenciesAvailable,
   isAlreadyStaged,
+  preparePackagesForTagging,
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
+import {
+  gitBlobSha,
+  syncCommunityQrBlobPins,
+  syncCommunityQrCoreLock,
+} from "./sync-community-qr-core-lock.ts";
+import {
+  assertCompletePullRequestFiles,
+  assertCommunityQrFilePinsSynced,
+  decodeGitHubContentResponse,
+  parseCompletePullRequestFiles,
+} from "./verify-community-qr-release-pin.ts";
+import { assertReleaseOnlyPullRequestFiles } from "./verify-release-package-files.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -40,6 +54,9 @@ const trigger = workflow.on as Workflow;
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
 const jobs = workflow.jobs as Workflow;
+const autoMergeWorkflow = parse(
+  readFileSync(".github/workflows/auto-merge-version-packages.yml", "utf8"),
+) as Workflow;
 
 describe("npm package release workflow", () => {
   it("offers an explicit stable bump with patch as the default", () => {
@@ -209,10 +226,16 @@ describe("npm package release workflow", () => {
       );
     }
 
-    for (const coreVersion of ["0.204.1", "0.205.1"]) {
+    assert.equal(
+      semver.satisfies("0.204.1", corePeerRange),
+      false,
+      "Toolkit must require Core 0.205.1, which first includes the session slot export",
+    );
+
+    for (const coreVersion of ["0.205.1"]) {
       assert.ok(
         semver.satisfies(coreVersion, corePeerRange),
-        `Toolkit must accept Core ${coreVersion} with the sanitizer export`,
+        `Toolkit must accept Core ${coreVersion} with the session slot export`,
       );
     }
 
@@ -230,10 +253,7 @@ describe("npm package release workflow", () => {
 
   it("allows npm propagation to settle before failing a publish", () => {
     assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 30 * 60_000);
-    assert.match(
-      publisherSource,
-      /packagesNeedingTags\.map\(\(pkg\) => waitForPackageAvailability\(pkg\)\)/,
-    );
+    assert.match(publisherSource, /preparePackagesForTagging\(/);
   });
 
   it("waits for npm staged versions to become fetchable before tagging", () => {
@@ -383,7 +403,7 @@ describe("npm package release workflow", () => {
       .scripts as Record<string, string>;
     assert.equal(
       packageScripts["changeset:release-version"],
-      "pnpm changeset:version && pnpm changelog:compact",
+      "pnpm changeset:version && pnpm exec tsx scripts/sync-community-qr-core-lock.ts && pnpm changelog:compact",
     );
 
     const consume = releaseSteps.find(
@@ -424,6 +444,606 @@ describe("npm package release workflow", () => {
     assert(changesetsIndex < consumeIndex);
     assert(consumeIndex < restoreIndex);
     assert(changesetsIndex < restoreIndex);
+  });
+
+  it("syncs the community QR release importer to the in-repo Core package", () => {
+    const lockfile = `lockfileVersion: '9.0'
+importers:
+  templates/community/qr:
+    dependencies:
+      '@agent-native/core':
+        specifier: ^0.212.0
+        version: 0.212.0(425ad63e441766c7cc702a9e78bce500)
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
+
+  templates/analytics:
+    dependencies: {}
+`;
+
+    const updated = syncCommunityQrCoreLock(lockfile, "^0.213.0");
+
+    assert.match(
+      updated,
+      /specifier: \^0\.213\.0\n        version: link:\.\.\/\.\.\/\.\.\/packages\/core/,
+    );
+    assert.match(updated, /specifier: \^3\.4\.9\n        version: 3\.4\.9/);
+    assert.match(updated, /  templates\/analytics:\n    dependencies: \{\}/);
+    assert.equal(syncCommunityQrCoreLock(updated, "^0.213.0"), updated);
+    assert.throws(
+      () => syncCommunityQrCoreLock("importers: {}\n", "^0.213.0"),
+      /Missing templates\/community\/qr importer/,
+    );
+  });
+
+  it("keeps the committed community QR importer synced with its manifest", () => {
+    const templatePackage = JSON.parse(
+      readFileSync("templates/community/qr/package.json", "utf8"),
+    ) as { dependencies?: Record<string, unknown> };
+    const coreSpecifier = templatePackage.dependencies?.["@agent-native/core"];
+    assert(typeof coreSpecifier === "string");
+
+    const lockfile = readFileSync("pnpm-lock.yaml", "utf8");
+    assert.equal(syncCommunityQrCoreLock(lockfile, coreSpecifier), lockfile);
+  });
+
+  it("rewrites the QR template blob pins from the files on disk", () => {
+    const source = `templatePath: "templates/other-first",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${"d".repeat(40)}",
+        },
+      ],
+    },
+    {
+      templatePath: "templates/community/qr",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${"a".repeat(40)}",
+        },
+        {
+          path: "README.md",
+          blobSha: "${"b".repeat(40)}",
+        },
+      ],
+    },
+    {
+      templatePath: "templates/other",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${"c".repeat(40)}",
+        },
+      ],
+    },`;
+
+    const updated = syncCommunityQrBlobPins(source, (file) =>
+      file === "package.json" ? "1".repeat(40) : "2".repeat(40),
+    );
+
+    assert.match(updated, /package\.json",\n\s+blobSha: "1{40}"/);
+    assert.match(updated, /README\.md",\n\s+blobSha: "2{40}"/);
+    assert.match(updated, /blobSha: "c{40}"/);
+    assert.match(updated, /blobSha: "d{40}"/);
+    assert.equal(
+      syncCommunityQrBlobPins(updated, (file) =>
+        file === "package.json" ? "1".repeat(40) : "2".repeat(40),
+      ),
+      updated,
+    );
+    assert.throws(
+      () => syncCommunityQrBlobPins("export {};\n", () => "x"),
+      /Missing templates\/community\/qr source/,
+    );
+    assert.equal(
+      gitBlobSha(Buffer.from("hello\n")),
+      "ce013625030ba8dba906f756967f9e9ca394464a",
+    );
+  });
+
+  it("accepts all synchronized community QR template pins and rejects other catalog changes", () => {
+    const basePackage = Buffer.from('{"name":"qr","version":"0.40.35"}\n');
+    const headPackage = Buffer.from('{"name":"qr","version":"0.40.36"}\n');
+    const headReadme = Buffer.from("updated QR template docs\n");
+    const headAction = Buffer.from("updated QR action\n");
+    const source = (pins: Map<string, string>) => `
+      templatePath: "templates/community/qr",
+      files: [
+        ${["package.json", "README.md", "actions/run.ts"]
+          .map(
+            (path) => `{
+          path: "${path}",
+          blobSha: "${pins.get(path)}",
+        }`,
+          )
+          .join(",\n        ")},
+      ],
+    },`;
+    const baseSource = source(
+      new Map([
+        ["package.json", gitBlobSha(basePackage)],
+        ["README.md", "b".repeat(40)],
+        ["actions/run.ts", "d".repeat(40)],
+      ]),
+    );
+    const headFiles = new Map([
+      ["package.json", headPackage],
+      ["README.md", headReadme],
+      ["actions/run.ts", headAction],
+    ]);
+    const headPins = new Map(
+      [...headFiles].map(([path, content]) => [path, gitBlobSha(content)]),
+    );
+    const headSource = source(headPins);
+
+    assert.doesNotThrow(() =>
+      assertCommunityQrFilePinsSynced(baseSource, headSource, headPins),
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrFilePinsSynced(
+          baseSource,
+          source(new Map(headPins).set("package.json", "c".repeat(40))),
+          headPins,
+        ),
+      /Head QR template blob pin does not match package.json/,
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrFilePinsSynced(
+          baseSource,
+          headSource,
+          new Map([...headPins].filter(([path]) => path !== "README.md")),
+        ),
+      /Missing head QR template blob for README.md/,
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrFilePinsSynced(
+          baseSource,
+          headSource.replace(
+            'templatePath: "templates/community/qr",',
+            'templatePath: "templates/community/qr",\n      description: "unexpected",',
+          ),
+          headPins,
+        ),
+      /Community app catalog does not match the synchronized QR template file pins/,
+    );
+  });
+
+  it("rejects incomplete or capped pull request file listings", () => {
+    assert.deepEqual(assertCompletePullRequestFiles(["one", "two"], 2), [
+      "one",
+      "two",
+    ]);
+    assert.throws(
+      () => assertCompletePullRequestFiles(["one"], 2),
+      /GitHub returned 1 of 2 changed pull request files/,
+    );
+    assert.throws(
+      () => assertCompletePullRequestFiles([], 3_000),
+      /endpoint is capped at 3000/,
+    );
+  });
+
+  it("rejects pull request file lists at GitHub's 3,000-file cap", () => {
+    const belowLimit = Array.from(
+      { length: 2_999 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+    const atLimit = Array.from(
+      { length: 3_000 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+
+    assert.equal(parseCompletePullRequestFiles(belowLimit).length, 2_999);
+    assert.throws(
+      () => parseCompletePullRequestFiles(atLimit),
+      /pull request files API reached its 3,000-file limit/,
+    );
+  });
+
+  it("checks complete release paths as filenames and rejects embedded newlines", () => {
+    const allowedFiles = [
+      ".changeset/release.md",
+      "packages/core/package.json",
+      "packages/dispatch/src/server/lib/community-apps.ts",
+    ];
+    assert.deepEqual(
+      assertReleaseOnlyPullRequestFiles(allowedFiles, allowedFiles.length),
+      allowedFiles,
+    );
+    assert.throws(
+      () =>
+        assertReleaseOnlyPullRequestFiles(
+          [".changeset/release.md\npackages/core/package.json"],
+          1,
+        ),
+      /filename with control characters/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles(["README.md"], 1),
+      /unexpected release PR path/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles(["package.json"], 2),
+      /returned 1 of 2 changed pull request files/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles([], 3_000),
+      /endpoint is capped at 3000/,
+    );
+  });
+
+  it("rejects unreadable or incomplete GitHub Contents API responses", () => {
+    const content = Buffer.from("manifest");
+    assert.deepEqual(
+      decodeGitHubContentResponse(
+        {
+          encoding: "base64",
+          content: content.toString("base64"),
+          size: content.length,
+        },
+        "manifest.json",
+        "head-sha",
+      ),
+      content,
+    );
+
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "none", content: "", size: 1_048_577 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned unreadable file content/,
+    );
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "base64", content: "%%%", size: 3 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned invalid base64 content/,
+    );
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "base64", content: "bWFuaWZlc3Q=", size: 99 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned incomplete file content/,
+    );
+  });
+
+  it("rejects pull request file lists at GitHub's 3,000-file cap", () => {
+    const belowLimit = Array.from(
+      { length: 2_999 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+    const atLimit = Array.from(
+      { length: 3_000 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+
+    assert.equal(parseCompletePullRequestFiles(belowLimit).length, 2_999);
+    assert.throws(
+      () => parseCompletePullRequestFiles(atLimit),
+      /pull request files API reached its 3,000-file limit/,
+    );
+  });
+
+  it("runs the community QR pin guard from the base commit before auto-merge", () => {
+    const autoMergeTriggers = autoMergeWorkflow.on as Workflow;
+    const workflowDispatch = autoMergeTriggers.workflow_dispatch as Workflow;
+    const workflowDispatchInputs = workflowDispatch.inputs as Workflow;
+    const autoMergeJobs = autoMergeWorkflow.jobs as Workflow;
+    const autoMergeJob = autoMergeJobs["auto-merge"] as Workflow;
+    const autoMergeSteps = autoMergeJob.steps as Workflow[];
+    const checkout = autoMergeSteps.find(
+      (step) =>
+        step.uses ===
+        "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+    );
+    const releaseDiff = autoMergeSteps.find(
+      (step) => step.name === "Verify release-only diff",
+    );
+    const qrPinGuard = autoMergeSteps.find(
+      (step) => step.name === "Verify community QR template pins",
+    );
+    const releasePrContext = autoMergeSteps.find(
+      (step) => step.name === "Verify release PR identity and event-bound SHAs",
+    );
+    const manualDispatcherGate = autoMergeSteps.find(
+      (step) =>
+        step.name === "Verify manual release dispatcher is an administrator",
+    );
+    const majorPromotionGuard = autoMergeSteps.find(
+      (step) => step.name === "Refuse unattended major promotions",
+    );
+    const requiredChecks = autoMergeSteps.find(
+      (step) => step.name === "Wait for required release PR checks",
+    );
+    const releasePrRecheck = autoMergeSteps.find(
+      (step) => step.name === "Revalidate release PR before merge",
+    );
+    const forceMerge = autoMergeSteps.find(
+      (step) => step.name === "Force-merge with admin bypass",
+    );
+
+    for (const input of ["pull_request_number", "base_sha", "head_sha"]) {
+      assert.equal((workflowDispatchInputs[input] as Workflow).required, true);
+    }
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(String(autoMergeJob.if), /github\.ref == 'refs\/heads\/main'/);
+
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.pull_request\.head\.ref == 'changeset-release\/main'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.pull_request\.user\.login == 'builder-io-integration\[bot\]'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.sender\.login == 'builder-io-integration\[bot\]'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /!github\.event\.pull_request\.draft/,
+    );
+
+    assert(checkout);
+    assert.equal(
+      (checkout.with as Workflow).ref,
+      "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.base.sha }}",
+    );
+    assert(manualDispatcherGate);
+    assert.match(
+      String(manualDispatcherGate.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String((manualDispatcherGate.env as Workflow).DISPATCH_ACTOR),
+      /github\.triggering_actor/,
+    );
+    assert.match(
+      String(manualDispatcherGate.run),
+      /collaborators\/\$DISPATCH_ACTOR\/permission/,
+    );
+    assert.match(
+      String(manualDispatcherGate.run),
+      /dispatch_permission" != "admin"/,
+    );
+    assert(releasePrContext);
+    assert.match(String(releasePrContext.run), /\.user\.login/);
+    assert.match(
+      String(releasePrContext.run),
+      /\.head\.repo\.full_name == \$repo/,
+    );
+    assert.match(String(releasePrContext.run), /\.head\.sha == \$head/);
+    assert.match(String(releasePrContext.run), /\.base\.sha == \$base/);
+    assert(requiredChecks);
+    assert.match(String(requiredChecks.run), /--required --watch/);
+    assert.match(String(requiredChecks.run), /all\(\.\[\]; \.bucket == "pass"/);
+    assert(releaseDiff);
+    assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
+    assert(majorPromotionGuard);
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).BASE_SHA),
+      /inputs\.base_sha/,
+    );
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).HEAD_SHA),
+      /inputs\.head_sha/,
+    );
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).PR_NUMBER),
+      /inputs\.pull_request_number/,
+    );
+    assert.match(String(majorPromotionGuard.run), /"--slurp"/);
+    assert.match(String(majorPromotionGuard.run), /JSON\.parse\(gh\(/);
+    assert.doesNotMatch(String(majorPromotionGuard.run), /\.split\("\\n"\)/);
+    assert.match(String(majorPromotionGuard.run), /HTTP 404/);
+    assert.match(String(majorPromotionGuard.run), /status === "added"/);
+    assert.match(String(majorPromotionGuard.run), /status === "removed"/);
+    assert.doesNotMatch(
+      String(majorPromotionGuard.run),
+      /catch\s*\{\s*return null/,
+    );
+    assert(qrPinGuard);
+    assert.equal(
+      qrPinGuard.run,
+      "node --experimental-strip-types scripts/verify-community-qr-release-pin.ts",
+    );
+    assert(releasePrRecheck);
+    assert.match(String(releasePrRecheck.run), /\.state == "open"/);
+    assert.match(String(releasePrRecheck.run), /\.user\.login/);
+    assert.match(
+      String(releasePrRecheck.run),
+      /\.head\.repo\.full_name == \$repo/,
+    );
+    assert.match(String(releasePrRecheck.run), /\.head\.sha == \$head/);
+    assert.match(String(releasePrRecheck.run), /\.base\.sha == \$base/);
+    assert.match(String(releasePrRecheck.run), /--required --json name,bucket/);
+    assert(forceMerge);
+    assert.match(String(forceMerge.run), /branches\/main/);
+    assert.match(String(forceMerge.run), /current_main.*BASE_SHA/s);
+    assert.match(String(forceMerge.run), /--match-head-commit "\$HEAD_SHA"/);
+    assert.match(
+      String(forceMerge.run),
+      /Required release PR checks are no longer green/,
+    );
+  });
+
+  it("waits until local runtime packages are fetchable before publishing dependents", async () => {
+    const core = {
+      dir: "packages/core",
+      name: "@agent-native/core",
+      version: "0.213.0",
+      packageJson: { name: "@agent-native/core", version: "0.213.0" },
+    };
+    const dispatchPackage = {
+      dir: "packages/dispatch",
+      name: "@agent-native/dispatch",
+      version: "0.40.32",
+      packageJson: {
+        name: "@agent-native/dispatch",
+        version: "0.40.32",
+        dependencies: { "@agent-native/core": "^0.213.0" },
+        devDependencies: { "@agent-native/toolkit": "^0.0.0" },
+        peerDependencies: { "@agent-native/pinpoint": "^0.0.0" },
+      },
+    };
+    const fetchable = new Set<string>();
+    const failed = new Set<string>();
+    const checks: string[] = [];
+
+    await ensureLocalRuntimeDependenciesAvailable(
+      dispatchPackage,
+      [core, dispatchPackage],
+      async (dependency) => {
+        checks.push(dependency.name);
+      },
+      fetchable,
+      failed,
+    );
+
+    assert.deepEqual(checks, ["@agent-native/core"]);
+    assert.deepEqual([...fetchable], ["@agent-native/core"]);
+
+    await ensureLocalRuntimeDependenciesAvailable(
+      dispatchPackage,
+      [core, dispatchPackage],
+      async (dependency) => {
+        checks.push(dependency.name);
+      },
+      fetchable,
+      failed,
+    );
+    assert.deepEqual(checks, ["@agent-native/core"]);
+  });
+
+  it("marks an unavailable dependency failed and skips later dependents", async () => {
+    const core = {
+      dir: "packages/core",
+      name: "@agent-native/core",
+      version: "0.213.0",
+      packageJson: { name: "@agent-native/core", version: "0.213.0" },
+    };
+    const dispatchPackage = {
+      dir: "packages/dispatch",
+      name: "@agent-native/dispatch",
+      version: "0.40.32",
+      packageJson: {
+        name: "@agent-native/dispatch",
+        version: "0.40.32",
+        dependencies: { "@agent-native/core": "^0.213.0" },
+      },
+    };
+    const toolkitPackage = {
+      dir: "packages/toolkit",
+      name: "@agent-native/toolkit",
+      version: "0.14.0",
+      packageJson: {
+        name: "@agent-native/toolkit",
+        version: "0.14.0",
+        dependencies: { "@agent-native/core": "^0.213.0" },
+      },
+    };
+    const fetchable = new Set<string>();
+    const failed = new Set<string>();
+    const checks: string[] = [];
+
+    await assert.rejects(
+      ensureLocalRuntimeDependenciesAvailable(
+        dispatchPackage,
+        [core, dispatchPackage, toolkitPackage],
+        async (dependency) => {
+          checks.push(dependency.name);
+          throw new Error(`${dependency.name} is not fetchable`);
+        },
+        fetchable,
+        failed,
+      ),
+      /@agent-native\/core is not fetchable/,
+    );
+    assert.deepEqual([...failed], ["@agent-native/core"]);
+
+    await assert.rejects(
+      ensureLocalRuntimeDependenciesAvailable(
+        toolkitPackage,
+        [core, dispatchPackage, toolkitPackage],
+        async (dependency) => {
+          checks.push(dependency.name);
+        },
+        fetchable,
+        failed,
+      ),
+      /@agent-native\/toolkit depends on failed local runtime package: @agent-native\/core/,
+    );
+    assert.deepEqual(checks, ["@agent-native/core"]);
+  });
+
+  it("does not retry failed availability checks before tagging independent packages", async () => {
+    const core = {
+      dir: "packages/core",
+      name: "@agent-native/core",
+      version: "0.213.0",
+      packageJson: { name: "@agent-native/core", version: "0.213.0" },
+    };
+    const dispatchPackage = {
+      dir: "packages/dispatch",
+      name: "@agent-native/dispatch",
+      version: "0.40.32",
+      packageJson: { name: "@agent-native/dispatch", version: "0.40.32" },
+    };
+    const unrelatedPackage = {
+      dir: "packages/otel",
+      name: "@agent-native/otel",
+      version: "0.1.14",
+      packageJson: { name: "@agent-native/otel", version: "0.1.14" },
+    };
+    const fetchable = new Set<string>();
+    const failed = new Set(["@agent-native/core"]);
+    const checks: string[] = [];
+
+    const result = await preparePackagesForTagging(
+      [core, dispatchPackage, unrelatedPackage],
+      async (pkg) => {
+        checks.push(pkg.name);
+        if (pkg.name === "@agent-native/dispatch") {
+          throw new Error("dispatch is not fetchable");
+        }
+      },
+      fetchable,
+      failed,
+    );
+
+    assert.deepEqual(checks, ["@agent-native/dispatch", "@agent-native/otel"]);
+    assert.deepEqual(result.packages, [unrelatedPackage]);
+    assert.deepEqual(
+      result.failures.map(({ pkg, error }) => [
+        pkg.name,
+        (error as Error).message,
+      ]),
+      [["@agent-native/dispatch", "dispatch is not fetchable"]],
+    );
+    assert.deepEqual(
+      [...failed],
+      ["@agent-native/core", "@agent-native/dispatch"],
+    );
+    assert.deepEqual([...fetchable], ["@agent-native/otel"]);
   });
 
   describe("dev snapshot publishing", () => {

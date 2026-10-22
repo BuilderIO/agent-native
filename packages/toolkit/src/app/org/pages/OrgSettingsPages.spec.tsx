@@ -88,6 +88,7 @@ vi.mock("../OrgIdentitySettings.js", () => ({
 vi.mock("../AuthenticationSection.js", () => ({
   DomainSettingsSection: () => <div id="email-domain" />,
   A2ASecretSection: () => <div id="cross-app-authentication" />,
+  A2AMemberDelegationSection: () => <div id="member-delegation" />,
 }));
 
 vi.mock("../OrgGeneralSection.js", () => ({
@@ -194,6 +195,7 @@ describe("Organization settings pages", () => {
       expect(methods?.textContent).toContain("Email and password, and Google.");
       expect(container.querySelector("#email-domain")).not.toBeNull();
       expect(container.querySelector("#cross-app-authentication")).toBeNull();
+      expect(container.querySelector("#member-delegation")).toBeNull();
     });
 
     it("shows the owner the shared secret", () => {
@@ -203,6 +205,7 @@ describe("Organization settings pages", () => {
       expect(
         container.querySelector("#cross-app-authentication"),
       ).not.toBeNull();
+      expect(container.querySelector("#member-delegation")).not.toBeNull();
     });
 
     it("lists each method and the variables that turn it on", () => {

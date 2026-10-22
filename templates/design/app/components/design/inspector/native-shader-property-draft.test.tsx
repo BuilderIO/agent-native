@@ -104,6 +104,87 @@ describe("native property draft preview", () => {
     expect(host.textContent).toBe("3");
   });
 
+  it("keeps a newer color draft through stale source renders and an earlier save echo", async () => {
+    type Color = { hex: string; alpha: number };
+    let colorField!: ReturnType<typeof useNativeShaderPropertyDraft<Color>>;
+    const saves: Array<(saved: boolean) => void> = [];
+    const saveColor = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          saves.push(resolve);
+        }),
+    );
+    function ColorHarness({ value }: { value: Color }) {
+      colorField = useNativeShaderPropertyDraft(value, saveColor);
+      return <span>{`${colorField.draft.hex}/${colorField.draft.alpha}`}</span>;
+    }
+    const original = { hex: "old", alpha: 1 };
+    await act(async () => root.render(<ColorHarness value={original} />));
+    await act(async () => colorField.commit({ hex: "new", alpha: 1 }));
+    await act(async () =>
+      root.render(<ColorHarness value={{ ...original }} />),
+    );
+    expect(host.textContent).toBe("new/1");
+
+    await act(async () => saves[0]!(true));
+    await act(async () =>
+      root.render(<ColorHarness value={{ ...original }} />),
+    );
+    expect(host.textContent).toBe("new/1");
+
+    await act(async () => colorField.commit({ hex: "new", alpha: 0.65 }));
+    await act(async () =>
+      root.render(<ColorHarness value={{ hex: "new", alpha: 1 }} />),
+    );
+    expect(host.textContent).toBe("new/0.65");
+
+    await act(async () => saves[1]!(true));
+    await act(async () =>
+      root.render(<ColorHarness value={{ hex: "new", alpha: 0.65 }} />),
+    );
+    expect(host.textContent).toBe("new/0.65");
+
+    await act(async () =>
+      root.render(<ColorHarness value={{ hex: "new", alpha: 1 }} />),
+    );
+    expect(host.textContent).toBe("new/1");
+
+    await act(async () =>
+      root.render(<ColorHarness value={{ hex: "external", alpha: 0.2 }} />),
+    );
+    expect(host.textContent).toBe("external/0.2");
+  });
+
+  it("rolls back a failed second edit to the latest confirmed local color", async () => {
+    type Color = { hex: string; alpha: number };
+    let colorField!: ReturnType<typeof useNativeShaderPropertyDraft<Color>>;
+    let failSecond: (saved: boolean) => void = () => {
+      throw new Error("No pending save");
+    };
+    const saveColor = vi
+      .fn<(value: Color) => Promise<boolean>>()
+      .mockResolvedValueOnce(true)
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            failSecond = resolve;
+          }),
+      );
+    function ColorHarness({ value }: { value: Color }) {
+      colorField = useNativeShaderPropertyDraft(value, saveColor);
+      return <span>{`${colorField.draft.hex}/${colorField.draft.alpha}`}</span>;
+    }
+    const original = { hex: "old", alpha: 1 };
+    await act(async () => root.render(<ColorHarness value={original} />));
+    await act(async () => colorField.commit({ hex: "new", alpha: 1 }));
+    await act(async () =>
+      root.render(<ColorHarness value={{ ...original }} />),
+    );
+    await act(async () => colorField.commit({ hex: "new", alpha: 0.65 }));
+    await act(async () => failSecond(false));
+    expect(host.textContent).toBe("new/1");
+  });
+
   it("restores the latest published value when a pending edit fails", async () => {
     let resolveSave: (saved: boolean) => void = () => {
       throw new Error("No pending save");

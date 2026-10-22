@@ -88,7 +88,7 @@ stable IDs identify edits. Sparse patches preserve omitted fields, and empty
 lists explicitly clear supported settings.
 
 Ordinary setup supports stored property types, additive options, metadata edits,
-the existing text natural key, and table presentation. It refuses destructive
+the existing text natural key, table presentation, and list row layouts. It refuses destructive
 type/option changes, source-managed schema edits, and relationship/computed-field
 authoring. Source status is readable, but this surface does not define joins,
 row unions, source bindings, or write-mode changes. Discovery of a source-backed
@@ -140,8 +140,12 @@ one to rename it). Only one field shows at a time, but every field's editor
 stays open. `/page/<id>?field=<propertyId>`
 opens a given tab (no `field` means the first), so `navigate` with that path
 shows a person a specific field, and `navigation` reports the open tab as
-`fieldId`. Page comments anchor in the primary field, so their cards show only
-on its tab, and opening a comment switches back to it. The surviving lone field
+`fieldId`. Each tab has its own comments: text selected in a tab is commented
+there, the comment margin shows only the open tab's threads, and each tab shows
+its open-comment count. Opening a comment from the Comments panel or a link
+switches to its tab, and the panel groups and filters threads by tab when the
+page has two or more Blocks fields. Agents pass `fieldId` to `add-comment` (see
+Comments in SKILL.md). The surviving lone field
 keeps its stored name when fields are deleted back down to one. In table views a
 Blocks column shows a word count (e.g. "412 words"), not the body. A Blocks
 field is renamed or deleted from its tab's menu or the collection view's column
@@ -175,6 +179,17 @@ support comparisons, dates support before/after, and checkboxes support
 checked/unchecked. Users can reorder stacked sort and filter conditions from
 the collection toolbar menus, and sort priority follows the same top-to-bottom
 order shown in the menu.
+
+Filters can be grouped. Rules with `filterGroupId: "advanced"` and no parent
+form the UI's advanced filter; rules with `parentFilterGroupId: "advanced"` and
+their own `filterGroupId` (the UI uses `advanced-<id>`) form a group nested one
+level inside it. The view's `filterMode` combines ungrouped rules with each
+top-level group as one member. A group's And/Or lives on its rules:
+`filterGroupMode` is the mode of the rule's `filterGroupId`, and
+`parentFilterGroupMode` (nested rules only) is the mode of its parent. Write a
+group's mode onto every rule in it; the first rule that stores one wins, and a
+group with none inherits the view's `filterMode`. `update-content-database-view`
+rejects a group mode on a rule without the matching group ID.
 
 New rows created from a filtered UI view inherit simple editable equality and
 checkbox filters as initial property values, resolving option labels back to
@@ -225,6 +240,20 @@ view body. The collection Properties menu can search fields and show or hide
 all fields for the current view, and it includes a New property control for
 adding fields without returning to the table header. The New property picker
 supports searching property types by label or machine name.
+
+List views can save an item layout (`itemLayout`) that decides what each row
+shows: a start slot (page icon, a checkbox property, a status property, or
+nothing), the title weight, line 2 (a text, URL, or non-body Blocks property,
+clamped to 1-3 lines), and ordered property IDs for line 3 and the end of the
+row; end values move under the title on narrow screens and empty values take
+no space. Ticking a row's checkbox writes the property through
+`set-document-property` and strikes the title through without moving the row.
+A view without `itemLayout` keeps the default rows. Agents update it with an
+`update-content-database-view` `update` patch on the list view: pass
+`itemLayoutPreset` (`checklist`, `reminders`, `tracker`, `digest`, or
+`default`), sparse `itemLayout` slots (omitted slots keep their value), or
+`itemLayout: null` to restore the default rows. List views accept only name,
+icon, and these layout fields on this path.
 
 In unconstrained table views, row drag handles can reorder collection item
 pages through `move-database-item`; pass both `databaseId` and `itemId` so the

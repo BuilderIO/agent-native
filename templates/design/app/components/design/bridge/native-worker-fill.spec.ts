@@ -256,3 +256,61 @@ it("expands top Fill for outer paint and stages nested Glass before foreground c
   expect(h.calls[h.calls.length - 1]?.front.width).toBe(14);
   expect(h.calls[h.calls.length - 1]?.back?.width).toBe(14);
 });
+
+it("stages nested Glass against an aligned Fill when only its foreground expands the presentation", async () => {
+  const h = harness();
+  const p = phases();
+  p.foregroundRecords = [
+    {
+      ...record("child", { x: -2, y: -1, width: 4, height: 12 }),
+      nativeInstanceId: "glass",
+    },
+  ];
+  const assets = new Map(
+    ["background", "border", "outer", "inner"].map((name) => [name, texture()]),
+  );
+  const transparent = texture(1, 1);
+  const stagedGlass = texture();
+  let stagedBase: GPUTexture | undefined;
+  const result = await renderNativeWorkerFill({
+    scene: scene([{ id: "glass", placement: "backdrop" } as EffectInstance]),
+    target: target(p),
+    instance: instance("bounds", 1),
+    encoder: h.encoder,
+    bank: h.bank,
+    gpu: h.gpu,
+    format: "rgba16float",
+    transparent,
+    foreground: texture(),
+    isTopFill: true,
+    asset: (value) => assets.get(value.assetId!)!,
+    composeRecords: async (_records, key, surface, _mode, staged) => {
+      if (key.endsWith(":child"))
+        expect(staged?.get("glass")).toBe(stagedGlass);
+      return texture(surface.width, surface.height);
+    },
+    stageFillBackdrops: async (_records, base, extent) => {
+      expect(extent).toMatchObject({ left: 2, top: 1, width: 12, height: 12 });
+      stagedBase = base;
+      return new Map([["glass", stagedGlass]]);
+    },
+  });
+  expect([stagedBase?.width, stagedBase?.height]).toEqual([12, 12]);
+  const aligned = h.calls.find(
+    (call) => call.key === "fill:fill-1:expanded-base:bind",
+  );
+  expect(aligned?.front).toBe(transparent);
+  expect(aligned?.back).toBe(h.outputs.get("fill:fill-1:phase"));
+  expect([...aligned!.data.slice(4, 6)]).toEqual([2, 1]);
+  expect(result.presentationExtent).toMatchObject({
+    left: 2,
+    top: 1,
+    width: 12,
+    height: 12,
+  });
+  expect(result.texture).toBe(h.outputs.get("fill:fill-1:final"));
+  const final = h.calls[h.calls.length - 1];
+  expect(final?.front).toHaveProperty("width", 12);
+  expect(final?.back).toHaveProperty("width", 10);
+  expect([...final!.data.slice(4, 6)]).toEqual([2, 1]);
+});

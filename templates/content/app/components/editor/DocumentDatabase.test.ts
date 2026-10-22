@@ -2,6 +2,7 @@
 
 import type {
   ContentDatabaseItem,
+  ContentDatabaseItemLayout,
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceExecution,
@@ -1670,6 +1671,101 @@ describe("new database item defaults", () => {
     ).toEqual({});
   });
 
+  describe("with filter groups", () => {
+    const groupProperties = [
+      property("status", "Status", "select"),
+      property("done", "Done", "checkbox"),
+      property("pillars", "Pillars", "multi_select"),
+    ];
+    const status: DatabaseFilter = {
+      key: "status",
+      label: "Status",
+      operator: "equals",
+      value: "published",
+    };
+    const done: DatabaseFilter = {
+      key: "done",
+      label: "Done",
+      operator: "is_checked",
+      value: "",
+    };
+    const pillars: DatabaseFilter = {
+      key: "pillars",
+      label: "Pillars",
+      operator: "contains",
+      value: "design",
+    };
+
+    it("seeds the rules every row in an And view must match", () => {
+      expect(
+        databasePropertyValuesForNewItem(
+          [
+            status,
+            { ...done, filterGroupId: "advanced", filterGroupMode: "or" },
+            { ...pillars, filterGroupId: "advanced", filterGroupMode: "or" },
+          ],
+          groupProperties,
+          "and",
+        ),
+      ).toEqual({ status: "published" });
+    });
+
+    it("skips a nested group that combines several rules with Or", () => {
+      expect(
+        databasePropertyValuesForNewItem(
+          [
+            { ...status, filterGroupId: "advanced", filterGroupMode: "and" },
+            {
+              ...done,
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+            {
+              ...pillars,
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+          ],
+          groupProperties,
+          "and",
+        ),
+      ).toEqual({ status: "published" });
+    });
+
+    it("seeds through an Any view whose only member is an And group", () => {
+      expect(
+        databasePropertyValuesForNewItem(
+          [
+            { ...status, filterGroupId: "advanced", filterGroupMode: "and" },
+            { ...done, filterGroupId: "advanced", filterGroupMode: "and" },
+            {
+              ...pillars,
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+            // Inactive, so the nested group still has one member.
+            {
+              ...status,
+              value: "",
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+          ],
+          groupProperties,
+          "or",
+        ),
+      ).toEqual({ status: "published", done: true, pillars: ["design"] });
+    });
+  });
+
   it("ignores filters that cannot safely become default row values", () => {
     const createdProperty = {
       ...property("created", "Created", "created_time"),
@@ -1974,6 +2070,33 @@ describe("database item preview", () => {
       databasePreviewDocumentId: row.document.id,
       databasePreviewTitle: "Launch brief",
     });
+  });
+
+  it("reports a list view's row layout, and null for default rows", () => {
+    const itemLayout: ContentDatabaseItemLayout = {
+      leading: { kind: "checkbox", propertyId: "done" },
+      titleWeight: "bold",
+      line2: { propertyId: null, lines: 1 },
+      line3: [],
+      trailing: [],
+    };
+    const state = (
+      activeView: Parameters<typeof databaseNavigationState>[0]["activeView"],
+    ) =>
+      databaseNavigationState({
+        document: { id: "database-doc", title: "Content calendar" },
+        databaseId: "database",
+        activeView,
+        previewItem: null,
+      }).databaseItemLayout;
+
+    expect(
+      state({ id: "list", name: "List", type: "list", itemLayout }),
+    ).toEqual(itemLayout);
+    expect(state({ id: "list", name: "List", type: "list" })).toBeNull();
+    expect(
+      state({ id: "table", name: "Table", type: "table", itemLayout }),
+    ).toBeUndefined();
   });
 
   it("includes source status in navigation state when a database is source-backed", () => {
