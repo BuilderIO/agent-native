@@ -19,8 +19,6 @@ export function GettingStarted({ className }: { className?: string }) {
       title: t("gettingStarted.title"),
       progress: (completeCount: number, totalCount: number) =>
         t("gettingStarted.progress", { completeCount, totalCount }),
-      moreOptions: t("gettingStarted.moreOptions"),
-      hide: t("gettingStarted.hide"),
       collapse: t("gettingStarted.collapse"),
       expand: t("gettingStarted.expand"),
       completed: t("gettingStarted.completed"),

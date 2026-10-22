@@ -235,8 +235,6 @@ export default {
   gettingStarted: {
     title: "शुरुआत करें",
     progress: "{{totalCount}} में से {{completeCount}} पूरे",
-    moreOptions: "अधिक विकल्प",
-    hide: "चेकलिस्ट छिपाएँ",
     collapse: "छोटा करें",
     expand: "बड़ा करें",
     completed: "पूरा हुआ",

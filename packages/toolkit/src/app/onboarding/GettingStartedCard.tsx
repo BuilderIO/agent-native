@@ -1,19 +1,8 @@
 import { useOnboardingChecklist } from "@agent-native/core/client/onboarding/use-onboarding-checklist";
-import {
-  IconCheck,
-  IconChevronDown,
-  IconChevronUp,
-  IconDots,
-} from "@tabler/icons-react";
+import { IconCheck, IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import type { ComponentType, ReactNode } from "react";
 
 import { Button } from "../../ui/button.js";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../../ui/dropdown-menu.js";
 import { Progress } from "../../ui/progress.js";
 import { Skeleton } from "../../ui/skeleton.js";
 import { cn } from "../../utils.js";
@@ -21,10 +10,8 @@ import { cn } from "../../utils.js";
 export interface GettingStartedLabels {
   title: string;
   progress: (completeCount: number, totalCount: number) => string;
-  moreOptions: string;
   /** Read by screen readers on a finished row; the check mark is decorative. */
   completed: string;
-  hide: string;
   collapse: string;
   expand: string;
   loadError: string;
@@ -61,7 +48,7 @@ export interface GettingStartedCardProps {
 /**
  * Progress checklist pinned to the app sidebar. Each app registers its own
  * steps on the onboarding registry; the card only renders what the server
- * derived. It renders nothing once every step is done or the user hides it.
+ * derived. It renders nothing once every step is done.
  */
 export function GettingStartedCard({
   checklist,
@@ -79,7 +66,6 @@ export function GettingStartedCard({
     collapsed,
     status,
     refresh,
-    dismiss,
     setCollapsed,
   } = useOnboardingChecklist(checklist);
 
@@ -143,37 +129,17 @@ export function GettingStartedCard({
       <div className="space-y-3 px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-base font-semibold leading-5">{labels.title}</h2>
-          <div className="flex items-center gap-0.5">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6"
-                  aria-label={labels.moreOptions}
-                >
-                  <IconDots className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => void dismiss()}>
-                  {labels.hide}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-6"
-              aria-label={collapsed ? labels.expand : labels.collapse}
-              aria-expanded={!collapsed}
-              onClick={() => void setCollapsed(!collapsed)}
-            >
-              <ToggleIcon className="size-4" />
-            </Button>
-          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            aria-label={collapsed ? labels.expand : labels.collapse}
+            aria-expanded={!collapsed}
+            onClick={() => void setCollapsed(!collapsed)}
+          >
+            <ToggleIcon className="size-4" />
+          </Button>
         </div>
         <Progress
           value={(completeCount / totalCount) * 100}

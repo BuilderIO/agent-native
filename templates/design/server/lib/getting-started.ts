@@ -225,7 +225,7 @@ export const GETTING_STARTED_STEPS: GettingStartedStep[] = [
     order: 30,
     title: "Use your real data",
     description: "Connect a running app so designs start from real screens.",
-    href: "/home",
+    href: "/settings/integrations",
     isComplete: hasConnectedDataSource,
   },
   {

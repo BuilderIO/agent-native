@@ -68,7 +68,7 @@ export const designStudio: DesignTemplatePreset = {
       .swatches { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:16px; }
       .swatches i { display:block; aspect-ratio:1; border-radius:50%; }
       .sliders { display:grid; gap:26px; margin-top:34px; }
-      .sliders p { display:flex; justify-content:space-between; color:var(--muted); font-size:14px; font-weight:500; }
+      .sliders p { display:flex; justify-content:space-between; color:var(--muted); font-size:14px; font-weight:400; }
       .sliders em { font-style:normal; }
       .sliders > div > span { display:block; height:6px; margin-top:12px; border-radius:3px; background:var(--line); }
       .sliders > div > span b { display:block; height:100%; border-radius:3px; background:var(--violet); }

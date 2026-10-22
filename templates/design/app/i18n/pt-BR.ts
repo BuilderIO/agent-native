@@ -241,8 +241,6 @@ export default {
   gettingStarted: {
     title: "Primeiros passos",
     progress: "{{completeCount}} de {{totalCount}} concluídos",
-    moreOptions: "Mais opções",
-    hide: "Ocultar lista",
     collapse: "Recolher",
     expand: "Expandir",
     completed: "Concluído",

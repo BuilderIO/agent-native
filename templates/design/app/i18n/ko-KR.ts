@@ -235,8 +235,6 @@ export default {
   gettingStarted: {
     title: "시작하기",
     progress: "{{totalCount}}개 중 {{completeCount}}개 완료",
-    moreOptions: "옵션 더 보기",
-    hide: "체크리스트 숨기기",
     collapse: "접기",
     expand: "펼치기",
     completed: "완료됨",

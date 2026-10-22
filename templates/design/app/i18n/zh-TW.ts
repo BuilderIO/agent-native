@@ -226,8 +226,6 @@ export default {
   gettingStarted: {
     title: "開始使用",
     progress: "已完成 {{completeCount}}/{{totalCount}}",
-    moreOptions: "更多選項",
-    hide: "隱藏清單",
     collapse: "收合",
     expand: "展開",
     completed: "已完成",

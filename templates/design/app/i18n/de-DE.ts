@@ -240,8 +240,6 @@ export default {
   gettingStarted: {
     title: "Erste Schritte",
     progress: "{{completeCount}} von {{totalCount}} abgeschlossen",
-    moreOptions: "Weitere Optionen",
-    hide: "Checkliste ausblenden",
     collapse: "Einklappen",
     expand: "Ausklappen",
     completed: "Abgeschlossen",

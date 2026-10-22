@@ -78,7 +78,7 @@ export const projectTasks: DesignTemplatePreset = {
     title: "Tally — Project tasks",
     width: 1440,
     height: 900,
-    fonts: "family=Manrope:wght@500;600;700;800",
+    fonts: "family=Manrope:wght@400;600;700;800",
     palette: {
       canvas: C.canvas,
       ink: C.ink,
@@ -100,7 +100,7 @@ export const projectTasks: DesignTemplatePreset = {
       .lane h2 b { padding:2px 10px; border-radius:999px; background:var(--paper); font-size:12px; }
       .task { display:flex; flex-direction:column; justify-content:space-between; height:150px; margin-bottom:16px; padding:20px 22px; border-radius:16px; box-shadow:0 8px 24px color-mix(in srgb, var(--ink) 14%, transparent); }
       .task p { font-size:20px; font-weight:700; line-height:1.25; letter-spacing:-.01em; }
-      .task small { font-size:14px; font-weight:600; opacity:.75; }
+      .task small { font-size:14px; font-weight:400; opacity:.75; }
       .task.todo { background:var(--todo); }
       .task.doing { background:var(--doing); }
       .task.done { background:var(--done); color:var(--paper); }

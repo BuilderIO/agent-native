@@ -71,7 +71,7 @@ export const analyticsDashboard: DesignTemplatePreset = {
       .range { padding:10px 16px; border:1px solid var(--line); border-radius:999px; background:var(--paper); color:var(--muted); font-size:14px; font-weight:500; }
       .stats { position:absolute; left:288px; right:48px; top:116px; z-index:1; display:grid; grid-template-columns:repeat(4,1fr); gap:20px; }
       .stat { padding:22px 24px; border-radius:16px; background:var(--paper); border:1px solid var(--line); }
-      .stat small { display:block; color:var(--muted); font-size:14px; font-weight:500; }
+      .stat small { display:block; color:var(--muted); font-size:14px; font-weight:400; }
       .stat strong { display:block; margin-top:10px; font-size:36px; font-weight:700; letter-spacing:-.03em; }
       .stat em { display:block; margin-top:6px; color:var(--teal); font-size:13px; font-style:normal; font-weight:600; }
       .stat.hot { background:var(--indigo); border-color:var(--indigo); color:var(--paper); }

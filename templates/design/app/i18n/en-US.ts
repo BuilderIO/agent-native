@@ -167,8 +167,6 @@ export default {
   gettingStarted: {
     title: "Getting started",
     progress: "{{completeCount}} of {{totalCount}} complete",
-    moreOptions: "More options",
-    hide: "Hide checklist",
     collapse: "Collapse",
     expand: "Expand",
     completed: "Completed",

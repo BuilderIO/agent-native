@@ -234,8 +234,6 @@ export default {
   gettingStarted: {
     title: "ابدأ",
     progress: "اكتمل {{completeCount}} من {{totalCount}}",
-    moreOptions: "المزيد من الخيارات",
-    hide: "إخفاء القائمة",
     collapse: "طي",
     expand: "توسيع",
     completed: "مكتمل",

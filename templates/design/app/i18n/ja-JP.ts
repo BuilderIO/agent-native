@@ -242,8 +242,6 @@ export default {
   gettingStarted: {
     title: "はじめに",
     progress: "{{totalCount}}件中{{completeCount}}件完了",
-    moreOptions: "その他のオプション",
-    hide: "チェックリストを非表示",
     collapse: "折りたたむ",
     expand: "展開",
     completed: "完了",
