@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listAppUsageMetricsMock = vi.hoisted(() => vi.fn());
 const isOrgMemberMock = vi.hoisted(() => vi.fn());
+const canViewWorkspaceUsageMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../action.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../action.js")>()),
@@ -15,6 +16,7 @@ vi.mock("../../org/membership.js", () => ({
 vi.mock("../metrics-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../metrics-store.js")>()),
   listAppUsageMetrics: listAppUsageMetricsMock,
+  canViewWorkspaceUsage: canViewWorkspaceUsageMock,
 }));
 
 import { resetAppConfigForTests } from "../../app-config/index.js";
@@ -27,6 +29,7 @@ describe("get-usage-metrics action", () => {
     vi.stubEnv("AGENT_NATIVE_APP_ID", "configured-app");
     listAppUsageMetricsMock.mockResolvedValue({ ok: true });
     isOrgMemberMock.mockResolvedValue(true);
+    canViewWorkspaceUsageMock.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -190,6 +193,37 @@ describe("get-usage-metrics action", () => {
     expect(isOrgMemberMock).not.toHaveBeenCalled();
     expect(listAppUsageMetricsMock).toHaveBeenCalledTimes(2);
   });
+
+  it.each([true, false])(
+    "gives a caller without workspace access the same answer whether or not the email is a member (member=%s)",
+    async (member) => {
+      canViewWorkspaceUsageMock.mockResolvedValue(false);
+      isOrgMemberMock.mockResolvedValue(member);
+
+      const error = await getUsageMetrics
+        .run(
+          {
+            sinceDays: 7,
+            scope: "workspace",
+            userEmail: "someone@example.com",
+          },
+          {
+            caller: "agent",
+            userEmail: "member@example.com",
+            orgId: "org-1",
+          } as any,
+        )
+        .catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "usage_user_lookup_forbidden",
+        statusCode: 403,
+      });
+      expect((error as Error).message).toContain("<relevant-apps>");
+      expect(isOrgMemberMock).not.toHaveBeenCalled();
+      expect(listAppUsageMetricsMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("scopes the description to this organization's members, not external customers", () => {
     const description = (getUsageMetrics as unknown as { description: string })

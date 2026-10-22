@@ -4,6 +4,7 @@ import { defineAction, fail } from "../../action.js";
 import { isOrgMember } from "../../org/membership.js";
 import {
   ALL_USAGE_APPS,
+  canViewWorkspaceUsage,
   listAppUsageMetrics,
   USAGE_APP_FILTER_ALL,
   USAGE_APP_FILTER_CURRENT,
@@ -62,13 +63,27 @@ export default defineAction({
     if (
       userEmail &&
       ctx.orgId &&
-      userEmail.toLowerCase() !== ctx.userEmail.toLowerCase() &&
-      !(await isOrgMember(ctx.orgId, userEmail))
+      userEmail.toLowerCase() !== ctx.userEmail.toLowerCase()
     ) {
-      fail(
-        `${userEmail} is not a member of this organization. get-usage-metrics only covers this workspace's own agent usage; usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data (see <relevant-apps> or run describe-workspace-apps with a query).`,
-        { errorCode: "usage_user_not_org_member", statusCode: 404 },
-      );
+      // Unauthorized callers get one answer whether or not the email is a
+      // member, so the lookup cannot be used to probe the roster.
+      if (
+        !(await canViewWorkspaceUsage({
+          ownerEmail: ctx.userEmail,
+          orgId: ctx.orgId,
+        }))
+      ) {
+        fail(
+          "Only organization owners and admins can look up another person's usage with get-usage-metrics. Usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data (see <relevant-apps> or run describe-workspace-apps with a query).",
+          { errorCode: "usage_user_lookup_forbidden", statusCode: 403 },
+        );
+      }
+      if (!(await isOrgMember(ctx.orgId, userEmail))) {
+        fail(
+          `${userEmail} is not a member of this organization. get-usage-metrics only covers this workspace's own agent usage; usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data (see <relevant-apps> or run describe-workspace-apps with a query).`,
+          { errorCode: "usage_user_not_org_member", statusCode: 404 },
+        );
+      }
     }
     const selection = resolveAppSelection(app, appId);
     return listAppUsageMetrics(

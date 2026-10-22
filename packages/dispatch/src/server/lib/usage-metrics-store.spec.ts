@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   currentOrgId: vi.fn((): string | null => null),
   currentOwnerEmail: vi.fn(() => "owner@example.test"),
   delegatedOrgMember: false,
+  isOrgMember: vi.fn(async (_orgId: string, email: string) =>
+    email.toLowerCase().endsWith("@example.test"),
+  ),
   registerBuiltinEngines: vi.fn(),
   dispatchConfig: {
     adminEmails: [] as string[],
@@ -37,6 +40,11 @@ vi.mock("@agent-native/core/db", () => ({
 
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: (...args: any[]) => mocks.getSetting(...args),
+}));
+
+vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: (orgId: string, email: string) =>
+    mocks.isOrgMember(orgId, email),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -148,26 +156,46 @@ describe("listDispatchUsageMetrics", () => {
     expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
   });
 
-  it("points a non-admin member asking about an outside email at the owning app", async () => {
+  it.each(["customer@customer.example", "other@example.test"])(
+    "gives a non-admin the same lookup error whether or not %s is a member",
+    async (userEmail) => {
+      mocks.currentOrgId.mockReturnValue("org-a");
+      mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+      mocks.execute.mockResolvedValue({ rows: [{ role: "member" }] });
+
+      const error = await listDispatchUsageMetrics({
+        sinceDays: 7,
+        scope: "workspace",
+        userEmail,
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "usage_user_lookup_forbidden",
+        statusCode: 403,
+      });
+      expect((error as Error).message).toContain("<relevant-apps>");
+      expect(mocks.isOrgMember).not.toHaveBeenCalled();
+      expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+    },
+  );
+
+  it("treats a delegated owner as a member for another person's usage instead of reporting them outside the org", async () => {
     mocks.currentOrgId.mockReturnValue("org-a");
-    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
-    mocks.execute.mockImplementation(async ({ args }: { args?: unknown[] }) =>
-      args?.[1] === "member@example.test"
-        ? { rows: [{ role: "member" }] }
-        : { rows: [] },
-    );
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.delegatedOrgMember = true;
+    mocks.execute.mockResolvedValue({ rows: [{ role: "owner" }] });
 
     const error = await listDispatchUsageMetrics({
       sinceDays: 7,
       scope: "workspace",
-      userEmail: "customer@customer.example",
+      userEmail: "member@example.test",
     }).catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({
-      errorCode: "usage_user_not_org_member",
-      statusCode: 404,
+      errorCode: "usage_user_lookup_forbidden",
+      statusCode: 403,
     });
-    expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+    expect(mocks.isOrgMember).not.toHaveBeenCalled();
   });
 
   it("does not let a delegated org member read workspace usage as an owner", async () => {
