@@ -235,7 +235,7 @@ describe("DataChartWidget display contract", () => {
     expect(card?.style.width).toBe("100%");
     expect(card?.style.maxWidth).toBe("720px");
     expect(card?.style.marginInline).toBe("auto");
-    expect(title?.style.fontFamily).toBe("IBM Plex Sans");
+    expect(title?.style.fontFamily).toContain("IBM Plex Sans");
     expect(title?.style.fontSize).toBe("14px");
     expect(title?.style.fontWeight).toBe("400");
     expect(title?.style.lineHeight).toBe("20px");

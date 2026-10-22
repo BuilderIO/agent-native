@@ -92,6 +92,26 @@ describe("DataChartRenderer theme colors", () => {
     expect(markup).not.toContain(">1.0</text>");
   });
 
+  it("preserves one-decimal ticks without an app layout override", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First", value: 0 },
+            { day: "Last", value: 1 },
+          ],
+          valueAxisTickInterval: 0.1,
+        }}
+      />,
+    );
+
+    expect(markup).toContain(">0.0</text>");
+    expect(markup).toContain(">1.0</text>");
+  });
+
   it("keeps a configured right plot inset while sizing the category labels", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
@@ -626,7 +646,9 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const tickLabels = Array.from(
-      markup.matchAll(/<text[^>]*text-anchor="end">([^<]+)<\/text>/g),
+      markup.matchAll(
+        /<text x="38" y="[^"]+"[^>]*text-anchor="end">([^<]+)<\/text>/g,
+      ),
       (match) => match[1],
     );
 
@@ -654,7 +676,9 @@ describe("DataChartRenderer theme colors", () => {
       />,
     );
     const tickLabels = Array.from(
-      markup.matchAll(/<text[^>]*text-anchor="end">([^<]+)<\/text>/g),
+      markup.matchAll(
+        /<text x="38" y="[^"]+"[^>]*text-anchor="end">([^<]+)<\/text>/g,
+      ),
       (match) => match[1],
     );
 
@@ -817,6 +841,30 @@ describe("DataChartRenderer theme colors", () => {
           index === 0 || label.y - verticalLabels[index - 1]!.y >= 15,
       ),
     ).toBe(true);
+  });
+
+  it("keeps line value labels inside the canvas with no bottom inset", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First", value: 0 },
+            { day: "Last", value: 1 },
+          ],
+          showValueLabels: true,
+        }}
+        layout={{ plotInsets: { bottom: 0 } }}
+      />,
+    );
+    const minimumValueLabelY = Array.from(
+      markup.matchAll(/<text[^>]*y="([\d.]+)"[^>]*>0\.0<\/text>/g),
+      (match) => Number(match[1]),
+    ).filter((y) => y < 360);
+
+    expect(minimumValueLabelY.some((y) => y <= 356)).toBe(true);
   });
 
   it("reserves room for custom decimal value-axis labels", () => {

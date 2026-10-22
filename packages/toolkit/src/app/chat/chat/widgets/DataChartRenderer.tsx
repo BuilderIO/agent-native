@@ -43,7 +43,11 @@ function formatTick(value: number): string {
   return value.toFixed(1);
 }
 
-function formatAxisTick(value: number, interval: number): string {
+function formatAxisTick(
+  value: number,
+  interval: number,
+  compactInteger: boolean,
+): string {
   const [mantissa, exponent = "0"] = interval
     .toString()
     .toLowerCase()
@@ -52,7 +56,7 @@ function formatAxisTick(value: number, interval: number): string {
     0,
     (mantissa.split(".")[1]?.length ?? 0) - Number(exponent),
   );
-  if (decimalPlaces === 1 && Number.isInteger(value)) {
+  if (compactInteger && decimalPlaces === 1 && Number.isInteger(value)) {
     return Math.abs(value) >= 1000 ? value.toLocaleString() : String(value);
   }
   if (Math.abs(value) >= 1000) {
@@ -62,6 +66,21 @@ function formatAxisTick(value: number, interval: number): string {
     });
   }
   return value.toFixed(decimalPlaces);
+}
+
+function lineValueLabelY(
+  pointY: number,
+  valueLabelFontSize: number,
+  plotTop: number,
+): number {
+  const minimumY = valueLabelFontSize;
+  const maximumY = HEIGHT - valueLabelFontSize * 0.25;
+  const fitsAbove = pointY - valueLabelFontSize - 5 >= plotTop;
+  const fitsBelow = pointY + valueLabelFontSize + 5 <= maximumY;
+  const labelY =
+    fitsAbove || !fitsBelow ? pointY - 5 : pointY + valueLabelFontSize + 5;
+
+  return Math.min(Math.max(labelY, minimumY), maximumY);
 }
 
 function inset(value: number | undefined, name: string, fallback: number) {
@@ -248,7 +267,7 @@ function ChartBody({
     const label =
       tickInterval === undefined
         ? formatTick(value)
-        : formatAxisTick(value, tickInterval);
+        : formatAxisTick(value, tickInterval, layout !== undefined);
     const maximumWidth = isHorizontalBar
       ? horizontalTextWidthLimit
       : WIDTH - MARGIN.right - MIN_PLOT_WIDTH - verticalValueTickMargin;
@@ -749,17 +768,11 @@ function ChartBody({
           ))}
           {chart.showValueLabels
             ? points.map((point, index) => {
-                const abovePoint =
-                  point.y - valueLabelFontSize - 5 >= margin.top;
                 return (
                   <text
                     key={`value-${index}`}
                     x={point.x}
-                    y={
-                      abovePoint
-                        ? point.y - 5
-                        : point.y + valueLabelFontSize + 5
-                    }
+                    y={lineValueLabelY(point.y, valueLabelFontSize, margin.top)}
                     fill={labelColor}
                     fontSize={valueLabelFontSize}
                     fontWeight={valueLabelFontWeight}
