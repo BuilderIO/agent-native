@@ -40,6 +40,11 @@ describe("consent region route", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("prefers the CDN's geo header over a visitor's own x-country", async () => {
+    const response = await region({ "x-country": "US", "cf-ipcountry": "DE" });
+    expect(await response.json()).toEqual({ region: "consent" });
+  });
+
   it("accepts only GET", async () => {
     const response = await region({}, "POST");
     expect(response.status).toBe(405);

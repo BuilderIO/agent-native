@@ -27,13 +27,21 @@ import {
 
 const MAX_CONSENT_BODY_BYTES = 256;
 
-/** The visitor's country from the host's geo header, if it sent one. */
+/**
+ * The visitor's country from the host's geo header, if it sent one. The
+ * headers a CDN always overwrites come first, so a visitor's own `x-country`
+ * can't outrank them.
+ */
 export function requestCountry(event: H3Event): string | undefined {
-  const direct =
-    getHeader(event, "x-country") ??
+  return (
+    netlifyGeoCountry(event) ??
     getHeader(event, "cf-ipcountry") ??
-    getHeader(event, "x-vercel-ip-country");
-  if (direct) return direct;
+    getHeader(event, "x-vercel-ip-country") ??
+    getHeader(event, "x-country")
+  );
+}
+
+function netlifyGeoCountry(event: H3Event): string | undefined {
   const geo = getHeader(event, "x-nf-geo");
   if (!geo) return undefined;
   try {
@@ -41,8 +49,8 @@ export function requestCountry(event: H3Event): string | undefined {
     const code = parsed?.country?.code;
     return typeof code === "string" ? code : undefined;
   } catch {
-    // coercion-ok: an unreadable geo header is an unknown country; the
-    // browser falls back to its time zone.
+    // coercion-ok: an unreadable geo header is an unknown country; the next
+    // header, or the browser's time zone, decides.
     return undefined;
   }
 }

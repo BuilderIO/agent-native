@@ -176,6 +176,62 @@ describe("client consent", () => {
     expect(choiceBodies()).toEqual(["1.p1.t1", "1.p0.t0"]);
   });
 
+  it("keeps the newest choice when an older choice's response lands", async () => {
+    const { fetchMock } = installBrowser({ region: "consent" });
+    const consent = await freshConsent();
+    const choiceBodies = () =>
+      (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>)
+        .filter(([url]) => String(url).endsWith("/_agent-native/auth/consent"))
+        .map(([, init]) => JSON.parse(String(init.body)).choice);
+    let finishFirst!: () => void;
+    fetchMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>(
+            (resolve) =>
+              (finishFirst = () => {
+                // The accept response sets its own cookie as it lands.
+                document.cookie = "an_consent=1.p1.t1; path=/";
+                resolve(new Response("{}"));
+              }),
+          ),
+      )
+      .mockImplementationOnce(() => Promise.reject(new Error("offline")));
+
+    consent.setConsentChoice({ performance: true, targeting: true });
+    await tick();
+    consent.setConsentChoice({ performance: false, targeting: false });
+    consent.setConsentChoice({ performance: true, targeting: false });
+    finishFirst();
+    await tick();
+
+    expect(choiceBodies()).toEqual(["1.p1.t1", "1.p1.t0"]);
+    expect(consent.getConsentChoice()).toEqual({
+      performance: true,
+      targeting: false,
+    });
+  });
+
+  it("isolates a callback that runs as soon as it's registered", async () => {
+    installBrowser({ region: "none" });
+    const consent = await freshConsent();
+    await consent.resolveConsentRegion();
+    const rethrown: Array<() => void> = [];
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: () => void,
+    ) => {
+      rethrown.push(callback);
+      return 0;
+    }) as unknown as typeof setTimeout);
+
+    expect(() =>
+      consent.whenConsentAllows("performance", () => {
+        throw new Error("broken script");
+      }),
+    ).not.toThrow();
+    expect(rethrown).toHaveLength(1);
+  });
+
   it("clears this page's copies when another app already stored a reject", async () => {
     const { session } = installBrowser();
     session.set("an_consent_region", "consent");

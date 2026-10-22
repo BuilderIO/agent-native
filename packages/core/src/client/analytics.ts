@@ -912,21 +912,22 @@ function readLocalFirstTouch(): FirstTouchAttribution | null {
 /**
  * The server writes `an_lt` again from each request's cookies, so a slow
  * response from an older page can put back an older last touch. The newest
- * one is in localStorage.
+ * one is in localStorage. Returns whether it had to write it back.
  */
-function restoreNewestLastTouchCookie(): void {
+function restoreNewestLastTouchCookie(): boolean {
   const stored = safeStorageGet(LAST_TOUCH_STORAGE_KEY);
   const newest = parseAttribution<LastTouchAttribution>(stored);
-  if (!stored || !newest) return;
+  if (!stored || !newest) return false;
   const cookie = readAttributionCookieValue<LastTouchAttribution>(
     LAST_TOUCH_COOKIE_NAME,
   );
   if (
     Date.parse(cookie?.touched_at ?? "") >= Date.parse(newest.touched_at ?? "")
   ) {
-    return;
+    return false;
   }
   writeAttributionCookie(stored, LAST_TOUCH_COOKIE);
+  return true;
 }
 
 /**
@@ -968,10 +969,15 @@ function syncFirstTouchToServer(firstTouch: FirstTouchAttribution): void {
         clearStoredAttribution();
         return;
       }
-      restoreNewestLastTouchCookie();
+      // Written back by page JavaScript, Safari would keep it a week.
+      const repaired = restoreNewestLastTouchCookie();
       const server = readServerFirstTouch();
       const local = readLocalFirstTouch();
-      if (!server || isSameFirstTouch(server, local)) return;
+      if (!server) return;
+      if (isSameFirstTouch(server, local)) {
+        if (repaired && local) syncFirstTouchToServer(local);
+        return;
+      }
       if (preferFirstTouch(server, local) === server) {
         storeAttribution(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE, server);
       } else if (local) {

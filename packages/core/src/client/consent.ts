@@ -80,17 +80,32 @@ function cookieDomain(): string {
   return domain ? `; domain=${domain}` : "";
 }
 
+function writeChoiceCookie(choice: ConsentChoice): void {
+  try {
+    document.cookie =
+      `${CONSENT_COOKIE_NAME}=${serializeConsent(choice)}; path=/; ` +
+      `max-age=${CONSENT_COOKIE_LIFETIME_SECONDS}; SameSite=Lax${cookieDomain()}`;
+  } catch {
+    // coercion-ok: a sandboxed iframe can't store the choice; it still
+    // applies to this page.
+  }
+}
+
 let serverChoiceWrites: Promise<unknown> = Promise.resolve();
+let latestChoice: ConsentChoice | null = null;
 
 /**
  * Safari keeps a cookie page JavaScript wrote for seven days at most, so the
- * server writes the choice again for its full year. Writes go one at a time,
- * so a slow earlier choice can't land after a later one.
+ * server writes the choice again for its full year. Writes go one at a time
+ * and only the newest is sent. A response for an older choice still sets that
+ * choice's cookie, so the newest is written back over it at once.
  */
 function storeChoiceOnServer(choice: ConsentChoice): void {
+  latestChoice = choice;
   if (agentNativeApiDisabledReason() || typeof fetch !== "function") return;
-  serverChoiceWrites = serverChoiceWrites.then(() =>
-    fetch(agentNativePath(CONSENT_PATH), {
+  serverChoiceWrites = serverChoiceWrites.then(async () => {
+    if (latestChoice !== choice) return;
+    await fetch(agentNativePath(CONSENT_PATH), {
       method: "POST",
       credentials: "same-origin",
       keepalive: true,
@@ -99,8 +114,11 @@ function storeChoiceOnServer(choice: ConsentChoice): void {
     }).catch(() => {
       // coercion-ok: the browser's own copy still holds the choice, for
       // seven days in Safari; the visitor is asked again after that.
-    }),
-  );
+    });
+    if (latestChoice && latestChoice !== choice) {
+      writeChoiceCookie(latestChoice);
+    }
+  });
 }
 
 function readCachedRegion(): ConsentRegion | null {
@@ -261,7 +279,7 @@ export function whenConsentAllows(
     (options.optimistic ? regionGuess() : null);
   if (allows(category, region)) {
     waiter.ran = true;
-    run();
+    isolate(run);
   }
   if (!state().region) void resolveConsentRegion();
 }
@@ -269,14 +287,7 @@ export function whenConsentAllows(
 /** Store the visitor's choice for every app on this site, and apply it. */
 export function setConsentChoice(choice: ConsentChoice): void {
   if (typeof document === "undefined") return;
-  try {
-    document.cookie =
-      `${CONSENT_COOKIE_NAME}=${serializeConsent(choice)}; path=/; ` +
-      `max-age=${CONSENT_COOKIE_LIFETIME_SECONDS}; SameSite=Lax${cookieDomain()}`;
-  } catch {
-    // coercion-ok: a sandboxed iframe can't store the choice; it still
-    // applies to this page.
-  }
+  writeChoiceCookie(choice);
   storeChoiceOnServer(choice);
   state().settingsOpen = false;
   if (!state().region) state().region = "consent";

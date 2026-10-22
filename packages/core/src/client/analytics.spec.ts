@@ -1108,6 +1108,41 @@ describe("browser analytics pageviews", () => {
     expect(JSON.parse(localStorage.getItem("an_last_touch")!)).toEqual(newest);
   });
 
+  it("asks the server to rewrite a last touch it had to put back", async () => {
+    const { cookieJson } = installBrowser(
+      "https://clips.agent-native.com/?utm_source=youtube",
+    );
+    const responses: Array<(response: Response) => void> = [];
+    const fetchMock = vi.fn((url: unknown) =>
+      String(url).includes("/_agent-native/auth/attribution")
+        ? new Promise<Response>((resolve) => responses.push(resolve))
+        : Promise.resolve(new Response(JSON.stringify({ region: "none" }))),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { captureAttribution } = await freshAnalytics();
+    captureAttribution();
+    const firstTouch = cookieJson("an_ft");
+
+    // An older page's response rolls an_lt back; the server already holds
+    // this first touch.
+    document.cookie = `an_lt=${encodeURIComponent(
+      JSON.stringify({
+        utm_source: "older",
+        touched_at: "2026-01-01T00:00:00.000Z",
+      }),
+    )}; path=/`;
+    document.cookie = `an_fts=${encodeURIComponent(
+      JSON.stringify({ v: "1", ...firstTouch }),
+    )}; path=/`;
+    responses[0]!(new Response(JSON.stringify({ stored: true })));
+    await tick();
+
+    const posts = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/_agent-native/auth/attribution"),
+    );
+    expect(posts).toHaveLength(2);
+  });
+
   it("ignores a stored first touch older than a year", async () => {
     const { localStorage } = installBrowser(
       "https://clips.agent-native.com/?utm_source=youtube",
