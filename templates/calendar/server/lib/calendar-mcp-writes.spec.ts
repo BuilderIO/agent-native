@@ -31,14 +31,25 @@ const mocks = vi.hoisted(() => ({
   approval: vi.fn(),
 }));
 
-const { approvalAuth, approvalStore } = vi.hoisted(() => ({
+const { approvalAuth, approvalStore, userSettings } = vi.hoisted(() => ({
   approvalAuth: () => ({
     getAuthSecret: () => "fake-test-only-mcp-approval-secret",
     findBetterAuthUserIdForEmail: async () => undefined,
   }),
-  approvalStore: () => ({
+  // The store's own helpers stay real; only its database calls are faked, with
+  // no review page approval on record.
+  approvalStore: async (importOriginal: () => Promise<object>) => ({
+    ...(await importOriginal()),
     createMcpApprovalGrant: vi.fn(),
     consumeMcpApprovalGrant: vi.fn(async () => true),
+    consumeReviewedMcpApprovalGrant: vi.fn(async () => null),
+    answerMcpApprovalPrompt: vi.fn(async () => true),
+    findRecentMcpApprovalRun: vi.fn(async () => null),
+    recordMcpApprovalRun: vi.fn(async () => undefined),
+  }),
+  userSettings: async (importOriginal: () => Promise<object>) => ({
+    ...(await importOriginal()),
+    getUserSetting: async () => null,
   }),
 }));
 vi.mock(
@@ -51,6 +62,14 @@ vi.mock(
 );
 vi.mock("../../../../packages/core/dist/mcp/approval-store.js", approvalStore);
 vi.mock("../../../../packages/core/src/mcp/approval-store.js", approvalStore);
+vi.mock(
+  "../../../../packages/core/dist/settings/user-settings.js",
+  userSettings,
+);
+vi.mock(
+  "../../../../packages/core/src/settings/user-settings.js",
+  userSettings,
+);
 
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
@@ -370,7 +389,7 @@ describe("Calendar direct MCP writes", () => {
           method: "elicitation/create",
           params: expect.objectContaining({
             message: expect.stringContaining(
-              'Action "update-event" requires your approval',
+              "needs your approval before it runs",
             ),
           }),
         }),
@@ -411,7 +430,7 @@ describe("Calendar direct MCP writes", () => {
           method: "elicitation/create",
           params: expect.objectContaining({
             message: expect.stringContaining(
-              'Action "create-event" requires your approval',
+              "needs your approval before it runs",
             ),
           }),
         }),
@@ -433,6 +452,10 @@ describe("Calendar direct MCP writes", () => {
     });
     expect(result.isError).not.toBe(true);
     expect(mocks.approval).toHaveBeenCalledOnce();
+    // The form names who the invitation reaches, from the stored arguments.
+    expect(mocks.approval.mock.calls[0][0].params.message).toContain(
+      "guest@example.com",
+    );
     expect(mocks.createEvent).toHaveBeenCalledOnce();
   });
 
