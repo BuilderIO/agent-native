@@ -51,6 +51,7 @@ export function AgentChat(props: AgentChatProps) {
     hasRenderedMessages,
     emptyComposerPlacement,
     autoScroll,
+    transcriptLayout,
     className,
     ...rootProps
   } = props;
@@ -79,6 +80,7 @@ export function AgentChat(props: AgentChatProps) {
         hasRenderedMessages={hasRenderedMessages}
         emptyComposerPlacement={emptyComposerPlacement}
         autoScroll={autoScroll}
+        transcriptLayout={transcriptLayout}
         className={className}
       />
     </AgentKitRoot>

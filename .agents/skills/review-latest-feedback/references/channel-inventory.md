@@ -329,10 +329,26 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   administrative post or duplicate; record the reason and link a duplicate to
   its canonical report. Include
   the root `threadParentTs`, reply timestamp, author ID, matching disposition,
-  evidence, and read-back text. For each human/team handoff, the visible status
-  reply must name its distinct scope, owner state, and action. Every distinct
-  unfinished team action gets this actor's root `🎫`, even when no person has
-  accepted it. For `status: "unassigned"`, record the responsible team/role or
+  evidence, and read-back text. Keep exact scope, proof, and handoff details in
+  the ledger. For `Owned elsewhere`, keep the owner's full proof in
+  `otherOwnerEvidence.statusReply.evidence`; set its `publicEvidenceSummary` to
+  a brief plain-language phrase (2–12 words) that appears in both the evidence
+  and the owner's captured reply. Do not require the full internal evidence in
+  their Slack text. For active `🎫` actions, add a short plain-language
+  `pendingActionSummary` to `statusReply` that names every open action and its
+  known owner, and include it in the reply; omit it when no tracked action
+  remains open. Keep the exact action in the internal ledger. When that wording
+  is too technical or long for Slack, add a
+  concise plain-language `publicActionSummary` using the opening words of the
+  action and leaving trailing implementation detail out. It must have at least
+  two meaningful words and no more than 12 words; the checker requires the
+  phrase to match the action. Use the summary in public status replies and
+  other readbacks that do not prove owner acceptance. For an accepted handoff,
+  the owner's explicit acceptance and the direct request before contextual
+  assent must name the full recorded action, even when a shorter public
+  summary exists. Every
+  distinct unfinished team action gets this actor's root `🎫`, even when no
+  person has accepted it. For `status: "unassigned"`, record the responsible team/role or
   `unassigned`; omit the owner Slack ID and acceptance. If this actor asked a
   named person to take the action but they have not accepted, record the exact
   request and keep the handoff unassigned. For `status: "accepted"` or
@@ -363,7 +379,19 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   replies and bot messages. The status reply must be newer than this human
   reply. If a human answers later, update the disposition and status before
   reconciling it.
-  Record each verified `fixedScopes` entry with its proof; record each
+  Record each verified `fixedScopes` entry with its proof. For a status with
+  fixed scopes, also set `statusReply.publicEvidenceSummary` to a brief,
+  plain-language phrase (2–12 words) that can appear in the public reply. For
+  every fixed scope, put that scope and the summary together in one sentence of
+  its `verification`. Include the summary in both `statusReply.evidence` and
+  the captured `statusReply.text`; keep detailed proof in the ledger. The
+  summary may paraphrase the internal scope. Record each
+  `unfinishedScopes` entry in the ledger. When any remain, set
+  `statusReply.unfinishedScopeSummary` to a brief plain-language summary
+  (3–12 words) that names remaining work using wording grounded in its recorded
+  scope or evidence, and says it is still open; include it in the public status
+  even when no separate `🎫` action exists. Omit this field when no unfinished
+  scope remains. Record each
   unfinished team/engineering action in `handoffs[]` and each outstanding
   reporter input request in `reporterRequests[]` with its scope, exact action,
   and exact `requestReply`. For
@@ -386,9 +414,9 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   action is completed, keep it in `handoffs[]` with
   `status: "completed"` and `completion: { evidence, sourceUrl }` or an exact
   owner `reply` (`ts`, `threadParentTs`, `actorId`, and verbatim `text`). The
-  current status must cite that completion evidence. Keep the root `🎫` as
-  history; completed actions are not open follow-ups and do not block a closed
-  disposition. Only an owner withdrawal moves an accepted action to
+  `statusReply.evidence` must cite that completion evidence. Keep the root
+  `🎫` as history; completed actions are not open follow-ups and do not block a
+  closed disposition. Only an owner withdrawal moves an accepted action to
   `historicalReactionMarks[]`. As soon as direct post-change proof passes, add this actor's
   `✅` to the root and read it back before moving to another scope or report,
   including while its PR is open. Before merge, record **Verified locally** and
@@ -403,9 +431,10 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   mark remains as history after completion. For an eligible open scope this
   workflow takes, retain the root `👀` as permanent history; do not use it to
   infer whether work remains.
-  The same-thread status reply must name the verified scope(s), the remaining
-  open scope(s), each open scope's blocker and next action, and why `✅` or `🎫`
-  is absent when it does not apply. A reply does not replace a
+  Keep the same-thread status reply to one short, plain-language paragraph.
+  Say what changed; when an active `🎫` remains, name its next action through
+  `pendingActionSummary`. Do not list every scope or explain absent reactions.
+  A reply does not replace a
   reaction, and a reaction does not replace a reply. Do not add status
   requirements or reactions to another actor's eye. When later evidence
   invalidates a retained `✅`, remove that scope from active `fixedScopes[]`
@@ -415,9 +444,17 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   withdraws, move that action out of current `handoffs[]` and record a historical
   `🎫` with its earlier accepted `handoff` plus the owner's exact
   `withdrawalReply` (`ts`, `threadParentTs`, `actorId`, and verbatim `text`).
-  Explain each retained mark in the current status and its reaction decision;
-  preserve it without presenting it as current proof or an active handoff. The
-  checker validates historical evidence against the captured thread. When every report scope
+  Record why each retained mark is historical in the internal reaction
+  decision; preserve it without presenting it as current proof or an active
+  handoff. Keep detailed proof in `previousStatus.evidence` in the internal
+  ledger. For a historical `✅`, also record a brief, non-sensitive
+  `publicEvidenceSummary` (2–12 words) drawn from that proof. It may paraphrase
+  the exact scope, but the scope and summary must appear together in one proof
+  sentence. Include the summary in the captured `previousStatus.text`; the
+  checker verifies that it is tied to proof for the recorded scope.
+  Never put secrets, customer details, or raw logs in the summary. For a
+  historical `🎫`, the prior reply must name both the accepted action and its
+  owner. The checker validates these details against the captured thread. When every report scope
   and follow-up is closed, post or reuse the final same-thread status and read
   back the status and reactions. Preserve every reaction; disposition and
   status show that work is closed even when the root still has `👀`.
@@ -481,8 +518,9 @@ back `🎫` even when it is unassigned or unaccepted. Record acceptance only
 after a named person's exact reply; otherwise state `owner: unassigned` and
 `status: unassigned`. For reporter evidence, access, or clarification
 requests, record `reporterRequests[]` and add/read back `🎫`; explain that it
-tracks requested input, not a team handoff. In the current status, state the
-exact proof gap, blocker, and next owner/action. An
+tracks requested input, not a team handoff. In the internal ledger, record the
+exact proof gap, blocker, and next owner/action. Keep the current status brief
+and plain-language. An
 eye-only root with unfinished work is pending; an eye-only root with a closed
 verified disposition may retain the eye as history. Never remove or clean up a
 reaction. Slack thread replies appear under the root's reply count, not as
