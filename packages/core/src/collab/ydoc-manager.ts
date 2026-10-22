@@ -427,6 +427,7 @@ type ReadTarget =
   | { kind: "live"; binding: LiveCopyBinding };
 
 async function readTarget(docId: string): Promise<ReadTarget> {
+  const previousRead = _refreshLocks.get(docId) ?? _loadLocks.get(docId);
   // A live copy is read from SQL, never from a write in flight here, so it
   // skips the write lock: a binding's persist runs under that lock and may
   // read its own document.
@@ -434,6 +435,9 @@ async function readTarget(docId: string): Promise<ReadTarget> {
     const binding = await liveCopyBindingFor(docId);
     if (binding) return { kind: "live", binding };
   }
+  // A read already in flight may predate a peer's revision report. Wait for
+  // it, then refresh; reads started after this request can still be shared.
+  if (previousRead) await previousRead;
   await awaitPendingWrite(docId);
   // Looked up again: the write waited for may have made it a live copy.
   const binding = await liveCopyBindingFor(docId);

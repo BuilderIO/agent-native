@@ -210,6 +210,7 @@ function makeTabs({
     }),
   };
   const remoteReports = { B: vi.fn(), C: vi.fn(), D: vi.fn() };
+  const baseAwareReconciles = { B: vi.fn(), C: vi.fn(), D: vi.fn() };
   const saves = { B: vi.fn(), C: vi.fn(), D: vi.fn() };
   let settleDiscovery: ((status: DiscoveryStatus) => void) | null = null;
   // Presence answers C could not read, as its connection counts them.
@@ -297,7 +298,7 @@ function makeTabs({
         : {}),
       initialAppliedUpdatedAt: null,
       overlapPolicy: "prefer-live",
-      onBaseAwareReconcile: () => {},
+      onBaseAwareReconcile: baseAwareReconciles[name],
       onRemoteSnapshotChange: remoteReports[name],
       editable: true,
     });
@@ -351,6 +352,7 @@ function makeTabs({
     editors,
     results,
     remoteReports,
+    baseAwareReconciles,
     saves,
     typeAsA: () => author.commands.insertContentAt(17, ` ${WORD}`),
     editAsA: (edit: (author: CoreEditor) => void) => edit(author),
@@ -2302,6 +2304,182 @@ describe("useCollabReconcile: what finishes a join", () => {
       tabs.dispose();
     }
   });
+});
+
+// C holds a body the live doc wrote and takes a newer one, C's user types, and
+// a delayed response brings back the older body, which the live doc also
+// wrote. D then opens on the newer body, leads, and keeps the doc only on a
+// report of that body.
+describe("useCollabReconcile: an older body the live doc wrote, arriving late", () => {
+  const LOCAL = "zl0cal4C";
+  const MERGED: Snapshot = {
+    value: `${SAVED}\n\n${CHARLIE}`,
+    revision: AGENT_EDIT.revision,
+    updatedAt: AGENT_EDIT.updatedAt,
+  };
+  const LATER: Snapshot = {
+    value: MERGED.value.replace(
+      "Bravo paragraph.",
+      "Bravo paragraph, edited by an agent.",
+    ),
+    revision: "body:3:d",
+    updatedAt: "2024-01-01T00:00:12.000Z",
+  };
+  const mergeCharlie = (author: CoreEditor) =>
+    author.commands.insertContentAt(author.state.doc.content.size, {
+      type: "paragraph",
+      content: [{ type: "text", text: CHARLIE }],
+    });
+  const late = {
+    snapshotC: ACKNOWLEDGED,
+    collabRevisionC: ACKNOWLEDGED.revision,
+  };
+  type ShowC = Omit<Parameters<Tabs["Tabs"]>[0], "snapshot" | "withC">;
+  type Steps = {
+    tabs: Tabs;
+    show: (props: ShowC) => void;
+    typeAsC: () => void;
+    wait: (ms: number) => Promise<void>;
+  };
+  // Each returns the props C shows last.
+  const orderings: Array<[string, (steps: Steps) => Promise<ShowC>]> = [
+    [
+      "after it takes the newer body",
+      async ({ tabs, show, typeAsC, wait }) => {
+        act(() => tabs.typeAsA());
+        show(late);
+        await wait(200);
+        act(() => tabs.editAsA(mergeCharlie));
+        show({ snapshotC: MERGED, collabRevisionC: MERGED.revision });
+        await wait(200);
+        typeAsC();
+        show(late);
+        await wait(200);
+        return late;
+      },
+    ],
+    [
+      "while it catches up to the newer body",
+      async ({ tabs, show, typeAsC, wait }) => {
+        show({ snapshotC: STORED, collabRevisionC: STORED.revision });
+        await wait(200);
+        act(() => {
+          tabs.typeAsA();
+          tabs.editAsA(mergeCharlie);
+        });
+        tabs.holdCatchUp();
+        show({ snapshotC: MERGED, collabRevisionC: MERGED.revision });
+        await wait(100);
+        typeAsC();
+        show(late);
+        await wait(100);
+        await act(async () => tabs.releaseCatchUp());
+        await wait(200);
+        return late;
+      },
+    ],
+    [
+      "first, and its catch-up ends after a save of the newer body is acknowledged",
+      async ({ tabs, show, typeAsC, wait }) => {
+        show({ snapshotC: STORED, collabRevisionC: STORED.revision });
+        await wait(200);
+        act(() => tabs.typeAsA());
+        tabs.holdCatchUp();
+        show(late);
+        await wait(100);
+        act(() => tabs.editAsA(mergeCharlie));
+        const acknowledged = {
+          ...late,
+          acknowledgedC: { ...MERGED, sequence: 1 },
+        };
+        show(acknowledged);
+        await wait(100);
+        typeAsC();
+        await act(async () => tabs.releaseCatchUp());
+        await wait(200);
+        return acknowledged;
+      },
+    ],
+  ];
+
+  it.each(orderings)(
+    "keeps the newer body as its base and report when the older one arrives %s, so a later tab's join keeps unsaved text",
+    async (_, reachLate) => {
+      const tabs = makeTabs();
+      const show = (props: ShowC) =>
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              withC: true,
+              ...props,
+            }),
+          ),
+        );
+      const wait = async (ms: number) => {
+        await act(async () => vi.advanceTimersByTimeAsync(ms));
+      };
+      const typeAsC = () =>
+        act(() =>
+          tabs.editors.C!.commands.insertContentAt(
+            tabs.editors.C!.state.doc.content.size - 1,
+            ` ${LOCAL}`,
+          ),
+        );
+      const reported: string[] = [];
+      tabs.awareness.C.on("update", () => {
+        const revision = heldRevision(tabs.awareness.C);
+        if (typeof revision === "string" && revision !== reported.at(-1))
+          reported.push(revision);
+      });
+      vi.useFakeTimers();
+      try {
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, { snapshot: STORED, withC: false }),
+          ),
+        );
+        await wait(3_000);
+        tabs.syncC();
+        const shownC = await reachLate({ tabs, show, typeAsC, wait });
+
+        tabs.syncD();
+        show({ ...shownC, snapshotD: MERGED });
+        await wait(6_000);
+        expect(tabs.results.D!.isJoinPending()).toBe(false);
+        for (const name of ["A", "B", "C", "D"] as const) {
+          const markdown = tabs.markdown(name);
+          expect(occurrences(markdown, LOCAL), `${name} lost C's word`).toBe(1);
+          expect(occurrences(markdown), `${name} lost A's word`).toBe(1);
+          expect(occurrences(markdown, CHARLIE)).toBe(1);
+        }
+        expect(reported.at(-1)).toBe(MERGED.revision);
+        for (let index = 1; index < reported.length; index += 1)
+          expect(
+            compareRevisions(reported[index]!, reported[index - 1]!),
+            `C reported ${reported.join(" then ")}`,
+          ).toBe(1);
+
+        // C leads and merges an edit only SQL has against the base it holds.
+        show({ ...shownC, snapshotC: LATER, snapshotD: MERGED });
+        await wait(6_000);
+        expect(tabs.baseAwareReconciles.C).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            status: "merged",
+            baseRevision: MERGED.revision,
+            serverRevision: LATER.revision,
+          }),
+        );
+        for (const name of ["A", "B", "C", "D"] as const) {
+          const markdown = tabs.markdown(name);
+          expect(occurrences(markdown, LOCAL), `${name} lost C's word`).toBe(1);
+          expect(occurrences(markdown, "edited by an agent")).toBe(1);
+        }
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
 });
 
 describe("useCollabReconcile: seeding an empty live doc", () => {

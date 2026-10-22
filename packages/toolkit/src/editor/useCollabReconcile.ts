@@ -99,6 +99,53 @@ function heldRevisionClaim(state: unknown): string | null {
   return typeof revision === "string" ? revision : null;
 }
 
+type SnapshotOrder = { updatedAt?: string | null; revision?: string | null };
+
+/** The stored body a reconcile merges against, and the snapshot it came in. */
+type AuthoritativeBase = {
+  value: string;
+  revision: string;
+  updatedAt?: string | null;
+};
+
+/**
+ * How two stored snapshots order: by stored time, and where times can't order
+ * them, the same time or none, by revision. Null when neither can.
+ */
+function orderSnapshots(
+  first: SnapshotOrder,
+  second: SnapshotOrder,
+  compareContentRevisions:
+    | ((first: string, second: string) => number | null)
+    | undefined,
+): number | null {
+  if (
+    first.updatedAt &&
+    second.updatedAt &&
+    first.updatedAt !== second.updatedAt
+  )
+    return first.updatedAt < second.updatedAt ? -1 : 1;
+  if ((first.revision ?? null) === (second.revision ?? null)) return 0;
+  if (!first.revision || !second.revision) return null;
+  return compareContentRevisions?.(first.revision, second.revision) ?? null;
+}
+
+/** Whether `first` is older than `second`, or another revision no newer. */
+function snapshotPrecedes(
+  first: SnapshotOrder,
+  second: SnapshotOrder,
+  compareContentRevisions:
+    | ((first: string, second: string) => number | null)
+    | undefined,
+): boolean {
+  const order = orderSnapshots(first, second, compareContentRevisions);
+  return (
+    order !== null &&
+    (order < 0 ||
+      (order === 0 && (first.revision ?? null) !== (second.revision ?? null)))
+  );
+}
+
 function claimsHoldRevision(
   claims: Set<string>,
   revision: string,
@@ -327,10 +374,11 @@ export function useCollabReconcile({
       ? initialAppliedUpdatedAt
       : (contentUpdatedAt ?? null),
   );
-  const authoritativeBaseRef = useRef<{
-    value: string;
-    revision: string;
-  } | null>(contentRevision ? { value, revision: contentRevision } : null);
+  const authoritativeBaseRef = useRef<AuthoritativeBase | null>(
+    contentRevision
+      ? { value, revision: contentRevision, updatedAt: contentUpdatedAt }
+      : null,
+  );
   const joinsOnPeerEvidence = Boolean(
     collab &&
     awareness &&
@@ -378,13 +426,21 @@ export function useCollabReconcile({
   };
   // For a base the live doc now holds. The first base, taken before this client
   // has applied or adopted anything, is set directly instead.
-  const holdAuthoritativeBase = (
-    base: { value: string; revision: string },
-    held = true,
-  ) => {
+  const holdAuthoritativeBase = (base: AuthoritativeBase, held = true) => {
     authoritativeBaseRef.current = base;
     if (held) publishHeldRevision(base.revision);
   };
+  // A body a late response says the live doc wrote can be older than the base
+  // this client holds. Neither the base nor the revision this tab reports may
+  // move back to it: a collaborator joining on the newer body would no longer
+  // find a report of it, and would replace the doc and its unsaved text.
+  const precedesHeldBase = (snapshot: SnapshotOrder) =>
+    !!authoritativeBaseRef.current &&
+    snapshotPrecedes(
+      snapshot,
+      authoritativeBaseRef.current,
+      compareContentRevisions,
+    );
   const discoverCollabPeersRef = useRef(discoverCollabPeers);
   discoverCollabPeersRef.current = discoverCollabPeers;
   const requestCollabSyncRef = useRef(requestCollabSync);
@@ -654,35 +710,28 @@ export function useCollabReconcile({
     const revision = snapshotRevision ?? null;
     const current =
       joinSnapshotRef.current?.ydoc === ydoc ? joinSnapshotRef.current : null;
-    if (
-      !current ||
-      (updatedAt && current.updatedAt && updatedAt > current.updatedAt)
-    ) {
+    if (!current) {
       joinSnapshotRef.current = {
         ydoc,
         updatedAt: updatedAt ?? null,
         revision,
-        earlier: new Set([
-          ...(current?.earlier ?? []),
-          ...(current?.revision ? [current.revision] : []),
-        ]),
+        earlier: new Set(),
       };
       return true;
     }
-    if (updatedAt && current.updatedAt && updatedAt < current.updatedAt)
-      return false;
-    if (revision === current.revision) {
+    const order = orderSnapshots(
+      { updatedAt, revision },
+      current,
+      compareContentRevisions,
+    );
+    if (order === 0 && revision === current.revision) {
       current.updatedAt ??= updatedAt ?? null;
       return true;
     }
-    const order =
-      revision && current.revision
-        ? compareContentRevisions?.(revision, current.revision)
-        : null;
     if (
-      typeof order === "number"
-        ? order <= 0
-        : revision !== null && current.earlier.has(revision)
+      order === null
+        ? revision !== null && current.earlier.has(revision)
+        : order <= 0
     )
       return false;
     if (current.revision) current.earlier.add(current.revision);
@@ -775,7 +824,7 @@ export function useCollabReconcile({
   const acknowledgementBaseRollbackRef = useRef<{
     acknowledgementRevision: string;
     updatedAt: string;
-    base: { value: string; revision: string } | null;
+    base: AuthoritativeBase | null;
   } | null>(null);
   const acknowledgedCollabRef = useRef<{ ydoc: YDoc; revision: string } | null>(
     null,
@@ -793,15 +842,19 @@ export function useCollabReconcile({
       acknowledgedCollabRef.current.revision === contentRevision
     )
       return;
+    const snapshot = {
+      ydoc,
+      revision: contentRevision,
+      value,
+      updatedAt: contentUpdatedAt,
+    };
+    // A late body must not cancel a newer one this client is catching up to.
     setPendingCollabSnapshot((pending) =>
-      pending?.ydoc === ydoc && pending.revision === contentRevision
+      pending?.ydoc === ydoc &&
+      (pending.revision === contentRevision ||
+        snapshotPrecedes(snapshot, pending, compareContentRevisions))
         ? pending
-        : {
-            ydoc,
-            revision: contentRevision,
-            value,
-            updatedAt: contentUpdatedAt,
-          },
+        : snapshot,
     );
   }, [collabBackedSnapshot, ydoc, contentRevision, value, contentUpdatedAt]);
   useEffect(() => {
@@ -822,9 +875,16 @@ export function useCollabReconcile({
         retry = setTimeout(() => void sync(), 2000);
         return;
       }
+      // The body can arrive late, or a base taken while it caught up, such as
+      // an acknowledged save, can be newer.
+      if (precedesHeldBase(pendingCollabSnapshot)) {
+        setPendingCollabSnapshot(null);
+        return;
+      }
       holdAuthoritativeBase({
         value: pendingCollabSnapshot.value,
         revision: pendingCollabSnapshot.revision,
+        updatedAt: pendingCollabSnapshot.updatedAt,
       });
       reportedConflictRevisionRef.current = null;
       if (pendingCollabSnapshot.updatedAt)
@@ -946,7 +1006,11 @@ export function useCollabReconcile({
       return;
     }
     if (contentRevision) {
-      authoritativeBaseRef.current = { value, revision: contentRevision };
+      authoritativeBaseRef.current = {
+        value,
+        revision: contentRevision,
+        updatedAt: contentUpdatedAt,
+      };
       reportedConflictRevisionRef.current = null;
     }
     if (!value.trim()) {
@@ -1268,6 +1332,7 @@ export function useCollabReconcile({
           holdAuthoritativeBase({
             value: acknowledgedLocalSnapshot.value,
             revision: acknowledgedLocalSnapshot.revision,
+            updatedAt: acknowledgedLocalSnapshot.updatedAt,
           });
           if (
             acknowledgedLocalSnapshot.updatedAt ===
@@ -1323,6 +1388,7 @@ export function useCollabReconcile({
           holdAuthoritativeBase({
             value: acknowledged.value,
             revision: acknowledged.revision,
+            updatedAt: acknowledged.updatedAt,
           });
           if (
             !lastAppliedUpdatedAtRef.current ||
@@ -1389,7 +1455,7 @@ export function useCollabReconcile({
         }
         if (contentRevision) {
           holdAuthoritativeBase(
-            { value, revision: contentRevision },
+            { value, revision: contentRevision, updatedAt: contentUpdatedAt },
             currentMarkdown === normalizedValue ||
               unheldSeedValueRef.current !== value,
           );
@@ -1468,7 +1534,11 @@ export function useCollabReconcile({
           lastAppliedSerializedRef.current = normalizedValue;
           if (contentUpdatedAt)
             lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-          holdAuthoritativeBase({ value, revision: contentRevision });
+          holdAuthoritativeBase({
+            value,
+            revision: contentRevision,
+            updatedAt: contentUpdatedAt,
+          });
           reportedConflictRevisionRef.current = null;
           finishJoin();
           return;
@@ -1613,7 +1683,11 @@ export function useCollabReconcile({
           lastAppliedSerializedRef.current = beforeMarkdown;
           finishJoin();
           if (contentRevision) {
-            holdAuthoritativeBase({ value, revision: contentRevision });
+            holdAuthoritativeBase({
+              value,
+              revision: contentRevision,
+              updatedAt: contentUpdatedAt,
+            });
             reportedConflictRevisionRef.current = null;
           }
           if (contentUpdatedAt) {
@@ -1679,7 +1753,11 @@ export function useCollabReconcile({
           }
           const merged = scheduledCallbacks.getMarkdown(editor);
           isSettingContentRef.current = false;
-          holdAuthoritativeBase({ value, revision: contentRevision });
+          holdAuthoritativeBase({
+            value,
+            revision: contentRevision,
+            updatedAt: contentUpdatedAt,
+          });
           reportedConflictRevisionRef.current = null;
           lastEmittedRef.current = merged;
           pushEmittedRing(recentEmittedRef.current, merged);
@@ -1741,7 +1819,10 @@ export function useCollabReconcile({
         lastAppliedSerializedRef.current = serialized;
         finishJoin();
         if (contentRevision) {
-          holdAuthoritativeBase({ value, revision: contentRevision }, !refused);
+          holdAuthoritativeBase(
+            { value, revision: contentRevision, updatedAt: contentUpdatedAt },
+            !refused,
+          );
           reportedConflictRevisionRef.current = null;
         }
         if (contentUpdatedAt) {
@@ -1801,7 +1882,11 @@ export function useCollabReconcile({
       lastAppliedSerializedRef.current = normalizedValue;
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
       if (contentRevision)
-        holdAuthoritativeBase({ value, revision: contentRevision });
+        holdAuthoritativeBase({
+          value,
+          revision: contentRevision,
+          updatedAt: contentUpdatedAt,
+        });
       reportedConflictRevisionRef.current = null;
       finishJoin();
     };

@@ -3,11 +3,16 @@ import { setImmediate } from "node:timers/promises";
 import { compileFunction, createContext } from "node:vm";
 
 import type { BrowserContext, Page } from "@playwright/test";
-import { expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+
+const attachments = vi.hoisted(() => ({
+  attach: vi.fn(async () => {}),
+}));
 
 vi.mock("@playwright/test", async () => {
   const vitest = await import("vitest");
   return {
+    test: { info: () => ({ attach: attachments.attach }) },
     expect: Object.assign(
       (actual: unknown, message?: string) => {
         if (actual && typeof actual === "object" && "getAttribute" in actual) {
@@ -34,6 +39,13 @@ vi.mock("@playwright/test", async () => {
 });
 
 import { Markers, observeIntegrity, TabSet } from "./e2e/helpers";
+
+beforeEach(() => {
+  vi.stubEnv("DATABASE_URL", "");
+  attachments.attach.mockClear();
+});
+
+afterEach(() => vi.unstubAllEnvs());
 
 const body = "Synthetic fixture body";
 
@@ -157,4 +169,11 @@ it("fails an incomplete observation without navigating B or clearing its pending
   await expect(run.tabs.quiet()).rejects.toThrow(
     "a client, outbox or save answer is still pending after the scenario ended",
   );
+  expect(attachments.attach).toHaveBeenCalledTimes(2);
+  expect(attachments.attach).toHaveBeenLastCalledWith("database-activity.txt", {
+    body: expect.stringContaining("skipped: DATABASE_URL is not set"),
+    contentType: "text/plain",
+  });
+  expect(run.second.reload).not.toHaveBeenCalled();
+  expect(run.second.client.__pendingSaves).toBe(1);
 });
