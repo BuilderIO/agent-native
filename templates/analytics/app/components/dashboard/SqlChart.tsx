@@ -19,7 +19,11 @@ import {
   type DashboardFunnelRows,
 } from "@shared/dashboard-funnel";
 import { formatDollars } from "@shared/format-dollars";
-import { EMPTY_DURATION, formatDuration } from "@shared/format-duration";
+import {
+  EMPTY_DURATION,
+  durationTicks,
+  formatDuration,
+} from "@shared/format-duration";
 import {
   isNumericLikeValue,
   limitChartRows,
@@ -281,10 +285,7 @@ function stringifyValue(value: unknown): string {
     : JSON.stringify(value);
 }
 
-function formatYValue(
-  value: number,
-  formatter?: ChartValueFormatter,
-): string {
+function formatYValue(value: number, formatter?: ChartValueFormatter): string {
   if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
@@ -315,25 +316,76 @@ function axisLabelProps(value: string, side: ChartAxisSide) {
   };
 }
 
+/** The rows and visible series a chart draws, for sizing its value axes. */
+type ChartAxisValues = {
+  rows: Record<string, unknown>[];
+  keys: string[];
+  stacked?: boolean;
+};
+
+// Duration axes step in clean units ("6 hours") rather than the decimal
+// seconds Recharts picks, and size to their labels so "36 hours" fits on one
+// line.
+function durationAxisProps(values: ChartAxisValues, keys: string[]) {
+  let min = 0;
+  let max = 0;
+  for (const row of values.rows) {
+    let below = 0;
+    let above = 0;
+    for (const key of keys) {
+      const value = Number(row[key]);
+      if (!Number.isFinite(value)) continue;
+      if (values.stacked) {
+        if (value < 0) below += value;
+        else above += value;
+      } else {
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+      }
+    }
+    min = Math.min(min, below);
+    max = Math.max(max, above);
+  }
+  const ticks = durationTicks(min, max);
+  return {
+    ticks,
+    domain: [ticks[0], ticks[ticks.length - 1]],
+    width: "auto" as const,
+  };
+}
+
+function valueAxisProps(
+  formatter: ChartValueFormatter | undefined,
+  values: ChartAxisValues,
+  keys: string[],
+) {
+  return formatter === "duration" ? durationAxisProps(values, keys) : {};
+}
+
 function renderChartYAxes(
   plan: DualAxisPlan,
-  yFormatter?: ChartValueFormatter,
+  yFormatter: ChartValueFormatter | undefined,
+  values: ChartAxisValues,
 ): ReactNode[] {
   if (!plan.enabled) {
     return [
       <YAxis
         key="y"
         {...Y_AXIS_BASE_PROPS}
+        {...valueAxisProps(yFormatter, values, values.keys)}
         tickFormatter={(v) => formatYValue(v, yFormatter)}
       />,
     ];
   }
+  const keysOn = (side: ChartAxisSide) =>
+    values.keys.filter((key) => plan.sideFor(key) === side);
 
   return [
     <YAxis
       key="y-left"
       yAxisId="left"
       {...Y_AXIS_BASE_PROPS}
+      {...valueAxisProps(plan.leftFormatter, values, keysOn("left"))}
       tickFormatter={(v) => formatYValue(v, plan.leftFormatter)}
       label={
         plan.leftLabel ? axisLabelProps(plan.leftLabel, "left") : undefined
@@ -344,6 +396,7 @@ function renderChartYAxes(
       yAxisId="right"
       orientation="right"
       {...Y_AXIS_BASE_PROPS}
+      {...valueAxisProps(plan.rightFormatter, values, keysOn("right"))}
       tickFormatter={(v) => formatYValue(v, plan.rightFormatter)}
       label={
         plan.rightLabel ? axisLabelProps(plan.rightLabel, "right") : undefined
@@ -3503,7 +3556,11 @@ function BarRenderer({
               padding={xPadding}
             />
           )}
-          {renderChartYAxes(dualAxis, yFormatter)}
+          {renderChartYAxes(dualAxis, yFormatter, {
+            rows,
+            keys: yKeys.filter((key) => !hiddenKeys.has(key)),
+            stacked,
+          })}
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="hsl(var(--border))"
@@ -3677,7 +3734,10 @@ function ComboRenderer({
               padding={xPadding}
             />
           )}
-          {renderChartYAxes(dualAxis, yFormatter)}
+          {renderChartYAxes(dualAxis, yFormatter, {
+            rows,
+            keys: yKeys.filter((key) => !hiddenKeys.has(key)),
+          })}
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="hsl(var(--border))"
@@ -3870,7 +3930,10 @@ function TimeSeriesRenderer({
               tickFormatter={xLabelFormatter}
               padding={xPadding}
             />
-            {renderChartYAxes(dualAxis, yFormatter)}
+            {renderChartYAxes(dualAxis, yFormatter, {
+              rows,
+              keys: visibleKeys,
+            })}
             <CartesianGrid
               strokeDasharray="3 3"
               stroke="hsl(var(--border))"
@@ -4012,7 +4075,11 @@ function TimeSeriesRenderer({
             tickFormatter={xLabelFormatter}
             padding={xPadding}
           />
-          {renderChartYAxes(dualAxis, yFormatter)}
+          {renderChartYAxes(dualAxis, yFormatter, {
+            rows,
+            keys: visibleKeys,
+            stacked,
+          })}
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="hsl(var(--border))"

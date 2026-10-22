@@ -32,3 +32,62 @@ export function formatDuration(seconds: number): string {
   }
   return `${sign}${withUnit(abs / DAY, "day", "days")}`;
 }
+
+// Axis steps that read cleanly through formatDuration. There are no
+// half-minute steps: minutes show whole, so 90 seconds would read "2 min"
+// next to a real "2 min".
+const AXIS_STEPS = [
+  0.1,
+  0.2,
+  0.5,
+  1,
+  2,
+  5,
+  10,
+  15,
+  MINUTE,
+  2 * MINUTE,
+  5 * MINUTE,
+  10 * MINUTE,
+  15 * MINUTE,
+  30 * MINUTE,
+  HOUR,
+  2 * HOUR,
+  3 * HOUR,
+  6 * HOUR,
+  12 * HOUR,
+  DAY,
+  2 * DAY,
+  7 * DAY,
+  14 * DAY,
+];
+
+/** The smallest clean axis step, in seconds, of at least `seconds`. */
+export function durationStep(seconds: number): number {
+  const step = AXIS_STEPS.find((candidate) => candidate >= seconds);
+  if (step !== undefined) return step;
+  // Past two weeks, step in 20, 50, 100, 200... days.
+  const days = seconds / DAY;
+  const power = 10 ** Math.floor(Math.log10(days));
+  const multiple = [1, 2, 5, 10].find((m) => m * power >= days) ?? 10;
+  return multiple * power * DAY;
+}
+
+/**
+ * Axis ticks covering `min` to `max` seconds (and zero) in clean steps such as
+ * 15 min or 6 hours, aiming for about `count` ticks. Chart libraries pick
+ * decimal steps, which land on labels like "39 hours".
+ */
+export function durationTicks(min: number, max: number, count = 5): number[] {
+  const low = Math.min(0, Number.isFinite(min) ? min : 0);
+  const top = Math.max(0, Number.isFinite(max) ? max : 0);
+  // All zeros still get an axis, 0 to 1 min.
+  const high = top > low ? top : MINUTE;
+  const step = durationStep((high - low) / Math.max(count - 1, 1));
+  const first = Math.floor(low / step);
+  const last = Math.max(Math.ceil(high / step), first + 1);
+  return Array.from(
+    { length: last - first + 1 },
+    (_, index) => (first + index) * step,
+  );
+}

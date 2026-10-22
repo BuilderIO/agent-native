@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_DURATION, formatDuration } from "./format-duration";
+import {
+  durationTicks,
+  EMPTY_DURATION,
+  formatDuration,
+} from "./format-duration";
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;
@@ -52,5 +56,88 @@ describe("formatDuration", () => {
   it("shows a dash for values that are not a duration", () => {
     expect(formatDuration(Number.NaN)).toBe(EMPTY_DURATION);
     expect(formatDuration(Number.POSITIVE_INFINITY)).toBe(EMPTY_DURATION);
+  });
+});
+
+describe("durationTicks", () => {
+  const labels = (min: number, max: number) =>
+    durationTicks(min, max).map(formatDuration);
+
+  it("steps in clean units", () => {
+    expect(labels(0, 16 * MINUTE)).toEqual([
+      "0 sec",
+      "5 min",
+      "10 min",
+      "15 min",
+      "20 min",
+    ]);
+    expect(labels(0, 32 * HOUR)).toEqual([
+      "0 sec",
+      "12 hours",
+      "24 hours",
+      "36 hours",
+    ]);
+    expect(labels(0, 3.1 * DAY)).toEqual([
+      "0 sec",
+      "24 hours",
+      "2 days",
+      "3 days",
+      "4 days",
+    ]);
+    expect(labels(0, 60 * DAY)).toEqual([
+      "0 sec",
+      "20 days",
+      "40 days",
+      "60 days",
+    ]);
+  });
+
+  it("skips half-minute steps, which would repeat a whole-minute label", () => {
+    expect(labels(0, 90)).toEqual(["0 sec", "1 min", "2 min"]);
+  });
+
+  it("reaches below zero when values do", () => {
+    expect(labels(-30, 15 * MINUTE)).toEqual([
+      "-5 min",
+      "0 sec",
+      "5 min",
+      "10 min",
+      "15 min",
+    ]);
+  });
+
+  it("gives an all-zero series a one-minute axis", () => {
+    expect(labels(0, 0)).toEqual([
+      "0 sec",
+      "15 sec",
+      "30 sec",
+      "45 sec",
+      "1 min",
+    ]);
+  });
+
+  it("covers the data with distinct labels at any scale", () => {
+    for (const max of [
+      0.3,
+      7,
+      45,
+      61,
+      150,
+      10 * MINUTE,
+      58 * MINUTE,
+      90 * MINUTE,
+      7.4 * HOUR,
+      30 * HOUR,
+      47 * HOUR,
+      3.1 * DAY,
+      12 * DAY,
+      400 * DAY,
+    ]) {
+      const ticks = durationTicks(0, max);
+      expect(ticks[0]).toBe(0);
+      expect(ticks[ticks.length - 1]).toBeGreaterThanOrEqual(max);
+      const shown = ticks.map(formatDuration);
+      expect(new Set(shown).size, shown.join(", ")).toBe(shown.length);
+    }
   });
 });

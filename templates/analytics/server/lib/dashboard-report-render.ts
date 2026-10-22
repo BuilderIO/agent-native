@@ -35,10 +35,7 @@ import {
   type DataNoteTone,
 } from "../../shared/data-notes";
 import { formatDollars } from "../../shared/format-dollars";
-import {
-  EMPTY_DURATION,
-  formatDuration,
-} from "../../shared/format-duration";
+import { EMPTY_DURATION, formatDuration } from "../../shared/format-duration";
 import { panelEventsWithKeyDates } from "../../shared/key-dates";
 import { resolvePanelEvents } from "../../shared/panel-events";
 import {
@@ -290,10 +287,7 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
-function formatYValue(
-  value: number,
-  formatter?: ChartValueFormatter,
-): string {
+function formatYValue(value: number, formatter?: ChartValueFormatter): string {
   if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
