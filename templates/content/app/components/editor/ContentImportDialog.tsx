@@ -76,6 +76,8 @@ const NOTE_MESSAGE_KEYS: Record<ImportNoteKind, string> = {
   "link-title-dropped": "contentImport.noteLinkTitleDropped",
   "code-block-info-dropped": "contentImport.noteCodeBlockInfoDropped",
   "hidden-html-dropped": "contentImport.noteHiddenHtmlDropped",
+  "blocks-field-not-imported": "contentImport.noteBlocksFieldNotImported",
+  "export-manifest-unreadable": "contentImport.noteExportManifestUnreadable",
   "unsupported-markdown": "contentImport.noteUnsupportedMarkdown",
   "text-not-landed": "contentImport.noteTextNotLanded",
   "structure-changed-on-save": "contentImport.noteStructureChangedOnSave",

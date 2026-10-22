@@ -447,7 +447,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     await expect(markRunAbortedAtSafeBoundary(runId, "user")).rejects.toThrow(
       "terminal event write unavailable",
     );
-    expect((await readRow(runId))?.status).toBe("aborted");
+    expect((await readRow(runId))?.status).toBe("running");
     expect(
       await pglite
         .prepare("SELECT seq FROM agent_run_events WHERE run_id = ?")
@@ -552,7 +552,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     await expect(markTurnAborted(thread, turn, "user")).rejects.toThrow(
       "turn terminal event write unavailable",
     );
-    expect((await readRow(runId))?.status).toBe("aborted");
+    expect((await readRow(runId))?.status).toBe("running");
     expect(
       await pglite
         .prepare("SELECT seq FROM agent_run_events WHERE run_id = ?")
@@ -560,7 +560,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     ).toHaveLength(0);
 
     await expect(markTurnAborted(thread, turn, "user")).resolves.toBe(
-      "already_terminal",
+      "aborted",
     );
     const events = (await pglite
       .prepare("SELECT event_data FROM agent_run_events WHERE run_id = ?")
