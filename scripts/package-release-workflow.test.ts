@@ -16,6 +16,10 @@ import {
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
 import {
+  parseReleasePullRequestPackageFiles,
+  releasePullRequestFilesArgs,
+} from "./list-release-pr-package-files.ts";
+import {
   gitBlobSha,
   syncCommunityQrBlobPins,
   syncCommunityQrCoreLock,
@@ -759,6 +763,41 @@ importers:
     );
   });
 
+  it("parses paginated package manifest files with the merge guard command", () => {
+    assert.deepEqual(
+      releasePullRequestFilesArgs("BuilderIO/agent-native", "8062"),
+      [
+        "api",
+        "--paginate",
+        "--slurp",
+        "repos/BuilderIO/agent-native/pulls/8062/files",
+      ],
+    );
+    assert.deepEqual(
+      parseReleasePullRequestPackageFiles(
+        JSON.stringify([
+          [
+            { filename: "packages/core/package.json", status: "modified" },
+            { filename: "packages/core/README.md", status: "modified" },
+          ],
+          [{ filename: "package.json", status: "added" }],
+        ]),
+      ),
+      [
+        { filename: "packages/core/package.json", status: "modified" },
+        { filename: "package.json", status: "added" },
+      ],
+    );
+    assert.throws(
+      () => parseReleasePullRequestPackageFiles(JSON.stringify([[{}]])),
+      /invalid release PR file list/,
+    );
+    assert.throws(
+      () => parseReleasePullRequestPackageFiles(JSON.stringify({ files: [] })),
+      /invalid release PR file list/,
+    );
+  });
+
   it("runs the community QR pin guard from the base commit before auto-merge", () => {
     const autoMergeTriggers = autoMergeWorkflow.on as Workflow;
     const workflowDispatch = autoMergeTriggers.workflow_dispatch as Workflow;
@@ -872,18 +911,15 @@ importers:
       /inputs\.pull_request_number/,
     );
     const majorPromotionRun = String(majorPromotionGuard.run);
-    const fileListApiCall =
-      /const pages = JSON\.parse\(gh\(\[([\s\S]*?)\]\)\);/.exec(
-        majorPromotionRun,
-      );
-    assert(fileListApiCall);
-    assert.match(fileListApiCall[1], /"api",\s*"--paginate",\s*"--slurp"/);
-    assert.doesNotMatch(fileListApiCall[1], /--jq|--template/);
-    assert.match(majorPromotionRun, /for \(const page of pages\)/);
     assert.match(
       majorPromotionRun,
-      /file\.filename === "package\.json" \|\| file\.filename\.endsWith\("\/package\.json"\)/,
+      /scripts\/list-release-pr-package-files\.ts/,
     );
+    assert.match(
+      majorPromotionRun,
+      /readFileSync\(process\.env\.RELEASE_PACKAGE_FILES_PATH, "utf8"\)/,
+    );
+    assert.doesNotMatch(majorPromotionRun, /--paginate|--slurp/);
     assert.doesNotMatch(majorPromotionRun, /\.split\("\\n"\)/);
     assert.match(majorPromotionRun, /HTTP 404/);
     assert.match(majorPromotionRun, /status === "added"/);
