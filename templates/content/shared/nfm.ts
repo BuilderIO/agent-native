@@ -2115,7 +2115,67 @@ function parseDetailsBody(
     if (indent >= requiredIndent) return line;
     return `${"\t".repeat(requiredIndent - indent)}${line}`;
   });
-  return parseBlockSequence(bodyLines, 0, childIndent).nodes;
+  const res = parseBlockSequence(bodyLines, 0, childIndent);
+  // A fence's lines move with its opener, so a line written shallower than
+  // the opener can stay below the body and end the read before the close.
+  for (let i = res.end; i < bodyLines.length; i++) {
+    const text = bodyLines[i].trim();
+    if (text) reportLoss("dropped-source", text);
+  }
+  return res.nodes;
+}
+
+// A container's children sit one tab in from its tags, but agents also write
+// them at the tags' own indent. Where the read stops at such a line, it and
+// every line after it move in together, so the rest reads as it would from
+// that line's indent. Moving only the lines at least as deep would split a
+// block that reads shallower lines as its own, such as code, math or a nested
+// container.
+function parseContainerChildren(
+  lines: string[],
+  start: number,
+  end: number,
+  parentIndent: number,
+): PMNode[] {
+  const childIndent = parentIndent + 1;
+  const body = lines.slice(start, end);
+  const nodes: PMNode[] = [];
+  for (let i = 0; ; ) {
+    const res = parseBlockSequence(body, i, childIndent);
+    // A list that goes on past the stop is still one list.
+    appendBlocks(nodes, res.nodes);
+    if (res.end >= body.length) return nodes;
+    i = res.end;
+    const shift = TAB.repeat(childIndent - leadingTabs(body[i]));
+    const tabCounts = lineTabCounts.get(body);
+    for (let j = i; j < body.length; j++) {
+      body[j] = shift + body[j];
+      if (tabCounts) tabCounts[j] += shift.length;
+    }
+    // Its closes were found at the old indents.
+    containerCloseIndexes.delete(body);
+  }
+}
+
+// Two lists of one kind side by side are written as one list, which reads
+// back as one and renumbers, so a list appended after one joins it.
+function appendBlocks(target: PMNode[], blocks: readonly PMNode[]): void {
+  const last = target[target.length - 1];
+  const first = blocks[0];
+  if (last && first && last.type === first.type && isListNode(first)) {
+    pushAll(last.content!, first.content ?? []);
+    pushAll(target, blocks.slice(1));
+  } else {
+    pushAll(target, blocks);
+  }
+}
+
+function isListNode(node: PMNode): boolean {
+  return (
+    node.type === "bulletList" ||
+    node.type === "orderedList" ||
+    node.type === "taskList"
+  );
 }
 
 function endsWithUnescapedPipe(value: string): boolean {
@@ -3139,8 +3199,8 @@ function parseContainer(
   }
 
   // A container holds its children one tab in, so its indent bounds how many
-  // containers it is inside. Each level reads its body again, a details body
-  // with its whole subtree, so past this depth the opener reads as text,
+  // containers it is inside. Each level reads its body again, with its whole
+  // subtree, so past this depth the opener reads as text,
   // without the scan for its close: openers at many indents would each scan
   // the rest of the nesting.
   if (indent > MAX_CONTAINER_INDENT) {
@@ -3210,45 +3270,48 @@ function parseContainer(
 
   if (tagKey === "<callout") {
     const attrs = readContainerAttrs("callout", openLine, CALLOUT_ATTRS);
-    const childRes = parseBlockSequence(lines, childStart, indent + 1);
-    reportUnreadLines(lines, childRes.end, closeIdx);
     const node: PMNode = {
       type: "notionCallout",
       attrs: {
         icon: attrs.icon ?? "",
         color: isColor(attrs.color) ? attrs.color : null,
       },
-      content: childRes.nodes,
+      content: parseContainerChildren(lines, childStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
   if (tagKey === "<columns>") {
-    const childRes = parseBlockSequence(lines, childStart, indent + 1);
-    reportUnreadLines(lines, childRes.end, closeIdx);
-    const columns = childRes.nodes.filter((n) => {
-      if (n.type === "notionColumn") return true;
-      reportLoss(
-        "dropped-source",
-        docToNfm({ type: "doc", content: [n] }).slice(0, 200),
-      );
-      return false;
-    });
+    // A child outside every column joins the column before it, or a new
+    // column when none comes before. Dropping it would lose text: a block
+    // written straight under `<columns>`, or one left there when a block open
+    // in a column ends at `</columns>`.
+    const columns: PMNode[] = [];
+    for (const child of parseContainerChildren(
+      lines,
+      childStart,
+      closeIdx,
+      indent,
+    )) {
+      const last = columns[columns.length - 1];
+      if (child.type === "notionColumn") columns.push(child);
+      else if (last) appendBlocks((last.content ??= []), [child]);
+      else columns.push({ type: "notionColumn", content: [child] });
+    }
     const node: PMNode = { type: "notionColumns", content: columns };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
   if (tagKey === "<column>") {
-    const childRes = parseBlockSequence(lines, childStart, indent + 1);
-    reportUnreadLines(lines, childRes.end, closeIdx);
-    const node: PMNode = { type: "notionColumn", content: childRes.nodes };
+    const node: PMNode = {
+      type: "notionColumn",
+      content: parseContainerChildren(lines, childStart, closeIdx, indent),
+    };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
   if (tagKey === "<synced_block" || tagKey === "<synced_block_reference") {
     const attrs = readContainerAttrs(tagKey.slice(1), openLine, SYNCED_ATTRS);
-    const childRes = parseBlockSequence(lines, childStart, indent + 1);
-    reportUnreadLines(lines, childRes.end, closeIdx);
     const node: PMNode = {
       type: "notionSyncedBlock",
       attrs: {
@@ -3256,7 +3319,7 @@ function parseContainer(
         url: attrs.url || null,
         notice: attrs.notice || null,
       },
-      content: childRes.nodes,
+      content: parseContainerChildren(lines, childStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
@@ -3269,13 +3332,6 @@ function parseContainer(
     "unknown",
     withIndentAttr,
   );
-}
-
-// A container holds the lines indented under it; the parse skips a line that
-// is not, up to the closing tag.
-function reportUnreadLines(lines: string[], from: number, to: number): void {
-  for (let i = from; i < to; i++)
-    if (lines[i].trim()) reportLoss("dropped-source", lines[i].trim());
 }
 
 const DETAILS_ATTRS = new Set(["color", "open"]);
