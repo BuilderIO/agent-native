@@ -64,6 +64,12 @@ jobs:
           while IFS= read -r entry; do
             [ -z "$entry" ] && continue
             file=$(jq -r '.filename' <<< "$entry")
+            # Release prep never renames files; a rename could carry an
+            # unchecked path into an allowed one.
+            if [ "$(jq -r '.previous_filename != null' <<< "$entry")" = "true" ]; then
+              echo "::error::Refusing admin-merge for renamed release PR path: $file" >&2
+              exit 1
+            fi
             case "$file" in
               .changeset/*.md|package.json|pnpm-lock.yaml|*/package.json|*/CHANGELOG.md|*/changelog/*)
                 ;;
