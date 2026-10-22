@@ -305,6 +305,10 @@ function ChartBody({
       ? 0
       : labelFontSize + 12 + (chart.xAxisTitle ? axisTitleFontSize + 2 : 0);
   const configuredTopInset = inset(layout?.plotInsets?.top, "top", MARGIN.top);
+  const minimumVerticalValueLabelTop =
+    chart.type === "bar" && !isHorizontalBar && chart.showValueLabels
+      ? (chart.valueLabelFontSize ?? 11) + 5
+      : 0;
   const configuredBottomInset = inset(
     layout?.plotInsets?.bottom,
     "bottom",
@@ -355,7 +359,7 @@ function ChartBody({
       : 0;
   const margin = {
     ...MARGIN,
-    top: configuredTopInset,
+    top: Math.max(configuredTopInset, minimumVerticalValueLabelTop),
     left:
       Math.max(
         categoryMargin,

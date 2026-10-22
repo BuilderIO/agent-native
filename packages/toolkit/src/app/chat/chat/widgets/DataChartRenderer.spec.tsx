@@ -206,7 +206,7 @@ describe("DataChartRenderer theme colors", () => {
     );
   });
 
-  it("keeps top vertical-bar value labels inside the SVG", () => {
+  it("keeps top vertical-bar value labels above the bar at a zero inset", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
         chart={{
@@ -222,9 +222,14 @@ describe("DataChartRenderer theme colors", () => {
     const valueLabel = markup.match(
       /<text(?=[^>]*data-value-label="true")(?=[^>]*>1<\/text>)[^>]*y="([\d.]+)"[^>]*>/,
     );
+    const bar = markup.match(/<rect[^>]*y="([\d.]+)"/);
 
     expect(valueLabel).not.toBeNull();
     expect(Number(valueLabel?.[1])).toBeGreaterThanOrEqual(11);
+    expect(bar).not.toBeNull();
+    expect(Number(bar?.[1]) - Number(valueLabel?.[1])).toBeGreaterThanOrEqual(
+      5,
+    );
   });
 
   it("preserves the top value-axis label when the configured top inset is zero", () => {
