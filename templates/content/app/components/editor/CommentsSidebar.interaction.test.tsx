@@ -982,14 +982,14 @@ describe("agentSuggestionReason", () => {
   ): ResourceSuggestion => ({
     ...proposalSuggestion("one"),
     actorKind: "agent",
-    proposalSummary: "Use the product's name the way the docs do.",
-    summary: 'Replace "agent native" with "Agent-Native"',
-    metadata: { sourceFind: "agent native", sourceReplace: "Agent-Native" },
+    proposalSummary: "Use American spelling, like the rest of the page.",
+    summary: 'Replace "colour" with "color"',
+    metadata: { sourceFind: "colour", sourceReplace: "color" },
     ...overrides,
   });
   it("returns the reason an agent wrote", () => {
     expect(agentSuggestionReason(base())).toBe(
-      "Use the product's name the way the docs do.",
+      "Use American spelling, like the rest of the page.",
     );
     expect(
       agentSuggestionReason(
@@ -1004,7 +1004,7 @@ describe("agentSuggestionReason", () => {
     expect(
       agentSuggestionReason(
         base({
-          proposalSummary: 'Replace "agent native" with "Agent-Native"',
+          proposalSummary: 'Replace "colour" with "color"',
           summary: 'Replace "a" with "A"',
         }),
       ),
@@ -1013,7 +1013,7 @@ describe("agentSuggestionReason", () => {
       agentSuggestionReason(
         base({
           proposalSummary: 'Delete "very "',
-          summary: 'Delete "very "',
+          summary: "Delete: very",
           metadata: { sourceFind: "very ", sourceReplace: "" },
         }),
       ),
