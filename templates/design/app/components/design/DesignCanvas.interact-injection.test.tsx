@@ -310,21 +310,20 @@ describe("DesignCanvas in Edit: the bridge that forwards a pinch", () => {
     return String((install?.[0] as { script?: string } | undefined)?.script);
   }
 
-  it("leaves an overview screen's pinches to its gesture bridge, markup or running app", async () => {
+  it("leaves a markup screen on the overview to its gesture bridge", async () => {
     await act(async () =>
       root.render(canvas({ interactMode: false, embedded: true })),
     );
     const srcdoc = previewIframe()?.getAttribute("srcdoc") ?? "";
     expect(srcdoc).toContain("embedded-canvas-wheel");
     expect(srcdoc).not.toContain("pinch-zoom-wheel");
-
-    const script = await installedBridgeScript(true);
-    expect(script).toContain("embedded-canvas-wheel");
-    expect(script).not.toContain("pinch-zoom-wheel");
   });
 
-  it("keeps the pinch bridge in a running app shown on its own", async () => {
-    expect(await installedBridgeScript(false)).toContain("pinch-zoom-wheel");
+  it("gives a running app the same bridge on the overview as on its own, so Full view can take it over", async () => {
+    const onOverview = await installedBridgeScript(true);
+    const onItsOwn = await installedBridgeScript(false);
+    expect(onOverview).toContain("pinch-zoom-wheel");
+    expect(onOverview).toBe(onItsOwn);
   });
 });
 

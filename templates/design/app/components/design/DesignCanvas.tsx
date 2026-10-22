@@ -2479,9 +2479,10 @@ export function DesignCanvas({
         ? MOTION_PREVIEW_BRIDGE_SCRIPT +
           SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
           TWEAK_BRIDGE_SCRIPT +
-          // As in the srcdoc: an embedded frame's gesture bridge forwards its
-          // Cmd/Ctrl wheels, so a pinch-zoom-wheel copy would double each step.
-          (isEmbeddedFrame ? "" : ZOOM_BRIDGE_SCRIPT) +
+          // Kept on the overview too: Full view takes over this registration
+          // only while the script is the same. The overview's gesture-mode
+          // message quiets it there.
+          ZOOM_BRIDGE_SCRIPT +
           LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
           embeddedGestureBridgeForCurrentState +
           editorChromeBridgeForCurrentState
@@ -2491,7 +2492,6 @@ export function DesignCanvas({
     editorChromeBridgeForCurrentState,
     embeddedGestureBridgeForCurrentState,
     includeLiveEditEditorChrome,
-    isEmbeddedFrame,
     urlBackedFrame,
   ]);
   const liveEditBridgeKey = useMemo(
