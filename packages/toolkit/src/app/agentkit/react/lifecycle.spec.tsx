@@ -253,8 +253,12 @@ describe("AgentChat lifecycle", () => {
             : "other",
     );
     expect(renderedOrder).toEqual(["Intro. ", "chart", "Summary."]);
-    expect(content?.children[0]).not.toHaveAttribute("data-post-widget-text");
-    expect(content?.children[2]).toHaveAttribute("data-post-widget-text");
+    expect(content?.children[0].hasAttribute("data-post-widget-text")).toBe(
+      false,
+    );
+    expect(content?.children[2].hasAttribute("data-post-widget-text")).toBe(
+      true,
+    );
     expect(
       content?.children[2].querySelector(".agentkit-markdown p"),
     ).not.toBeNull();
@@ -349,8 +353,12 @@ describe("AgentChat lifecycle", () => {
             : "other",
     );
     expect(renderedOrder).toEqual(["Intro.", "chart", "Summary."]);
-    expect(content?.children[0]).not.toHaveAttribute("data-post-widget-text");
-    expect(content?.children[2]).toHaveAttribute("data-post-widget-text");
+    expect(content?.children[0].hasAttribute("data-post-widget-text")).toBe(
+      false,
+    );
+    expect(content?.children[2].hasAttribute("data-post-widget-text")).toBe(
+      true,
+    );
     await tree.unmount();
   });
 
