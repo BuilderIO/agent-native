@@ -3189,7 +3189,9 @@ describe("native scene viewport composition", () => {
       ],
     };
     const workerScene = {
-      committedScene: vi.fn(() => ({ scene: { generation: 7 } })),
+      committedScene: vi.fn(() => ({
+        scene: { generation: 7, instances: [fullInstance] },
+      })),
       captureExportScene: vi.fn(async () => exported),
     };
     Object.assign(runtime, {
@@ -3219,6 +3221,105 @@ describe("native scene viewport composition", () => {
       Object.assign(runtime, {
         workerScene: priorWorkerScene,
         workerEntries: priorWorkerEntries,
+      });
+    }
+  });
+
+  it("validates authored instances but summarizes only instances in the committed scene", async () => {
+    const { mount, options, savedInstance } = await committedCaptureFixture();
+    const previousWorkerScene = (runtime as unknown as { workerScene: unknown })
+      .workerScene;
+    const previousWorkerEntries = (
+      runtime as unknown as { workerEntries: unknown }
+    ).workerEntries;
+    const collapsedInstance = {
+      ...savedInstance,
+      id: "collapsed-layer",
+      nodeId: "collapsed-layer-target",
+    };
+    options.expectedInstances.push(collapsedInstance);
+    vi.stubGlobal("crypto", {
+      subtle: { digest: vi.fn(async () => new ArrayBuffer(32)) },
+    });
+    const exported = {
+      previewGeneration: 7,
+      width: 1044,
+      height: 1042,
+      rgba: new ArrayBuffer(1044 * 1042 * 4),
+      timeSeconds: 0,
+      committedInstances: [
+        {
+          instanceId: savedInstance.id,
+          definitionHash: "hash",
+          payload: JSON.stringify(savedInstance),
+          localTime: 0,
+        },
+      ],
+    };
+    const savedReceipt = exported.committedInstances[0]!;
+    const workerScene = {
+      committedScene: vi.fn(() => ({
+        scene: { generation: 7, instances: [savedInstance] },
+      })),
+      captureExportScene: vi.fn(async () => exported),
+    };
+    Object.assign(runtime, {
+      workerScene,
+      workerEntries: [
+        {
+          instance: savedInstance,
+          definition: mount.definition,
+          definitionHash: "hash",
+        },
+        {
+          instance: collapsedInstance,
+          definition: mount.definition,
+          definitionHash: "hash",
+        },
+      ],
+    });
+    try {
+      const pixels = await runtime.captureCommittedCompositionPixels(options);
+      expect(pixels).toMatchObject({
+        committedInstances: [{ instanceId: savedInstance.id }],
+      });
+      expect(workerScene.captureExportScene).toHaveBeenCalledOnce();
+
+      options.expectedInstances[1] = {
+        ...collapsedInstance,
+        definitionVersion: "stale",
+      };
+      await expect(
+        runtime.captureCommittedCompositionPixels(options),
+      ).rejects.toMatchObject({ code: "composition-instance-stale" });
+      expect(workerScene.captureExportScene).toHaveBeenCalledOnce();
+      options.expectedInstances[1] = collapsedInstance;
+
+      exported.committedInstances.pop();
+      await expect(
+        runtime.captureCommittedCompositionPixels(options),
+      ).rejects.toMatchObject({ code: "composition-preview-stale" });
+      exported.committedInstances.push(savedReceipt);
+
+      exported.committedInstances.push(savedReceipt);
+      await expect(
+        runtime.captureCommittedCompositionPixels(options),
+      ).rejects.toMatchObject({ code: "composition-preview-stale" });
+      exported.committedInstances.pop();
+
+      exported.committedInstances.push({
+        instanceId: collapsedInstance.id,
+        definitionHash: "hash",
+        payload: JSON.stringify(collapsedInstance),
+        localTime: 0,
+      });
+      await expect(
+        runtime.captureCommittedCompositionPixels(options),
+      ).rejects.toMatchObject({ code: "composition-preview-stale" });
+    } finally {
+      Object.assign(runtime, {
+        workerScene: previousWorkerScene,
+        workerEntries: previousWorkerEntries,
       });
     }
   });

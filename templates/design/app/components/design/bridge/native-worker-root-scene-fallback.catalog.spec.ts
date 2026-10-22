@@ -385,6 +385,18 @@ describe("root-scene capability fallback eligibility", () => {
       "source-epoch-stale",
       "The authored source changed during capture.",
     ),
+    new NativeSourceError(
+      "source-animation",
+      "The source keyframes are unreadable.",
+    ),
+    new NativeSourceError(
+      "source-cross-origin",
+      "The source asset origin is not allowed.",
+    ),
+    new NativeSourceError(
+      "source-canvas-unavailable",
+      "A capture context is unavailable.",
+    ),
     new Error("unexpected root capture failure"),
   ])("keeps non-capability root failure typed: %s", async (rootFailure) => {
     const definition = catalogShader({

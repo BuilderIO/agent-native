@@ -427,13 +427,13 @@ function assertLeafSupported(
   readStyle: SourceStyleReader = getComputedStyle,
 ): void {
   if (element.shadowRoot) {
-    throw new NativeSourceError(
+    throw new NativeSourceCapabilityError(
       "source-shadow-dom",
       "Shadow DOM source content is unsupported.",
     );
   }
   if (isNativeHtmlTag(element, "iframe")) {
-    throw new NativeSourceError(
+    throw new NativeSourceCapabilityError(
       "source-iframe",
       "Iframe source content is unsupported.",
     );
@@ -444,7 +444,7 @@ function assertLeafSupported(
     style.filter !== "none" ||
     style.backdropFilter !== "none"
   ) {
-    throw new NativeSourceError(
+    throw new NativeSourceCapabilityError(
       "source-css-composite",
       "CSS blend modes, filters, and backdrop filters need a separate compositor path.",
     );
@@ -493,7 +493,7 @@ function assertLeafSupported(
           "scale",
         ].includes(key)
       ) {
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-animation",
           "An animated source changes pixels; cached DOM capture supports transform-only motion.",
         );
@@ -507,7 +507,7 @@ function assertLeafSupported(
   for (const pseudo of ["::before", "::after"]) {
     const content = getComputedStyle(element, pseudo).content;
     if (content && content !== "none" && content !== "normal") {
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-pseudo",
         "CSS pseudo-element content is unsupported.",
       );
@@ -1934,7 +1934,7 @@ export function nativeTargetOverflowInsets(
     throw new NativeSourceError(`source-${overflow.reason}`, overflow.detail);
   if (isNativeSvgRoot(target)) {
     if (overflow.edge === "none")
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-svg-overflow-unsupported",
         "An SVG root needs a bounded vector viewport clip.",
       );
@@ -2710,7 +2710,7 @@ function cloneOwnPaint(
         isNativeHtmlTag(child, "canvas") ||
         isNativeHtmlTag(child, "video")
       ) {
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-inline-media",
           "Inline media mixed into a text flow needs a separate source path.",
         );
@@ -2719,7 +2719,7 @@ function cloneOwnPaint(
       continue;
     }
     if (ownText)
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-mixed-flow",
         "Block children mixed with direct text cannot be split without changing text layout.",
       );
@@ -3586,7 +3586,7 @@ export class CachedLeaf<T extends HTMLElement | SVGSVGElement = HTMLElement> {
       density: number,
     ) => Promise<void> = async (element, canvas, density) => {
       if (!isNativeHtmlElement(element))
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-inline-svg",
           "An SVG source needs its vector raster path.",
         );
@@ -4888,7 +4888,7 @@ class SceneProvider implements NativeSceneProvider {
           !(current === record.node && isNativeSvgRoot(current)) &&
           hasUnsupportedSourceMask(style.clipPath, style.maskImage)
         )
-          throw new NativeSourceError(
+          throw new NativeSourceCapabilityError(
             "source-mask-unsupported",
             "CSS clip-path and masks need an explicit source mask compositor.",
           );
@@ -4972,7 +4972,7 @@ class SceneProvider implements NativeSceneProvider {
         "[data-an-native-canvas],[data-an-native-fill-instance],[data-an-native-layer-instance]",
       )
     )
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-svg-group-native-composition-unsupported",
         "An SVG vector group with nested native effects needs a composed vector source.",
       );
@@ -5004,7 +5004,7 @@ class SceneProvider implements NativeSceneProvider {
         return [];
       assertLeafSupported(svg);
       if (!supportsNativeOutput2D(style))
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-svg-transform-unsupported",
           "An SVG vector group has unsupported child geometry.",
         );
@@ -5040,7 +5040,7 @@ class SceneProvider implements NativeSceneProvider {
     const style = getComputedStyle(element);
     if (style.display === "none" || style.visibility === "hidden") return;
     if (isNativeSvgRoot(element) && element.hasAttribute("transform"))
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-svg-transform-unsupported",
         "An SVG root transform needs an affine vector source path.",
       );
@@ -5055,7 +5055,7 @@ class SceneProvider implements NativeSceneProvider {
     ) {
       if (metrics) metrics.recordDirectStyleReads += 1;
       if (!supportsNativeOutput2D(getComputedStyle(ancestor)))
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-svg-transform-unsupported",
           "An SVG source has a transformed HTML layout boundary.",
         );
@@ -5224,7 +5224,7 @@ class SceneProvider implements NativeSceneProvider {
         allowVisibleTargetOverflow,
       );
     if (isNativeSvgElement(element))
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-inline-svg",
         "An SVG fragment outside an SVG root cannot be captured.",
       );
@@ -5299,7 +5299,7 @@ class SceneProvider implements NativeSceneProvider {
       };
       const visible = intersect(box, sourceBounds);
       if (visible.width > 0 && visible.height > 0)
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-legacy-shader-unsupported",
           "A visible legacy WebGL shader has no synchronized texture and clock source for native composition.",
         );
@@ -5325,7 +5325,7 @@ class SceneProvider implements NativeSceneProvider {
         !isCanvasBackgroundOnly(element, style) &&
         (hasDirectText(element) || hasVisibleBoxPaint(style))
       )
-        throw new NativeSourceError(
+        throw new NativeSourceCapabilityError(
           "source-empty-own-paint-unsupported",
           "A zero-size source has own paint that cannot be captured faithfully.",
         );
@@ -6292,14 +6292,14 @@ class SceneProvider implements NativeSceneProvider {
       getComputedStyle(root).opacity !== "1" ||
       (source !== root && style.opacity !== "1")
     )
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-viewport-background-unsupported",
         "The CSS canvas background extends beyond the root box and needs a supported opaque solid source.",
       );
     const hasImage = style.backgroundImage !== "none";
     if (!hasImage && alpha === 0) return null;
     if (!supportedViewportBackgroundImage(style.backgroundImage))
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "source-viewport-background-image-unsupported",
         "The CSS canvas background uses an image type the native renderer cannot capture.",
       );
@@ -6809,7 +6809,7 @@ class SceneProvider implements NativeSceneProvider {
     if (isNativeSvgRoot(this.target)) return this.markReplayRead([]);
     if (isPureTextFlow(this.target)) return this.markReplayRead([]);
     if (hasDirectText(this.target))
-      throw new NativeSourceError(
+      throw new NativeSourceCapabilityError(
         "fill-mixed-text-layout-unsupported",
         "Direct text mixed with independent child paint needs an ordered text source.",
       );

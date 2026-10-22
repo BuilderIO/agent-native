@@ -20552,6 +20552,30 @@ class NativeShaderRuntime {
             "composition-instance-stale",
             "The requested native scene differs from the worker preview.",
           );
+        const committedScene = workerScene.committedScene();
+        const presentedInstances = new Map(
+          committedScene?.scene.instances.map((instance) => [
+            instance.id,
+            instance,
+          ]),
+        );
+        if (
+          !committedScene ||
+          presentedInstances.size !== committedScene.scene.instances.length ||
+          committedScene.scene.instances.some((instance) => {
+            const current = this.workerEntries.find(
+              (entry) => entry.instance.id === instance.id,
+            );
+            return (
+              !current ||
+              JSON.stringify(current.instance) !== JSON.stringify(instance)
+            );
+          })
+        )
+          throw new NativeSourceError(
+            "composition-instance-stale",
+            "The committed worker scene differs from its authored effects.",
+          );
         const timeSeconds = this.currentTime();
         const exported = await workerScene.captureExportScene({
           cropRect: region.region,
@@ -20577,7 +20601,14 @@ class NativeShaderRuntime {
               ))) ||
           exported.width !== region.width ||
           exported.height !== region.height ||
-          exported.rgba.byteLength !== region.width * region.height * 4
+          exported.rgba.byteLength !== region.width * region.height * 4 ||
+          exported.committedInstances.length !== presentedInstances.size ||
+          new Set(
+            exported.committedInstances.map((instance) => instance.instanceId),
+          ).size !== exported.committedInstances.length ||
+          exported.committedInstances.some(
+            (instance) => !presentedInstances.has(instance.instanceId),
+          )
         )
           throw new NativeSourceError(
             "composition-preview-stale",
@@ -20616,7 +20647,7 @@ class NativeShaderRuntime {
             };
           }),
         );
-        if (committedInstances.length !== this.workerEntries.length)
+        if (committedInstances.length !== presentedInstances.size)
           throw new NativeSourceError(
             "composition-instance-stale",
             "The worker still omitted a native effect.",

@@ -192,9 +192,10 @@ it.each([
   const provider = createNativeSceneProvider(child as HTMLElement, "layer");
   expect(provider).not.toBeNull();
   try {
-    await expect(
-      tag === "path" ? provider!.readScene() : provider!.readReceiverCoverage(),
-    ).rejects.toMatchObject({ code });
+    const capture =
+      tag === "path" ? provider!.readScene() : provider!.readReceiverCoverage();
+    await expect(capture).rejects.toBeInstanceOf(NativeSourceCapabilityError);
+    await expect(capture).rejects.toMatchObject({ code });
   } finally {
     provider!.dispose();
   }
@@ -339,3 +340,40 @@ it("ignores an empty native target's stale presentation pixels and resumes after
     provider.dispose();
   }
 });
+
+it.each(["shadow", "filter", "pseudo"] as const)(
+  "classifies unsupported %s paint without accepting it as captured pixels",
+  async (feature) => {
+    const { provider: completeScene, target } = createAdoptedSceneFixture();
+    completeScene.dispose();
+    for (const attribute of [...target.attributes])
+      target.removeAttribute(attribute.name);
+    const readStyle = vi
+      .mocked(window.getComputedStyle)
+      .getMockImplementation()!;
+    if (feature === "shadow") target.attachShadow({ mode: "open" });
+    vi.mocked(window.getComputedStyle).mockImplementation((element, pseudo) => {
+      const style = readStyle(element);
+      if (element !== target) return style;
+      return {
+        ...style,
+        filter: feature === "filter" ? "blur(2px)" : "none",
+        content: feature === "pseudo" && pseudo ? '"label"' : "none",
+      } as CSSStyleDeclaration;
+    });
+    const provider = createNativeSceneProvider(target, "layer")!;
+    try {
+      const capture = provider.readReceiverCoverage();
+      await expect(capture).rejects.toBeInstanceOf(NativeSourceCapabilityError);
+      await expect(capture).rejects.toMatchObject({
+        code: {
+          shadow: "source-shadow-dom",
+          filter: "source-css-composite",
+          pseudo: "source-pseudo",
+        }[feature],
+      });
+    } finally {
+      provider.dispose();
+    }
+  },
+);
