@@ -14,7 +14,12 @@ import { z } from "zod";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { handleMcpApprovalRequest } from "./approval-route.js";
+import { hasRecurringSweepHandler } from "../jobs/sweep-hooks.js";
+import {
+  handleMcpApprovalRequest,
+  MCP_APPROVAL_PRUNE_SWEEP_ID,
+  mountMcpApprovalRoute,
+} from "./approval-route.js";
 import {
   consumeMcpApprovalGrant,
   consumeReviewedMcpApprovalGrant,
@@ -81,6 +86,22 @@ const settings = vi.hoisted(() => ({
 vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
   getUserSetting: settings.getUserSetting,
+}));
+
+// Mounting needs a Nitro app, and the long-lived prune timer is captured
+// rather than left running.
+const mounted = vi.hoisted(() => ({
+  use: vi.fn(),
+  startIntervalJob: vi.fn(() => ({ stop: () => {} })),
+}));
+vi.mock("../server/framework-request-handler.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/framework-request-handler.js")
+  >()),
+  getH3App: () => ({ use: mounted.use }),
+}));
+vi.mock("../server/interval-job.js", () => ({
+  startIntervalJob: mounted.startIntervalJob,
 }));
 
 const CONNECTED_AT = 1_790_000_000_000;
@@ -752,5 +773,30 @@ describe("a grant that can no longer be decided", () => {
     const html = await getHtml(grant.nonce);
     expect(html.body).not.toContain("Team sync");
     expect(html.body).not.toContain("<details>");
+  });
+});
+
+describe("mounting", () => {
+  it("prunes grants from the platform sweep, and on its own timer on a long-lived server", async () => {
+    const app = { appId: "calendar", actions };
+    mountMcpApprovalRoute({}, app);
+    mountMcpApprovalRoute({}, app);
+
+    expect(mounted.use).toHaveBeenCalledWith(
+      "/_agent-native/mcp/approvals",
+      expect.any(Function),
+    );
+    expect(hasRecurringSweepHandler(MCP_APPROVAL_PRUNE_SWEEP_ID)).toBe(true);
+    expect(mounted.startIntervalJob).toHaveBeenCalledTimes(1);
+    const [prune, options] = mounted.startIntervalJob.mock.calls[0] as [
+      (signal: AbortSignal) => Promise<void>,
+      { intervalMs: number; leading: boolean },
+    ];
+    expect(options).toMatchObject({ intervalMs: TTL_MS, leading: false });
+
+    const grant = await createdGrant();
+    vi.setSystemTime(grant.expiresAt + 1);
+    await prune(new AbortController().signal);
+    expect((await storedRow(grant.nonce)).call_arguments).toBeNull();
   });
 });

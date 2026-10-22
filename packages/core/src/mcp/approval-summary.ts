@@ -99,16 +99,24 @@ function findRecipients(value: unknown, into: Set<string>, depth: number) {
 }
 
 // Where a call gives the zone for a time argument: beside it
-// (`startTimeZone` for `start`), or once for the whole call.
+// (`startTimeZone` for `start`), beside the start an end closes (`end`
+// takes `startTimeZone` when it has none of its own, as calendars read it),
+// or once for the whole call.
 function zoneArgument(
   key: string,
   args: Record<string, unknown>,
 ): string | undefined {
+  const start = key.replace(/^end/i, (end) =>
+    end[0] === "E" ? "Start" : "start",
+  );
+  const owners = start === key ? [key] : [key, start];
   for (const candidate of [
-    `${key}TimeZone`,
-    `${key}Timezone`,
-    `${key}_time_zone`,
-    `${key}_timezone`,
+    ...owners.flatMap((owner) => [
+      `${owner}TimeZone`,
+      `${owner}Timezone`,
+      `${owner}_time_zone`,
+      `${owner}_timezone`,
+    ]),
     "timeZone",
     "timezone",
     "time_zone",

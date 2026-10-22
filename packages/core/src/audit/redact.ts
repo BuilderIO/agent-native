@@ -46,19 +46,24 @@ function looksSecret(value: string): boolean {
 
 function redactString(value: string, maxString: number): string {
   if (looksSecret(value)) return REDACTED;
-  if (value.length > maxString) {
-    return `${value.slice(0, maxString)}…(${value.length - maxString} more chars)`;
+  // A credential can sit inside ordinary text: `Authorization: Bearer …`.
+  const scrubbed = redactEmbeddedSecrets(value);
+  if (scrubbed.length > maxString) {
+    return `${scrubbed.slice(0, maxString)}…(${scrubbed.length - maxString} more chars)`;
   }
-  return value;
+  return scrubbed;
 }
 
+const EMBEDDED_BEARER = /\b(bearer\s+)([^\s"',}]+)/gi;
+const EMBEDDED_CREDENTIAL_FIELD = new RegExp(
+  `(["']?\\b${SENSITIVE_KEY.source}\\b["']?\\s*[:=]\\s*)(["']?)(?!bearer\\b)([^"'\\s,}]+)\\2`,
+  "gi",
+);
+
 function redactEmbeddedSecrets(value: string): string {
-  const bearer = value.replace(/\b(bearer\s+)([^\s"',}]+)/gi, `$1${REDACTED}`);
-  const credentialField = new RegExp(
-    `(["']?\\b${SENSITIVE_KEY.source}\\b["']?\\s*[:=]\\s*)(["']?)(?!bearer\\b)([^"'\\s,}]+)\\2`,
-    "gi",
-  );
-  return bearer.replace(credentialField, `$1$2${REDACTED}$2`);
+  return value
+    .replace(EMBEDDED_BEARER, `$1${REDACTED}`)
+    .replace(EMBEDDED_CREDENTIAL_FIELD, `$1$2${REDACTED}$2`);
 }
 
 function redact(value: unknown, depth: number, maxString: number): unknown {

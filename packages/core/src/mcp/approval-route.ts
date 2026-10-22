@@ -8,6 +8,7 @@ import {
 } from "h3";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isProductionServerlessFunctionRuntime } from "../db/client.js";
 import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import {
   mcpApprovalMessagesForLocale,
@@ -30,6 +31,7 @@ import { toAbsoluteOpenUrl } from "../server/deep-link.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
+import { startIntervalJob } from "../server/interval-job.js";
 import { declaredLinkOrigin } from "../server/origin-allowlist.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import {
@@ -663,6 +665,21 @@ export async function mcpApprovalPrompt(input: {
 
 export const MCP_APPROVAL_PRUNE_SWEEP_ID = "mcp-approval-grants";
 
+let pruneWorkerStarted = false;
+
+// Sweep handlers run only from the platform's sweep route, which nothing
+// calls on a long-lived server, so that server prunes on its own timer.
+function startPruneWorker(): void {
+  if (pruneWorkerStarted || isProductionServerlessFunctionRuntime()) return;
+  pruneWorkerStarted = true;
+  startIntervalJob(() => pruneMcpApprovalGrants(), {
+    intervalMs: TTL_MS,
+    leading: false,
+    onError: (error) =>
+      console.error("[mcp-approvals] Pruning approval grants failed:", error),
+  });
+}
+
 export function mountMcpApprovalRoute(
   nitroApp: any,
   app: McpApprovalApp,
@@ -677,4 +694,5 @@ export function mountMcpApprovalRoute(
   registerRecurringSweepHandler(MCP_APPROVAL_PRUNE_SWEEP_ID, () =>
     pruneMcpApprovalGrants(),
   );
+  startPruneWorker();
 }

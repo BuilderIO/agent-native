@@ -158,6 +158,35 @@ describe("summarizeMcpApproval", () => {
     ]);
   });
 
+  it("reads an end with no zone of its own in its start's zone, as a calendar does", () => {
+    const fields = (args: Record<string, unknown>) =>
+      summarizeMcpApproval({
+        entry: entry({ zonelessTimes: "calendar" }),
+        actionName: "create-event",
+        argumentsJson: JSON.stringify(args),
+        labels,
+      }).fields;
+    const end = Date.UTC(2026, 9, 22, 21, 30);
+
+    expect(
+      fields({
+        start: "2026-10-22T14:00:00",
+        end: "2026-10-22T14:30:00",
+        startTimeZone: "America/Los_Angeles",
+      })[1],
+    ).toMatchObject({
+      label: "End",
+      time: { at: end, zone: "America/Los_Angeles" },
+    });
+    expect(
+      fields({
+        end: "2026-10-22T17:30:00",
+        start_time_zone: "America/Los_Angeles",
+        end_time_zone: "America/New_York",
+      })[0],
+    ).toMatchObject({ time: { at: end, zone: "America/New_York" } });
+  });
+
   it("marks a wall time with no zone, and says when the action reads it in the calendar's zone", () => {
     const args = JSON.stringify({ start: "2026-10-22T14:00:00" });
     const wall = { at: Date.UTC(2026, 9, 22, 14, 0) };

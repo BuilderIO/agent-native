@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { redactArgsToJson, redactTextToSummary, __test } from "./redact.js";
+import {
+  redactArgsToJson,
+  redactedArgsWereCut,
+  redactTextToSummary,
+  __test,
+} from "./redact.js";
 
 describe("redactArgsToJson", () => {
   it("redacts credential-looking keys", () => {
@@ -27,6 +32,19 @@ describe("redactArgsToJson", () => {
 
     const json = redactArgsToJson({ note: "Bearer secret-token-value-here" });
     expect(JSON.parse(json!).note).toBe("[redacted]");
+  });
+
+  it("redacts a credential inside an ordinary string, keeping the text around it", () => {
+    const parsed = JSON.parse(
+      redactArgsToJson({
+        notes: "Call it with Authorization: Bearer short-token please",
+        steps: ["export password=hunter2", "then run it"],
+      })!,
+    );
+    expect(parsed.notes).toBe(
+      "Call it with Authorization: Bearer [redacted] please",
+    );
+    expect(parsed.steps).toEqual(["export password=[redacted]", "then run it"]);
   });
 
   it("redacts webhook URLs under a generic field, regardless of key", () => {
@@ -82,6 +100,51 @@ describe("redactArgsToJson", () => {
     const a: any = { name: "x" };
     a.self = a;
     expect(() => redactArgsToJson(a)).not.toThrow();
+  });
+
+  it("tells a cut from a redaction", () => {
+    const parsed = (args: unknown, limits?: { maxString: number }) =>
+      JSON.parse(redactArgsToJson(args, limits)!);
+    expect(redactedArgsWereCut(parsed({ apiKey: "sk-live-1" }))).toBe(false);
+    expect(redactedArgsWereCut(parsed({ to: ["a@x.com", "b@x.com"] }))).toBe(
+      false,
+    );
+    expect(
+      redactedArgsWereCut(
+        parsed({ body: "word ".repeat(20) }, { maxString: 10 }),
+      ),
+    ).toBe(true);
+    expect(
+      redactedArgsWereCut(
+        parsed({ to: Array.from({ length: 101 }, (_, i) => `p${i}@x.com`) }),
+      ),
+    ).toBe(true);
+    expect(
+      redactedArgsWereCut(
+        parsed(
+          Object.fromEntries(
+            Array.from({ length: 101 }, (_, i) => [`k${i}`, i]),
+          ),
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      redactedArgsWereCut(
+        parsed({ a: { b: { c: { d: { e: { f: { g: 1 } } } } } } }),
+      ),
+    ).toBe(true);
+    expect(
+      redactedArgsWereCut(
+        parsed(
+          Object.fromEntries(
+            Array.from({ length: 10 }, (_, i) => [
+              `f${i}`,
+              "word ".repeat(200),
+            ]),
+          ),
+        ),
+      ),
+    ).toBe(true);
   });
 });
 
