@@ -29,11 +29,17 @@ runs:
           *) echo "::error::Unknown Slides authoring shard: ${{ inputs.shard }}"; exit 1 ;;
         esac
         # apt-get has stalled for the whole 45-minute job budget on the mirror
-        # list fetch (run 39816497341), so cap each attempt and retry.
+        # list fetch (run 39816497341), while a healthy WebKit deps install takes
+        # up to ~7 minutes. Cap each attempt well above that, then clear the
+        # apt processes: timeout only reaches the pnpm wrapper, and a surviving
+        # apt-get keeps the dpkg lock so every retry fails instantly.
         install_with_retry() {
-          for attempt in 1 2 3; do
-            if timeout -k 10 300 "$@"; then return 0; fi
-            echo "::warning::'$*' failed or stalled (attempt $attempt of 3)"
+          for attempt in 1 2; do
+            if timeout -k 10 900 "$@"; then return 0; fi
+            echo "::warning::'$*' failed or stalled (attempt $attempt of 2)"
+            sudo pkill -9 -x apt-get || true
+            sudo pkill -9 -x apt || true
+            sudo pkill -9 -x dpkg || true
             sudo dpkg --configure -a || true
           done
           return 1
