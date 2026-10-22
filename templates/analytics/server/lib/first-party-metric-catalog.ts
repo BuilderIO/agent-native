@@ -1070,6 +1070,8 @@ const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
   LEFT JOIN signup_identity si ON si.anonymous_id = NULLIF(e.anonymous_id, '')
   LEFT JOIN signup_session_identity ss
     ON NULLIF(e.anonymous_id, '') IS NULL
+    AND NULLIF(e.user_id, '') IS NULL
+    AND NULLIF(e.properties::jsonb ->> 'auth_user_id', '') IS NULL
     AND ss.session_id = NULLIF(e.session_id, '')
   WHERE ${DASHBOARD_TIME_RANGE_FILTER}
     AND ${DASHBOARD_APP_FILTER}

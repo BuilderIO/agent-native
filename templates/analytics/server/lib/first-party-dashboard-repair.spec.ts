@@ -1145,7 +1145,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       )
       .replace(",\n      ss.signup_user_email\n", "\n")
       .replace(
-        "\n  LEFT JOIN signup_session_identity ss\n    ON NULLIF(e.anonymous_id, '') IS NULL\n    AND ss.session_id = NULLIF(e.session_id, '')",
+        "\n  LEFT JOIN signup_session_identity ss\n    ON NULLIF(e.anonymous_id, '') IS NULL\n    AND NULLIF(e.user_id, '') IS NULL\n    AND NULLIF(e.properties::jsonb ->> 'auth_user_id', '') IS NULL\n    AND ss.session_id = NULLIF(e.session_id, '')",
         "",
       );
     expect(previousSql).not.toContain("signup_session_identity");

@@ -506,6 +506,115 @@ describe("session replay console/network capture", () => {
     await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
   });
 
+  it("keeps a recovering recording's start for an accept after a reject during the recovery", async () => {
+    const { windowStub, fetchMock } = installBrowser();
+    windowStub.sessionStorage = {
+      getItem: vi.fn((key: string) =>
+        key === "an_consent_region" ? "consent" : null,
+      ),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const cookies = new Map<string, string>();
+    Object.defineProperty(globalThis.document, "cookie", {
+      configurable: true,
+      get: () =>
+        [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
+      set: (assignment: string) => {
+        const [pair] = assignment.split(";", 1);
+        const eq = pair!.indexOf("=");
+        cookies.set(pair!.slice(0, eq), pair!.slice(eq + 1));
+      },
+    });
+    let rejectOnStop = false;
+    const { setConsentChoice } = await import("./consent.js");
+    recordMock.mockReturnValueOnce(
+      vi.fn(() => {
+        if (rejectOnStop)
+          setConsentChoice({ performance: false, targeting: false });
+      }),
+    );
+    recordMock.mockReturnValue(vi.fn());
+    const mod = await freshSessionReplay();
+    activeModule = mod;
+    await mod.startSessionReplay({ ...START_OPTIONS });
+    setConsentChoice({ performance: true, targeting: false });
+    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+
+    fetchMock.mockImplementationOnce(
+      async () => new Response("conflict", { status: 409 }),
+    );
+    const { emit } = recordMock.mock.calls[0]![0] as {
+      emit: (event: Record<string, unknown>) => void;
+    };
+    emit({ type: 4, timestamp: Date.now(), data: { href: "x" } });
+    emit({ type: 2, timestamp: Date.now(), data: { node: {} } });
+    rejectOnStop = true;
+    await mod.flushSessionReplay("interval");
+    expect(mod.isSessionReplayActive()).toBe(false);
+    expect(recordMock).toHaveBeenCalledTimes(1);
+
+    setConsentChoice({ performance: true, targeting: false });
+
+    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+  });
+
+  it("settles a flush waiting behind an upload that a reject aborts", async () => {
+    const { windowStub, fetchMock } = installBrowser();
+    windowStub.sessionStorage = {
+      getItem: vi.fn((key: string) =>
+        key === "an_consent_region" ? "consent" : null,
+      ),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const cookies = new Map<string, string>();
+    Object.defineProperty(globalThis.document, "cookie", {
+      configurable: true,
+      get: () =>
+        [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
+      set: (assignment: string) => {
+        const [pair] = assignment.split(";", 1);
+        const eq = pair!.indexOf("=");
+        cookies.set(pair!.slice(0, eq), pair!.slice(eq + 1));
+      },
+    });
+    recordMock.mockReturnValue(vi.fn());
+    const mod = await freshSessionReplay();
+    activeModule = mod;
+    await mod.startSessionReplay({ ...START_OPTIONS });
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: true, targeting: false });
+    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+
+    fetchMock.mockImplementationOnce(
+      (_input: unknown, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    );
+    const { emit } = recordMock.mock.calls[0]![0] as {
+      emit: (event: Record<string, unknown>) => void;
+    };
+    emit({ type: 4, timestamp: Date.now(), data: { href: "x" } });
+    emit({ type: 2, timestamp: Date.now(), data: { node: {} } });
+    const first = mod.flushSessionReplay("interval");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const waiting = mod.flushSessionReplay("interval");
+
+    setConsentChoice({ performance: false, targeting: false });
+    await first;
+
+    await expect(
+      Promise.race([
+        waiting.then(() => "settled"),
+        new Promise((resolve) => setTimeout(() => resolve("pending"), 200)),
+      ]),
+    ).resolves.toBe("settled");
+  });
+
   it("starts a first-visit recording on accept after the region's first answer", async () => {
     const { windowStub, fetchMock } = installBrowser();
     recordMock.mockReturnValue(vi.fn());

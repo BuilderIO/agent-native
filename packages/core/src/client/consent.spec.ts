@@ -108,6 +108,29 @@ describe("client consent", () => {
     expect(revoke).toHaveBeenCalledTimes(1);
   });
 
+  it("applies a choice on this page when the browser drops the cookie", async () => {
+    installBrowser({ region: "consent" });
+    vi.stubGlobal("document", {
+      get cookie() {
+        return "";
+      },
+      set cookie(_value: string) {},
+    });
+    const consent = await freshConsent();
+    const performance = vi.fn();
+    consent.whenConsentAllows("performance", performance);
+    await consent.resolveConsentRegion();
+
+    consent.setConsentChoice({ performance: true, targeting: false });
+
+    expect(performance).toHaveBeenCalledTimes(1);
+    expect(consent.shouldShowConsentBanner()).toBe(false);
+    expect(consent.getConsentChoice()).toEqual({
+      performance: true,
+      targeting: false,
+    });
+  });
+
   it("still revokes later waiters when an earlier callback throws", async () => {
     installBrowser({ region: "consent" });
     const consent = await freshConsent();

@@ -39,6 +39,8 @@ interface ConsentState {
   waiters: Waiter[];
   listeners: Set<() => void>;
   settingsOpen: boolean;
+  /** This page's choice, for when the browser drops the cookie. */
+  pageChoice: ConsentChoice | null;
 }
 
 // One state per page, however many copies of this module a bundle carries.
@@ -52,6 +54,7 @@ function state(): ConsentState {
     waiters: [],
     listeners: new Set(),
     settingsOpen: false,
+    pageChoice: null,
   });
 }
 
@@ -73,7 +76,9 @@ function readCookie(name: string): string | null {
 
 /** The visitor's stored choice, or `null` before they've made one. */
 export function getConsentChoice(): ConsentChoice | null {
-  return parseConsent(readCookie(CONSENT_COOKIE_NAME));
+  return (
+    parseConsent(readCookie(CONSENT_COOKIE_NAME)) ?? state().pageChoice ?? null
+  );
 }
 
 function cookieDomain(): string {
@@ -398,6 +403,7 @@ function watchOtherTabs(): void {
 /** Store the visitor's choice for every app on this site, and apply it. */
 export function setConsentChoice(choice: ConsentChoice): void {
   if (typeof document === "undefined") return;
+  state().pageChoice = choice;
   writeChoiceCookie(choice);
   storeChoiceOnServer(choice);
   seenChoice = readCookie(CONSENT_COOKIE_NAME);

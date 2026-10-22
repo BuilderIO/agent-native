@@ -250,6 +250,58 @@ describe("onboarding funnel metrics", () => {
     ]);
   }, 20_000);
 
+  it("keeps a signed-in event's own identity over its session's signup", async () => {
+    await createEventsTable();
+    // Bea views the signup page without consent, and signs up in that session.
+    await insertEvent(
+      "auth.signup_viewed",
+      "anon",
+      {},
+      {
+        email: null,
+        anonymousId: null,
+        authUserId: null,
+        sessionId: "session-1",
+      },
+    );
+    // Carl, signed in without analytics consent, in that same session.
+    await insertEvent(
+      "auth.signup_viewed",
+      "carl",
+      {},
+      {
+        email: "carl@example.com",
+        anonymousId: null,
+        authUserId: null,
+        sessionId: "session-1",
+      },
+    );
+    await insertEvent(
+      "signup",
+      "bea",
+      { signup_method: "google" },
+      {
+        email: "bea@example.com",
+        userKey: "bea@example.com",
+        anonymousId: null,
+        authUserId: "auth-bea",
+        sessionId: "session-1",
+      },
+    );
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<{ stage: string; users: number }>;
+    };
+    expect(
+      result.rows.slice(0, 3).map(({ stage, users }) => [stage, users]),
+    ).toEqual([
+      ["Signup page viewed", 2],
+      ["Signup CTA clicked", 0],
+      ["Signed up", 0],
+    ]);
+  }, 20_000);
+
   it("bridges no session that holds signups for two different emails", async () => {
     await createEventsTable();
     const unconsented = {

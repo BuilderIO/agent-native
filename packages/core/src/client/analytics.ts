@@ -58,6 +58,7 @@ import { clientBuildId } from "./build-compatibility.js";
 import {
   consentAllowsNow,
   consentDecision,
+  getConsentChoice,
   whenConsentAllows,
   whenConsentDecided,
 } from "./consent.js";
@@ -1267,6 +1268,9 @@ function ensureAmplitude(): boolean {
         "performance",
         () => {
           _amplitudeConsent = "granted";
+          // Held before the region answered: with a choice on record, the
+          // visitor had to choose, so what came before it never goes out.
+          if (getConsentChoice()) _pendingAmplitudeEvents = [];
           _amplitudeModule?.setOptOut(false);
           ensureAmplitude();
         },
@@ -1275,6 +1279,8 @@ function ensureAmplitude(): boolean {
             _amplitudeConsent = "revoked";
             _pendingAmplitudeEvents = [];
             _amplitudeModule?.setOptOut(true);
+            // A later accept starts a new device id, not the one in memory.
+            _amplitudeModule?.reset();
             clearAmplitudeStorage(key);
           },
         },

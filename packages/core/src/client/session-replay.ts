@@ -2499,6 +2499,8 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         payload.sessionId,
       );
       if (restartResult.started) replayAllowedOptions = consentStartOptions;
+      // A reject during the recovery leaves the start for the next accept.
+      if (!replayConsentGranted) replayAwaitingConsent ??= consentStartOptions;
     }
 
     const details: SessionReplayUploadRejectedDetails = {
@@ -3600,6 +3602,7 @@ function discardWithdrawnReplay(state: SessionReplayState): void {
   state.queuedBytes = 0;
   state.retryBatches = [];
   state.pendingFlushReason = null;
+  for (const resolve of state.pendingFlushWaiters.splice(0)) resolve();
 }
 let replayAwaitingConsent: SessionReplayOptions | null = null;
 let replayCallerStops = 0;
