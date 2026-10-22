@@ -416,6 +416,7 @@ import {
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   turnRunLedgerExhausted,
 } from "./run-store.js";
+import { setRunTurnIdHeader } from "./run-turn-id-header.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   claimSetupResume,
@@ -15322,6 +15323,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", runId);
+          setRunTurnIdHeader(event, effectiveTurnId);
           setResponseHeader(event, "X-Dispatch-Mode", "background");
           return stream;
         }
@@ -16409,6 +16411,7 @@ export function createProductionAgentHandler(
     setResponseHeader(event, "Cache-Control", "no-cache");
     setResponseHeader(event, "Connection", "keep-alive");
     setResponseHeader(event, "X-Run-Id", runId);
+    setRunTurnIdHeader(event, effectiveTurnId);
     setResponseHeader(
       event,
       "X-Dispatch-Mode",

@@ -378,6 +378,38 @@ describe("agent_turn_submitted", () => {
     ]);
   });
 
+  it("reports the turn the server stored the run under, not the one requested", async () => {
+    // An approval resume runs under its pending approval's turn.
+    const { fetcher, turnBodies } = chatServer((url, init) =>
+      url === API_URL && String(init?.method).toUpperCase() === "POST"
+        ? (turnBodies.push(JSON.parse(String(init?.body))),
+          sseResponse([{ type: "done", reason: "complete" }], "run-approval", {
+            "X-Turn-Id": "turn-approval",
+          }))
+        : undefined,
+    );
+    const session = await runtimeFor(fetcher).createSession({
+      threadId: "thread-approval",
+    });
+
+    await drain(
+      (
+        await session.startTurn({
+          prompt: "Approve",
+          messages: [userMessage("Approve")],
+        })
+      ).events,
+    );
+
+    expect(turnBodies[0]!.turnId).not.toBe("turn-approval");
+    expect(submittedEvents()).toEqual([
+      expect.objectContaining({
+        turn_id: "turn-approval",
+        run_id: "run-approval",
+      }),
+    ]);
+  });
+
   it("reports a continuation under the turn it continues, as the chat's", async () => {
     const { fetcher, turnBodies } = chatServer();
     const session = await runtimeFor(fetcher).createSession({
@@ -540,6 +572,40 @@ describe("agent_run_outcome turn id", () => {
         outcome: "succeeded",
         turnId: turnBodies[0]!.turnId,
       }),
+    ]);
+    await transport.dispose();
+  });
+
+  it("carries the turn the server stored the run under", async () => {
+    const { fetcher } = chatServer((url, init) =>
+      url === API_URL && String(init?.method).toUpperCase() === "POST"
+        ? sseResponse(
+            [
+              { type: "text", text: "Done." },
+              { type: "done", reason: "complete" },
+            ],
+            "run-approval",
+            { "X-Turn-Id": "turn-approval" },
+          )
+        : undefined,
+    );
+    const reports: RunOutcomeReport[] = [];
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: API_URL,
+      fetch: fetcher,
+      adapter: { onRunOutcome: (report) => reports.push(report) },
+    });
+    const client = new AgentKitClient({ transport });
+
+    await (
+      await client.sendMessage({
+        threadId: "thread-outcome-approval",
+        text: "Hi",
+      })
+    ).completed;
+
+    expect(reports).toEqual([
+      expect.objectContaining({ turnId: "turn-approval" }),
     ]);
     await transport.dispose();
   });

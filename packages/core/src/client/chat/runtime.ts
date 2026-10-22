@@ -773,8 +773,10 @@ export interface AgentChatRuntimeTurn<
 > {
   readonly id?: AgentChatRuntimeTurnId;
   /**
-   * The turn id the request carried, when the runtime sent one. A continuation
-   * sends the turn it continues, so this is not always `id`.
+   * The turn the server stored the run under (its `X-Turn-Id`), else the one
+   * the request carried. A continuation sends the turn it continues, and an
+   * approval resume runs under its pending approval's turn, so this is not
+   * always `id`.
    */
   readonly requestTurnId?: AgentChatRuntimeTurnId;
   readonly sessionId: AgentChatRuntimeSessionId;
@@ -923,6 +925,7 @@ export interface CreateHttpAgentChatRuntimeOptions<
     session: AgentChatRuntimeSessionSummary;
     turn: AgentChatRuntimeTurnInput;
     turnId: AgentChatRuntimeTurnId;
+    /** The turn the server stored the run under, as on the returned turn. */
     requestTurnId: AgentChatRuntimeTurnId;
     runId: string;
   }) => void;
@@ -1615,6 +1618,9 @@ export function createHttpAgentChatRuntime<
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
+      // The server can store the run under another turn than the one asked
+      // for: an approval resume runs under its pending approval's turn.
+      const runTurnId = response.headers.get("X-Turn-Id") || requestTurnId;
       try {
         // A replay streams a turn the server already finished, and a stream
         // with no run id is a refusal (no model connected), not new work.
@@ -1623,7 +1629,7 @@ export function createHttpAgentChatRuntime<
             session: summary,
             turn,
             turnId,
-            requestTurnId,
+            requestTurnId: runTurnId,
             runId,
           });
         }
@@ -1664,7 +1670,7 @@ export function createHttpAgentChatRuntime<
 
       return {
         id: turnId,
-        requestTurnId,
+        requestTurnId: runTurnId,
         sessionId,
         runId,
         events,

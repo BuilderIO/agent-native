@@ -3800,8 +3800,8 @@ export function createAgentKitProtocolAdapter(
       run.quietAuthorityReads = 0;
       run.successorWaitStartedAtMs = undefined;
     }
-    // A resumed stream is the same turn; only the request that started it
-    // knows the turn id it sent.
+    // A resumed stream is the same turn; only the response that started it
+    // carries the turn the server stored the run under.
     run.turn =
       resumed.requestTurnId || !run.turn.requestTurnId
         ? resumed
