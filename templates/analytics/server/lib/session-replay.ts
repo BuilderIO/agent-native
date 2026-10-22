@@ -1841,8 +1841,10 @@ export async function recordSessionReplayChunks(
   // The usage row reserves the request's size while chunks upload, so
   // concurrent ingests see it, then settles at the gzipped bytes actually
   // stored. Cross-origin uploads arrive uncompressed and would otherwise count
-  // several times what they cost to keep. A request carrying client-stored
-  // blobs keeps its reservation, since their sizes are only what it declares.
+  // several times what they cost to keep. A gzipped request can settle a
+  // little above its wire size, since each chunk is gzipped on its own. A
+  // request carrying client-stored blobs keeps its reservation, since their
+  // sizes are only what it declares.
   const reservedBytes = replayIngestByteLength(clampedInput, context);
   let storedBytes: number | null = 0;
   try {
@@ -2082,10 +2084,7 @@ export async function recordSessionReplayChunks(
       }
       errorCount = persistedErrorCount;
       rageClickCount = persistedRageClickCount;
-      const settledBytes =
-        storedBytes === null
-          ? reservedBytes
-          : Math.min(reservedBytes, storedBytes);
+      const settledBytes = storedBytes ?? reservedBytes;
       if (settledBytes !== reservedBytes) {
         await tx
           .update(schema.sessionReplayIngests)

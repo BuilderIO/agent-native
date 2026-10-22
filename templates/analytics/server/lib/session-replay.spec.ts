@@ -3384,22 +3384,31 @@ describe("session replay ingest parsing", () => {
     ]);
   });
 
-  it("never settles the usage row above the request's size", async () => {
+  it("settles above a gzipped request's wire size when its chunks store larger", async () => {
+    // A same-origin request arrives gzipped as one stream, so its wire size can
+    // be smaller than its chunks gzipped one at a time.
     putPrivateBlobMock.mockResolvedValue({
       opaque: "blob_1",
       provider: "test",
     });
+    const input = replayIngestPayload();
+    const storedBytes = gzipSync(
+      Buffer.from(input.chunks[0]!.inlineData!, "utf8"),
+    ).byteLength;
     const { db, updates } = createReplayDbMock(replayIngestKeyDbResults(null));
     getDbMock.mockReturnValue(db);
 
-    await recordSessionReplayChunks(replayIngestPayload(), {
+    await recordSessionReplayChunks(input, {
       origin: "https://app.example.com",
       requestBytes: 10,
     });
 
+    expect(storedBytes).toBeGreaterThan(10);
     expect(
       updates.filter((entry) => entry.table === schema.sessionReplayIngests),
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({ values: { byteLength: storedBytes } }),
+    ]);
   });
 
   it("keeps the reservation when a chunk is a blob the client stored", async () => {
