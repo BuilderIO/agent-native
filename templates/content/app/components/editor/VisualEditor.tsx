@@ -5009,7 +5009,11 @@ export function VisualEditor({
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
       {editable ? (
-        <BlockActionsMenu editor={editor} tableOptions={!suggesting} />
+        <BlockActionsMenu
+          editor={editor}
+          onComment={onComment}
+          suggesting={suggesting}
+        />
       ) : null}
       {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">

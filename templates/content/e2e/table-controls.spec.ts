@@ -151,7 +151,7 @@ test.describe("inline table controls", () => {
 
     await cell(page, "Alpha").hover();
     await page.locator(GRIP).click();
-    await page.getByRole("menu").getByText("Delete", { exact: true }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await expect(page.locator(`${EDITOR} table`)).toHaveCount(0);
     await expect.poll(() => savedTableRows(page, id)).toBe(0);
     await page.reload();

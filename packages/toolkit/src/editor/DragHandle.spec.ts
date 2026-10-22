@@ -1196,3 +1196,135 @@ describe("DragHandle grip position", () => {
     }
   });
 });
+
+describe("DragHandle block selection", () => {
+  const modifier = /Mac|iP(hone|[oa]d)/.test(navigator.platform)
+    ? { metaKey: true }
+    : { ctrlKey: true };
+
+  function pressModD(editor: Editor): KeyboardEvent {
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "d",
+      ...modifier,
+    });
+    editor.view.dom.dispatchEvent(event);
+    return event;
+  }
+
+  function pointerDown(target: Element): void {
+    target.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+    );
+  }
+
+  it("duplicates a selected block with Mod-d, as the user's edit", () => {
+    const { editor } = mountEditor("<p>First</p><p>Second</p>");
+    const marks: unknown[] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) marks.push(transaction.getMeta("uiEvent"));
+    });
+
+    try {
+      editor.commands.setNodeSelection(0);
+      const event = pressModD(editor);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(
+        Array.from({ length: editor.state.doc.childCount }, (_, index) =>
+          childText(editor, index),
+        ),
+      ).toEqual(["First", "First", "Second"]);
+      expect(editor.state.selection.from).toBe(
+        editor.state.doc.child(0).nodeSize,
+      );
+      expect(marks).toEqual([DRAG_HANDLE_UI_EVENT]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("leaves Mod-d to the browser with a caret in text", () => {
+    const { editor } = mountEditor("<p>First</p><p>Second</p>");
+
+    try {
+      editor.commands.setTextSelection(2);
+      const event = pressModD(editor);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(editor.state.doc.childCount).toBe(2);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["a paragraph", "<p>First</p><p>Second</p>", 0, "First"],
+    ["a divider", "<p>First</p><hr><p>Second</p>", 7, "Second"],
+  ])(
+    "lets go of %s when the page beside it is clicked",
+    (_name, content, pos, caretText) => {
+      const { editor, wrapper } = mountEditor(content);
+      const page = document.createElement("div");
+      document.body.appendChild(page);
+      const before = editor.state.doc.toJSON();
+
+      try {
+        editor.commands.setNodeSelection(pos);
+        expect(
+          editor.view.dom.querySelector(".ProseMirror-selectednode"),
+        ).not.toBeNull();
+
+        pointerDown(page);
+
+        expect(editor.state.selection.empty).toBe(true);
+        expect(editor.state.selection.$from.parent.textContent).toBe(caretText);
+        expect(
+          editor.view.dom.querySelector(".ProseMirror-selectednode"),
+        ).toBeNull();
+        expect(editor.state.doc.toJSON()).toEqual(before);
+        expect(wrapper.isConnected).toBe(true);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps the block selected for a click on the editor, the grip or a control", () => {
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
+    const button = document.createElement("button");
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    const menuText = document.createElement("span");
+    menu.appendChild(menuText);
+    document.body.append(button, menu);
+
+    try {
+      editor.commands.setNodeSelection(0);
+      for (const target of [
+        editor.view.dom.querySelector("p")!,
+        handle,
+        button,
+        menuText,
+      ]) {
+        pointerDown(target);
+        expect(editor.state.selection.from).toBe(0);
+        expect(editor.state.selection.empty).toBe(false);
+      }
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("stops watching the page once the editor is destroyed", () => {
+    const { editor } = mountEditor("<p>First</p><p>Second</p>");
+    editor.commands.setNodeSelection(0);
+    const dispatch = vi.spyOn(editor.view, "dispatch");
+    editor.destroy();
+
+    pointerDown(document.body);
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});

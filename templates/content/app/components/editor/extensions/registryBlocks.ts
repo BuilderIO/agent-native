@@ -21,15 +21,20 @@ export const RegistryBlockNode = createRegistryBlockNode({
   mintId: createContentBlockId,
 });
 
+/** A component from the page's source, which the page can't add or remove. */
+export function isSourceComponentNode(node: any): boolean {
+  return (
+    node.type?.name === "registryBlock" &&
+    node.attrs?.blockType === "source-component" &&
+    typeof node.attrs.blockId === "string" &&
+    !!node.attrs.blockId
+  );
+}
+
 function sourceComponentIdCounts(doc: { descendants: (fn: any) => void }) {
   const counts = new Map<string, number>();
   doc.descendants((node: any) => {
-    if (
-      node.type?.name === "registryBlock" &&
-      node.attrs?.blockType === "source-component" &&
-      typeof node.attrs.blockId === "string" &&
-      node.attrs.blockId
-    ) {
+    if (isSourceComponentNode(node)) {
       counts.set(node.attrs.blockId, (counts.get(node.attrs.blockId) ?? 0) + 1);
     }
     return true;

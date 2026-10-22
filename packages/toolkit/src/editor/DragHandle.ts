@@ -4,6 +4,7 @@ import {
   Plugin,
   PluginKey,
   NodeSelection,
+  Selection,
   TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
@@ -287,6 +288,55 @@ const collapseAndBlurEditorAfterDrop = (
   view.dom.blur();
 };
 
+const focusSelectionNear = (
+  view: EditorView,
+  tr: Transaction,
+  pos: number,
+  bias: -1 | 1,
+) => {
+  tr.setSelection(
+    TextSelection.near(
+      tr.doc.resolve(clamp(pos, 0, tr.doc.content.size)),
+      bias,
+    ),
+  );
+  view.dispatch(markUserAction(tr).scrollIntoView());
+  view.focus();
+};
+
+/** Puts a copy of the node at `pos` right after it, and selects the copy. */
+const duplicateNodeAt = (
+  view: EditorView,
+  pos: number,
+  node: ProseMirrorNode,
+) => {
+  const insertPos = pos + node.nodeSize;
+  const tr = view.state.tr.insert(insertPos, node);
+  if (!tr.docChanged) return false;
+  try {
+    tr.setSelection(NodeSelection.create(tr.doc, insertPos));
+    view.dispatch(markUserAction(tr).scrollIntoView());
+    view.focus();
+  } catch {
+    focusSelectionNear(view, tr, insertPos, 1);
+  }
+  return true;
+};
+
+// A click on one of these may act on the selected block, so it keeps the
+// selection. A click anywhere else on the page lets go of it.
+const KEEPS_BLOCK_SELECTION = [
+  "button",
+  "[role=button]",
+  "[role=dialog]",
+  "[role=alertdialog]",
+  "[role=listbox]",
+  "[role=menu]",
+  "[role=menubar]",
+  "[role=toolbar]",
+  "[data-radix-popper-content-wrapper]",
+].join(", ");
+
 const editorArea = (registration: DragHandleRegistration) => {
   const rect = registration.view.dom.getBoundingClientRect();
   return rect.width * rect.height;
@@ -496,6 +546,21 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       wrapperSelector: DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
       getDragTransferData: undefined,
       receiveDragTransferData: undefined,
+    };
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      "Mod-d": ({ editor }) => {
+        const { selection } = editor.state;
+        if (!(selection instanceof NodeSelection) || !editor.isEditable) {
+          return false;
+        }
+        duplicateNodeAt(editor.view, selection.from, selection.node);
+        // Even a copy the document refuses mustn't open the browser's bookmark
+        // dialog over a selected block.
+        return true;
+      },
     };
   },
 
@@ -738,36 +803,10 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       return null;
     };
 
-    const focusSelectionNear = (
-      view: EditorView,
-      tr: Transaction,
-      pos: number,
-      bias: -1 | 1,
-    ) => {
-      tr.setSelection(
-        TextSelection.near(
-          tr.doc.resolve(clamp(pos, 0, tr.doc.content.size)),
-          bias,
-        ),
-      );
-      view.dispatch(markUserAction(tr).scrollIntoView());
-      view.focus();
-    };
-
     const duplicateBlock = (context: DragHandleMenuContext) => {
       const resolved = resolveMenuContext(context);
       if (!resolved) return;
-
-      const insertPos = resolved.sourcePos + resolved.sourceNodeSize;
-      const tr = resolved.view.state.tr.insert(insertPos, resolved.sourceNode);
-
-      try {
-        tr.setSelection(NodeSelection.create(tr.doc, insertPos));
-        resolved.view.dispatch(markUserAction(tr).scrollIntoView());
-        resolved.view.focus();
-      } catch {
-        focusSelectionNear(resolved.view, tr, insertPos, 1);
-      }
+      duplicateNodeAt(resolved.view, resolved.sourcePos, resolved.sourceNode);
     };
 
     const deleteBlock = (context: DragHandleMenuContext) => {
@@ -1488,6 +1527,35 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             document.addEventListener("keydown", handleDocumentKeyDown);
           });
 
+          // A selected block keeps its outline when the editor loses focus,
+          // so a click on the page beside it has to let go of it.
+          const releaseBlockSelection = (event: PointerEvent) => {
+            const { selection } = editorView.state;
+            if (event.button !== 0 || !(selection instanceof NodeSelection)) {
+              return;
+            }
+            const target = event.target;
+            if (
+              !(target instanceof Element) ||
+              editorView.dom.contains(target) ||
+              handle?.contains(target) ||
+              target.closest(KEEPS_BLOCK_SELECTION)
+            ) {
+              return;
+            }
+            const caret =
+              Selection.findFrom(selection.$from, 1, true) ??
+              Selection.findFrom(selection.$from, -1, true);
+            if (caret)
+              editorView.dispatch(editorView.state.tr.setSelection(caret));
+          };
+          const ownerDocument = editorView.dom.ownerDocument;
+          ownerDocument.addEventListener(
+            "pointerdown",
+            releaseBlockSelection,
+            true,
+          );
+
           handle.addEventListener("keydown", (e) => {
             if (e.key !== "Enter" && e.key !== " ") return;
             e.preventDefault();
@@ -1520,6 +1588,11 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
           return {
             destroy() {
+              ownerDocument.removeEventListener(
+                "pointerdown",
+                releaseBlockSelection,
+                true,
+              );
               closeMenu({ hideGrip: true });
               finishDragSession(false);
               releaseGlobalHoverListener();

@@ -635,6 +635,17 @@ const editor = {
     duplicate: "Duplicar",
     delete: "Excluir",
     insertBelow: "Inserir bloco abaixo",
+    search: "Pesquisar ações...",
+    noResults: "Nenhum resultado",
+    block: "Bloco",
+    keyCtrl: "Ctrl",
+    keyShift: "Shift",
+    keyDelete: "Del",
+    lockedSource:
+      "Componentes do arquivo de origem não podem ser duplicados nem excluídos aqui.",
+    lockedSuggesting:
+      "Sugestões não podem adicionar nem remover este tipo de bloco.",
+    lockedPage: "Esta página não permite essa alteração.",
   },
   noDocumentSelected: "Nenhum documento selecionado",
   registryBlockLoadError:
@@ -978,7 +989,7 @@ const editor = {
     todoListDescription: "Itens da lista de verificação",
     toggle: "Alternar",
     toggleDescription: "Linha de alternância de estilo de noção",
-    turnInto: "Transforme-se em",
+    turnInto: "Transformar em",
     video: "Vídeo",
     videoDescription: "Carregar ou incorporar vídeo",
   },
