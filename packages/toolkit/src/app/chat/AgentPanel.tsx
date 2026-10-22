@@ -1880,6 +1880,7 @@ function AgentPanelInner({
       headerMenuOpen,
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,
+      pageHeaderShareTriggerContent,
       pageToolbarSlot,
       pendingHeaderOverlayRef,
       setHeaderMenuOpen,
