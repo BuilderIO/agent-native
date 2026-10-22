@@ -412,6 +412,12 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
     args: tool.args ?? parseJsonObject(tool.input),
     resultText: tool.result,
     resultJson: tool.resultJson ?? resultJson,
+    status:
+      tool.state === "errored"
+        ? "failed"
+        : tool.state === "activity"
+          ? "running"
+          : tool.state,
     isRunning: tool.state === "running" || tool.state === "activity",
     chatUI: tool.chatUI,
   };

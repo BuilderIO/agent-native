@@ -25,6 +25,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
 import { AgentInteractionItem } from "../agentkit/react/components.js";
 import { AgentKitProvider } from "../agentkit/react/context.js";
+import {
+  clearToolRenderersForTests,
+  registerToolRenderer,
+} from "./chat/tool-render-registry.js";
 
 function largePngBytes(
   width = 2560,
@@ -107,7 +111,7 @@ const chatMocks = vi.hoisted(() => ({
   runtimeOptions: null as any,
   inBuilder: false,
   useRealRoot: false,
-  renderToolCallErrors: false,
+  renderRealToolCalls: false,
   realComposerController: null as AgentKitClient | null,
   useRealChat: false,
   routeControllerPersistenceThroughTransport: false,
@@ -785,7 +789,7 @@ vi.mock("./chat/tool-call-display.js", async (importOriginal) => {
     ChatRunningContext: actual.ChatRunningContext,
     SuppressInlineOpenAppContext: actual.SuppressInlineOpenAppContext,
     ToolCallDisplay: (props: any) =>
-      chatMocks.renderToolCallErrors && props.isError
+      chatMocks.renderRealToolCalls
         ? React.createElement(actual.ToolCallDisplay, props)
         : null,
     AgentApprovalCard: (props: any) => {
@@ -1011,7 +1015,7 @@ beforeEach(() => {
   chatMocks.transportOptions = null;
   chatMocks.inBuilder = false;
   chatMocks.useRealRoot = false;
-  chatMocks.renderToolCallErrors = false;
+  chatMocks.renderRealToolCalls = false;
   chatMocks.realComposerController = null;
   chatMocks.useRealChat = false;
   chatMocks.routeControllerPersistenceThroughTransport = false;
@@ -1047,6 +1051,7 @@ afterEach(async () => {
   await unmount();
   chatMocks.realComposerController?.dispose();
   window.sessionStorage.clear();
+  clearToolRenderersForTests();
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
@@ -1358,7 +1363,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     chatMocks.useRealChat = true;
     chatMocks.useRealRoot = true;
-    chatMocks.renderToolCallErrors = true;
+    chatMocks.renderRealToolCalls = true;
     chatMocks.thread.messages = [
       {
         id: "assistant-1",
@@ -1418,6 +1423,85 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(toolRow?.getAttribute("aria-expanded")).toBe("true");
     expect(container.textContent).toContain("Query execution failed.");
   });
+
+  it.each(["completed", "cancelled"] as const)(
+    "passes %s status to custom renderers in the regular transcript",
+    async (status) => {
+      const at = "2026-09-28T00:00:00.000Z";
+      const tool: AgentToolCall = {
+        id: "status-tool-1",
+        name: "example-status-tool",
+        input: {},
+        output: "Finished.",
+        status,
+        runId: "status-run-1",
+        messageId: "status-assistant-1",
+      };
+      registerToolRenderer({
+        id: "example-status-renderer",
+        match: "example-status-tool",
+        Component: ({ context }) => (
+          <div data-testid="custom-tool-status" data-status={context.status} />
+        ),
+      });
+      chatMocks.useRealChat = true;
+      chatMocks.useRealRoot = true;
+      chatMocks.renderRealToolCalls = true;
+      chatMocks.thread.messages = [
+        {
+          id: "status-assistant-1",
+          role: "assistant",
+          status: "complete",
+          parts: [{ type: "text", text: "The tool finished." }],
+        },
+      ];
+      chatMocks.thread.tools = { [tool.id]: tool };
+      chatMocks.thread.runs = {
+        "status-run-1": {
+          id: "status-run-1",
+          status,
+          lastSequence: 3,
+        },
+      };
+      chatMocks.thread.events = [
+        {
+          id: "status-tool-started",
+          threadId: chatMocks.threadId,
+          runId: "status-run-1",
+          sequence: 1,
+          occurredAt: at,
+          type: "tool.started",
+          toolCall: { ...tool, status: "running" },
+        },
+        {
+          id: "status-tool-updated",
+          threadId: chatMocks.threadId,
+          runId: "status-run-1",
+          sequence: 2,
+          occurredAt: at,
+          type: "tool.updated",
+          toolCall: tool,
+        },
+        {
+          id: "status-run-ended",
+          threadId: chatMocks.threadId,
+          runId: "status-run-1",
+          sequence: 3,
+          occurredAt: at,
+          type: status === "completed" ? "run.completed" : "run.cancelled",
+        },
+      ];
+
+      await useRealComposer();
+      await mount(baseProps({ isNewThread: false }));
+
+      expect(
+        container
+          .querySelector('[data-testid="custom-tool-status"]')
+          ?.getAttribute("data-status"),
+      ).toBe(status);
+    },
+  );
 
   it("checks readiness on the configured chat API server", async () => {
     await mount(
