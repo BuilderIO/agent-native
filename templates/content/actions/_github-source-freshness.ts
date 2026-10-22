@@ -281,9 +281,10 @@ export async function runGitHubSourceSweep(context: RecurringSweepContext) {
     )
     .limit(SWEEP_MAX_LINKS);
   // A link partway through a push goes after the rest, so a big folder's
-  // first fill doesn't hold up a push to a small one. Those links take turns,
-  // least recently worked on first: a run partway through doesn't count as a
-  // check, so their check times don't change.
+  // first fill doesn't hold up a push to a small one. Those links take turns
+  // by when a run last moved their push, oldest first. The query's order
+  // can't do that: a run partway through isn't a check, so it leaves
+  // lastRefreshedAt as it was, and the same link would go first every time.
   const carrying = new Set(
     due
       .map((link) => ({ link, state: linkState(link.metadataJson) }))
