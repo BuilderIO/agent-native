@@ -77,6 +77,13 @@ function estimateTextWidth(text: string, fontSize: number): number {
   }, 0);
 }
 
+function formatHorizontalValueLabel(value: number, fontSize: number): string {
+  const label = formatTick(value);
+  return estimateTextWidth(label, fontSize) > MAX_HORIZONTAL_TICK_LABEL_WIDTH
+    ? formatCompactTick(value)
+    : label;
+}
+
 function rangeFor(chart: DataChartWidgetData) {
   const values = chart.data.flatMap((row) =>
     chart.series
@@ -185,7 +192,10 @@ function ChartBody({
               .filter((value): value is number => value !== null && value >= 0)
               .map((value) =>
                 estimateTextWidth(
-                  formatTick(value),
+                  formatHorizontalValueLabel(
+                    value,
+                    chart.valueLabelFontSize ?? 11,
+                  ),
                   chart.valueLabelFontSize ?? 11,
                 ),
               ),
@@ -202,7 +212,10 @@ function ChartBody({
               .filter((value): value is number => value !== null && value < 0)
               .map((value) =>
                 estimateTextWidth(
-                  formatTick(value),
+                  formatHorizontalValueLabel(
+                    value,
+                    chart.valueLabelFontSize ?? 11,
+                  ),
                   chart.valueLabelFontSize ?? 11,
                 ),
               ),
@@ -516,7 +529,9 @@ function ChartBody({
                       isHorizontalBar ? (value < 0 ? "end" : "start") : "middle"
                     }
                   >
-                    {formatTick(value)}
+                    {isHorizontalBar
+                      ? formatHorizontalValueLabel(value, valueLabelFontSize)
+                      : formatTick(value)}
                   </text>
                 ) : null}
               </g>

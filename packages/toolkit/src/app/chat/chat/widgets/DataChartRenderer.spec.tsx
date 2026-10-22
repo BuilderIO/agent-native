@@ -356,6 +356,46 @@ describe("DataChartRenderer theme colors", () => {
     }
   });
 
+  it("keeps horizontal bar value labels within compacted gutters", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Low", value: -1e300 },
+            { day: "High", value: 1e300 },
+          ],
+          showValueLabels: true,
+          valueAxisTickInterval: 1e299,
+        }}
+      />,
+    );
+    const valueLabels = Array.from(
+      markup.matchAll(
+        /<text x="([\d.]+)" y="([\d.]+)"[^>]*text-anchor="(start|end)">(-?1e\+300)<\/text>/g,
+      ),
+      (match) => ({
+        x: Number(match[1]),
+        anchor: match[3],
+        label: match[4] ?? "",
+      }),
+    );
+
+    expect(valueLabels).toHaveLength(2);
+    for (const label of valueLabels) {
+      const estimatedWidth = label.label.length * 11 * 0.65;
+      const leftEdge =
+        label.anchor === "end" ? label.x - estimatedWidth : label.x;
+      const rightEdge =
+        label.anchor === "end" ? label.x : label.x + estimatedWidth;
+      expect(leftEdge).toBeGreaterThanOrEqual(0);
+      expect(rightEdge).toBeLessThanOrEqual(640);
+    }
+  });
+
   it("formats very small custom intervals without collapsing labels to zero", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer
