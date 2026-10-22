@@ -478,7 +478,7 @@ export interface CommandMenuProps<TAppContext = unknown> {
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
   renderResults?: (search: string) => ReactNode;
-  /** Reports whether the default `renderResults` output has selectable rows; supply it for opaque components. */
+  /** Reports whether default `renderResults` output has selectable rows; required with `emptyState` when results use opaque components. */
   renderResultsHasItems?: (search: string) => boolean;
   renderResultsPosition?: "before" | "after";
   renderContent?: (options: {
@@ -862,11 +862,7 @@ export function CommandMenu<TAppContext = unknown>({
       : appPreview;
   const filteredChildren = activeAppPage ? null : filterChildren(children);
   const hasAppCommandResults = filteredAppGroups.length > 0;
-  const hasChildrenResults = React.Children.toArray(filteredChildren).some(
-    (child) =>
-      React.isValidElement(child) &&
-      (child.type === CommandGroup || child.type === CommandDocsGroup),
-  );
+  const hasChildrenResults = hasCommandItems(filteredChildren);
   const hasCommandResults = hasChildrenResults || hasAppCommandResults;
   const dynamicResults =
     open && !activeAppPage ? renderResults?.(search) : null;

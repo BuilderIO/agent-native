@@ -354,6 +354,32 @@ describe("CommandMenu", () => {
     expect(document.body.textContent).toContain("Open transcript");
   });
 
+  it("does not show the empty state beside groups wrapped in a fragment", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          emptyState="No matching commands"
+          showAgentFallback={false}
+        >
+          <>
+            <CommandMenu.Group heading="Actions">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Open item
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          </>
+        </CommandMenu>,
+      );
+    });
+
+    search("open");
+
+    expect(document.body.textContent).toContain("Open item");
+    expect(document.querySelector('[role="status"]')).toBeNull();
+  });
+
   it("offers the shared About Agent-Native surface and matches version searches", () => {
     act(() => {
       root.render(
