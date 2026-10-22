@@ -548,6 +548,7 @@ export function mountMCP(
       // Only a signed-in caller makes a grant, and MCP runs its calls from
       // `productionActions` when there is one (`selectMcpActionSurface`).
       actions: config.productionActions ?? config.actions,
+      appPage: config.appApprovalPage === true,
     },
     routePrefix,
   );

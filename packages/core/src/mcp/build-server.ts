@@ -180,6 +180,13 @@ export interface MCPConfig {
   createLocalAgentTaskClient?: (
     event: import("h3").H3Event,
   ) => import("../a2a/mcp-task-client.js").McpAgentTaskClient;
+  /**
+   * The app renders approval reviews in its own pages, as the toolkit's
+   * `AppProviders` does, so a signed-in browser opening a review link is sent
+   * to the app's home page with the grant id under `MCP_APPROVAL_HASH_PARAM`.
+   * Otherwise the link shows the framework's plain review page.
+   */
+  appApprovalPage?: boolean;
   builtinCrossAppTools?: boolean;
   /**
    * `"app"` serves the app's own action registry flat. `"directory"` serves

@@ -7,7 +7,7 @@ import {
 
 /**
  * Copy for the page where a person approves or denies an MCP action call.
- * `{action}`, `{time}`, `{client}`, `{email}`, `{count}` and `{url}` are filled
+ * `{action}`, `{time}`, `{client}`, `{email}`, `{count}`, `{url}` and `{app}` are filled
  * in by the page or prompt; `{time}` in the reader's own time zone.
  */
 export interface McpApprovalMessages {
@@ -52,6 +52,9 @@ export interface McpApprovalMessages {
   argumentsCut: string;
   reviewWhole: string;
   relativeLink: string;
+  loadFailed: string;
+  tryAgain: string;
+  openApp: string;
 }
 
 export const MCP_APPROVAL_MESSAGES: Record<
@@ -116,6 +119,10 @@ export const MCP_APPROVAL_MESSAGES: Record<
     relativeLink:
       "Relative link: resolve it against this MCP server's origin. No public URL is configured; set APP_URL.",
     reviewWhole: "See all of it on the review page: {url}",
+    loadFailed:
+      "This request couldn't be loaded. Check your connection and try again.",
+    tryAgain: "Try again",
+    openApp: "Open {app}",
   },
   "zh-CN": {
     documentTitle: "批准 {action}？",
@@ -168,6 +175,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     relativeLink:
       "相对链接：请以此 MCP 服务器的源地址解析。应用未配置公共 URL；请设置 APP_URL。",
     reviewWhole: "在审核页面查看完整内容：{url}",
+    loadFailed: "无法加载此请求。请检查网络连接后重试。",
+    tryAgain: "重试",
+    openApp: "打开 {app}",
   },
   "zh-TW": {
     documentTitle: "核准 {action}？",
@@ -220,6 +230,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     relativeLink:
       "相對連結：請以此 MCP 伺服器的來源位址解析。應用程式未設定公開 URL；請設定 APP_URL。",
     reviewWhole: "在審核頁面查看完整內容：{url}",
+    loadFailed: "無法載入此請求。請檢查網路連線後再試一次。",
+    tryAgain: "再試一次",
+    openApp: "開啟 {app}",
   },
   "es-ES": {
     documentTitle: "¿Aprobar {action}?",
@@ -281,6 +294,10 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Enlace relativo: resuélvelo con el origen de este servidor MCP. No hay URL pública configurada; define APP_URL.",
     reviewWhole:
       "Consulta la solicitud completa en la página de revisión: {url}",
+    loadFailed:
+      "No se pudo cargar esta solicitud. Comprueba tu conexión e inténtalo de nuevo.",
+    tryAgain: "Intentar de nuevo",
+    openApp: "Abrir {app}",
   },
   "fr-FR": {
     documentTitle: "Approuver {action} ?",
@@ -342,6 +359,10 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Lien relatif : utilisez l’origine de ce serveur MCP. Aucune URL publique n’est configurée ; définissez APP_URL.",
     reviewWhole:
       "Consultez la demande complète sur la page de vérification : {url}",
+    loadFailed:
+      "Impossible de charger cette demande. Vérifiez votre connexion et réessayez.",
+    tryAgain: "Réessayer",
+    openApp: "Ouvrir {app}",
   },
   "de-DE": {
     documentTitle: "{action} genehmigen?",
@@ -404,6 +425,10 @@ export const MCP_APPROVAL_MESSAGES: Record<
     relativeLink:
       "Relativer Link: mit dem Origin dieses MCP-Servers auflösen. Keine öffentliche URL konfiguriert; APP_URL setzen.",
     reviewWhole: "Die vollständige Anfrage findest du auf der Prüfseite: {url}",
+    loadFailed:
+      "Diese Anfrage konnte nicht geladen werden. Prüfe deine Verbindung und versuche es erneut.",
+    tryAgain: "Erneut versuchen",
+    openApp: "{app} öffnen",
   },
   "ja-JP": {
     documentTitle: "{action} を承認しますか？",
@@ -464,6 +489,10 @@ export const MCP_APPROVAL_MESSAGES: Record<
     relativeLink:
       "相対リンクです。この MCP サーバーのオリジンを基準に解決してください。公開 URL が未設定です。APP_URL を設定してください。",
     reviewWhole: "確認ページですべての内容を確認できます：{url}",
+    loadFailed:
+      "このリクエストを読み込めませんでした。接続を確認して、もう一度お試しください。",
+    tryAgain: "再試行",
+    openApp: "{app} を開く",
   },
   "ko-KR": {
     documentTitle: "{action}을(를) 승인할까요?",
@@ -523,6 +552,10 @@ export const MCP_APPROVAL_MESSAGES: Record<
     relativeLink:
       "상대 링크입니다. 이 MCP 서버의 오리진을 기준으로 해석하세요. 공개 URL이 설정되지 않았습니다. APP_URL을 설정하세요.",
     reviewWhole: "검토 페이지에서 전체 내용을 확인하세요: {url}",
+    loadFailed:
+      "이 요청을 불러올 수 없습니다. 연결을 확인한 후 다시 시도하세요.",
+    tryAgain: "다시 시도",
+    openApp: "{app} 열기",
   },
   "pt-BR": {
     documentTitle: "Aprovar {action}?",
@@ -583,6 +616,10 @@ export const MCP_APPROVAL_MESSAGES: Record<
     relativeLink:
       "Link relativo: resolva-o usando a origem deste servidor MCP. Nenhuma URL pública está configurada; defina APP_URL.",
     reviewWhole: "Veja a solicitação completa na página de revisão: {url}",
+    loadFailed:
+      "Não foi possível carregar esta solicitação. Verifique sua conexão e tente novamente.",
+    tryAgain: "Tentar novamente",
+    openApp: "Abrir {app}",
   },
   "hi-IN": {
     documentTitle: "{action} को मंज़ूरी दें?",
@@ -642,6 +679,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     relativeLink:
       "सापेक्ष लिंक: इसे इस MCP सर्वर के ऑरिजिन के आधार पर पूरा करें। सार्वजनिक URL कॉन्फ़िगर नहीं है; APP_URL सेट करें।",
     reviewWhole: "पूरा अनुरोध समीक्षा पेज पर देखें: {url}",
+    loadFailed: "यह अनुरोध लोड नहीं हो सका। अपना कनेक्शन जाँचें और फिर से कोशिश करें।",
+    tryAgain: "फिर से कोशिश करें",
+    openApp: "{app} खोलें",
   },
   "ar-SA": {
     documentTitle: "الموافقة على {action}؟",
@@ -700,6 +740,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     relativeLink:
       "رابط نسبي: أكمله باستخدام أصل خادم MCP هذا. لم يُضبط عنوان URL عام؛ اضبط APP_URL.",
     reviewWhole: "اطّلع على الطلب كاملًا في صفحة المراجعة: {url}",
+    loadFailed: "تعذّر تحميل هذا الطلب. تحقّق من اتصالك وحاول مرة أخرى.",
+    tryAgain: "إعادة المحاولة",
+    openApp: "فتح {app}",
   },
 };
 

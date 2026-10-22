@@ -33,6 +33,10 @@ import React, { useContext, useEffect, useRef } from "react";
 import { useInRouterContext } from "react-router";
 
 import { RequireSession } from "../auth/RequireSession.js";
+import {
+  McpApprovalReviewGate,
+  McpApprovalReviewSkeleton,
+} from "../mcp-approval/McpApprovalReview.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 import {
   AppShellSkeleton,
@@ -402,6 +406,40 @@ function AgentEngineReadinessBootstrap() {
 
 const ThemeFamilySync = React.lazy(() => import("./ThemeFamilySync.js"));
 
+/**
+ * An MCP approval review the URL names replaces the app. It sits outside the
+ * device gate, so a phone can decide, and outside first-run onboarding, so a
+ * new user can decide before setting up the app.
+ */
+function McpApprovalReviewBoundary({
+  appName,
+  themeFamily,
+  children,
+}: {
+  appName: string | undefined;
+  themeFamily: boolean;
+  children: React.ReactNode;
+}) {
+  const name = appName ?? readDocumentTitleFallback();
+  return (
+    <McpApprovalReviewGate
+      appName={name}
+      wrap={(review) => (
+        <RequireSession fallback={<McpApprovalReviewSkeleton appName={name} />}>
+          {themeFamily ? (
+            <React.Suspense fallback={null}>
+              <ThemeFamilySync />
+            </React.Suspense>
+          ) : null}
+          {review}
+        </RequireSession>
+      )}
+    >
+      {children}
+    </McpApprovalReviewGate>
+  );
+}
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -571,13 +609,27 @@ export function AppProviders({
     </RequireSession>
   );
 
-  const gated = unsupportedDevice ? (
+  const deviceGated = unsupportedDevice ? (
     <UnsupportedDeviceGate {...unsupportedDevice}>
       {sessionGated}
     </UnsupportedDeviceGate>
   ) : (
     sessionGated
   );
+
+  // A token-authenticated embed or an app inside another app's document
+  // never shows a review: neither is the reader's own top-level page.
+  const gated =
+    sessionBypass || !ownsDocument ? (
+      deviceGated
+    ) : (
+      <McpApprovalReviewBoundary
+        appName={documentTitleFallback}
+        themeFamily={enableThemeFamily}
+      >
+        {deviceGated}
+      </McpApprovalReviewBoundary>
+    );
 
   return (
     <>

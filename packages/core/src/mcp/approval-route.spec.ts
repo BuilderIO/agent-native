@@ -14,6 +14,10 @@ import { z } from "zod";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { hasRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import {
   handleMcpApprovalRequest,
@@ -159,6 +163,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
+  resetAppConfigForTests();
 });
 
 let sequence = 0;
@@ -216,6 +221,7 @@ async function send(
     headers?: Record<string, string>;
     body?: string;
     appId?: string;
+    appPage?: boolean;
   } = {},
 ) {
   const event = mockEvent(`${ORIGIN}/${id}`, {
@@ -226,6 +232,7 @@ async function send(
   const body = await handleMcpApprovalRequest(event, {
     appId: init.appId ?? "calendar",
     actions,
+    appPage: init.appPage,
   });
   return {
     status: event.res.status ?? 200,
@@ -413,6 +420,7 @@ describe("the owner's view", () => {
       expiresAt: grant.expiresAt,
       createdAt: NOW,
       readerTimeZone: null,
+      locale: "en-US",
       requester: { name: "Claude Code", connectedAt: CONNECTED_AT },
       csrfToken: expect.any(String),
     });
@@ -486,9 +494,10 @@ describe("the owner's view", () => {
     });
     const grant = await createdGrant();
 
-    expect((await getJson(grant.nonce)).body.readerTimeZone).toBe(
-      "America/New_York",
-    );
+    expect((await getJson(grant.nonce)).body).toMatchObject({
+      readerTimeZone: "America/New_York",
+      locale: "de-DE",
+    });
     const html = await getHtml(grant.nonce, { "accept-language": "ar-SA" });
     expect(html.body).toContain('<html lang="de-DE" dir="ltr">');
     expect(html.body).toContain("Genehmigen");
@@ -566,6 +575,82 @@ describe("the review page", () => {
     const { body } = await getHtml(grant.nonce, { "accept-language": "ar-SA" });
 
     expect(body).toContain('<html lang="ar-SA" dir="rtl">');
+  });
+});
+
+describe("an app that shows reviews in its own pages", () => {
+  const fromApp = (id: string, headers: Record<string, string> = {}) =>
+    send("GET", id, {
+      headers: { accept: "text/html,application/xhtml+xml", ...headers },
+      appPage: true,
+    });
+
+  function redirectOf(body: unknown) {
+    expect(body).toBeInstanceOf(Response);
+    const response = body as Response;
+    expect(response.status).toBe(302);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    return response.headers.get("location");
+  }
+
+  it("sends a signed-in reader to the app's home page, the id in the fragment", async () => {
+    const grant = await createdGrant();
+
+    const { body } = await fromApp(grant.nonce);
+
+    expect(redirectOf(body)).toBe(`/home#mcpApproval=${grant.nonce}`);
+  });
+
+  it("keeps the app's own home path and base path", async () => {
+    defineAppConfig({ app: { homePath: "/inbox" } });
+    vi.stubEnv("APP_BASE_PATH", "/mail");
+    const grant = await createdGrant();
+
+    const { body } = await fromApp(grant.nonce);
+
+    expect(redirectOf(body)).toBe(`/mail/inbox#mcpApproval=${grant.nonce}`);
+  });
+
+  it("serves sign-in at the link itself, so the link still works after it", async () => {
+    const grant = await createdGrant();
+    signedIn.session = null;
+    signedIn.loginPage = { html: "<p>Sign in</p>", status: 200 };
+
+    const { body } = await fromApp(grant.nonce);
+
+    await expect((body as Response).text()).resolves.toBe("<p>Sign in</p>");
+  });
+
+  it("still answers the page's own reads and decisions at the link", async () => {
+    const grant = await createdGrant();
+    const view = await send("GET", grant.nonce, {
+      headers: { accept: "application/json", "sec-fetch-site": "same-origin" },
+      appPage: true,
+    });
+    expect(view.body).toMatchObject({ id: grant.nonce, state: "pending" });
+
+    const decided = await send("POST", grant.nonce, {
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        origin: ORIGIN,
+        "sec-fetch-site": "same-origin",
+      },
+      body: JSON.stringify({
+        decision: "deny",
+        csrfToken: view.body.csrfToken,
+      }),
+      appPage: true,
+    });
+    expect(decided.body).toMatchObject({ state: "denied" });
+  });
+
+  it("redirects the same way for an id that names no grant, saying nothing about it", async () => {
+    const id = globalThis.crypto.randomUUID();
+
+    const { body } = await fromApp(id);
+
+    expect(redirectOf(body)).toBe(`/home#mcpApproval=${id}`);
   });
 });
 

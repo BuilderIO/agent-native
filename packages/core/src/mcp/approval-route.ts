@@ -8,6 +8,7 @@ import {
 } from "h3";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isProductionServerlessFunctionRuntime } from "../db/client.js";
 import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import {
@@ -23,7 +24,10 @@ import {
   type LocaleCode,
   type ResolvedLocalizationPreference,
 } from "../localization/shared.js";
-import { stripAppBasePath } from "../server/app-base-path.js";
+import {
+  getConfiguredAppBasePath,
+  stripAppBasePath,
+} from "../server/app-base-path.js";
 import {
   getAuthGuardPath,
   getBrowserCookieSession,
@@ -41,6 +45,10 @@ import { readBody } from "../server/h3-helpers.js";
 import { startIntervalJob } from "../server/interval-job.js";
 import { declaredLinkOrigin } from "../server/origin-allowlist.js";
 import { getUserSetting } from "../settings/user-settings.js";
+import {
+  isMcpApprovalId,
+  mcpApprovalAppPagePath,
+} from "../shared/mcp-approval-review.js";
 import {
   decideMcpApproval,
   getMcpApprovalForOwner,
@@ -86,11 +94,11 @@ export function mcpApprovalRoute(routePrefix = "/_agent-native"): string {
 export interface McpApprovalApp {
   appId: string;
   actions: Record<string, ActionEntry>;
+  /** The app's own pages show reviews; see `MCPConfig.appApprovalPage`. */
+  appPage?: boolean;
 }
 
 const TTL_MS = MCP_ACTION_APPROVAL_TTL_SECONDS * 1000;
-const GRANT_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /**
  * The review page for one grant, on the route the request's MCP mount
@@ -137,6 +145,8 @@ export interface McpApprovalView {
   priorRun: McpApprovalPriorRun | undefined;
   /** The reader's chosen time zone; null means the device's own. */
   readerTimeZone: string | null;
+  /** The summary's language, for the rest of the page's copy. */
+  locale: LocaleCode;
   /** Present while a decision can be made; sent back with it. */
   csrfToken?: string;
 }
@@ -231,6 +241,7 @@ async function buildView(
   record: McpApprovalRecord,
   reader: McpApprovalReader,
   entry: ActionEntry | undefined,
+  locale: LocaleCode,
   messages: McpApprovalMessages,
   preference: ResolvedLocalizationPreference | undefined,
 ): Promise<McpApprovalView> {
@@ -254,6 +265,7 @@ async function buildView(
         ? await findPriorApprovedRun(record, record.retrySafe)
         : undefined,
     readerTimeZone: readerTimeZone(preference) ?? null,
+    locale,
     ...(state === "pending"
       ? { csrfToken: await decisionToken(record.nonce, reader) }
       : {}),
@@ -534,7 +546,7 @@ function grantIdFrom(event: H3Event): string | undefined {
   if (path === null) return undefined;
   // A grant id is a UUID, so it never needs percent-decoding.
   const segment = path.slice(1);
-  return GRANT_ID.test(segment) ? segment : undefined;
+  return isMcpApprovalId(segment) ? segment : undefined;
 }
 
 export async function handleMcpApprovalRequest(
@@ -587,6 +599,22 @@ export async function handleMcpApprovalRequest(
     setResponseStatus(event, 401);
     return { error: configurationError ?? messages.signInToReview };
   }
+  // Only now, signed in: a signed-out reader signs in at this URL above, so
+  // the link the agent gave still works after sign-in.
+  if (method === "GET" && !wantsJson(event) && id && app.appPage) {
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location: mcpApprovalAppPagePath(
+          id,
+          resolveAppHomePath(getAppConfig().app, getAppConfig().workspace),
+          getConfiguredAppBasePath(),
+        ),
+        "cache-control": "no-store",
+        "referrer-policy": "no-referrer",
+      },
+    });
+  }
   const owner: McpApprovalReader = {
     appId: app.appId,
     email: session.email,
@@ -603,7 +631,7 @@ export async function handleMcpApprovalRequest(
 
   if (method === "GET") {
     const view = record
-      ? await buildView(record, owner, entry, messages, preference)
+      ? await buildView(record, owner, entry, locale, messages, preference)
       : undefined;
     const otherOrganization =
       !view && id ? await isMcpApprovalInOtherOrganization(id, owner) : false;

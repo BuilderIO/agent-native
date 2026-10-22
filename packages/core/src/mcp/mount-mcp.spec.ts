@@ -51,6 +51,20 @@ vi.mock("./build-server.js", () => ({
   verifyAuth: mockServerState.verifyAuth,
 }));
 
+const approvalRoute = vi.hoisted(() => ({ mounted: [] as unknown[] }));
+vi.mock("./approval-route.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./approval-route.js")>();
+  return {
+    ...original,
+    mountMcpApprovalRoute: (
+      ...args: Parameters<typeof original.mountMcpApprovalRoute>
+    ) => {
+      approvalRoute.mounted.push(args[1]);
+      return original.mountMcpApprovalRoute(...args);
+    },
+  };
+});
+
 vi.mock("./oauth-route.js", () => ({
   buildMcpOAuthChallenge: vi.fn(),
   getMcpOAuthAudiences: vi.fn(),
@@ -64,6 +78,7 @@ const { mountMCP } = await import("./server.js");
 describe("mountMCP", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    approvalRoute.mounted.length = 0;
   });
 
   it("defers directory validation until after authentication without breaking plugin mount", async () => {
@@ -175,6 +190,20 @@ describe("mountMCP", () => {
       }
     },
   );
+
+  it("sends review links to the app's own page only when the app renders one", () => {
+    const use = vi.fn();
+    mountMCP({ h3: { use } }, { actions: {} } as any);
+    mountMCP({ h3: { use } }, {
+      actions: {},
+      appApprovalPage: true,
+    } as any);
+
+    expect(approvalRoute.mounted).toEqual([
+      expect.objectContaining({ appPage: false }),
+      expect.objectContaining({ appPage: true }),
+    ]);
+  });
 
   it("mounts the curated directory before the broader public MCP prefix", () => {
     const use = vi.fn();
