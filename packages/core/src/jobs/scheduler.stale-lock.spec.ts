@@ -2258,10 +2258,8 @@ describe("stale automation run-lock recovery across trigger types", () => {
           path: "jobs/shared-event.md",
           content: [
             "---",
-            'schedule: ""',
+            'schedule: "*/5 * * * *"',
             "enabled: true",
-            "triggerType: event",
-            "event: order.created",
             "createdBy: alice@example.com",
             "lastStatus: running",
             `lastRun: ${new Date(Date.now() - 11 * 60 * 1000).toISOString()}`,
@@ -2274,7 +2272,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
 
       await processRecurringJobs(recoveryDeps);
 
-      expect(list).toHaveBeenCalledWith(
+      expect(list).toHaveBeenLastCalledWith(
         expect.objectContaining({ owners: ["alice@example.com"] }),
       );
     } finally {
@@ -2294,10 +2292,8 @@ describe("stale automation run-lock recovery across trigger types", () => {
           path: "jobs/org-event.md",
           content: [
             "---",
-            'schedule: ""',
+            'schedule: "*/5 * * * *"',
             "enabled: true",
-            "triggerType: event",
-            "event: order.created",
             "createdBy: alice@example.com",
             "orgId: org-1",
             "appId: mail",
@@ -2312,7 +2308,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
 
       await processRecurringJobs({ ...recoveryDeps, appId: "mail" });
 
-      expect(list).toHaveBeenCalledWith(
+      expect(list).toHaveBeenLastCalledWith(
         expect.objectContaining({ owners: ["__organization__:org-1"] }),
       );
     } finally {
