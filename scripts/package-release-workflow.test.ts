@@ -392,7 +392,11 @@ describe("npm package release workflow", () => {
       .scripts as Record<string, string>;
     assert.equal(
       packageScripts["changeset:release-version"],
-      "pnpm exec tsx scripts/changeset-version-stable.ts && pnpm changelog:compact && pnpm install --frozen-lockfile --lockfile-only --ignore-scripts",
+      "pnpm changeset:version && pnpm changelog:compact && pnpm install --frozen-lockfile --lockfile-only --ignore-scripts",
+    );
+    assert.equal(
+      packageScripts["changeset:version"],
+      "pnpm exec tsx scripts/changeset-version-stable.ts",
     );
 
     const consume = releaseSteps.find(
