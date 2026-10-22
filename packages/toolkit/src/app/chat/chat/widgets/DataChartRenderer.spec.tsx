@@ -213,6 +213,15 @@ describe("DataChartRenderer theme colors", () => {
     expect(numericLabels.length).toBeLessThanOrEqual(30);
     expect(numericLabels[0]).toBe("0");
     expect(numericLabels.at(-1)).toBe("99");
+    const tickLabelPositions = Array.from(
+      markup.matchAll(
+        /<text x="([\d.]+)"[^>]*text-anchor="middle">\d+<\/text>/g,
+      ),
+      (match) => Number(match[1]),
+    );
+    expect(
+      tickLabelPositions.at(-1)! - tickLabelPositions.at(-2)!,
+    ).toBeGreaterThanOrEqual(22);
     expect(markup.match(/<line /g)).toHaveLength(101);
 
     const smallRangeMarkup = renderToStaticMarkup(

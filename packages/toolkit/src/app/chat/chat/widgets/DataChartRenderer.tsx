@@ -235,6 +235,24 @@ function ChartBody({
     1,
     Math.ceil((gridTickValues.length - 1) / (visibleAxisLabelCount - 1)),
   );
+  const axisLabelIndexes = new Set(
+    gridTickValues.flatMap((_, index) =>
+      index % axisLabelStride === 0 ? [index] : [],
+    ),
+  );
+  const finalAxisLabelIndex = gridTickValues.length - 1;
+  if (finalAxisLabelIndex >= 0 && !axisLabelIndexes.has(finalAxisLabelIndex)) {
+    const precedingAxisLabelIndex =
+      Math.floor(finalAxisLabelIndex / axisLabelStride) * axisLabelStride;
+    const axisSpan = isHorizontalBar ? plotWidth : plotHeight;
+    const tickSpacing = axisSpan / Math.max(1, finalAxisLabelIndex);
+    const finalLabelSpacing =
+      (finalAxisLabelIndex - precedingAxisLabelIndex) * tickSpacing;
+    if (finalLabelSpacing < axisLabelMinSpacing) {
+      axisLabelIndexes.delete(precedingAxisLabelIndex);
+    }
+    axisLabelIndexes.add(finalAxisLabelIndex);
+  }
   const gridTicks = gridTickValues.map((value, index) => ({
     value,
     index,
@@ -263,8 +281,7 @@ function ChartBody({
               stroke="hsl(var(--chart-grid, var(--border)))"
               strokeDasharray={tickInterval === undefined ? "3 3" : undefined}
             />
-            {tick.index % axisLabelStride === 0 ||
-            tick.index === gridTickValues.length - 1 ? (
+            {axisLabelIndexes.has(tick.index) ? (
               <text
                 x={tick.x}
                 y={HEIGHT - margin.bottom + 14}
@@ -288,8 +305,7 @@ function ChartBody({
               stroke="hsl(var(--chart-grid, var(--border)))"
               strokeDasharray={tickInterval === undefined ? "3 3" : undefined}
             />
-            {tick.index % axisLabelStride === 0 ||
-            tick.index === gridTickValues.length - 1 ? (
+            {axisLabelIndexes.has(tick.index) ? (
               <text
                 x={margin.left - 8}
                 y={tick.y + 4}

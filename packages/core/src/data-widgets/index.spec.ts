@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   DATA_CHART_WIDGET,
@@ -100,6 +101,22 @@ describe("data widget helpers", () => {
 
     expect(result.chartSeries.contentHeight).toBe(400);
     expect(dataChartWidgetResultSchema.parse(result)).toEqual(result);
+  });
+
+  it("keeps chart schemas extensible for consumer composition", () => {
+    const extendedSchema = dataChartWidgetSchema.extend({
+      workspaceScope: z.string(),
+    });
+
+    expect(
+      extendedSchema.parse({
+        type: "bar",
+        xKey: "category",
+        series: [{ key: "total", label: "Total" }],
+        data: [],
+        workspaceScope: "current",
+      }),
+    ).toMatchObject({ workspaceScope: "current" });
   });
 
   it("validates chart padding and label typography", () => {
