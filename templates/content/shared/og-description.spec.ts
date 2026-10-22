@@ -382,13 +382,15 @@ const flag = true;
       }),
     ).toBe("Agenda...");
     expect(buildDocumentExcerpt({ content: "---", truncated: true })).toBe("");
-    // Headings lose markup the cut leaves open too.
-    expect(
-      buildDocumentExcerpt({
-        content: "# Agenda\n## Next **steps for",
-        truncated: true,
-      }),
-    ).toBe("Agenda Next steps...");
+    // Headings lose markup the cut leaves open too, but closed code keeps its
+    // characters.
+    for (const [content, expected] of [
+      ["# Agenda\n## Next **steps for", "Agenda Next steps..."],
+      [`# Use \`_id\`\n\n\`\`\`js\n${"x".repeat(990)}`, "Use _id..."],
+      ["Use `_id` in queries and mor", "Use _id in queries and..."],
+    ]) {
+      expect(buildDocumentExcerpt({ content, truncated: true })).toBe(expected);
+    }
   });
 
   it("keeps the ellipsis inside the length limit", () => {

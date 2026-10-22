@@ -190,6 +190,18 @@ function stripExcerptFrontmatter(
   return truncated ? null : markdown;
 }
 
+/**
+ * Drops opening markers with no partner after them, like the `**` of a bold
+ * run a cut split. Closed spans keep their text, markers and all.
+ */
+function dropUnclosedMarkers(markdown: string): string {
+  return markdown.replace(
+    /(^|\s)(\*{1,3}|_{1,3}|~~|`+)(?=[\p{L}\p{M}\p{N}])/gu,
+    (match, space: string, marker: string, offset: number) =>
+      markdown.slice(offset + match.length).includes(marker) ? match : space,
+  );
+}
+
 const DEFAULT_EXCERPT_LENGTH = 300;
 /** Scripts written without spaces between words. */
 const SPACELESS_SCRIPT =
@@ -266,11 +278,16 @@ export function buildDocumentExcerpt({
   const paragraphs: string[] = [];
   const headings: string[] = [];
   let length = 0;
-  for (const block of blocks) {
+  for (const [index, block] of blocks.entries()) {
     if (length > maxLength) break;
     if (!block.trim() || isDividerBlock(block)) continue;
+    // The cut can only leave markup open in the last block.
+    const source =
+      truncated && index === blocks.length - 1
+        ? dropUnclosedMarkers(block)
+        : block;
     const text = stripMarkdownForPreview(
-      block.replace(/!\[[^\]]*\]\([^)]*\)/g, " "),
+      source.replace(/!\[[^\]]*\]\([^)]*\)/g, " "),
     );
     if (!text) continue;
     if (isHeadingBlock(block)) {
@@ -280,16 +297,7 @@ export function buildDocumentExcerpt({
       length += text.length + 1;
     }
   }
-  const shown = paragraphs.length > 0 ? paragraphs : headings;
-  if (truncated && shown.length > 0) {
-    // Markup the cut left open, like the `**` of a bold run it split.
-    const last = shown.length - 1;
-    shown[last] = shown[last].replace(
-      /(^|\s)(?:\*{1,3}|_{1,3}|~~|`+)(?=[\p{L}\p{M}\p{N}])/gu,
-      "$1",
-    );
-  }
-  const text = shown.join(" ");
+  const text = (paragraphs.length > 0 ? paragraphs : headings).join(" ");
   if (text.length > maxLength) return truncateDescription(text, maxLength);
   return truncated && text ? withEllipsis(text, maxLength) : text;
 }
