@@ -459,6 +459,53 @@ describe("session replay console/network capture", () => {
     expect(mod.isSessionReplayActive()).toBe(false);
   });
 
+  it("records again on a re-accept after recovering from a conflict", async () => {
+    const { windowStub, fetchMock } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    windowStub.sessionStorage = {
+      getItem: vi.fn((key: string) =>
+        key === "an_consent_region" ? "consent" : null,
+      ),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const cookies = new Map<string, string>();
+    Object.defineProperty(globalThis.document, "cookie", {
+      configurable: true,
+      get: () =>
+        [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
+      set: (assignment: string) => {
+        const [pair] = assignment.split(";", 1);
+        const eq = pair!.indexOf("=");
+        cookies.set(pair!.slice(0, eq), pair!.slice(eq + 1));
+      },
+    });
+    const mod = await freshSessionReplay();
+    activeModule = mod;
+    await mod.startSessionReplay({ ...START_OPTIONS });
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: true, targeting: false });
+    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+
+    fetchMock.mockImplementationOnce(
+      async () => new Response("conflict", { status: 409 }),
+    );
+    const { emit } = recordMock.mock.calls[0]![0] as {
+      emit: (event: Record<string, unknown>) => void;
+    };
+    emit({ type: 4, timestamp: Date.now(), data: { href: "x" } });
+    emit({ type: 2, timestamp: Date.now(), data: { node: {} } });
+    await mod.flushSessionReplay("interval");
+    await vi.waitFor(() => expect(recordMock).toHaveBeenCalledTimes(2));
+    expect(mod.isSessionReplayActive()).toBe(true);
+
+    setConsentChoice({ performance: false, targeting: false });
+    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(false));
+    setConsentChoice({ performance: true, targeting: false });
+
+    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+  });
+
   it("starts a first-visit recording on accept after the region's first answer", async () => {
     const { windowStub, fetchMock } = installBrowser();
     recordMock.mockReturnValue(vi.fn());

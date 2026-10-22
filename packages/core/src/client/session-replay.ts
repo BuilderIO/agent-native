@@ -2486,6 +2486,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       state.automaticConflictRestartAttempted = true;
     }
 
+    // The stop forgets the caller's start; a recovered recording keeps it,
+    // so a reject and a later accept can bring it back.
+    const consentStartOptions = replayAllowedOptions;
     await stopSessionReplay("upload-rejected");
 
     let restartResult: SessionReplayStartResult | null = null;
@@ -2495,6 +2498,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         rejectedOptions,
         payload.sessionId,
       );
+      if (restartResult.started) replayAllowedOptions = consentStartOptions;
     }
 
     const details: SessionReplayUploadRejectedDetails = {
