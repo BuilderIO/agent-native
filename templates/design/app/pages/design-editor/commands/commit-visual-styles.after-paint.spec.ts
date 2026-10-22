@@ -22,7 +22,7 @@ const shader = vi.hoisted(() => ({
 }));
 
 vi.mock(
-  "@/components/design/inspector/GlslShaderPanel",
+  "@/components/design/shader-source-coordination",
   async (importOriginal) => ({
     ...(await importOriginal<Record<string, unknown>>()),
     isShaderWriteInFlight: () => shader.inFlight,
