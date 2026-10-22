@@ -1157,7 +1157,9 @@ describe("database row batch actions", () => {
     );
     expect(item?.sourceOverlays).toBeUndefined();
     expect(
-      item?.properties.find((property) => property.propertyId === propertyId),
+      item?.properties.find(
+        (property) => property.definition.id === propertyId,
+      ),
     ).toMatchObject({ value: null, editable: false });
 
     await expect(
@@ -1272,7 +1274,7 @@ describe("database row batch actions", () => {
     ).toMatchObject({ writable: true, sourceManaged: false });
     expect(
       discovered.items[0].properties.find(
-        (property) => property.propertyId === propertyIds.local,
+        (property) => property.definition.id === propertyIds.local,
       ),
     ).toMatchObject({ editable: true });
     for (const key of ["source", "derived", "read_only"] as const) {
@@ -1283,7 +1285,7 @@ describe("database row batch actions", () => {
       ).toMatchObject({ writable: false, sourceManaged: true });
       expect(
         discovered.items[0].properties.find(
-          (property) => property.propertyId === propertyIds[key],
+          (property) => property.definition.id === propertyIds[key],
         ),
       ).toMatchObject({ editable: false });
     }

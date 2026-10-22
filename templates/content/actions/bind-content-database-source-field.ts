@@ -14,7 +14,10 @@ import {
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import { assertNotGitHubSource } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 import {
@@ -40,6 +43,7 @@ export default defineAction({
   }),
   run: async (
     args: BindContentDatabaseSourceFieldRequest,
+    context,
   ): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
@@ -161,7 +165,13 @@ export default defineAction({
           );
         }
       });
-      return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+      return contentDatabaseResponseForCaller(
+        await getContentDatabaseResponse(database.id, {
+          limit: 100,
+          offset: 0,
+        }),
+        context,
+      );
     }
 
     const [property] = await db
@@ -433,6 +443,9 @@ export default defineAction({
       }
     });
 
-    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+      context,
+    );
   },
 });

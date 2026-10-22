@@ -13,7 +13,10 @@ import {
   getExistingSourceForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 const reviewableStates = new Set([
   "proposed",
@@ -40,6 +43,7 @@ export default defineAction({
   }),
   run: async (
     args: ReviewContentDatabaseSourceChangeSetRequest,
+    context,
   ): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
@@ -116,6 +120,9 @@ export default defineAction({
       .set({ updatedAt: now })
       .where(eq(schema.contentDatabaseSources.id, source.id));
 
-    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+      context,
+    );
   },
 });

@@ -277,7 +277,7 @@ describe("private roadmap capability projection", () => {
       expect(page.pagination.totalItems).toBe(125);
       for (const item of page.items) {
         const keyProperty = item.properties.find(
-          (property) => property.propertyId === keyPropertyId,
+          (property) => property.definition.id === keyPropertyId,
         );
         if (typeof keyProperty?.value !== "string")
           throw new Error("Projected row is missing its Capability ID.");

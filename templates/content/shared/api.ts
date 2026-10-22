@@ -647,7 +647,7 @@ export interface ContentDatabaseItem {
 }
 
 /**
- * One row's value for one Property, as a Collection read sends it. The
+ * One row's value for one Property in a compact Collection read. The
  * Property's definition is the read's top-level `properties` entry with this
  * `propertyId`: a select's options can run to hundreds of kilobytes, so they
  * go once per read, not once per row.
@@ -657,11 +657,20 @@ export type ContentDatabaseItemPropertyValue = Omit<
   "definition"
 > & { propertyId: string };
 
-/** A row as a Collection read sends it; see `ContentDatabaseItemPropertyValue`. */
-export type ContentDatabaseItemPayload = Omit<
+/** A row in a compact Collection read; see `ContentDatabaseItemPropertyValue`. */
+export type ContentDatabaseCompactItem = Omit<
   ContentDatabaseItem,
   "properties"
 > & { properties: ContentDatabaseItemPropertyValue[] };
+
+/**
+ * A row as a Collection read sends it. Content's own frontend, and callers
+ * that pass `compactRows`, get compact rows; every other caller gets rows that
+ * carry their definitions.
+ */
+export type ContentDatabaseItemPayload =
+  | ContentDatabaseItem
+  | ContentDatabaseCompactItem;
 
 export interface ContentDatabaseItemComments {
   /** Open threads on the row's Page, whatever each one targets. */
@@ -1173,8 +1182,9 @@ export interface ContentDatabaseResponse {
 }
 
 /**
- * A Collection read as sent: its rows name each Property by ID, and
- * `hydrateContentDatabaseResponse` attaches the definitions from `properties`.
+ * A Collection read as sent, with rows in either shape (see
+ * `ContentDatabaseItemPayload`). `hydrateContentDatabaseResponse` attaches
+ * the definitions from `properties` to compact rows.
  */
 export type ContentDatabaseResponsePayload = Omit<
   ContentDatabaseResponse,
@@ -1195,16 +1205,15 @@ export type ContentDatabaseItemsPageResponse = Pick<
   | "tableQueryMode"
 >;
 
-/** One page of rows as sent, with the definitions its rows name. */
+/**
+ * One page of rows as sent. A compact page carries the definitions its rows
+ * name in `properties`; a page whose rows carry their own has none.
+ */
 export type ContentDatabaseItemsPagePayload = Pick<
   ContentDatabaseResponsePayload,
-  | "items"
-  | "properties"
-  | "source"
-  | "sources"
-  | "pagination"
-  | "tableQueryMode"
->;
+  "items" | "source" | "sources" | "pagination" | "tableQueryMode"
+> &
+  Partial<Pick<ContentDatabaseResponsePayload, "properties">>;
 
 export type ContentDatabaseNavigationSort =
   | "custom"

@@ -11,6 +11,8 @@ import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
+  contentDatabaseCompactRowsSchema,
+  contentDatabaseResponseForCaller,
   contentDatabaseTableQuerySchema,
   getContentDatabaseResponse,
   resolveContentDatabaseRead,
@@ -38,6 +40,7 @@ const getContentDatabaseSchema = z.object({
       "For the personal Favorites database only, filter rows to authoritative Files membership in this Content space before pagination.",
     ),
   tableQuery: contentDatabaseTableQuerySchema,
+  compactRows: contentDatabaseCompactRowsSchema,
 });
 
 export function resolveContentDatabaseReadLimit(
@@ -49,7 +52,7 @@ export function resolveContentDatabaseReadLimit(
 
 export default defineAction({
   description:
-    "Get a content collection table, including its property schema, mutation contract, and item pages. Each item's properties name their property by propertyId; the definition (name, type, options) is in the top-level properties. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.",
+    "Get a content collection table, including its property schema, mutation contract, and item pages. Each item's property values carry their definition (name, type, options); pass compactRows: true to get them by propertyId instead, with each definition once in the top-level properties, which keeps reads of collections with large select properties small. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.",
   mcpTool: true,
   schema: getContentDatabaseSchema,
   agentInputSchema: getContentDatabaseSchema.extend({
@@ -69,7 +72,15 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (
-    { databaseId, documentId, limit, offset, tableQuery, contentSpaceId },
+    {
+      databaseId,
+      documentId,
+      limit,
+      offset,
+      tableQuery,
+      contentSpaceId,
+      compactRows,
+    },
     context,
   ): Promise<
     ContentDatabaseResponsePayload | ContentDatabaseUnavailableResponse
@@ -115,14 +126,18 @@ export default defineAction({
       }
     }
 
-    return getContentDatabaseResponse(resolved.database.id, {
-      limit: resolveContentDatabaseReadLimit(limit, context?.caller),
-      offset,
-      tableQuery,
-      database: resolved.database,
-      accessRole: resolved.accessRole,
-      filesMembershipDatabaseId,
-      sidebarOrder,
-    });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(resolved.database.id, {
+        limit: resolveContentDatabaseReadLimit(limit, context?.caller),
+        offset,
+        tableQuery,
+        database: resolved.database,
+        accessRole: resolved.accessRole,
+        filesMembershipDatabaseId,
+        sidebarOrder,
+      }),
+      context,
+      { compactRows },
+    );
   },
 });

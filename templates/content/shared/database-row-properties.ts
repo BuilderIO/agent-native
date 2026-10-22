@@ -1,4 +1,5 @@
 import type {
+  ContentDatabaseCompactItem,
   ContentDatabaseItem,
   ContentDatabaseItemPayload,
   ContentDatabaseItemPropertyValue,
@@ -6,7 +7,7 @@ import type {
   DocumentPropertyDefinition,
 } from "./api.js";
 
-type ContentDatabaseRow = ContentDatabaseItem | ContentDatabaseItemPayload;
+type ContentDatabaseRow = ContentDatabaseItemPayload;
 
 /**
  * Names each of a row's Properties by ID instead of repeating its definition.
@@ -14,7 +15,7 @@ type ContentDatabaseRow = ContentDatabaseItem | ContentDatabaseItemPayload;
  */
 export function compactContentDatabaseItem(
   item: ContentDatabaseRow,
-): ContentDatabaseItemPayload {
+): ContentDatabaseCompactItem {
   return {
     ...item,
     properties: item.properties.map((property) => {
@@ -27,7 +28,7 @@ export function compactContentDatabaseItem(
 
 export function compactContentDatabaseItems(
   items: readonly ContentDatabaseRow[],
-): ContentDatabaseItemPayload[] {
+): ContentDatabaseCompactItem[] {
   return items.map(compactContentDatabaseItem);
 }
 
@@ -65,7 +66,7 @@ export function hydrateContentDatabaseItems(
   });
 }
 
-type ContentDatabaseRowsRead = {
+export type ContentDatabaseRowsRead = {
   items: readonly ContentDatabaseRow[];
   properties: readonly Pick<DocumentProperty, "definition">[];
   createdItem?: ContentDatabaseRow;
@@ -80,6 +81,37 @@ type HydratedContentDatabaseRowsRead<T> = Omit<
   createdItem?: ContentDatabaseItem;
   duplicatedItems?: ContentDatabaseItem[];
 };
+
+type CompactContentDatabaseRowsRead<T> = Omit<
+  T,
+  "items" | "createdItem" | "duplicatedItems"
+> & {
+  items: ContentDatabaseCompactItem[];
+  createdItem?: ContentDatabaseCompactItem;
+  duplicatedItems?: ContentDatabaseCompactItem[];
+};
+
+/**
+ * Names each Property by ID in every row a Collection read or write returns,
+ * leaving the definitions once in its `properties`.
+ */
+export function compactContentDatabaseResponse<
+  T extends ContentDatabaseRowsRead,
+>(response: T): CompactContentDatabaseRowsRead<T> {
+  const compacted: ContentDatabaseRowsRead = {
+    ...response,
+    items: compactContentDatabaseItems(response.items),
+  };
+  if (response.createdItem) {
+    compacted.createdItem = compactContentDatabaseItem(response.createdItem);
+  }
+  if (response.duplicatedItems) {
+    compacted.duplicatedItems = compactContentDatabaseItems(
+      response.duplicatedItems,
+    );
+  }
+  return compacted as CompactContentDatabaseRowsRead<T>;
+}
 
 /** Attaches definitions to every row a Collection read or write returns. */
 export function hydrateContentDatabaseResponse<

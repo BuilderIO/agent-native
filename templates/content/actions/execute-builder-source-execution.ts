@@ -10,6 +10,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
+  type ContentDatabaseResponse,
   type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
@@ -65,7 +66,10 @@ import {
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 type DatabaseRecord = NonNullable<
   Awaited<ReturnType<typeof resolveDatabaseForSourceMutation>>
@@ -191,7 +195,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
     writeResult: BuilderCmsWriteResult;
     now: string;
   }) => Promise<void>;
-  getResponse: (databaseId: string) => Promise<ContentDatabaseResponsePayload>;
+  getResponse: (databaseId: string) => Promise<ContentDatabaseResponse>;
   lookupSafeModelIntent?: (args: {
     marker?: string;
     exactTitle?: string;
@@ -2090,10 +2094,14 @@ export default defineAction({
   }),
   run: async (
     args: ExecuteBuilderSourceExecutionRequest,
+    context,
   ): Promise<ContentDatabaseResponsePayload> => {
-    return executeBuilderSourceExecutionWithDeps(
-      args,
-      realExecutionDeps(args.sourceId, args.changeSetId),
+    return contentDatabaseResponseForCaller(
+      await executeBuilderSourceExecutionWithDeps(
+        args,
+        realExecutionDeps(args.sourceId, args.changeSetId),
+      ),
+      context,
     );
   },
 });

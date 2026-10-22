@@ -1738,11 +1738,7 @@ describe("content database soft-delete actions and reads", () => {
     ]);
     expect(response).not.toHaveProperty("database");
     expect(response).not.toHaveProperty("contextPath");
-    // The page names each row's Properties by ID and sends the definitions once.
-    expect(response).toHaveProperty("properties");
-    expect(
-      response.items[0].properties.some((property) => "definition" in property),
-    ).toBe(false);
+    expect(response).not.toHaveProperty("properties");
     expect(response.items[0].id).toBe(rows[2].id);
 
     await expect(

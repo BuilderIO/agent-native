@@ -45,7 +45,6 @@ import {
   builderReadableBodyToBuilderBlocks,
   builderMdxBodyToBuilderBlocks,
 } from "../shared/builder-mdx.js";
-import { hydrateContentDatabaseResponse } from "../shared/database-row-properties.js";
 import {
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
@@ -8217,13 +8216,10 @@ export async function listDatabasePropertiesAndItems(
   options: { limit?: number; offset?: number; documentIds?: string[] } = {},
 ) {
   const { getContentDatabaseResponse } = await import("./_database-utils.js");
-  // Source setup reads each row's definitions, which the response sends once.
-  return hydrateContentDatabaseResponse(
-    await getContentDatabaseResponse(databaseId, {
-      ...options,
-      includeSources: false,
-    }),
-  );
+  return getContentDatabaseResponse(databaseId, {
+    ...options,
+    includeSources: false,
+  });
 }
 
 export async function sourceSetupPayload(

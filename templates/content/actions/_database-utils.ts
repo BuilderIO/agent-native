@@ -1,4 +1,4 @@
-import { fail } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
 import {
   getRequestOrgId,
@@ -38,7 +38,6 @@ import {
   type ContentDatabaseItem,
   type ContentDatabaseMembership,
   type ContentDatabaseResponse,
-  type ContentDatabaseResponsePayload,
   type ContentDatabaseTableQuery,
   type ContentSidebarViewOrder,
   type DocumentProperty,
@@ -48,7 +47,10 @@ import {
   applyContentDatabaseTableQuery,
   contentDatabaseTableQueryUsesProperties,
 } from "../shared/database-query.js";
-import { compactContentDatabaseItems } from "../shared/database-row-properties.js";
+import {
+  compactContentDatabaseResponse,
+  type ContentDatabaseRowsRead,
+} from "../shared/database-row-properties.js";
 import {
   buildListRowExcerpt,
   EXCERPT_SOURCE_CHARS,
@@ -183,6 +185,17 @@ export const contentDatabaseTableQuerySchema = z
     filterMode: z.enum(["and", "or"]),
   })
   .optional();
+
+/** A read's opt-in to compact rows; see `compactContentDatabaseRowsFor`. */
+export const contentDatabaseCompactRowsSchema = z
+  .preprocess(
+    (value) => (typeof value === "string" ? value === "true" : value),
+    z.boolean(),
+  )
+  .optional()
+  .describe(
+    "Name each row's property values by propertyId instead of repeating the definition (name, type, options) in every row; the definitions are in the top-level properties. Much smaller for collections whose select properties have many options.",
+  );
 
 function contentDatabaseTableQueryMode(
   query: ContentDatabaseTableQuery | undefined,
@@ -1391,7 +1404,7 @@ export async function getContentDatabaseResponse(
     /** The caller's role on the database page, when it already resolved it. */
     accessRole?: ResolvedAccess["role"] | null;
   } = {},
-): Promise<ContentDatabaseResponsePayload> {
+): Promise<ContentDatabaseResponse> {
   const db = getDb();
   const database =
     options.database ??
@@ -1462,7 +1475,7 @@ export async function getContentDatabaseResponse(
     database: serializeDatabase(database, databaseDocument?.description ?? ""),
     contextPath,
     properties: page.properties,
-    items: compactContentDatabaseItems(page.items),
+    items: page.items,
     source: page.source,
     sources: page.sources,
     pagination: page.pagination,
@@ -1471,6 +1484,37 @@ export async function getContentDatabaseResponse(
     configurationRevision: configurationRevision(database),
     setupContract: contracts?.setupContract,
   };
+}
+
+/**
+ * Whether a Collection read or write sends compact rows. A compact row names
+ * each Property by `propertyId`, and the response sends each definition once,
+ * in `properties`; otherwise a select's options repeat in every row, which on
+ * a large Collection runs to megabytes per page. Content's own frontend always
+ * gets compact rows: the server answers a tab on an older client
+ * compatibility version with a 409, so every frontend call comes from a
+ * client whose query cache puts the definitions back. Agents, MCP and HTTP
+ * callers keep rows that carry their definitions unless they pass
+ * `compactRows`.
+ */
+export function compactContentDatabaseRowsFor(
+  context: Pick<ActionRunContext, "caller"> | undefined,
+  compactRows?: boolean,
+): boolean {
+  return compactRows === true || context?.caller === "frontend";
+}
+
+/** A Collection read or write result, in the row shape its caller reads. */
+export function contentDatabaseResponseForCaller<
+  T extends ContentDatabaseRowsRead,
+>(
+  response: T,
+  context: Pick<ActionRunContext, "caller"> | undefined,
+  options: { compactRows?: boolean } = {},
+) {
+  return compactContentDatabaseRowsFor(context, options.compactRows)
+    ? compactContentDatabaseResponse(response)
+    : response;
 }
 
 export async function isSoftDeletedDatabaseDocument(documentId: string) {

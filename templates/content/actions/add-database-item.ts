@@ -3,7 +3,6 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
-import { hydrateContentDatabaseItems } from "../shared/database-row-properties.js";
 import {
   canonicalizeDatabasePropertyInput,
   databasePropertyEntriesSchema,
@@ -83,12 +82,7 @@ export default defineAction({
         documentIds: [result.receipt.row.documentId],
       },
     );
-    // The receipt has no `properties` beside it, so this one row keeps its
-    // definitions.
-    const [createdItem] = hydrateContentDatabaseItems(
-      response.items,
-      response.properties,
-    );
+    const createdItem = response.items[0];
     if (!createdItem || createdItem.id !== result.receipt.row.itemId) {
       throw new Error(
         "Created row receipt did not resolve to its exact read-back.",

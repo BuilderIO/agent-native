@@ -6,7 +6,7 @@ import type {
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
-import { compactContentDatabaseItems } from "../shared/database-row-properties.js";
+import { compactContentDatabaseResponse } from "../shared/database-row-properties.js";
 import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
 import {
   getContentDatabaseNavigationPage,
@@ -14,6 +14,8 @@ import {
 } from "./_database-navigation.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
+  compactContentDatabaseRowsFor,
+  contentDatabaseCompactRowsSchema,
   contentDatabaseTableQuerySchema,
   getContentDatabasePageResponse,
   resolveContentDatabaseRead,
@@ -22,7 +24,7 @@ import { refreshGitHubSourceBeforeRead } from "./_github-source-freshness.js";
 
 export default defineAction({
   description:
-    "Query one ordered and filtered page of a content collection without reopening its metadata. Each item's properties name their property by propertyId; the definitions are in the top-level properties.",
+    "Query one ordered and filtered page of a content collection without reopening its metadata. Pass compactRows: true to get each row's property values by propertyId, with the definitions once in the top-level properties.",
   schema: z.object({
     databaseId: z.string().optional().describe("Collection ID"),
     documentId: z.string().optional().describe("Collection document/page ID"),
@@ -67,6 +69,7 @@ export default defineAction({
       .describe(
         "Bounded Files navigation query. parentId is required and must be null for roots or an exact immediate parent ID.",
       ),
+    compactRows: contentDatabaseCompactRowsSchema,
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -77,7 +80,15 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (
-    { databaseId, documentId, limit, offset, tableQuery, navigation },
+    {
+      databaseId,
+      documentId,
+      limit,
+      offset,
+      tableQuery,
+      navigation,
+      compactRows,
+    },
     ctx,
   ): Promise<
     | ContentDatabaseItemsPagePayload
@@ -146,13 +157,19 @@ export default defineAction({
       tableQuery,
       database,
     });
-    return {
-      items: compactContentDatabaseItems(page.items),
-      properties: page.properties,
+    const rows = {
+      items: page.items,
       source: page.source,
       sources: page.sources,
       pagination: page.pagination,
       tableQueryMode: page.tableQueryMode,
     };
+    if (!compactContentDatabaseRowsFor(ctx, compactRows)) return rows;
+    // Compact rows name their Properties by ID, so the page sends the
+    // definitions once.
+    return compactContentDatabaseResponse({
+      ...rows,
+      properties: page.properties,
+    });
   },
 });

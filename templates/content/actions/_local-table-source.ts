@@ -43,7 +43,7 @@ export async function readLocalTableEntries(
       title: item.document.title ?? "",
     };
     for (const property of item.properties) {
-      const key = property.propertyId;
+      const key = property.definition.id;
       if (!key) continue;
       sourceValues[key] = property.value;
     }

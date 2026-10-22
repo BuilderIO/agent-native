@@ -30,6 +30,7 @@ import {
   nextDocumentMetadataUpdatedAt,
 } from "../server/lib/document-metadata-updated-at.js";
 import type {
+  ContentDatabaseResponse,
   ContentDatabaseResponsePayload,
   CreateDatabaseRequest,
 } from "../shared/api.js";
@@ -48,7 +49,10 @@ import {
   setupError,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -166,10 +170,13 @@ export default defineAction({
   run: async (args, context) => {
     if (context?.caller === "mcp") createDatabaseAgentSchema.parse(args);
     if (args.idempotencyKey !== undefined)
-      return createReliableDatabase(createDatabaseReliableSchema.parse(args));
+      return contentDatabaseResponseForCaller(
+        await createReliableDatabase(createDatabaseReliableSchema.parse(args)),
+        context,
+      );
     const result = await createContentDatabaseCore(args);
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return result;
+    return contentDatabaseResponseForCaller(result, context);
   },
   link: ({ result }) => {
     const documentId = (result as { database?: { documentId?: string } } | null)
@@ -267,7 +274,7 @@ async function createReliableDatabase(
 export async function createContentDatabaseCore(
   args: CreateDatabaseRequest,
   options: { db?: any } = {},
-): Promise<ContentDatabaseResponsePayload> {
+): Promise<ContentDatabaseResponse> {
   if (args.documentId && args.newDocumentId) {
     throw new Error("documentId and newDocumentId cannot both be provided");
   }

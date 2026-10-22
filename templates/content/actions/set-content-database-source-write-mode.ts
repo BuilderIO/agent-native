@@ -17,7 +17,10 @@ import {
   mutateContentDatabaseSourceMetadata,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 const legacyWriteModeSchema = z.enum(["autosave", "draft", "publish"]);
 const sourceWriteModeSchema = z.enum([
@@ -75,6 +78,7 @@ export default defineAction({
   }),
   run: async (
     args: SetContentDatabaseSourceWriteModeRequest,
+    context,
   ): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
@@ -121,6 +125,9 @@ export default defineAction({
         "Builder source settings changed repeatedly while saving write mode.",
     });
 
-    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+      context,
+    );
   },
 });

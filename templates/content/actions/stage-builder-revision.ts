@@ -11,7 +11,10 @@ import {
   resolveDatabaseForSourceMutation,
   sourceChangeSetKey,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 export default defineAction({
   description:
@@ -24,7 +27,7 @@ export default defineAction({
       .optional()
       .describe("Target source ID (defaults to the primary source)"),
   }),
-  run: async (args): Promise<ContentDatabaseResponsePayload> => {
+  run: async (args, context): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -114,6 +117,9 @@ export default defineAction({
       .set({ updatedAt: now })
       .where(eq(schema.contentDatabaseSources.id, source.id));
 
-    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+      context,
+    );
   },
 });

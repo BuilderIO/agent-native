@@ -7,6 +7,7 @@ import type {
 } from "./api";
 import {
   compactContentDatabaseItems,
+  compactContentDatabaseResponse,
   contentDatabaseRowsNeedDefinitions,
   hydrateContentDatabaseItems,
   hydrateContentDatabaseResponse,
@@ -152,6 +153,32 @@ describe("content database row properties", () => {
     expect(response.items).toEqual([created, duplicated]);
     expect(response.createdItem).toEqual(created);
     expect(response.duplicatedItems).toEqual([duplicated]);
+  });
+
+  it("compacts every row a write returns and keeps its other fields", () => {
+    const created = item("created", "draft");
+    const duplicated = item("copy", "live");
+    const write = {
+      items: [created, duplicated],
+      properties: schema,
+      createdItem: created,
+      duplicatedItems: [duplicated],
+      duplicatedItemId: duplicated.id,
+    };
+
+    const compacted = compactContentDatabaseResponse(write);
+
+    expect(
+      contentDatabaseRowsNeedDefinitions([
+        ...compacted.items,
+        compacted.createdItem,
+        ...(compacted.duplicatedItems ?? []),
+      ]),
+    ).toBe(true);
+    expect(JSON.stringify(compacted.items)).not.toContain('"definition"');
+    expect(compacted.duplicatedItemId).toBe(duplicated.id);
+    expect(compacted.properties).toBe(schema);
+    expect(hydrateContentDatabaseResponse(compacted)).toEqual(write);
   });
 
   it("tells compact rows from rows that need nothing", () => {
