@@ -18579,6 +18579,11 @@ function DatabaseDateValueField({
   const relative = isContentDatabaseRelativeDate(value) ? value : null;
   // Decided once, so the field doesn't switch type while the time is edited.
   const [editsText] = useState(() => contentDatabaseDateValueHasTime(value));
+  // Typed text is passed on only once it reads as a date, so pausing partway
+  // through a time doesn't save it. Leaving the field drops an unfinished edit.
+  const [draft, setDraft] = useState<string | null>(null);
+  const readable = (text: string) =>
+    !text.trim() || !!contentDatabaseFilterDateBound(text, "2000-01-01");
   const choiceLabel = (choice: ContentDatabaseRelativeDate | null) =>
     choice
       ? dbText(RELATIVE_DATE_LABEL_KEYS[choice])
@@ -18621,9 +18626,16 @@ function DatabaseDateValueField({
         <Input
           autoFocus={autoFocus}
           type={editsText ? "text" : "date"}
-          value={rawValue}
+          value={draft ?? rawValue}
           aria-label={label}
-          onChange={(event) => onValueChange(event.target.value)}
+          aria-invalid={draft !== null && !readable(draft)}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (!editsText) return onValueChange(next);
+            setDraft(next);
+            if (readable(next)) onValueChange(next);
+          }}
+          onBlur={() => setDraft(null)}
           className="h-9 min-w-0 flex-1 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
         />
       )}

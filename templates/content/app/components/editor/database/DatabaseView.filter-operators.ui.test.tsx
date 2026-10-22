@@ -4,7 +4,13 @@ import type { DocumentProperty } from "@shared/api";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { byLabel, click, renderUi } from "@/test-utils/render-ui";
+import {
+  byLabel,
+  click,
+  focus,
+  renderUi,
+  typeInto,
+} from "@/test-utils/render-ui";
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
@@ -315,6 +321,30 @@ describe("date filter values", () => {
     expect(latest.filters[0]?.value).toBe(
       JSON.stringify(["today", "2026-10-22T09:00"]),
     );
+  });
+
+  it("passes a typed time on only once it reads as a date", async () => {
+    const range = (end: string) => JSON.stringify(["yesterday", end]);
+    const latest = renderBar(
+      [filter("due", "Due", "between", range("2026-10-22T09:00"))],
+      0,
+    );
+    const end = byLabel<HTMLInputElement>("End Due filter date");
+    await focus(end);
+
+    await typeInto(end, "2026-10-22T09:3");
+    expect(end.value).toBe("2026-10-22T09:3");
+    expect(end.getAttribute("aria-invalid")).toBe("true");
+    expect(latest.filters[0]?.value).toBe(range("2026-10-22T09:00"));
+
+    await typeInto(end, "2026-10-22T09:30");
+    expect(latest.filters[0]?.value).toBe(range("2026-10-22T09:30"));
+
+    // Leaving the field drops an unfinished edit.
+    await typeInto(end, "2026-10-22T1");
+    await focus(button("Yesterday"));
+    expect(end.value).toBe("2026-10-22T09:30");
+    expect(latest.filters[0]?.value).toBe(range("2026-10-22T09:30"));
   });
 
   it("turns a relative day into the exact day it means today", async () => {
