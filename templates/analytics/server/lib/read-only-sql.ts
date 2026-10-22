@@ -45,11 +45,15 @@ function sanitizeSqlForInspection(
     }
     if (state === "single" || state === "double" || state === "backtick") {
       const quote = state === "single" ? "'" : state === "double" ? '"' : "`";
-      if (dialect === "bigquery" && ch === "\\" && !rawString) {
-        if (next === undefined || next === "\n" || next === "\r") {
+      if (dialect === "bigquery" && ch === "\\") {
+        if (
+          next === undefined ||
+          (!rawString && (next === "\n" || next === "\r"))
+        ) {
           rejectSourceSql("Source SQL contains an incomplete string escape.");
         }
-        // An escaped quote belongs to the literal, including in triple quotes.
+        // Raw literals preserve both characters, but still pair backslashes
+        // with delimiters when finding the end of the literal.
         out += "  ";
         i += 1;
         continue;

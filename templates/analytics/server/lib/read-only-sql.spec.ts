@@ -4,6 +4,48 @@ import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboar
 import { assertReadOnlySql } from "./read-only-sql";
 
 describe("assertReadOnlySql", () => {
+  it.each(
+    ["r", "R", "br", "rB", "Br", "RB"].flatMap((prefix) =>
+      ["'", '"', "'''", '"""'].map((quote) => ({ prefix, quote })),
+    ),
+  )(
+    "keeps raw literal delimiter boundaries for $prefix $quote",
+    ({ prefix, quote }) => {
+      for (const slashCount of [1, 3]) {
+        const literal = `${prefix}${quote}${"\\".repeat(slashCount)}${quote} -- ${quote}`;
+        expect(() =>
+          assertReadOnlySql(`SELECT ${literal}`, "bigquery"),
+        ).not.toThrow();
+        expect(() =>
+          assertReadOnlySql(
+            `SELECT ${literal}; DELETE FROM target`,
+            "bigquery",
+          ),
+        ).toThrow(/single statement/);
+      }
+      expect(() =>
+        assertReadOnlySql(`SELECT ${prefix}${quote}odd\\${quote}`, "bigquery"),
+      ).toThrow();
+      expect(() =>
+        assertReadOnlySql(
+          `SELECT ${prefix}${quote}even\\\\${quote}; DELETE FROM target`,
+          "bigquery",
+        ),
+      ).toThrow(/single statement/);
+    },
+  );
+
+  it.each(["\n", "\r", "\r\n"])(
+    "preserves raw triple backslash-newline boundaries: %j",
+    (newline) => {
+      const sql = `SELECT r'''line\\${newline}value'''`;
+      expect(() => assertReadOnlySql(sql, "bigquery")).not.toThrow();
+      expect(() =>
+        assertReadOnlySql(`${sql}; DELETE FROM target`, "bigquery"),
+      ).toThrow(/single statement/);
+    },
+  );
+
   it("allows read-only SQL with mutation words in comments and literals", () => {
     expect(() =>
       assertReadOnlySql(

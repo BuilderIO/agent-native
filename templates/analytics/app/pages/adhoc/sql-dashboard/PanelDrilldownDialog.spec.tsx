@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   sqlError: null as unknown,
   sqlLoading: false,
+  sqlFetching: false,
   sqlTruncated: false,
   sqlPartial: false,
   sqlCache: null as Map<string, Record<string, unknown>[]> | null,
@@ -66,7 +67,7 @@ vi.mock("@/lib/sql-query", () => ({
     return {
       data: { rows, truncated: mocks.sqlTruncated, partial: mocks.sqlPartial },
       isLoading: mocks.sqlLoading,
-      isFetching: false,
+      isFetching: mocks.sqlFetching,
       error: mocks.sqlError,
     };
   },
@@ -165,6 +166,7 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     mocks.drilldownQueryOptions.length = 0;
     mocks.sqlError = null;
     mocks.sqlLoading = false;
+    mocks.sqlFetching = false;
     mocks.sqlTruncated = false;
     mocks.sqlPartial = false;
     mocks.sqlCache = null;
@@ -354,7 +356,7 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     },
   );
 
-  it.each(["loading", "failed"])(
+  it.each(["loading", "refetching", "failed"])(
     "does not show export warnings for a %s record query",
     async (state) => {
       mocks.actionQuery = {
@@ -364,11 +366,18 @@ describe("PanelDrilldownDialog metadata lookup", () => {
       mocks.sqlRows = [{ record: "previous" }];
       mocks.sqlPartial = true;
       mocks.sqlLoading = state === "loading";
+      mocks.sqlFetching = state === "refetching";
       mocks.sqlError = state === "failed" ? new Error("failed") : null;
       await render();
       expect(container.textContent).not.toContain(
         "sqlDashboard.drilldownCsvTruncated",
       );
+      const downloadButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) =>
+        button.textContent?.includes("sqlDashboard.drilldownDownloadCsv"),
+      );
+      expect(downloadButton?.disabled).toBe(true);
     },
   );
 

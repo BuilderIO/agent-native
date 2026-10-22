@@ -298,7 +298,7 @@ export function PanelDrilldownDialog({
             <Button
               variant="ghost"
               size="sm"
-              disabled={rows.length === 0 || Boolean(error)}
+              disabled={loading || rows.length === 0 || Boolean(error)}
               onClick={() =>
                 downloadCsv(title, columns, rows, csvTruncationMessage)
               }
