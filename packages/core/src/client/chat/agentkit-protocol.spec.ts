@@ -7,8 +7,10 @@ import {
   AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
   AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   createAgentKitProtocolVersionOffer,
+  fingerprintAgentSubmissionAttachment,
   parseAgentEvent,
   resumeEntryFromApproval,
+  submissionAttachmentsMatch,
 } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
@@ -5418,7 +5420,7 @@ describe("createAgentKitProtocolAdapter", () => {
     ["matching URL", (url: string) => ({ url, referenceUrl: url })],
     ["reference URL only", (url: string) => ({ referenceUrl: url })],
   ])(
-    "replaces an unchanged image URL attachment (%s)",
+    "keeps an unchanged image's original file identity (%s)",
     async (_label, urls) => {
       async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
         yield { type: "done", reason: "complete" };
@@ -5468,18 +5470,70 @@ describe("createAgentKitProtocolAdapter", () => {
         ],
       });
 
+      // The original stays as a reference so the file fingerprint the client
+      // submitted still matches; the image carries only the url the client sent.
       expect(startTurn.mock.calls[0]?.[0].attachments).toEqual([
+        {
+          type: "file",
+          name: "reference-original.png",
+          contentType: "image/png",
+          mediaType: "image/png",
+          url: originalUrl,
+          referenceOnly: true,
+        },
         {
           type: "image",
           name: "reference-original.png",
           contentType: "image/png",
           data: "data:image/png;base64,UkVQTEFDRUQ=",
-          url: originalUrl,
-          ...(urls(originalUrl).referenceUrl
-            ? { referenceUrl: originalUrl }
-            : {}),
+          ...(urls(originalUrl).url ? { url: originalUrl } : {}),
+          referenceUrl: originalUrl,
         },
       ]);
+      // The server rejects a turn whose mapped attachments do not satisfy the
+      // fingerprints the client submitted for the same inputs.
+      const submittedFile = {
+        type: "file" as const,
+        name: "reference-original.png",
+        mediaType: "image/png",
+        url: originalUrl,
+      };
+      const submittedImage = {
+        type: "image" as const,
+        name: "reference-original.png",
+        contentType: "image/png",
+        data: "data:image/png;base64,UkVQTEFDRUQ=",
+        ...urls(originalUrl),
+      };
+      expect(
+        submissionAttachmentsMatch(
+          {
+            attachments: [
+              {
+                type: "file",
+                name: submittedFile.name,
+                mediaType: submittedFile.mediaType,
+                fingerprint: fingerprintAgentSubmissionAttachment(
+                  submittedFile,
+                  "file",
+                ),
+              },
+            ],
+            requestAttachments: [
+              {
+                type: "image",
+                name: submittedImage.name,
+                contentType: submittedImage.contentType,
+                fingerprint: fingerprintAgentSubmissionAttachment(
+                  submittedImage,
+                  "image",
+                ),
+              },
+            ],
+          },
+          startTurn.mock.calls[0]?.[0].attachments ?? [],
+        ),
+      ).toBe(true);
       await transport.dispose();
     },
   );

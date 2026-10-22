@@ -4715,6 +4715,158 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it.each([
+    [
+      "matching URL",
+      {
+        url: "https://files.example.test/unchanged.png",
+        referenceUrl: "https://files.example.test/unchanged.png",
+      },
+    ],
+    [
+      "reference URL only",
+      { referenceUrl: "https://files.example.test/unchanged.png" },
+    ],
+  ])(
+    "accepts an unchanged image that shares its file part's URL (%s)",
+    async (_label, imageUrls) => {
+      const threadId = "thread-unchanged-image-admission";
+      const messageId = "message-unchanged-image-admission";
+      const originalUrl = "https://files.example.test/unchanged.png";
+      const file = {
+        type: "file" as const,
+        name: "unchanged.png",
+        mediaType: "image/png",
+        url: originalUrl,
+      };
+      const unchangedImage = {
+        type: "image" as const,
+        name: "unchanged.png",
+        contentType: "image/png",
+        data: `data:image/png;base64,${PNG_BASE64}`,
+        ...imageUrls,
+      };
+      const submissionPayload = {
+        threadId,
+        id: messageId,
+        text: "Use this image",
+        attachments: [
+          {
+            type: "file" as const,
+            name: file.name,
+            mediaType: file.mediaType,
+            fingerprint: fingerprintAgentSubmissionAttachment(file, "file"),
+          },
+        ],
+        requestAttachments: [
+          {
+            type: "image" as const,
+            name: unchangedImage.name,
+            contentType: unchangedImage.contentType,
+            fingerprint: fingerprintAgentSubmissionAttachment(
+              unchangedImage,
+              "image",
+            ),
+          },
+        ],
+      };
+      // The request body the client's protocol adapter maps for this turn.
+      const mappedAttachments = [
+        {
+          type: "file",
+          name: file.name,
+          contentType: "image/png",
+          mediaType: "image/png",
+          url: originalUrl,
+          referenceOnly: true,
+        },
+        unchangedImage,
+      ];
+      const append = vi
+        .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+        .mockImplementation(
+          async (_id, mutation) =>
+            ({
+              queuedMessages: [
+                mutation.type === "append" ? mutation.message : {},
+              ] as never,
+              message:
+                mutation.type === "append" ? mutation.message : undefined,
+            }) as never,
+        );
+      const preUpload = vi
+        .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+        .mockImplementation(async ({ attachments }) => ({
+          attachments: attachments ?? [],
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        }));
+      const upload = vi
+        .spyOn(fileUploadRegistry, "uploadFile")
+        .mockResolvedValue({
+          url: "https://files.example.test/unchanged-durable.png",
+          provider: "test-storage",
+        });
+      const readReceipt = vi
+        .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+        .mockResolvedValue(null);
+      const resolveThreadAccess = vi
+        .spyOn(chatThreadStore, "resolveThreadAccess")
+        .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: engineWithUncalledStream(),
+        actions: {},
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: submissionPayload.text,
+            threadId,
+            turnId: "turn-unchanged-image-admission",
+            agentKitMessageId: messageId,
+            submissionPayload,
+            attachments: mappedAttachments,
+          }),
+        }),
+      );
+
+      try {
+        const result = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+
+        expect(result).not.toEqual({
+          error: "submissionPayload does not match this message",
+        });
+        expect(event.res.status).toBe(202);
+        expect(result).toMatchObject({
+          state: "queued",
+          message: { id: messageId },
+        });
+        expect(append.mock.calls[0]?.[1]?.type).toBe("append");
+      } finally {
+        preUpload.mockRestore();
+        upload.mockRestore();
+        append.mockRestore();
+        readReceipt.mockRestore();
+        resolveThreadAccess.mockRestore();
+        mockGetSlotHoldingRunId.mockReset();
+        mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+      }
+    },
+  );
+
   it("rejects mismatched attachments before a free-slot run can dispatch", async () => {
     const threadId = "thread-attachment-identity-mismatch";
     const messageId = "message-attachment-identity-mismatch";

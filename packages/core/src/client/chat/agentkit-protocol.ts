@@ -324,7 +324,7 @@ function runtimeRequestAttachments(args: {
         contentType: original?.contentType || requestAttachment.contentType,
         ...(original?.id ? { id: original.id } : {}),
         ...(original?.mediaType ? { mediaType: original.mediaType } : {}),
-        url: originalUrl,
+        url: originalLookupUrl,
         referenceOnly: true,
       };
       if (replaceOriginal && originalIndex >= 0) {
@@ -334,27 +334,27 @@ function runtimeRequestAttachments(args: {
       }
     };
     if (typeof requestAttachment.data === "string") {
-      const imageUrl = requestAttachment.url ?? originalUrl;
+      // The image's identity is exactly what the client fingerprinted: its own
+      // url, never one derived from referenceUrl. An original file part is kept
+      // as a reference (even when the image shares its url), so the submitted
+      // file fingerprint still matches the mapped attachments.
+      const imageUrl = requestAttachment.url;
       const keepsOriginalReference =
-        originalUrl !== undefined &&
-        imageUrl !== undefined &&
-        originalUrl !== imageUrl;
+        originalIndex >= 0 ||
+        (originalUrl !== undefined &&
+          imageUrl !== undefined &&
+          originalUrl !== imageUrl);
       if (keepsOriginalReference) {
         addReferenceOnly(originalIndex >= 0);
       }
-      const image = {
+      attachments.push({
         type: "image",
         name: requestAttachment.name,
         contentType: requestAttachment.contentType,
         data: requestAttachment.data,
         ...(imageUrl ? { url: imageUrl } : {}),
         ...(referenceUrl ? { referenceUrl } : {}),
-      };
-      if (!keepsOriginalReference && originalIndex >= 0) {
-        attachments.splice(originalIndex, 1, image);
-      } else {
-        attachments.push(image);
-      }
+      });
       continue;
     }
 
