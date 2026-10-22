@@ -833,14 +833,14 @@ function handlerMayMutateMotionTarget(
   if (targetNodeIds.length > 0 && mayInjectRuntimeStylesheet(value)) {
     return true;
   }
-  if (
-    mayMutateThroughDomTraversal(value) ||
-    mayMutateThroughAlternateDomRoot(value)
-  ) {
+  if (mayMutateThroughDomTraversal(value)) {
     return true;
   }
 
   const targetIds = new Set(targetNodeIds);
+  if (mayMutateThroughAlternateDomRoot(value, nodes, targetIds, generatedIds)) {
+    return true;
+  }
   const directTargetMutation =
     DIRECT_ELEMENT_MUTATION.test(value) || handlerTargetAliasMayMutate(value);
   if (
@@ -955,23 +955,152 @@ function mayMutateThroughDomTraversal(value: string): boolean {
   return traversesDom && MUTATION_MEMBER_ACCESS_PATTERN.test(value);
 }
 
-function mayMutateThroughAlternateDomRoot(value: string): boolean {
-  if (!/\b(?:ownerDocument|getRootNode)\b/i.test(value)) return false;
-  if (MUTATION_MEMBER_ACCESS_PATTERN.test(value)) return true;
-
-  const destructuresMutableDomState =
-    /\{\s*[^}]*\b(?:style|classList|className)\b[^}]*\}\s*=/i.test(value);
-  if (!destructuresMutableDomState) return false;
-
-  return (
-    /\bObject\s*\.\s*assign\s*\(/i.test(value) ||
-    /\.\s*(?:add|remove|toggle|replace|setProperty|removeProperty)\s*\(/i.test(
-      value,
-    ) ||
-    /\b[A-Za-z_$][\w$]*(?:\s*(?:\.|\[)[^;=]+?\]?)+\s*(?:=(?!=)|\+=|-=|\+\+|--)/i.test(
-      value,
-    )
+function mayMutateThroughAlternateDomRoot(
+  value: string,
+  nodes: readonly HtmlNode[],
+  targetIds: ReadonlySet<string>,
+  generatedIds: Map<number | undefined, string>,
+): boolean {
+  const root = String.raw`(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))`;
+  const selectorNames = String.raw`querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName)`;
+  const selectorCalls = new RegExp(
+    String.raw`\b${root}\s*(?:\.\s*(?:ownerDocument)|\.\s*getRootNode\s*\(\s*\)|\[\s*["'](?:ownerDocument|getRootNode)["']\s*\](?:\s*\(\s*\))?)\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
+    "gi",
   );
+  let match: RegExpExecArray | null;
+
+  while ((match = selectorCalls.exec(value)) !== null) {
+    const callStartIndex = match.index;
+    const method = match[1] ?? match[2]!;
+    const openParenIndex = selectorCalls.lastIndex - 1;
+    const callEndIndex = findSelectorCallEnd(value, openParenIndex);
+    if (callEndIndex === null) return true;
+    if (
+      !alternateRootSelectorCallFeedsMutationSink(
+        value,
+        callStartIndex,
+        callEndIndex,
+        method,
+      )
+    ) {
+      selectorCalls.lastIndex = callEndIndex;
+      continue;
+    }
+
+    const selectorArgument = readStaticSelectorArgument(
+      value.slice(openParenIndex + 1, callEndIndex - 1),
+    );
+    if (!selectorArgument) return true;
+
+    const selector = selectorForDocumentCall(method, selectorArgument);
+    if (!selector) return true;
+    if (selectorMayTargetMotionNode(selector, nodes, targetIds, generatedIds)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function alternateRootSelectorCallFeedsMutationSink(
+  source: string,
+  callStartIndex: number,
+  callEndIndex: number,
+  method: string,
+): boolean {
+  const afterCall = source.slice(callEndIndex);
+  if (selectedElementHasActualMutationSink(afterCall)) return true;
+
+  const assignment =
+    /(?:\b(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*$/.exec(
+      source.slice(0, callStartIndex),
+    );
+  if (
+    assignment &&
+    identifierHasActualMutationSink(afterCall, assignment[1]!)
+  ) {
+    return true;
+  }
+
+  if (
+    method.toLowerCase() === "queryselectorall" &&
+    querySelectorAllActualCallbackMayMutate(afterCall)
+  ) {
+    return true;
+  }
+
+  return destructuredSelectorCallHasActualMutationSink(
+    source.slice(0, callStartIndex),
+    afterCall,
+  );
+}
+
+const ACTUAL_MUTATION_MEMBER_ACCESS = String.raw`(?:\?\.|\.)\s*(?:style(?:\s*(?:\.\s*[A-Za-z_$][\w$]*|\[[^\]]+\]))*\s*(?:=(?!=)|\+=|-=|\+\+|--)|style\s*(?:\?\.|\.)\s*(?:setProperty|removeProperty)\s*\(|classList\s*(?:\?\.|\.)\s*(?:add|remove|toggle|replace)\s*\(|className\s*(?:=(?!=)|\+=)|(?:setAttribute(?:NS)?|removeAttribute|toggleAttribute|animate)\s*\()|\[\s*["'](?:setAttribute(?:NS)?|removeAttribute|toggleAttribute|animate)["']\s*\]\s*\(`;
+
+function selectedElementHasActualMutationSink(suffix: string): boolean {
+  return new RegExp(
+    String.raw`^\s*(?:\[\s*\d+\s*\]\s*)?${ACTUAL_MUTATION_MEMBER_ACCESS}`,
+    "i",
+  ).test(suffix);
+}
+
+function identifierHasActualMutationSink(
+  source: string,
+  identifier: string,
+): boolean {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    new RegExp(
+      `\\b${escaped}\\s*(?:${ACTUAL_MUTATION_MEMBER_ACCESS})`,
+      "i",
+    ).test(source) ||
+    new RegExp(
+      `\\bObject\\s*\\.\\s*assign\\s*\\(\\s*${escaped}\\s*(?:\\?\\.|\\.)\\s*style\\b`,
+      "i",
+    ).test(source)
+  );
+}
+
+function querySelectorAllActualCallbackMayMutate(source: string): boolean {
+  const callback =
+    /^\s*\)?\s*\.\s*(?:forEach|map|filter|some|every)\s*\(\s*(?:async\s+)?(?:\(\s*([\w$]+)\s*\)|([\w$]+))\s*=>/i.exec(
+      source,
+    );
+  const callbackParameter = callback?.[1] ?? callback?.[2];
+  return (
+    callbackParameter !== undefined &&
+    identifierHasActualMutationSink(source, callbackParameter)
+  );
+}
+
+function destructuredSelectorCallHasActualMutationSink(
+  prefix: string,
+  suffix: string,
+): boolean {
+  const assignment = /\b(?:const|let|var)\s*\{\s*([^}]+)\s*\}\s*=\s*$/.exec(
+    prefix,
+  );
+  if (!assignment) return false;
+
+  return assignment[1]!.split(",").some((binding) => {
+    const [property, alias] = binding.split(/\s*:\s*/);
+    const name = alias?.trim() || property?.trim();
+    if (!name) return false;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (property?.trim() === "classList") {
+      return new RegExp(
+        `\\b${escaped}\\s*(?:\\?\\.|\\.)\\s*(?:add|remove|toggle|replace)\\s*\\(`,
+        "i",
+      ).test(suffix);
+    }
+    if (property?.trim() !== "style") return false;
+    return (
+      new RegExp(
+        `\\bObject\\s*\\.\\s*assign\\s*\\(\\s*${escaped}\\b`,
+        "i",
+      ).test(suffix) || identifierHasActualMutationSink(suffix, name)
+    );
+  });
 }
 
 function assignedAliases(

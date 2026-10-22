@@ -594,6 +594,31 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
+  it("allows read-only classList checks alongside unrelated document updates", () => {
+    const handlers = [
+      `onclick="const active = this.classList.contains('active'); this.ownerDocument.title = active ? 'Active' : 'Idle'"`,
+      `onclick="const active = this.ownerDocument.querySelector('[data-agent-native-node-id=hero-title]').classList.contains('hidden'); this.ownerDocument.title = active ? 'Hidden' : 'Visible'"`,
+    ];
+
+    for (const handler of handlers) {
+      const source = html.replace(
+        "</main>",
+        `<button ${handler}>Toggle</button>\n  </main>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+      expect(readMotionHtmlSource(apply(source).source)).toMatchObject({
+        status: "valid",
+        targetNodeIds: ["hero-title"],
+      });
+    }
+  });
+
   it.each([
     [
       "Alpine class selector",
