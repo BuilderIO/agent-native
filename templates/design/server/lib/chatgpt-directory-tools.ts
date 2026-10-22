@@ -133,6 +133,22 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       const designId = id(args.designId, record(result).designId);
       return designId ? designWidgetTarget(designId) : null;
     },
+    "generate-screens": (args: Record<string, unknown>, result: unknown) => {
+      const designId = id(record(result).designId, args.designId);
+      return designId
+        ? designWidgetTarget(
+            designId,
+            `/design/${encodeURIComponent(designId)}?editorView=overview`,
+          )
+        : null;
+    },
+    "export-coding-handoff": (
+      args: Record<string, unknown>,
+      result: unknown,
+    ) => {
+      const designId = id(record(result).designId, args.id);
+      return designId ? designWidgetTarget(designId) : null;
+    },
   },
   widgetReadActionArguments: {
     "get-design-snapshot": { designId: "designId" },
