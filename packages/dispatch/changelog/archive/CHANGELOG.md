@@ -1,3 +1,10 @@
+## 0.29.5
+
+### Patch Changes
+
+- Updated dependencies [0b57293]
+  - @agent-native/toolkit@0.16.5
+
 ## 0.29.4
 
 ### Patch Changes

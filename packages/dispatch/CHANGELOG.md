@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.40.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [31a1f1e]
+  - @agent-native/toolkit@0.216.0
+
 ## 0.40.35
 
 ### Patch Changes
@@ -1319,12 +1328,5 @@
 ### Minor Changes
 
 - a688849: Add organization groups and privacy controls for workspace apps. New apps use the organization default (organization-wide by default), while creators and organization admins can manage individual, group, and organization access from the shared popover.
-
-## 0.29.5
-
-### Patch Changes
-
-- Updated dependencies [0b57293]
-  - @agent-native/toolkit@0.16.5
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
