@@ -732,6 +732,8 @@ export function suggestionPresentations(
   transition?: SuggestionPresentationTransition,
   observedTransition?: SuggestionPresentationTransition,
 ): VisualEditorSuggestion[] {
+  // Decided edits have no presentation; skip their full-Page diff.
+  if (suggestion.status !== "pending") return [];
   const original = suggestionPresentation(
     suggestion,
     currentMarkdown,
@@ -5710,18 +5712,27 @@ function PageEditorSessionBody({
     [documentId, savedSuggestions],
   );
   const presentedSuggestions = useMemo(() => {
-    if (!pendingSuggestionDecision?.continueSuggesting) return savedSuggestions;
+    // Accept or Reject remaining shows its outcome on every member at once,
+    // in the same render that projects the Page, until the server answers.
+    const proposalMembers = pendingProposalDecision
+      ? new Set(pendingProposalDecision.members.map((member) => member.id))
+      : null;
+    if (!pendingSuggestionDecision?.continueSuggesting && !proposalMembers)
+      return savedSuggestions;
     return savedSuggestions.map((suggestion) =>
-      suggestion.id === pendingSuggestionDecision.suggestion.id
-        ? {
-            ...suggestion,
-            status: pendingSuggestionDecision.optimistic
-              ? pendingSuggestionDecision.decision
-              : pendingSuggestionDecision.suggestion.status,
-          }
-        : suggestion,
+      proposalMembers?.has(suggestion.id) && suggestion.status === "pending"
+        ? { ...suggestion, status: pendingProposalDecision!.requestedDecision }
+        : pendingSuggestionDecision?.continueSuggesting &&
+            suggestion.id === pendingSuggestionDecision.suggestion.id
+          ? {
+              ...suggestion,
+              status: pendingSuggestionDecision.optimistic
+                ? pendingSuggestionDecision.decision
+                : pendingSuggestionDecision.suggestion.status,
+            }
+          : suggestion,
     );
-  }, [pendingSuggestionDecision, savedSuggestions]);
+  }, [pendingProposalDecision, pendingSuggestionDecision, savedSuggestions]);
   const pendingSuggestionDecisionContent =
     pendingSuggestionDecision?.continueSuggesting
       ? suggestionDecisionPreviewContent(
@@ -8771,6 +8782,18 @@ function PageEditorSessionBody({
               : current,
           );
           void suggestionsQuery.refetch();
+          // Accepting moves each asking thread's quote onto the new text.
+          if (
+            result.suggestions.some(
+              (suggestion) =>
+                suggestion.status === "accepted" &&
+                suggestionSourceThreadId(suggestion),
+            )
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "list-comments", { documentId }],
+            });
+          }
           awaitingReadback = true;
           const readback = await refreshSuggestionDecisionDocument(
             continueSuggesting,

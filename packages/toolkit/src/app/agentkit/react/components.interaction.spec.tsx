@@ -265,8 +265,10 @@ describe("AgentKitChat interactions", () => {
                 messageLaneOffsetInline: -33,
                 messageGap: 12,
                 messageLineHeight: 20,
+                fontFamily: "IBM Plex Sans",
                 userBubbleLineHeight: 18,
                 userBubbleMaxWidth: 600,
+                userBubbleOffsetInline: -10,
                 userBubblePadding: { block: 8, inline: 13 },
               }}
               composerProps={{
@@ -303,6 +305,9 @@ describe("AgentKitChat interactions", () => {
         ),
       ).toBe("20px");
       expect(
+        transcript!.style.getPropertyValue("--agentkit-transcript-font-family"),
+      ).toBe("IBM Plex Sans");
+      expect(
         transcript!.style.getPropertyValue(
           "--agentkit-user-bubble-line-height",
         ),
@@ -310,6 +315,11 @@ describe("AgentKitChat interactions", () => {
       expect(
         transcript!.style.getPropertyValue("--agentkit-user-bubble-max-width"),
       ).toBe("600px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-user-bubble-offset-inline",
+        ),
+      ).toBe("-10px");
       expect(
         transcript!.style.getPropertyValue(
           "--agentkit-user-bubble-padding-block",

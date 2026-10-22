@@ -412,7 +412,9 @@ describe("AgentKitChat", () => {
     expect(styles).toContain(
       "margin-block: 0 var(--agentkit-transcript-message-gap, 1.25rem);",
     );
-    expect(styles).toContain("font-family: var(--font-sans, inherit);");
+    expect(styles).toMatch(
+      /font-family:\s*var\(\s*--agentkit-transcript-font-family,\s*var\(--font-sans,\s*inherit\)\s*\);/,
+    );
     expect(styles).toContain(
       "line-height: var(--agentkit-transcript-message-line-height, 1.52);",
     );
@@ -425,6 +427,9 @@ describe("AgentKitChat", () => {
     );
     expect(styles).toContain(
       "var(--agentkit-user-bubble-padding-inline, 0.8125rem)",
+    );
+    expect(styles).toContain(
+      "inset-inline-start: var(--agentkit-user-bubble-offset-inline, 0px);",
     );
     expect(styles).toMatch(
       /max-inline-size: min\([\s\S]*94%,[\s\S]*var\(--agentkit-user-bubble-max-width, 38rem\)/,

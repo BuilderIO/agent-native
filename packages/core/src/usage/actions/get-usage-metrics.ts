@@ -1,8 +1,10 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
+import { isOrgMember } from "../../org/membership.js";
 import {
   ALL_USAGE_APPS,
+  canViewWorkspaceUsage,
   listAppUsageMetrics,
   USAGE_APP_FILTER_ALL,
   USAGE_APP_FILTER_CURRENT,
@@ -27,12 +29,19 @@ function resolveAppSelection(
 
 export default defineAction({
   description:
-    'Get LLM usage metrics for Settings › Usage: lookback totals, the daily trend split by feature, app, model and surface (dailyBy), top features, models, apps, chats and people, tool calls per day, recent prompts, and the apps with usage. Covers every app unless app names one. Members see only their own usage; scope "workspace" (everyone in the organization) is for owners and admins. billing.unit identifies Builder.io credits, estimated dollars, mixed billing, or unknown when historical engine metadata is missing.',
+    'Reports this workspace\'s own agent/LLM usage (Settings › Usage) for members of this organization only; it does NOT cover usage, credits, or activity of external customers, accounts, companies, or product usage, which belong to the app that owns that data (see <relevant-apps>, or search with describe-workspace-apps). Returns lookback totals, the daily trend (dailyBy feature, app, model and surface), top features, models, apps, chats and people, tool calls per day, and recent prompts, across every app unless app names one. Members see only their own usage; scope "workspace" (everyone in the organization) is for owners and admins. billing.unit identifies Builder.io credits, estimated dollars, mixed billing, or unknown.',
   http: { method: "GET" },
   schema: z.object({
     sinceDays: z.coerce.number().int().min(1).max(365).default(30),
     scope: z.enum(["me", "workspace"]).default("me"),
-    userEmail: z.string().trim().min(1).optional(),
+    userEmail: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        "Email of a member of this organization to filter usage to. Not for customers or other external accounts.",
+      ),
     app: z
       .string()
       .trim()
@@ -51,6 +60,33 @@ export default defineAction({
   }),
   run: async ({ sinceDays, scope, userEmail, app, appId }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    // scope "me" ignores userEmail, so only a workspace lookup is checked.
+    if (
+      scope === "workspace" &&
+      userEmail &&
+      ctx.orgId &&
+      userEmail.toLowerCase() !== ctx.userEmail.toLowerCase()
+    ) {
+      // Unauthorized callers get one answer whether or not the email is a
+      // member, so the lookup cannot be used to probe the roster.
+      if (
+        !(await canViewWorkspaceUsage({
+          ownerEmail: ctx.userEmail,
+          orgId: ctx.orgId,
+        }))
+      ) {
+        fail(
+          "Only organization owners and admins can look up another person's usage with get-usage-metrics. Usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data (see <relevant-apps> or run describe-workspace-apps with a query).",
+          { errorCode: "usage_user_lookup_forbidden", statusCode: 403 },
+        );
+      }
+      if (!(await isOrgMember(ctx.orgId, userEmail))) {
+        fail(
+          `${userEmail} is not a member of this organization. get-usage-metrics only covers this workspace's own agent usage; usage, credits, or activity for customers, accounts, or companies belongs to the app that owns that data (see <relevant-apps> or run describe-workspace-apps with a query).`,
+          { errorCode: "usage_user_not_org_member", statusCode: 404 },
+        );
+      }
+    }
     const selection = resolveAppSelection(app, appId);
     return listAppUsageMetrics(
       { sinceDays, scope, userEmail, builderCreditsEnabled: true },

@@ -12,6 +12,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Session replay quotas count the compressed size Analytics stores, so recordings from other sites no longer use up the daily limit early
 - Preserve unknown replay availability in partial journeys
 
 ## 2026-10-20

@@ -627,6 +627,84 @@ describe("export-document database collections", () => {
     });
   });
 
+  it("exports the current View with each filter group's own mode", async () => {
+    const databaseId = "grouped-view-database";
+    const databaseDocumentId = "grouped-view-database-document";
+    await createDatabase({
+      id: databaseId,
+      documentId: databaseDocumentId,
+      title: "Grouped View",
+    });
+    await setDatabaseViewFilters(databaseId, []);
+    for (const [index, id] of ["alpha", "beta", "gamma"].entries()) {
+      await createDocument({ id, title: id });
+      await addDatabaseItem({
+        id: `${id}-grouped-item`,
+        databaseId,
+        documentId: id,
+        position: index,
+      });
+    }
+    const advancedOr = (value: string) => ({
+      key: "name",
+      label: "Name",
+      operator: "equals",
+      value,
+      filterGroupId: "advanced",
+      filterGroupMode: "or",
+    });
+    const run = (filters: Array<any>) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        exportDocumentAction.run({
+          id: databaseDocumentId,
+          format: "csv",
+          collection: {
+            scope: {
+              kind: "current_view",
+              viewId: "primary",
+              query: { search: "", filters, sorts: [], filterMode: "and" },
+            },
+            propertyIds: [],
+            includePrimaryBody: false,
+            blockPropertyIds: [],
+          },
+        }),
+      );
+
+    await expect(
+      run([
+        {
+          key: "name",
+          label: "Name",
+          operator: "does_not_equal",
+          value: "gamma",
+        },
+        advancedOr("alpha"),
+        advancedOr("beta"),
+      ]),
+    ).resolves.toMatchObject({ content: "Title\r\nalpha\r\nbeta\r\n" });
+
+    await putUserSetting(
+      OWNER,
+      `content-database-personal-view:${databaseId}`,
+      {
+        version: 2,
+        activeViewId: "primary",
+        views: [
+          {
+            id: "primary",
+            sorts: [],
+            filters: [advancedOr("beta"), advancedOr("gamma")],
+            filterMode: "and",
+          },
+        ],
+      },
+    );
+    await expect(run([])).resolves.toMatchObject({
+      content: "Title\r\nbeta\r\ngamma\r\n",
+    });
+  });
+
   it("uses the server-resolved effective View order instead of caller-supplied sorts", async () => {
     const databaseId = "trusted-view-order-database";
     const databaseDocumentId = "trusted-view-order-document";
