@@ -32,6 +32,7 @@ import {
   runStoredFormCensusCli,
   withReadOnlySnapshot,
 } from "./_stored-form-census";
+import * as censusKinds from "./_stored-form-census-kinds";
 import { CENSUS_STATEMENTS } from "./_stored-form-census-scan";
 
 const PRODUCTION_HOST = "ep-prod-endpoint-123456.us-east-2.aws.neon.tech";
@@ -693,8 +694,8 @@ const AGENT_BODY =
 const EDITOR_BODY = docToNfm(
   nfmToDoc("Editor paragraph about quarterly-results"),
 );
-// Canonical bytes that Content reads as literal underscores, not bold.
-const MISREAD_BODY = "__misread emphasis__";
+// A toggle summary keeps its Markdown markers as plain summary text.
+const MISREAD_BODY = '## **misread emphasis** {toggle="true"}\n\tChild';
 
 const FIXTURE_TABLES = [
   "documents",
@@ -904,18 +905,11 @@ describe("stored-form census against a local database", () => {
       trashed: 1,
       pageIds: ["page-agent", "page-trashed"],
     });
-    expect(report.bodies.lossy.pageIds).toEqual([
-      "page-agent",
-      "page-misread",
-      "page-trashed",
-    ]);
+    expect(report.bodies.lossy.pageIds).toEqual(["page-misread"]);
     expect(report.bodies.lossByKind["gfm-strong-dropped"].pageIds).toEqual([
-      "page-agent",
       "page-misread",
     ]);
-    expect(report.bodies.lossByKind["gfm-list-nesting-lost"].pageIds).toEqual([
-      "page-agent",
-    ]);
+    expect(report.bodies.lossByKind["gfm-list-nesting-lost"]).toBeUndefined();
     expect(report.agentFormPages.pages.pageIds).toEqual([
       "page-agent",
       "page-misread",
@@ -1059,10 +1053,9 @@ describe("stored-form census against a local database", () => {
     ]);
   });
 
-  it("judges suggestions by Content's accept rule and leaves repeated quotes unjudged", async () => {
-    // Canonicalizing reads the code span as a fence, so the editor text
-    // changes from "notea``bnote" to "notenote".
+  it("judges suggestions by Content's accept rule and keeps the repaired code-span quotes", async () => {
     const body = "note\n\n`a``b`\n\nnote";
+    expect(nfmToDoc(canonicalizeNfm(body))).toEqual(nfmToDoc(body));
     await db.execute({
       sql: "INSERT INTO documents (id, content) VALUES (?, ?)",
       args: ["page-repeat", body],
@@ -1177,16 +1170,67 @@ describe("stored-form census against a local database", () => {
       pageIds: ["page-agent", "page-repeat"],
     });
     const comments = report.agentFormPages.commentAnchors;
-    expect(comments.ambiguous).toMatchObject({
-      items: 1,
-      pageIds: ["page-repeat"],
+    expect(comments.ambiguous).toBeUndefined();
+    expect(comments.survives).toMatchObject({
+      items: 3,
+      pageIds: ["page-agent", "page-repeat"],
     });
-    expect(comments.strandedByCanonicalize.pageIds).toContain("page-repeat");
+    expect(comments.strandedByCanonicalize).toBeUndefined();
     expect(report.incompleteReasons).toEqual([
       "pages with suggestions over 4194304 bytes, not judged: 1",
       "pages with suggestions made against text over 262144 characters, or with a line over 32768 characters or nested over 100 levels, or over 262144 container levels summed over all lines, not judged: 1",
-      "pages with comments whose repeated quote may land elsewhere: 1",
     ]);
+  });
+
+  it("reports ambiguous and stranded comments from historical text readings", async () => {
+    const body = "note\n\n`a``b`\n\nnote";
+    const canonical = canonicalizeNfm(body);
+    expect(canonical).not.toBe(body);
+    await db.execute({
+      sql: "INSERT INTO documents (id, content) VALUES (?, ?)",
+      args: ["page-historical", body],
+    });
+    for (const [id, quote] of [
+      ["comment-repeat", "note"],
+      ["comment-code", "a``b"],
+    ]) {
+      await db.execute({
+        sql: "INSERT INTO document_comments (id, document_id, thread_id, content, quoted_text, author_email) VALUES (?, 'page-historical', ?, 'Comment', ?, 'a@example.com')",
+        args: [id, id, quote],
+      });
+    }
+    const readAnchorText = censusKinds.commentAnchorText;
+    const anchorText = vi.spyOn(censusKinds, "commentAnchorText");
+    // Replay the historical reader's loss through the real scan/report path.
+    anchorText.mockImplementation((source) =>
+      source === body
+        ? "notea``bnote"
+        : source === canonical
+          ? "notenote"
+          : readAnchorText(source),
+    );
+    try {
+      const { run, stdout } = cli(
+        ["--database-url-env=CENSUS_URL"],
+        { CENSUS_URL: "pglite:memory" },
+        async () => ({ ...db, close: async () => {} }),
+      );
+      expect(await run).toBe(2);
+      const report = JSON.parse(stdout.join(""));
+      expect(anchorText).toHaveBeenCalledWith(body);
+      expect(anchorText).toHaveBeenCalledWith(canonical);
+      expect(report.agentFormPages.commentAnchors).toMatchObject({
+        ambiguous: { items: 1, pageIds: ["page-historical"] },
+        strandedByCanonicalize: { items: 1, pageIds: ["page-historical"] },
+        survives: { items: 1, pageIds: ["page-agent"] },
+      });
+      expect(report.complete).toBe(false);
+      expect(report.incompleteReasons).toEqual([
+        "pages with comments whose repeated quote may land elsewhere: 1",
+      ]);
+    } finally {
+      anchorText.mockRestore();
+    }
   });
 
   it("reads every row across pages, including one whose id is empty", async () => {
@@ -1195,7 +1239,7 @@ describe("stored-form census against a local database", () => {
     );
     await db.execute({
       sql: "INSERT INTO documents (id, content) VALUES (?, ?)",
-      args: ["", "__empty id__"],
+      args: ["", MISREAD_BODY],
     });
     await db.execute(
       "INSERT INTO document_comments (id, document_id, thread_id, content, quoted_text, author_email) SELECT 'bulk-comment-' || lpad(i::text, 3, '0'), 'page-agent', 't', 'c', 'bold claim', 'a@example.com' FROM generate_series(0, 449) AS i",

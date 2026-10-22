@@ -26,17 +26,9 @@ import { enterGateArm } from "../live-body-gate";
 test.describe.configure({ retries: 0, timeout: 150_000 });
 
 // Samples main loses today. L1 drops each entry with the fix that keeps it.
-const MAIN_LOSES: Record<string, string> = {
-  "escaped-underscore":
-    "The editor shows the backslash in snake\\_case instead of an underscore.",
-  "underscore-bold": "__bold__ stays literal underscores instead of bold text.",
-  "four-space-nested-list":
-    'A four-space nested item becomes a top-level paragraph reading "    - Nested item".',
-  "two-space-nested-list":
-    'A two-space nested item becomes a top-level paragraph reading "  - Nested item".',
-};
+const MAIN_LOSES: Record<string, string> = {};
 
-// Every export fails this before its sample is compared. No lane owns it yet.
+// Every export fails this before its sample is compared.
 const EXPORT_MANIFEST_LOSS =
   "Markdown export appends a hidden agent-native-blocks manifest that import drops, so every exported page re-imports reported as lost and with new block identities.";
 
@@ -56,7 +48,7 @@ async function expectRenders(
   sample: RoundTripSample,
   where: string,
 ): Promise<void> {
-  for (const { selector, text } of sample.renders) {
+  for (const { selector, text } of sample.renders ?? []) {
     await expect(
       page
         .locator(`${EDITOR} :is(${selector})`)
@@ -129,13 +121,13 @@ test.describe("SF-04 round trips keep every sample", { tag: "@SF-04" }, () => {
     agent = AgentClient.shared(page);
   });
 
-  for (const sample of ROUND_TRIP_CORPUS) {
+  for (const sample of ROUND_TRIP_CORPUS.filter((sample) => sample.renders)) {
     const loss = MAIN_LOSES[sample.id];
     const details = loss
       ? knownLossSpec({ lane: "L1", outcome: "SF-04", reason: loss })
       : {};
     const exportDetails = knownLossSpec({
-      lane: loss ? ["unowned", "L1"] : "unowned",
+      lane: "L1",
       outcome: "SF-04",
       reason: loss ? `${EXPORT_MANIFEST_LOSS} ${loss}` : EXPORT_MANIFEST_LOSS,
     });
