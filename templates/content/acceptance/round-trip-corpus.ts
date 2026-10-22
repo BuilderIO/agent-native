@@ -1193,6 +1193,14 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     losses: ["dropped-source", "reparse-mismatch"],
   },
   {
+    id: "refuse-table-line-after-math-block-open-at-callout-close",
+    origin: "agent",
+    markdown: "<callout>\n\t$$\n</callout>\n<table>\nx\n</table>",
+    unrepresentable:
+      "The equation ends at `</callout>`, and the table reader drops `x`, a line that isn't a row, as it does for the same three lines alone.",
+    losses: ["dropped-source", "invalid-structure"],
+  },
+  {
     id: "refuse-untabbed-callout-paragraph-then-deeper-fence",
     origin: "agent",
     markdown: "<callout>\nx\n\t```\ncode\n```\nafter\n</callout>",
