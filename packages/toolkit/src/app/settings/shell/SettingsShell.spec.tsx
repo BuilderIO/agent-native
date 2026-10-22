@@ -458,6 +458,7 @@ describe("SettingsShell", () => {
   });
 
   it("renders an opted-in app page widget slot after the page content", async () => {
+    window.history.replaceState(null, "", "/settings/app-help");
     await render({
       appSettingsPages: [
         {
@@ -477,6 +478,7 @@ describe("SettingsShell", () => {
   });
 
   it("does not render an app page widget slot when it is omitted", async () => {
+    window.history.replaceState(null, "", "/settings/app-help");
     await render({
       appSettingsPages: [appPage("app-help", "App help")],
       initialValue: "app-help",
