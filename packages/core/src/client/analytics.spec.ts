@@ -1421,6 +1421,35 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("clears Amplitude's stored device id when the visitor rejects after accepting", async () => {
+    const { session, setTimeZone, localStorage, cookieAssignment } =
+      installBrowser();
+    session.clear();
+    setTimeZone("Europe/Berlin");
+    installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test_key_123");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+    trackEvent("before_consent", {});
+    const { setConsentChoice } = await import("./consent.js");
+    setConsentChoice({ performance: true, targeting: false });
+    await tick();
+    expect(amplitudeMock.init).toHaveBeenCalled();
+    // What the SDK stored once it started.
+    document.cookie = "AMP_amp_test_k=device; path=/";
+    localStorage.setItem("AMP_unsent_amp_test_k", "[]");
+
+    setConsentChoice({ performance: false, targeting: false });
+
+    expect(amplitudeMock.setOptOut).toHaveBeenLastCalledWith(true);
+    expect(cookieAssignment("AMP_amp_test_k")).toContain("max-age=0");
+    expect(localStorage.getItem("AMP_unsent_amp_test_k")).toBeNull();
+  });
+
   it("sends first-party events without a visitor id until analytics consent", async () => {
     const { session, localStorage, getCookie } = installBrowser();
     session.set("an_consent_region", "consent");

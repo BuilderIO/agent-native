@@ -2562,6 +2562,16 @@ async function restartSessionReplayWithFreshIdentityInternal(
     return { started: false, reason: "disabled", sessionId, sampled: true };
   }
 
+  // Recovery restarts without going through startSessionReplay, so a reject
+  // that landed while the old recording stopped must still hold here.
+  if (!replayConsentGranted) {
+    return {
+      started: false,
+      reason: "consent-required",
+      sessionId,
+      sampled: true,
+    };
+  }
   const initialProperties = replayExtraProperties(options);
   if (options.requireSignedInUser && !replayUserEmail(initialProperties)) {
     return {

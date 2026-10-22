@@ -1220,6 +1220,38 @@ function isSyntheticBrowserTraffic(): boolean {
   );
 }
 
+/**
+ * Amplitude keeps its device id in a cookie on the widest domain it can set,
+ * and its marketing touch and unsent events beside it, all named from the
+ * API key. A reject clears them at every level of this host.
+ */
+function clearAmplitudeStorage(apiKey: string): void {
+  const key = apiKey.slice(0, 10);
+  const names = [
+    `AMP_${key}`,
+    `AMP_MKTG_${key}`,
+    `AMP_MKTG_ORIGINAL_${key}`,
+    `AMP_unsent_${key}`,
+    `amp_${apiKey.slice(0, 6)}`,
+  ];
+  try {
+    const labels = window.location.hostname.split(".");
+    const domains = [""];
+    for (let i = 0; i < labels.length - 1; i += 1) {
+      domains.push(`; domain=.${labels.slice(i).join(".")}`);
+    }
+    for (const name of names) {
+      for (const domain of domains) {
+        document.cookie = `${name}=; path=/; max-age=0${domain}`;
+      }
+    }
+  } catch {
+    // coercion-ok: a sandboxed iframe can't read or write cookies, so
+    // Amplitude stored none here.
+  }
+  for (const name of names) safeStorageRemove(name);
+}
+
 function ensureAmplitude(): boolean {
   if (isSyntheticBrowserTraffic()) return false;
   const key = (import.meta.env as Record<string, string | undefined>)
@@ -1243,6 +1275,7 @@ function ensureAmplitude(): boolean {
             _amplitudeConsent = "revoked";
             _pendingAmplitudeEvents = [];
             _amplitudeModule?.setOptOut(true);
+            clearAmplitudeStorage(key);
           },
         },
       );
