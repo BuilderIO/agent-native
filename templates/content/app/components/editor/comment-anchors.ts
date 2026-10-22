@@ -50,9 +50,24 @@ export function buildDocText(
   return { text, segments };
 }
 
-function offsetToPos(docText: DocText, offset: number): number | null {
+// Blocks' text runs together, so the offset where one block ends is also
+// where the next one starts. A quote starts in the block after, not at the
+// end of the one before: that would put a block later inserted between them
+// inside its highlight.
+function offsetToPos(
+  docText: DocText,
+  offset: number,
+  side: "start" | "end" = "end",
+): number | null {
   const { segments } = docText;
   if (segments.length === 0) return null;
+  if (side === "start") {
+    const seg = segments.find(
+      ({ textStart, length }) =>
+        offset >= textStart && offset < textStart + length,
+    );
+    if (seg) return seg.pmFrom + (offset - seg.textStart);
+  }
   for (const seg of segments) {
     if (offset >= seg.textStart && offset <= seg.textStart + seg.length) {
       return seg.pmFrom + (offset - seg.textStart);
@@ -228,7 +243,7 @@ export function resolveAnchor(
     }
   }
 
-  const from = offsetToPos(docText, chosen);
+  const from = offsetToPos(docText, chosen, "start");
   const to = offsetToPos(docText, chosen + quote.length);
   if (from == null || to == null || to <= from) return null;
   return { from, to };
