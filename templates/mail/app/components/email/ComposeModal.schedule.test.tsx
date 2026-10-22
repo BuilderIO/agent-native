@@ -1631,6 +1631,7 @@ describe("ComposeModal scheduling", () => {
       container.querySelector('input[data-recipient-field="bcc"]'),
     ).toBeNull();
   });
+
   it("leaves a card draft edited while scheduling open and says so in a toast", async () => {
     let resolveSchedule!: (value: unknown) => void;
     mockScheduleEmail.mockReturnValue(
@@ -1680,5 +1681,61 @@ describe("ComposeModal scheduling", () => {
     );
     expect(onSendProgress).not.toHaveBeenCalled();
     expect(onDiscard).not.toHaveBeenCalled();
+  });
+
+  it("closes a card draft whose thread turns up while scheduling", async () => {
+    let resolveSchedule!: (value: unknown) => void;
+    mockScheduleEmail.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSchedule = resolve;
+      }),
+    );
+    const onDiscard = vi.fn();
+    const onSendProgress = vi.fn();
+    const props = {
+      presentation: "card" as const,
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard,
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+      onSendProgress,
+    };
+    const unthreaded = { ...replyDraft, replyToThreadId: undefined };
+    const { getByRole, rerender } = render(
+      <ComposeModal
+        {...props}
+        drafts={[unthreaded]}
+        activeId={unthreaded.id}
+        activeDraft={unthreaded}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Schedule send" }));
+    fireEvent.click(getByRole("button", { name: "Schedule later" }));
+    // The card's thread lookup returns while the schedule is in flight.
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+      />,
+    );
+    resolveSchedule({});
+
+    await vi.waitFor(() => expect(onDiscard).toHaveBeenCalled());
+    expect(onDiscard).toHaveBeenCalledTimes(1);
+    expect(onDiscard).toHaveBeenCalledWith(replyDraft.id);
+    expect(onSendProgress).toHaveBeenCalledTimes(1);
+    expect(onSendProgress).toHaveBeenCalledWith({
+      status: "scheduled",
+      runAt: expect.any(Number),
+    });
+    expect(mockToast).not.toHaveBeenCalled();
   });
 });

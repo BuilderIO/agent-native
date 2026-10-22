@@ -82,6 +82,12 @@ describe("Mail MCP compose prompts", () => {
     ).toBe(true);
     expect(
       isSameScheduledDraft(
+        { ...snapshot, replyToThreadId: "thread-1" },
+        snapshot,
+      ),
+    ).toBe(true);
+    expect(
+      isSameScheduledDraft(
         { ...snapshot, body: "Edited while scheduling" },
         snapshot,
       ),

@@ -44,6 +44,9 @@ export function isSameScheduledDraft(
     savedDraftId: _savedDraftId,
     savedDraftBackend: _savedDraftBackend,
     savedDraftAccountEmail: _savedDraftAccountEmail,
+    // The Mail card fills this in once its thread lookup returns, and nobody
+    // edits it, so it arriving mid-schedule isn't an edit.
+    replyToThreadId: _replyToThreadId,
     ...state
   }: ComposeState) => JSON.stringify(state);
   return comparable(draft) === comparable(snapshot);
