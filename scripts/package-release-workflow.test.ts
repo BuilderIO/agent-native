@@ -20,7 +20,10 @@ import {
   syncCommunityQrBlobPins,
   syncCommunityQrCoreLock,
 } from "./sync-community-qr-core-lock.ts";
-import { assertCommunityQrPackagePinOnlyChange } from "./verify-community-qr-release-pin.ts";
+import {
+  assertCommunityQrPackagePinOnlyChange,
+  decodeGitHubContentResponse,
+} from "./verify-community-qr-release-pin.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -597,6 +600,50 @@ importers:
           headPackage,
         ),
       /Community app catalog changes must update only the QR package.json blob pin/,
+    );
+  });
+
+  it("rejects unreadable or incomplete GitHub Contents API responses", () => {
+    const content = Buffer.from("manifest");
+    assert.deepEqual(
+      decodeGitHubContentResponse(
+        {
+          encoding: "base64",
+          content: content.toString("base64"),
+          size: content.length,
+        },
+        "manifest.json",
+        "head-sha",
+      ),
+      content,
+    );
+
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "none", content: "", size: 1_048_577 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned unreadable file content/,
+    );
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "base64", content: "%%%", size: 3 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned invalid base64 content/,
+    );
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "base64", content: "bWFuaWZlc3Q=", size: 99 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned incomplete file content/,
     );
   });
 

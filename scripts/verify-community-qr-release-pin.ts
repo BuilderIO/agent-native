@@ -94,14 +94,51 @@ function gh(args: string[]): string {
   }).trim();
 }
 
+export function decodeGitHubContentResponse(
+  response: unknown,
+  path: string,
+  ref: string,
+): Buffer {
+  if (!response || typeof response !== "object") {
+    throw new Error(`GitHub returned no file content for ${path} at ${ref}.`);
+  }
+
+  const { encoding, content, size } = response as Record<string, unknown>;
+  if (encoding !== "base64" || typeof content !== "string" || !content.trim()) {
+    throw new Error(
+      `GitHub returned unreadable file content for ${path} at ${ref}.`,
+    );
+  }
+
+  const encoded = content.replace(/\s/g, "");
+  if (
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      encoded,
+    )
+  ) {
+    throw new Error(
+      `GitHub returned invalid base64 content for ${path} at ${ref}.`,
+    );
+  }
+
+  const decoded = Buffer.from(encoded, "base64");
+  if (
+    !Number.isSafeInteger(size) ||
+    decoded.length === 0 ||
+    decoded.length !== size
+  ) {
+    throw new Error(
+      `GitHub returned incomplete file content for ${path} at ${ref}.`,
+    );
+  }
+  return decoded;
+}
+
 function contentAt(path: string, ref: string): Buffer {
-  const encoded = gh([
-    "api",
-    `repos/${repo}/contents/${path}?ref=${ref}`,
-    "--jq",
-    ".content",
-  ]).replace(/\s/g, "");
-  return Buffer.from(encoded, "base64");
+  const response = JSON.parse(
+    gh(["api", `repos/${repo}/contents/${path}?ref=${ref}`]),
+  ) as unknown;
+  return decodeGitHubContentResponse(response, path, ref);
 }
 
 function main(): void {
