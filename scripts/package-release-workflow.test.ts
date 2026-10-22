@@ -817,6 +817,18 @@ importers:
     assert(releaseDiff);
     assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
     assert(majorPromotionGuard);
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).BASE_SHA),
+      /inputs\.base_sha/,
+    );
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).HEAD_SHA),
+      /inputs\.head_sha/,
+    );
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).PR_NUMBER),
+      /inputs\.pull_request_number/,
+    );
     assert.match(String(majorPromotionGuard.run), /"--slurp"/);
     assert.match(String(majorPromotionGuard.run), /JSON\.parse\(gh\(/);
     assert.doesNotMatch(String(majorPromotionGuard.run), /\.split\("\\n"\)/);

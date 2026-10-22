@@ -666,90 +666,116 @@ describe("native raster style snapshots", () => {
     );
   });
 
-  it("rejects animated paint while allowing transform-only source motion", async () => {
-    const target = document.createElement("div");
-    document.body.append(target);
-    let frames: PropertyIndexedKeyframes[] = [
-      { backgroundColor: "rgb(0, 0, 0)" },
-      { backgroundColor: "rgb(255, 255, 255)" },
-    ];
-    class TestKeyframeEffect {
-      getKeyframes() {
-        return frames;
-      }
-    }
-    vi.stubGlobal("KeyframeEffect", TestKeyframeEffect);
-    const style = {
-      display: "block",
-      visibility: "visible",
-      opacity: "1",
-      position: "static",
-      zIndex: "auto",
-      order: "0",
-      isolation: "auto",
-      mixBlendMode: "normal",
-      filter: "none",
-      backdropFilter: "none",
-      transform: "none",
-      transformOrigin: "0px 0px",
-      translate: "none",
-      rotate: "none",
-      scale: "none",
-      perspective: "none",
-      transformStyle: "flat",
-      overflowX: "visible",
-      overflowY: "visible",
-      clipPath: "none",
-      backgroundImage: "none",
-      backgroundColor: "rgba(0, 0, 0, 0)",
-      backgroundClip: "border-box",
-      boxShadow: "none",
-      outlineStyle: "none",
-      maskImage: "none",
-      borderTopWidth: "0px",
-      borderRightWidth: "0px",
-      borderBottomWidth: "0px",
-      borderLeftWidth: "0px",
-      borderTopLeftRadius: "0px",
-      borderTopRightRadius: "0px",
-      borderBottomRightRadius: "0px",
-      borderBottomLeftRadius: "0px",
-      paddingTop: "0px",
-      paddingRight: "0px",
-      paddingBottom: "0px",
-      paddingLeft: "0px",
-      imageRendering: "auto",
-      objectFit: "fill",
-      objectPosition: "50% 50%",
-      getPropertyValue: () => "",
-    } as unknown as CSSStyleDeclaration;
-    vi.spyOn(window, "getComputedStyle").mockReturnValue(style);
-    Object.defineProperty(target, "getAnimations", {
-      configurable: true,
-      value: () => [
-        {
-          playState: "running",
-          effect: new TestKeyframeEffect(),
-        } as unknown as Animation,
-      ],
-    });
-    const provider = createNativeSceneProvider(target, "layer");
-    expect(provider).not.toBeNull();
-    try {
-      await expect(provider!.readScene()).rejects.toMatchObject({
-        code: "source-animation",
-      });
-
-      frames = [
-        { transform: "translateX(0px)" },
-        { transform: "translateX(12px)" },
+  it.each(["local", "foreign", "unreadable", "throwing"])(
+    "rejects animated paint with a %s effect while allowing transform-only source motion",
+    async (realm) => {
+      const target = document.createElement("div");
+      document.body.append(target);
+      let frames: PropertyIndexedKeyframes[] = [
+        { backgroundColor: "rgb(0, 0, 0)" },
+        { backgroundColor: "rgb(255, 255, 255)" },
       ];
-      await expect(provider!.readScene()).resolves.toEqual([]);
-      expect(provider!.needsContinuousFrames()).toBe(true);
-    } finally {
-      provider!.dispose();
-    }
-  });
+      class TestKeyframeEffect {
+        getKeyframes() {
+          return frames;
+        }
+      }
+      class ForeignKeyframeEffect {
+        getKeyframes() {
+          return frames;
+        }
+      }
+      vi.stubGlobal("KeyframeEffect", TestKeyframeEffect);
+      const effect =
+        realm === "local"
+          ? new TestKeyframeEffect()
+          : realm === "foreign"
+            ? new ForeignKeyframeEffect()
+            : realm === "throwing"
+              ? {
+                  getKeyframes() {
+                    throw new Error("unreadable effect");
+                  },
+                }
+              : {};
+      const style = {
+        display: "block",
+        visibility: "visible",
+        opacity: "1",
+        position: "static",
+        zIndex: "auto",
+        order: "0",
+        isolation: "auto",
+        mixBlendMode: "normal",
+        filter: "none",
+        backdropFilter: "none",
+        transform: "none",
+        transformOrigin: "0px 0px",
+        translate: "none",
+        rotate: "none",
+        scale: "none",
+        perspective: "none",
+        transformStyle: "flat",
+        overflowX: "visible",
+        overflowY: "visible",
+        clipPath: "none",
+        backgroundImage: "none",
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        backgroundClip: "border-box",
+        boxShadow: "none",
+        outlineStyle: "none",
+        maskImage: "none",
+        borderTopWidth: "0px",
+        borderRightWidth: "0px",
+        borderBottomWidth: "0px",
+        borderLeftWidth: "0px",
+        borderTopLeftRadius: "0px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+        paddingTop: "0px",
+        paddingRight: "0px",
+        paddingBottom: "0px",
+        paddingLeft: "0px",
+        imageRendering: "auto",
+        objectFit: "fill",
+        objectPosition: "50% 50%",
+        getPropertyValue: () => "",
+      } as unknown as CSSStyleDeclaration;
+      vi.spyOn(window, "getComputedStyle").mockReturnValue(style);
+      Object.defineProperty(target, "getAnimations", {
+        configurable: true,
+        value: () => [
+          {
+            playState: "running",
+            effect,
+          } as unknown as Animation,
+        ],
+      });
+      const provider = createNativeSceneProvider(target, "layer");
+      expect(provider).not.toBeNull();
+      try {
+        await expect(provider!.readScene()).rejects.toMatchObject({
+          code: "source-animation",
+        });
+
+        frames = [
+          { transform: "translateX(0px)" },
+          { transform: "translateX(12px)" },
+        ];
+        if (realm === "unreadable" || realm === "throwing") {
+          await expect(provider!.readScene()).rejects.toMatchObject({
+            code: "source-animation",
+          });
+        } else {
+          await expect(provider!.readScene()).resolves.toEqual([]);
+          expect(provider!.needsContinuousFrames()).toBe(true);
+        }
+      } finally {
+        provider!.dispose();
+      }
+    },
+  );
 });
 
 const mutationTurn = () =>

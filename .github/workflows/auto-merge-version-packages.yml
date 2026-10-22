@@ -104,6 +104,94 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+
+          files_dir="$RUNNER_TEMP/release-pr-files"
+          mkdir -p "$files_dir"
+          gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/files" \
+            | jq -c 'add | .[]' > "$files_dir/files.jsonl"
+          # The files endpoint stops at 3,000 entries; a short list is not a
+          # clean one.
+          expected_files=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.changed_files')
+          listed_files=$(wc -l < "$files_dir/files.jsonl" | tr -d ' ')
+          if [ "$listed_files" != "$expected_files" ]; then
+            echo "::error::Refusing admin-merge: listed $listed_files of $expected_files changed files" >&2
+            exit 1
+          fi
+          while IFS= read -r entry; do
+            [ -z "$entry" ] && continue
+            file=$(jq -r '.filename' <<< "$entry")
+            # Release prep never renames files; a rename could carry an
+            # unchecked path into an allowed one.
+            if [ "$(jq -r '.previous_filename != null' <<< "$entry")" = "true" ]; then
+              echo "::error::Refusing admin-merge for renamed release PR path: $file" >&2
+              exit 1
+            fi
+            case "$file" in
+              .changeset/*.md|package.json|pnpm-lock.yaml|*/package.json|*/CHANGELOG.md|*/changelog/*)
+                ;;
+              packages/dispatch/src/server/lib/community-apps.ts)
+                # Release prep repins the curated community templates' Git blob
+                # ids when it bumps their core range. Accept only one-for-one
+                # pin replacements; any other edit to the catalog needs a human.
+                # No early-exiting pipe here: under pipefail a SIGPIPE would
+                # turn a found violation into a passing check.
+                patch_file="$files_dir/catalog.patch"
+                if [ "$(jq -r '.patch == null' <<< "$entry")" = "true" ]; then
+                  echo "::error::Refusing admin-merge: $file has no reviewable patch" >&2
+                  exit 1
+                fi
+                jq -r '.patch' <<< "$entry" > "$patch_file"
+                pin='[[:space:]]*blobSha: "[0-9a-f]{40}",?$'
+                non_pin=$(grep -E '^[+-]' "$patch_file" | grep -v -E "^[+-]$pin" || true)
+                removed=$(grep -c -E "^-$pin" "$patch_file" || true)
+                added=$(grep -c -E "^\+$pin" "$patch_file" || true)
+                if [ -n "$non_pin" ] || [ "$added" -eq 0 ] || [ "$added" -ne "$removed" ]; then
+                  echo "::error::Refusing admin-merge: $file changes more than community template blob pins" >&2
+                  exit 1
+                fi
+                # Pin syntax is not enough: every pin must equal the Git blob
+                # of its template file at this head, so a wrong or swapped pin
+                # cannot merge.
+                node <<'NODE'
+          const { execFileSync } = require("node:child_process");
+          const repo = process.env.REPO;
+          const head = process.env.HEAD_SHA;
+          const catalog = "packages/dispatch/src/server/lib/community-apps.ts";
+          const gh = (args) => execFileSync("gh", args, { encoding: "utf8" });
+          const source = Buffer.from(
+            gh(["api", `repos/${repo}/contents/${catalog}?ref=${head}`, "--jq", ".content"]).replace(/\s/g, ""),
+            "base64",
+          ).toString("utf8");
+          let template = null;
+          let path = null;
+          const pins = [];
+          for (const line of source.split("\n")) {
+            let match;
+            if ((match = line.match(/templatePath:\s*"([^"]+)"/))) template = match[1];
+            else if ((match = line.match(/^\s*path:\s*"([^"]+)"/))) path = match[1];
+            else if ((match = line.match(/blobSha:\s*"([0-9a-f]{40})"/))) {
+              if (!template || !path) throw new Error(`blobSha ${match[1]} has no template path`);
+              pins.push({ file: `${template}/${path}`, sha: match[1] });
+              path = null;
+            }
+          }
+          if (pins.length === 0) throw new Error("No community template pins found");
+          for (const { file, sha } of pins) {
+            const actual = gh(["api", `repos/${repo}/contents/${file}?ref=${head}`, "--jq", ".sha"]).trim();
+            if (actual !== sha) {
+              console.error(`::error::Pin for ${file} is ${sha}, but the release PR head has ${actual}`);
+              process.exit(1);
+            }
+          }
+          console.log(`Verified ${pins.length} community template pins at ${head}`);
+          NODE
+                ;;
+              *)
+                echo "::error::Refusing admin-merge for unexpected release PR path: $file" >&2
+                exit 1
+                ;;
+            esac
+          done < "$files_dir/files.jsonl"
           node --experimental-strip-types scripts/verify-release-package-files.ts
 
       - name: Verify community QR package pin
@@ -118,9 +206,9 @@ jobs:
       - name: Refuse unattended major promotions
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
