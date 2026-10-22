@@ -4399,10 +4399,8 @@ export function VisualEditor({
     !!ydoc &&
     ydoc.getXmlFragment("default").length === 0 &&
     hasSemanticCollaborationContent(content);
-  // React node views draw a moment after the editor's own DOM. Until they do,
-  // their blocks are empty and the page is shorter, so a layout read then pulls
-  // the reader's scroll back to the top. An editor taking over from the stored
-  // body leaves it up until they have drawn.
+  // Node views and their images can draw after the editor's DOM mounts. Keep
+  // the already drawn body until its replacement can hold the same layout.
   const [holdsStoredBody, setHoldsStoredBody] = useState(replacesStoredBody);
   const awaitingNodeViews = holdsStoredBody && !!editor;
   useLayoutEffect(() => {
@@ -4416,30 +4414,55 @@ export function VisualEditor({
         const first = renderer.firstElementChild;
         return !first || first.hasAttribute("data-node-view-content-react");
       });
+    const pendingImages = () => {
+      const loadedSources = new Set(
+        [
+          ...(wrapperRef.current?.querySelectorAll<HTMLImageElement>(
+            "[data-static-document-body] img.media-block__content",
+          ) ?? []),
+        ]
+          .filter((image) => image.complete && image.naturalWidth > 0)
+          .map((image) => image.src),
+      );
+      return [
+        ...dom.querySelectorAll<HTMLImageElement>("img.media-block__content"),
+      ].filter(
+        (image) =>
+          image.closest(".ProseMirror") === dom &&
+          loadedSources.has(image.src) &&
+          !image.complete,
+      );
+    };
+    const pending = () => undrawn().length || pendingImages().length;
     const drawn = () => setHoldsStoredBody(false);
-    if (!undrawn().length) {
+    if (!pending()) {
       drawn();
       return;
     }
-    const observer = new MutationObserver(() => {
-      if (undrawn().length) return;
-      observer.disconnect();
-      clearTimeout(deadline);
+    const check = () => {
+      if (pending()) return;
+      cleanup();
       drawn();
-    });
+    };
+    const observer = new MutationObserver(check);
     observer.observe(dom, { childList: true, subtree: true });
-    const deadline = setTimeout(() => {
+    dom.addEventListener("load", check, true);
+    dom.addEventListener("error", check, true);
+    const cleanup = () => {
       observer.disconnect();
-      console.warn(
-        "[content] node views did not draw",
-        undrawn().map((renderer) => renderer.className),
-      );
-      drawn();
-    }, NODE_VIEW_DRAW_DEADLINE_MS);
-    return () => {
-      observer.disconnect();
+      dom.removeEventListener("load", check, true);
+      dom.removeEventListener("error", check, true);
       clearTimeout(deadline);
     };
+    const deadline = setTimeout(() => {
+      cleanup();
+      console.warn("[content] editor body did not draw", {
+        nodeViews: undrawn().map((renderer) => renderer.className),
+        images: pendingImages().length,
+      });
+      drawn();
+    }, NODE_VIEW_DRAW_DEADLINE_MS);
+    return cleanup;
   }, [editor, awaitingNodeViews, awaitingInitialSeed]);
   const showStoredBody = awaitingInitialSeed || awaitingNodeViews;
 

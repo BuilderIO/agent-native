@@ -355,6 +355,82 @@ describe("an editor visit", () => {
     ydoc.destroy();
   });
 
+  it.each([
+    {
+      name: "keeps a loaded picture up until the editor's copy loads",
+      storedLoaded: true,
+    },
+    {
+      name: "does not wait for a picture still loading in the stored body",
+      storedLoaded: false,
+    },
+  ])("$name", async ({ storedLoaded }) => {
+    const loaded = new WeakSet<HTMLImageElement>();
+    const complete = vi
+      .spyOn(HTMLImageElement.prototype, "complete", "get")
+      .mockImplementation(function (this: HTMLImageElement) {
+        return loaded.has(this);
+      });
+    const width = vi
+      .spyOn(HTMLImageElement.prototype, "naturalWidth", "get")
+      .mockReturnValue(640);
+    const content =
+      "![A picture](https://example.com/picture.png)\n\nText below the picture.";
+    const ydoc = liveCopyOf(content);
+    try {
+      await renderVisit({
+        canEdit: true,
+        liveCopyStatus: "loading",
+        ydoc,
+        content,
+      });
+      const storedImage = container.querySelector<HTMLImageElement>(
+        "[data-static-document-body] img",
+      )!;
+      if (storedLoaded) loaded.add(storedImage);
+
+      await renderVisit({
+        canEdit: true,
+        liveCopyStatus: "ready",
+        ydoc,
+        content,
+      });
+      const editor = container.querySelector(".ProseMirror")!;
+      const image = editor.querySelector<HTMLImageElement>(
+        "img.media-block__content",
+      )!;
+      expect(image).not.toBeNull();
+      if (storedLoaded) {
+        expect(
+          container.querySelector("[data-static-document-body]"),
+        ).not.toBeNull();
+        expect(editor.closest("[hidden]")).not.toBeNull();
+        expect(editableMarks()).toEqual([]);
+      } else {
+        expect(
+          container.querySelector("[data-static-document-body]"),
+        ).toBeNull();
+        expect(editor.closest("[hidden]")).toBeNull();
+      }
+
+      await act(async () => {
+        loaded.add(image);
+        image.dispatchEvent(new Event("load"));
+      });
+      expect(container.querySelector(".ProseMirror")).toBe(editor);
+      expect(container.querySelector("[data-static-document-body]")).toBeNull();
+      expect(editor.closest("[hidden]")).toBeNull();
+      expect(editableMarks()).toEqual([
+        { name: "content-editable", editor, editable: true, hidden: false },
+      ]);
+      expect(report).toHaveBeenCalledTimes(1);
+    } finally {
+      complete.mockRestore();
+      width.mockRestore();
+      ydoc.destroy();
+    }
+  });
+
   it("shows a later remount's editor at once, with no stored body over it", async () => {
     const content = [
       "Intro paragraph.",
