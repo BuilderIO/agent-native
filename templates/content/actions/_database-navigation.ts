@@ -160,13 +160,14 @@ function dateFilterSql(
   expression: SQL<string>,
   filter: ContentDatabaseFilter,
   today: string,
+  timeZone: string | undefined,
 ): SQL | undefined {
   if (filter.operator === "is_empty")
     return sql`coalesce(${expression}, '') = ''`;
   if (filter.operator === "is_not_empty")
     return sql`coalesce(${expression}, '') <> ''`;
   if (!contentDatabaseFilterComparesDates(filter)) return undefined;
-  const check = contentDatabaseDateFilterCheck(filter, today);
+  const check = contentDatabaseDateFilterCheck(filter, today, timeZone);
   if (!check) return sql`false`;
   const value = sql<string>`coalesce(${expression}, '')`;
   // Stored times start with their day, in both the app's ISO strings and the
@@ -229,6 +230,7 @@ function navigationFilterSql(args: {
   filters: ContentDatabaseFilter[];
   filterMode: ContentDatabaseFilterMode;
   today: string;
+  timeZone: string | undefined;
   definitionById: Awaited<ReturnType<typeof navigationFilterDefinitions>>;
   document: {
     id: SQL<string>;
@@ -300,9 +302,19 @@ function navigationFilterSql(args: {
         else if (filter.operator === "is_empty") predicate = sql`false`;
         else if (filter.operator === "is_not_empty") predicate = sql`true`;
       } else if (definition.type === "created_time") {
-        predicate = dateFilterSql(args.document.createdAt, filter, args.today);
+        predicate = dateFilterSql(
+          args.document.createdAt,
+          filter,
+          args.today,
+          args.timeZone,
+        );
       } else if (definition.type === "last_edited_time") {
-        predicate = dateFilterSql(args.document.updatedAt, filter, args.today);
+        predicate = dateFilterSql(
+          args.document.updatedAt,
+          filter,
+          args.today,
+          args.timeZone,
+        );
       } else if (
         definition.type === "created_by" ||
         definition.type === "last_edited_by"
@@ -416,7 +428,8 @@ export async function getContentDatabaseNavigationPage(args: {
       : [];
   const orderHash =
     effectiveSort === "custom" ? orderFingerprint(itemIds) : null;
-  const today = contentDatabaseFilterToday(getRequestTimezone());
+  const timeZone = getRequestTimezone();
+  const today = contentDatabaseFilterToday(timeZone);
   const configHash = orderFingerprint([
     JSON.stringify({
       viewId,
@@ -450,6 +463,7 @@ export async function getContentDatabaseNavigationPage(args: {
     filters: effectiveFilters,
     filterMode: effectiveFilterMode,
     today,
+    timeZone,
     definitionById,
     document: {
       id: sql`${schema.documents.id}`,
@@ -525,6 +539,7 @@ export async function getContentDatabaseNavigationPage(args: {
           filters: effectiveFilters,
           filterMode: effectiveFilterMode,
           today,
+          timeZone,
           definitionById,
           document: {
             id: sql`${childDocuments.id}`,

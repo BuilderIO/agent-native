@@ -45,7 +45,6 @@ import {
 } from "../shared/api.js";
 import {
   applyContentDatabaseTableQuery,
-  contentDatabaseFilterToday,
   contentDatabaseTableQueryUsesProperties,
 } from "../shared/database-query.js";
 import {
@@ -995,7 +994,7 @@ export async function getContentDatabasePageResponse(
       candidateItems,
       databaseProperties,
       serverTableQuery,
-      { today: contentDatabaseFilterToday(getRequestTimezone()) },
+      { timeZone: getRequestTimezone() },
     );
     boundedTableQueryTotal = constrainedCandidates.length;
     const pageItemIds = new Set(
@@ -1227,7 +1226,7 @@ export async function getContentDatabasePageResponse(
           serializedCandidateItems,
           responseProperties,
           serverTableQuery,
-          { today: contentDatabaseFilterToday(getRequestTimezone()) },
+          { timeZone: getRequestTimezone() },
         )
       : serializedCandidateItems;
   const serializedItems =

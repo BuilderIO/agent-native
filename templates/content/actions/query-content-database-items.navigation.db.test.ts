@@ -1924,12 +1924,16 @@ describe("Files navigation text and date filters", () => {
     return page.items.map((item) => item.documentId).sort();
   }
 
-  function evaluatedIds(filter: ContentDatabaseFilter, today: string) {
+  function evaluatedIds(
+    filter: ContentDatabaseFilter,
+    today: string,
+    timeZone?: string,
+  ) {
     return applyContentDatabaseTableQuery(
       evaluatorItems,
       [evaluatorItems[0]!.properties[0]!],
       { search: "", filters: [filter], sorts: [] },
-      { today },
+      { today, timeZone },
     )
       .map((item) => item.document.id)
       .sort();
@@ -2033,7 +2037,26 @@ describe("Files navigation text and date filters", () => {
     ];
     for (const [filter, rows] of expected) {
       expect(await navigatedIds(filter, "America/New_York")).toEqual(rows);
-      expect(evaluatedIds(filter, today)).toEqual(rows);
+      expect(evaluatedIds(filter, today, "America/New_York")).toEqual(rows);
+    }
+  });
+
+  it("reads a time without an offset in the caller's time zone", async () => {
+    // Both are 17:00 UTC on 22 October; this machine's zone plays no part.
+    const rows = ids(
+      "oct-22-evening",
+      "oct-22-end",
+      "oct-23",
+      "oct-29",
+      "oct-30",
+    );
+    for (const [timezone, value, today] of [
+      ["America/New_York", "2026-10-22T13:00", "2026-10-22"],
+      ["Asia/Tokyo", "2026-10-23T02:00", "2026-10-23"],
+    ] as const) {
+      const filter = created("on_or_after", value);
+      expect(await navigatedIds(filter, timezone)).toEqual(rows);
+      expect(evaluatedIds(filter, today, timezone)).toEqual(rows);
     }
   });
 

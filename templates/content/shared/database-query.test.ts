@@ -8,6 +8,7 @@ import type {
 import {
   applyContentDatabaseTableQuery,
   contentDatabaseFilterGroupMode,
+  contentDatabaseFilterInstant,
   contentDatabaseFilterIsRelative,
   contentDatabaseFilterOperatorsForType,
   contentDatabaseFilterToday,
@@ -725,6 +726,39 @@ describe("content database date filters", () => {
     ]);
   });
 
+  it("reads times without an offset in the caller's time zone", () => {
+    const onOrAfter = (value: string, timeZone: string) =>
+      applyContentDatabaseTableQuery(
+        datedItems,
+        [dateProperty],
+        {
+          search: "",
+          filters: [
+            { key: "date", label: "Date", operator: "on_or_after", value },
+          ],
+          sorts: [],
+          filterMode: "and",
+        },
+        { today: TODAY, timeZone },
+      ).map((row) => row.document.id);
+    // The evening row's 18:00 is a wall-clock time: 22:00 UTC in New York and
+    // 09:00 UTC in Tokyo.
+    expect(onOrAfter("2026-10-22T21:00:00Z", "America/New_York")).toEqual([
+      "evening",
+      "day-after",
+    ]);
+    expect(onOrAfter("2026-10-22T21:00:00Z", "Asia/Tokyo")).toEqual([
+      "day-after",
+    ]);
+    // A wall-clock bound against wall-clock rows reads the same in any zone.
+    for (const timeZone of ["America/New_York", "Asia/Tokyo", "UTC"]) {
+      expect(onOrAfter("2026-10-22T12:00", timeZone)).toEqual([
+        "evening",
+        "day-after",
+      ]);
+    }
+  });
+
   it("matches nothing for a date that does not exist", () => {
     expect(dateMatches("on_or_before", "2026-02-30")).toEqual([]);
     expect(dateMatches("before", "not a date")).toEqual([]);
@@ -871,6 +905,38 @@ describe("content database date filters", () => {
       expect(operators).not.toContain("on_or_after");
       expect(operators).not.toContain("is_within");
     }
+  });
+});
+
+describe("content database filter instants", () => {
+  const iso = (value: string, timeZone?: string) =>
+    new Date(contentDatabaseFilterInstant(value, timeZone)).toISOString();
+
+  it("reads a wall-clock time in the given time zone", () => {
+    expect(iso("2026-10-22T12:00", "America/New_York")).toBe(
+      "2026-10-22T16:00:00.000Z",
+    );
+    expect(iso("2026-10-22 12:00:30.5", "Asia/Tokyo")).toBe(
+      "2026-10-22T03:00:30.500Z",
+    );
+    // Either side of New York's change to daylight time on 8 March.
+    expect(iso("2026-03-08T01:30", "America/New_York")).toBe(
+      "2026-03-08T06:30:00.000Z",
+    );
+    expect(iso("2026-03-08T03:30", "America/New_York")).toBe(
+      "2026-03-08T07:30:00.000Z",
+    );
+  });
+
+  it("keeps a written offset and falls back to this machine's zone", () => {
+    expect(iso("2026-10-22T12:00:00+02:00", "Asia/Tokyo")).toBe(
+      "2026-10-22T10:00:00.000Z",
+    );
+    expect(contentDatabaseFilterInstant("2026-10-22T12:00", "Not/AZone")).toBe(
+      new Date("2026-10-22T12:00").getTime(),
+    );
+    expect(contentDatabaseFilterInstant("2026-02-30T10:00", "UTC")).toBeNaN();
+    expect(contentDatabaseFilterInstant("2026-02-30T10:00")).toBeNaN();
   });
 });
 

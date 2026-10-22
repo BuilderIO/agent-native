@@ -772,7 +772,8 @@ export async function buildCollectionExportProjection(
     ...(personalQuery ? [personalQuery] : []),
     ...(transientQuery ? [{ ...transientQuery, sorts: [] }] : []),
   ];
-  const today = contentDatabaseFilterToday(getRequestTimezone());
+  const timeZone = getRequestTimezone();
+  const today = contentDatabaseFilterToday(timeZone);
   const assertBodiesReady = (
     items: ContentDatabaseItem[],
     itemCandidates: Candidate[],
@@ -826,7 +827,7 @@ export async function buildCollectionExportProjection(
         pageItems,
         requiredProperties,
         { ...query, sorts: [] },
-        { today },
+        { today, timeZone },
       );
     }
     const remainingIds = new Set(pageItems.map((item) => item.document.id));

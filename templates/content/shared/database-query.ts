@@ -259,9 +259,76 @@ function isKnownTimeZone(timeZone: string) {
   }
 }
 
+const WALL_CLOCK_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/;
+
+/**
+ * The moment a date filter value or a row's date stands for, in milliseconds,
+ * or NaN when it can't be read. A time written without an offset is a
+ * wall-clock time, the way date properties store one, so it is read in
+ * `timeZone`: the caller's zone. Without a zone, or with one this runtime does
+ * not know, it is read in this machine's zone, which in the browser is the
+ * caller's.
+ */
+export function contentDatabaseFilterInstant(value: string, timeZone?: string) {
+  const trimmed = value.trim();
+  const wall = WALL_CLOCK_TIME.exec(trimmed);
+  if (!wall) return new Date(trimmed).getTime();
+  const [, year, month, day, hour, minute, second = "0", fraction = ""] = wall;
+  const asUtc = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    Number(fraction.padEnd(3, "0").slice(0, 3)),
+  );
+  // Rejects a day or time past its end, such as February 30th.
+  if (
+    !Number.isFinite(asUtc) ||
+    new Date(asUtc).toISOString().slice(0, 16) !==
+      `${year}-${month}-${day}T${hour}:${minute}`
+  ) {
+    return Number.NaN;
+  }
+  if (!timeZone || !isKnownTimeZone(timeZone)) {
+    return new Date(trimmed.replace(" ", "T")).getTime();
+  }
+  // The offset is read again at the first guess, so a time near a
+  // daylight-saving change lands on the right side of it.
+  const guess = asUtc - timeZoneOffset(asUtc, timeZone);
+  return asUtc - timeZoneOffset(guess, timeZone);
+}
+
+/** How far `timeZone`'s clock is ahead of UTC at `time`, in milliseconds. */
+function timeZoneOffset(time: number, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+  }).formatToParts(time);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((candidate) => candidate.type === type)?.value);
+  const clock = Date.UTC(
+    part("year"),
+    part("month") - 1,
+    part("day"),
+    part("hour"),
+    part("minute"),
+    part("second"),
+  );
+  return clock - Math.floor(time / 1000) * 1000;
+}
+
 /**
  * A date filter value read for comparison: a whole calendar day, or a moment
- * when the value is written with a time.
+ * (as an ISO time in UTC) when the value is written with a time.
  */
 export type ContentDatabaseDateFilterBound =
   | { day: string }
@@ -292,9 +359,11 @@ export function contentDatabaseFilterComparesDates(
   );
 }
 
+/** `timeZone` reads a time without an offset; see `contentDatabaseFilterInstant`. */
 export function contentDatabaseFilterDateBound(
   value: string,
   today: string,
+  timeZone?: string,
 ): ContentDatabaseDateFilterBound | null {
   const trimmed = value.trim();
   if (isContentDatabaseRelativeDate(trimmed)) {
@@ -303,8 +372,11 @@ export function contentDatabaseFilterDateBound(
   if (DAY_PATTERN.test(trimmed)) {
     return addDays(trimmed, 0) === trimmed ? { day: trimmed } : null;
   }
-  return trimmed && Number.isFinite(new Date(trimmed).getTime())
-    ? { instant: trimmed }
+  const time = trimmed
+    ? contentDatabaseFilterInstant(trimmed, timeZone)
+    : Number.NaN;
+  return Number.isFinite(time)
+    ? { instant: new Date(time).toISOString() }
     : null;
 }
 
@@ -346,10 +418,12 @@ export function contentDatabaseDateFilterValueError(
  * on; a value with a time is compared as a moment. Null when the value cannot
  * be read, and the filter then matches no row. The shared evaluator and the
  * Files navigation SQL both read this, so they agree on every boundary.
+ * `timeZone` reads a time without an offset; see `contentDatabaseFilterInstant`.
  */
 export function contentDatabaseDateFilterCheck(
   filter: ContentDatabaseDateComparisonFilter,
   today: string,
+  timeZone?: string,
 ): ContentDatabaseDateFilterCheck | null {
   if (filter.operator === "is_within") {
     const token = filter.value.trim();
@@ -362,14 +436,14 @@ export function contentDatabaseDateFilterCheck(
     const [startValue, endValue] = contentDatabaseFilterDateRangeValues(
       filter.value,
     );
-    const start = contentDatabaseFilterDateBound(startValue, today);
-    const end = contentDatabaseFilterDateBound(endValue, today);
+    const start = contentDatabaseFilterDateBound(startValue, today, timeZone);
+    const end = contentDatabaseFilterDateBound(endValue, today, timeZone);
     if (!start || !end) return null;
     return dateBoundText(start) <= dateBoundText(end)
       ? { op: "between", start, end }
       : { op: "between", start: end, end: start };
   }
-  const bound = contentDatabaseFilterDateBound(filter.value, today);
+  const bound = contentDatabaseFilterDateBound(filter.value, today, timeZone);
   return bound ? { op: DATE_COMPARISONS[filter.operator], bound } : null;
 }
 
@@ -393,7 +467,9 @@ export function applyContentDatabaseTableQuery(
   properties: DocumentProperty[],
   query: ContentDatabaseTableQuery,
   options: {
-    /** The day relative date filters count from; defaults to today here. */
+    /** The caller's time zone; defaults to this machine's. */
+    timeZone?: string;
+    /** The day relative date filters count from; defaults to today in `timeZone`. */
     today?: string;
   } = {},
 ) {
@@ -406,23 +482,30 @@ export function applyContentDatabaseTableQuery(
   const filterTree = query.filters.some(isActiveFilter)
     ? contentDatabaseFilterTree(query.filters, query.filterMode)
     : null;
+  const { timeZone } = options;
   let today = options.today;
   const dateChecks = new Map<
     ContentDatabaseFilter,
     ContentDatabaseDateFilterCheck | null
   >();
-  const dateCheck = (filter: ContentDatabaseDateComparisonFilter) => {
+  const dateMatches = (
+    current: string,
+    filter: ContentDatabaseDateComparisonFilter,
+  ) => {
     if (!dateChecks.has(filter)) {
-      today ??= contentDatabaseFilterToday();
-      dateChecks.set(filter, contentDatabaseDateFilterCheck(filter, today));
+      today ??= contentDatabaseFilterToday(timeZone);
+      dateChecks.set(
+        filter,
+        contentDatabaseDateFilterCheck(filter, today, timeZone),
+      );
     }
-    return dateChecks.get(filter)!;
+    return dateFilterMatches(current, dateChecks.get(filter)!, timeZone);
   };
   const filtered = filterTree
     ? searched.filter((item) =>
         reduceContentDatabaseFilterTree(
           filterTree,
-          (filter) => itemMatchesFilter(item, properties, filter, dateCheck),
+          (filter) => itemMatchesFilter(item, properties, filter, dateMatches),
           combineMatches,
         ),
       )
@@ -662,9 +745,10 @@ function itemMatchesFilter(
   item: ContentDatabaseItem,
   properties: DocumentProperty[],
   filter: ContentDatabaseFilter,
-  dateCheck: (
+  dateMatches: (
+    current: string,
     filter: ContentDatabaseDateComparisonFilter,
-  ) => ContentDatabaseDateFilterCheck | null,
+  ) => boolean,
 ) {
   const value = itemFilterValue(item, properties, filter.key);
   const property = itemFilterProperty(item, properties, filter.key);
@@ -688,7 +772,7 @@ function itemMatchesFilter(
     ((filter.operator !== "equals" && filter.operator !== "does_not_equal") ||
       (property && DATE_PROPERTY_TYPES.has(property.definition.type)))
   ) {
-    return dateFilterMatches(propertyDateText(property), dateCheck(filter));
+    return dateMatches(propertyDateText(property), filter);
   }
 
   const candidateValues = itemFilterCandidateValues(
@@ -742,16 +826,17 @@ function itemMatchesFilter(
 function dateFilterMatches(
   current: string,
   check: ContentDatabaseDateFilterCheck | null,
+  timeZone: string | undefined,
 ) {
   if (!check) return false;
   if (!current) return check.op === "<>";
   if (check.op === "between") {
     return (
-      compareDateToBound(current, check.start) >= 0 &&
-      compareDateToBound(current, check.end) <= 0
+      compareDateToBound(current, check.start, timeZone) >= 0 &&
+      compareDateToBound(current, check.end, timeZone) <= 0
     );
   }
-  const comparison = compareDateToBound(current, check.bound);
+  const comparison = compareDateToBound(current, check.bound, timeZone);
   switch (check.op) {
     case "=":
       return comparison === 0;
@@ -772,6 +857,7 @@ function dateFilterMatches(
 function compareDateToBound(
   current: string,
   bound: ContentDatabaseDateFilterBound,
+  timeZone: string | undefined,
 ) {
   if ("day" in bound) {
     // The written date, as the Files navigation SQL reads it; only a value in
@@ -783,7 +869,8 @@ function compareDateToBound(
     return day < bound.day ? -1 : day > bound.day ? 1 : 0;
   }
   return Math.sign(
-    new Date(current).getTime() - new Date(bound.instant).getTime(),
+    contentDatabaseFilterInstant(current, timeZone) -
+      new Date(bound.instant).getTime(),
   );
 }
 

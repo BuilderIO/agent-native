@@ -199,7 +199,9 @@ unfinished `between` end still saves. A value
 without a time covers its whole day and is compared with the date a row's value
 is written on, so "on or before today" includes a row due at 18:00 today and
 created/edited times fall on their UTC date. A value with a time is compared
-as a moment.
+as a moment. A time written without an offset, like a date property's
+`2026-10-22T18:00`, is a wall-clock time read in the caller's time zone, so a
+filter means the same moment in the browser and on the server.
 
 Filters can be grouped. Rules with `filterGroupId: "advanced"` and no parent
 form the UI's advanced filter; rules with `parentFilterGroupId: "advanced"` and
