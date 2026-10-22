@@ -2407,6 +2407,7 @@ export default {
     const capability = await worker.fetch(
       new Request("https://app.test/_agent-native/ui-capability", {
         method: "GET",
+        headers: { origin: "https://app.test" },
       }),
       {},
       {},

@@ -12,10 +12,12 @@ import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
 } from "./app-base-path.js";
-import { getSession } from "./auth.js";
+import { getBrowserCookieSession } from "./auth.js";
+import { hasPresentedEmbedSessionCredential } from "./embed-session.js";
 import { getH3App } from "./framework-request-handler.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { isHttpsRequest } from "./https-request.js";
+import { isSameOriginRequest } from "./request-origin.js";
 import {
   signShortLivedToken,
   verifyShortLivedToken,
@@ -60,11 +62,21 @@ export function hasUiActionCapability(
 }
 
 async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
-  const session = await getSession(event);
+  if (hasPresentedEmbedSessionCredential(event)) {
+    setResponseStatus(event, 403);
+    return { error: "Browser cookie session required" };
+  }
+
+  const session = await getBrowserCookieSession(event);
   const ownerEmail = normalizedEmail(session?.email);
   if (!ownerEmail) {
     setResponseStatus(event, 401);
     return { error: "Authentication required" };
+  }
+
+  if (!isSameOriginRequest(event)) {
+    setResponseStatus(event, 403);
+    return { error: "Same-origin request required" };
   }
 
   const token = signShortLivedToken({

@@ -328,7 +328,17 @@ describe("isSameOriginRequest", () => {
     {
       name: "non-browser client without browser headers",
       headers: {},
-      expected: true,
+      expected: false,
+    },
+    {
+      name: "opaque iframe origin",
+      headers: { host: "app.example.com", origin: "null" },
+      expected: false,
+    },
+    {
+      name: "Origin without a request host",
+      headers: { origin: "https://app.example.com" },
+      expected: false,
     },
     {
       name: "Tauri production origin against loopback app host",

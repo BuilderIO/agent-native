@@ -420,8 +420,8 @@ function scopeToolSearchToAdvertised(
 function withoutExternalOptOuts(
   config: MCPConfig,
   actions: Record<string, ActionEntry>,
+  denyNames = externalAgentDenySet(config),
 ): Record<string, ActionEntry> {
-  const denyNames = externalAgentDenySet(config);
   return Object.fromEntries(
     Object.entries(actions).filter(
       ([name, entry]) =>
@@ -1274,7 +1274,6 @@ export function mcpDirectoryWidgetSourceMeta(
 export async function withServerMintedMcpAppEmbedStart(
   result: unknown,
   meta: MCPRequestMeta | undefined,
-  directoryLinkUrl?: string,
   directoryWidget?: {
     targetPath: string;
     capability:
@@ -1297,75 +1296,28 @@ export async function withServerMintedMcpAppEmbedStart(
     return result;
   }
 
-  const out = result as Record<string, unknown>;
-  const restrictDirectoryWidgetCapability = directoryWidget !== undefined;
-  const resultWithoutExistingEmbedTicket = { ...out };
-  if (restrictDirectoryWidgetCapability) {
-    delete resultWithoutExistingEmbedTicket.embedStartUrl;
-    delete resultWithoutExistingEmbedTicket.embedTargetPath;
-    delete resultWithoutExistingEmbedTicket.embedExpiresAt;
-  }
+  const resultWithoutExistingEmbedTicket = withoutMcpAppEmbedTicket(
+    result,
+  ) as Record<string, unknown>;
   if (
-    out.embed === false ||
-    (!restrictDirectoryWidgetCapability &&
-      out.embed !== true &&
-      !directoryLinkUrl)
+    !directoryWidget ||
+    meta?.inlineMcpApps !== true ||
+    resultWithoutExistingEmbedTicket.embed === false
   ) {
-    return restrictDirectoryWidgetCapability
-      ? resultWithoutExistingEmbedTicket
-      : result;
-  }
-  if (
-    !restrictDirectoryWidgetCapability &&
-    typeof out.embedStartUrl === "string" &&
-    out.embedStartUrl.trim()
-  ) {
-    return result;
-  }
-  if (
-    !restrictDirectoryWidgetCapability &&
-    typeof out.url === "string" &&
-    out.url.trim() &&
-    isEmbedStartUrl(out.url)
-  ) {
-    return result;
+    return resultWithoutExistingEmbedTicket;
   }
 
-  const candidates = restrictDirectoryWidgetCapability
-    ? [directoryWidget.targetPath]
-    : out.embed === true
-      ? [out.url, out.path, out.deepLinkUrl, directoryLinkUrl]
-      : [directoryLinkUrl];
-  const candidate = candidates.find((value): value is string => {
-    if (typeof value !== "string" || value.trim().length === 0) return false;
-    return !restrictDirectoryWidgetCapability || !isEmbedStartUrl(value);
-  });
-  if (!candidate) {
-    return restrictDirectoryWidgetCapability
-      ? resultWithoutExistingEmbedTicket
-      : result;
-  }
-
-  const trimmed = candidate.trim();
+  const trimmed = directoryWidget.targetPath.trim();
   const isPath = trimmed.startsWith("/") && !trimmed.startsWith("//");
   const isAbsoluteHttp = /^https?:\/\//i.test(trimmed);
-  if (!isPath && !isAbsoluteHttp) {
-    return restrictDirectoryWidgetCapability
-      ? resultWithoutExistingEmbedTicket
-      : result;
+  if ((!isPath && !isAbsoluteHttp) || isEmbedStartUrl(trimmed)) {
+    return resultWithoutExistingEmbedTicket;
   }
-  if (isAbsoluteHttp && !meta?.origin) {
-    return restrictDirectoryWidgetCapability
-      ? resultWithoutExistingEmbedTicket
-      : result;
-  }
-
   const ctx = getRequestContext();
   const ownerEmail = ctx?.userEmail?.trim();
-  if (!ownerEmail) {
-    return restrictDirectoryWidgetCapability
-      ? resultWithoutExistingEmbedTicket
-      : result;
+  const requestOrigin = ctx?.requestOrigin;
+  if (!ownerEmail || !requestOrigin) {
+    return resultWithoutExistingEmbedTicket;
   }
 
   const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
@@ -1373,12 +1325,10 @@ export async function withServerMintedMcpAppEmbedStart(
   const { buildEmbedStartPath } = await import("../server/embed-route.js");
   const targetPath = normalizeEmbedTargetPath(
     withMcpChatBridgeParam(trimmed),
-    meta?.origin,
+    requestOrigin,
   );
   if (!targetPath) {
-    return restrictDirectoryWidgetCapability
-      ? resultWithoutExistingEmbedTicket
-      : result;
+    return resultWithoutExistingEmbedTicket;
   }
 
   if (
@@ -1399,36 +1349,30 @@ export async function withServerMintedMcpAppEmbedStart(
     Number.isSafeInteger(revocationAnchorCandidate)
       ? revocationAnchorCandidate
       : undefined;
-  if (
-    restrictDirectoryWidgetCapability &&
-    revocationAnchorCreatedAtMs === undefined
-  ) {
+  if (revocationAnchorCreatedAtMs === undefined) {
     throw new Error(
       "Directory widget sessions require a trusted MCP credential issue time.",
     );
   }
 
   const mintTicket = async (
-    capability: NonNullable<typeof directoryWidget>["capability"] | undefined,
+    capability: NonNullable<typeof directoryWidget>["capability"],
   ) => {
-    const scope = capability
-      ? capability.mode === "write"
+    const scope =
+      capability.mode === "write"
         ? createMcpDirectoryWidgetWriteCapability(capability.value)
-        : createMcpDirectoryWidgetReadCapability(capability.value)
-      : typeof out.chrome === "string"
-        ? out.chrome
-        : null;
+        : createMcpDirectoryWidgetReadCapability(capability.value);
     // An oversize or invalid scope has no ticket; the caller degrades or
     // returns the result without one. Throwing here would fail a tool call
     // whose action already ran.
-    if (capability && !scope) return null;
+    if (!scope) return null;
     return createEmbedSessionTicket({
       ownerEmail,
       orgId: ctx?.orgId,
       targetPath,
       scope,
       ...(capability?.mode === "write" ? { ttlSeconds: 5 * 60 } : {}),
-      ...(capability ? { revocationAnchorCreatedAtMs } : {}),
+      revocationAnchorCreatedAtMs,
     });
   };
   const writeCapability =
@@ -1440,7 +1384,7 @@ export async function withServerMintedMcpAppEmbedStart(
     "Could not create a valid scoped capability for this MCP directory widget.",
   );
   try {
-    ticket = await mintTicket(directoryWidget?.capability);
+    ticket = await mintTicket(directoryWidget.capability);
   } catch (error) {
     if (!writeCapability) throw error;
     writeMintError = error;
@@ -1471,14 +1415,10 @@ export async function withServerMintedMcpAppEmbedStart(
     return resultWithoutExistingEmbedTicket;
   }
   const startPath = buildEmbedStartPath(ticket.ticket);
-  const embedStartUrl = meta?.origin
-    ? new URL(startPath, meta.origin).toString()
-    : startPath;
+  const embedStartUrl = new URL(startPath, requestOrigin).toString();
 
   return {
-    ...(restrictDirectoryWidgetCapability
-      ? resultWithoutExistingEmbedTicket
-      : out),
+    ...resultWithoutExistingEmbedTicket,
     embedStartUrl,
     embedTargetPath: targetPath,
     embedExpiresAt: ticket.expiresAt,
@@ -1493,6 +1433,11 @@ export function withoutMcpAppEmbedTicket(result: unknown): unknown {
   delete output.embedStartUrl;
   delete output.embedTargetPath;
   delete output.embedExpiresAt;
+  for (const key of ["startUrl", "url", "deepLinkUrl", "path"]) {
+    if (typeof output[key] === "string" && isEmbedStartUrl(output[key])) {
+      delete output[key];
+    }
+  }
   return output;
 }
 
@@ -1712,14 +1657,13 @@ function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
   const sourceNames = Object.keys(profile?.widgetTargets ?? {}).filter((name) =>
     profile?.connectorCatalog.includes(name),
   );
-  if (
-    config.catalogMode !== "directory" ||
-    !profile ||
-    profile.widgets === false ||
-    sourceNames.length === 0
-  ) {
+  if (!profile || profile.widgets === false || sourceNames.length === 0) {
     return null;
   }
+  const genericSession =
+    config.catalogMode !== "directory" &&
+    (config.builtinCrossAppTools !== false ||
+      config.actions.create_embed_session !== undefined);
   return {
     name: "create_embed_session",
     description:
@@ -1727,6 +1671,16 @@ function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
     inputSchema: {
       type: "object",
       properties: {
+        ...(genericSession
+          ? {
+              path: {
+                type: "string",
+                description: "App-relative document path.",
+              },
+              url: { type: "string", description: "Same-origin document URL." },
+              chrome: { type: "string", enum: ["full", "minimal"] },
+            }
+          : {}),
         sourceTicket: {
           type: "string",
           description: "Original server-issued widget ticket from this result.",
@@ -1737,7 +1691,7 @@ function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
             "Extend the active scoped widget session without replacing its mounted app frame.",
         },
       },
-      required: ["sourceTicket"],
+      ...(!genericSession ? { required: ["sourceTicket"] } : {}),
     },
     annotations: {
       readOnlyHint: false,
@@ -1757,17 +1711,28 @@ async function renewMcpDirectoryWidgetEmbedSession(
   | { renewed: true; expiresAt: number }
 > {
   const profile = config.directoryProfile;
-  if (!profile || config.catalogMode !== "directory") {
+  if (!profile || profile.widgets === false) {
     throw new Error("Directory widget session renewal is not enabled.");
   }
   if (!hasVerifiedMcpUserIdentity(identity)) {
     throw new Error("Widget session renewal requires a verified user caller.");
+  }
+  const requestOrigin = getRequestContext()?.requestOrigin;
+  if (!requestOrigin) {
+    throw new Error(
+      "Widget session renewal requires a trusted request origin. Open the full app instead.",
+    );
   }
 
   const sourceTicket = args.sourceTicket;
   if (typeof sourceTicket !== "string") {
     throw new Error(
       "Widget session renewal requires its original result ticket.",
+    );
+  }
+  if (Object.hasOwn(args, "path") || Object.hasOwn(args, "url")) {
+    throw new Error(
+      "Scoped widget renewal does not accept a replacement path or URL.",
     );
   }
 
@@ -1835,13 +1800,9 @@ async function renewMcpDirectoryWidgetEmbedSession(
     return { renewed: true, expiresAt };
   }
 
-  const appOrigin = profile.widgetDomain ?? config.widgetDomain;
-  if (!appOrigin) {
-    throw new Error("Directory widget session renewal requires an app origin.");
-  }
   let appOriginUrl: URL;
   try {
-    appOriginUrl = new URL(appOrigin);
+    appOriginUrl = new URL(requestOrigin);
   } catch {
     throw new Error("Directory widget session renewal has an invalid origin.");
   }
@@ -2271,12 +2232,10 @@ async function resolveMcpAppResource(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
-  // Directory widgets open a host pane on every call, so only the profile's
-  // widgetTargets (create/present tools) attach one; a read tool whose action
-  // still carries mcpApp.resource for the non-directory surface must not.
   const widgetTargets = config.directoryProfile?.widgetTargets;
   if (
-    config.catalogMode === "directory" &&
+    (config.catalogMode === "directory" ||
+      resource.requiresEmbedSession === true) &&
     (!widgetTargets || !Object.hasOwn(widgetTargets, actionName))
   ) {
     return null;
@@ -2350,9 +2309,18 @@ export function mcpAppWidgetsEnabledForIdentity(
 function stripDirectoryWidgetMeta(
   config: MCPConfig,
   metadata: Record<string, unknown>,
+  suppressResource = false,
 ): void {
-  if (config.catalogMode !== "directory") return;
-  delete metadata.ui;
+  if (config.catalogMode !== "directory" && !suppressResource) return;
+  if (config.catalogMode === "directory") {
+    delete metadata.ui;
+  } else {
+    const ui = { ...metadataObject(metadata.ui) };
+    delete ui.resourceUri;
+    if (Object.keys(ui).length > 0) metadata.ui = ui;
+    else delete metadata.ui;
+  }
+  delete metadata["ui/resourceUri"];
   delete metadata[MCP_APP_RESOURCE_URI_META_KEY];
   delete metadata["openai/ui"];
   delete metadata["openai/outputTemplate"];
@@ -2900,14 +2868,18 @@ export async function createMCPServerForRequest(
     appCatalog || directoryCatalog
       ? baseActions
       : mergeBuiltinTools(config, baseActions, requestMeta);
+  const deniedToolNames = externalAgentDenySet(config);
+  if (requestMeta.inlineMcpApps !== true) {
+    deniedToolNames.add("create_embed_session");
+  }
   const actions = withoutExternalOptOuts(
     config,
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
+    deniedToolNames,
   );
   // Tools built outside the action map (`ask-agent`, `create_embed_session`)
   // never pass through the filter above, so tools/list and tools/call refuse a
   // denied name too. `ask-agent` runs `ask_app`, so denying either removes it.
-  const deniedToolNames = externalAgentDenySet(config);
   if (deniedToolNames.has("ask_app")) deniedToolNames.add("ask-agent");
   const {
     isAdvertisable,
@@ -3247,7 +3219,12 @@ export async function createMCPServerForRequest(
               !Array.isArray((entry.tool as any)._meta)
                 ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
                 : {};
-            stripDirectoryWidgetMeta(config, rawToolMeta);
+            stripDirectoryWidgetMeta(
+              config,
+              rawToolMeta,
+              !!entry.mcpApp?.resource &&
+                (!mcpAppResource || requestMeta?.inlineMcpApps !== true),
+            );
             let inputSchema = advertisedInputSchema(name);
             if (directoryCatalog) {
               // Shared with the request's other reads, so edited as a copy.
@@ -3349,7 +3326,13 @@ export async function createMCPServerForRequest(
         hasVerifiedMcpUserIdentity(effectiveIdentity)
           ? mcpDirectoryWidgetSessionTool(config)
           : null;
-      if (widgetSessionTool) tools.push(widgetSessionTool);
+      if (widgetSessionTool) {
+        const index = tools.findIndex(
+          (tool) => tool.name === widgetSessionTool.name,
+        );
+        if (index >= 0) tools.splice(index, 1);
+        tools.push(widgetSessionTool);
+      }
 
       if (
         fullCatalogRequested &&
@@ -3529,9 +3512,10 @@ export async function createMCPServerForRequest(
         }
 
         if (
-          directoryCatalog &&
           name === "create_embed_session" &&
-          mcpDirectoryWidgetSessionTool(config)
+          mcpDirectoryWidgetSessionTool(config) &&
+          (directoryCatalog ||
+            Object.hasOwn(metadataObject(args), "sourceTicket"))
         ) {
           try {
             const renewed = await renewMcpDirectoryWidgetEmbedSession(
@@ -3543,7 +3527,19 @@ export async function createMCPServerForRequest(
               content: [
                 { type: "text" as const, text: "Widget session ready." },
               ],
-              structuredContent: renewed,
+              structuredContent: directoryCatalog
+                ? renewed
+                : withoutMcpAppEmbedTicket(renewed),
+              ...(!directoryCatalog
+                ? {
+                    _meta: {
+                      ...mcpAppOnlyEmbedStartMeta(renewed),
+                      "agent-native/widgetSource": {
+                        sourceTicket: metadataObject(args).sourceTicket,
+                      },
+                    },
+                  }
+                : {}),
             };
           } catch (err: any) {
             failure = describeMcpError(err);

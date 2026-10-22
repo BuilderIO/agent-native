@@ -4819,6 +4819,53 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   return ctx.__anSessionCache;
 }
 
+/**
+ * The browser's signed-in user, read only from the session cookies sign-in
+ * sets: Better Auth's and the framework's own. No other credential counts:
+ * not a bearer or embed token, a query token, a custom resolver, or the
+ * desktop fallback, nor any credential `getSession` accepts in future. For
+ * pages whose decisions only the person may make. An app with a custom
+ * resolver has no session here, since the framework can't tell which
+ * credentials that resolver reads. The framework cookie takes a raw login
+ * token, so a desktop or mobile app can present its own login here; that app
+ * is the user. With AUTH_DISABLED every request is the dev account, here too.
+ */
+export async function getBrowserCookieSession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  const session = await resolveBrowserCookieSession(event);
+  if (!session?.email) return null;
+  const resolved = await backfillSessionOrg(session, event);
+  await resumeIdentityRekeyForSession(resolved.email);
+  return resolved;
+}
+
+async function resolveBrowserCookieSession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  if (customGetSession) return null;
+  const cookie = getHeader(event, "cookie");
+  if (cookie) {
+    try {
+      const ba = getBetterAuthSync() ?? (await getBetterAuth());
+      if (ba) {
+        const baSession = await ba.api.getSession({
+          headers: new Headers({ cookie: decodeCookieHeader(cookie) }),
+        });
+        if (baSession?.user?.email) return mapBetterAuthSession(baSession);
+      }
+    } catch (e) {
+      console.error("[auth] ba.api.getSession error:", e);
+      (event.context as Record<string, unknown>)[
+        SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+      ] = true;
+    }
+    const cookieSession = await getLegacyCookieSessionSafely(event);
+    if (cookieSession) return cookieSession;
+  }
+  return getAuthDisabledSession(event);
+}
+
 async function resolveSessionUncached(
   event: H3Event,
   options: { ignoreEmbedSession?: boolean } = {},

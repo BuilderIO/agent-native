@@ -178,5 +178,5 @@ export function isSameOriginRequest(event: H3Event): boolean {
       return false;
     }
   }
-  return true;
+  return false;
 }

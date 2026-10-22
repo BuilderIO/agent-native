@@ -872,12 +872,13 @@ describe("embedApp", () => {
       };
 
       const renewalHarness = (options: {
+        catalogMode?: "directory" | "app";
         frame: { contentWindow: object; src?: string };
         documentState: { loadGeneration: number };
         callEmbedSessionTool: ReturnType<typeof vi.fn>;
         sendToAppFrame: ReturnType<typeof vi.fn>;
       }) => {
-        const html = htmlFor("directory");
+        const html = htmlFor(options.catalogMode ?? "directory");
         const source = functionSource(html, "renewExpiredEmbedSession");
         return new Function(
           "appFrame",
@@ -904,10 +905,12 @@ describe("embedApp", () => {
           "appFrameReady",
           "appFrameLoadTimer",
           "lastFrameSrc",
+          "objectValue",
+          "toolResponseMetadata",
           `${source}; return { renewExpiredEmbedSession, state: () => ({ openStartUrl, appFrameReady, appFrameLoadTimer, lastFrameSrc }) };`,
         )(
           options.frame,
-          { dataset: { catalogMode: "directory" } },
+          { dataset: { catalogMode: options.catalogMode ?? "directory" } },
           "https://app.example/slides/deck-1",
           "https://app.example/_agent-native/embed/start?ticket=old",
           "mounted-current-ticket",
@@ -934,6 +937,8 @@ describe("embedApp", () => {
           true,
           null,
           "https://app.example/_agent-native/embed/start?ticket=old",
+          objectValue,
+          { "agent-native/widgetSource": { sourceTicket: "old-source" } },
         ) as {
           renewExpiredEmbedSession: (
             requestId: string,
@@ -944,50 +949,54 @@ describe("embedApp", () => {
         };
       };
 
-      it("renews a write session in place to preserve pending editor state", async () => {
-        const frame = {
-          contentWindow: {},
-          src: "https://app.example/design/d1",
-        };
-        const documentState = { loadGeneration: 3 };
-        const sendToAppFrame = vi.fn();
-        const callEmbedSessionTool = vi.fn(async () => ({
-          renewed: true,
-          expiresAt: Date.now() + 60_000,
-        }));
-        const harness = renewalHarness({
-          frame,
-          documentState,
-          callEmbedSessionTool,
-          sendToAppFrame,
-        });
+      it.each(["directory", "app"] as const)(
+        "renews a %s write session in place to preserve pending editor state",
+        async (catalogMode) => {
+          const frame = {
+            contentWindow: {},
+            src: "https://app.example/design/d1",
+          };
+          const documentState = { loadGeneration: 3 };
+          const sendToAppFrame = vi.fn();
+          const callEmbedSessionTool = vi.fn(async () => ({
+            renewed: true,
+            expiresAt: Date.now() + 60_000,
+          }));
+          const harness = renewalHarness({
+            catalogMode,
+            frame,
+            documentState,
+            callEmbedSessionTool,
+            sendToAppFrame,
+          });
 
-        await harness.renewExpiredEmbedSession("renew-1", frame, 3);
+          await harness.renewExpiredEmbedSession("renew-1", frame, 3);
 
-        expect(callEmbedSessionTool).toHaveBeenCalledWith({
-          sourceTicket: "mounted-current-ticket",
-          renewInPlace: true,
-        });
-        expect(frame.src).toBe("https://app.example/design/d1");
-        expect(sendToAppFrame).toHaveBeenCalledWith({
-          type: "agentNative.embedSessionRenewed",
-          data: {
-            requestId: "renew-1",
-            ok: true,
-          },
-        });
-        expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
-          "startUrl",
-        );
-        expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
-          "ticket=",
-        );
-        expect(harness.state()).toMatchObject({
-          openStartUrl:
-            "https://app.example/_agent-native/embed/start?ticket=old",
-          appFrameReady: true,
-        });
-      });
+          expect(callEmbedSessionTool).toHaveBeenCalledWith({
+            sourceTicket: "mounted-current-ticket",
+            renewInPlace: true,
+          });
+          expect(frame.src).toBe("https://app.example/design/d1");
+          expect(sendToAppFrame).toHaveBeenCalledWith({
+            type: "agentNative.embedSessionRenewed",
+            data: {
+              requestId: "renew-1",
+              ok: true,
+            },
+          });
+          expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
+            "startUrl",
+          );
+          expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
+            "ticket=",
+          );
+          expect(harness.state()).toMatchObject({
+            openStartUrl:
+              "https://app.example/_agent-native/embed/start?ticket=old",
+            appFrameReady: true,
+          });
+        },
+      );
 
       it("does not acknowledge a renewal after the app document navigates", async () => {
         const frame = {
@@ -1945,8 +1954,9 @@ const WIDGET_CHAT_BRIDGE = "__an_mcp_chat_bridge=1";
  * Runs the real directory shell script against a linkedom document and a
  * ChatGPT-style `window.openai` bridge that replays a persisted tool result.
  */
-async function mountRestoredDirectoryWidget(
+async function mountRestoredWidget(
   callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>,
+  catalogMode: "directory" | "app" = "directory",
 ) {
   const resource = embedApp({ title: "Slides" });
   const html =
@@ -1954,7 +1964,7 @@ async function mountRestoredDirectoryWidget(
       ? resource.html({
           actionName: "create-deck",
           appId: "slides",
-          catalogMode: "directory",
+          catalogMode,
           startToolName: "create_embed_session",
         })
       : resource.html;
@@ -2071,103 +2081,111 @@ async function mountRestoredDirectoryWidget(
   };
 }
 
-describe("embedApp directory widget restored after a chat reload", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+describe.each(["directory", "app"] as const)(
+  "embedApp %s widget restored after a chat reload",
+  (catalogMode) => {
+    const mountRestoredDirectoryWidget = (
+      callTool: Parameters<typeof mountRestoredWidget>[0],
+    ) => mountRestoredWidget(callTool, catalogMode);
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
 
-  const renewed = async () => ({
-    structuredContent: {
-      startUrl: WIDGET_RENEWED_START,
-      targetPath: "/deck/deck-1",
-      expiresAt: Date.now() + 15 * 60 * 1000,
-    },
-  });
-
-  it.each([WIDGET_APP_ORIGIN, "null"])(
-    "renews from the persisted source ticket when the spent start URL answers with the expiry page (origin %s)",
-    async (origin) => {
-      const shell = await mountRestoredDirectoryWidget(renewed);
-
-      expect(shell.frame()?.src).toBe(
-        `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
-      );
-      expect(shell.bridge.callTool).not.toHaveBeenCalled();
-
-      await shell.postExpiredFrom(origin);
-
-      expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
-      expect(shell.bridge.callTool).toHaveBeenCalledWith(
-        "create_embed_session",
-        { sourceTicket: "spent-ticket" },
-      );
-      expect(shell.frame()?.src).toBe(
-        `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
-      );
-    },
-  );
-
-  it("renews from a start URL the server sends in _meta", async () => {
-    const shell = await mountRestoredDirectoryWidget(async () => ({
+    const renewed = async () => ({
       structuredContent: {
+        startUrl: WIDGET_RENEWED_START,
         targetPath: "/deck/deck-1",
         expiresAt: Date.now() + 15 * 60 * 1000,
       },
-      _meta: { "agent-native/embedStart": { startUrl: WIDGET_RENEWED_START } },
-    }));
+    });
 
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+    it.each([WIDGET_APP_ORIGIN, "null"])(
+      "renews from the persisted source ticket when the spent start URL answers with the expiry page (origin %s)",
+      async (origin) => {
+        const shell = await mountRestoredDirectoryWidget(renewed);
 
-    expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
-    expect(shell.frame()?.src).toBe(
-      `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+        expect(shell.frame()?.src).toBe(
+          `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
+        );
+        expect(shell.bridge.callTool).not.toHaveBeenCalled();
+
+        await shell.postExpiredFrom(origin);
+
+        expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
+        expect(shell.bridge.callTool).toHaveBeenCalledWith(
+          "create_embed_session",
+          { sourceTicket: "spent-ticket" },
+        );
+        expect(shell.frame()?.src).toBe(
+          `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+        );
+      },
     );
-  });
 
-  it("does not replay the spent start URL when the host re-syncs after recovery", async () => {
-    const shell = await mountRestoredDirectoryWidget(renewed);
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
-
-    await shell.resync("pip");
-
-    expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
-    expect(shell.frame()?.src).toBe(
-      `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
-    );
-  });
-
-  it("stops at the refresh cap and says so when every renewed session also expires", async () => {
-    const shell = await mountRestoredDirectoryWidget(renewed);
-
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
-
-    expect(shell.bridge.callTool).toHaveBeenCalledTimes(2);
-    expect(shell.stageText()).toContain("Reopen the app");
-  });
-
-  it("shows the server's refusal instead of a blank or stale frame", async () => {
-    const shell = await mountRestoredDirectoryWidget(async () => ({
-      isError: true,
-      content: [
-        {
-          type: "text",
-          text: "Error: Embed session ticket creation was revoked by logout.",
+    it("renews from a start URL the server sends in _meta", async () => {
+      const shell = await mountRestoredDirectoryWidget(async () => ({
+        structuredContent: {
+          targetPath: "/deck/deck-1",
+          expiresAt: Date.now() + 15 * 60 * 1000,
         },
-      ],
-    }));
+        _meta: {
+          "agent-native/embedStart": { startUrl: WIDGET_RENEWED_START },
+        },
+      }));
 
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
 
-    expect(shell.stageText()).toContain("App did not load");
-    expect(shell.stageText()).toContain("revoked by logout");
-    expect(shell.frame()).toBeNull();
-  });
-});
+      expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
+      expect(shell.frame()?.src).toBe(
+        `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+      );
+    });
+
+    it("does not replay the spent start URL when the host re-syncs after recovery", async () => {
+      const shell = await mountRestoredDirectoryWidget(renewed);
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+
+      await shell.resync("pip");
+
+      expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
+      expect(shell.frame()?.src).toBe(
+        `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+      );
+    });
+
+    it("stops at the refresh cap and says so when every renewed session also expires", async () => {
+      const shell = await mountRestoredDirectoryWidget(renewed);
+
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+
+      expect(shell.bridge.callTool).toHaveBeenCalledTimes(2);
+      expect(shell.stageText()).toContain("Reopen the app");
+    });
+
+    it("shows the server's refusal instead of a blank or stale frame", async () => {
+      const shell = await mountRestoredDirectoryWidget(async () => ({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "Error: Embed session ticket creation was revoked by logout.",
+          },
+        ],
+      }));
+
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+
+      expect(shell.stageText()).toContain("App did not load");
+      expect(shell.stageText()).toContain("revoked by logout");
+      expect(shell.frame()).toBeNull();
+    });
+  },
+);
 
 interface LocalMcpAppEmbedHarnessOptions {
   actionName?: string;
