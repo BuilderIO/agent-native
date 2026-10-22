@@ -43,6 +43,10 @@ npx @agent-native/core@latest skills add turn-into-app
 
 ब्राउज़र होस्ट पर स्किल को Agent-Native Dispatch MCP कनेक्टर (`https://dispatch.agent-native.com/mcp`, OAuth) चाहिए और वह उसका `start-workspace-app-creation` एक्शन कॉल करती है। होस्ट ऐप को चला या जाँच नहीं सकता, इसलिए Dispatch जो ब्रांच लौटाता है उसके बनने तक रिपोर्ट लंबित या असत्यापित रहती है। स्किल वही रिपोर्ट करती है जो Dispatch ने वास्तव में लौटाया, और कभी ब्रांच URL नहीं गढ़ती। ChatGPT Project के लिए, या ऐसे किसी भी होस्ट के लिए जो केवल MCP देता है, स्किल के निर्देश Project instructions या knowledge files में रखें।
 
+## लोकल आवश्यकताएँ
+
+लोकल होस्ट पर शुरू करने से पहले Node.js 22.22.0 या नया संस्करण (जिसमें npm और npx शामिल हैं) और pnpm इंस्टॉल करें। ब्राउज़र होस्ट Dispatch का उपयोग करते हैं और ये कमांड नहीं चलाते।
+
 ## स्रोत {#sources}
 
 - **थ्रेड।** आख़िरी ठोस, दोहराया जा सकने वाला काम ही प्रोडक्ट है।

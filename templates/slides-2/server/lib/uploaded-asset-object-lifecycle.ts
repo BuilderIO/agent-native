@@ -244,7 +244,11 @@ export async function deleteUploadedAssetObject(args: {
   const db = getDb();
   const keys = identityKeys(args.identity);
 
-  const preparation = await db.transaction(async (transaction) => {
+  const preparation:
+    | UploadedAssetObjectDeletionResult
+    | {
+        deletionClaim: UploadedAssetObjectDeletionClaim;
+      } = await db.transaction(async (transaction) => {
     await lockIdentityKeys(transaction, keys);
     if (args.lease && !(await isCurrentCleanupLease(transaction, args.lease))) {
       return { status: "stale" } as const;

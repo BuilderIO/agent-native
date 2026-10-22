@@ -1614,9 +1614,80 @@ export async function applyDeckIdentity(
   return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 }
 
+const MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_REMOTE_IMAGE_TOTAL_BYTES = 50 * 1024 * 1024;
+
+export interface RemoteImageByteBudget {
+  maxImageBytes: number;
+  maxTotalBytes: number;
+  totalBytes: number;
+}
+
+export function createRemoteImageByteBudget(
+  limits: { maxImageBytes?: number; maxTotalBytes?: number } = {},
+): RemoteImageByteBudget {
+  return {
+    maxImageBytes: limits.maxImageBytes ?? MAX_REMOTE_IMAGE_BYTES,
+    maxTotalBytes: limits.maxTotalBytes ?? MAX_REMOTE_IMAGE_TOTAL_BYTES,
+    totalBytes: 0,
+  };
+}
+
+async function cancelImageResponse(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // coercion-ok: cancellation is cleanup; the caller still reports the failed export.
+  }
+}
+
+async function readRemoteImageBody(
+  response: Response,
+  budget: RemoteImageByteBudget,
+): Promise<Buffer | null> {
+  const declaredSize = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredSize) &&
+    (declaredSize > budget.maxImageBytes ||
+      budget.totalBytes + declaredSize > budget.maxTotalBytes)
+  ) {
+    await cancelImageResponse(response);
+    return null;
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let imageBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const nextImageBytes = imageBytes + value.byteLength;
+      if (
+        nextImageBytes > budget.maxImageBytes ||
+        budget.totalBytes + nextImageBytes > budget.maxTotalBytes
+      ) {
+        await reader.cancel();
+        return null;
+      }
+      imageBytes = nextImageBytes;
+      chunks.push(value);
+    }
+    budget.totalBytes += imageBytes;
+    return Buffer.concat(chunks, imageBytes);
+  } catch {
+    await cancelImageResponse(response);
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function fetchImageAsBase64(
   url: string,
   ownerEmail?: string,
+  budget = createRemoteImageByteBudget(),
 ): Promise<string | null> {
   try {
     const parsedUrl = new URL(url, "http://slides.local");
@@ -1636,13 +1707,18 @@ export async function fetchImageAsBase64(
       { signal: AbortSignal.timeout(10_000) },
       { maxRedirects: 3 },
     );
-    if (!response.ok) return null;
-    const contentType = response.headers.get("content-type") || "";
-    if (!contentType.toLowerCase().startsWith("image/")) {
+    if (!response.ok) {
+      await cancelImageResponse(response);
       return null;
     }
-    const buffer = await response.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().startsWith("image/")) {
+      await cancelImageResponse(response);
+      return null;
+    }
+    const buffer = await readRemoteImageBody(response, budget);
+    if (!buffer) return null;
+    const base64 = buffer.toString("base64");
     return `data:${contentType};base64,${base64}`;
   } catch {
     // coercion-ok: the caller treats null as an image export failure before creating the file.
@@ -1815,6 +1891,7 @@ export default defineAction({
 
     const PptxGenJS = (await import("pptxgenjs")).default;
     const pptx = new PptxGenJS();
+    const remoteImageBudget = createRemoteImageByteBudget();
 
     if (
       Math.abs(dims.pptxInches.w - 13.33) < 0.01 &&
@@ -1952,7 +2029,11 @@ export default defineAction({
           }
         } else if (object.kind === "image") {
           const img = object.value;
-          const dataUri = await fetchImageAsBase64(img.src, userEmail);
+          const dataUri = await fetchImageAsBase64(
+            img.src,
+            userEmail,
+            remoteImageBudget,
+          );
           if (!dataUri) {
             fail(
               `Cannot export PowerPoint: an image on slide ${slideIndex + 1} could not be loaded. No file was created.`,

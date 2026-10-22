@@ -1,12 +1,20 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { MemoryRouter, useSearchParams } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   actionCalls: [] as Array<{ action: string; args: Record<string, unknown> }>,
   deck: undefined as unknown,
+  getDeck: undefined as ((deckId: string) => Promise<unknown>) | undefined,
   translate: (key: string) => key,
   renderCalls: [] as Array<{
     action: string;
@@ -27,6 +35,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     error instanceof Error ? error.message : null,
   callActionWithRetry: (action: string, args: Record<string, unknown>) => {
     mocks.actionCalls.push({ action, args });
+    if (mocks.getDeck) return mocks.getDeck(args.id as string);
     return Promise.resolve(mocks.deck);
   },
   useActionQuery: (
@@ -92,6 +101,8 @@ afterEach(cleanup);
 
 beforeEach(() => {
   mocks.actionCalls = [];
+  mocks.deck = undefined;
+  mocks.getDeck = undefined;
   mocks.renderCalls = [];
   mocks.renderQuery = { data: undefined, error: undefined, isLoading: false };
   mocks.sandboxArtifact = undefined;
@@ -102,6 +113,30 @@ function renderRoute() {
   return render(
     <MemoryRouter initialEntries={["/slide?deckId=deck-source&slideNumber=1"]}>
       <SlideRoute />
+    </MemoryRouter>,
+  );
+}
+
+function RouteWithDeckNavigation() {
+  const [, setSearchParams] = useSearchParams();
+  return (
+    <>
+      <button
+        onClick={() =>
+          setSearchParams({ deckId: "deck-next", slideNumber: "1" })
+        }
+      >
+        Load next deck
+      </button>
+      <SlideRoute />
+    </>
+  );
+}
+
+function renderRouteWithNavigation(initialEntry: string) {
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <RouteWithDeckNavigation />
     </MemoryRouter>,
   );
 }
@@ -166,5 +201,59 @@ describe("slide preview source rendering", () => {
     expect(mocks.renderCalls.every((call) => call.enabled === false)).toBe(
       true,
     );
+  });
+
+  it("clears a previous load error when a new deck loads successfully", async () => {
+    const nextSlide = {
+      id: "slide-next",
+      content: "<main>Next deck</main>",
+      notes: "",
+      layout: "content",
+    } as Slide;
+    mocks.getDeck = (deckId) =>
+      deckId === "deck-source"
+        ? Promise.reject(new Error("previous load failed"))
+        : Promise.resolve({ slides: [nextSlide] });
+
+    renderRouteWithNavigation("/slide?deckId=deck-source&slideNumber=1");
+
+    expect(await screen.findByText("previous load failed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Load next deck" }));
+
+    await waitFor(() => expect(mocks.htmlSlide).toBe(nextSlide));
+    expect(screen.queryByText("previous load failed")).toBeNull();
+  });
+
+  it("ignores a stale deck load that completes after navigation", async () => {
+    const staleSlide = {
+      id: "slide-stale",
+      content: "<main>Stale deck</main>",
+      notes: "",
+      layout: "content",
+    } as Slide;
+    const nextSlide = {
+      id: "slide-next",
+      content: "<main>Next deck</main>",
+      notes: "",
+      layout: "content",
+    } as Slide;
+    let resolveStaleDeck!: (deck: unknown) => void;
+    mocks.getDeck = (deckId) =>
+      deckId === "deck-source"
+        ? new Promise((resolve) => {
+            resolveStaleDeck = resolve;
+          })
+        : Promise.resolve({ slides: [nextSlide] });
+
+    renderRouteWithNavigation("/slide?deckId=deck-source&slideNumber=1");
+    await waitFor(() => expect(mocks.actionCalls).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: "Load next deck" }));
+
+    await waitFor(() => expect(mocks.htmlSlide).toBe(nextSlide));
+    await act(async () => {
+      resolveStaleDeck({ slides: [staleSlide] });
+      await Promise.resolve();
+    });
+    expect(mocks.htmlSlide).toBe(nextSlide);
   });
 });

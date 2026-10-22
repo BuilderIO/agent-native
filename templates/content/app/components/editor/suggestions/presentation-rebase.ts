@@ -113,7 +113,24 @@ function verifiedTransition(transition: SuggestionPresentationTransition) {
   );
 }
 
+// Saved operations keep their identity across renders, and each one diffs a
+// full Page, so a Page with many suggestions reuses the result.
+const preciseOperationsBySaved = new WeakMap<
+  object,
+  ReturnType<typeof computePreciseSuggestionPresentationOperations>
+>();
+
 export function preciseSuggestionPresentationOperations(
+  operation: MarkdownOperation,
+) {
+  if (preciseOperationsBySaved.has(operation))
+    return preciseOperationsBySaved.get(operation)!;
+  const precise = computePreciseSuggestionPresentationOperations(operation);
+  preciseOperationsBySaved.set(operation, precise);
+  return precise;
+}
+
+function computePreciseSuggestionPresentationOperations(
   operation: MarkdownOperation,
 ) {
   const identity = operation as MarkdownOperation & {

@@ -60,7 +60,6 @@ export const GRADIENT_NAMES: GradientNames = {
 export function fillPaintName(
   type: DesignPaintType,
   gradients: GradientNames,
-  shaderName?: string,
 ): string {
   switch (type) {
     case "linear":
@@ -71,7 +70,7 @@ export function fillPaintName(
     case "image":
       return "Image"; // i18n-ignore paint type label
     case "shader":
-      return shaderName ?? "Shader"; // i18n-ignore paint type label
+      return "Shader"; // i18n-ignore paint type label
     case "none":
       return "None"; // i18n-ignore paint type label
     default:

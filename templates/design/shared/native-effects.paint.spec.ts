@@ -70,6 +70,78 @@ function validateDefault(value: unknown) {
 }
 
 describe("native spatial paint values", () => {
+  it("limits a paint property to its declared modes in both documents and direct packing", () => {
+    const restricted = {
+      ...definition,
+      properties: {
+        ...definition.properties,
+        fill: {
+          ...fill,
+          default: gradient,
+          allowedKinds: ["linear", "angular"] as EffectPaint["kind"][],
+        },
+      },
+    };
+    expect(
+      validateEffectDocument({
+        schemaVersion: 2,
+        definitions: [restricted],
+        instances: [],
+      }).errors,
+    ).toEqual([]);
+    expect(packNativeProperties(restricted, { fill: gradient })[4]).toBe(17);
+    expect(
+      packNativeProperties(restricted, {
+        fill: { ...gradient, kind: "angular" },
+      })[4],
+    ).toBe(19);
+    for (const value of [solid, { ...gradient, kind: "radial" }]) {
+      expect(() =>
+        packNativeProperties(restricted, { fill: value as EffectPaint }),
+      ).toThrow(NativeEffectPropertyValueError);
+    }
+    expect(
+      validateEffectDocument({
+        schemaVersion: 2,
+        definitions: [
+          {
+            ...restricted,
+            properties: {
+              ...restricted.properties,
+              fill: { ...restricted.properties.fill, default: solid },
+            },
+          },
+        ],
+        instances: [],
+      }).valid,
+    ).toBe(false);
+    for (const allowedKinds of [
+      [],
+      ["linear", "linear"],
+      ["conic"],
+      Array(1),
+    ]) {
+      expect(
+        validateEffectDocument({
+          schemaVersion: 2,
+          definitions: [
+            {
+              ...restricted,
+              properties: {
+                ...restricted.properties,
+                fill: {
+                  ...restricted.properties.fill,
+                  allowedKinds: allowedKinds as EffectPaint["kind"][],
+                },
+              },
+            },
+          ],
+          instances: [],
+        }).valid,
+      ).toBe(false);
+    }
+  });
+
   it("reserves one header and eight stop pairs for both solid and gradient", () => {
     const packed = packNativeProperties(definition);
     expect(propertySlots(fill)).toBe(17);

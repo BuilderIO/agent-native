@@ -5429,7 +5429,7 @@ describe("DeckContext deck creation persistence", () => {
       requestString(url).includes("/_agent-native/actions/patch-deck"),
     ).length;
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
 
@@ -5798,7 +5798,7 @@ describe("DeckContext deck creation persistence", () => {
       requestString(url).includes("/_agent-native/actions/patch-deck"),
     ).length;
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
 
@@ -5902,7 +5902,9 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const toastSpy = vi.spyOn(toast, "error");
-    act(() => result.current.undo(created.id));
+    await act(async () => {
+      await result.current.undo(created.id);
+    });
 
     expect(result.current.getDeck(created.id)?.slides[0]?.content).toBe(
       remoteContent,
@@ -5948,7 +5950,9 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const toastSpy = vi.spyOn(toast, "error");
-    act(() => result.current.undo(created.id));
+    await act(async () => {
+      await result.current.undo(created.id);
+    });
 
     expect(result.current.getDeck(created.id)?.slides[0]?.content).toBe(
       remoteContent,
@@ -5986,7 +5990,9 @@ describe("DeckContext deck creation persistence", () => {
       });
     });
 
-    act(() => result.current.undo(created.id));
+    await act(async () => {
+      await result.current.undo(created.id);
+    });
 
     expect(result.current.getDeck(created.id)).toBeUndefined();
   });
@@ -6018,9 +6024,9 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const toastSpy = vi.spyOn(toast, "error");
-    act(() => {
-      result.current.undo(deckId);
-      result.current.undo(deckId);
+    await act(async () => {
+      await result.current.undo(deckId);
+      await result.current.undo(deckId);
     });
 
     expect(result.current.getDeck(deckId)?.slides).toHaveLength(0);
@@ -6088,7 +6094,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
 
@@ -6165,7 +6171,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
     });
     expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
       "left: 60px",
@@ -6178,7 +6184,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(toastSpy).toHaveBeenCalledWith("History step conflict");
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
@@ -6254,7 +6260,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
     });
 
     expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
@@ -6267,7 +6273,7 @@ describe("DeckContext deck creation persistence", () => {
     );
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     expect(result.current.getDeck(initial.id)!.slides[0]!.notes).toBe(
@@ -6356,7 +6362,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
     });
 
     expect(
@@ -6377,7 +6383,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
 
@@ -6424,7 +6430,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const toastSpy = vi.spyOn(toast, "error");
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     const restored = result.current.getDeck(initial.id)!.slides;
@@ -6440,7 +6446,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(toastSpy).not.toHaveBeenCalledWith("History step conflict");
 
     await act(async () => {
-      result.current.redo(initial.id);
+      await result.current.redo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     expect(result.current.getDeck(initial.id)!.slides).toHaveLength(1);
@@ -6449,7 +6455,7 @@ describe("DeckContext deck creation persistence", () => {
     );
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     expect(result.current.getDeck(initial.id)!.slides[0]).toMatchObject({
@@ -6499,7 +6505,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const toastSpy = vi.spyOn(toast, "error");
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     const restored = result.current.getDeck(initial.id)!.slides;
@@ -6519,7 +6525,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(toastSpy).not.toHaveBeenCalledWith("History step conflict");
 
     await act(async () => {
-      result.current.redo(initial.id);
+      await result.current.redo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     expect(result.current.getDeck(initial.id)!.slides).toHaveLength(1);
@@ -6591,7 +6597,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const toastSpy = vi.spyOn(toast, "error");
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
     });
 
     const afterConflict = result.current.getDeck(initial.id)!;
@@ -6603,7 +6609,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     const afterOlderUndo = result.current.getDeck(initial.id)!;
@@ -6684,7 +6690,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
     });
 
     const currentDeck = result.current.getDeck(initial.id)!;
@@ -6699,7 +6705,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.undoAvailability[initial.id]?.canRedo).toBe(false);
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     expect(result.current.getDeck(initial.id)!.slides[0]!.notes).toBe(
@@ -6760,7 +6766,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const toastSpy = vi.spyOn(toast, "error");
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
     });
 
     const currentDeck = result.current.getDeck(initial.id)!;
@@ -6826,7 +6832,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const toastSpy = vi.spyOn(toast, "error");
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
     });
 
     const remotelyEditedSlide = result.current
@@ -7526,11 +7532,14 @@ describe("DeckContext deck creation persistence", () => {
       ),
     );
 
-    act(() => {
-      result.current.undo("shared-deck");
+    await act(async () => {
+      await result.current.undo("shared-deck");
     });
 
     expect(result.current.getDeck("shared-deck")?.slides).toEqual([]);
+    await act(async () => {
+      await result.current.flushDeckSave("shared-deck");
+    });
   });
 
   it("undoes quick content writes one step at a time only when they ask for separate steps", async () => {
@@ -7581,6 +7590,9 @@ describe("DeckContext deck creation persistence", () => {
     write(2, false);
     await act(async () => result.current.undo("shared-deck"));
     expect(contentOf()).toContain(">0<");
+    await act(async () => {
+      await result.current.flushDeckSave("shared-deck");
+    });
   });
 
   it("keeps an image move separate from a nearby content edit through undo and redo", async () => {
@@ -7629,7 +7641,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     const afterUndo = result.current.getDeck(initial.id)!.slides[0]!.content;
@@ -7637,14 +7649,14 @@ describe("DeckContext deck creation persistence", () => {
     expect(afterUndo).toContain("Edited sibling");
 
     await act(async () => {
-      result.current.redo(initial.id);
+      await result.current.redo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
       "left: 90px",
     );
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
@@ -7652,7 +7664,7 @@ describe("DeckContext deck creation persistence", () => {
     );
 
     await act(async () => {
-      result.current.undo(initial.id);
+      await result.current.undo(initial.id);
       await result.current.flushDeckSave(initial.id);
     });
     expect(result.current.getDeck(initial.id)!.slides[0]!.content).toContain(
@@ -7712,6 +7724,9 @@ describe("DeckContext deck creation persistence", () => {
     await waitFor(() =>
       expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(1),
     );
+    await act(async () => {
+      await result.current.flushDeckSave("shared-deck");
+    });
   });
 
   it.each([
@@ -7722,13 +7737,14 @@ describe("DeckContext deck creation persistence", () => {
   ] as const)(
     "ignores the $shortcut shortcut on $pathname after editing a deck",
     async ({ pathname, shortcut }) => {
-      window.history.pushState({}, "", "/deck/shared-deck");
+      const deckId = `${pathname.slice(1)}-${shortcut}-deck`;
+      window.history.pushState({}, "", `/deck/${deckId}`);
       const { setAccessibleDeck, getAccessibleDeck } = setupFetch();
       const { result } = renderHook(() => useDecks(), { wrapper });
 
       await waitFor(() => expect(result.current.loading).toBe(false));
       setAccessibleDeck({
-        id: "shared-deck",
+        id: deckId,
         title: "Original title",
         createdAt: "2026-05-12T00:00:00.000Z",
         updatedAt: "2026-05-12T00:00:00.000Z",
@@ -7739,8 +7755,8 @@ describe("DeckContext deck creation persistence", () => {
       });
 
       await act(async () => {
-        result.current.updateDeck("shared-deck", { title: "Edited title" });
-        await result.current.flushDeckSave("shared-deck");
+        result.current.updateDeck(deckId, { title: "Edited title" });
+        await result.current.flushDeckSave(deckId);
       });
       await waitFor(() =>
         expect(getAccessibleDeck()?.title).toBe("Edited title"),
@@ -7750,8 +7766,8 @@ describe("DeckContext deck creation persistence", () => {
         shortcut === "undo" ? "Edited title" : "Original title";
       if (shortcut === "redo") {
         await act(async () => {
-          result.current.undo("shared-deck");
-          await result.current.flushDeckSave("shared-deck");
+          await result.current.undo(deckId);
+          await result.current.flushDeckSave(deckId);
         });
         await waitFor(() =>
           expect(getAccessibleDeck()?.title).toBe("Original title"),
@@ -7767,7 +7783,7 @@ describe("DeckContext deck creation persistence", () => {
       act(() => window.dispatchEvent(shortcutEvent));
 
       expect(shortcutEvent.defaultPrevented).toBe(false);
-      expect(result.current.getDeck("shared-deck")?.title).toBe(expectedTitle);
+      expect(result.current.getDeck(deckId)?.title).toBe(expectedTitle);
       expect(getAccessibleDeck()?.title).toBe(expectedTitle);
     },
   );
@@ -7775,7 +7791,8 @@ describe("DeckContext deck creation persistence", () => {
   it.each(["undo", "redo"] as const)(
     "ignores the %s shortcut when no editor deck is active despite a stale deck URL",
     async (shortcut) => {
-      window.history.pushState({}, "", "/deck/shared-deck");
+      const deckId = `inactive-${shortcut}-deck`;
+      window.history.pushState({}, "", `/deck/${deckId}`);
       const { setAccessibleDeck, getAccessibleDeck } = setupFetch();
       const inactiveDeckWrapper = ({ children }: { children: ReactNode }) =>
         createElement(
@@ -7793,7 +7810,7 @@ describe("DeckContext deck creation persistence", () => {
 
       await waitFor(() => expect(result.current.loading).toBe(false));
       setAccessibleDeck({
-        id: "shared-deck",
+        id: deckId,
         title: "Original title",
         createdAt: "2026-05-12T00:00:00.000Z",
         updatedAt: "2026-05-12T00:00:00.000Z",
@@ -7804,8 +7821,8 @@ describe("DeckContext deck creation persistence", () => {
       });
 
       await act(async () => {
-        result.current.updateDeck("shared-deck", { title: "Edited title" });
-        await result.current.flushDeckSave("shared-deck");
+        result.current.updateDeck(deckId, { title: "Edited title" });
+        await result.current.flushDeckSave(deckId);
       });
       await waitFor(() =>
         expect(getAccessibleDeck()?.title).toBe("Edited title"),
@@ -7815,8 +7832,8 @@ describe("DeckContext deck creation persistence", () => {
         shortcut === "undo" ? "Edited title" : "Original title";
       if (shortcut === "redo") {
         await act(async () => {
-          await result.current.undo("shared-deck");
-          await result.current.flushDeckSave("shared-deck");
+          await result.current.undo(deckId);
+          await result.current.flushDeckSave(deckId);
         });
         await waitFor(() =>
           expect(getAccessibleDeck()?.title).toBe("Original title"),
@@ -7831,7 +7848,7 @@ describe("DeckContext deck creation persistence", () => {
       act(() => window.dispatchEvent(shortcutEvent));
 
       expect(shortcutEvent.defaultPrevented).toBe(false);
-      expect(result.current.getDeck("shared-deck")?.title).toBe(expectedTitle);
+      expect(result.current.getDeck(deckId)?.title).toBe(expectedTitle);
       expect(getAccessibleDeck()?.title).toBe(expectedTitle);
     },
   );
@@ -7879,8 +7896,8 @@ describe("DeckContext deck creation persistence", () => {
       });
     });
 
-    act(() => {
-      result.current.undo();
+    await act(async () => {
+      await result.current.undo();
     });
     await waitFor(() =>
       expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
@@ -7888,14 +7905,17 @@ describe("DeckContext deck creation persistence", () => {
       ),
     );
 
-    act(() => {
-      result.current.redo();
+    await act(async () => {
+      await result.current.redo();
     });
     await waitFor(() =>
       expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
         "<div>Edited</div>",
       ),
     );
+    await act(async () => {
+      await result.current.flushDeckSave("shared-deck");
+    });
   });
 
   it("tells subscribers which objects an undo and redo changed", async () => {
@@ -7938,12 +7958,12 @@ describe("DeckContext deck creation persistence", () => {
     const unsubscribe = result.current.subscribeUndoReveal((reveal) =>
       reveals.push(reveal),
     );
-    act(() => {
-      result.current.undo();
+    await act(async () => {
+      await result.current.undo();
     });
     await waitFor(() => expect(reveals).toHaveLength(1));
-    act(() => {
-      result.current.redo();
+    await act(async () => {
+      await result.current.redo();
     });
     await waitFor(() => expect(reveals).toHaveLength(2));
     unsubscribe();
@@ -8188,7 +8208,9 @@ describe("DeckContext deck creation persistence", () => {
       true,
     );
 
-    act(() => result.current.undo("inline-undo-deck"));
+    await act(async () => {
+      await result.current.undo("inline-undo-deck");
+    });
     expect(result.current.getDeck("inline-undo-deck")?.slides[0]?.content).toBe(
       "<div>Original</div>",
     );
@@ -8354,7 +8376,9 @@ describe("DeckContext deck creation persistence", () => {
         ?.slides.find((slide) => slide.id === duplicateId)?.imagePrompt,
     ).toBeUndefined();
 
-    act(() => result.current.undo(deckId));
+    await act(async () => {
+      await result.current.undo(deckId);
+    });
 
     expect(
       result.current.getDeck(deckId)?.slides.map((slide) => slide.id),
@@ -8362,7 +8386,9 @@ describe("DeckContext deck creation persistence", () => {
     expect(toastSpy).not.toHaveBeenCalledWith("History step conflict");
     expect(result.current.undoAvailability[deckId]?.canRedo).toBe(true);
 
-    act(() => result.current.redo(deckId));
+    await act(async () => {
+      await result.current.redo(deckId);
+    });
     expect(
       result.current
         .getDeck(deckId)
@@ -8435,7 +8461,9 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const toastSpy = vi.spyOn(toast, "error");
-    act(() => result.current.undo(deckId));
+    await act(async () => {
+      await result.current.undo(deckId);
+    });
 
     expect(
       result.current
@@ -8617,8 +8645,8 @@ describe("DeckContext deck creation persistence", () => {
       await vi.advanceTimersByTimeAsync(500);
     });
 
-    act(() => {
-      result.current.undo(deckId);
+    await act(async () => {
+      await result.current.undo(deckId);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
@@ -8721,8 +8749,8 @@ describe("DeckContext deck creation persistence", () => {
       ),
     );
 
-    act(() => {
-      result.current.undo();
+    await act(async () => {
+      await result.current.undo();
     });
 
     await act(async () => {
@@ -8774,8 +8802,8 @@ describe("DeckContext deck creation persistence", () => {
       );
     });
 
-    act(() => {
-      result.current.undo(deckId);
+    await act(async () => {
+      await result.current.undo(deckId);
     });
     expect(
       result.current.getDeck(deckId)?.slides.some((s) => s.id === slideId),
@@ -8809,8 +8837,8 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.undoAvailability[deckB]?.canUndo).toBe(true);
     window.history.pushState({}, "", `/deck/${deckB}`);
 
-    act(() => {
-      result.current.undo(deckB);
+    await act(async () => {
+      await result.current.undo(deckB);
     });
     expect(result.current.undoAvailability[deckB]?.canRedo).toBe(true);
     expect(result.current.getDeck(deckB)?.title).toBe("Deck B");
@@ -8818,9 +8846,9 @@ describe("DeckContext deck creation persistence", () => {
       deckASlidesBefore,
     );
 
-    act(() => {
+    await act(async () => {
       window.history.pushState({}, "", `/deck/${deckA}`);
-      result.current.undo(deckA);
+      await result.current.undo(deckA);
     });
     expect(result.current.getDeck(deckA)?.slides.length).toBe(
       deckASlidesBefore - 1,
@@ -8842,13 +8870,13 @@ describe("DeckContext deck creation persistence", () => {
       expect(result.current.undoAvailability[deckId]?.canUndo).toBe(true),
     );
 
-    act(() => {
-      result.current.undo();
+    await act(async () => {
+      await result.current.undo();
     });
     expect(result.current.getDeck(deckId)).toBeUndefined();
 
-    act(() => {
-      result.current.redo();
+    await act(async () => {
+      await result.current.redo();
     });
     expect(result.current.getDeck(deckId)?.title).toBe("Draft");
   });
@@ -8921,8 +8949,8 @@ describe("DeckContext deck creation persistence", () => {
       expect(result.current.undoAvailability[deckId]?.canUndo).toBe(true),
     );
 
-    act(() => {
-      result.current.undo(deckId);
+    await act(async () => {
+      await result.current.undo(deckId);
     });
     expect(result.current.getDeck(deckId)).toBeUndefined();
     expect(deletedDeck(fetchMock, deckId)).toBe(false);
@@ -8974,8 +9002,8 @@ describe("DeckContext deck creation persistence", () => {
     });
     expect(result.current.getDeck(deckId)).toBeUndefined();
 
-    act(() => {
-      result.current.undo(deckId);
+    await act(async () => {
+      await result.current.undo(deckId);
     });
     expect(result.current.getDeck(deckId)?.title).toBe("Disposable");
   });
@@ -9197,8 +9225,8 @@ describe("DeckContext deck creation persistence", () => {
       "generated-slide",
     ]);
 
-    act(() => {
-      result.current.undo(deckId);
+    await act(async () => {
+      await result.current.undo(deckId);
     });
     expect(result.current.getDeck(deckId)?.slides).toEqual([]);
   });
@@ -9580,7 +9608,9 @@ describe("DeckContext deck creation persistence", () => {
       resizedContent,
     );
 
-    act(() => result.current.undo());
+    await act(async () => {
+      await result.current.undo();
+    });
     expect(result.current.getDeck("gesture-deck")?.slides[0].content).toBe(
       initialContent,
     );
@@ -9793,7 +9823,9 @@ describe("DeckContext deck creation persistence", () => {
     expect(
       result.current.undoAvailability["shared-deck"]?.canUndo ?? false,
     ).toBe(false);
-    act(() => result.current.undo());
+    await act(async () => {
+      await result.current.undo();
+    });
     expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
       "<h1>After agent edit</h1>",
     );
@@ -9978,8 +10010,8 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     expect(result.current.undoAvailability["shared-deck"]?.canUndo).toBe(true);
-    act(() => {
-      result.current.undo();
+    await act(async () => {
+      await result.current.undo();
     });
     expect(
       result.current.getDeck("shared-deck")?.slides.map((slide) => slide.id),
@@ -11184,7 +11216,9 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.undoAvailability[initial.id]?.canUndo ?? false).toBe(
       false,
     );
-    act(() => result.current.undo());
+    await act(async () => {
+      await result.current.undo();
+    });
     expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
       "<h1>Last agent update</h1>",
     );

@@ -396,6 +396,7 @@ describe("update-slide", () => {
         ],
       }),
       { ownerEmail: "owner@example.com", orgId: "org-1" },
+      "deck-1",
     );
     expect(
       mockLockSlideAssetReferences.mock.invocationCallOrder[0],

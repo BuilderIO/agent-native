@@ -14,7 +14,52 @@ vi.mock("../../lib/import-asset-storage.js", () => ({
     mocks.storeLocalImportedAsset(...args),
 }));
 
-import { uploadPptxSlideImages } from "./pptx-assets.js";
+import {
+  assertPptxImageByteLimits,
+  uploadPptxSlideImages,
+} from "./pptx-assets.js";
+
+function imageElement(id: string, byteLength: number) {
+  return {
+    id,
+    kind: "image" as const,
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    image: {
+      data: new Uint8Array(byteLength),
+      mimeType: "image/png",
+      name: `${id}.png`,
+    },
+  };
+}
+
+describe("assertPptxImageByteLimits", () => {
+  it.each([
+    ["per-image", [imageElement("large", 5)]],
+    ["aggregate", [imageElement("one", 3), imageElement("two", 3)]],
+  ] as const)("rejects %s overages before upload", (_scope, elements) => {
+    let failure: unknown;
+    try {
+      assertPptxImageByteLimits(
+        elements.map((element) => ({
+          texts: [],
+          images: [],
+          elements: [element],
+        })),
+        { maxImageBytes: 4, maxTotalImageBytes: 5 },
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({
+      errorCode: "source_import_no_write",
+      statusCode: 413,
+    });
+  });
+});
 
 describe("uploadPptxSlideImages", () => {
   beforeEach(() => {

@@ -254,7 +254,7 @@ describe("slide inline image storage boundary", () => {
       assertSlideInlineImagesPersistable(
         {},
         {
-          sourceTsx: `const imageUrl = "${INLINE_IMAGE}";
+          sourceTsx: `const imageUrl = "data:text/plain,hello";
             export default function Slide() {
               if (enabled) { var imageUrl = "https://example.com/image.png"; }
               return <img src={imageUrl} />;
@@ -418,6 +418,40 @@ describe("slide inline image storage boundary", () => {
     );
   });
 
+  it("rejects dynamic image data in non-URL object properties", () => {
+    expect(() =>
+      assertSlideInlineImagesPersistable(
+        {},
+        {
+          sourceTsx: [
+            "const media = { fallback: `data:image/png;base64,${payload}` };",
+            "const source = media.fallback;",
+            "export default function Slide() { return <img src={source} />; }",
+          ].join("\n"),
+        },
+        "slide-dynamic-object-image",
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "invalid_inline_image_data_url",
+      }),
+    );
+
+    expect(() =>
+      assertSlideInlineImagesPersistable(
+        {},
+        {
+          sourceTsx: [
+            'const media = { fallback: `data:image/png;base64,${""}` };',
+            "const source = media.fallback;",
+            "export default function Slide() { return <img src={source} />; }",
+          ].join("\n"),
+        },
+        "slide-empty-object-image",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects data URLs constructed with TSX string concatenation", () => {
     expect(() =>
       assertSlideInlineImagesPersistable(
@@ -448,6 +482,25 @@ describe("slide inline image storage boundary", () => {
         errorCode: "invalid_inline_image_data_url",
       }),
     );
+  });
+
+  it("allows a syntax-only rewrite of an existing inline image URL", () => {
+    const previousSource = [
+      'const imageUrl = "data:image/png;base64," + "aGVsbG8=";',
+      "export default function Slide() { return <img src={imageUrl} />; }",
+    ].join("\n");
+    const nextSource = [
+      "const imageUrl = `data:image/png;base64,aGVsbG8=`;",
+      "export default function Slide() { return <img src={imageUrl} />; }",
+    ].join("\n");
+
+    expect(() =>
+      assertSlideInlineImagesPersistable(
+        { sourceTsx: previousSource },
+        { sourceTsx: nextSource },
+        "slide-syntax-only-rewrite",
+      ),
+    ).not.toThrow();
   });
 
   it("rejects malformed Excalidraw JSON instead of skipping the storage check", () => {

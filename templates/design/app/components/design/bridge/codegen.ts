@@ -104,7 +104,18 @@ function bridgeName(filename: string): string {
 }
 
 function generatedModuleSrc(name: string, compiled: string): string {
-  const escaped = compiled
+  const workerSourceMarker = "  var nativeWorkerSource = ";
+  const reviewed =
+    name === "native-shader-runtime"
+      ? compiled.replace(
+          workerSourceMarker,
+          "  // coercion-ok: The quoted worker bundle is checked in its original TypeScript files.\n" +
+            workerSourceMarker,
+        )
+      : compiled;
+  if (name === "native-shader-runtime" && reviewed === compiled)
+    throw new Error("The generated worker bundle marker is missing.");
+  const escaped = reviewed
     .replace(/\\/g, "\\\\")
     .replace(/`/g, "\\`")
     .replace(/\$\{/g, "\\${");

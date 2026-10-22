@@ -1,14 +1,35 @@
-import { parsePptxPresentation } from "@agent-native/core/ingestion";
+import { fail } from "@agent-native/core/action";
+import {
+  DEFAULT_PPTX_IMAGE_BYTE_LIMITS,
+  PptxImageByteLimitError,
+  parsePptxPresentation,
+} from "@agent-native/core/ingestion";
 
-import { InvalidPptxSourceError } from "../../../shared/source-import-errors.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../../../shared/source-import-errors.js";
 
 export async function parsePptx(
   fileBuffer: Parameters<typeof parsePptxPresentation>[0],
   options?: Parameters<typeof parsePptxPresentation>[1],
 ): ReturnType<typeof parsePptxPresentation> {
   try {
-    return await parsePptxPresentation(fileBuffer, options);
+    return await parsePptxPresentation(fileBuffer, {
+      ...options,
+      imageByteLimits:
+        options?.imageByteLimits ?? DEFAULT_PPTX_IMAGE_BYTE_LIMITS,
+    });
   } catch (error) {
+    if (error instanceof PptxImageByteLimitError) {
+      fail(
+        "Slides could not read this PowerPoint file. No slides were written to the deck.",
+        {
+          errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+          statusCode: 413,
+        },
+      );
+    }
     if (isInvalidPptxSourceFailure(error)) {
       throw new InvalidPptxSourceError(error);
     }

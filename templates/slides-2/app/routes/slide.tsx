@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/client/navigation";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { IconExternalLink } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import SlideContentRenderer from "@/components/slides-2-runtime/SlideContentRenderer";
@@ -67,6 +67,7 @@ export default function SlideRoute() {
   const [deckTitle, setDeckTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadRequestId = useRef(0);
   const { designSystem } = useDeckDesignSystem(designSystemId, deckId);
 
   const slideNumber =
@@ -91,32 +92,40 @@ export default function SlideRoute() {
   }, [deckTitle, t]);
 
   useEffect(() => {
-    if (!deckId) {
-      setError(t("raw.missingDeckId"));
-      setLoading(false);
-      return;
-    }
-    if (
-      slideNumberParam !== null &&
-      (slideNumber === null || isNaN(slideNumber) || slideNumber < 1)
-    ) {
-      setError(t("raw.invalidSlideNumber"));
-      setLoading(false);
-      return;
-    }
-    if (slideIndexParam !== null && isNaN(slideIndex)) {
-      setError(t("raw.invalidSlideIndex"));
-      setLoading(false);
-      return;
-    }
+    const requestId = ++loadRequestId.current;
+    const isCurrentRequest = () => loadRequestId.current === requestId;
 
-    callActionWithRetry<{
-      title?: string;
-      slides?: Slide[];
-      aspectRatio?: AspectRatio;
-      designSystemId?: string | null;
-    }>("get-deck", { id: deckId }, { method: "GET" })
-      .then((deck) => {
+    setLoading(true);
+    setError(null);
+    setSlide(null);
+    setSlidePosition(undefined);
+    setAspectRatio(undefined);
+    setDesignSystemId(null);
+    setDeckTitle(null);
+
+    async function loadSlide() {
+      try {
+        if (!deckId) {
+          throw new Error(t("raw.missingDeckId"));
+        }
+        if (
+          slideNumberParam !== null &&
+          (slideNumber === null || isNaN(slideNumber) || slideNumber < 1)
+        ) {
+          throw new Error(t("raw.invalidSlideNumber"));
+        }
+        if (slideIndexParam !== null && isNaN(slideIndex)) {
+          throw new Error(t("raw.invalidSlideIndex"));
+        }
+
+        const deck = await callActionWithRetry<{
+          title?: string;
+          slides?: Slide[];
+          aspectRatio?: AspectRatio;
+          designSystemId?: string | null;
+        }>("get-deck", { id: deckId }, { method: "GET" });
+        if (!isCurrentRequest()) return;
+
         const slides: Slide[] = deck.slides ?? [];
         if (slides.length === 0) {
           throw new Error(t("raw.deckHasNoSlides"));
@@ -127,9 +136,9 @@ export default function SlideRoute() {
         setDeckTitle(deck.title ?? null);
         setAspectRatio(deck.aspectRatio);
         setDesignSystemId(deck.designSystemId ?? null);
-        setLoading(false);
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
+        if (!isCurrentRequest()) return;
+
         const status = (err as { status?: number } | undefined)?.status;
         if (status === 404) {
           setError(t("raw.deckNotFound"));
@@ -140,8 +149,16 @@ export default function SlideRoute() {
             err instanceof Error ? err.message : t("raw.couldNotLoadSlide"),
           );
         }
-        setLoading(false);
-      });
+      } finally {
+        if (isCurrentRequest()) setLoading(false);
+      }
+    }
+
+    void loadSlide();
+
+    return () => {
+      if (isCurrentRequest()) loadRequestId.current += 1;
+    };
   }, [deckId, slideIndex, slideIndexParam, slideNumber, slideNumberParam, t]);
 
   if (loading) {

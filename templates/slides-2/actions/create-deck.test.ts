@@ -81,6 +81,7 @@ const whereSelectFn = vi.fn((condition: unknown, table?: unknown) => {
       table === mockTables.designSystemsTable
         ? defaultDesignSystemLimitFn
         : limitFn,
+    for: vi.fn(async (_mode: string) => []),
   };
 });
 const fromFn = vi.fn((table: unknown) => ({

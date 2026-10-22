@@ -1,5 +1,9 @@
 import { fail } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
+import {
+  DEFAULT_PPTX_IMAGE_BYTE_LIMITS,
+  type PptxImageByteLimits,
+} from "@agent-native/core/ingestion";
 import { nanoid } from "nanoid";
 
 import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../../../shared/source-import-errors.js";
@@ -33,6 +37,32 @@ export function assertPptxImagesRenderable(
       `Source-faithful PPTX import cannot preserve unsupported image type(s): ${[...unsupported].join(", ")}. No images were uploaded. Re-export the deck with browser-renderable images or use a PDF export for page-faithful preservation.`,
       { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
     );
+  }
+}
+
+export function assertPptxImageByteLimits(
+  slides: readonly ParsedSlide[],
+  limits: Readonly<PptxImageByteLimits> = DEFAULT_PPTX_IMAGE_BYTE_LIMITS,
+): void {
+  let totalBytes = 0;
+  for (const slide of slides) {
+    for (const element of slide.elements ?? []) {
+      if (element.kind !== "image" || !element.image) continue;
+      const imageBytes = element.image.data.byteLength;
+      if (
+        imageBytes > limits.maxImageBytes ||
+        totalBytes + imageBytes > limits.maxTotalImageBytes
+      ) {
+        fail(
+          "Slides could not read this PowerPoint file. No slides were written to the deck.",
+          {
+            errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+            statusCode: 413,
+          },
+        );
+      }
+      totalBytes += imageBytes;
+    }
   }
 }
 

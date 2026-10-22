@@ -159,7 +159,9 @@ function PdfSourceSlideCanvas({
     <div
       data-slide-canvas={slide.id}
       data-pdf-slide-root={pdfSlideRoot}
-      className="relative overflow-hidden bg-white text-black"
+      className={
+        /* guard:allow-raw-color - tokenless source slides use fixed white paper defaults in PDF output. */ "relative overflow-hidden bg-white text-black"
+      }
       style={pdfSourceCanvasStyle(render)}
     >
       {fontFaceCss ? <style>{fontFaceCss}</style> : null}

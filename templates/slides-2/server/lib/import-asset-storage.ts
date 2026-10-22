@@ -153,6 +153,7 @@ function descriptorFromLocalImportedAssetUrl(
   try {
     pathname = new URL(url, "http://localhost").pathname;
   } catch {
+    // coercion-ok: invalid URLs cannot identify a local imported asset.
     return null;
   }
   const match = pathname.match(/\/api\/import-assets\/([^/]+)$/);
@@ -160,6 +161,7 @@ function descriptorFromLocalImportedAssetUrl(
   try {
     return decodeLocalImportedAssetToken(decodeURIComponent(match[1]));
   } catch {
+    // coercion-ok: malformed tokens cannot identify a local imported asset.
     return null;
   }
 }
@@ -193,12 +195,8 @@ async function deleteLocalImportedAsset(
   );
   if (!filepath.startsWith(directory + path.sep)) return false;
 
-  try {
-    await rm(filepath, { force: true });
-    return true;
-  } catch {
-    return false;
-  }
+  await rm(filepath, { force: true });
+  return true;
 }
 
 export const localImportedAssetFileUploadProvider: FileUploadProvider = {

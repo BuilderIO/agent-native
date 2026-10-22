@@ -366,7 +366,7 @@ When a Google Drive or Google Slides request needs authentication, tell the user
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { decks, deckShares } = await import("../db/schema.js");
-    const { like, desc, and } = await import("drizzle-orm");
+    const { desc, and, sql } = await import("@agent-native/core/db/schema");
     const { accessFilter } = await import("@agent-native/core/sharing");
     return {
       decks: {
@@ -380,7 +380,7 @@ When a Google Drive or Google Slides request needs authentication, tell the user
             ? await db
                 .select(mentionColumns)
                 .from(decks)
-                .where(and(access, like(decks.title, `%${query}%`)))
+                .where(and(access, sql`${decks.title} like ${`%${query}%`}`))
                 .limit(15)
             : await db
                 .select(mentionColumns)

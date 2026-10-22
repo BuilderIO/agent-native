@@ -113,12 +113,6 @@ export {
   type MotionKeyframeDiamondProps,
 } from "./MotionKeyframeDiamond";
 export {
-  ShaderFillsPanel,
-  descriptorFromPreset,
-  shaderDescriptorToCss,
-  type ShaderFillsPanelProps,
-} from "./ShaderFillsPanel";
-export {
   ScrubInput,
   type ScrubInputChangeMeta,
   type ScrubInputProps,

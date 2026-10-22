@@ -70,6 +70,19 @@ function renderWorker(
 }
 
 describe("React slide source validation", () => {
+  it("bundles supported core imports and bounded helpers from the worker shim", async () => {
+    const response = await renderInWorker(`
+import { CANVAS_WIDTH } from "@open-slide/core";
+export default function Slide() {
+  const labels = ["Cover", "Body"];
+  return <main>{CANVAS_WIDTH}:{labels.join(", ")}</main>;
+}
+`);
+
+    expect(response.type).toBe("rendered");
+    expect(response.html).toContain("1920:Cover, Body");
+  });
+
   it("uses a static default-page transition override before the module default", async () => {
     const runtime = await buildReactSlideRuntime(
       `

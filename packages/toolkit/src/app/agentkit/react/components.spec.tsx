@@ -407,7 +407,32 @@ describe("AgentKitChat", () => {
       /\.agentkit-transcript \{[^}]*inline-size: min\(100%, 47rem\);/,
     );
     expect(styles).toMatch(
-      /\.agentkit-transcript-content \{[\s\S]*inline-size: min\(100%, 47rem\);[\s\S]*margin-inline: auto;[\s\S]*padding: 1\.5rem 1rem;/,
+      /\.agentkit-transcript-content \{[\s\S]*inline-size: min\(100%, var\(--agentkit-transcript-lane-width, 47rem\)\);[\s\S]*margin-inline: auto;[\s\S]*inset-inline-start: clamp\([\s\S]*var\(--agentkit-transcript-lane-offset-inline, 0px\),[\s\S]*padding: 1\.5rem 1rem;[\s\S]*padding-block-start: var\(--agentkit-transcript-top-inset, 1\.5rem\);/,
+    );
+    expect(styles).toContain(
+      "margin-block: 0 var(--agentkit-transcript-message-gap, 1.25rem);",
+    );
+    expect(styles).toMatch(
+      /font-family:\s*var\(\s*--agentkit-transcript-font-family,\s*var\(--font-sans,\s*inherit\)\s*\);/,
+    );
+    expect(styles).toContain(
+      "line-height: var(--agentkit-transcript-message-line-height, 1.52);",
+    );
+    expect(styles).toContain(
+      "--agentkit-user-bubble-line-height,\n    var(--agentkit-transcript-message-line-height, 1.52)",
+    );
+    expect(styles).toContain("var(--agentkit-user-bubble-max-width, 38rem)");
+    expect(styles).toContain(
+      "var(--agentkit-user-bubble-padding-block, 0.625rem)",
+    );
+    expect(styles).toContain(
+      "var(--agentkit-user-bubble-padding-inline, 0.8125rem)",
+    );
+    expect(styles).toContain(
+      "inset-inline-start: var(--agentkit-user-bubble-offset-inline, 0px);",
+    );
+    expect(styles).toMatch(
+      /max-inline-size: min\([\s\S]*94%,[\s\S]*var\(--agentkit-user-bubble-max-width, 38rem\)/,
     );
     expect(styles).toContain("overflow-anchor: none;");
     expect(styles).toMatch(
@@ -1773,6 +1798,7 @@ describe("AgentKitChat", () => {
         client={client}
         threadId="thread-slots"
         load="manual"
+        transcriptLayout={{ topInset: 7 }}
         title="Release room"
         toolbar={<button type="button">Share</button>}
         labels={{ conversation: "Release conversation" }}
@@ -1832,6 +1858,7 @@ describe("AgentKitChat", () => {
       expect(html).toContain(`data-slot="${slot}"`);
     }
     expect(html).toContain('aria-label="Release room"');
+    expect(html).toContain("--agentkit-transcript-top-inset:7px");
     expect(html).toContain("Check the deployment");
     expect(html).not.toContain("private context");
     expect(html).not.toContain("private slot context");

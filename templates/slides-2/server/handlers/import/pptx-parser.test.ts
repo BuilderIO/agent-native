@@ -2,10 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockParsePptxPresentation = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/ingestion", () => ({
-  parsePptxPresentation: (...args: unknown[]) =>
-    mockParsePptxPresentation(...args),
-}));
+vi.mock("@agent-native/core/ingestion", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/ingestion")>();
+
+  return {
+    ...actual,
+    parsePptxPresentation: (...args: unknown[]) =>
+      mockParsePptxPresentation(...args),
+  };
+});
 
 import { InvalidPptxSourceError } from "../../../shared/source-import-errors.js";
 import { parsePptx } from "./pptx-parser.js";

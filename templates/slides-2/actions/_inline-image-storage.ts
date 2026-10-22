@@ -761,6 +761,22 @@ function sourceDataUrls(source: string, field: string): DataUrlOccurrence[] {
 
   walkAll(ast, (node) => {
     if (
+      t.isStringLiteral(node) ||
+      t.isTemplateLiteral(node) ||
+      (t.isBinaryExpression(node) && node.operator === "+")
+    ) {
+      const value = (staticString(node) ?? partialString(node))?.trim();
+      const separator = value?.indexOf(",") ?? -1;
+      if (
+        value?.toLowerCase().startsWith("data:image/") &&
+        separator >= 0 &&
+        value.slice(separator + 1).trim().length > 0
+      ) {
+        occurrences.push({ value, field });
+      }
+    }
+
+    if (
       t.isVariableDeclarator(node) &&
       t.isIdentifier(node.id) &&
       /style|css|keyframe/i.test(node.id.name) &&
