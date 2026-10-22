@@ -1,5 +1,5 @@
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
-import { ACTION_EXECUTION_KEY } from "../action.js";
+import { ACTION_EXECUTION_KEY, type ActionHttpConfig } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 
 // Without the key an app wrapper around `run` cannot be recognized as the same
@@ -198,5 +198,43 @@ export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
         }),
   };
   carryExecutionKey(def, out);
+  return out;
+}
+
+type CliWrapperFlags = {
+  http?: ActionHttpConfig | false;
+  agentTool?: false;
+  needsApproval?: true;
+};
+
+/**
+ * The flags the dev scan reads from an action's source when it can't import
+ * the module and falls back to running it through `pnpm action`. Without the
+ * module this regex sniff is the best it can do, so it errs toward the gate:
+ * any `needsApproval` other than `false` asks every time, since a predicate
+ * can't be evaluated.
+ */
+export function cliWrapperFlagsFromSource(src: string): CliWrapperFlags {
+  const out: CliWrapperFlags = {};
+  if (/\bagentTool\s*:\s*false\b/.test(src)) out.agentTool = false;
+  if (/\bneedsApproval\b(?!\s*:\s*false\b)/.test(src)) {
+    out.needsApproval = true;
+  }
+  if (/\bhttp\s*:\s*false\b/.test(src)) {
+    out.http = false;
+  } else {
+    const httpStart = src.search(/\bhttp\s*:\s*\{/);
+    if (httpStart >= 0) {
+      const window = src.slice(httpStart, httpStart + 200);
+      const m = window.match(/method\s*:\s*['"`](GET|POST|PUT|DELETE)['"`]/);
+      const p = window.match(/path\s*:\s*['"`]([^'"`]+)['"`]/);
+      if (m || p) {
+        out.http = {
+          ...(m ? { method: m[1] as "GET" | "POST" | "PUT" | "DELETE" } : {}),
+          ...(p ? { path: p[1] } : {}),
+        };
+      }
+    }
+  }
   return out;
 }

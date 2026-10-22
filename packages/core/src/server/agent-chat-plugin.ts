@@ -50,7 +50,6 @@ import type {
   A2AConnectionRequestMetadata,
   Message as A2AMessage,
 } from "../a2a/types.js";
-import type { ActionHttpConfig } from "../action.js";
 import { clientAbortReason } from "../agent/abort-reasons.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
@@ -301,6 +300,7 @@ import {
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import {
+  cliWrapperFlagsFromSource,
   discoveredActionMcpAnnotations,
   filesystemActionEntry,
 } from "./filesystem-action-entry.js";
@@ -1801,45 +1801,20 @@ export function createAgentChatPlugin(
                 // (and .ts files Node can't parse natively).
               }
 
-              // Static-parse the source for `http: false` or
-              // `http: { method: "GET" }` so the shell-wrapper fallback still
-              // mounts HTTP routes with the correct method. We can't load the
-              // .ts module to read the real defineAction object in this Node
-              // context, so this regex sniff is the best we can do until the
-              // discovery is moved into a Vite-aware codepath.
-              let httpConfig: ActionHttpConfig | false | undefined;
-              // Sniff `agentTool: false` the same way so a CLI-style action can
-              // opt out of agent exposure even on the shell-wrapper fallback path.
-              let agentToolFlag: boolean | undefined;
+              // Static-parse the source for `http`, `agentTool: false` and
+              // `needsApproval` so the shell-wrapper fallback still mounts HTTP
+              // routes with the correct method, stays hidden when asked, and
+              // keeps its approval gate. We can't load the .ts module to read
+              // the real defineAction object in this Node context, so this
+              // regex sniff is the best we can do until the discovery is moved
+              // into a Vite-aware codepath.
+              let sniffed: ReturnType<typeof cliWrapperFlagsFromSource> = {};
               try {
-                const src = _fs.readFileSync(filePath, "utf-8");
-                if (/\bagentTool\s*:\s*false\b/.test(src)) {
-                  agentToolFlag = false;
-                }
-                if (/\bhttp\s*:\s*false\b/.test(src)) {
-                  httpConfig = false;
-                } else {
-                  const httpStart = src.search(/\bhttp\s*:\s*\{/);
-                  if (httpStart >= 0) {
-                    const window = src.slice(httpStart, httpStart + 200);
-                    const m = window.match(
-                      /method\s*:\s*['"`](GET|POST|PUT|DELETE)['"`]/,
-                    );
-                    const p = window.match(/path\s*:\s*['"`]([^'"`]+)['"`]/);
-                    if (m || p) {
-                      httpConfig = {
-                        ...(m
-                          ? {
-                              method: m[1] as "GET" | "POST" | "PUT" | "DELETE",
-                            }
-                          : {}),
-                        ...(p ? { path: p[1] } : {}),
-                      };
-                    }
-                  }
-                }
+                sniffed = cliWrapperFlagsFromSource(
+                  _fs.readFileSync(filePath, "utf-8"),
+                );
               } catch {
-                // File read failed — leave httpConfig undefined (default POST)
+                // File read failed — leave the flags unset (default POST)
               }
 
               // Fallback: bash-based wrapper for CLI-style scripts
@@ -1908,10 +1883,7 @@ export function createAgentChatPlugin(
                     command: `pnpm action ${name} ${escapedArgs}`.trim(),
                   });
                 },
-                ...(httpConfig !== undefined ? { http: httpConfig } : {}),
-                ...(typeof agentToolFlag === "boolean"
-                  ? { agentTool: agentToolFlag }
-                  : {}),
+                ...sniffed,
               };
             }
           }

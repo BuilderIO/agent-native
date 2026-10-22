@@ -9,7 +9,10 @@ import {
   preparedCallArguments,
 } from "../action.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
-import { filesystemActionEntry } from "./filesystem-action-entry.js";
+import {
+  cliWrapperFlagsFromSource,
+  filesystemActionEntry,
+} from "./filesystem-action-entry.js";
 
 const keyOf = (entry: object) =>
   (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
@@ -183,6 +186,53 @@ describe("filesystemActionEntry", () => {
       readOnlyHint: false,
       destructiveHint: true,
       openWorldHint: true,
+    });
+  });
+});
+
+describe("cliWrapperFlagsFromSource", () => {
+  const source = (flags: string) =>
+    [
+      "export default defineAction({",
+      '  description: "Send",',
+      flags,
+      "  run: async () => ({}),",
+      "});",
+    ].join("\n");
+
+  it("keeps the approval gate however an unimportable action declares it", () => {
+    for (const flags of [
+      "  needsApproval: true,",
+      "  needsApproval: (input) => input.to !== 'me',",
+      "  needsApproval(input) { return input.to !== 'me'; },",
+      "  needsApproval,",
+    ]) {
+      expect(cliWrapperFlagsFromSource(source(flags)), flags).toEqual({
+        needsApproval: true,
+      });
+    }
+  });
+
+  it("leaves an action ungated when it says no approval is needed", () => {
+    expect(
+      cliWrapperFlagsFromSource(source("  needsApproval: false,")),
+    ).toEqual({});
+    expect(cliWrapperFlagsFromSource(source(""))).toEqual({});
+  });
+
+  it("reads the HTTP route and agent opt-out", () => {
+    expect(
+      cliWrapperFlagsFromSource(
+        source(
+          [
+            "  agentTool: false,",
+            '  http: { method: "GET", path: "/report" },',
+          ].join("\n"),
+        ),
+      ),
+    ).toEqual({ agentTool: false, http: { method: "GET", path: "/report" } });
+    expect(cliWrapperFlagsFromSource(source("  http: false,"))).toEqual({
+      http: false,
     });
   });
 });
