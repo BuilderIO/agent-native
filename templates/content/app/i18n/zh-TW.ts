@@ -1368,6 +1368,7 @@ const overrides = {
     listRowsMedium: "中等",
     listRowsBold: "粗體",
     listRowsNothing: "無",
+    listRowsPageText: "頁面文字",
     listRowsOneLine: "1 行",
     listRowsLineCount: "{{count}} 行",
     listRowsNoStatus: "無狀態",

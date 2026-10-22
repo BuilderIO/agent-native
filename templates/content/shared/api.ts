@@ -475,12 +475,19 @@ export type ContentDatabaseItemLeadingKind =
   | "checkbox"
   | "status";
 export type ContentDatabaseItemTitleWeight = "regular" | "medium" | "bold";
+/** What line 2 shows: a property, or the first lines of each row's page. */
+export type ContentDatabaseItemLine2Source = "property" | "page";
 
 /** Which property fills each part of a list row. */
 export interface ContentDatabaseItemLayout {
   leading: { kind: ContentDatabaseItemLeadingKind; propertyId: string | null };
   titleWeight: ContentDatabaseItemTitleWeight;
-  line2: { propertyId: string | null; lines: 1 | 2 | 3 };
+  /** A saved layout leaves `source` out when line 2 shows a property. */
+  line2: {
+    source?: ContentDatabaseItemLine2Source;
+    propertyId: string | null;
+    lines: 1 | 2 | 3;
+  };
   line3: string[];
   trailing: string[];
 }
@@ -626,6 +633,11 @@ export interface ContentDatabaseItem {
   properties: DocumentProperty[];
   workspaceFilesDatabaseId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
+  /**
+   * The first lines of the row's page as plain text. List reads include it
+   * only when a List view of the collection shows page text in line 2.
+   */
+  excerpt?: string;
   sourceRecord?: ContentDatabaseSourceRow;
   canonicalKey?: string | null;
   sourceOverlays?: ContentDatabaseSourceOverlay[];

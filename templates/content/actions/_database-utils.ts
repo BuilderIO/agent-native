@@ -42,10 +42,15 @@ import {
   type ContentSidebarViewOrder,
   type DocumentProperty,
 } from "../shared/api.js";
+import { contentDatabaseViewsShowPageText } from "../shared/database-item-layout.js";
 import {
   applyContentDatabaseTableQuery,
   contentDatabaseTableQueryUsesProperties,
 } from "../shared/database-query.js";
+import {
+  buildListRowExcerpt,
+  EXCERPT_SOURCE_CHARS,
+} from "../shared/og-description.js";
 import {
   evaluatePropertyFormula,
   isBlocksPropertyType,
@@ -88,6 +93,7 @@ import {
 import {
   listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
+  parseDatabaseViewConfig,
   readDatabasePropertySchema,
   serializeDatabase,
   type DatabasePropertySchema,
@@ -1016,6 +1022,13 @@ export async function getContentDatabasePageResponse(
     });
   }
 
+  // List rows draw from paged reads. Unpaged reads come from menus and pickers
+  // that never show page text, so they skip the body reads.
+  const includeExcerpts =
+    limit !== null &&
+    contentDatabaseViewsShowPageText(
+      parseDatabaseViewConfig(database.viewConfigJson).views,
+    );
   const documents =
     items.length > 0
       ? await db
@@ -1243,12 +1256,50 @@ export async function getContentDatabasePageResponse(
   const serializedDocumentIds = new Set(
     serializedItems.map((item) => item.document.id),
   );
-  const sourceSnapshots =
+  // Reading a collection doesn't open every row's page, so excerpts come only
+  // from pages the reader can view.
+  const excerptDocumentIds = includeExcerpts
+    ? serializedItems
+        .filter((item) => item.document.canView)
+        .map((item) => item.document.id)
+    : [];
+  const [sourceSnapshots, bodyPrefixByDocumentId] = await Promise.all([
     options.includeSources === false
       ? []
-      : await getAllContentDatabaseSourceSnapshots(database, {
+      : getAllContentDatabaseSourceSnapshots(database, {
           documentIds: limit !== null ? [...serializedDocumentIds] : undefined,
-        });
+        }),
+    // Only the start of each returned page's body, and only when a view
+    // shows it. Filters and sorts that run here have already cut the page.
+    // The read takes one character more to tell a longer body from one that
+    // fits.
+    excerptDocumentIds.length > 0
+      ? db
+          .select({
+            id: schema.documents.id,
+            bodyPrefix: sql<
+              string | null
+            >`substr(${schema.documents.content}, 1, ${sql.raw(String(EXCERPT_SOURCE_CHARS + 1))})`,
+          })
+          .from(schema.documents)
+          .where(inArray(schema.documents.id, excerptDocumentIds))
+          .then(
+            (rows) =>
+              new Map(rows.map((row) => [row.id, row.bodyPrefix ?? ""])),
+          )
+      : new Map<string, string>(),
+  ]);
+  const pageItems = includeExcerpts
+    ? serializedItems.map((item) => ({
+        ...item,
+        excerpt: item.document.canView
+          ? buildListRowExcerpt({
+              content: bodyPrefixByDocumentId.get(item.document.id),
+              title: item.document.title,
+            })
+          : "",
+      }))
+    : serializedItems;
   const organizationVisibleDocumentIds =
     organizationFilesItemFilter && sourceSnapshots.length > 0
       ? new Set(
@@ -1289,7 +1340,7 @@ export async function getContentDatabasePageResponse(
   const pagedPrimary = pagedSources[0] ?? null;
 
   const federatedItems = federateSources({
-    items: serializedItems,
+    items: pageItems,
     sources: pagedSources,
   });
   const itemsWithOverlay = applyFederatedOverlayValues(

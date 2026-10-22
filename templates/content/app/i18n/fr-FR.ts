@@ -215,6 +215,7 @@ const database = {
   listRowsMedium: "Moyen",
   listRowsBold: "Gras",
   listRowsNothing: "Rien",
+  listRowsPageText: "Texte de la page",
   listRowsOneLine: "1 ligne",
   listRowsLineCount: "{{count}} lignes",
   listRowsNoStatus: "Aucun statut",
