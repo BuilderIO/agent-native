@@ -54,6 +54,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { deleteNodeFromMenu } from "../editor-transaction-meta";
 import { createImagePickerId } from "../image-upload";
 import { storedBodyImageFailed } from "../stored-body-images";
 import type { ContentImageOptions } from "./ImageNode";
@@ -495,7 +496,6 @@ function buildAltTextArticleContext({
 export function ImageBlock({
   node,
   editor,
-  deleteNode,
   selected,
   updateAttributes,
   extension,
@@ -527,6 +527,7 @@ export function ImageBlock({
   const options = extension.options as ContentImageOptions;
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
   const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const alt = (node.attrs.alt as string) || "";

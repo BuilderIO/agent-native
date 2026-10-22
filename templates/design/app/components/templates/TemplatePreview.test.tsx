@@ -6,6 +6,34 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.unmock("@/components/design/use-native-shader-approvals");
+
+const approvals = vi.hoisted(() => ({
+  hashes: ["a".repeat(64)],
+  query: vi.fn(),
+}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  useSession: () => ({ session: { email: "viewer@example.test" } }),
+  useActionQuery: (
+    name: string,
+    args: { designId?: string },
+    options: { enabled: boolean },
+  ) => {
+    approvals.query(name, args, options);
+    return options.enabled
+      ? {
+          data: {
+            designId: args.designId,
+            approvedDefinitionHashes: approvals.hashes,
+          },
+          error: null,
+        }
+      : { data: undefined, error: null };
+  },
+}));
+
+import { DesignThumbnail } from "../design/DesignThumbnail";
 import { TemplatePreview } from "./TemplatePreview";
 
 let container: HTMLDivElement;
@@ -18,6 +46,7 @@ let intersectionObservers: Array<{
 }>;
 beforeEach(() => {
   intersectionObservers = [];
+  approvals.query.mockClear();
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -55,6 +84,103 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 describe("template artboard preview", () => {
+  it.each(["thumbnail", "template"])(
+    "delivers viewer approvals to a scoped %s and does not inherit them into unscoped templates",
+    async (surface) => {
+      const html =
+        "<!-- application/x-agent-native-effects --><main>Preview</main>";
+      await act(async () =>
+        root.render(
+          surface === "thumbnail" ? (
+            <DesignThumbnail html={html} designId="design" />
+          ) : (
+            <TemplatePreview html={html} title="Design" designId="design" />
+          ),
+        ),
+      );
+      expect(approvals.query).toHaveBeenCalledWith(
+        "get-native-shader-approvals",
+        { designId: "design" },
+        { enabled: true },
+      );
+      const frame = container.querySelector("iframe")!;
+      const post = vi.spyOn(frame.contentWindow!, "postMessage");
+      await act(async () => frame.dispatchEvent(new Event("load")));
+      expect(post).toHaveBeenCalledWith(
+        {
+          type: "native-shader-approvals",
+          status: "ready",
+          hashes: approvals.hashes,
+        },
+        "*",
+      );
+      approvals.query.mockClear();
+      await act(async () =>
+        root.render(<TemplatePreview html={html} title="Template snapshot" />),
+      );
+      expect(approvals.query).not.toHaveBeenCalledWith(
+        "get-native-shader-approvals",
+        expect.anything(),
+        { enabled: true },
+      );
+      const templateFrame = container.querySelector("iframe")!;
+      const templatePost = vi.spyOn(
+        templateFrame.contentWindow!,
+        "postMessage",
+      );
+      await act(async () => templateFrame.dispatchEvent(new Event("load")));
+      expect(templatePost).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "native-shader-approvals",
+          status: "ready",
+        }),
+        "*",
+      );
+    },
+  );
+  it.each(["thumbnail", "template"])(
+    "contains an invalid native manifest within its %s preview",
+    async (surface) => {
+      const invalid =
+        '<script type="application/x-agent-native-effects">{invalid}</script>';
+      await act(async () =>
+        root.render(
+          <>
+            {surface === "thumbnail" ? (
+              <DesignThumbnail html={invalid} />
+            ) : (
+              <TemplatePreview html={invalid} title="Invalid design" />
+            )}
+            <TemplatePreview
+              html="<h1>Valid design</h1>"
+              title="Valid design"
+            />
+          </>,
+        ),
+      );
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "worker-public-manifest-invalid",
+      );
+      expect(container.querySelectorAll("iframe")).toHaveLength(1);
+      expect(container.querySelector("iframe")?.title).toBe("Valid design");
+      await act(async () =>
+        root.render(
+          surface === "thumbnail" ? (
+            <DesignThumbnail html="<h1>Repaired design</h1>" />
+          ) : (
+            <TemplatePreview
+              html="<h1>Repaired design</h1>"
+              title="Repaired design"
+            />
+          ),
+        ),
+      );
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(container.querySelector("iframe")?.srcdoc).toContain(
+        "Repaired design",
+      );
+    },
+  );
   it("does not request private screenshots without a design scope", async () => {
     const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
     await act(async () =>

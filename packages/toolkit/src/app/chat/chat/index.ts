@@ -54,6 +54,7 @@ export type {
   AgentChatSurfaceKind,
 } from "./surface-types.js";
 export type { AgentChatTranscriptLayout } from "../../agentkit/react/transcript-layout.js";
+export type { AgentChatWorkedForRowLayout } from "../../agentkit/react/transcript-layout.js";
 export type {
   MultiTabAssistantChatProps,
   MultiTabAssistantChatHeaderProps,

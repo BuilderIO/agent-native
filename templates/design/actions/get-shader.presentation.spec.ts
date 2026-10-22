@@ -44,6 +44,13 @@ beforeEach(() => {
 });
 
 describe("native shader inspection display metadata and compatible versions", () => {
+  it("rejects the removed legacy shader catalog while keeping native inspection as the default", () => {
+    expect(getShader.schema.safeParse({ format: "legacy" }).success).toBe(
+      false,
+    );
+    expect(getShader.schema.parse({}).format).toBe("native-v2");
+  });
+
   it("exposes exact hashes for file-owned custom definition approval", async () => {
     const custom = { ...LIQUID_METAL_V1_EFFECT, id: "user-defined-metal" };
     const draft = editNativeEffectHtml(source.html, {

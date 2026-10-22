@@ -2107,6 +2107,8 @@ export const AgentKitAssistantChat = forwardRef<
           branchNavigation={props.branchNavigation}
           loadRunUsage={loadRunUsage}
           buildFeedbackReport={formatFeedbackReport}
+          workedForRowLayout={props.workedForRowLayout}
+          formatWorkedForDuration={props.formatWorkedForDuration}
           onThreadForked={(thread) => props.onForkedThread?.(thread.id)}
           onCopyMessage={({ text }) => {
             const html = renderMarkdownToClipboardHtml(text);
@@ -6471,6 +6473,8 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           chatUI={asRecord(metadata.chatUI) as never}
           activity={metadata.activity === true}
           isActiveTail={active === true}
+          workedForRowLayout={surface.props.workedForRowLayout}
+          formatWorkedForDuration={surface.props.formatWorkedForDuration}
         />
       </SuppressInlineOpenAppContext.Provider>
     </ChatRunningContext.Provider>

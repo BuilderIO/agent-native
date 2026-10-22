@@ -134,15 +134,15 @@ Every design-specific operation is a TypeScript file in
 
 ### Motion and shaders
 
-| Action                   | What it does                                |
-| ------------------------ | ------------------------------------------- |
-| `get-motion-timeline`    | Read an element's motion timeline           |
-| `apply-motion-edit`      | Add or edit a keyframe on a motion timeline |
-| `remove-motion-timeline` | Remove a motion timeline                    |
-| `apply-shader`           | Apply a shader effect                       |
-| `apply-shader-fill`      | Apply a shader as a fill                    |
-| `preview-shader-fill`    | Preview a shader fill before applying it    |
-| `get-shader`             | Read a shader's current parameters          |
+| Action                   | What it does                                          |
+| ------------------------ | ----------------------------------------------------- |
+| `get-motion-timeline`    | Read an element's motion timeline                     |
+| `apply-motion-edit`      | Add or edit a keyframe on a motion timeline           |
+| `remove-motion-timeline` | Remove a motion timeline                              |
+| `get-shader`             | Inspect native definitions and saved effect manifests |
+| `edit-native-shader`     | Apply, edit, approve, or remove native effects        |
+
+Native WebGPU effects use WGSL. Custom authoring uses `edit-native-shader` with `define-definition`, `get-shader` to read the saved `executionHash`, `approve-definition` with that `expectedExecutionHash`, then `apply` with the exact definition ID/version. Each edit requires `designId`, `fileId`, and the current `expectedVersionHash`. Re-read the file hash after each write. CPU schema validation does not compile GPU code, so verify the Design preview. Previously saved GLSL effects remain renderable and removable.
 
 ### Quality {#quality}
 

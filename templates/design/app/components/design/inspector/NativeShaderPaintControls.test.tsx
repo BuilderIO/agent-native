@@ -133,13 +133,15 @@ describe("native shader paint field", () => {
 
   const renderField = async (
     onCommit: (paint: EffectPaint) => Promise<boolean>,
+    allowedKinds?: EffectPaint["kind"][],
   ) => {
     await act(async () =>
       root.render(
         <NativeShaderPaintControls
           label="Fill"
-          value={GRAY}
+          value={allowedKinds ? nativeEffectPaintFromCss(GRADIENT) : GRAY}
           maxStops={8}
+          allowedKinds={allowedKinds}
           disabled={false}
           onCommit={onCommit}
           onPreview={onPreview}
@@ -172,6 +174,28 @@ describe("native shader paint field", () => {
     expect(request!.showReverseStops).toBe(false);
     expect(request!.css).toBe("#808080");
     expect(host.querySelector("select")).toBeNull();
+  });
+
+  it("offers only declared gradient modes through the standard picker", async () => {
+    const onCommit = vi.fn(async () => true);
+    await renderField(onCommit, ["linear", "angular"]);
+    expect(request!.supportedPaintTypes).toEqual(["linear", "angular"]);
+    expect(request!.maxGradientStops).toBe(8);
+    expect(() =>
+      request!.onChange(
+        "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+      ),
+    ).toThrow(NativeShaderPaintValueError);
+    expect(onPreview).not.toHaveBeenCalled();
+    expect(onCommit).not.toHaveBeenCalled();
+    await act(async () =>
+      request!.onCommit(
+        "conic-gradient(from 12deg at center, #ff0000 0%, #0000ff 100%)",
+      ),
+    );
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ kind: "angular", angle: 12 }),
+    );
   });
 
   it("previews on the canvas, commits one structured paint, and rolls back a rejected save", async () => {

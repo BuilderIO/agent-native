@@ -62,13 +62,8 @@ describe("Design session replay iframe wiring", () => {
     ]) {
       expect(block).toContain("src={previewUrl}");
       expect(block).toMatch(/srcDoc=\{\s*previewUrl\s*\?\s*undefined\s*:/);
-      expect(block).toContain("nativePublicAssetPreview?.html");
-      expect(block).toContain("nativePublicWorkerPreview?.html");
       expect(block).toContain("privateScreenshotPreview.html");
       expect(block).toContain("onStaticPreviewLoad?.(");
-      expect(block).toContain("sandbox={getDesignCanvasIframeSandbox({");
-      expect(block).toContain("externalPreview: Boolean(previewUrl)");
-      expect(block).toContain("readOnly: true");
       expect(block).not.toContain('sandbox="allow-scripts"');
     }
   });

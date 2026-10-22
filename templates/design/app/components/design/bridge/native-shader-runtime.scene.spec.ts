@@ -426,6 +426,31 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("shared board animation origin", () => {
+  it("starts remounted runtimes at the same absolute phase without changing ordinary clocks", () => {
+    const epochMs = performance.timeOrigin + performance.now() - 1250;
+    const script = document.createElement("script");
+    script.setAttribute(
+      "data-agent-native-animation-epoch-ms",
+      String(epochMs),
+    );
+    const Runtime = runtime.constructor as new (script: Node | null) => {
+      currentTime(nowMs?: number): number;
+    };
+    const first = new Runtime(script);
+    const second = new Runtime(script);
+    const nowMs = performance.now();
+    expect(first.currentTime(nowMs)).toBeCloseTo(1.25, 2);
+    expect(second.currentTime(nowMs)).toBeCloseTo(first.currentTime(nowMs), 8);
+    expect(new Runtime(null).currentTime(nowMs)).toBeLessThan(0.1);
+
+    script.setAttribute("data-agent-native-animation-epoch-ms", "Infinity");
+    expect(() => new Runtime(script)).toThrow(
+      "The shared preview animation epoch is invalid.",
+    );
+  });
+});
+
 function fixture() {
   vi.stubGlobal("innerWidth", 1044);
   vi.stubGlobal("innerHeight", 1042);
@@ -1579,7 +1604,10 @@ describe("native scene viewport composition", () => {
       );
     const fill = capture("fill");
     expect(fill.documentElement.getAttribute("opacity")).toBe("1");
-    expect(fill.documentElement.getAttribute("transform")).toBeNull();
+    expect(fill.documentElement.hasAttribute("transform")).toBe(false);
+    expect(fill.querySelector("polygon")!.hasAttribute("transform")).toBe(
+      false,
+    );
     expect(fill.querySelector("polygon")!.getAttribute("fill")).toBe(
       "url(#paint)",
     );

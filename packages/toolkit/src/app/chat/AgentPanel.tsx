@@ -610,6 +610,8 @@ export interface AgentPanelProps extends Omit<
   /** Hide the default page title menu while keeping the shared page actions. */
   showPageTitleMenu?: boolean;
   pageHeaderLeadingSlot?: React.ReactNode;
+  /** Override the shared page header share button's icon and label contents. */
+  pageHeaderShareTriggerContent?: React.ReactNode;
   /** Render host page actions alongside Share, with the active chat controls. */
   pageToolbarSlot?:
     | React.ReactNode
@@ -809,6 +811,7 @@ function AgentPanelInner({
   showPageHeaderWhenEmpty = false,
   showPageTitleMenu = true,
   pageHeaderLeadingSlot,
+  pageHeaderShareTriggerContent,
   pageToolbarSlot,
   onPageHeaderVisibilityChange,
   chatOnly = false,
@@ -1836,9 +1839,17 @@ function AgentPanelInner({
                       resourceTitle={activeTab.label || t("agentPanel.chat")}
                       shareUrl={getChatThreadShareUrl(activeTab.id)}
                       triggerContent={
-                        <IconShare3 size={15} aria-hidden="true" />
+                        pageHeaderShareTriggerContent ?? (
+                          <IconShare3 size={15} aria-hidden="true" />
+                        )
                       }
-                      triggerClassName="size-8 p-0 border-0 bg-transparent shadow-none hover:bg-accent/60"
+                      triggerClassName={cn(
+                        "h-8 border-0 bg-transparent shadow-none hover:bg-accent/60",
+                        pageHeaderShareTriggerContent === undefined ||
+                          pageHeaderShareTriggerContent === null
+                          ? "size-8 p-0"
+                          : "w-auto px-2",
+                      )}
                     />
                   ) : null}
                   {toolbarSlot}
@@ -1869,6 +1880,7 @@ function AgentPanelInner({
       headerMenuOpen,
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,
+      pageHeaderShareTriggerContent,
       pageToolbarSlot,
       pendingHeaderOverlayRef,
       setHeaderMenuOpen,
