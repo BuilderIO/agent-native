@@ -64,10 +64,11 @@ describe("redactArgsToJson", () => {
       "Use token=[redacted] next=visible",
     ],
     [
-      "Authorization:\nContent-Type: application/json\nBody: visible",
-      "Authorization:\nContent-Type: application/json\nBody: visible",
+      "Authorization:\n  Bearer fake-token\nBody: visible",
+      "Authorization:\n  [redacted]\nBody: visible",
     ],
-    ["password=\nvisible", "password=\nvisible"],
+    ["password:\nfake-phrase\nvisible", "password:\n[redacted]\nvisible"],
+    ["token=\nfake-value next=visible", "token=\n[redacted] next=visible"],
     [
       'Authorization: Digest username="fake", realm="fake"',
       "Authorization: [redacted]",

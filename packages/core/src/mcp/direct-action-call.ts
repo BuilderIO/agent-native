@@ -339,12 +339,16 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       }
     }
     if (outcome.status === "approval-pending") {
-      return actionApprovalReviewResult(
-        outcome.review,
-        outcome.reason,
-        requestMeta,
-        effectiveIdentity?.userEmail,
-      );
+      try {
+        return await actionApprovalReviewResult(
+          outcome.review,
+          outcome.reason,
+          requestMeta,
+          effectiveIdentity?.userEmail,
+        );
+      } catch (err: any) {
+        return actionError(err);
+      }
     }
 
     // The action has run, so from here on a write reports its success even

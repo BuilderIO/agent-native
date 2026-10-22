@@ -112,10 +112,12 @@ export function getAppDeclaredOrigins(): string[] {
 /**
  * The origin for a link the server hands out, given the request's. That
  * origin comes from Host or a forwarded header any caller can set, so once
- * the app declares where it lives, a link goes only to an origin it trusts,
- * as sign-in redirects do. Platform URLs are a fallback when no app origin
- * is declared. Loopback requests are local only without a public origin.
- * With no configured origin, public links remain relative.
+ * the app declares where it lives, a request keeps its origin only if the
+ * app trusts it, platform hostnames included, as sign-in redirects do. Any
+ * other request gets the first declared origin, then a platform URL.
+ * Loopback requests are local only without a public origin, and a loopback
+ * origin is never handed to a request from elsewhere. With no origin left,
+ * links remain relative.
  */
 export function declaredLinkOrigin(
   requestOrigin: string | undefined,
@@ -136,7 +138,11 @@ export function declaredLinkOrigin(
   ) {
     return inbound;
   }
-  return declared[0] ?? publicOrigins[0] ?? [...configured][0];
+  return (
+    declared[0] ??
+    publicOrigins[0] ??
+    (inbound ? undefined : [...configured][0])
+  );
 }
 
 export function requestForwardedOrigin(

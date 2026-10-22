@@ -5797,6 +5797,40 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("answers a declined prompt with a tool error when the reader's language can't be read", async () => {
+    for (const key of [
+      ...EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+      ...WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+      "BETTER_AUTH_TRUSTED_ORIGINS",
+    ])
+      vi.stubEnv(key, "");
+    let languageReads = 0;
+    vi.mocked(getUserSetting).mockImplementation(async (_email, key) => {
+      if (key === "localization" && ++languageReads > 1) {
+        throw new Error("settings store unavailable");
+      }
+      return null;
+    });
+    const run = vi.fn(async () => ({ sent: true }));
+    const { client } = await createModernClient(sendEmailConfig(run), {
+      declineApproval: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    try {
+      const result = (await client.callTool({
+        name: "send-email",
+        arguments: { to: ["ana@example.com"] },
+      })) as any;
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("settings store unavailable");
+      expect(languageReads).toBe(2);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(getUserSetting).mockImplementation(async () => null);
+      await client.close();
+    }
+  });
+
   it("asks a client that can only open links to approve on the review page, and never runs on its answer", async () => {
     const run = vi.fn(async () => ({ sent: true }));
     const { client } = await createModernClient(sendEmailConfig(run), {

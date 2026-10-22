@@ -56,15 +56,15 @@ function redactString(value: string, maxString: number): string {
 
 const QUOTED_CREDENTIAL = String.raw`"(?:\\[\s\S]|[^"\\])*(?:"|\\?$)|'(?:\\[\s\S]|[^'\\])*(?:'|\\?$)`;
 const EMBEDDED_BEARER = new RegExp(
-  String.raw`\b(bearer[ \t]+)(${QUOTED_CREDENTIAL}|[^\s"',}]+)`,
+  String.raw`\b(bearer\s+)(${QUOTED_CREDENTIAL}|[^\s"',}]+)`,
   "gi",
 );
 const EMBEDDED_AUTHORIZATION = new RegExp(
-  String.raw`(["']?\b(?:proxy-)?authorization\b["']?[ \t]*[:=][ \t]*)(${QUOTED_CREDENTIAL}|[^\r\n]+)`,
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(${QUOTED_CREDENTIAL}|[^\r\n]+)`,
   "gi",
 );
 const EMBEDDED_CREDENTIAL_FIELD = new RegExp(
-  String.raw`(["']?\b${SENSITIVE_KEY.source}\b["']?[ \t]*[:=][ \t]*)((?:bearer[ \t]+)?(?:${QUOTED_CREDENTIAL}|[^"'\s,}]+))`,
+  String.raw`(["']?\b${SENSITIVE_KEY.source}\b["']?\s*[:=]\s*)((?:bearer\s+)?(?:${QUOTED_CREDENTIAL}|[^"'\s,}]+))`,
   "gi",
 );
 
