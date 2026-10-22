@@ -78,7 +78,6 @@ import {
 } from "../commands/visual-structure-change";
 import { isSupersededSelectionEcho } from "../editor-helpers";
 import {
-  getPersistedContentHostSyncOptions,
   resolveOptimisticTextDecorationLine,
   type OptimisticTextDecorationLineEntry,
 } from "../editor-state";

@@ -311,11 +311,12 @@ function TemplatePreviewContent({
 export function TemplatePreview(
   props: ComponentProps<typeof TemplatePreviewContent>,
 ) {
+  const documentKey = useMemo(
+    () => JSON.stringify([props.designId, props.html]),
+    [props.designId, props.html],
+  );
   return (
-    <NativePreviewErrorBoundary
-      key={JSON.stringify([props.designId, props.html])}
-      className={props.className}
-    >
+    <NativePreviewErrorBoundary key={documentKey} className={props.className}>
       <TemplatePreviewContent {...props} />
     </NativePreviewErrorBoundary>
   );

@@ -43,7 +43,6 @@ import {
 } from "../derive/layer-model-coverage";
 import { NO_SELECTORS } from "../design-editor-shared";
 import { withMeasuredGeometry } from "../editor-helpers";
-import { getDesignEditorStateUrlSearch } from "../editor-state";
 import { layerStateIdsForScreen } from "../layer-state-scope";
 import {
   shouldPreferRuntimeLayerProjection,
@@ -97,18 +96,9 @@ export function useEditorLayerModels({
   editorSelectionAndStyles: EditorSelectionAndStyles;
   editorExportAndHandoff: EditorExportAndHandoff;
 }) {
+  const { t, initialSearchParams, viewMode, selectedElement, activeFileId } =
+    editorCore;
   const {
-    t,
-    location,
-    initialSearchParams,
-    mode,
-    activeTool,
-    viewMode,
-    selectedElement,
-    activeFileId,
-  } = editorCore;
-  const {
-    setActiveLeftPanel,
     expandedLayerIds,
     selectedLayerIdsState,
     renderedElementInfoByLayerKeyRef,
@@ -123,7 +113,6 @@ export function useEditorLayerModels({
   } = editorHistory;
   const { design } = editorGenerationAndAccess;
   const {
-    navigate,
     files,
     codeLayerSourceForScreen,
     runtimeLayerSnapshotsById,
@@ -140,7 +129,6 @@ export function useEditorLayerModels({
     getProjectionContentForScreen,
   } = editorCanvasAndScreens;
   const {
-    zoom,
     activeCodeLayerProjection,
     selectedElementLayerId,
     selectedCanvasSelectorCandidates,

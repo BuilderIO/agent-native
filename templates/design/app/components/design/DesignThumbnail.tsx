@@ -166,11 +166,12 @@ function DesignThumbnailContent({
 export function DesignThumbnail(
   props: ComponentProps<typeof DesignThumbnailContent>,
 ) {
+  const documentKey = useMemo(
+    () => JSON.stringify([props.designId, props.html]),
+    [props.designId, props.html],
+  );
   return (
-    <NativePreviewErrorBoundary
-      key={JSON.stringify([props.designId, props.html])}
-      className={props.className}
-    >
+    <NativePreviewErrorBoundary key={documentKey} className={props.className}>
       <DesignThumbnailContent {...props} />
     </NativePreviewErrorBoundary>
   );

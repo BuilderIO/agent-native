@@ -161,7 +161,6 @@ export function useEditorContentAndComponents({
   const {
     t,
     id,
-    location,
     queryClient,
     shellMode,
     setMode,

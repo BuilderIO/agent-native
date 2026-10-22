@@ -334,7 +334,7 @@ describe("MultiScreenCanvas live boot budget", () => {
     const latestTweakMessage = () =>
       post.mock.calls
         .filter(([message]) => message.type === "tweak-values")
-        .at(-1);
+        .slice(-1)[0];
     expect(latestTweakMessage()).toEqual([
       { type: "tweak-values", values: { "--accent": "red" } },
       "*",
