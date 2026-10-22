@@ -4192,6 +4192,62 @@ describe("createProductionAgentHandler", () => {
         retryable: false,
       });
       expect(changedSelectorEvent.res.status).toBe(409);
+
+      // A replay names the replayed run's own turn: a drained run's turn is
+      // the queue's, and a direct start keeps the turn its request sent.
+      const replayStream = new ReadableStream<Uint8Array>({
+        start: (controller) => controller.close(),
+      });
+      const subscribeToRun = vi
+        .spyOn(runManager, "subscribeToRun")
+        .mockReturnValue(replayStream);
+      onTestFinished(() => subscribeToRun.mockRestore());
+      const getRun = vi.spyOn(runManager, "getRun");
+      onTestFinished(() => getRun.mockRestore());
+
+      readReceiptStatus.mockResolvedValueOnce({
+        state: "submitted",
+        submittedRunId: "run-drained",
+      });
+      readReceipt.mockResolvedValueOnce(receipt as never);
+      getRun.mockReturnValueOnce({ turnId: `queued-${messageId}` } as never);
+      const submittedRetryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(submittedRetryEvent),
+        ),
+      ).resolves.toBe(replayStream);
+      expect(getRun).toHaveBeenLastCalledWith("run-drained");
+      expect(submittedRetryEvent.res.headers.get("X-Dispatch-Mode")).toBe(
+        "replay",
+      );
+      expect(submittedRetryEvent.res.headers.get("X-Run-Id")).toBe(
+        "run-drained",
+      );
+      expect(submittedRetryEvent.res.headers.get("X-Turn-Id")).toBe(
+        `queued-${messageId}`,
+      );
+
+      append.mockResolvedValueOnce({
+        queuedMessages: [],
+        alreadySubmitted: true,
+        submittedRunId: "run-direct",
+        message: persistedMessage,
+      } as never);
+      getRun.mockReturnValueOnce({ turnId: "turn-direct" } as never);
+      const consumedRetryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(consumedRetryEvent),
+        ),
+      ).resolves.toBe(replayStream);
+      expect(getRun).toHaveBeenLastCalledWith("run-direct");
+      expect(consumedRetryEvent.res.headers.get("X-Run-Id")).toBe("run-direct");
+      expect(consumedRetryEvent.res.headers.get("X-Turn-Id")).toBe(
+        "turn-direct",
+      );
     } finally {
       append.mockRestore();
       readReceipt.mockRestore();
@@ -9049,6 +9105,56 @@ describe("createProductionAgentHandler", () => {
 
     expect(result).toBe(stream);
     expect(subscribeToRun).toHaveBeenCalledWith("run-already-submitted", 0);
+    expect(event.res.headers.get("X-Dispatch-Mode")).toBe("replay");
+    // The accepted run lives in another process here, so its turn is not
+    // known without a read, and the replay names none rather than guessing.
+    expect(event.res.headers.get("X-Turn-Id")).toBeNull();
+  });
+
+  it("names the accepted run's turn when a duplicate submission replays it", async () => {
+    const onRunPrepared = vi.fn(async () => ({
+      duplicateRunId: "run-already-submitted",
+    }));
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => controller.close(),
+    });
+    const subscribeToRun = vi
+      .spyOn(runManager, "subscribeToRun")
+      .mockReturnValue(stream);
+    onTestFinished(() => subscribeToRun.mockRestore());
+    const getRun = vi
+      .spyOn(runManager, "getRun")
+      .mockImplementation((runId) =>
+        runId === "run-already-submitted"
+          ? ({ turnId: "turn-accepted" } as never)
+          : null,
+      );
+    onTestFinished(() => getRun.mockRestore());
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Repeat the queued prompt",
+          turnId: "turn-retry",
+          queuedMessageId: "queued-duplicate",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(result).toBe(stream);
+    expect(event.res.headers.get("X-Run-Id")).toBe("run-already-submitted");
+    expect(event.res.headers.get("X-Turn-Id")).toBe("turn-accepted");
   });
 
   it("anchors retry deadlines to the server request time", async () => {

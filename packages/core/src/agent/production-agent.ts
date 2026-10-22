@@ -13125,6 +13125,7 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "Cache-Control", "no-cache");
         setResponseHeader(event, "Connection", "keep-alive");
         setResponseHeader(event, "X-Run-Id", result.submittedRunId);
+        setRunTurnIdHeader(event, getRun(result.submittedRunId)?.turnId);
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }
@@ -13240,6 +13241,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", submittedRunId);
+          setRunTurnIdHeader(event, getRun(submittedRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return stream;
         }
@@ -15208,6 +15210,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", duplicateRunId);
+          setRunTurnIdHeader(event, getRun(duplicateRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return stream;
         }
