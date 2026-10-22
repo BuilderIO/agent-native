@@ -3870,13 +3870,16 @@ export function AgentMessageView({
     >
       <div className="agentkit-message-content">
         {orderedContent.map((item, index) => {
+          const isWidget =
+            item.type === "widget" ||
+            (item.type === "part" && item.part.type === "widget");
           const followsWidget =
             message.role === "assistant" &&
             postWidgetText !== undefined &&
             hasSeenWidget &&
             item.type === "part" &&
             item.part.type === "text";
-          if (item.type === "widget") hasSeenWidget = true;
+          if (isWidget) hasSeenWidget = true;
           const content = (
             <AgentMessagePartView
               value={

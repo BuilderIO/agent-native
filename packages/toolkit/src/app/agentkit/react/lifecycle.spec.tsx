@@ -277,6 +277,83 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
+  it("styles assistant text after an embedded widget part", async () => {
+    const threadId = "thread-embedded-content-order";
+    const widget = {
+      id: "chart-embedded-content-order",
+      kind: "test-chart",
+      data: {},
+    };
+    const message = {
+      id: "assistant-embedded-content-order",
+      role: "assistant" as const,
+      status: "complete" as const,
+      parts: [
+        { type: "text" as const, text: "Intro." },
+        { type: "widget" as const, widget },
+        { type: "text" as const, text: "Summary." },
+      ],
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      messages: [message],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        registry={{
+          widgets: {
+            "test-chart": () => <span data-chart-result>Chart</span>,
+          },
+        }}
+        slots={{
+          text: ({ value }) => (
+            <div data-chat-part>
+              <p>{value.text}</p>
+            </div>
+          ),
+        }}
+      >
+        <AgentKitChat
+          composer={false}
+          transcriptLayout={{
+            postWidgetText: {
+              tone: "muted",
+              paragraphPaddingBlock: 4,
+            },
+          }}
+        />
+      </AgentKitProvider>,
+    );
+
+    const content = tree.container.querySelector(
+      `[data-message-id="${message.id}"] .agentkit-message-content`,
+    );
+    const renderedOrder = [...(content?.children ?? [])].map((element) =>
+      element.hasAttribute("data-post-widget-text")
+        ? element.textContent
+        : element.hasAttribute("data-chat-part")
+          ? element.textContent
+          : element.hasAttribute("data-chart-result")
+            ? "chart"
+            : "other",
+    );
+    expect(renderedOrder).toEqual(["Intro.", "chart", "Summary."]);
+    expect(content?.children[0]).not.toHaveAttribute("data-post-widget-text");
+    expect(content?.children[2]).toHaveAttribute("data-post-widget-text");
+    await tree.unmount();
+  });
+
   it("keeps partial transcript updates out of live announcements", async () => {
     const threadId = "thread-accessible-transcript";
     const thread = {
