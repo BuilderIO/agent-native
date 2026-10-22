@@ -1843,7 +1843,13 @@ function AgentPanelInner({
                           <IconShare3 size={15} aria-hidden="true" />
                         )
                       }
-                      triggerClassName="size-8 p-0 border-0 bg-transparent shadow-none hover:bg-accent/60"
+                      triggerClassName={cn(
+                        "h-8 border-0 bg-transparent shadow-none hover:bg-accent/60",
+                        pageHeaderShareTriggerContent === undefined ||
+                          pageHeaderShareTriggerContent === null
+                          ? "size-8 p-0"
+                          : "w-auto px-2",
+                      )}
                     />
                   ) : null}
                   {toolbarSlot}
