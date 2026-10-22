@@ -43,6 +43,7 @@ import {
   IconLogout,
   IconSettings,
 } from "@tabler/icons-react";
+import { useCommandState } from "cmdk";
 import React, {
   createContext,
   useCallback,
@@ -68,6 +69,17 @@ interface CommandMenuContextValue {
   search: string;
   onOpenChange: (open: boolean) => void;
   registerNestedDialog: (dismiss: () => void) => () => void;
+}
+
+function CommandSelectionTracker({
+  onChange,
+}: {
+  onChange: (value: string) => void;
+}) {
+  const value = useCommandState((state) => state.value);
+
+  useEffect(() => onChange(value), [onChange, value]);
+  return null;
 }
 
 const CommandMenuContext = createContext<CommandMenuContextValue | null>(null);
@@ -310,6 +322,7 @@ function filterAppCommandGroups<TAppContext>(
   groups: AppCommandGroup<TAppContext>[],
   search: string,
   context: AppCommandContext<TAppContext>,
+  itemMatcher?: CommandMenuItemMatcher,
 ): OrderedAppCommandGroup<TAppContext>[] {
   const searchLower = search.trim().toLowerCase();
   return ordered(groups)
@@ -327,7 +340,14 @@ function filterAppCommandGroups<TAppContext>(
         return (
           !searchLower ||
           groupMatches ||
-          appCommandSearchText(command).includes(searchLower)
+          (itemMatcher
+            ? itemMatcher({
+                query: search,
+                label: command.label,
+                value: command.id,
+                keywords: command.keywords ?? [],
+              })
+            : appCommandSearchText(command).includes(searchLower))
         );
       });
       return { group, commands };
@@ -750,6 +770,7 @@ export function CommandMenu<TAppContext = unknown>({
     currentAppGroups,
     search,
     appCommandContext,
+    itemMatcher,
   );
   const appCommandEntries: AppCommandEntry<TAppContext>[] =
     filteredAppGroups.flatMap(({ group, commands }) =>
@@ -762,9 +783,7 @@ export function CommandMenu<TAppContext = unknown>({
   const selectedAppCommand = appCommandEntries.find(
     (entry) => entry.value === selectedCommandValue,
   );
-  const previewAppCommand =
-    selectedAppCommand ??
-    appCommandEntries.find((entry) => entry.command.preview !== undefined);
+  const previewAppCommand = selectedAppCommand;
   const appPreview = previewAppCommand?.command.preview;
   const renderedAppPreview =
     typeof appPreview === "function"
@@ -1043,7 +1062,10 @@ export function CommandMenu<TAppContext = unknown>({
           </div>
         ) : null}
         {embeddedChatSlot ? (
-          <div data-testid="command-menu-embedded-chat">
+          <div
+            data-testid="command-menu-embedded-chat"
+            onKeyDown={(event) => event.stopPropagation()}
+          >
             {embeddedChatSlot(appCommandContext)}
           </div>
         ) : null}
@@ -1073,15 +1095,15 @@ export function CommandMenu<TAppContext = unknown>({
             }
           }}
           onEscapeKeyDown={(event) => {
-            if (appPageStack.length > 0) {
-              event.preventDefault();
-              goBackToAppPage();
-              return;
-            }
             const dismissNested = nestedDialogsRef.current.at(-1);
             if (dismissNested) {
               event.preventDefault();
               queueMicrotask(dismissNested);
+              return;
+            }
+            if (appPageStack.length > 0) {
+              event.preventDefault();
+              goBackToAppPage();
               return;
             }
             if (clearSearchOnEscape && search.length > 0) {
@@ -1117,17 +1139,15 @@ export function CommandMenu<TAppContext = unknown>({
             value={
               initialSelection === "none" ? selectedCommandValue : undefined
             }
-            onValueChange={
-              appCommandGroups !== undefined ||
-              embeddedChatSlot ||
-              initialSelection !== undefined
-                ? handleCommandValueChange
-                : undefined
-            }
           >
             <CommandMenuContext.Provider
               value={{ search, onOpenChange, registerNestedDialog }}
             >
+              {(appCommandGroups !== undefined ||
+                embeddedChatSlot ||
+                initialSelection !== undefined) && (
+                <CommandSelectionTracker onChange={handleCommandValueChange} />
+              )}
               {/* Search input */}
               <CommandInputPrimitive
                 ref={inputRef}

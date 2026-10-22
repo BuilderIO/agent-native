@@ -45,6 +45,7 @@ import {
   useCommandMenuNestedDialog,
   useCommandMenuShortcut,
   type AppCommandGroup,
+  type CommandMenuItemMatchContext,
   type CommandMenuItemMatcher,
   type CommandMenuDoc,
 } from "./CommandMenu.js";
@@ -889,6 +890,88 @@ describe("CommandMenu", () => {
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
+  it("dismisses a nested dialog before returning from an app page", async () => {
+    const dismissNested = vi.fn();
+    function NestedDialog() {
+      useCommandMenuNestedDialog(dismissNested);
+      return <div role="dialog" aria-label="Nested picker" />;
+    }
+
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={onOpenChange}
+          showAgentFallback={false}
+          showSettingsCommand={false}
+          showSignOutCommand={false}
+          appCommandGroups={[
+            {
+              id: "main",
+              order: 1,
+              commands: [
+                {
+                  id: "open-tools",
+                  order: 1,
+                  label: "Open tools",
+                  page: {
+                    id: "tools",
+                    title: "Tools",
+                    groups: [
+                      {
+                        id: "tool-actions",
+                        order: 1,
+                        commands: [
+                          {
+                            id: "refresh",
+                            order: 1,
+                            label: "Refresh data",
+                            onSelect() {},
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ]}
+          renderContent={({ renderList }) => (
+            <>
+              {renderList()}
+              <NestedDialog />
+            </>
+          )}
+        >
+          {null}
+        </CommandMenu>,
+      );
+    });
+
+    const openPage = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:main:open-tools"]',
+    );
+    expect(openPage).toBeTruthy();
+    act(() => openPage!.click());
+    expect(document.body.textContent).toContain("Refresh data");
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await act(async () => Promise.resolve());
+
+    expect(dismissNested).toHaveBeenCalledOnce();
+    expect(document.body.textContent).toContain("Refresh data");
+    expect(document.body.textContent).toContain("Back");
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it("can opt into opening from a contenteditable target", () => {
     function ShortcutHarness() {
       const [open, setOpen] = React.useState(false);
@@ -1306,6 +1389,48 @@ describe("CommandMenu", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("applies the public item matcher to app command rows", () => {
+    const itemMatcher = vi.fn(
+      ({ query, label, value, keywords }: CommandMenuItemMatchContext) =>
+        query === "alias" &&
+        label === "Open record" &&
+        value === "record" &&
+        keywords.includes("Find by description"),
+    );
+    renderAppCommands({
+      itemMatcher,
+      groups: [
+        {
+          id: "actions",
+          order: 1,
+          commands: [
+            {
+              id: "record",
+              order: 1,
+              label: "Open record",
+              keywords: ["unrelated"],
+              onSelect() {},
+            },
+          ],
+        },
+      ],
+    });
+
+    search("alias");
+
+    expect(itemMatcher).toHaveBeenCalledWith({
+      query: "alias",
+      label: "Open record",
+      value: "record",
+      keywords: ["unrelated"],
+    });
+    expect(
+      document.querySelector(
+        '[cmdk-item][data-value="app-command:actions:record"]',
+      ),
+    ).toBeTruthy();
+  });
+
   it("renders the selected command inline preview", () => {
     renderAppCommands({
       groups: [
@@ -1350,6 +1475,40 @@ describe("CommandMenu", () => {
     ).toContain("Selected preview");
   });
 
+  it("hides the app preview when a non-app result is selected", () => {
+    renderAppCommands({
+      groups: [
+        {
+          id: "results",
+          order: 1,
+          commands: [
+            {
+              id: "record",
+              order: 1,
+              label: "Meeting notes",
+              preview: <p>Record preview</p>,
+              onSelect() {},
+            },
+          ],
+        },
+      ],
+      renderResults: () => (
+        <CommandMenu.Group heading="Live results">
+          <CommandMenu.Item onSelect={() => undefined}>
+            Open live result
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+      ),
+    });
+
+    expect(
+      document.querySelector('[cmdk-item][aria-selected="true"]')?.textContent,
+    ).toContain("Open live result");
+    expect(
+      document.querySelector('[data-testid="command-menu-inline-preview"]'),
+    ).toBeNull();
+  });
+
   it("passes current search and close behavior to the embedded chat slot", () => {
     renderAppCommands({
       groups: [],
@@ -1375,6 +1534,57 @@ describe("CommandMenu", () => {
     expect(closeButton).toBeTruthy();
     act(() => closeButton!.click());
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps embedded chat keyboard input out of command selection", () => {
+    const onSelect = vi.fn();
+    renderAppCommands({
+      groups: [
+        {
+          id: "actions",
+          order: 1,
+          commands: [
+            {
+              id: "open-record",
+              order: 1,
+              label: "Open record",
+              onSelect,
+            },
+          ],
+        },
+      ],
+      embeddedChatSlot: () => <input aria-label="Embedded chat" />,
+    });
+
+    const input = document.querySelector<HTMLInputElement>(
+      '[aria-label="Embedded chat"]',
+    );
+    expect(input).toBeTruthy();
+    const selectedBefore = document.querySelector(
+      '[cmdk-item][aria-selected="true"]',
+    );
+    const arrowDown = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    const enter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      input!.dispatchEvent(arrowDown);
+      input!.dispatchEvent(enter);
+    });
+
+    expect(arrowDown.defaultPrevented).toBe(false);
+    expect(enter.defaultPrevented).toBe(false);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(document.querySelector('[cmdk-item][aria-selected="true"]')).toBe(
+      selectedBefore,
+    );
   });
 
   it("keeps disabled items searchable and unselectable", () => {
