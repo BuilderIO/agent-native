@@ -11,6 +11,8 @@ interface ComposerContextBannerBaseProps {
   /** Localized label for the action that opens or adds context. */
   addContextLabel: string;
   onAddContext: () => void;
+  /** Optional decorative icon displayed after the add-context label. */
+  addContextIcon?: ReactNode;
   icon?: ReactNode;
   className?: string;
 }
@@ -27,6 +29,7 @@ export function ComposerContextBanner({
   children,
   addContextLabel,
   onAddContext,
+  addContextIcon,
   dismissLabel,
   onDismiss,
   icon,
@@ -46,14 +49,16 @@ export function ComposerContextBanner({
       </span>
       <span className="min-w-0 flex-1">{children}</span>
       <Button
-        className="shrink-0"
+        className="shrink-0 px-1.5"
         onClick={onAddContext}
         size="xs"
         type="button"
         variant="outline"
       >
         {addContextLabel}
-        <IconPlus aria-hidden="true" />
+        <span aria-hidden="true">
+          {addContextIcon ?? <IconPlus aria-hidden="true" />}
+        </span>
       </Button>
       {onDismiss ? (
         <Button
