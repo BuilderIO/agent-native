@@ -3,7 +3,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import {
-  type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSourcePushMode,
   type ContentDatabaseSourceWriteMode,
   type SetContentDatabaseSourceWriteModeRequest,
@@ -75,7 +75,7 @@ export default defineAction({
   }),
   run: async (
     args: SetContentDatabaseSourceWriteModeRequest,
-  ): Promise<ContentDatabaseResponse> => {
+  ): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "admin");

@@ -30,7 +30,7 @@ import {
   nextDocumentMetadataUpdatedAt,
 } from "../server/lib/document-metadata-updated-at.js";
 import type {
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   CreateDatabaseRequest,
 } from "../shared/api.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
@@ -140,7 +140,7 @@ export default defineAction({
     recordInputs: false,
     target: (_args, result) => ({
       type: "content-database",
-      id: (result as ContentDatabaseResponse).database.id,
+      id: (result as ContentDatabaseResponsePayload).database.id,
       visibility: "private",
     }),
     summary: (_args, result) =>
@@ -267,7 +267,7 @@ async function createReliableDatabase(
 export async function createContentDatabaseCore(
   args: CreateDatabaseRequest,
   options: { db?: any } = {},
-): Promise<ContentDatabaseResponse> {
+): Promise<ContentDatabaseResponsePayload> {
   if (args.documentId && args.newDocumentId) {
     throw new Error("documentId and newDocumentId cannot both be provided");
   }

@@ -38,6 +38,7 @@ import {
   type ContentDatabaseItem,
   type ContentDatabaseMembership,
   type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseTableQuery,
   type ContentSidebarViewOrder,
   type DocumentProperty,
@@ -47,6 +48,7 @@ import {
   applyContentDatabaseTableQuery,
   contentDatabaseTableQueryUsesProperties,
 } from "../shared/database-query.js";
+import { compactContentDatabaseItems } from "../shared/database-row-properties.js";
 import {
   buildListRowExcerpt,
   EXCERPT_SOURCE_CHARS,
@@ -1389,7 +1391,7 @@ export async function getContentDatabaseResponse(
     /** The caller's role on the database page, when it already resolved it. */
     accessRole?: ResolvedAccess["role"] | null;
   } = {},
-): Promise<ContentDatabaseResponse> {
+): Promise<ContentDatabaseResponsePayload> {
   const db = getDb();
   const database =
     options.database ??
@@ -1460,7 +1462,7 @@ export async function getContentDatabaseResponse(
     database: serializeDatabase(database, databaseDocument?.description ?? ""),
     contextPath,
     properties: page.properties,
-    items: page.items,
+    items: compactContentDatabaseItems(page.items),
     source: page.source,
     sources: page.sources,
     pagination: page.pagination,

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
-  type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
 } from "../shared/api";
@@ -26,7 +26,7 @@ import {
 const NOW = "2026-06-15T12:00:00.000Z";
 const BUILDER_LAST_UPDATED_MS = 1782328870774;
 const STALE_BUILDER_LAST_UPDATED_MS = 1700000000000;
-const RESPONSE: ContentDatabaseResponse = {
+const RESPONSE: ContentDatabaseResponsePayload = {
   database: {
     id: "database-1",
     documentId: "database-page",

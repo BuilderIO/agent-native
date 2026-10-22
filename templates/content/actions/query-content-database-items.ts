@@ -2,10 +2,11 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import type {
-  ContentDatabaseItemsPageResponse,
+  ContentDatabaseItemsPagePayload,
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
+import { compactContentDatabaseItems } from "../shared/database-row-properties.js";
 import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
 import {
   getContentDatabaseNavigationPage,
@@ -21,7 +22,7 @@ import { refreshGitHubSourceBeforeRead } from "./_github-source-freshness.js";
 
 export default defineAction({
   description:
-    "Query one ordered and filtered page of a content collection without reopening its metadata.",
+    "Query one ordered and filtered page of a content collection without reopening its metadata. Each item's properties name their property by propertyId; the definitions are in the top-level properties.",
   schema: z.object({
     databaseId: z.string().optional().describe("Collection ID"),
     documentId: z.string().optional().describe("Collection document/page ID"),
@@ -79,7 +80,7 @@ export default defineAction({
     { databaseId, documentId, limit, offset, tableQuery, navigation },
     ctx,
   ): Promise<
-    | ContentDatabaseItemsPageResponse
+    | ContentDatabaseItemsPagePayload
     | ContentDatabaseUnavailableResponse
     | ContentDatabaseNavigationPageResponse
   > => {
@@ -146,7 +147,8 @@ export default defineAction({
       database,
     });
     return {
-      items: page.items,
+      items: compactContentDatabaseItems(page.items),
+      properties: page.properties,
       source: page.source,
       sources: page.sources,
       pagination: page.pagination,

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
-  type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
 } from "../shared/api";
@@ -29,7 +29,7 @@ const DOCUMENT_ID = "doc-live";
 const DATABASE_ITEM_ID = "item-live";
 const AUTOSAVED_MARKER = "v2-autosaved-should-NOT-go-live";
 
-const RESPONSE: ContentDatabaseResponse = {
+const RESPONSE: ContentDatabaseResponsePayload = {
   database: {
     id: DATABASE_ID,
     documentId: "database-page-live",

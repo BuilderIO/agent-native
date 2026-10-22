@@ -302,7 +302,9 @@ describe("Content Files membership reconciliation", () => {
     )!;
     const values = new Map(
       child.properties.map((property) => [
-        property.definition.systemRole,
+        response.properties.find(
+          (candidate) => candidate.definition.id === property.propertyId,
+        )?.definition.systemRole,
         property.value,
       ]),
     );
@@ -668,9 +670,12 @@ describe("Content Files membership reconciliation", () => {
       (item) => item.document.id === visibleDocumentId,
     );
     expect(visibleItem?.document.title).toBe("Visible organization page");
+    const kindProperty = response.properties.find(
+      (property) => property.definition.systemRole === "files_kind",
+    );
     expect(
       visibleItem?.properties.some(
-        (property) => property.definition.systemRole === "files_kind",
+        (property) => property.propertyId === kindProperty?.definition.id,
       ),
     ).toBe(false);
     expect(JSON.stringify(response)).not.toContain("Owner private database");
@@ -1244,9 +1249,13 @@ describe("Content Files membership reconciliation", () => {
     const visibleItem = databaseResponse.items.find(
       (item) => item.document.id === "viewer-legacy-org",
     )!;
+    const parentProperty = databaseResponse.properties.find(
+      (property) => property.definition.systemRole === "files_parent",
+    );
+    expect(parentProperty).toBeDefined();
     expect(
       visibleItem.properties.find(
-        (property) => property.definition.systemRole === "files_parent",
+        (property) => property.propertyId === parentProperty?.definition.id,
       )?.value,
     ).toBeNull();
     expect(JSON.stringify(databaseResponse)).not.toContain(

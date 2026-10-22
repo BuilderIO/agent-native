@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ValidateBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import {
@@ -57,7 +57,7 @@ export default defineAction({
   }),
   run: async (
     args: ValidateBuilderSourceExecutionRequest,
-  ): Promise<ContentDatabaseResponse> => {
+  ): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");

@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import type { ContentDatabaseResponse } from "../shared/api.js";
+import type { ContentDatabaseResponsePayload } from "../shared/api.js";
 import {
   findOpenSourceChangeSet,
   getContentDatabaseSourceSnapshotForWrite,
@@ -24,7 +24,7 @@ export default defineAction({
       .optional()
       .describe("Target source ID (defaults to the primary source)"),
   }),
-  run: async (args): Promise<ContentDatabaseResponse> => {
+  run: async (args): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");

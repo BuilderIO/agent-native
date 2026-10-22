@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import type {
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   DisconnectContentDatabaseSourceRequest,
 } from "../shared/api.js";
 import {
@@ -165,7 +165,7 @@ export default defineAction({
   }),
   run: async (
     args: DisconnectContentDatabaseSourceRequest,
-  ): Promise<ContentDatabaseResponse> => {
+  ): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");

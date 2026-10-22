@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type {
   BindContentDatabaseSourceFieldRequest,
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
 } from "../shared/api.js";
 import {
   serializePropertyValue,
@@ -40,7 +40,7 @@ export default defineAction({
   }),
   run: async (
     args: BindContentDatabaseSourceFieldRequest,
-  ): Promise<ContentDatabaseResponse> => {
+  ): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");

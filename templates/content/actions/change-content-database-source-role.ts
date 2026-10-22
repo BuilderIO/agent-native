@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type {
   BuilderCmsModelFieldSummary,
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseSourceFederation,
   ContentDatabaseSourceType,
 } from "../shared/api.js";
@@ -383,7 +383,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   }),
-  run: async (args): Promise<ContentDatabaseResponse> => {
+  run: async (args): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");

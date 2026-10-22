@@ -61,8 +61,8 @@ export default defineAction({
           title: item.document.title ?? "",
           ...Object.fromEntries(
             item.properties
-              .filter((property) => !!property.definition.id)
-              .map((property) => [property.definition.id, property.value]),
+              .filter((property) => !!property.propertyId)
+              .map((property) => [property.propertyId, property.value]),
           ),
         }));
 

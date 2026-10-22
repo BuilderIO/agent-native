@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   PrepareBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import {
@@ -54,7 +54,7 @@ export default defineAction({
   }),
   run: async (
     args: PrepareBuilderSourceExecutionRequest,
-  ): Promise<ContentDatabaseResponse> => {
+  ): Promise<ContentDatabaseResponsePayload> => {
     const timing = createBuilderSourceTiming(
       "prepare_builder_source_execution",
     );

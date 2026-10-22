@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import type {
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseUnavailableResponse,
   ContentSidebarViewOrder,
 } from "../shared/api.js";
@@ -49,7 +49,7 @@ export function resolveContentDatabaseReadLimit(
 
 export default defineAction({
   description:
-    "Get a content collection table, including its property schema, mutation contract, and item pages. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.",
+    "Get a content collection table, including its property schema, mutation contract, and item pages. Each item's properties name their property by propertyId; the definition (name, type, options) is in the top-level properties. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.",
   mcpTool: true,
   schema: getContentDatabaseSchema,
   agentInputSchema: getContentDatabaseSchema.extend({
@@ -71,7 +71,9 @@ export default defineAction({
   run: async (
     { databaseId, documentId, limit, offset, tableQuery, contentSpaceId },
     context,
-  ): Promise<ContentDatabaseResponse | ContentDatabaseUnavailableResponse> => {
+  ): Promise<
+    ContentDatabaseResponsePayload | ContentDatabaseUnavailableResponse
+  > => {
     let resolved = await resolveContentDatabaseRead({
       databaseId,
       documentId,

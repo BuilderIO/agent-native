@@ -646,6 +646,23 @@ export interface ContentDatabaseItem {
   comments?: ContentDatabaseItemComments;
 }
 
+/**
+ * One row's value for one Property, as a Collection read sends it. The
+ * Property's definition is the read's top-level `properties` entry with this
+ * `propertyId`: a select's options can run to hundreds of kilobytes, so they
+ * go once per read, not once per row.
+ */
+export type ContentDatabaseItemPropertyValue = Omit<
+  DocumentProperty,
+  "definition"
+> & { propertyId: string };
+
+/** A row as a Collection read sends it; see `ContentDatabaseItemPropertyValue`. */
+export type ContentDatabaseItemPayload = Omit<
+  ContentDatabaseItem,
+  "properties"
+> & { properties: ContentDatabaseItemPropertyValue[] };
+
 export interface ContentDatabaseItemComments {
   /** Open threads on the row's Page, whatever each one targets. */
   open: number;
@@ -1155,9 +1172,38 @@ export interface ContentDatabaseResponse {
   };
 }
 
+/**
+ * A Collection read as sent: its rows name each Property by ID, and
+ * `hydrateContentDatabaseResponse` attaches the definitions from `properties`.
+ */
+export type ContentDatabaseResponsePayload = Omit<
+  ContentDatabaseResponse,
+  "items" | "createdItem" | "duplicatedItems"
+> & {
+  items: ContentDatabaseItemPayload[];
+  createdItem?: ContentDatabaseItemPayload;
+  duplicatedItems?: ContentDatabaseItemPayload[];
+};
+
 export type ContentDatabaseItemsPageResponse = Pick<
   ContentDatabaseResponse,
-  "items" | "source" | "sources" | "pagination" | "tableQueryMode"
+  | "items"
+  | "properties"
+  | "source"
+  | "sources"
+  | "pagination"
+  | "tableQueryMode"
+>;
+
+/** One page of rows as sent, with the definitions its rows name. */
+export type ContentDatabaseItemsPagePayload = Pick<
+  ContentDatabaseResponsePayload,
+  | "items"
+  | "properties"
+  | "source"
+  | "sources"
+  | "pagination"
+  | "tableQueryMode"
 >;
 
 export type ContentDatabaseNavigationSort =
@@ -1379,14 +1425,14 @@ export interface ContentDatabaseSourceAttachmentAck {
 }
 
 export type ContentDatabaseSourceAttachmentResult =
-  | ContentDatabaseResponse
+  | ContentDatabaseResponsePayload
   | ContentDatabaseSourceAttachmentAck;
 
 export interface BuilderCmsAttachPreviewResponse {
   databaseId: string;
   documentId: string;
   sourceTable: string;
-  base: ContentDatabaseResponse;
+  base: ContentDatabaseResponsePayload;
   items: ContentDatabaseItem[];
   fetchedAt: string;
   hasMore: boolean;
@@ -1571,7 +1617,7 @@ export interface CancelPreparedBuilderSourceUpdateRequest {
   note?: string;
 }
 
-export interface CancelPreparedBuilderSourceUpdateResponse extends ContentDatabaseResponse {
+export interface CancelPreparedBuilderSourceUpdateResponse extends ContentDatabaseResponsePayload {
   cancellation: {
     sourceId: string;
     changeSetId: string;

@@ -10,7 +10,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
-  type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceExecutionState,
@@ -191,7 +191,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
     writeResult: BuilderCmsWriteResult;
     now: string;
   }) => Promise<void>;
-  getResponse: (databaseId: string) => Promise<ContentDatabaseResponse>;
+  getResponse: (databaseId: string) => Promise<ContentDatabaseResponsePayload>;
   lookupSafeModelIntent?: (args: {
     marker?: string;
     exactTitle?: string;
@@ -2090,7 +2090,7 @@ export default defineAction({
   }),
   run: async (
     args: ExecuteBuilderSourceExecutionRequest,
-  ): Promise<ContentDatabaseResponse> => {
+  ): Promise<ContentDatabaseResponsePayload> => {
     return executeBuilderSourceExecutionWithDeps(
       args,
       realExecutionDeps(args.sourceId, args.changeSetId),

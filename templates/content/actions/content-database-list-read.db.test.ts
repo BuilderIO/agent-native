@@ -301,7 +301,7 @@ describe("content database list reads", () => {
     const rollupByTitle = Object.fromEntries(
       read.items.map((item) => [
         item.document.title,
-        item.properties.find((property) => property.definition.id === rollupId)
+        item.properties.find((property) => property.propertyId === rollupId)
           ?.value,
       ]),
     );

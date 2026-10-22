@@ -25,6 +25,7 @@ import type {
   DocumentProperty,
 } from "../shared/api.js";
 import { normalizeContentDatabaseItemLayout } from "../shared/database-item-layout.js";
+import { hydrateContentDatabaseResponse } from "../shared/database-row-properties.js";
 import {
   databaseColumnWraps,
   databaseFrozenColumnIds,
@@ -900,7 +901,7 @@ export default defineAction({
           screen.database = databaseResponse;
           screen.databaseCurrentView = databaseCurrentViewSnapshot(
             nav,
-            databaseResponse,
+            hydrateContentDatabaseResponse(databaseResponse),
           );
 
           const previewDocumentId =
