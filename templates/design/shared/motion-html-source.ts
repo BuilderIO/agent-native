@@ -36,6 +36,7 @@ import {
   MOTION_TEXT_RUNTIME_ATTRIBUTE,
   MOTION_TEXT_SOURCE_ATTRIBUTE,
   MOTION_TEXT_SOURCE_VERSION,
+  compileMotionTextRuntime,
   readMotionTextDocument,
   removeMotionTextRuntime,
   type MotionTextDocument,
@@ -520,6 +521,85 @@ function findRuntimeStyleMutationAttribute(target: HtmlNode):
   return undefined;
 }
 
+const EXECUTABLE_SCRIPT_TYPES = new Set([
+  "application/ecmascript",
+  "application/javascript",
+  "application/x-ecmascript",
+  "application/x-javascript",
+  "text/ecmascript",
+  "text/javascript",
+  "text/javascript1.0",
+  "text/javascript1.1",
+  "text/javascript1.2",
+  "text/javascript1.3",
+  "text/javascript1.4",
+  "text/javascript1.5",
+  "text/jscript",
+  "text/livescript",
+  "text/x-ecmascript",
+  "text/x-javascript",
+]);
+
+function isExecutableScript(node: HtmlNode): boolean {
+  const type = attributes(node, "type")[0]?.value.trim().toLowerCase();
+  if (!type || type === "module") return true;
+  return EXECUTABLE_SCRIPT_TYPES.has(type.split(";", 1)[0]!.trim());
+}
+
+function scriptBody(markup: string): string | null {
+  const bodyStart = markup.indexOf(">");
+  const bodyEnd = markup.lastIndexOf("</script>");
+  return bodyStart < 0 || bodyEnd < bodyStart
+    ? null
+    : markup.slice(bodyStart + 1, bodyEnd);
+}
+
+function isManagedMotionTextRuntime(source: string, node: HtmlNode): boolean {
+  const marker = attributes(node, MOTION_TEXT_RUNTIME_ATTRIBUTE);
+  if (
+    marker.length !== 1 ||
+    node.attrs?.length !== 1 ||
+    !["v1", `v${MOTION_TEXT_SOURCE_VERSION}`].includes(marker[0]?.value ?? "")
+  ) {
+    return false;
+  }
+
+  const textRead = readMotionTextDocument(source);
+  if (textRead.status !== "valid") return false;
+
+  return (["once", "loop", "ping-pong"] as const).some((playbackMode) => {
+    const expectedBody = scriptBody(
+      compileMotionTextRuntime(textRead.document, playbackMode).runtimeMarkup,
+    );
+    return expectedBody !== null && textContent(node) === expectedBody;
+  });
+}
+
+function assertExecutableScriptsSafe(
+  source: string,
+  nodes: readonly HtmlNode[],
+): void {
+  for (const node of nodes) {
+    if (node.tagName !== "script" || node.insideTemplate) continue;
+    if (
+      !isExecutableScript(node) &&
+      !hasRuntimeStyleMutationHandler(node.attrs)
+    ) {
+      continue;
+    }
+    if (
+      !hasRuntimeStyleMutationHandler(node.attrs) &&
+      isManagedMotionTextRuntime(source, node)
+    ) {
+      continue;
+    }
+    sourceError(
+      "unsupported-target",
+      "HTML Motion targets cannot be synchronized safely while an executable script may change their class or style.",
+    );
+  }
+}
+
 function findRuntimeStyleMutationInScope(
   scope: HtmlNode,
 ): { name: string; value: string } | undefined {
@@ -695,6 +775,7 @@ function assertTargetsExist(
 ): void {
   if (targetNodeIds.length === 0) return;
   const { nodes } = parseHtml(source);
+  assertExecutableScriptsSafe(source, nodes);
   const targets = new Map<string, HtmlNode[]>();
   for (const node of nodes) {
     if (!node.tagName) continue;

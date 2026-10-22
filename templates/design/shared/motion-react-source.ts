@@ -1102,6 +1102,60 @@ function assertNoUnsupportedReactStylePropAnimations(
     }
     return false;
   };
+  const componentFunctions = new Set<
+    | TypeScript.FunctionDeclaration
+    | TypeScript.FunctionExpression
+    | TypeScript.ArrowFunction
+    | TypeScript.MethodDeclaration
+  >();
+  for (const root of targetRoots) {
+    for (
+      let current: TypeScript.Node | undefined = root.parent;
+      current;
+      current = current.parent
+    ) {
+      if (isFunctionBoundary(current)) {
+        if (
+          ts.isFunctionDeclaration(current) ||
+          ts.isFunctionExpression(current) ||
+          ts.isArrowFunction(current) ||
+          ts.isMethodDeclaration(current)
+        ) {
+          componentFunctions.add(current);
+        }
+        break;
+      }
+    }
+  }
+  for (const component of componentFunctions) {
+    if (!component.body) continue;
+    const inspectLifecycleEffects = (node: TypeScript.Node): void => {
+      if (node !== component.body && isFunctionBoundary(node)) return;
+      if (
+        ts.isCallExpression(node) &&
+        isReactLifecycleEffectCall(node, sourceFile)
+      ) {
+        const callback = node.arguments[0];
+        const inspection = callback
+          ? inspectReactStyleMutationCallback(
+              callback,
+              sourceFile,
+              new Set(),
+              false,
+            )
+          : "unknown";
+        if (inspection !== "safe") {
+          throw new MotionReactSourceError(
+            "unsupported-authored-motion",
+            "React effect callbacks in a Motion component can access or mutate target styles and cannot be proven safe.",
+          );
+        }
+        return;
+      }
+      ts.forEachChild(node, inspectLifecycleEffects);
+    };
+    inspectLifecycleEffects(component.body);
+  }
   for (const root of targetRoots) {
     const visitRoot = (node: TypeScript.Node): void => {
       if (
@@ -1331,7 +1385,9 @@ function inspectReactStyleMutationBody(
 
     if (
       ts.isPropertyAccessExpression(node) &&
-      ["style", "currentTarget", "target", "current"].includes(node.name.text)
+      ["style", "currentTarget", "target", "srcElement", "current"].includes(
+        node.name.text,
+      )
     ) {
       inspection = node.name.text === "style" ? "motion" : "unknown";
       return;
@@ -1340,7 +1396,7 @@ function inspectReactStyleMutationBody(
       ts.isElementAccessExpression(node) &&
       node.argumentExpression &&
       ts.isStringLiteralLike(node.argumentExpression) &&
-      ["style", "currentTarget", "target", "current"].includes(
+      ["style", "currentTarget", "target", "srcElement", "current"].includes(
         node.argumentExpression.text,
       )
     ) {
@@ -1390,8 +1446,7 @@ function isReactGlobalDocumentReference(
   if (
     propertyName === "document" &&
     receiver !== null &&
-    ts.isIdentifier(receiver) &&
-    ["globalThis", "self", "window"].includes(receiver.text)
+    isReactGlobalObjectReference(receiver, sourceFile, resolving)
   ) {
     return true;
   }
@@ -1415,6 +1470,115 @@ function isReactGlobalDocumentReference(
   visit(resolved.expression);
   resolving.delete(declarationKey);
   return found;
+}
+
+function isReactGlobalObjectReference(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  resolving: Set<string>,
+): boolean {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+  if (!ts.isIdentifier(expression) || isReactStaticPropertyName(expression)) {
+    return false;
+  }
+  if (
+    ["globalThis", "self", "window"].includes(expression.text) &&
+    !hasReactStyleParameterShadow(expression, sourceFile, expression.text) &&
+    !resolveReactStyleExpression(expression, sourceFile)
+  ) {
+    return true;
+  }
+
+  const resolved = resolveReactStyleExpression(expression, sourceFile);
+  if (!resolved) return false;
+  const declarationKey = `${resolved.start}:${resolved.end}`;
+  if (resolving.has(declarationKey)) return false;
+  resolving.add(declarationKey);
+  const isGlobal = isReactGlobalObjectReference(
+    resolved.expression,
+    sourceFile,
+    resolving,
+  );
+  resolving.delete(declarationKey);
+  return isGlobal;
+}
+
+function isReactLifecycleEffectCall(
+  call: TypeScript.CallExpression,
+  sourceFile: TypeScript.SourceFile,
+): boolean {
+  return isReactLifecycleEffectExpression(call.expression, sourceFile);
+}
+
+function isReactLifecycleEffectExpression(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  resolving = new Set<string>(),
+): boolean {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    return ["useEffect", "useLayoutEffect", "useInsertionEffect"].includes(
+      expression.name.text,
+    );
+  }
+  if (!ts.isIdentifier(expression)) return false;
+  if (
+    ["useEffect", "useLayoutEffect", "useInsertionEffect"].includes(
+      expression.text,
+    )
+  ) {
+    return true;
+  }
+
+  const importedReactHook = sourceFile.statements.some((statement) => {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== "react"
+    ) {
+      return false;
+    }
+    const namedBindings = statement.importClause?.namedBindings;
+    return (
+      !!namedBindings &&
+      ts.isNamedImports(namedBindings) &&
+      namedBindings.elements.some(
+        (element) =>
+          element.name.text === expression.text &&
+          ["useEffect", "useLayoutEffect", "useInsertionEffect"].includes(
+            element.propertyName?.text ?? element.name.text,
+          ),
+      )
+    );
+  });
+  if (importedReactHook) return true;
+
+  const resolved = resolveReactStyleExpression(expression, sourceFile);
+  if (!resolved) return false;
+  const declarationKey = `${resolved.start}:${resolved.end}`;
+  if (resolving.has(declarationKey)) return false;
+  resolving.add(declarationKey);
+  const isEffect = isReactLifecycleEffectExpression(
+    resolved.expression,
+    sourceFile,
+    resolving,
+  );
+  resolving.delete(declarationKey);
+  return isEffect;
 }
 
 function inspectReactJsxSpreadExpression(

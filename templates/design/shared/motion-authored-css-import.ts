@@ -848,6 +848,9 @@ function transitionDeclarationsConflict(
 ): boolean {
   let effectiveProperties: string[] | null = null;
   let effectiveImportant = false;
+  let propertyListMayBeInherited = false;
+  let effectiveDurations: Array<number | null> | null = null;
+  let durationsImportant = false;
   let hasTransitionBehavior = false;
   for (const declaration of declarations) {
     const property = normalizedTransitionProperty(declaration.prop);
@@ -860,6 +863,19 @@ function transitionDeclarationsConflict(
       ) {
         effectiveProperties = transitionPropertyList(declaration.value, true);
         effectiveImportant = declaration.important;
+        propertyListMayBeInherited = hasInheritedTransitionPropertyList(
+          declaration.value,
+        );
+      }
+      if (
+        effectiveDurations === null ||
+        declaration.important ||
+        !durationsImportant
+      ) {
+        effectiveDurations = parseTransitionShorthandDurations(
+          declaration.value,
+        );
+        durationsImportant = declaration.important;
       }
     } else if (property === "transition-property") {
       hasTransitionBehavior = true;
@@ -870,6 +886,19 @@ function transitionDeclarationsConflict(
       ) {
         effectiveProperties = transitionPropertyList(declaration.value, false);
         effectiveImportant = declaration.important;
+        propertyListMayBeInherited = hasInheritedTransitionPropertyList(
+          declaration.value,
+        );
+      }
+    } else if (property === "transition-duration") {
+      hasTransitionBehavior = true;
+      if (
+        effectiveDurations === null ||
+        declaration.important ||
+        !durationsImportant
+      ) {
+        effectiveDurations = parseTransitionDurationList(declaration.value);
+        durationsImportant = declaration.important;
       }
     } else if (property.startsWith("transition-")) {
       hasTransitionBehavior = true;
@@ -877,51 +906,111 @@ function transitionDeclarationsConflict(
   }
   if (!hasTransitionBehavior) return false;
   const properties = effectiveProperties ?? ["*"];
-  return properties.some((property) =>
-    property === "*"
-      ? animatedProperties.size > 0
-      : animatedProperties.has(property),
-  );
+  const durations = effectiveDurations ?? [0];
+  if (
+    propertyListMayBeInherited &&
+    durations.some((duration) => duration !== 0)
+  ) {
+    return true;
+  }
+  for (const animatedProperty of animatedProperties) {
+    let matchingDuration: number | null | undefined;
+    for (const [index, property] of properties.entries()) {
+      if (property === "none") continue;
+      if (property !== "*" && property !== animatedProperty) continue;
+      matchingDuration = durations[index % durations.length] ?? null;
+    }
+    if (matchingDuration === undefined) continue;
+    if (matchingDuration !== 0) return true;
+  }
+  return false;
+}
+
+function hasInheritedTransitionPropertyList(value: string): boolean {
+  return /^(?:inherit|revert|revert-layer)$/i.test(value.trim());
 }
 
 function transitionPropertyList(value: string, shorthand: boolean): string[] {
   const values = splitCssValueList(value);
   if (!shorthand) {
-    return values
-      .map((part) => {
-        const property = normalizedTransitionProperty(part.trim());
-        if (property === "none") return "none";
-        if (property === "all") return "*";
-        if (CSS_WIDE_KEYWORDS.has(property)) return "*";
-        return CSS_IDENTIFIER.test(property) || property.startsWith("--")
-          ? property
-          : "*";
-      })
-      .filter((property) => property !== "none");
+    return values.map((part) => {
+      const property = normalizedTransitionProperty(part.trim());
+      if (property === "none") return "none";
+      if (property === "all") return "*";
+      if (CSS_WIDE_KEYWORDS.has(property)) return "*";
+      return CSS_IDENTIFIER.test(property) || property.startsWith("--")
+        ? property
+        : "*";
+    });
   }
 
-  return values
-    .map((part) => {
-      const withoutFunctions = part.replace(
-        /[_a-zA-Z-][-_a-zA-Z0-9]*\([^()]*\)/g,
-        " ",
+  return values.map((part) => {
+    const withoutFunctions = part.replace(
+      /[_a-zA-Z-][-_a-zA-Z0-9]*\([^()]*\)/g,
+      " ",
+    );
+    const identifiers = withoutFunctions.trim().split(/\s+/).filter(Boolean);
+    const candidates = identifiers
+      .map(normalizedTransitionProperty)
+      .filter(
+        (identifier) =>
+          !isTransitionTimingToken(identifier) &&
+          (CSS_IDENTIFIER.test(identifier) || identifier.startsWith("--")),
       );
-      const identifiers = withoutFunctions.trim().split(/\s+/).filter(Boolean);
-      const candidates = identifiers
-        .map(normalizedTransitionProperty)
-        .filter(
-          (identifier) =>
-            !isTransitionTimingToken(identifier) &&
-            (CSS_IDENTIFIER.test(identifier) || identifier.startsWith("--")),
-        );
-      if (candidates.length === 1) {
-        if (candidates[0] === "none") return "none";
-        if (CSS_WIDE_KEYWORDS.has(candidates[0]!)) return "*";
-        return candidates[0] === "all" ? "*" : candidates[0]!;
+    if (candidates.length === 1) {
+      if (candidates[0] === "none") return "none";
+      if (CSS_WIDE_KEYWORDS.has(candidates[0]!)) return "*";
+      return candidates[0] === "all" ? "*" : candidates[0]!;
+    }
+    return candidates.length === 0 && /\bnone\b/i.test(part) ? "none" : "*";
+  });
+}
+
+function parseTransitionDurationList(value: string): Array<number | null> {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "initial" || normalized === "unset") return [0];
+  if (CSS_WIDE_KEYWORDS.has(normalized)) return [null];
+  return splitCssValueList(value).map(parseTransitionDurationMs);
+}
+
+function parseTransitionShorthandDurations(
+  value: string,
+): Array<number | null> {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "initial" || normalized === "unset") return [0];
+  if (CSS_WIDE_KEYWORDS.has(normalized)) return [null];
+
+  return splitCssValueList(value).map((part) => {
+    const withoutEasingFunctions = part.replace(
+      /(?:cubic-bezier|steps|linear)\s*\([^)]*\)/gi,
+      " ",
+    );
+    if (/[_a-zA-Z-][-_a-zA-Z0-9]*\s*\(/.test(withoutEasingFunctions)) {
+      return null;
+    }
+
+    const tokens = withoutEasingFunctions.trim().split(/\s+/);
+    const times: string[] = [];
+    for (const token of tokens) {
+      if (/^[+-]?(?:\d|\.)/.test(token)) {
+        if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:ms|s)$/i.test(token)) {
+          return null;
+        }
+        times.push(token);
       }
-      return candidates.length === 0 && /\bnone\b/i.test(part) ? "none" : "*";
-    })
-    .filter((property) => property !== "none");
+    }
+    if (times.length > 2) return null;
+    if (times.length === 0) return 0;
+    return parseTransitionDurationMs(times[0]!);
+  });
+}
+
+function parseTransitionDurationMs(value: string): number | null {
+  const match = /^\+?((?:\d+(?:\.\d*)?|\.\d+))(ms|s)$/i.exec(value.trim());
+  if (!match) return null;
+  const durationMs =
+    Number(match[1]) * (match[2]!.toLowerCase() === "s" ? 1000 : 1);
+  return Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : null;
 }
 
 function splitCssValueList(value: string): string[] {

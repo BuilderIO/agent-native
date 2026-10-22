@@ -23,13 +23,13 @@ const html = `<!doctype html>
 <html>
 <head>
   <link rel="preload" as="style" href="./site.css">
-  <script src="./head.js"></script>
+  <script type="application/json" data-page-config>{"entry":"head"}</script>
 </head>
 <body>
   <main class="card">
     <h1 data-agent-native-node-id="hero-title">Hello</h1>
   </main>
-  <script src="./page.js"></script>
+  <script type="application/json" data-page-config>{"entry":"page"}</script>
 </body>
 </html>
 `;
@@ -96,7 +96,7 @@ function apply(
 }
 
 describe("HTML Motion source adapter", () => {
-  it("writes versioned CSS into the HTML entry while preserving external assets", () => {
+  it("writes versioned CSS while preserving external assets and inert scripts", () => {
     const edit = apply(html);
 
     expect(
@@ -108,8 +108,12 @@ describe("HTML Motion source adapter", () => {
     expect(edit.source).toContain(
       '<link rel="preload" as="style" href="./site.css">',
     );
-    expect(edit.source).toContain('<script src="./head.js"></script>');
-    expect(edit.source).toContain('<script src="./page.js"></script>');
+    expect(edit.source).toContain(
+      '<script type="application/json" data-page-config>{"entry":"head"}</script>',
+    );
+    expect(edit.source).toContain(
+      '<script type="application/json" data-page-config>{"entry":"page"}</script>',
+    );
     expect(edit.source).toContain("agent-native-motion-source:v6:");
     expect(edit.targetNodeIds).toEqual(["hero-title"]);
 
@@ -323,8 +327,8 @@ describe("HTML Motion source adapter", () => {
         '<h1 x-ref="hero" data-agent-native-node-id="hero-title">Hello</h1>',
       )
       .replace(
-        '<script src="./page.js"></script>',
-        "<aside @click=\"$refs.hero.style.setProperty('transition', 'opacity 1s')\"></aside>\n  <script src=\"./page.js\"></script>",
+        '<script type="application/json" data-page-config>{"entry":"page"}</script>',
+        '<aside @click="$refs.hero.style.setProperty(\'transition\', \'opacity 1s\')"></aside>\n  <script type="application/json" data-page-config>{"entry":"page"}</script>',
       );
 
     expect(
@@ -336,6 +340,66 @@ describe("HTML Motion source adapter", () => {
 
     const written = apply(source);
     expect(readMotionHtmlSource(written.source, "index.html")).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
+
+  it.each([
+    [
+      "inline script",
+      `<script>document.querySelector('[data-agent-native-node-id="hero-title"]').classList.add('fade');document.querySelector('[data-agent-native-node-id="hero-title"]').style.opacity='0';</script>`,
+    ],
+    [
+      "module script",
+      `<script type="module">document.querySelector('[data-agent-native-node-id="hero-title"]').classList.add('fade');</script>`,
+    ],
+    ["external script", '<script src="./motion.js"></script>'],
+  ])(
+    "rejects %s when HTML Motion targets cannot be proven safe",
+    (_label, script) => {
+      const source = html.replace("</body>", `${script}\n</body>`);
+      const generated = apply(html).source.replace(
+        "</body>",
+        `${script}\n</body>`,
+      );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-target",
+        reason: expect.stringContaining("executable script"),
+      });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+      expect(readMotionHtmlSource(generated, "index.html")).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-target" },
+      });
+      expect(() => apply(generated)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+    },
+  );
+
+  it("ignores executable scripts inside inert templates", () => {
+    const source = html.replace(
+      "</body>",
+      `<template><script>document.querySelector('[data-agent-native-node-id="hero-title"]').style.opacity='0';</script></template>\n</body>`,
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+    expect(readMotionHtmlSource(apply(source).source)).toMatchObject({
       status: "valid",
       targetNodeIds: ["hero-title"],
     });
@@ -1278,7 +1342,9 @@ describe("HTML Motion source adapter", () => {
       textDocument: { ...textDocument, version: 2 },
       targetNodeIds: ["hero-title"],
     });
-    expect(edit.source).toContain('<script src="./page.js"></script>');
+    expect(edit.source).toContain(
+      '<script type="application/json" data-page-config>{"entry":"page"}</script>',
+    );
     expect(edit.source).toContain('data-agent-native-motion-text-source="v2"');
     expect(edit.source).toContain('data-agent-native-motion-text-runtime="v2"');
     expect(removeMotionHtmlSource(edit.source)).toEqual({

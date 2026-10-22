@@ -132,6 +132,90 @@ describe("importAuthoredCssAnimations", () => {
     });
   });
 
+  it.each([
+    [
+      "an explicit zero duration",
+      ".hero:hover { transition-property: opacity; transition-duration: 0s; }",
+    ],
+    [
+      "a delay with the default zero duration",
+      ".hero:hover { transition-delay: 1s; }",
+    ],
+    [
+      "a zero duration with a positive delay",
+      ".hero:hover { transition-property: opacity; transition-duration: 0s; transition-delay: 1s; }",
+    ],
+    [
+      "a property list whose matching duration is zero",
+      ".hero:hover { transition-property: opacity, color; transition-duration: 0s, 1s; }",
+    ],
+    [
+      "a zero-duration shorthand",
+      ".hero:hover { transition: opacity 0s 1s ease; }",
+    ],
+  ])(
+    "adopts Motion while preserving %s through the CSS write round-trip",
+    (_label, transition) => {
+      const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+${transition}
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+      const imported = importAuthoredCssAnimations(css, resolveHero);
+
+      expect(imported).toMatchObject({
+        status: "valid",
+        tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
+      });
+      if (imported.status !== "valid") return;
+
+      const writtenCss = removeAuthoredCssSourceRanges(
+        css,
+        imported.rangesToRemove,
+      );
+      expect(writtenCss).toContain(transition);
+      expect(writtenCss).toContain("@keyframes pulse");
+      expect(
+        importAuthoredCssAnimations(writtenCss, resolveHero),
+      ).toMatchObject({
+        status: "absent",
+        definedKeyframeNames: ["pulse"],
+      });
+    },
+  );
+
+  it.each([
+    [
+      "a positive longhand duration",
+      ".hero:hover { transition-property: opacity; transition-duration: 1ms; }",
+    ],
+    [
+      "a positive duration at the matching property index",
+      ".hero:hover { transition-property: color, opacity; transition-duration: 0s, 1ms; }",
+    ],
+  ])("keeps %s from being adopted as a Motion track", (_label, transition) => {
+    const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+${transition}
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+    expect(importAuthoredCssAnimations(css, resolveHero)).not.toHaveProperty(
+      "rangesToRemove",
+    );
+  });
+
+  it("fails closed when a matching transition duration is dynamic", () => {
+    const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+.hero:hover { transition-property: opacity; transition-duration: var(--duration); }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+    expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("overlap a Motion target property"),
+    });
+  });
+
   it("respects a later transition-property override", () => {
     const css = `.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
 .hero:hover { transition: opacity 1s; transition-property: none; }
@@ -157,7 +241,7 @@ describe("importAuthoredCssAnimations", () => {
     },
   );
 
-  it.each(["initial", "unset", "inherit", "revert", "revert-layer"])(
+  it.each(["inherit", "revert", "revert-layer"])(
     "treats transition: %s as potentially overlapping every Motion track",
     (keyword) => {
       const css = `.hero:hover { transition: ${keyword}; }
@@ -167,6 +251,20 @@ describe("importAuthoredCssAnimations", () => {
       expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
         status: "unsupported",
         reason: expect.stringContaining("overlap a Motion target property"),
+      });
+    },
+  );
+
+  it.each(["initial", "unset"])(
+    "does not treat transition: %s as a running transition",
+    (keyword) => {
+      const css = `.hero:hover { transition: ${keyword}; }
+.hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }
+@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }`;
+
+      expect(importAuthoredCssAnimations(css, resolveHero)).toMatchObject({
+        status: "valid",
+        tracks: [{ targetNodeId: "node-hero", property: "opacity" }],
       });
     },
   );

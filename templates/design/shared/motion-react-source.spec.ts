@@ -1003,6 +1003,10 @@ function Card(style = { animationName: "fade" }) {
       'onClick={() => document.querySelector("#hero-title")?.classList.add("animated")}',
     ],
     [
+      "event srcElement class mutation",
+      'onClick={(event) => event.srcElement.classList.add("animated")}',
+    ],
+    [
       "ref style assignment",
       'ref={(node) => { if (node) node.style.animationName = "pulse"; }}',
     ],
@@ -1118,6 +1122,57 @@ function Card(style = { animationName: "fade" }) {
       code: "unsupported-authored-motion",
     });
   });
+
+  it("rejects an aliased window document selector from reads and writes", () => {
+    const managed = `const w = window;\n${apply(source).source}`.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" onClick={() => w.document.querySelector("#hero-title")?.classList.add("animated")}>Hello</h1>',
+    );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
+  });
+
+  it.each(["useEffect", "useLayoutEffect", "useInsertionEffect"])(
+    "rejects %s lifecycle callbacks that mutate a Motion target from reads and writes",
+    (hook) => {
+      const managed = apply(source).source.replace(
+        "function Card() {",
+        `function Card() {\n  React.${hook}(() => { document.querySelector("#hero-title")?.classList.add("animated"); }, []);`,
+      );
+
+      expect(readMotionReactSource(managed)).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+      expect(
+        inspectMotionReactSourceWriteCapability({
+          source: managed,
+          targetNodeIds: ["hero-title"],
+          modulePath: "src/components/Card.tsx",
+          moduleVersionHash: "a".repeat(64),
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-authored-motion",
+      });
+      expect(() => apply(managed)).toThrow(MotionReactSourceError);
+    },
+  );
 
   it("allows literal object property keys matching a callback parameter", () => {
     const authored = source.replace(
