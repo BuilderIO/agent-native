@@ -306,8 +306,10 @@ function lineBoundary(
 ): { position: number; inList: boolean } | null {
   if (point < 0 || point > doc.content.size) return null;
   const $point = doc.resolve(point);
+  // Lines added to code are code text, not blocks of their own.
   if (
     !$point.parent.isTextblock ||
+    $point.parent.type.spec.code ||
     $point.parentOffset !== (side === "before" ? 0 : $point.parent.content.size)
   )
     return null;

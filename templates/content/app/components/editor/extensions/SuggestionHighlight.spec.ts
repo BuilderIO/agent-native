@@ -913,6 +913,86 @@ describe("SuggestionHighlight", () => {
       }
     });
 
+    describe("code", () => {
+      const codeSchema = new Schema({
+        nodes: {
+          doc: { content: "block+" },
+          paragraph: {
+            group: "block",
+            content: "text*",
+            toDOM: () => ["p", 0],
+          },
+          codeBlock: {
+            group: "block",
+            content: "text*",
+            code: true,
+            marks: "",
+            toDOM: () => ["pre", ["code", 0]],
+          },
+          text: {},
+        },
+      });
+      const code = (text: string) =>
+        codeSchema.node("codeBlock", null, codeSchema.text(text));
+      const prose = (text: string) =>
+        codeSchema.node("paragraph", null, codeSchema.text(text));
+
+      it("keeps a line added to a code block inside it", () => {
+        const source = "```\nx = 1\n# note\n```\n\nAfter.";
+        const from = source.indexOf("\n# note");
+        const { view, mount } = mounted(
+          [code("x = 1"), prose("After.")],
+          [
+            {
+              suggestionId: "code-line",
+              kind: "add_block",
+              from: 6,
+              to: 6,
+              insertedText: "\n# note",
+              insertedPresentation: { source, from, to: from + 7 },
+            },
+          ],
+        );
+        try {
+          expect(mount.querySelector("h1")).toBeNull();
+          expect(blocks(mount)).toEqual(["pre x = 1↵# note", "p After."]);
+          expect(
+            mount.querySelector('pre [data-suggestion-id="code-line"]'),
+          ).not.toBeNull();
+        } finally {
+          view.destroy();
+        }
+      });
+
+      it.each(["```", "~~~", "$$"])(
+        "keeps the lines of a new %s block out of block widgets",
+        (fence) => {
+          const source = `Alpha.\n\n${fence}\n# note\n${fence}\n\nBravo.`;
+          const from = "Alpha.".length;
+          const to = source.indexOf("\n\nBravo");
+          const { view, mount } = mounted(
+            [prose("Alpha."), prose("Bravo.")],
+            [
+              {
+                suggestionId: "code-block",
+                kind: "add_block",
+                from: 7,
+                to: 7,
+                insertedText: source.slice(from, to),
+                insertedPresentation: { source, from, to },
+              },
+            ],
+          );
+          try {
+            expect(mount.querySelector("h1")).toBeNull();
+            expect(mount.querySelector(".suggestion-block-widget")).toBeNull();
+          } finally {
+            view.destroy();
+          }
+        },
+      );
+    });
+
     it("draws a new list item among the items", () => {
       const source = "- One\n- New\n- Two";
       const item = (text: string) =>
