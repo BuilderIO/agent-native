@@ -10,6 +10,7 @@ import {
 } from "@agent-native/agentkit/protocol";
 import type {
   AgentInteraction,
+  AgentToolCall,
   FilePart,
   AgentMessage,
   AgentTransport,
@@ -106,6 +107,7 @@ const chatMocks = vi.hoisted(() => ({
   runtimeOptions: null as any,
   inBuilder: false,
   useRealRoot: false,
+  renderToolCallErrors: false,
   realComposerController: null as AgentKitClient | null,
   useRealChat: false,
   routeControllerPersistenceThroughTransport: false,
@@ -776,7 +778,14 @@ vi.mock("./chat/tool-call-display.js", async () => {
   return {
     ChatRunningContext: React.createContext(false),
     SuppressInlineOpenAppContext: React.createContext(false),
-    ToolCallDisplay: () => null,
+    ToolCallDisplay: (props: any) =>
+      chatMocks.renderToolCallErrors && props.isError
+        ? React.createElement(
+            "div",
+            { role: "alert", "data-shared-tool-error": "true" },
+            props.result,
+          )
+        : null,
     AgentApprovalCard: (props: any) => {
       chatMocks.approvalCardProps = props;
       return React.createElement(
@@ -1000,6 +1009,7 @@ beforeEach(() => {
   chatMocks.transportOptions = null;
   chatMocks.inBuilder = false;
   chatMocks.useRealRoot = false;
+  chatMocks.renderToolCallErrors = false;
   chatMocks.realComposerController = null;
   chatMocks.useRealChat = false;
   chatMocks.routeControllerPersistenceThroughTransport = false;
@@ -1329,6 +1339,75 @@ describe("AgentKitAssistantChat host behavior", () => {
     await mount(baseProps());
 
     expect(chatMocks.rootProps.slots.widget).toBe(AgentKitActionWidget);
+  });
+
+  it("keeps failed tools visible through the shared error display without an app renderer", async () => {
+    const at = "2026-09-28T00:00:00.000Z";
+    const failedTool: AgentToolCall = {
+      id: "query-1",
+      name: "query-analytics",
+      input: { query: "sample query" },
+      output: "Query execution failed.",
+      error: { code: "query_failed", message: "Query execution failed." },
+      status: "failed",
+      runId: "run-1",
+      messageId: "assistant-1",
+      metadata: { chatUI: { renderer: "analytics.query-result.v1" } },
+    };
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    chatMocks.renderToolCallErrors = true;
+    chatMocks.thread.messages = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        status: "complete",
+        parts: [{ type: "text", text: "The query could not be completed." }],
+      },
+    ];
+    chatMocks.thread.tools = { [failedTool.id]: failedTool };
+    chatMocks.thread.runs = {
+      "run-1": { id: "run-1", status: "failed", lastSequence: 3 },
+    };
+    chatMocks.thread.events = [
+      {
+        id: "tool-started",
+        threadId: chatMocks.threadId,
+        runId: "run-1",
+        sequence: 1,
+        occurredAt: at,
+        type: "tool.started",
+        toolCall: { ...failedTool, status: "running" },
+      },
+      {
+        id: "tool-failed",
+        threadId: chatMocks.threadId,
+        runId: "run-1",
+        sequence: 2,
+        occurredAt: at,
+        type: "tool.updated",
+        toolCall: failedTool,
+      },
+      {
+        id: "run-failed",
+        threadId: chatMocks.threadId,
+        runId: "run-1",
+        sequence: 3,
+        occurredAt: at,
+        type: "run.failed",
+        error: { code: "query_failed", message: "Query execution failed." },
+      },
+    ];
+
+    await useRealComposer();
+    await mount(baseProps({ isNewThread: false }));
+
+    expect(
+      container.querySelector('[data-shared-tool-error="true"]')?.textContent,
+    ).toContain("Query execution failed.");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Query execution failed.",
+    );
   });
 
   it("checks readiness on the configured chat API server", async () => {
@@ -1863,12 +1942,14 @@ describe("AgentKitAssistantChat host behavior", () => {
           createdAt: at,
           updatedAt: at,
           messages: chatMocks.thread.messages,
+          events: chatMocks.thread.events,
           runs: Object.values(chatMocks.thread.runs).map((run) => ({
             ...run,
             threadId,
             startedAt: at,
             completedAt: at,
           })),
+          toolCalls: Object.values(chatMocks.thread.tools),
           suggestions: chatMocks.thread.suggestions,
         }),
         startRun,

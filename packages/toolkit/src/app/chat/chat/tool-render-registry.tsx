@@ -1,3 +1,4 @@
+import type { AgentToolCall } from "@agent-native/agentkit/protocol";
 import type { ActionChatUIConfig } from "@agent-native/core/action-ui";
 import type { ComponentType } from "react";
 
@@ -12,6 +13,7 @@ export interface ToolRendererContext {
     toolName?: string;
   }>;
   widgetId?: string;
+  status?: AgentToolCall["status"];
   isRunning: boolean;
   isActiveTail?: boolean;
   chatUI?: ActionChatUIConfig;
