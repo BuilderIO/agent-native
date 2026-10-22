@@ -7451,10 +7451,7 @@ function DatabaseAdvancedFilterRuleRow({
               {filterOperatorsForKey(filter.key, properties).map((operator) => (
                 <DropdownMenuItem
                   key={operator}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onUpdateFilter({ operator });
-                  }}
+                  onSelect={() => onUpdateFilter({ operator })}
                 >
                   <span className="flex-1">
                     {databaseFilterOperatorLabel(
@@ -7807,10 +7804,7 @@ function DatabaseInlineFilterControl({
                   (operator) => (
                     <DropdownMenuItem
                       key={operator}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        updateFilter({ operator });
-                      }}
+                      onSelect={() => updateFilter({ operator })}
                     >
                       <span className="flex-1">
                         {databaseFilterOperatorLabel(

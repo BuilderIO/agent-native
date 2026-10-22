@@ -216,6 +216,17 @@ describe("filter operator menus", () => {
 });
 
 describe("date filter values", () => {
+  it("closes the operator menu once an operator is picked", async () => {
+    const latest = renderBar([filter("name", "Name", "contains", "draft")], 0);
+
+    await click(button("contains"));
+    await chooseMenuItem("Does not contain");
+    expect(latest.filters[0]?.operator).toBe("does_not_contain");
+    // The value field the operator applies to is next, so nothing covers it.
+    expect(menuItems()).not.toContain("Contains");
+    expect(document.querySelector("input")?.value).toBe("draft");
+  });
+
   it("picks a relative day and clears the value when switching to is within", async () => {
     const latest = renderBar(
       [filter("due", "Due", "on_or_before", "2026-10-22")],
