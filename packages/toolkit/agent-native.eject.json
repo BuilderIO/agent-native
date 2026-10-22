@@ -497,6 +497,7 @@
         "@agent-native/core/client/changelog/use-changelog-seen",
         "@agent-native/core/client/chat-model-groups",
         "@agent-native/core/client/client-status-requests",
+        "@agent-native/core/client/consent",
         "@agent-native/core/client/feature-flags/use-feature-flag",
         "@agent-native/core/client/frame",
         "@agent-native/core/client/hooks",
