@@ -156,6 +156,11 @@ async function readConfiguredSignature(): Promise<string | undefined> {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Manage compose drafts: use `create` for a new draft even if another " +
     "compose draft is open; use `update` to revise a specific existing draft " +
@@ -164,8 +169,10 @@ export default defineAction({
     "with only the raw compose ID (not the `compose-{id}` app-state key), " +
     "`delete-saved` with `savedDraftId` for a saved mailbox draft, or " +
     "`delete-all` to remove all compose drafts. To start a new reply, call " +
-    "`create` with mode=reply, replyToId, to, subject, and body.",
+    "`create` with mode=reply, replyToId, to, subject, and body. " +
+    "Deleting drafts requires human approval.",
   schema: manageDraftSchema,
+  needsApproval: (args) => args.action !== "create" && args.action !== "update",
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({

@@ -126,15 +126,18 @@ describe("manage-draft MCP App", () => {
 });
 
 describe("manage-draft saved mailbox deletion", () => {
-  it("deletes Gmail drafts with the exact selected account", async () => {
+  it("executes an approved MCP deletion with the exact selected Gmail account", async () => {
     mocks.isConnected.mockResolvedValue(true);
 
-    await action.run({
-      action: "delete-saved",
-      savedDraftId: "gmail-draft-1",
-      savedDraftBackend: "gmail",
-      accountEmail: "secondary@example.com",
-    });
+    await action.run(
+      {
+        action: "delete-saved",
+        savedDraftId: "gmail-draft-1",
+        savedDraftBackend: "gmail",
+        accountEmail: "secondary@example.com",
+      },
+      { caller: "mcp" },
+    );
 
     expect(mocks.deleteGmailDraft).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
@@ -579,4 +582,30 @@ describe("manage-draft create-then-reply flow", () => {
     });
     expect(JSON.stringify(updated.change)).not.toContain("Quick follow-up");
   });
+});
+
+describe("manage-draft approval", () => {
+  it.each([
+    "create",
+    "update",
+    "delete",
+    "delete-saved",
+    "delete-all",
+  ] as const)(
+    "requires approval only for destructive draft mode %s",
+    async (operation) => {
+      const needsApproval = action.needsApproval;
+      expect(typeof needsApproval).toBe("function");
+      if (typeof needsApproval !== "function")
+        throw new Error("Missing approval gate");
+      const args = action.schema.parse({
+        action: operation,
+        id: "draft-1",
+        savedDraftId: "saved-1",
+      });
+      expect(await needsApproval(args, { caller: "mcp" })).toBe(
+        operation !== "create" && operation !== "update",
+      );
+    },
+  );
 });
