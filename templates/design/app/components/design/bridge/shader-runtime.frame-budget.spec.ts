@@ -1,8 +1,11 @@
 import { chromium, type Browser, type Frame } from "@playwright/test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { applyShaderToHtml } from "../../../../shared/shader-fills";
-import { GLSL_SHADER_PRESETS } from "../../../../shared/shader-presets";
+import {
+  ensureShaderRuntime,
+  SHADER_FILL_ATTR,
+  SHADER_SCRIPT_TYPE,
+} from "../../../../shared/shader-fills";
 
 // A hand-driven animation-frame queue and a count of WebGL draws, installed
 // before the runtime boots so each test decides which timestamps it sees.
@@ -27,26 +30,28 @@ window.__runFrame = function (ts) {
 };
 </script>`;
 
+// A saved, animated fill in the persisted format the runtime reads.
+const SAVED_FILL = `<script type="${SHADER_SCRIPT_TYPE}" data-shader-id="an-shader-budget01" data-shader-name="Budget" data-shader-mode="fill">
+/*! an-shader v1
+{ "uniforms": {} }
+*/
+precision highp float;
+uniform vec2 u_resolution;
+uniform float u_time;
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution;
+  gl_FragColor = vec4(uv, 0.5 + 0.5 * sin(u_time), 1.0);
+}
+</script>`;
+
 function screenHtml(head = ""): string {
-  const preset = GLSL_SHADER_PRESETS.find((p) => p.mode === "fill")!;
-  const page = `<!doctype html>
+  return ensureShaderRuntime(`<!doctype html>
 <html>
-<head>${head}<style>html,body{margin:0}#host{width:320px;height:240px}</style></head>
+<head>${head}${SAVED_FILL}<style>html,body{margin:0}#host{width:320px;height:240px;background:#101010}</style></head>
 <body>
-  <div id="host" data-agent-native-node-id="host"><p>content</p></div>
+  <div id="host" data-agent-native-node-id="host" ${SHADER_FILL_ATTR}="an-shader-budget01"><p>content</p></div>
 </body>
-</html>`;
-  return applyShaderToHtml(page, {
-    nodeId: "host",
-    def: {
-      id: "an-shader-budget01",
-      name: preset.label,
-      mode: "fill",
-      glsl: preset.glsl,
-      uniforms: preset.uniforms,
-    },
-    fallbackColor: "#101010",
-  }).html;
+</html>`);
 }
 
 function canvasWidth(frame: Frame): Promise<number | null> {
