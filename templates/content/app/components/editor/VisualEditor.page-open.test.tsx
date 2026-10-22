@@ -3,7 +3,10 @@
 import { docToNfm, nfmToDoc, type PMDoc, type PMNode } from "@shared/nfm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type Editor, getSchema } from "@tiptap/core";
-import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
+import {
+  prosemirrorJSONToYXmlFragment,
+  yXmlFragmentToProsemirrorJSON,
+} from "@tiptap/y-tiptap";
 import { act, type ComponentProps, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -675,6 +678,54 @@ describe("opening a page", () => {
       "Replaced in another tab.",
     );
     expectNoSave(opened);
+  });
+
+  it("saves an edit made before the seed check that another tab's edit merges with", async () => {
+    const opened = mount(livePage("Alpha paragraph.\n\nCharlie paragraph."));
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(ydoc));
+    editBeforeSeedCheck(opened.editor, "insertText", (editor) =>
+      editor.view.dispatch(editor.state.tr.insertText("New ", 1)),
+    );
+    const charlie = peer.getXmlFragment("default").get(1) as Y.XmlElement;
+    const text = charlie.get(0) as Y.XmlText;
+    text.insert(text.length, " Beta");
+    const peerSaved = docToNfm(
+      yXmlFragmentToProsemirrorJSON(peer.getXmlFragment("default")) as PMDoc,
+    );
+    act(() => {
+      Y.applyUpdate(
+        ydoc,
+        Y.encodeStateAsUpdate(peer, Y.encodeStateVector(ydoc)),
+        "remote",
+      );
+    });
+    peer.destroy();
+    await settle();
+    expect(opened.editor.state.doc.textContent).toBe(
+      "New Alpha paragraph.Charlie paragraph. Beta",
+    );
+    // Until this tab saves, the stored body is the other tab's save.
+    const saved = opened.onChange.mock.lastCall?.[0] ?? peerSaved;
+
+    const liveCopy = Y.encodeStateAsUpdate(ydoc);
+    await act(async () => root.unmount());
+    ydoc.destroy();
+    ydoc = new Y.Doc();
+    Y.applyUpdate(ydoc, liveCopy);
+    root = createRoot(container);
+    const reopened = await open({
+      content: saved,
+      documentId: "page-1",
+      ydoc,
+      collabSynced: true,
+    });
+    expect(reopened.editor.state.doc.textContent).toBe(
+      "New Alpha paragraph.Charlie paragraph. Beta",
+    );
+    const stored = reopened.onChange.mock.lastCall?.[0] ?? saved;
+    expect(stored).toContain("New Alpha paragraph.");
+    expect(stored).toContain("Charlie paragraph. Beta");
   });
 
   it("does not save the seed that replaces a page emptied before the seed check", async () => {

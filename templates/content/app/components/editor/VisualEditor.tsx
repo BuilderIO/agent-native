@@ -2032,6 +2032,38 @@ export function isLocalEditorEdit(transaction: Transaction): boolean {
   );
 }
 
+// Where two versions of the page differ, as one span in each version.
+function changedSpan(from: ProseMirrorNode, to: ProseMirrorNode) {
+  const start = from.content.findDiffStart(to.content);
+  if (start === null) return null;
+  let { a: fromEnd, b: toEnd } = from.content.findDiffEnd(to.content)!;
+  // Repeated text can end the common suffix inside the common prefix.
+  const overlap = start - Math.min(fromEnd, toEnd);
+  if (overlap > 0) {
+    fromEnd += overlap;
+    toEnd += overlap;
+  }
+  return { start, fromEnd, toEnd };
+}
+
+// Whether the page still holds an edit that turned `before` into `edited`.
+// Another tab's change elsewhere on the page merges with it; a change that
+// reaches it, such as a seed or a restore, replaces it.
+function editStillOnPage({
+  before,
+  edited,
+  page,
+}: {
+  before: ProseMirrorNode;
+  edited: ProseMirrorNode;
+  page: ProseMirrorNode;
+}) {
+  const edit = changedSpan(before, edited);
+  if (!edit) return false;
+  const since = changedSpan(edited, page);
+  return !since || since.fromEnd < edit.start || since.start > edit.toEnd;
+}
+
 // A load or reconcile can briefly look like a local change that empties the
 // editor, so a change that leaves the page empty saves only with this
 // evidence. Commands that can empty a page, such as undo and the table menus,
@@ -3522,9 +3554,12 @@ export function VisualEditor({
   }, []);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
-  // The page as a person's typing left it before the live copy's seed check
-  // finished.
-  const unseededEditDocRef = useRef<ProseMirrorNode | null>(null);
+  // The page before and after a person's typing that landed before the live
+  // copy's seed check finished.
+  const unseededEditRef = useRef<{
+    before: ProseMirrorNode;
+    edited: ProseMirrorNode;
+  } | null>(null);
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
     hasUserEditIntentRef.current = true;
@@ -3816,11 +3851,12 @@ export function VisualEditor({
       }
       // The editor's own fix-ups, such as a copied block's rewritten source,
       // don't replace the typing.
+      const unseededEdit = unseededEditRef.current;
       if (
         transaction.getMeta(EDITOR_NON_EDIT_META) === true &&
-        unseededEditDocRef.current?.eq(transaction.before)
+        unseededEdit?.edited.eq(transaction.before)
       ) {
-        unseededEditDocRef.current = editor.state.doc;
+        unseededEditRef.current = { ...unseededEdit, edited: editor.state.doc };
       }
       notifyHistoryStateChange({
         canUndo: editor.can().undo(),
@@ -3859,7 +3895,10 @@ export function VisualEditor({
           userInitiated &&
           isLocalEditorEdit(transaction)
         ) {
-          unseededEditDocRef.current = editor.state.doc;
+          unseededEditRef.current = {
+            before: unseededEditRef.current?.before ?? transaction.before,
+            edited: editor.state.doc,
+          };
         }
         return;
       }
@@ -3879,7 +3918,7 @@ export function VisualEditor({
       if (replacementIntent) {
         onSuggestionReplacementIntentRef.current?.(replacementIntent);
       }
-      unseededEditDocRef.current = null;
+      unseededEditRef.current = null;
       void persistEditorContent(editor, { userInitiated });
     },
   });
@@ -4408,12 +4447,13 @@ export function VisualEditor({
   guardsRef.current = collabState;
   useEffect(() => {
     if (!editor || editor.isDestroyed || !editable) return;
-    const unseededEditDoc = unseededEditDocRef.current;
-    if (collabState.initialSeedPending || !unseededEditDoc) return;
-    unseededEditDocRef.current = null;
-    // A seed, a restore or another tab's change has replaced the typing since,
-    // and saving now would report their content as this tab's edit.
-    if (!unseededEditDoc.eq(editor.state.doc)) return;
+    const unseededEdit = unseededEditRef.current;
+    if (collabState.initialSeedPending || !unseededEdit) return;
+    unseededEditRef.current = null;
+    // A seed, a restore or another tab's change that has replaced the typing
+    // since would be saved as this tab's edit. A change elsewhere on the page
+    // merged with it, and the page saves with both.
+    if (!editStillOnPage({ ...unseededEdit, page: editor.state.doc })) return;
     hasUserEditIntentRef.current = true;
     if (isActiveSlashCommandDraft(editor)) return;
     if (shouldSkipMediaDraftPersistence(editor)) return;
