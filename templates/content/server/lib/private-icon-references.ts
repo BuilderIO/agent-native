@@ -148,7 +148,7 @@ type CalloutAssignment = {
   documentId: string;
   before: string;
   after: string;
-  userEmail: string;
+  userEmail: string | null;
   ownerEmail: string;
   orgId: string | null;
   source?:
@@ -360,9 +360,10 @@ export async function verifyPrivateCalloutAssignments(
   }
   if (unavailable.length)
     throw new ActionContractError("Private icon is unavailable to this user.", {
-      errorCode: input.source
-        ? "PRIVATE_ICON_AUTHORIZATION_UNPROVEN"
-        : "PRIVATE_ICON_UNAVAILABLE",
+      errorCode:
+        input.source || !input.userEmail
+          ? "PRIVATE_ICON_AUTHORIZATION_UNPROVEN"
+          : "PRIVATE_ICON_UNAVAILABLE",
       statusCode: 403,
       details: { assetIds: unavailable },
     });

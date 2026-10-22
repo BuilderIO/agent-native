@@ -11,6 +11,31 @@ import {
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+const builderRead = vi.hoisted(() => ({ entries: [] as unknown[] }));
+vi.mock(
+  "../../actions/_builder-cms-read-client.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../actions/_builder-cms-read-client.js")
+    >()),
+    readBuilderCmsContentEntries: vi.fn(async () => ({
+      state: "live",
+      entries: builderRead.entries,
+      fetchedAt: "2026-01-01T00:00:00.000Z",
+      message: null,
+      progress: {
+        requestedLimit: 10000,
+        pageSize: 100,
+        startOffset: 0,
+        nextOffset: builderRead.entries.length,
+        fetchedEntryCount: builderRead.entries.length,
+        hasMore: false,
+        partial: false,
+        readMode: "builder-api",
+      },
+    })),
+  }),
+);
 const checkOwner = vi.hoisted(() => vi.fn());
 vi.mock("./private-icon-authority.js", () => ({
   assertPrivateIconOwner: checkOwner,
@@ -846,6 +871,198 @@ describe("private icon references", () => {
       },
     );
 
+    it.each([
+      [1, false, ASSET],
+      [20, false, FORGED],
+      [1, true, ASSET],
+    ] as const)(
+      "keeps %s provider hydration jobs isolated (owner proof: %s)",
+      async (jobs, authorized, assetId) => {
+        const f = await rowFixture();
+        const sourceId = crypto.randomUUID();
+        const model = "icon-boundary-model";
+        const stamp = "2026-01-01T00:00:00.000Z";
+        const body = `<callout icon="${icon(assetId).replace(/"/g, "&quot;")}">\n\tProvider supplied\n</callout>`;
+        const rows = Array.from({ length: jobs }, (_, i) => ({
+          id: crypto.randomUUID(),
+          documentId: crypto.randomUUID(),
+          entryId: crypto.randomUUID(),
+          index: i,
+        }));
+        const entries = rows.map((row) => ({
+          id: row.entryId,
+          model,
+          title: "Provider body",
+          urlPath: "/icon-test",
+          updatedAt: stamp,
+          sourceValues: { lastUpdated: stamp },
+          rawEntry: {
+            id: row.entryId,
+            model,
+            name: "Provider body",
+            lastUpdated: stamp,
+            data: {
+              blocks: [
+                {
+                  "@type": "@builder.io/sdk:Element",
+                  "@version": 2,
+                  id: crypto.randomUUID(),
+                  component:
+                    row.index === 0
+                      ? {
+                          name: "Code Block",
+                          options: {
+                            code: "```\n" + body + "\n```",
+                            language: "",
+                          },
+                        }
+                      : {
+                          name: "Text",
+                          options: { text: "<p>Valid public body</p>" },
+                        },
+                },
+              ],
+            },
+          },
+        }));
+        await db.insert(schema.contentDatabaseSources).values({
+          id: sourceId,
+          ownerEmail: OWNER,
+          databaseId: f.databaseId,
+          sourceType: "builder-cms",
+          sourceName: model,
+          sourceTable: model,
+        });
+        await db.insert(schema.documents).values(
+          rows.map((row) => ({
+            id: row.documentId,
+            ownerEmail: OWNER,
+            parentId: f.databaseDocumentId,
+            title: "Provider body",
+            content: "",
+          })),
+        );
+        await db.insert(schema.contentDatabaseItems).values(
+          rows.map((row) => ({
+            id: row.id,
+            ownerEmail: OWNER,
+            databaseId: f.databaseId,
+            documentId: row.documentId,
+            position: row.index,
+            bodyHydrationStatus: "pending",
+          })),
+        );
+        await db.insert(schema.contentDatabaseSourceRows).values(
+          rows.map((row) => ({
+            id: crypto.randomUUID(),
+            ownerEmail: OWNER,
+            sourceId,
+            databaseItemId: row.id,
+            documentId: row.documentId,
+            sourceRowId: row.entryId,
+            sourceQualifiedId: `builder-cms://${model}/${row.entryId}`,
+            sourceDisplayKey: "Provider body",
+            sourceValuesJson: JSON.stringify({ lastUpdated: stamp }),
+          })),
+        );
+        const utils = await import("../../actions/_database-source-utils.js");
+        const adapter =
+          await import("../../actions/_builder-cms-source-adapter.js");
+        const converted = await utils.withBuilderBodySourceValues(entries[0]);
+        expect([
+          ...refs.calloutPrivateIconAssetIds(
+            String(
+              converted.sourceValues[adapter.BUILDER_CMS_BODY_CONTENT_KEY],
+            ),
+          ),
+        ]).toEqual([assetId]);
+        // The queue belongs to A, while B controls the importing request and provider body.
+        await runWithRequestContext({ userEmail: SHARED }, async () => {
+          for (const [index, row] of rows.entries()) {
+            await utils.enqueueBuilderBodyHydration({
+              sourceId,
+              ownerEmail: OWNER,
+              orgId: null,
+              databaseItemId: row.id,
+              documentId: row.documentId,
+              sourceTable: model,
+              entry:
+                jobs === 20
+                  ? { ...entries[index], rawEntry: undefined }
+                  : entries[index],
+              now: stamp,
+            });
+          }
+        });
+        if (authorized)
+          await runWithRequestContext({ userEmail: OWNER }, () =>
+            refs.registerPrivateCalloutIcon({
+              documentId: rows[0].documentId,
+              assetId,
+              userEmail: OWNER,
+              ownerEmail: OWNER,
+              orgId: null,
+            }),
+          );
+        builderRead.entries = entries;
+        checkOwner.mockClear();
+        const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+          utils.processBuilderBodyHydrationQueue({
+            sourceId,
+            limit: jobs,
+            preloadBodies: jobs === 20,
+          }),
+        );
+        expect(result).toMatchObject({
+          processed: jobs,
+          failed: authorized ? 0 : 1,
+          succeeded: authorized ? jobs : jobs - 1,
+          remaining: authorized ? 0 : 1,
+        });
+        expect(checkOwner).not.toHaveBeenCalled();
+        if (authorized) {
+          const [page] = await db
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, rows[0].documentId));
+          expect(page.content).toBe(
+            converted.sourceValues[adapter.BUILDER_CMS_BODY_CONTENT_KEY],
+          );
+          return;
+        }
+        const [denied] = await db
+          .select()
+          .from(schema.contentDatabaseItems)
+          .where(eq(schema.contentDatabaseItems.id, rows[0].id));
+        expect(denied).toMatchObject({
+          bodyHydrationStatus: "pending",
+          bodyHydrationError: "Private icon is unavailable to this user.",
+          bodyHydrationReason: "authorization_unproven",
+          bodyHydrationProviderStatus: "PRIVATE_ICON_AUTHORIZATION_UNPROVEN",
+        });
+        const [unwritten] = await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, rows[0].documentId));
+        expect(unwritten.content).toBe("");
+        expect(
+          await db
+            .select()
+            .from(schema.privateIconReferences)
+            .where(
+              eq(schema.privateIconReferences.documentId, rows[0].documentId),
+            ),
+        ).toEqual([]);
+        for (const row of rows.slice(1)) {
+          const [page] = await db
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, row.documentId));
+          expect(page.content).toBe("Valid public body");
+        }
+      },
+    );
+
     it("rejects a form body atomically without creating a row or icon proof", async () => {
       const f = await rowFixture();
       await db
@@ -1197,16 +1414,14 @@ describe("private icon references", () => {
     it("keeps proof-only icons unreadable and refuses to carry proof across a scope change", async () => {
       const id = await editablePage();
       const viewer = `proof-viewer-${++count}@example.test`;
-      await db
-        .insert(schema.documentShares)
-        .values({
-          id: crypto.randomUUID(),
-          resourceId: id,
-          principalType: "user",
-          principalId: viewer,
-          role: "editor",
-          createdBy: OWNER,
-        });
+      await db.insert(schema.documentShares).values({
+        id: crypto.randomUUID(),
+        resourceId: id,
+        principalType: "user",
+        principalId: viewer,
+        role: "editor",
+        createdBy: OWNER,
+      });
       await runWithRequestContext({ userEmail: OWNER }, () =>
         refs.registerPrivateCalloutIcon({
           documentId: id,
