@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 import { createNativeSceneProvider } from "./native-source-provider";
+import { serializeNativeSvgSource } from "./native-svg-source";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -9,7 +10,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("captures adopted Rectangle Fill output in the complete scene", async () => {
+function createAdoptedSceneFixture() {
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -147,6 +148,11 @@ it("captures adopted Rectangle Fill output in the complete scene", async () => {
   );
 
   const provider = createNativeSceneProvider(document.body, "layer")!;
+  return { provider, target, foreign };
+}
+
+it("captures the final Layer composited over an adopted Rectangle Fill in the complete scene", async () => {
+  const { provider } = createAdoptedSceneFixture();
   try {
     const records = await provider.readScene();
     expect(
@@ -156,6 +162,100 @@ it("captures adopted Rectangle Fill output in the complete scene", async () => {
     ).toEqual([
       { id: "final-layer", rect: { x: 5, y: 10, width: 120, height: 100 } },
     ]);
+  } finally {
+    provider.dispose();
+  }
+});
+
+it.each([
+  ["iframe", "source-iframe"],
+  ["path", "source-inline-svg"],
+] as const)("rejects an adopted %s source", async (tag, code) => {
+  const {
+    provider: completeScene,
+    target,
+    foreign,
+  } = createAdoptedSceneFixture();
+  completeScene.dispose();
+  for (const attribute of [...target.attributes])
+    target.removeAttribute(attribute.name);
+  const child =
+    tag === "path"
+      ? foreign.createElementNS("http://www.w3.org/2000/svg", tag)
+      : foreign.createElement(tag);
+  expect(child instanceof Element).toBe(false);
+  Object.defineProperty(child, "getAnimations", { value: () => [] });
+  target.append(child);
+  const provider = createNativeSceneProvider(child as HTMLElement, "layer");
+  expect(provider).not.toBeNull();
+  try {
+    await expect(
+      tag === "path" ? provider!.readScene() : provider!.readReceiverCoverage(),
+    ).rejects.toMatchObject({ code });
+  } finally {
+    provider!.dispose();
+  }
+});
+
+it.each(["img", "video", "canvas"] as const)(
+  "rejects adopted %s media inside a Fill text flow",
+  async (tag) => {
+    const {
+      provider: completeScene,
+      target,
+      foreign,
+    } = createAdoptedSceneFixture();
+    completeScene.dispose();
+    const child = foreign.createElement(tag);
+    expect(child instanceof HTMLElement).toBe(false);
+    target.append("Text", child);
+    const provider = createNativeSceneProvider(target, "fill")!;
+    try {
+      await expect(provider.readFillGlyph()).rejects.toMatchObject({
+        code: "fill-text-complex",
+      });
+    } finally {
+      provider.dispose();
+    }
+  },
+);
+
+it("rejects an unsupported element inside an adopted SVG root", () => {
+  const { provider, foreign } = createAdoptedSceneFixture();
+  provider.dispose();
+  const svg = foreign.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.append(
+    foreign.createElementNS("http://www.w3.org/2000/svg", "foreignObject"),
+  );
+  document.body.append(svg);
+  expect(svg instanceof SVGElement).toBe(false);
+  expect(() =>
+    serializeNativeSvgSource(svg, { width: 100, height: 80 }),
+  ).toThrow(
+    expect.objectContaining({ code: "source-svg-element-unsupported" }),
+  );
+});
+
+it("rejects pixel-changing animation effects on an adopted node", async () => {
+  const { provider: completeScene, target } = createAdoptedSceneFixture();
+  completeScene.dispose();
+  for (const attribute of [...target.attributes])
+    target.removeAttribute(attribute.name);
+  vi.stubGlobal("KeyframeEffect", class {});
+  Object.defineProperty(target, "getAnimations", {
+    configurable: true,
+    value: () => [
+      {
+        playState: "running",
+        effect: { getKeyframes: () => [{ backgroundColor: "red" }] },
+      },
+    ],
+  });
+  const provider = createNativeSceneProvider(target, "layer")!;
+  try {
+    await expect(provider.readScene()).rejects.toMatchObject({
+      code: "source-animation",
+    });
   } finally {
     provider.dispose();
   }

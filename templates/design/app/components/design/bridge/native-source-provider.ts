@@ -458,10 +458,26 @@ function assertLeafSupported(
   }
   for (const animation of element.getAnimations({ subtree: false })) {
     if (animation.playState !== "running") continue;
-    const keyframes =
-      animation.effect instanceof KeyframeEffect
-        ? animation.effect.getKeyframes()
-        : [];
+    const effect = animation.effect;
+    if (effect === null) continue;
+    if (
+      !("getKeyframes" in effect) ||
+      typeof effect.getKeyframes !== "function"
+    ) {
+      throw new NativeSourceError(
+        "source-animation",
+        "The running source animation's keyframes are unreadable.",
+      );
+    }
+    let keyframes: ComputedKeyframe[];
+    try {
+      keyframes = effect.getKeyframes();
+    } catch {
+      throw new NativeSourceError(
+        "source-animation",
+        "The running source animation's keyframes are unreadable.",
+      );
+    }
     const keys = new Set(keyframes.flatMap((frame) => Object.keys(frame)));
     for (const key of keys) {
       if (
