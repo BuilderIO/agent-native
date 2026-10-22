@@ -49,32 +49,25 @@ function followRestoredCopy(store: Y.Doc["store"], id: Y.ID) {
 
 /**
  * Where Yjs should stop deleting each restored copy of the insertions an undo
- * or redo may revert, keyed by the copy's first id. Yjs passes over entries
- * that change nothing, such as an edit to a block a collaborator has since
- * removed, so this covers the whole stack rather than guessing where it stops.
+ * or redo reverts, keyed by the copy's first id.
  */
-function restoredInsertionEnds(doc: Y.Doc, stack: StackItem[]) {
+function restoredInsertionEnds(doc: Y.Doc, stackItem: StackItem) {
   const ends = new Map<string, number>();
-  for (const stackItem of stack) {
-    for (const [client, ranges] of stackItem.insertions.clients) {
-      for (const { clock, len } of ranges) {
-        let position = clock;
-        while (position < clock + len) {
-          const original = Y.getItem(doc.store, Y.createID(client, position));
-          const end = Math.min(
-            original.id.clock + original.length,
-            clock + len,
+  for (const [client, ranges] of stackItem.insertions.clients) {
+    for (const { clock, len } of ranges) {
+      let position = clock;
+      while (position < clock + len) {
+        const original = Y.getItem(doc.store, Y.createID(client, position));
+        const end = Math.min(original.id.clock + original.length, clock + len);
+        if (original instanceof Y.Item && original.redone !== null) {
+          const { struct, diff } = followRestoredCopy(
+            doc.store,
+            Y.createID(client, position),
           );
-          if (original instanceof Y.Item && original.redone !== null) {
-            const { struct, diff } = followRestoredCopy(
-              doc.store,
-              Y.createID(client, position),
-            );
-            const start = struct.id.clock + diff;
-            ends.set(idKey(struct.id.client, start), start + end - position);
-          }
-          position = end;
+          const start = struct.id.clock + diff;
+          ends.set(idKey(struct.id.client, start), start + end - position);
         }
+        position = end;
       }
     }
   }
@@ -285,10 +278,19 @@ export function repairCollabUndo(view: EditorView): () => void {
 
   if (!repairedManagers.has(undoManager)) {
     repairedManagers.add(undoManager);
-    let ends = new Map<string, number>();
+    // Yjs passes over entries that change nothing, such as an edit to a
+    // block a collaborator has since removed, so the entry being reverted is
+    // the one just past the end of the stack as it now stands.
+    let popping: { stack: StackItem[]; before: StackItem[] } | null = null;
+    let reverting: { entry: StackItem; ends: Map<string, number> } | null =
+      null;
     const deleteFilter = undoManager.deleteFilter;
     undoManager.deleteFilter = (item) => {
-      const end = ends.get(idKey(item.id.client, item.id.clock));
+      const entry = popping?.before[popping.stack.length];
+      if (entry && reverting?.entry !== entry) {
+        reverting = { entry, ends: restoredInsertionEnds(doc, entry) };
+      }
+      const end = reverting?.ends.get(idKey(item.id.client, item.id.clock));
       if (end !== undefined && item.id.clock + item.length > end) {
         Y.transact(doc, (transaction) => {
           Y.getItemCleanEnd(
@@ -302,11 +304,12 @@ export function repairCollabUndo(view: EditorView): () => void {
     };
     const clamped =
       (stack: () => StackItem[], run: () => StackItem | null) => () => {
-        ends = restoredInsertionEnds(doc, stack());
+        popping = { stack: stack(), before: stack().slice() };
         try {
           return run();
         } finally {
-          ends = new Map();
+          popping = null;
+          reverting = null;
         }
       };
     const undo = undoManager.undo.bind(undoManager);

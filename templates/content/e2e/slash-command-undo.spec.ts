@@ -83,6 +83,27 @@ test.describe("slash command undo", () => {
     await expect(firstBlock(page)).toHaveText(PARAGRAPH);
     expect(await firstBlock(page).evaluate((node) => node.tagName)).toBe("P");
   });
+
+  test("an undo keeps the typing just before a command picked at once", async ({
+    page,
+  }) => {
+    await openPage(page, "Slash undo without a pause");
+    await firstBlock(page).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.type("Intro ");
+    await page.keyboard.press("Home");
+    await page.keyboard.type("/heading 3");
+    await expect(page.locator(".slash-command-menu")).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(page.locator(`${EDITOR} h3`).first()).toHaveText(
+      `Intro ${PARAGRAPH}`,
+    );
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(firstBlock(page)).toHaveText(`Intro ${PARAGRAPH}`);
+    expect(await firstBlock(page).evaluate((node) => node.tagName)).toBe("P");
+    expect(await caretOffsetInFirstBlock(page)).toBe(0);
+  });
 });
 
 test.describe("slash command undo on a touch screen", () => {

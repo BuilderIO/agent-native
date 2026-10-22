@@ -170,6 +170,30 @@ describe("collaborative undo around block type changes", () => {
     expect(firstBlock(editor)).toBe("paragraph: Paragraph block");
   });
 
+  it("reads only the history entry an undo reverts", () => {
+    const { editor } = collabEditor();
+    placeCaret(editor, 1);
+    for (const char of "abcdefghij") {
+      type(editor, char);
+      pause(editor);
+    }
+    const stack = undoManager(editor).undoStack;
+    let reads = 0;
+    for (const entry of stack.slice(0, -1)) {
+      const { insertions } = entry;
+      Object.defineProperty(entry, "insertions", {
+        get: () => {
+          reads += 1;
+          return insertions;
+        },
+      });
+    }
+
+    editor.commands.undo();
+    expect(firstBlock(editor)).toBe("paragraph: abcdefghiParagraph block");
+    expect(reads).toBe(0);
+  });
+
   it("keeps a selected range through undo and redo of a type change", () => {
     const { editor } = collabEditor();
     selectRange(editor, 7, 2);

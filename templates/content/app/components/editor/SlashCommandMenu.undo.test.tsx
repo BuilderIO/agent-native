@@ -45,86 +45,124 @@ function firstBlock(editor: Editor) {
   return `${node.type.name}: ${node.textContent}`;
 }
 
+/** Renders the slash menu beside a collaborative editor. */
+async function mountSlashMenu() {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const editor = collabEditor();
+  await act(async () => {
+    root.render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            persistPreference={false}
+            catalog={{
+              sourceLocale: "en-US",
+              messages: { editor: { heading3: "Heading 3" } },
+            }}
+          >
+            <div className="visual-editor-wrapper">
+              <EditorContent editor={editor} />
+              <SlashCommandMenu editor={editor} />
+            </div>
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    await Promise.resolve();
+  });
+  return {
+    container,
+    editor,
+    unmount: async () => {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    },
+  };
+}
+
+function typeAt(editor: Editor, pos: number, text: string) {
+  act(() => {
+    editor.view.dispatch(
+      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, pos)),
+    );
+    editor.commands.focus();
+    for (const char of text) {
+      const { from, to } = editor.state.selection;
+      editor.view.dispatch(editor.state.tr.insertText(char, from, to));
+    }
+  });
+}
+
+async function pressEnter() {
+  act(() => {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await act(async () => Promise.resolve());
+}
+
+function undo(editor: Editor) {
+  act(() => {
+    runPersistableHistoryCommand(editor, "undo");
+  });
+}
+
 describe("slash command undo", () => {
   it("undoes a block type change in one step and keeps the block's text", async () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const editor = collabEditor();
-
+    const { container, editor, unmount } = await mountSlashMenu();
     try {
-      await act(async () => {
-        root.render(
-          <MemoryRouter>
-            <QueryClientProvider client={queryClient}>
-              <AgentNativeI18nProvider
-                initialLocale="en-US"
-                persistPreference={false}
-                catalog={{
-                  sourceLocale: "en-US",
-                  messages: { editor: { heading3: "Heading 3" } },
-                }}
-              >
-                <div className="visual-editor-wrapper">
-                  <EditorContent editor={editor} />
-                  <SlashCommandMenu editor={editor} />
-                </div>
-              </AgentNativeI18nProvider>
-            </QueryClientProvider>
-          </MemoryRouter>,
-        );
-        await Promise.resolve();
-      });
-
-      act(() => {
-        editor.view.dispatch(
-          editor.state.tr.setSelection(
-            TextSelection.create(editor.state.doc, 1),
-          ),
-        );
-        editor.commands.focus();
-        for (const char of "/heading 3") {
-          const { from, to } = editor.state.selection;
-          editor.view.dispatch(editor.state.tr.insertText(char, from, to));
-        }
-      });
+      typeAt(editor, 1, "/heading 3");
       await act(async () => Promise.resolve());
       expect(container.querySelector(".slash-command-menu")).not.toBeNull();
       // A person pauses before picking the command, which ends the undo
       // step that holds the typed query.
       yUndoPluginKey.getState(editor.state)!.undoManager.stopCapturing();
 
-      act(() => {
-        document.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "Enter",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-      await act(async () => Promise.resolve());
+      await pressEnter();
       expect(firstBlock(editor)).toBe(`heading: ${PARAGRAPH}`);
 
-      act(() => {
-        runPersistableHistoryCommand(editor, "undo");
-      });
+      undo(editor);
       expect(firstBlock(editor)).toBe(`paragraph: ${PARAGRAPH}`);
       expect(editor.state.selection.head).toBe(1);
 
-      act(() => {
-        runPersistableHistoryCommand(editor, "undo");
-      });
+      undo(editor);
       expect(firstBlock(editor)).toBe(`paragraph: ${PARAGRAPH}`);
       expect(editor.state.selection.head).toBe(1);
     } finally {
-      await act(async () => root.unmount());
-      editor.destroy();
-      queryClient.clear();
-      container.remove();
+      await unmount();
+    }
+  });
+
+  it("keeps the typing just before a command picked without a pause", async () => {
+    const { editor, unmount } = await mountSlashMenu();
+    try {
+      typeAt(editor, 1, "Intro ");
+      typeAt(editor, 1, "/heading 3");
+      await act(async () => Promise.resolve());
+      await pressEnter();
+      expect(firstBlock(editor)).toBe(`heading: Intro ${PARAGRAPH}`);
+
+      undo(editor);
+      expect(firstBlock(editor)).toBe(`paragraph: Intro ${PARAGRAPH}`);
+      expect(editor.state.selection.head).toBe(1);
+
+      undo(editor);
+      expect(firstBlock(editor)).toBe(`paragraph: ${PARAGRAPH}`);
+    } finally {
+      await unmount();
     }
   });
 });
