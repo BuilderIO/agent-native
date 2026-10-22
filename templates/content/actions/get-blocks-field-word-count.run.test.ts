@@ -125,6 +125,28 @@ describe("get-blocks-field-word-count action", () => {
     ).toMatchObject({ propertyId: null, primary: true, wordCount: 2 });
   });
 
+  it("keeps the confirmed standalone body when a later fresh read has different text", async () => {
+    mocks.listProperties.mockResolvedValue([]);
+    mocks.resolveDatabase.mockResolvedValue(null);
+    mocks.flush.mockImplementation(async () => {
+      mocks.resolveAccess.mockResolvedValue({
+        resource: {
+          id: "doc-1",
+          content: "later primary body has more unconfirmed words",
+          trashedAt: null,
+        },
+      });
+      return {
+        status: "flushed",
+        editors: [],
+        snapshot: { kind: "document", content: "confirmed standalone body" },
+      };
+    });
+    expect(
+      await getBlocksFieldWordCount.run({ documentId: "doc-1" }),
+    ).toMatchObject({ propertyId: null, primary: true, wordCount: 3 });
+  });
+
   it.each(["removed", "hidden", "access-revoked", "database-changed"])(
     "preserves main's refusal when the captured additional field is %s during flush",
     async (change) => {

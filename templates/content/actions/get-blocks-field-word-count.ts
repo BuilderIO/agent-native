@@ -74,7 +74,12 @@ export default defineAction({
         propertyId: null,
         name: DEFAULT_BLOCKS_FIELD_NAME,
         primary: true,
-        content: (fresh.resource.content as string | null | undefined) ?? "",
+        content:
+          (selected === null && snapshot?.kind === "document"
+            ? snapshot.content
+            : undefined) ??
+          (fresh.resource.content as string | null | undefined) ??
+          "",
       });
     }
 
