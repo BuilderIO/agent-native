@@ -1542,7 +1542,11 @@ export function createHttpAgentChatRuntime<
                   turnId,
                   requestTurnId,
                 })
-              : defaultHttpRuntimeRequest({ session: summary, turn, turnId }),
+              : defaultHttpRuntimeRequest({
+                  session: summary,
+                  turn,
+                  turnId: requestTurnId,
+                }),
           ),
           signal: controller.signal,
         });
