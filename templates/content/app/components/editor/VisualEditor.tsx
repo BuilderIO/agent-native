@@ -1817,16 +1817,15 @@ export function resolveVisualEditorSelection(
 
 export interface VisualEditorPersistenceController {
   flushLatest: () => Promise<boolean>;
+  readonly version: object;
 }
 
 export function shouldFlushVisualEditorDraft({
-  editable,
   hasUserEditIntent,
 }: {
-  editable: boolean;
   hasUserEditIntent: boolean;
 }) {
-  return editable && hasUserEditIntent;
+  return hasUserEditIntent;
 }
 
 export function suggestionReplacementIntentForTransaction(
@@ -3484,6 +3483,9 @@ export function VisualEditor({
 
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
   const draftEmissionGenerationRef = useRef(0);
+  // Parent draft emissions are deferred; verification must see document changes synchronously.
+  const documentVersionRef = useRef<object>({});
+  const observedDocumentRef = useRef<ProseMirrorNode | null>(null);
   const pendingDraftEmissionsRef = useRef<Array<() => void>>([]);
   const drainPendingDraftEmissions = useCallback(() => {
     const pending = pendingDraftEmissionsRef.current;
@@ -3516,7 +3518,7 @@ export function VisualEditor({
             : ("unchanged" as const);
         scheduleLiveBodyParity(editorToPersist);
         const normalized = options?.markdown ?? serialized;
-        if (localFileMode && normalized === content)
+        if (localFileMode && normalized === content && options?.strict !== true)
           return "unchanged" as const;
         if (
           !shouldPersistEffectivelyEmptyEditorUpdate({
@@ -3777,6 +3779,10 @@ export function VisualEditor({
     },
     editable,
     onTransaction: ({ editor }) => {
+      if (observedDocumentRef.current !== editor.state.doc) {
+        observedDocumentRef.current = editor.state.doc;
+        documentVersionRef.current = {};
+      }
       notifyHistoryStateChange({
         canUndo: editor.can().undo(),
         canRedo: editor.can().redo(),
@@ -3941,16 +3947,23 @@ export function VisualEditor({
       onPersistenceControllerChange?.(null);
       return;
     }
+    if (observedDocumentRef.current !== editor.state.doc) {
+      observedDocumentRef.current = editor.state.doc;
+      documentVersionRef.current = {};
+    }
     onPersistenceControllerChange?.({
+      get version() {
+        return documentVersionRef.current;
+      },
       flushLatest: async () => {
         if (
           !shouldFlushVisualEditorDraft({
-            editable,
             hasUserEditIntent: hasUserEditIntentRef.current,
           })
         ) {
           return true;
         }
+        // The save callback owns permission for drafts entered before an edit lock.
         const result = await Promise.resolve(
           persistEditorContent(editor, {
             immediate: true,

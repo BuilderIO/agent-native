@@ -52,6 +52,25 @@ vi.mock("./VisualEditor", async () => {
     // editor and see whether it was ever remounted.
     VisualEditor: (props: Record<string, unknown>) => {
       const label = React.useRef(String(props.content)).current;
+      const latest = React.useRef(props);
+      latest.current = props;
+      const version = React.useRef({}).current;
+      React.useEffect(() => {
+        const publish = props.onPersistenceControllerChange as
+          | ((controller: unknown) => void)
+          | undefined;
+        publish?.({
+          version,
+          flushLatest: async () => {
+            const save = latest.current.onSaveContent as (
+              content: string,
+            ) => Promise<string>;
+            return (await save(String(latest.current.content))) !== "failed";
+          },
+        });
+        return () => publish?.(null);
+      }, [props.onPersistenceControllerChange, version]);
+
       mocks.editors.set(label, props);
       // Like the real editor: newer text saved elsewhere is merged into the
       // text it holds as soon as it arrives.
