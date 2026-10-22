@@ -432,6 +432,54 @@ describe("runPrototypeNavigationTransition", () => {
     destinationFrame.remove();
   });
 
+  it("starts an opaque changed destination on load and releases the staged exit", async () => {
+    frame.dataset.screenIframeId = "source";
+    const destinationFrame = document.createElement("iframe");
+    destinationFrame.dataset.anPrototypePreview = "";
+    destinationFrame.dataset.screenIframeId = "target";
+    destinationFrame.setAttribute("srcdoc", "<p>old</p>");
+    const destinationAnimation = deferredAnimation();
+    const destinationAnimate = vi.fn(() => destinationAnimation.animation);
+    Object.defineProperty(destinationFrame, "animate", {
+      configurable: true,
+      value: destinationAnimate,
+    });
+    Object.defineProperty(destinationFrame, "contentDocument", {
+      configurable: true,
+      value: { readyState: "complete", URL: "about:srcdoc" },
+    });
+    document.body.append(destinationFrame);
+
+    const update = vi.fn(() => {
+      destinationFrame.setAttribute("srcdoc", "<p>new</p>");
+      Object.defineProperty(destinationFrame, "contentDocument", {
+        configurable: true,
+        value: null,
+      });
+    });
+    expect(
+      runPrototypeNavigationTransition(dissolve, update, document, {
+        sourceFrame: frame,
+        destinationFrameId: "target",
+      }),
+    ).toBe("animated");
+
+    animations[0]!.finish();
+    await Promise.resolve();
+    expect(update).toHaveBeenCalledOnce();
+    expect(animations[0]!.cancel).not.toHaveBeenCalled();
+    expect(destinationAnimate).not.toHaveBeenCalled();
+
+    destinationFrame.dispatchEvent(new Event("load"));
+
+    expect(animations[0]!.cancel).toHaveBeenCalledOnce();
+    expect(destinationAnimate).toHaveBeenCalledWith(
+      [{ opacity: 0 }, { opacity: 1 }],
+      { duration: 210, easing: "ease-in-out", fill: "both" },
+    );
+    destinationFrame.remove();
+  });
+
   it("does not wait for a load event from an opaque unchanged destination", async () => {
     frame.dataset.screenIframeId = "source";
     const destinationFrame = document.createElement("iframe");

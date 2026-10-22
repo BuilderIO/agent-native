@@ -168,6 +168,7 @@ function getFrameDocumentLoadState(
   frame: HTMLIFrameElement,
   previousDocument: Document | null,
   sourceChanged: boolean,
+  loadEventObserved = false,
 ): FrameDocumentLoadState {
   const isSrcdoc = frame.hasAttribute("srcdoc");
   const src = isSrcdoc ? null : frame.getAttribute("src");
@@ -175,7 +176,9 @@ function getFrameDocumentLoadState(
   if (src !== null && !URL.canParse(src, baseURI)) return "invalid-source";
 
   const current = frame.contentDocument;
-  if (current === null) return sourceChanged ? "pending" : "loaded";
+  if (current === null) {
+    return sourceChanged && !loadEventObserved ? "pending" : "loaded";
+  }
   if (
     current.readyState !== "complete" ||
     (sourceChanged && current === previousDocument)
@@ -260,6 +263,7 @@ function animateEntry(
       frame,
       previousDocument,
       sourceChanged,
+      true,
     );
     if (loadState === "pending") return;
 

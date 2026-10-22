@@ -1395,6 +1395,72 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it.each([
+    ["framework-bound", 'x-bind:media="query"'],
+    ["handler-bearing", 'x-init="ready = true"'],
+  ])(
+    "checks opacity transitions in %s style blocks when importing animation",
+    (_kind, styleAttribute) => {
+      const source = `<!doctype html>
+<html>
+<head>
+  <style>
+.hero {
+  animation-name: hero-fade;
+  animation-duration: 900ms;
+  animation-fill-mode: both;
+}
+@keyframes hero-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+  </style>
+  <style ${styleAttribute}>
+.hero { transition: opacity 1s; }
+  </style>
+</head>
+<body><h1 class="hero" data-agent-native-node-id="hero-css">Hello</h1></body>
+</html>`;
+
+      expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+        status: "invalid",
+        error: {
+          code: "unsupported-authored-motion",
+          message: expect.stringContaining("CSS transitions overlap"),
+        },
+      });
+    },
+  );
+
+  it("keeps non-conflicting CSS transitions separate from imported Motion properties", () => {
+    const source = `<!doctype html>
+<html>
+<head>
+  <style>
+.hero {
+  animation-name: hero-fade;
+  animation-duration: 900ms;
+  animation-fill-mode: both;
+}
+@keyframes hero-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+  </style>
+  <style>
+.hero { transition: color 1s; }
+  </style>
+</head>
+<body><h1 class="hero" data-agent-native-node-id="hero-css">Hello</h1></body>
+</html>`;
+
+    expect(readMotionHtmlSource(source, "index.html")).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-css"],
+      document: { tracks: [{ targetNodeId: "hero-css", property: "opacity" }] },
+    });
+  });
+
   it("fails closed when linked CSS can change an inline animation", () => {
     const source = `<!doctype html>
 <html>

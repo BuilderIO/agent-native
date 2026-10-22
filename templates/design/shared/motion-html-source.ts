@@ -1653,24 +1653,12 @@ function staticAuthoredHtmlStyleContents(
   source: string,
   nodes: readonly HtmlNode[],
 ): string[] {
-  const dynamicStyleAttribute = (name: string) => {
-    const normalized = name.toLowerCase();
-    return (
-      (normalized.startsWith("x-") && normalized !== "x-cloak") ||
-      (normalized.startsWith("v-") && normalized !== "v-cloak") ||
-      (normalized.startsWith("ng-") && normalized !== "ng-cloak") ||
-      normalized.startsWith(":")
-    );
-  };
-
   return nodes.flatMap((node) => {
     if (
       node.tagName !== "style" ||
       node.insideTemplate ||
       !isPotentialCssStyle(node) ||
-      attributes(node, MANAGED_STYLE_ATTRIBUTE).length > 0 ||
-      hasPotentialRuntimeMutationHandler(node.attrs) ||
-      node.attrs?.some(({ name }) => dynamicStyleAttribute(name))
+      attributes(node, MANAGED_STYLE_ATTRIBUTE).length > 0
     ) {
       return [];
     }
