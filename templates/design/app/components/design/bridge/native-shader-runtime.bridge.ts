@@ -149,6 +149,12 @@ import {
   type NativeDeviceScope,
 } from "./native-device-lifecycle";
 import {
+  isNativeElement,
+  isNativeHtmlElement,
+  isNativeHtmlTag,
+  isNativeSvgRoot,
+} from "./native-dom";
+import {
   planNativeChainedEffectExtent,
   planNativeFillPresentationExtent,
   type NativeEffectExtentPlan,
@@ -268,6 +274,10 @@ import {
   attachNativeScenePresentationCanvas,
   supportsNativeSceneBodyTransform,
 } from "./native-scene-body-transform";
+import {
+  isNativeScenePresentationElement,
+  type NativeScenePresentationElement,
+} from "./native-scene-presentation-element";
 import {
   NativeSimulationTimelineError,
   planNativeSimulationSteps,
@@ -1042,19 +1052,11 @@ function awaitInputDecode<T>(
   });
 }
 
-type NativeScenePresentationElement = HTMLElement | SVGSVGElement;
-
-function isNativeScenePresentationElement(
-  element: Element,
-): element is NativeScenePresentationElement {
-  return element instanceof HTMLElement || element instanceof SVGSVGElement;
-}
-
 export function nativePresentationTargetLayout(
   target: HTMLElement | SVGSVGElement,
 ) {
   const style = getComputedStyle(target);
-  if (target instanceof HTMLElement)
+  if (isNativeHtmlElement(target))
     return {
       width: target.offsetWidth,
       height: target.offsetHeight,
@@ -1067,7 +1069,7 @@ export function nativePresentationTargetLayout(
       scale: style.scale,
     };
   const parent = target.parentElement;
-  if (!(parent instanceof HTMLElement))
+  if (!isNativeHtmlElement(parent))
     throw new NativeSourceError(
       "source-inline-svg",
       "A native SVG target needs an HTML parent.",
@@ -1099,12 +1101,11 @@ class NativeShaderRuntime {
   readonly epoch = createNativeRuntimeEpoch();
   private readonly exportInitialPixelRatio: number | null;
   constructor(private readonly runtimeScript: Node | null) {
-    const encoded =
-      runtimeScript instanceof HTMLScriptElement
-        ? runtimeScript.getAttribute(
-            "data-agent-native-export-initial-pixel-ratio",
-          )
-        : null;
+    const encoded = isNativeHtmlTag(runtimeScript, "script")
+      ? runtimeScript.getAttribute(
+          "data-agent-native-export-initial-pixel-ratio",
+        )
+      : null;
     if (encoded === null) this.exportInitialPixelRatio = null;
     else {
       const ratio = Number(encoded);
@@ -1120,10 +1121,9 @@ class NativeShaderRuntime {
         );
       this.exportInitialPixelRatio = ratio;
     }
-    const encodedEpoch =
-      runtimeScript instanceof HTMLScriptElement
-        ? runtimeScript.getAttribute("data-agent-native-animation-epoch-ms")
-        : null;
+    const encodedEpoch = isNativeHtmlTag(runtimeScript, "script")
+      ? runtimeScript.getAttribute("data-agent-native-animation-epoch-ms")
+      : null;
     if (encodedEpoch !== null) {
       const epoch = Number(encodedEpoch);
       if (
@@ -5568,7 +5568,7 @@ class NativeShaderRuntime {
           ) &&
           nativeWorkerSupportsInputResources(
             planNativeInputResources(definition, instance),
-            target instanceof SVGSVGElement,
+            isNativeSvgRoot(target),
           ),
       );
     if (workerCapable) {
@@ -5972,7 +5972,7 @@ class NativeShaderRuntime {
   ): boolean {
     for (
       let sibling = target.nextElementSibling;
-      sibling instanceof HTMLCanvasElement;
+      isNativeHtmlTag(sibling, "canvas");
       sibling = sibling.nextElementSibling
     ) {
       if (sibling === canvas) return true;
@@ -6010,7 +6010,7 @@ class NativeShaderRuntime {
     let insertionPoint: Element = target;
     if (instance.placement === "backdrop")
       while (
-        insertionPoint.nextElementSibling instanceof HTMLCanvasElement &&
+        isNativeHtmlTag(insertionPoint.nextElementSibling, "canvas") &&
         insertionPoint.nextElementSibling !== canvas &&
         insertionPoint.nextElementSibling.hasAttribute(
           "data-an-native-backdrop-presentation",
@@ -7638,7 +7638,7 @@ class NativeShaderRuntime {
           [uploadWidth, uploadHeight],
         );
       } catch (directError) {
-        if (scale >= 1 && !(record.source instanceof HTMLImageElement)) {
+        if (scale >= 1 && !isNativeHtmlTag(record.source, "img")) {
           throw new NativeSourceError(
             "source-gpu-upload",
             `A ${record.kind} source could not be uploaded to WebGPU: ${String(directError)}`,
@@ -11017,7 +11017,7 @@ class NativeShaderRuntime {
       scene.every(
         (record) =>
           record.kind === "image" &&
-          record.source instanceof HTMLImageElement &&
+          isNativeHtmlTag(record.source, "img") &&
           !!record.imageSourceUrl &&
           (record.source.currentSrc || record.source.src) ===
             record.imageSourceUrl,
@@ -11906,10 +11906,12 @@ class NativeShaderRuntime {
         `The camera input is ${state}.`,
       );
     }
-    const width =
-      source instanceof HTMLVideoElement ? source.videoWidth : source.width;
-    const height =
-      source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+    const width = isNativeHtmlTag(source, "video")
+      ? source.videoWidth
+      : source.width;
+    const height = isNativeHtmlTag(source, "video")
+      ? source.videoHeight
+      : source.height;
     if (
       !Number.isSafeInteger(width) ||
       !Number.isSafeInteger(height) ||
@@ -12166,7 +12168,7 @@ class NativeShaderRuntime {
         binding.kind === "builtin" && binding.source === "receiver-interior",
     );
     const svgInterior =
-      receiverInteriorRequested && mount.target instanceof SVGSVGElement;
+      receiverInteriorRequested && isNativeSvgRoot(mount.target);
     const receiverGeometry =
       receiverGeometryRequested || svgInterior
         ? await this.receiverGeometryTextures(mount, svgInterior)
@@ -12734,7 +12736,7 @@ class NativeShaderRuntime {
 
   private async textMask(mount: Mount): Promise<GPUTexture> {
     if (mount.instance.clip !== "text") return this.white!;
-    if (!(mount.target instanceof HTMLElement))
+    if (!isNativeHtmlElement(mount.target))
       throw new NativeSourceError(
         "source-inline-svg",
         "An SVG Fill uses vector paint coverage rather than a text mask.",
@@ -13797,7 +13799,7 @@ class NativeShaderRuntime {
     authoredSourceEpoch: number,
   ): Promise<GPUTexture> {
     const ancestor = parent.target;
-    if (!(ancestor instanceof HTMLElement))
+    if (!isNativeHtmlElement(ancestor))
       throw new NativeSourceError(
         "source-inline-svg",
         "An SVG Fill cannot contain a nested HTML Backdrop.",
@@ -16483,7 +16485,7 @@ class NativeShaderRuntime {
       if (
         mount.instance.placement !== "fill" ||
         mount.instance.clip === "text" ||
-        !(mount.target instanceof HTMLElement) ||
+        !isNativeHtmlElement(mount.target) ||
         !mount.provider ||
         !this.hasPresentationGeometry(mount.target) ||
         this.offscreen(mount) ||
@@ -16496,7 +16498,7 @@ class NativeShaderRuntime {
         style.boxShadow === "none" &&
         (style.outlineStyle === "none" || style.outlineWidth === "0px") &&
         [...mount.target.childNodes].every((node) =>
-          node instanceof Element
+          isNativeElement(node)
             ? node.hasAttribute("data-an-native-canvas")
             : node.nodeType !== Node.TEXT_NODE || !node.textContent?.trim(),
         )
@@ -22686,7 +22688,7 @@ class NativeShaderRuntime {
       return;
     }
     for (const record of authoredRecords) {
-      if (record.type !== "attributes" || !(record.target instanceof Element))
+      if (record.type !== "attributes" || !isNativeElement(record.target))
         continue;
       for (const mount of this.mounts.values())
         if (
@@ -22773,7 +22775,7 @@ class NativeShaderRuntime {
       subtree: true,
     });
     const affectsEffects = (node: Node): boolean => {
-      if (!(node instanceof Element)) return false;
+      if (!isNativeElement(node)) return false;
       return (
         node.matches(
           `script[type="${SCRIPT_TYPE}"],[data-agent-native-node-id]`,
@@ -22792,12 +22794,12 @@ class NativeShaderRuntime {
             );
           if (record.type === "attributes")
             return (
-              record.target instanceof Element &&
-              (record.target instanceof HTMLScriptElement ||
+              isNativeElement(record.target) &&
+              (isNativeHtmlTag(record.target, "script") ||
                 record.attributeName === "data-agent-native-node-id")
             );
           if (
-            record.target instanceof HTMLScriptElement &&
+            isNativeHtmlTag(record.target, "script") &&
             record.target.type === SCRIPT_TYPE
           )
             return true;
