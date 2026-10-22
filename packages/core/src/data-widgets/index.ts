@@ -170,6 +170,7 @@ function isString(value: unknown): value is string {
 }
 
 const MAX_DATA_CHART_AXIS_TICKS = 100;
+export const DATA_WIDGET_MAX_CHART_POINTS = 200;
 
 function numericWidgetValue(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -190,7 +191,9 @@ function hasBoundedValueAxisTicks(chart: Record<string, unknown>): boolean {
   }
 
   const series = Array.isArray(chart.series) ? chart.series : [];
-  const rows = Array.isArray(chart.data) ? chart.data : [];
+  const rows = Array.isArray(chart.data)
+    ? chart.data.slice(0, DATA_WIDGET_MAX_CHART_POINTS)
+    : [];
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
 
@@ -525,7 +528,6 @@ export function isDataWidgetResult(value: unknown): value is DataWidgetResult {
 }
 
 export const DATA_WIDGET_MAX_ROWS = 50;
-export const DATA_WIDGET_MAX_CHART_POINTS = 200;
 
 export function clampDataWidgetRows(
   result: DataWidgetResult,

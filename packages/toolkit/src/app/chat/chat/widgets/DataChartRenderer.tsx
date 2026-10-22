@@ -39,16 +39,14 @@ function formatTick(value: number): string {
 }
 
 function formatAxisTick(value: number, interval: number): string {
-  let decimalPlaces = 0;
-  while (
-    decimalPlaces < 12 &&
-    Math.abs(
-      interval * 10 ** decimalPlaces -
-        Math.round(interval * 10 ** decimalPlaces),
-    ) > 1e-9
-  ) {
-    decimalPlaces += 1;
-  }
+  const [mantissa, exponent = "0"] = interval
+    .toString()
+    .toLowerCase()
+    .split("e");
+  const decimalPlaces = Math.min(
+    12,
+    Math.max(0, (mantissa.split(".")[1]?.length ?? 0) - Number(exponent)),
+  );
   if (Math.abs(value) >= 1000) {
     return value.toLocaleString(undefined, {
       minimumFractionDigits: decimalPlaces,
@@ -112,6 +110,48 @@ function ChartBody({
   }
   const { min, max } = rangeFor(chart);
   const isHorizontalBar = chart.type === "bar" && chart.layout === "horizontal";
+  const tickInterval = chart.valueAxisTickInterval;
+  const gridTickValues =
+    tickInterval === undefined
+      ? Array.from({ length: 4 }, (_, index) => min + ((max - min) * index) / 3)
+      : (() => {
+          if (!Number.isFinite(tickInterval) || tickInterval < 1e-12) {
+            throw new Error(
+              "Chart value-axis interval must be finite and positive",
+            );
+          }
+          if (!Number.isFinite(max - min)) {
+            throw new Error("Chart value-axis range must be finite");
+          }
+          const firstTick = Math.ceil(min / tickInterval - 1e-9);
+          const lastTick = Math.floor(max / tickInterval + 1e-9);
+          const tickCount = lastTick - firstTick + 1;
+          if (
+            !Number.isSafeInteger(firstTick) ||
+            !Number.isSafeInteger(lastTick) ||
+            !Number.isSafeInteger(tickCount) ||
+            tickCount <= 0 ||
+            tickCount > 100
+          ) {
+            throw new Error("Chart value-axis interval exceeds the tick limit");
+          }
+          return Array.from(
+            { length: tickCount },
+            (_, index) => (firstTick + index) * tickInterval,
+          );
+        })();
+  const customValueTickWidth =
+    !isHorizontalBar && tickInterval !== undefined
+      ? Math.max(
+          0,
+          ...gridTickValues.map((value) =>
+            estimateTextWidth(
+              formatAxisTick(value, tickInterval),
+              labelFontSize,
+            ),
+          ),
+        )
+      : 0;
   const horizontalCategoryWidth = isHorizontalBar
     ? Math.max(
         0,
@@ -161,7 +201,7 @@ function ChartBody({
   const margin = {
     ...MARGIN,
     left:
-      categoryMargin +
+      Math.max(categoryMargin, customValueTickWidth + 16) +
       (horizontalNegativeValueWidth > 0
         ? horizontalNegativeValueWidth + 13
         : 0),
@@ -180,36 +220,6 @@ function ChartBody({
       : margin.left + (index / (chart.data.length - 1)) * plotWidth;
   const yForRow = (index: number) =>
     margin.top + ((index + 0.5) * plotHeight) / Math.max(1, chart.data.length);
-  const tickInterval = chart.valueAxisTickInterval;
-  const gridTickValues =
-    tickInterval === undefined
-      ? Array.from({ length: 4 }, (_, index) => min + ((max - min) * index) / 3)
-      : (() => {
-          if (!Number.isFinite(tickInterval) || tickInterval < 1e-12) {
-            throw new Error(
-              "Chart value-axis interval must be finite and positive",
-            );
-          }
-          if (!Number.isFinite(max - min)) {
-            throw new Error("Chart value-axis range must be finite");
-          }
-          const firstTick = Math.ceil(min / tickInterval - 1e-9);
-          const lastTick = Math.floor(max / tickInterval + 1e-9);
-          const tickCount = lastTick - firstTick + 1;
-          if (
-            !Number.isSafeInteger(firstTick) ||
-            !Number.isSafeInteger(lastTick) ||
-            !Number.isSafeInteger(tickCount) ||
-            tickCount <= 0 ||
-            tickCount > 100
-          ) {
-            throw new Error("Chart value-axis interval exceeds the tick limit");
-          }
-          return Array.from(
-            { length: tickCount },
-            (_, index) => (firstTick + index) * tickInterval,
-          );
-        })();
   const gridTicks = gridTickValues.map((value) => ({
     value,
     x: xForValue(value),
@@ -375,7 +385,7 @@ function ChartBody({
               ? Math.max(2, Math.abs(valueX - zeroX))
               : Math.max(2, barSize - 2);
             const height = isHorizontalBar
-              ? Math.max(2, barSize - 2)
+              ? Math.max(0, barSize - Math.min(2, barSize * 0.1))
               : Math.max(1, Math.abs(zeroY - valueY));
             return (
               <g key={`${rowIndex}-${series.key}`}>

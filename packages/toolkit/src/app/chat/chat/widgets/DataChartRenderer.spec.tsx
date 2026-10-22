@@ -169,6 +169,82 @@ describe("DataChartRenderer theme colors", () => {
     expect(numericLabels).toEqual(["0.0", "0.3", "0.6"]);
   });
 
+  it("formats very small custom intervals without collapsing labels to zero", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Monday", value: 0 },
+            { day: "Tuesday", value: 3e-10 },
+          ],
+          valueAxisTickInterval: 1e-10,
+        }}
+      />,
+    );
+
+    expect(markup).toContain(">0.0000000001</text>");
+  });
+
+  it("reserves room for custom decimal value-axis labels", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: 0.0003 }],
+          valueAxisTickInterval: 0.0001,
+        }}
+      />,
+    );
+    const tickLabels = Array.from(
+      markup.matchAll(/<text x="([\d.]+)"[^>]*>(0\.000[123])<\/text>/g),
+      (match) => ({ x: Number(match[1]), label: match[2] }),
+    );
+
+    expect(tickLabels).toHaveLength(3);
+    expect(tickLabels.every(({ x }) => x >= 50)).toBe(true);
+  });
+
+  it("keeps tightly packed horizontal bars within their category slots", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [
+            { key: "first", label: "First" },
+            { key: "second", label: "Second" },
+          ],
+          data: Array.from({ length: 10 }, (_, index) => ({
+            day: `Day ${index}`,
+            first: 1,
+            second: 2,
+          })),
+          horizontalCategoryGapRatio: 0.9,
+        }}
+      />,
+    );
+    const bars = Array.from(
+      markup.matchAll(
+        /<rect x="[^"]+" y="([\d.]+)" width="[^"]+" height="([\d.]+)"/g,
+      ),
+      (match) => ({ y: Number(match[1]), height: Number(match[2]) }),
+    );
+
+    expect(bars).toHaveLength(20);
+    expect(
+      bars.every(
+        (bar, index) =>
+          index === 0 || bars[index - 1].y + bars[index - 1].height <= bar.y,
+      ),
+    ).toBe(true);
+  });
+
   it("keeps four automatic value-axis ticks when no step is set", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer

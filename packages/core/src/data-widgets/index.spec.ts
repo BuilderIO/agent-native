@@ -217,6 +217,26 @@ describe("data widget helpers", () => {
     ).toBe(false);
   });
 
+  it("validates value-axis ticks against chart rows that remain after clamping", () => {
+    const data = Array.from(
+      { length: DATA_WIDGET_MAX_CHART_POINTS },
+      (_, index) => ({
+        day: `Day ${index}`,
+        value: index === 0 ? 1 : 2,
+      }),
+    );
+
+    expect(
+      dataChartWidgetSchema.safeParse({
+        type: "line",
+        xKey: "day",
+        series: [{ key: "value", label: "Value" }],
+        data: [...data, { day: "Outlier", value: 10 }],
+        valueAxisTickInterval: 5,
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects chart presentation values outside the supported range", () => {
     const baseChart = {
       type: "bar" as const,
