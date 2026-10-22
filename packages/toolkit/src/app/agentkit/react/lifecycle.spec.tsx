@@ -185,7 +185,7 @@ describe("AgentChat lifecycle", () => {
     });
     const tree = mount();
 
-    await tree.render(
+    const renderChat = (enablePostWidgetText: boolean) => (
       <AgentKitProvider
         controller={observable.controller}
         threadId={threadId}
@@ -218,15 +218,20 @@ describe("AgentChat lifecycle", () => {
       >
         <AgentKitChat
           composer={false}
-          transcriptLayout={{
-            postWidgetText: {
-              tone: "muted",
-              paragraphPaddingBlock: 4,
-            },
-          }}
+          transcriptLayout={
+            enablePostWidgetText
+              ? {
+                  postWidgetText: {
+                    tone: "muted",
+                    paragraphPaddingBlock: 4,
+                  },
+                }
+              : undefined
+          }
         />
-      </AgentKitProvider>,
+      </AgentKitProvider>
     );
+    await tree.render(renderChat(true));
 
     const content = tree.container.querySelector(
       `[data-message-id="${message.id}"] .agentkit-message-content`,
@@ -252,6 +257,16 @@ describe("AgentChat lifecycle", () => {
     expect(transcriptContent?.getAttribute("style")).toContain(
       "--agentkit-transcript-post-widget-paragraph-padding-block: 4px",
     );
+
+    await tree.render(renderChat(false));
+    const defaultContent = tree.container.querySelector(
+      `[data-message-id="${message.id}"] .agentkit-message-content`,
+    );
+    expect(
+      [...(defaultContent?.children ?? [])].some((element) =>
+        element.hasAttribute("data-post-widget-text"),
+      ),
+    ).toBe(false);
     await tree.unmount();
   });
 

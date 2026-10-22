@@ -3809,11 +3809,15 @@ export function AgentMessageActions({
   );
 }
 
+const AgentKitPostWidgetTextContext =
+  createContext<AgentChatTranscriptLayout["postWidgetText"]>(undefined);
+
 export function AgentMessageView({
   value: message,
   threadId,
 }: AgentKitRenderProps<AgentMessage>) {
   const { labels, slots, resolveMessageContentOrder } = useAgentKit();
+  const postWidgetText = useContext(AgentKitPostWidgetTextContext);
   const thread = useAgentThread(threadId);
   const visibleMessage = stripAgentMessageContext(message);
   const Supplement = slots.messageSupplement;
@@ -3867,6 +3871,7 @@ export function AgentMessageView({
         {orderedContent.map((item, index) => {
           const followsWidget =
             message.role === "assistant" &&
+            postWidgetText !== undefined &&
             hasSeenWidget &&
             item.type === "part" &&
             item.part.type === "text";
@@ -5710,7 +5715,11 @@ export function AgentKitChat({
               {!hasConversation && EmptyState ? (
                 <EmptyState threadId={threadId} />
               ) : null}
-              {transcriptItems}
+              <AgentKitPostWidgetTextContext.Provider
+                value={transcriptLayout?.postWidgetText}
+              >
+                {transcriptItems}
+              </AgentKitPostWidgetTextContext.Provider>
               {approvalEntries.map(([approvalId, request]) => (
                 <AgentKitSurfaceBoundary
                   key={`${threadId}:${approvalId}`}
