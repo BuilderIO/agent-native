@@ -5,6 +5,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AgentChatDataChartLayout } from "../../../agentkit/react/data-chart-layout.js";
 import { createToolkitI18nCatalog } from "../../../i18n.js";
 import type {
   DataWidgetAction,
@@ -27,6 +28,7 @@ vi.mock("../../../../hooks/use-toast.js", () => ({ toast: mocks.toast }));
 vi.mock("./DataChartRenderer.js", () => ({
   DataChartRenderer: ({
     chart,
+    layout,
   }: {
     chart: {
       contentHeight?: number;
@@ -34,6 +36,7 @@ vi.mock("./DataChartRenderer.js", () => ({
       labelFontFamily?: string;
       labelFontSize?: number;
     };
+    layout?: AgentChatDataChartLayout;
   }) => (
     <div
       data-testid="chart-surface"
@@ -41,6 +44,8 @@ vi.mock("./DataChartRenderer.js", () => ({
       data-content-padding={chart.contentPadding}
       data-label-font-family={chart.labelFontFamily}
       data-label-font-size={chart.labelFontSize}
+      data-layout-label-font-family={layout?.labelFontFamily}
+      data-layout-label-font-size={layout?.labelFontSize}
     />
   ),
 }));
@@ -74,6 +79,7 @@ async function renderWidget(
   sampled = false,
   chartDataCount = 1,
   truncated = false,
+  layout?: AgentChatDataChartLayout,
 ) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -115,6 +121,7 @@ async function renderWidget(
             ],
             actions: displayActions,
           }}
+          layout={layout}
         />
       </AgentNativeI18nProvider>,
     );
@@ -184,6 +191,61 @@ describe("DataChartWidget display contract", () => {
 
     expect(window.location.pathname).toBe("/mounted/reports/1");
     expect(window.location.search).toBe("?tab=chart");
+  });
+
+  it("opts into responsive chart sizing and quiet controls", async () => {
+    const container = await renderWidget(
+      [
+        {
+          id: "explore",
+          label: "Explore",
+          href: "/explore",
+          icon: "explore",
+          presentation: "icon",
+        },
+      ],
+      undefined,
+      false,
+      1,
+      false,
+      {
+        maxWidth: 720,
+        labelFontFamily: "IBM Plex Sans",
+        labelFontSize: 14,
+        titleFontFamily: "IBM Plex Sans",
+        titleFontSize: 14,
+        titleFontWeight: 400,
+        titleLineHeight: 20,
+        titleTone: "muted",
+        actionsVariant: "quiet",
+      },
+    );
+    const card = container.querySelector<HTMLElement>(".my-4");
+    const title = card?.querySelector<HTMLElement>(".border-b .min-w-0");
+    const chart = container.querySelector<HTMLElement>(
+      '[data-testid="chart-surface"]',
+    );
+    const primary = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Open report"),
+    );
+    const explore = container.querySelector<HTMLAnchorElement>(
+      'a[aria-label="Explore"]',
+    );
+
+    expect(card?.style.width).toBe("100%");
+    expect(card?.style.maxWidth).toBe("720px");
+    expect(card?.style.marginInline).toBe("auto");
+    expect(title?.style.fontFamily).toBe("IBM Plex Sans");
+    expect(title?.style.fontSize).toBe("14px");
+    expect(title?.style.fontWeight).toBe("400");
+    expect(title?.style.lineHeight).toBe("20px");
+    expect(title?.classList.contains("text-muted-foreground")).toBe(true);
+    expect(chart?.dataset.layoutLabelFontFamily).toBe("IBM Plex Sans");
+    expect(chart?.dataset.layoutLabelFontSize).toBe("14");
+    expect(primary?.classList.contains("border")).toBe(false);
+    expect(explore?.classList.contains("border")).toBe(false);
+    expect(explore?.classList.contains("size-7")).toBe(true);
+    expect(container.querySelector('[aria-label="Chart actions"]')).toBeNull();
   });
 
   it("announces incomplete chart data and stays quiet for complete data", async () => {

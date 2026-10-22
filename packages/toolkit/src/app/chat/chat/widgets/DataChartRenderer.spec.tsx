@@ -59,6 +59,64 @@ describe("DataChartRenderer theme colors", () => {
     expect(markup).toContain('stroke="hsl(var(--chart-grid, var(--border)))"');
   });
 
+  it("applies app chart sizing, plot insets, typography, and integer tick labels", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "First", value: 0 },
+            { day: "Last", value: 1 },
+          ],
+          valueAxisTickInterval: 0.1,
+        }}
+        layout={{
+          plotInsets: { top: 6, right: 8, bottom: 29 },
+          labelFontFamily: "IBM Plex Sans",
+          labelFontSize: 14,
+          labelTone: "foreground",
+        }}
+      />,
+    );
+
+    expect(markup).toContain('font-family="IBM Plex Sans"');
+    expect(markup).toContain('font-size="14"');
+    expect(markup).toMatch(
+      /<text[^>]*fill="hsl\(var\(--foreground\)\)"[^>]*>First<\/text>/,
+    );
+    expect(markup).toMatch(/<line x1="[^"]+" x2="632" y1="6" y2="6"/);
+    expect(markup).toMatch(/<line x1="[^"]+" x2="632" y1="331" y2="331"/);
+    expect(markup).toContain(">1</text>");
+    expect(markup).not.toContain(">1.0</text>");
+  });
+
+  it("keeps a configured right plot inset while sizing the category labels", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "bar",
+          layout: "horizontal",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [{ day: "Monday", value: 3 }],
+          showValueLabels: true,
+          valueAxisTickInterval: 0.2,
+        }}
+        layout={{ plotInsets: { right: 8 } }}
+      />,
+    );
+
+    expect(markup).toContain('x1="632" x2="632" y1="14" y2="326"');
+    expect(markup).toContain('fill="hsl(var(--muted-foreground))"');
+    const maximumBarValueLabel = markup.match(
+      /<text x="([\d.]+)" y="[^"]+" fill="hsl\(var\(--muted-foreground\)\)" font-size="11" font-weight="400" text-anchor="start">3<\/text>/,
+    );
+    expect(maximumBarValueLabel).not.toBeNull();
+    expect(Number(maximumBarValueLabel?.[1]) + 8).toBeLessThanOrEqual(632);
+  });
+
   it("uses the requested chart content height", () => {
     const markup = renderToStaticMarkup(
       <DataChartRenderer chart={{ ...chart, contentHeight: 400 }} />,

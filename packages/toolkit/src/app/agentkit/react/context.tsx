@@ -43,6 +43,7 @@ import {
   type ReactNode,
 } from "react";
 
+import type { AgentChatDataChartLayout } from "./data-chart-layout.js";
 import type { AgentMessageContentOrderResolver } from "./message-content-order.js";
 import type { AgentChatWorkedForRowLayout } from "./transcript-layout.js";
 
@@ -498,6 +499,7 @@ export interface AgentKitProviderProps {
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
@@ -530,6 +532,7 @@ export interface AgentKitContextValue {
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
   requestComposerFocus: (threadId: ThreadId) => void;
@@ -553,6 +556,7 @@ export function AgentKitProvider({
   onRenderError,
   resolveMessageContentOrder,
   workedForRowLayout,
+  dataChartLayout,
   formatWorkedForDuration,
   onClientEffect,
   children,
@@ -622,6 +626,7 @@ export function AgentKitProvider({
       onRenderError,
       resolveMessageContentOrder,
       workedForRowLayout,
+      dataChartLayout,
       formatWorkedForDuration,
       registerComposerFocus,
       requestComposerFocus,
@@ -642,6 +647,7 @@ export function AgentKitProvider({
       onRenderError,
       resolveMessageContentOrder,
       workedForRowLayout,
+      dataChartLayout,
       formatWorkedForDuration,
       registerComposerFocus,
       requestComposerFocus,
