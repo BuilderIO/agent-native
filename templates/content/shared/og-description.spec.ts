@@ -245,6 +245,7 @@ const flag = true;
       "---\ntitle: Draft\nsta",
       "---\n# Metadata\ntags:\n  - ne",
       "---\n# Metadata\n# Owner and tags follow",
+      '---\ntitle: Draft\n"og:ti',
     ]) {
       expect(buildDocumentExcerpt({ content, truncated: true })).toBe("");
     }
@@ -255,6 +256,20 @@ const flag = true;
         truncated: true,
       }),
     ).toBe("Note: this matters The body goes on. And...");
+    // A cut line of prose doesn't count, even one that looks like a key.
+    expect(
+      buildDocumentExcerpt({
+        content: "---\nNote: this matters\nThe body goes on and on",
+        truncated: true,
+      }),
+    ).toBe("Note: this matters The body goes on and...");
+    expect(
+      buildDocumentExcerpt({
+        content: `---\nNote: ${"this matters ".repeat(80)}`,
+        truncated: true,
+        maxLength: 40,
+      }),
+    ).toBe("Note: this matters this matters this...");
   });
 
   it("ends with an ellipsis when the text stops early", () => {

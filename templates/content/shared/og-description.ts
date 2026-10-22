@@ -161,6 +161,8 @@ const FRONTMATTER_LINE = new RegExp(
 const FRONTMATTER_START = new RegExp(
   String.raw`^---[ \t]*\n(?:#|${FRONTMATTER_KEY_SOURCE})`,
 );
+// A key cut before its colon: one word, or a quoted name.
+const FRONTMATTER_KEY_START = /^(?:"[^"\n]*|'[^'\n]*|[^\s#:-][^\s:]*)$/;
 
 /**
  * The markdown after its frontmatter, or null when a prefix ends inside it.
@@ -181,8 +183,15 @@ function stripExcerptFrontmatter(
       return hasKey ? lines.slice(index + 1).join("\n") : markdown;
     }
     if (FRONTMATTER_KEY.test(line)) hasKey = true;
-    // A prefix's last line may be cut short.
-    if (truncated && index === lines.length - 1) break;
+    // A prefix's last line may be cut short. It counts as YAML only after a
+    // whole line, so a single long line of prose isn't taken for frontmatter.
+    if (truncated && index === lines.length - 1) {
+      const couldBeYaml =
+        index > 1 &&
+        (FRONTMATTER_LINE.test(line) || FRONTMATTER_KEY_START.test(line));
+      if (!couldBeYaml) return markdown;
+      break;
+    }
     if (!FRONTMATTER_LINE.test(line)) return markdown;
   }
   // A prefix that has shown only YAML lines may end inside the frontmatter,
