@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
     password: null as string | null,
     expiresAt: null as string | null,
     trashedAt: null as string | null,
+    enableComments: true,
   },
 }));
 const tables = vi.hoisted(() => ({
@@ -106,6 +107,7 @@ describe("list-notifications recording lifecycle", () => {
     state.recording.trashedAt = null;
     state.recording.expiresAt = null;
     state.recording.password = null;
+    state.recording.enableComments = true;
   });
 
   it("withholds a trashed recording's mention from a nonowner", async () => {
@@ -115,6 +117,17 @@ describe("list-notifications recording lifecycle", () => {
       count: 0,
     });
   });
+
+  it.each(["viewer@example.com", "owner@example.com"])(
+    "preserves historical activity with comments disabled for %s",
+    async (email) => {
+      state.email = email;
+      state.recording.enableComments = false;
+      const result = await action.run({ days: 30, limit: 200 });
+      expect(result.items[0]?.preview).toBe("Fake discussion");
+      expect(result.count).toBe(1);
+    },
+  );
 
   it.each([
     { email: "owner@example.com", trashedAt: "2026-01-01T00:00:00Z" },

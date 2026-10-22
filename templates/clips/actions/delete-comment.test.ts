@@ -1,3 +1,4 @@
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type CommentRow = {
@@ -26,10 +27,6 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
-}));
-
-vi.mock("../server/lib/recording-page-access.js", () => ({
-  isRecordingExpiredForViewer: () => false,
 }));
 
 vi.mock("drizzle-orm", async (importOriginal) => ({
@@ -141,12 +138,49 @@ beforeEach(() => {
 });
 
 describe("delete-comment", () => {
+  it.each([
+    { role: "viewer", email: "author@example.com" },
+    { role: "editor", email: "editor@example.com" },
+  ])(
+    "refuses deletion from Trash for a nonowner: %j",
+    async ({ role, email }) => {
+      mockGetUserEmail.mockReturnValue(email);
+      mockAssertAccess.mockResolvedValue({
+        role,
+        resource: { enableComments: true, trashedAt: "2026-01-01T00:00:00Z" },
+      });
+      const originalRows = [...state.rows];
+      await expect(
+        action.run(action.schema.parse({ id: "comment-1" })),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(state.rows).toEqual(originalRows);
+      expect(mockWriteAppState).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, false])(
+    "preserves owner cleanup in Trash with enableComments=%s",
+    async (enableComments) => {
+      mockGetUserEmail.mockReturnValue("owner@example.com");
+      mockAssertAccess.mockResolvedValue({
+        role: "owner",
+        resource: { enableComments, trashedAt: "2026-01-01T00:00:00Z" },
+      });
+      const result = await action.run(action.schema.parse({ id: "comment-1" }));
+      expect(result.deletedCommentIds).toEqual([
+        "comment-1",
+        "comment-1-reply",
+        "comment-1-reply-2",
+      ]);
+    },
+  );
+
   it.each([true, false])(
     "deletes a comment and descendants with enableComments=%s",
     async (enableComments) => {
       mockAssertAccess.mockResolvedValue({
         role: "viewer",
-        resource: { enableComments },
+        resource: { enableComments, trashedAt: null },
       });
       const result = await action.run(action.schema.parse({ id: "comment-1" }));
 
