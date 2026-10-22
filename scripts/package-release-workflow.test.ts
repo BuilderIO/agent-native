@@ -26,7 +26,10 @@ import {
   decodeGitHubContentResponse,
   parseCompletePullRequestFiles,
 } from "./verify-community-qr-release-pin.ts";
-import { assertReleaseOnlyPullRequestFiles } from "./verify-release-package-files.ts";
+import {
+  assertReleaseOnlyPullRequestFiles,
+  extractPullRequestFileNames,
+} from "./verify-release-package-files.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -675,6 +678,23 @@ importers:
     assert.throws(
       () => assertReleaseOnlyPullRequestFiles([], 3_000),
       /endpoint is capped at 3000/,
+    );
+  });
+
+  it("collects filenames from every paginated GitHub file response", () => {
+    assert.deepEqual(
+      extractPullRequestFileNames([
+        [{ filename: ".changeset/release.md" }],
+        [
+          { filename: "package.json" },
+          { filename: "packages/core/CHANGELOG.md" },
+        ],
+      ]),
+      [".changeset/release.md", "package.json", "packages/core/CHANGELOG.md"],
+    );
+    assert.throws(
+      () => extractPullRequestFileNames([[{ filename: 1 }]]),
+      /invalid pull request file list/,
     );
   });
 

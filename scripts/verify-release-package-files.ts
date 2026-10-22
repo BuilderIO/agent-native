@@ -59,6 +59,33 @@ export function assertReleaseOnlyPullRequestFiles(
   return files;
 }
 
+export function extractPullRequestFileNames(pages: unknown): string[] {
+  if (!Array.isArray(pages) || pages.length === 0) {
+    throw new Error("GitHub returned an invalid pull request file list.");
+  }
+
+  const files: string[] = [];
+  for (const page of pages) {
+    if (!Array.isArray(page)) {
+      throw new Error("GitHub returned an invalid pull request file list.");
+    }
+    for (const file of page) {
+      if (
+        file === null ||
+        typeof file !== "object" ||
+        Array.isArray(file) ||
+        !("filename" in file) ||
+        typeof file.filename !== "string"
+      ) {
+        throw new Error("GitHub returned an invalid pull request file list.");
+      }
+      files.push(file.filename);
+    }
+  }
+
+  return files;
+}
+
 function main(): void {
   const repo = process.env.REPO;
   const prNumber = process.env.PR_NUMBER;
@@ -71,16 +98,15 @@ function main(): void {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     }).trim();
-  const files = JSON.parse(
+  const pages = JSON.parse(
     gh([
       "api",
       "--paginate",
       "--slurp",
       `repos/${repo}/pulls/${prNumber}/files`,
-      "--jq",
-      "add | map(.filename)",
     ]),
   ) as unknown;
+  const files = extractPullRequestFileNames(pages);
   const pullRequest = JSON.parse(
     gh(["api", `repos/${repo}/pulls/${prNumber}`]),
   ) as { changed_files?: unknown };
