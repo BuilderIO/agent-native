@@ -26,7 +26,6 @@ import type {
 } from "@shared/motion-native-style";
 import type { MotionTextAnimation } from "@shared/motion-text-code";
 import type { MotionPropertyPreset } from "@shared/motion-timeline";
-import { removeShaderFill } from "@shared/shader-fills";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -234,12 +233,7 @@ import {
 } from "./inspector/color-picker-fill-field";
 import { IconText } from "./inspector/design-icons";
 import { readFillField, showsOpacity } from "./inspector/fill-field-reading";
-import {
-  usePersistShaderEdit,
-  type GlslShaderPanelContext,
-  type ShaderSourceEditResult,
-  type ShaderSourceTransform,
-} from "./inspector/GlslShaderPanel";
+import { useRemoveSavedGlslShader } from "./inspector/saved-glsl-shader";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { MotionAudioTracks } from "./MotionAudioTracks";
 import { MotionCodeView, type MotionCodeInput } from "./MotionCodeView";
@@ -259,6 +253,11 @@ import {
 } from "./multi-screen/screen-sizing";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
+import type {
+  ShaderEditorContext,
+  ShaderSourceEditResult,
+  ShaderSourceTransform,
+} from "./shader-source-coordination";
 import type { StatesPanelProps } from "./StatesPanel";
 import type { ElementInfo, TextEditingState } from "./types";
 
@@ -340,7 +339,7 @@ export function mergeOptimisticInteractionStateStyles(
   return { ...(persisted ?? {}), ...(pending ?? {}) };
 }
 
-const NO_SHADER_CONTEXT: GlslShaderPanelContext = {};
+const NO_SHADER_CONTEXT: ShaderEditorContext = {};
 
 /**
  * The Fill section with its shader removal wired. Removing a shader fill takes
@@ -351,18 +350,14 @@ const NO_SHADER_CONTEXT: GlslShaderPanelContext = {};
 function ShaderAwareFillProperties(
   props: ComponentProps<typeof FillProperties>,
 ) {
-  const { persist } = usePersistShaderEdit(
-    props.glslShaderContext ?? NO_SHADER_CONTEXT,
+  const { remove } = useRemoveSavedGlslShader(
+    props.shaderContext ?? NO_SHADER_CONTEXT,
   );
-  const nodeId = props.glslShaderContext?.nodeId;
+  const nodeId = props.shaderContext?.nodeId;
   return (
     <FillProperties
       {...props}
-      onRemoveShaderFill={
-        nodeId
-          ? () => void persist((html) => removeShaderFill(html, nodeId))
-          : undefined
-      }
+      onRemoveShaderFill={nodeId ? () => void remove("fill") : undefined}
     />
   );
 }
@@ -523,7 +518,6 @@ interface EditPanelProps {
   alignSelectionDisabled?: boolean;
   onInteractionStateChange?: (state: ActiveInteractionState) => void;
   availableInteractionStates?: readonly InteractionState[];
-  onEditCode?: (shaderId: string) => void;
   motionKeyframeState?: {
     hasTimeline: boolean;
     keyframedProperties: readonly string[];
@@ -2268,7 +2262,6 @@ export const EditPanel = memo(function EditPanel({
   onApplyLayoutFlow,
   onInteractionStateChange,
   availableInteractionStates,
-  onEditCode,
   motionKeyframeState,
   onToggleMotionKeyframe,
   motionSelectedTarget,
@@ -2427,7 +2420,7 @@ export const EditPanel = memo(function EditPanel({
   // the active one: a frame drawn on the board lives in the board file.
   const shaderFileId =
     inspectorElement?.sourceLayerIdentity?.screenId ?? fileId;
-  const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
+  const shaderContext: ShaderEditorContext | undefined = useMemo(() => {
     if (!designId || !shaderFileId || selectedCount > 1) return undefined;
     // A screen deleted while selected is gone; reading it would 404.
     if (!files?.some((file) => file.id === shaderFileId)) return undefined;
@@ -2439,7 +2432,6 @@ export const EditPanel = memo(function EditPanel({
       nodeId,
       selector: inspectorElement?.selector,
       onApplied: onShaderSourceApplied,
-      onEditCode,
     };
     if (shaderFileId === boardFileId) {
       // The board is held by the editor and cannot be fetched or written
@@ -2471,7 +2463,6 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.selector,
     onShaderSourceApplied,
     onShaderSourceEdit,
-    onEditCode,
   ]);
   const textContrastContext: TextContrastContext | undefined = useMemo(() => {
     if (selectedCount > 1 || !inspectorElement) return undefined;
@@ -2494,29 +2485,26 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.sourceLayerIdentity?.screenId,
     selectedCount,
   ]);
-  const screenGlslShaderContext: GlslShaderPanelContext | undefined =
-    useMemo(() => {
-      const screenFileId = selectedScreenGeometry?.id;
-      const nodeId = selectedScreenElement?.sourceId;
-      if (!designId || !screenFileId || !nodeId) return undefined;
-      if (!files?.some((file) => file.id === screenFileId)) return undefined;
-      return {
-        designId,
-        fileId: screenFileId,
-        nodeId,
-        selector: selectedScreenElement?.selector,
-        onApplied: onShaderSourceApplied,
-        onEditCode,
-      };
-    }, [
+  const screenShaderContext: ShaderEditorContext | undefined = useMemo(() => {
+    const screenFileId = selectedScreenGeometry?.id;
+    const nodeId = selectedScreenElement?.sourceId;
+    if (!designId || !screenFileId || !nodeId) return undefined;
+    if (!files?.some((file) => file.id === screenFileId)) return undefined;
+    return {
       designId,
-      files,
-      selectedScreenGeometry?.id,
-      selectedScreenElement?.sourceId,
-      selectedScreenElement?.selector,
-      onShaderSourceApplied,
-      onEditCode,
-    ]);
+      fileId: screenFileId,
+      nodeId,
+      selector: selectedScreenElement?.selector,
+      onApplied: onShaderSourceApplied,
+    };
+  }, [
+    designId,
+    files,
+    selectedScreenGeometry?.id,
+    selectedScreenElement?.sourceId,
+    selectedScreenElement?.selector,
+    onShaderSourceApplied,
+  ]);
   const documentColorPalette = useDocumentColorPalette(files);
   const selectedScreenElements = useMemo(
     () => (selectedScreenElement ? [selectedScreenElement] : []),
@@ -3065,7 +3053,7 @@ export const EditPanel = memo(function EditPanel({
                           onStyleChange={onSelectedScreenStyleChange}
                           onStylesChange={onSelectedScreenStylesChange}
                           documentColorPalette={documentColorPalette}
-                          glslShaderContext={screenGlslShaderContext}
+                          shaderContext={screenShaderContext}
                           readSubtreeColorStyles={readSubtreeColorStyles}
                         />
                         <StrokeProperties
@@ -3079,7 +3067,7 @@ export const EditPanel = memo(function EditPanel({
                           element={selectedScreenElement}
                           onStyleChange={onSelectedScreenStyleChange}
                           onStylesChange={onSelectedScreenStylesChange}
-                          glslShaderContext={screenGlslShaderContext}
+                          shaderContext={screenShaderContext}
                         />
                         <SelectionColorsProperties
                           elements={selectedScreenElements}
@@ -3427,7 +3415,7 @@ export const EditPanel = memo(function EditPanel({
                         onStylesChange={onStylesChange}
                         capturedStyleTargets={capturedStyleTargets}
                         documentColorPalette={documentColorPalette}
-                        glslShaderContext={glslShaderContext}
+                        shaderContext={shaderContext}
                         contrastContext={textContrastContext}
                         motionKeyframeContext={motionKeyframeFieldContext}
                         breakpointOverrideContext={
@@ -3454,7 +3442,7 @@ export const EditPanel = memo(function EditPanel({
                       }
                       onStyleChange={onStyleChange}
                       onStylesChange={onStylesChange}
-                      glslShaderContext={glslShaderContext}
+                      shaderContext={shaderContext}
                       motionKeyframeContext={motionKeyframeFieldContext}
                     />
                     {/* The breakpoint control also sits in the Screen section; an

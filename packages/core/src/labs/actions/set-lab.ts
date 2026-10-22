@@ -14,6 +14,11 @@ export default defineAction({
     "Opt the current user into or out of one registered lab. Unset preferences inherit declared legacy flags or use the app-defined default; labs may expose new or unstable features.",
   schema,
   http: { method: "POST" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const email = ctx?.userEmail;
     if (!email) fail("Not authenticated.", { statusCode: 401 });

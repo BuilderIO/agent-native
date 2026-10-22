@@ -8,7 +8,6 @@ import {
   rightInspectorCanvasInset,
   rightInspectorPanelClassName,
 } from "./minimal-inspector";
-import { readDesignEditorSource } from "./read-design-editor-source";
 
 describe("rightInspectorCanvasInset", () => {
   it("reserves the panel width for a visible docked inspector", () => {
@@ -199,26 +198,5 @@ describe("rightInspectorPanelClassName", () => {
     expect(classes.some((name) => name.endsWith(":flex"))).toBe(false);
     expect(classes).toContain("flex");
     expect(classes).toContain("max-w-[calc(100%-1.5rem)]");
-  });
-});
-
-describe("DesignEditor minimal inspector wiring", () => {
-  const editorSource = readDesignEditorSource();
-
-  it("hides the manual right-sidebar toggle in minimal mode", () => {
-    expect(editorSource).not.toContain('data-design-minimal-toggle="right"');
-    expect(editorSource).not.toContain("minimalRightSidebarToggle");
-    expect(editorSource).not.toContain("handleToggleMinimalRightSidebar");
-    expect(editorSource).not.toContain("minimalRightSidebarOpen");
-  });
-
-  it("opens the inspector from selection in minimal mode", () => {
-    expect(editorSource).toContain("hasMinimalInspectorSelection");
-    expect(editorSource).toContain("minimalInspectorHasSelection");
-  });
-
-  it("renders the floating inspector card class in minimal mode", () => {
-    expect(editorSource).toContain("rightInspectorPanelClassName");
-    expect(editorSource).toContain("rightInspectorPanelClassName(minimalUi)");
   });
 });

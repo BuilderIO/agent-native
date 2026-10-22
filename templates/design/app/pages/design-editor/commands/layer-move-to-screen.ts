@@ -14,9 +14,9 @@ import {
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
-import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { LayersPanelMoveIntent } from "@/components/design/LayersPanel";
 import { boardPointToScreenLocalPoint } from "@/components/design/multi-screen/coordinate-transforms";
+import { isShaderWriteInFlight } from "@/components/design/shader-source-coordination";
 import type {
   ElementInfo,
   RuntimeStructureInsertRequest,

@@ -320,13 +320,15 @@ describe("Liquid Metal registered compatibility", () => {
   );
 
   it("validates and classifies every registered version without adding picker entries", () => {
-    expect(
-      validateEffectDocument({
-        schemaVersion: 2,
-        definitions: NATIVE_EFFECT_BUILTIN_VERSIONS,
-        instances: [],
-      }).errors,
-    ).toEqual([]);
+    for (const definition of NATIVE_EFFECT_BUILTIN_VERSIONS) {
+      expect(
+        validateEffectDocument({
+          schemaVersion: 2,
+          definitions: [definition],
+          instances: [],
+        }).errors,
+      ).toEqual([]);
+    }
     expect(nativeEffectAnimationCapability(LIQUID_METAL_V1_EFFECT)).toBe(
       "animated",
     );

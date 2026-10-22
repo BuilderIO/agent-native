@@ -36,6 +36,7 @@ describe("fetchVideoStorageStatus", () => {
       builderConfigured: false,
       builderUploadConfigured: false,
       builderReauthorizationRequired: false,
+      localSqlChunkScratchAvailable: false,
       mode: "none",
       hostedRemaining: 0,
       hostedLimit: 3,
@@ -61,6 +62,24 @@ describe("fetchVideoStorageStatus", () => {
       mode: "hosted",
       hostedRemaining: 2,
       providerError: "hosted_storage_unavailable",
+    });
+  });
+
+  it("preserves local SQL scratch as separate from connected storage", async () => {
+    fetchStatus.mockResolvedValue({
+      configured: false,
+      mode: "none",
+      hostedRemaining: 0,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      localSqlChunkScratchAvailable: true,
+    });
+
+    await expect(fetchVideoStorageStatus()).resolves.toMatchObject({
+      configured: false,
+      mode: "none",
+      localSqlChunkScratchAvailable: true,
     });
   });
 

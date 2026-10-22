@@ -4,6 +4,7 @@ const execute = vi.hoisted(() => vi.fn());
 vi.mock("../db/client.js", () => ({ getDbExec: () => ({ execute }) }));
 
 import { ActionContractError } from "../action.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { requireOrgMember } from "./actions.js";
 
 const member = { userEmail: "member@example.test", orgId: "org-test" };
@@ -54,6 +55,44 @@ describe("requireOrgMember", () => {
       email: member.userEmail,
       orgId: member.orgId,
       role,
+    });
+  });
+
+  it("caps an org-delegated member's owner role for ordinary actions", async () => {
+    execute.mockResolvedValue({ rows: [{ role: "owner" }] });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: member.userEmail,
+          orgId: member.orgId,
+          a2aIdentityAssurance: "org-member",
+        },
+        () => requireOrgMember(member),
+      ),
+    ).resolves.toEqual({
+      email: member.userEmail,
+      orgId: member.orgId,
+      role: "member",
+    });
+  });
+
+  it("denies admin actions to an org-delegated member even if they are an owner", async () => {
+    execute.mockResolvedValue({ rows: [{ role: "owner" }] });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: member.userEmail,
+          orgId: member.orgId,
+          a2aIdentityAssurance: "org-member",
+        },
+        () => requireOrgMember(member, true),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: "forbidden",
+      message: "Organization admin role required.",
     });
   });
 

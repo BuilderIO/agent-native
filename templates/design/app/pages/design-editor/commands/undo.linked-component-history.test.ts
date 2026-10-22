@@ -11,7 +11,7 @@ import { sourceContentHash } from "@shared/source-workspace";
 import { describe, expect, it, vi } from "vitest";
 
 const shaderWrites = vi.hoisted(() => new Set<string>());
-vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+vi.mock("@/components/design/shader-source-coordination", () => ({
   isShaderWriteInFlight: (fileId: string | undefined) =>
     Boolean(fileId && shaderWrites.has(fileId)),
 }));

@@ -10,6 +10,7 @@ import type {
   AuditActorKind,
   AuditApproval,
   AuditEvent,
+  AuditIdentityAssurance,
   AuditQueryFilters,
   AuditVisibility,
 } from "./types.js";
@@ -117,6 +118,12 @@ export const auditStore = defineStore({
         "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS approval TEXT",
       ],
     },
+    {
+      name: "a2a-identity-assurance",
+      sql: [
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS identity_assurance TEXT",
+      ],
+    },
   ],
 });
 
@@ -142,8 +149,8 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
        error_code, owner_email, visibility, run_id, task_id, parent_task_id,
        source_kind, source_platform, source_id, source_url, network_protocol,
        network_id, network_peer, app, reported_client_name,
-       reported_client_version, oauth_client_id, approval)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       reported_client_version, oauth_client_id, approval, identity_assurance)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       event.id,
       event.createdAt,
@@ -177,6 +184,7 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
       event.reportedClientVersion ?? null,
       event.oauthClientId ?? null,
       event.approval ?? null,
+      event.identityAssurance ?? null,
     ].map(storableText),
   });
 }
@@ -252,6 +260,8 @@ function mapRow(row: any): AuditEvent {
     reportedClientVersion: row.reported_client_version ?? null,
     oauthClientId: row.oauth_client_id ?? null,
     approval: (row.approval ?? null) as AuditApproval | null,
+    identityAssurance: (row.identity_assurance ??
+      null) as AuditIdentityAssurance | null,
   };
 }
 
@@ -322,7 +332,7 @@ const LIST_COLUMNS =
   "error_code, owner_email, visibility, app, run_id, task_id, " +
   "parent_task_id, source_kind, source_platform, source_id, source_url, " +
   "network_protocol, network_id, network_peer, reported_client_name, " +
-  "reported_client_version, oauth_client_id, approval";
+  "reported_client_version, oauth_client_id, approval, identity_assurance";
 
 function clampLimit(limit: number | undefined): number {
   return Math.min(Math.max(1, Math.floor(limit ?? DEFAULT_LIMIT)), MAX_LIMIT);

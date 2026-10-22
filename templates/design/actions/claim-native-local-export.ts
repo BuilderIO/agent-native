@@ -40,6 +40,11 @@ export default defineAction({
         errorCode: "native_export_request_not_pending",
         statusCode: 409,
       });
+    if (current.targetDocumentId && current.targetDocumentId !== documentId)
+      fail("This editor document no longer owns the local export.", {
+        errorCode: "native_export_document_replaced",
+        statusCode: 409,
+      });
     const liveSource = await readNativeLocalExportVersion(
       designId,
       current.fileId,

@@ -752,7 +752,7 @@ test("per-anchor radius previews, commits, and survives undo, redo, and reload",
   if (!box) throw new Error("selected vector anchor has no bounds");
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   const radius = page.getByRole("textbox", { name: "Corner radius" });
-  await expect(radius).toHaveValue("0");
+  await expect(radius).toHaveValue("0px");
   await page.waitForTimeout(100);
   expect(contentUpdates).toHaveLength(0);
   expect(await app.savedHtml(designId)).toBe(originalSource);
@@ -761,7 +761,7 @@ test("per-anchor radius previews, commits, and survives undo, redo, and reload",
   expect(contentUpdates).toHaveLength(0);
   expect(await app.savedHtml(designId)).toBe(originalSource);
   await radius.press("Enter");
-  await expect(radius).toHaveValue("14");
+  await expect(radius).toHaveValue("14px");
   await expect
     .poll(() => renderedPath.getAttribute("d"))
     .not.toBe(originalPathData);

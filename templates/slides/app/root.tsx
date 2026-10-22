@@ -9,6 +9,7 @@ import {
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
   getEmbedAuthToken,
+  isEmbedAuthActive,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
@@ -356,6 +357,7 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
+  const sessionBypass = computeSessionBypass(location.pathname);
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
     return <Outlet />;
@@ -368,7 +370,17 @@ export default function Root() {
         skeletonLayout="prompt-library"
         defaultTheme="dark"
         i18n={{ catalog: i18nCatalog }}
-        sessionBypass={computeSessionBypass(location.pathname)}
+        sessionBypass={sessionBypass}
+        unsupportedDevice={
+          sessionBypass || isEmbedAuthActive()
+            ? undefined
+            : {
+                appName: "Slides",
+                subject: isDeckEditorPath(location.pathname)
+                  ? "deck"
+                  : undefined,
+              }
+        }
         skipFirstRunOnboarding={isDeckEditorPath(location.pathname)}
       >
         <AppContent />

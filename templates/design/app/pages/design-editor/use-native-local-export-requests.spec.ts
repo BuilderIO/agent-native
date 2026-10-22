@@ -27,6 +27,7 @@ const request: NativeLocalExportState = {
   requestId: "00000000-0000-4000-8000-000000000001",
   tabId: "tab-1",
   status: "pending",
+  targetDocumentId: DOCUMENT_ID,
   issuedAt: Date.now(),
   expiresAt: Date.now() + 60_000,
 };
@@ -38,6 +39,150 @@ const claimed: NativeLocalExportState = {
 };
 
 describe("native local export foreground handoff", () => {
+  it("reports a failed claim as a typed terminal request failure", async () => {
+    const claimError = new Error("Claim transport failed.");
+    const invoke = vi.fn(async (name: string) => {
+      if (name === "claim-native-local-export") throw claimError;
+      return { status: "failed" };
+    });
+    await expect(
+      executeNativeLocalExportRequest({
+        documentId: DOCUMENT_ID,
+        request,
+        designId: "design-1",
+        tabId: "tab-1",
+        signal: new AbortController().signal,
+        observeCancellation: noObserver,
+        onExport: vi.fn(),
+        invoke,
+      }),
+    ).rejects.toBe(claimError);
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenLastCalledWith("finish-native-local-export", {
+      designId: "design-1",
+      requestId: request.requestId,
+      documentId: DOCUMENT_ID,
+      result: {
+        status: "failed",
+        code: "client-unavailable",
+        message: "Claim transport failed.",
+      },
+    });
+  });
+
+  it("preserves a legacy pending claim error without failing an unowned request", async () => {
+    const claimError = new Error("Claim transport failed.");
+    const invoke = vi.fn(async () => {
+      throw claimError;
+    });
+    await expect(
+      executeNativeLocalExportRequest({
+        documentId: DOCUMENT_ID,
+        request: { ...request, targetDocumentId: undefined },
+        designId: "design-1",
+        tabId: "tab-1",
+        signal: new AbortController().signal,
+        observeCancellation: noObserver,
+        onExport: vi.fn(),
+        invoke,
+      }),
+    ).rejects.toBe(claimError);
+    expect(invoke).toHaveBeenCalledOnce();
+  });
+
+  it("does not claim a pending request bound to another document", async () => {
+    const invoke = vi.fn();
+    await expect(
+      executeNativeLocalExportRequest({
+        documentId: DOCUMENT_ID,
+        request: {
+          ...request,
+          targetDocumentId: "22222222-2222-4222-8222-222222222222",
+        },
+        designId: "design-1",
+        tabId: "tab-1",
+        signal: new AbortController().signal,
+        observeCancellation: noObserver,
+        onExport: vi.fn(),
+        invoke,
+      }),
+    ).rejects.toMatchObject({ code: "client-unavailable" });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("keeps a source-stale claim's existing typed failure", async () => {
+    const claimError = Object.assign(new Error("Source changed."), {
+      errorCode: "native_export_source_stale",
+    });
+    const invoke = vi.fn(async () => {
+      throw claimError;
+    });
+    await expect(
+      executeNativeLocalExportRequest({
+        documentId: DOCUMENT_ID,
+        request,
+        designId: "design-1",
+        tabId: "tab-1",
+        signal: new AbortController().signal,
+        observeCancellation: noObserver,
+        onExport: vi.fn(),
+        invoke,
+      }),
+    ).rejects.toBe(claimError);
+    expect(invoke).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a structured failed claim without reporting a competing result", async () => {
+    const claimError = Object.assign(
+      new Error("The request is already running."),
+      {
+        errorCode: "native_export_request_not_pending",
+      },
+    );
+    const invoke = vi.fn(async () => {
+      throw claimError;
+    });
+    const onExport = vi.fn();
+    await expect(
+      executeNativeLocalExportRequest({
+        documentId: DOCUMENT_ID,
+        request,
+        designId: "design-1",
+        tabId: "tab-1",
+        signal: new AbortController().signal,
+        observeCancellation: noObserver,
+        onExport,
+        invoke,
+      }),
+    ).rejects.toBe(claimError);
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(onExport).not.toHaveBeenCalled();
+  });
+
+  it("preserves claim and failure-reporting errors", async () => {
+    const claimError = new Error("Claim transport failed.");
+    const reportError = new Error("Failure report failed.");
+    const invoke = vi.fn(async (name: string) => {
+      throw name === "claim-native-local-export" ? claimError : reportError;
+    });
+    await expect(
+      executeNativeLocalExportRequest({
+        documentId: DOCUMENT_ID,
+        request,
+        designId: "design-1",
+        tabId: "tab-1",
+        signal: new AbortController().signal,
+        observeCancellation: noObserver,
+        onExport: vi.fn(),
+        invoke,
+      }),
+    ).rejects.toMatchObject({
+      name: NativeLocalExportReportError.name,
+      exportError: claimError,
+      reportError,
+    });
+  });
+
   it("claims before capture and reports only after the attachment is stored", async () => {
     const events: string[] = [];
     await executeNativeLocalExportRequest({

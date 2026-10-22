@@ -53,6 +53,12 @@ or "make it beautiful", read `slide-design`; a linked system's tokens still win.
 3. Write with `update-slide`: `deckId`, `slideId`, and ordered `edits` (exact
    replace, insert before/after, replace between markers, regex). Edits apply
    atomically under the deck lock, so one failed edit writes nothing.
+   - To place a generated image artifact (such as a QR code) on the slide, use
+     its returned HTTPS URL as an `<img src="...">` in the slide HTML and write
+     that markup with `update-slide` using the same targeted edit or
+     `fullContent` flow above. Keep it within the slide's existing layout and
+     give it useful `alt` text. Do not add a separate image action: the slide
+     sanitizer permits HTTPS image sources.
    - **Selected text:** if `view-screen` returns an exact `selectedText` range,
      send one literal replace with the selected text as `find` and
      `expectedMatches: 1`. Use `selectionSlideId` and

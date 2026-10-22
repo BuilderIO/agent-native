@@ -929,6 +929,34 @@ export async function loadAccessibleDashboardMetadataByIds(
     );
 }
 
+/**
+ * Owners of dashboards in one org, without a sharing check. Use it only to
+ * name who to ask for access; never return a title or config from it.
+ */
+export async function loadOrgDashboardOwnersByIds(
+  orgId: string,
+  ids: readonly string[],
+): Promise<Array<{ id: string; kind: DashboardKind; ownerEmail: string }>> {
+  const uniqueIds = [
+    ...new Set(ids.map((id) => id.trim()).filter(Boolean)),
+  ].slice(0, MAX_DASHBOARD_METADATA_HYDRATION);
+  if (!uniqueIds.length) return [];
+
+  return getDb()
+    .select({
+      id: schema.dashboards.id,
+      kind: schema.dashboards.kind,
+      ownerEmail: schema.dashboards.ownerEmail,
+    })
+    .from(schema.dashboards)
+    .where(
+      and(
+        eq(schema.dashboards.orgId, orgId),
+        inArray(schema.dashboards.id, uniqueIds),
+      ),
+    );
+}
+
 export type DashboardReviewScope =
   | { kind: "organization"; orgId: string }
   | { kind: "super-organization"; orgId: string };

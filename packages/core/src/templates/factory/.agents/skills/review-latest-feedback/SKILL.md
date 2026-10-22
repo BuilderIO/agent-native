@@ -21,25 +21,15 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. For every unheld in-scope report root this task owns, keep one concise, current same-actor status reply after the latest human message. It names every verified `✅` scope and its evidence, every open scope, and each `🎫` action and owner (or why a mark does not apply). Add and read back root `✅` as soon as direct post-change proof verifies a scope, and root `🎫` as soon as another person or team must act. An `👀` alone never completes the status. Preserve all reaction history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md). Do not reply on held, person-assigned, or `:mag:` items.
-
-### Read the root marks as history; use the reply for current status
-
-- `👀` records this workflow's claim. It does not mean the report is still open.
-- `✅` records a scope that passed direct post-change proof. Add it as soon as
-  any scope passes, even when another scope remains open; name the verified
-  scope and evidence in the status reply.
-- `🎫` records a distinct action another person must take, including a reporter
-  request. Keep the reaction as history after that action is completed,
-  answered, or abandoned; the current reply must say whether the action is
-  still open or historical.
-- Every owned root needs one current same-actor reply after the latest human
-  reply. Reuse it while the disposition and evidence remain current; do not
-  send a duplicate progress reply on every sweep. The reply names verified
-  scopes, open scopes, human actions and owners, and why either `✅` or `🎫` is
-  absent. An eye-only root is correct when no scope is verified and no separate
-  human action is pending; say whether the next step is this workflow's
-  investigation or no further action.
+Output is fixes. For every unheld in-scope report root this task owns, keep one
+current same-actor status reply after the latest human message. Write one short
+sentence in plain, non-technical language. Say what changed. Use `🎫` only for
+unresolved work; when you use it, briefly say what still needs investigation or
+what action is needed, and name its owner when known. Do not mention or explain
+absent reactions. Keep scope details and proof in the internal ledger. Add and
+read back root reactions as soon as their proof bar passes, preserve reaction
+history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
+Do not reply on held, person-assigned, or `:mag:` items.
 
 ## Slack channels and ownership
 
@@ -133,11 +123,13 @@ source window, the three matching owned-mark searches, and older roots linked
 by in-window replies. For every unheld owned root, compare the latest human
 message, current status reply, verified scopes, open scopes, and root marks.
 Add and read back `✅` for each newly verified scope and `🎫` for each distinct
-pending human action; the status reply must follow the latest human message and
-name current evidence, remaining work, and owners. An `👀` with a verified
-scope missing `✅`, a pending human action missing `🎫`, or no current status is
-unfinished. Finish the complete bounded set once, then stop; do not chase
-unrelated historical marks.
+pending human action; keep evidence, scopes, and full actions/owners in the
+internal ledger. The status reply must follow the latest human message and use
+the concise reply rule above: say what changed, and when `🎫` applies, briefly
+name the unresolved action and its owner when known. A verified scope missing
+`✅`, a pending human action missing `🎫`, or no current status is unfinished.
+Finish the complete bounded set once, then stop; do not chase unrelated
+historical marks.
 
 Split reports into distinct scopes. Add root `✅` as soon as any named scope
 passes direct post-change proof, even while its PR is open; say **Verified
@@ -146,9 +138,10 @@ proof. Add root `🎫` for each distinct unfinished action another human must ta
 including a requested reporter URL, access grant, evidence, or clarification.
 The mark tracks an outstanding human action, not an accepted team handoff.
 Record reporter requests in `reporterRequests[]`, separately from
-team/engineering `handoffs[]`. Enumerate each verified scope, open scope,
-reporter request, and handoff in the status reply; explain any absent mark. Keep
-marks after completion and never remove them. For a closed reporter request,
+team/engineering `handoffs[]`. Keep verified scopes, open scopes, reporter
+requests, and handoffs in the internal ledger; keep the Slack reply focused on
+the current outcome and any `🎫` follow-up. Keep marks after completion and
+never remove them. For a closed reporter request,
 preserve its request and closure evidence in the historical ticket record; see
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
@@ -382,29 +375,22 @@ instruction or prompt exception.
 Thank issue reporters for opening issues and Slack reporters for sharing.
 Before posting, inspect the full thread and follow the one-reply gate in
 `address-feedback-with-replies` and the [Slack reply reference](references/slack-reaction-replies.md):
-send one concise disposition covering done, remaining, and next action/owner.
-Do not reply again to announce merge, publication, or live beta; answer direct
-reporter follow-ups. End Slack replies with `this was sent from a bot.`.
+send one short sentence in plain, non-technical language, then end with the
+exact bot disclosure `this was sent from a bot.` Say what changed. Use `🎫`
+only for unresolved work; when it is used, briefly say what still needs
+investigation or action and name its owner when known. Do not explain absent
+reactions or mention a closed, historical `🎫`. Keep hashes, branches, CI,
+publisher details, and proof in the internal recap. Never explain workflow
+mechanics or external tracker tickets in Slack. Never send **Open**/**pending**
+or a symptom recap. Ask for reporter input only when it changes the next step.
 
-Reporter-facing replies are one or two sentences: the change or question, its limit, and the next step. Do not explain workflow mechanics, ledgers, or external tracker tickets. Never send **Open**/**pending** or a symptom recap. Ask for reporter input only when it changes the next step; never request supplied evidence or internal access. Keep hashes, branches, CI, publisher, and run details in the recap.
-
-Every root this actor marks with `👀`, `✅`, or `🎫` also needs the current
-same-actor status reply required by the Slack reaction reference. One concise
-reply may serve both purposes when it answers the reporter and records the
-current disposition, verified/open scopes, owner/action, and any reason a mark
-is absent. This status requirement takes precedence over the reporter-facing
-brevity rule only for those facts; do not explain ledger mechanics or external
-tracker tickets. A Slack `🎫` reaction tracks a distinct human action, not an
-external ticket, and remains as history after the action closes. Never imply
-that an external ticket was created or assigned.
-
-Keep publisher and beta checks in the internal recap after the disposition;
-they do not trigger a second reporter reply.
-
-### After a PR merges
-
-Track publisher state and beta verification in the internal recap. Do not send
-a routine post-merge reporter reply; answer only a direct reporter follow-up.
+Every root this actor marks with `👀`, `✅`, or `🎫` also needs a current
+same-actor status reply after the latest human reply. One concise reply can
+answer the reporter and record the disposition. Keep verified scopes, open
+scopes, reaction history, and evidence in the internal ledger; do not enumerate
+them or explain absent reactions in Slack. A Slack `🎫` reaction tracks a
+distinct human action, not an external ticket, and remains as history after the
+action closes. Never imply that an external ticket was created or assigned.
 
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
 remaining action/owner separately; don't imply the fixed scope is open. The
@@ -452,34 +438,6 @@ only when the invocation explicitly authorizes comments on that exact PR;
 otherwise draft the reply, leave the feedback unresolved, and link it in the
 recap. This exception is only for PR review feedback, not proactive PR comments
 or issue comments.
-
-## Publishing
-
-Use this worktree's branch. Batch fixes with one
-`corepack pnpm ship:push -m "<specific fix>"`; each head reruns CI. Sync
-`origin/main` only for GitHub conflicts; prefer normal merges on shared
-branches. Behind/pending never justify syncing.
-
-Use `/ship` for PR ownership, push, and merge checks. Never push to another
-person's PR without explicit authorization for that exact PR in this request.
-Push-only authorization means `ship_mode=ready-only`; merging requires separate
-authorization for that PR. Without push authorization, hand off as pending.
-Carry feedback evidence and dispositions into PRs; reference only issues the
-PR fixes.
-Keep source-tested, built, deployed, and observed-live claims separate.
-
-Carry exact tracker row ids and the reproduction ledger into the PR or release
-recap; tracker status is not shipping evidence. Mark each row independently: a
-reaction, checkmark, or "reviewed" cannot cover multiple rows, including
-expected, docs-owned, cross-team, or duplicate items. Link each source/docs
-change to its exact PR or commit, and each non-coding disposition to its
-evidence or owner.
-
-If no fix is verified, recap why shipping did not start. Unavailable connectors
-and external failures are not shipping blockers.
-While waiting, **Clarification needed** stays open with `👀` and no `✅`; it
-must not block independent fixes unless it could affect a PR change. Later runs
-skip the eye under the ownership gate.
 
 ## Recap
 

@@ -14,7 +14,6 @@ Read `.agents/skills/<name>/SKILL.md` before deeper work:
 - `design-review-feedback` — persisted review comments.
 - `export-handoff` — exports and coding handoffs.
 - `full-app-build` — fusion-backed app builds.
-- `shader-fills` — historical GLSL fills/effects.
 - `native-effects` — WebGPU fills/effects, source edits, and PNG.
 - `journey-storyboards` — onboarding-journey storyboards.
 
@@ -57,6 +56,7 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `view-screen` / `navigate` | Read current screen / move UI |
 | `get-view-settings` / `update-view-settings` | Read/update view toggles (grid, snap, rulers, cursors, hidden comments) |
 | `get-shader` / `edit-native-shader` | Inspect curated native effects; CAS-edit one inline scene |
+| `get-native-shader-approvals` | Read viewer-scoped exact effect approvals for accessible Design previews |
 | `prepare-native-scene-export` | Pin scene for PNG |
 | `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Request foreground native PNG and inspect attachment |
 | `export-png` | Export PNG |
@@ -86,5 +86,3 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor behavior lives in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before changing it.
 
 Search with `rg --hidden --follow`; read the exact linked guide before deeper work.
-
-Find and read relevant guides with `rg --hidden --follow`.

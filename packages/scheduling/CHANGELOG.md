@@ -1,5 +1,69 @@
 # @agent-native/scheduling
 
+## 0.2.39
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [05d1481]
+  - @agent-native/toolkit@0.214.0
+
+## 0.2.38
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.213.1
+
+## 0.2.37
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [b58658d]
+  - @agent-native/toolkit@0.213.0
+
+## 0.2.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.212.1
+
+## 0.2.35
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [71749d3]
+- Updated dependencies [9d61445]
+- Updated dependencies [96e2cf6]
+- Updated dependencies
+- Updated dependencies [ae5a212]
+- Updated dependencies [71749d3]
+- Updated dependencies [71749d3]
+- Updated dependencies [9fcbe67]
+- Updated dependencies [66ae94a]
+  - @agent-native/toolkit@0.212.0
+
+## 0.2.34
+
+### Patch Changes
+
+- f60152f: Require approval for `needsApproval` actions on every surface. HTTP action routes and generated Workers entries now run an approval-gated call only for the signed-in app UI (or its MCP directory widget); a bearer token, MCP OAuth token, org service token, A2A peer, or other HTTP caller gets `409 approval_required`, and an unproven browser call gets `403 ui_capability_required`. The app's client now presents its UI capability with every write from a signed-in session, so the 403 and one retry are only the fallback for an expired or rejected capability. `revoke-org-service-token` and the credential, membership, and app-access actions in core, Dispatch, and Scheduling now ask for approval on every call, with "always allow" off.
+- Release all public npm packages with a patch version bump.
+- 811b614: Build the full docs bundle with forward-slash paths on Windows too, so a Windows build writes the same `llms-full.txt`.
+- Updated dependencies [4fdf78c]
+- Updated dependencies [ab1a9e8]
+- Updated dependencies [67514ae]
+- Updated dependencies [b451cb2]
+- Updated dependencies
+  - @agent-native/toolkit@0.211.0
+
 ## 0.2.33
 
 ### Patch Changes
@@ -1071,41 +1135,5 @@
 - b24446e: Add `@agent-native/toolkit` for reusable app-building UI, move shared template primitives into it, and keep core UI shim imports working through compatibility re-exports.
 - Updated dependencies [b24446e]
   - @agent-native/toolkit@0.2.0
-
-## 0.1.15
-
-### Patch Changes
-
-- 6338989: Add Traditional Chinese copy for shared scheduling booking-link components.
-
-## 0.1.14
-
-### Patch Changes
-
-- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
-
-## 0.1.13
-
-### Patch Changes
-
-- fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
-
-## 0.1.12
-
-### Patch Changes
-
-- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
-
-## 0.1.11
-
-### Patch Changes
-
-- 3c1d3eb: Update dispatch provider APIs and scheduling internals for the runtime refresh.
-
-## 0.1.10
-
-### Patch Changes
-
-- 966838d: Update scheduling package docs after removing the legacy scheduling template.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

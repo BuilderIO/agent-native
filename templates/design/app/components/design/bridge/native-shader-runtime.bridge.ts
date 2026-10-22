@@ -8,6 +8,7 @@ import {
   feedbackUniformProperties,
   planEffectGraph,
   type EffectPass,
+  type EffectMeshSpec,
   type EffectResourceSpec,
 } from "../../../../shared/effect-graph";
 import { resolveNativeClipRadii } from "../../../../shared/native-clip-geometry";
@@ -30,6 +31,7 @@ import {
   parseNativeEffectApprovalState,
 } from "../../../../shared/native-effect-trust";
 import {
+  nativeEffectUniformFloats,
   packNativeProperties,
   validateEffectDocument,
   usesRetiredNativeImageAbi,
@@ -53,7 +55,10 @@ import {
   nativeFeedbackResetValuesChanged,
   type NativeFeedbackDefinition,
 } from "../../../../shared/native-feedback-plan";
-import { planNativeInputResources } from "../../../../shared/native-input-resources";
+import {
+  nativeWorkerSupportsInputResources,
+  planNativeInputResources,
+} from "../../../../shared/native-input-resources";
 import {
   hashEffectInstance,
   type NativeInstancePreviewRequest,
@@ -178,6 +183,11 @@ import {
   NativeLiveCameraSource,
 } from "./native-live-camera-source";
 import {
+  acquireNativeMeshGrid,
+  nativeMeshGridBytes,
+  type NativeMeshGridLease,
+} from "./native-mesh-grid";
+import {
   emptyNativeBenchmarkPhaseValues,
   emptyNativeBenchmarkFullFrameValues,
   emptyNativeSourceReadSceneMetrics,
@@ -194,6 +204,10 @@ import {
   planNativeMountedOutputReadback,
   withNativeMountedTextureReadback,
 } from "./native-mounted-output-summary";
+import {
+  isOpaquePublicAssetPreview,
+  resolveOpaquePublicAssetBlob,
+} from "./native-opaque-public-asset";
 import {
   NativePackedUniformArena,
   type NativePackedUniformFrame,
@@ -221,6 +235,8 @@ import {
 import { planNativePreviewBudget } from "./native-preview-budget";
 import {
   fitNativeRasterDensity,
+  nativePreviewStableAllocationOrExactViewport,
+  nativePreviewStablePhysicalViewport,
   nativePreviewPhysicalViewport,
   nativePreviewBoxesOverlap,
   nativePreviewTargetDensity,
@@ -234,6 +250,12 @@ import {
   resolveNativePreviewPolicy,
   type NativePreviewStatus,
 } from "./native-preview-policy";
+import {
+  isTrustedOpaquePreviewViewportPortResponse,
+  NATIVE_PREVIEW_VIEWPORT_REQUEST_MESSAGE,
+  type NativePreviewViewportRequest,
+  type NativePreviewViewportResponse,
+} from "./native-preview-viewport-transport";
 import { NativeRafIntervalTelemetry } from "./native-raf-interval";
 import {
   buildNativeReceiverFields,
@@ -242,6 +264,10 @@ import {
 import { beginNativeRegionExport } from "./native-region-export";
 import { nativeRenderPlacementConstants } from "./native-render-placement";
 import { createNativeRuntimeEpoch } from "./native-runtime-epoch";
+import {
+  attachNativeScenePresentationCanvas,
+  supportsNativeSceneBodyTransform,
+} from "./native-scene-body-transform";
 import {
   NativeSimulationTimelineError,
   planNativeSimulationSteps,
@@ -955,6 +981,10 @@ const definitionKey = (id: string, version: number): string =>
 const MAX_DIMENSION = 4096;
 const MAX_PIXELS = 8_388_608;
 const MAX_RESOURCE_BYTES = 134_217_728;
+const MAX_LEGACY_PREVIEW_PIXELS = Math.min(
+  MAX_PIXELS,
+  Math.floor(MAX_RESOURCE_BYTES / 40),
+);
 const MAX_REALM_TEXTURE_BYTES = 402_653_184;
 const unavailableFeedbackStateFollowups = {
   sourceTransition: {
@@ -1075,22 +1105,39 @@ class NativeShaderRuntime {
             "data-agent-native-export-initial-pixel-ratio",
           )
         : null;
-    if (encoded === null) {
-      this.exportInitialPixelRatio = null;
-      return;
+    if (encoded === null) this.exportInitialPixelRatio = null;
+    else {
+      const ratio = Number(encoded);
+      if (
+        !Number.isFinite(ratio) ||
+        ratio <= 0 ||
+        ratio > 4 ||
+        String(ratio) !== encoded
+      )
+        throw new NativeSourceError(
+          "export-initial-density-invalid",
+          "export-initial-density-invalid",
+        );
+      this.exportInitialPixelRatio = ratio;
     }
-    const ratio = Number(encoded);
-    if (
-      !Number.isFinite(ratio) ||
-      ratio <= 0 ||
-      ratio > 4 ||
-      String(ratio) !== encoded
-    )
-      throw new NativeSourceError(
-        "export-initial-density-invalid",
-        "export-initial-density-invalid",
-      );
-    this.exportInitialPixelRatio = ratio;
+    const encodedEpoch =
+      runtimeScript instanceof HTMLScriptElement
+        ? runtimeScript.getAttribute("data-agent-native-animation-epoch-ms")
+        : null;
+    if (encodedEpoch !== null) {
+      const epoch = Number(encodedEpoch);
+      if (
+        !Number.isFinite(epoch) ||
+        epoch <= 0 ||
+        epoch > 8.64e15 ||
+        String(epoch) !== encodedEpoch
+      )
+        throw new NativeSourceError(
+          "preview-animation-epoch-invalid",
+          "The shared preview animation epoch is invalid.",
+        );
+      this.clockOrigin = epoch - performance.timeOrigin;
+    }
   }
   private device: GPUDevice | null = null;
   private deviceLifecycle = new NativeDeviceLifecycle<NativeDeviceResources>(
@@ -1123,6 +1170,8 @@ class NativeShaderRuntime {
   private finishPipeline: GPURenderPipeline | null = null;
   private effectPipelineLayouts = new Map<number, GPUPipelineLayout>();
   private pipelines = new NativePipelineCache<GPURenderPipeline>(MAX_PIPELINES);
+  private meshGrids = new Map<string, NativeMeshGridLease>();
+  private allocatedMeshBytes = 0;
   private simulationComputePipelines =
     new NativePipelineCache<GPUComputePipeline>(16);
   private simulationRenderPipelines =
@@ -1361,13 +1410,27 @@ class NativeShaderRuntime {
   } | null = null;
   private previewPolicy = new NativePreviewPolicyController();
   private previewViewport: NativePreviewBox | null = null;
+  private previewAllocationViewport: NativePreviewBox | null = null;
+  private previewMaxViewportWidth: number | null = null;
+  private previewMaxViewportHeight: number | null = null;
   private previewDisplayScale = 1;
   private previewHostObserver: MutationObserver | null = null;
   private previewHostResizeObserver: ResizeObserver | null = null;
   private previewHostParent: Window | null = null;
   private previewHostFrame = 0;
+  private previewHostRafHost: Window | null = null;
   private previewHostFramePending = false;
   private previewHostGeneration = 0;
+  private opaquePreviewViewportNonce: string | null = null;
+  private opaquePreviewViewportRequest: NativePreviewViewportRequest | null =
+    null;
+  private opaquePreviewViewportPort: MessagePort | null = null;
+  private opaquePreviewViewportReceived = false;
+  private opaquePreviewHostPixelRatio: number | null = null;
+  private opaquePreviewViewportRetries = 0;
+  private opaquePreviewViewportExhausted = false;
+  private opaquePreviewViewportTimer: ReturnType<typeof setTimeout> | null =
+    null;
   private previewFrameHostGeneration = 0;
   private previewTargetDensities = new Map<
     NativeScenePresentationElement,
@@ -1533,11 +1596,80 @@ class NativeShaderRuntime {
       if (mount.instance.placement === "backdrop") {
         this.showOriginal(mount);
       } else if (mount.outputTexture && mount.suppressed) {
-        this.syncPresentation(mount);
+        if (mount.outputExtent && this.refreshPresentationGeometry(mount))
+          this.syncPresentation(mount);
+        else this.showOriginal(mount);
       } else {
         this.showOriginal(mount);
       }
     }
+  }
+
+  private refreshPresentationGeometry(mount: Mount): boolean {
+    const outputExtent = mount.outputExtent;
+    if (!outputExtent) return false;
+    this.reconcilePresentation(mount);
+    const presentationExtent =
+      mount.instance.placement === "fill" && mount.isTopLayer
+        ? (mount.fillPresentationExtent ?? outputExtent)
+        : outputExtent;
+    if (presentationExtent.expanded) {
+      for (
+        let node: Element | null = mount.target;
+        node;
+        node = node.parentElement
+      )
+        if (!supportsNativeOutput2D(getComputedStyle(node))) return false;
+    }
+    return this.projectPresentationGeometry(
+      mount,
+      presentationExtent,
+      outputExtent.pixelRatio,
+    );
+  }
+
+  private projectPresentationGeometry(
+    mount: Mount,
+    presentationExtent: NativeEffectExtentPlan,
+    pixelRatio: number,
+  ): boolean {
+    const targetLayout = nativePresentationTargetLayout(mount.target);
+    const { left, top } = presentationExtent;
+    const style = getComputedStyle(mount.target);
+    const geometry = planNativeOutputGeometry({
+      offsetLeft: targetLayout.offsetLeft,
+      offsetTop: targetLayout.offsetTop,
+      width: targetLayout.width,
+      height: targetLayout.height,
+      extent: presentationExtent,
+      transformOrigin: targetLayout.transformOrigin,
+    });
+    if (presentationExtent.expanded && !geometry) return false;
+    mount.canvas.style.left = `${geometry?.left ?? targetLayout.offsetLeft - left / pixelRatio}px`;
+    mount.canvas.style.top = `${geometry?.top ?? targetLayout.offsetTop - top / pixelRatio}px`;
+    mount.canvas.style.width = `${geometry?.width ?? targetLayout.width + (left + presentationExtent.right) / pixelRatio}px`;
+    mount.canvas.style.height = `${geometry?.height ?? targetLayout.height + (top + presentationExtent.bottom) / pixelRatio}px`;
+    mount.canvas.style.transform = targetLayout.transform;
+    mount.canvas.style.translate = targetLayout.translate;
+    mount.canvas.style.rotate = targetLayout.rotate;
+    mount.canvas.style.scale = targetLayout.scale;
+    mount.canvas.style.transformOrigin =
+      geometry?.transformOrigin ?? targetLayout.transformOrigin;
+    mount.canvas.style.borderRadius =
+      mount.instance.placement === "fill" || presentationExtent.expanded
+        ? "0"
+        : style.borderRadius;
+    if (mount.instance.placement === "fill")
+      mount.canvas.style.opacity =
+        mount.target.getAttribute("data-an-native-authored-opacity") ??
+        style.opacity;
+    else if (mount.instance.placement === "layer")
+      mount.canvas.style.opacity = mount.layerSourceOpacityDeferred
+        ? (mount.target.getAttribute("data-an-native-authored-opacity") ??
+          style.opacity)
+        : "";
+    mount.canvas.style.zIndex = style.zIndex === "auto" ? "auto" : style.zIndex;
+    return true;
   }
 
   private groupLocalNoncontributing(mount: Mount): boolean {
@@ -1615,6 +1747,7 @@ class NativeShaderRuntime {
       height: innerHeight,
       pixelRatio: this.previewStatus().effectivePixelRatio,
       viewport: this.previewViewport,
+      allocationViewport: this.previewAllocationViewport,
       deviceEpoch: this.deviceEpoch,
       media: [...document.querySelectorAll("img,video,source")].map(
         (element) => [
@@ -1712,13 +1845,7 @@ class NativeShaderRuntime {
           "scene-background-unsupported",
           "A translucent or image root background needs a single captured presentation layer.",
         );
-    if (
-      bodyStyle.transform !== "none" ||
-      bodyStyle.translate !== "none" ||
-      bodyStyle.rotate !== "none" ||
-      bodyStyle.scale !== "none" ||
-      bodyStyle.opacity !== "1"
-    )
+    if (!supportsNativeSceneBodyTransform(bodyStyle))
       throw new NativeSourceError(
         "scene-presentation-transform-unsupported",
         "A transformed or translucent body needs a viewport presentation transform.",
@@ -1726,8 +1853,9 @@ class NativeShaderRuntime {
     const viewport =
       this.compositionPixelRatio === null &&
       this.exportInitialPixelRatio === null
-        ? this.previewViewport
+        ? (this.previewAllocationViewport ?? this.previewViewport)
         : null;
+    const stableAllocation = !!viewport && this.usesStablePreviewAllocation();
     const requestedRatio =
       this.compositionPixelRatio ?? this.scenePreviewPixelRatio();
     const dpr =
@@ -1745,7 +1873,9 @@ class NativeShaderRuntime {
             pixelPadding: 1,
           });
     const physical = viewport
-      ? nativePreviewPhysicalViewport(viewport, dpr)
+      ? stableAllocation
+        ? nativePreviewStablePhysicalViewport(viewport, dpr)
+        : nativePreviewPhysicalViewport(viewport, dpr)
       : {
           x: 0,
           y: 0,
@@ -1754,12 +1884,14 @@ class NativeShaderRuntime {
         };
     const { width, height } = physical;
     const sceneViewport = viewport
-      ? {
-          x: physical.x / dpr,
-          y: physical.y / dpr,
-          width: width / dpr,
-          height: height / dpr,
-        }
+      ? stableAllocation
+        ? viewport
+        : {
+            x: physical.x / dpr,
+            y: physical.y / dpr,
+            width: width / dpr,
+            height: height / dpr,
+          }
       : undefined;
     if (
       width <= 0 ||
@@ -1798,7 +1930,7 @@ class NativeShaderRuntime {
       canvas.style.height = `${sceneViewport?.height ?? innerHeight}px`;
       canvas.width = width;
       canvas.height = height;
-      body.prepend(canvas);
+      attachNativeScenePresentationCanvas(canvas, body, bodyStyle);
       const context = canvas.getContext("webgpu") as GPUCanvasContext | null;
       if (!context) {
         canvas.remove();
@@ -1895,6 +2027,7 @@ class NativeShaderRuntime {
       window.addEventListener("scroll", scene.onViewportChange, true);
       window.addEventListener("resize", scene.onViewportChange);
     }
+    attachNativeScenePresentationCanvas(scene.canvas, body, bodyStyle);
     const viewportMatches = (): boolean =>
       window.scrollX === 0 &&
       window.scrollY === 0 &&
@@ -2829,6 +2962,180 @@ class NativeShaderRuntime {
     return reservation.sample;
   }
 
+  private requestOpaquePreviewViewport(): void {
+    if (window.parent === window || window.frameElement) return;
+    const origin = nativeDocumentOrigin();
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const prior = this.opaquePreviewViewportRequest;
+    if (
+      prior &&
+      prior.width === width &&
+      prior.height === height &&
+      this.opaquePreviewViewportNonce
+    ) {
+      if (!this.opaquePreviewViewportExhausted)
+        this.scheduleOpaquePreviewViewportRetry();
+      return;
+    }
+    const nonce = this.opaquePreviewViewportNonce ?? window.crypto.randomUUID();
+    const request: NativePreviewViewportRequest = {
+      type: NATIVE_PREVIEW_VIEWPORT_REQUEST_MESSAGE,
+      schemaVersion: 1,
+      nonce,
+      width,
+      height,
+    };
+    this.opaquePreviewViewportNonce = nonce;
+    this.opaquePreviewViewportRequest = request;
+    this.opaquePreviewViewportReceived = false;
+    this.opaquePreviewViewportRetries = 0;
+    this.opaquePreviewViewportExhausted = false;
+    if (this.opaquePreviewViewportTimer)
+      clearTimeout(this.opaquePreviewViewportTimer);
+    this.opaquePreviewViewportTimer = null;
+    this.sendOpaquePreviewViewportRequest(request, origin);
+    this.scheduleOpaquePreviewViewportRetry();
+  }
+
+  private sendOpaquePreviewViewportRequest(
+    request: NativePreviewViewportRequest,
+    origin: string,
+  ): void {
+    this.opaquePreviewViewportPort?.close();
+    const channel = new MessageChannel();
+    this.opaquePreviewViewportPort = channel.port1;
+    channel.port1.onmessage = (event: MessageEvent<unknown>) => {
+      const candidate = {
+        nonce: this.opaquePreviewViewportNonce,
+        response: event.data,
+      };
+      if (!isTrustedOpaquePreviewViewportPortResponse(candidate)) return;
+      this.acceptOpaquePreviewViewport(candidate.response);
+    };
+    channel.port1.start();
+    window.parent.postMessage(request, origin, [channel.port2]);
+  }
+
+  private scheduleOpaquePreviewViewportRetry(): void {
+    const request = this.opaquePreviewViewportRequest;
+    if (
+      this.opaquePreviewViewportReceived ||
+      this.opaquePreviewViewportExhausted ||
+      this.opaquePreviewViewportTimer ||
+      !request
+    )
+      return;
+    this.opaquePreviewViewportTimer = setTimeout(() => {
+      this.opaquePreviewViewportTimer = null;
+      if (this.disposed || this.opaquePreviewViewportReceived) return;
+      if (this.opaquePreviewViewportRetries < 3) {
+        this.opaquePreviewViewportRetries += 1;
+        try {
+          this.sendOpaquePreviewViewportRequest(
+            request,
+            nativeDocumentOrigin(),
+          );
+        } catch (error) {
+          this.issue("source-origin-unavailable", String(error));
+          return;
+        }
+        this.scheduleOpaquePreviewViewportRetry();
+        return;
+      }
+      const error = new NativeSourceError(
+        "preview-viewport-unreadable",
+        "The editor preview host did not provide viewport geometry.",
+      );
+      this.opaquePreviewViewportExhausted = true;
+      this.issue(error.code, error.message);
+      document.documentElement.setAttribute(
+        "data-an-native-runtime-error",
+        error.code,
+      );
+    }, 500);
+  }
+
+  private acceptOpaquePreviewViewport(
+    response: NativePreviewViewportResponse,
+  ): void {
+    if (
+      window.frameElement ||
+      window.parent === window ||
+      response.nonce !== this.opaquePreviewViewportNonce ||
+      response.width !== window.innerWidth ||
+      response.height !== window.innerHeight
+    )
+      return;
+    const wasReceived = this.opaquePreviewViewportReceived;
+    this.opaquePreviewViewportReceived = true;
+    if (this.opaquePreviewViewportTimer) {
+      clearTimeout(this.opaquePreviewViewportTimer);
+      this.opaquePreviewViewportTimer = null;
+    }
+    this.opaquePreviewViewportRetries = 0;
+    this.opaquePreviewViewportExhausted = false;
+    if (response.error) {
+      this.issue(response.error.code, response.error.message);
+      document.documentElement.setAttribute(
+        "data-an-native-runtime-error",
+        response.error.code,
+      );
+      return;
+    }
+    const previousViewport = this.previewViewport;
+    const previousAllocationViewport = this.previewAllocationViewport;
+    const previousMaxViewportWidth = this.previewMaxViewportWidth;
+    const previousMaxViewportHeight = this.previewMaxViewportHeight;
+    const previousScale = this.previewDisplayScale;
+    const previousHostPixelRatio = this.opaquePreviewHostPixelRatio;
+    this.opaquePreviewHostPixelRatio = response.hostDevicePixelRatio ?? null;
+    const scale = response.displayScale;
+    if (
+      previousHostPixelRatio !== this.opaquePreviewHostPixelRatio ||
+      Math.abs(scale - this.previewDisplayScale) > 0.0001 * Math.max(1, scale)
+    ) {
+      this.previewPolicy.resetDensityBudget();
+      this.sceneBudgetFault = null;
+      this.previewDisplayScale = scale;
+    }
+    this.previewViewport = response.viewport;
+    this.previewMaxViewportWidth = response.maxViewportWidth;
+    this.previewMaxViewportHeight = response.maxViewportHeight;
+    this.previewAllocationViewport = this.planPreviewAllocationViewport(
+      MAX_LEGACY_PREVIEW_PIXELS,
+    );
+    if (
+      document.documentElement.getAttribute("data-an-native-runtime-error") ===
+      "preview-viewport-unreadable"
+    )
+      document.documentElement.removeAttribute("data-an-native-runtime-error");
+    const sameViewport =
+      previousViewport === response.viewport ||
+      (previousViewport !== null &&
+        response.viewport !== null &&
+        previousViewport.x === response.viewport.x &&
+        previousViewport.y === response.viewport.y &&
+        previousViewport.width === response.viewport.width &&
+        previousViewport.height === response.viewport.height);
+    if (
+      wasReceived &&
+      previousScale === this.previewDisplayScale &&
+      previousHostPixelRatio === this.opaquePreviewHostPixelRatio &&
+      sameViewport &&
+      previousMaxViewportWidth === this.previewMaxViewportWidth &&
+      previousMaxViewportHeight === this.previewMaxViewportHeight &&
+      this.samePreviewBox(
+        previousAllocationViewport,
+        this.previewAllocationViewport,
+      )
+    )
+      return;
+    this.previewHostGeneration += 1;
+    if (this.workerScene) this.onPreviewHostChange();
+    else this.requestSourceFrame();
+  }
+
   private refreshPreviewViewport(): boolean {
     if (
       this.exportInitialPixelRatio !== null ||
@@ -2838,12 +3145,16 @@ class NativeShaderRuntime {
     try {
       const frame = window.frameElement;
       if (!frame) {
-        if (window.parent !== window)
-          throw new NativeSourceError(
-            "preview-viewport-unreadable",
-            "The editor preview frame is inaccessible.",
+        if (window.parent !== window) {
+          this.requestOpaquePreviewViewport();
+          return (
+            this.opaquePreviewViewportReceived && this.previewViewport !== null
           );
+        }
         this.previewViewport = null;
+        this.previewAllocationViewport = null;
+        this.previewMaxViewportWidth = null;
+        this.previewMaxViewportHeight = null;
         this.previewDisplayScale = 1;
         return true;
       }
@@ -2909,6 +3220,11 @@ class NativeShaderRuntime {
         this.previewDisplayScale = scale;
       }
       this.previewViewport = planned?.viewport ?? null;
+      this.previewMaxViewportWidth = planned?.maxViewportWidth ?? null;
+      this.previewMaxViewportHeight = planned?.maxViewportHeight ?? null;
+      this.previewAllocationViewport = this.planPreviewAllocationViewport(
+        MAX_LEGACY_PREVIEW_PIXELS,
+      );
       return planned !== null;
     } catch (error) {
       if (error instanceof NativeSourceError) throw error;
@@ -2919,11 +3235,65 @@ class NativeShaderRuntime {
     }
   }
 
+  private samePreviewBox(
+    first: NativePreviewBox | null,
+    second: NativePreviewBox | null,
+  ): boolean {
+    return (
+      first === second ||
+      (first !== null &&
+        second !== null &&
+        first.x === second.x &&
+        first.y === second.y &&
+        first.width === second.width &&
+        first.height === second.height)
+    );
+  }
+
+  private planPreviewAllocationViewport(
+    maxPixels: number,
+  ): NativePreviewBox | null {
+    const viewport = this.previewViewport;
+    if (!viewport) return null;
+    const maxViewportWidth = this.previewMaxViewportWidth;
+    const maxViewportHeight = this.previewMaxViewportHeight;
+    if (maxViewportWidth === null || maxViewportHeight === null)
+      return viewport;
+    return nativePreviewStableAllocationOrExactViewport({
+      viewport,
+      rootWidth: innerWidth,
+      rootHeight: innerHeight,
+      maxViewportWidth,
+      maxViewportHeight,
+      density: this.desiredScenePreviewPixelRatio(),
+      maxDimension: MAX_DIMENSION,
+      maxPixels,
+      pixelPadding: 1,
+    });
+  }
+
+  private usesStablePreviewAllocation(): boolean {
+    const raw = this.previewViewport;
+    const allocation = this.previewAllocationViewport;
+    return (
+      raw !== null &&
+      allocation !== null &&
+      (allocation.width > raw.width + 0.0001 ||
+        allocation.height > raw.height + 0.0001)
+    );
+  }
+
   private observePreviewHost(): void {
     if (this.exportInitialPixelRatio !== null) return;
     document.addEventListener("visibilitychange", this.onPreviewHostChange);
     const frame = window.frameElement;
-    if (!frame) return;
+    if (!frame) {
+      if (window.parent !== window) {
+        window.addEventListener("resize", this.onPreviewHostChange);
+        this.requestOpaquePreviewViewport();
+      }
+      return;
+    }
     this.previewHostObserver?.disconnect();
     this.previewHostResizeObserver?.disconnect();
     this.previewHostParent?.removeEventListener(
@@ -2956,6 +3326,15 @@ class NativeShaderRuntime {
 
   private onPreviewHostChange = (): void => {
     if (this.disposed) return;
+    try {
+      this.requestOpaquePreviewViewport();
+    } catch (error) {
+      this.issue(
+        "source-origin-unavailable",
+        error instanceof Error ? error.message : String(error),
+      );
+      return;
+    }
     if (!this.workerScene) {
       this.previewHostGeneration += 1;
       this.requestSourceFrame();
@@ -2967,7 +3346,9 @@ class NativeShaderRuntime {
     }
     if (this.previewHostFramePending) return;
     this.previewHostFramePending = true;
-    this.previewHostFrame = window.parent.requestAnimationFrame(() => {
+    const rafHost = window.frameElement ? window.parent : window;
+    this.previewHostRafHost = rafHost;
+    this.previewHostFrame = rafHost.requestAnimationFrame(() => {
       this.previewHostFramePending = false;
       this.previewHostFrame = 0;
       const scene = this.workerScene;
@@ -3001,9 +3382,13 @@ class NativeShaderRuntime {
     });
   };
 
+  private previewDevicePixelRatio(): number {
+    return this.opaquePreviewHostPixelRatio ?? (devicePixelRatio || 1);
+  }
+
   previewStatus = (): NativePreviewStatus => {
     const status = this.previewPolicy.status(
-      devicePixelRatio || 1,
+      this.previewDevicePixelRatio(),
       this.renderWallSamples[this.renderWallSamples.length - 1],
       this.rafIntervalSamples[this.rafIntervalSamples.length - 1],
     );
@@ -3472,6 +3857,7 @@ class NativeShaderRuntime {
   }
 
   private clearDeviceResources(code: string, message: string): void {
+    this.releaseMeshGrids();
     this.previewTargetDensities.clear();
     this.previewBudgetDensities.clear();
     this.previewBudgetSignature = "";
@@ -3814,6 +4200,48 @@ class NativeShaderRuntime {
     return texture;
   }
 
+  private meshDepth(
+    mount: Mount,
+    key: string,
+    width: number,
+    height: number,
+  ): GPUTexture {
+    const previous = mount.resourceTextures.get(key);
+    if (previous && previous.width === width && previous.height === height)
+      return previous;
+    mount.resourceTextures.delete(key);
+    this.destroyTexture(previous);
+    const bytes = width * height * 4;
+    this.ensureTextureBudget(bytes);
+    const texture = this.device!.createTexture({
+      size: [width, height],
+      format: "depth24plus",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    this.textureBytes.set(texture, bytes);
+    this.allocatedTextureBytes += bytes;
+    mount.resourceTextures.set(key, texture);
+    return texture;
+  }
+
+  private meshGrid(mesh: EffectMeshSpec): NativeMeshGridLease {
+    const key = `${mesh.columns}x${mesh.rows}`;
+    const existing = this.meshGrids.get(key);
+    if (existing) return existing;
+    const bytes = nativeMeshGridBytes(mesh);
+    this.ensureTextureBudget(bytes);
+    const lease = acquireNativeMeshGrid(this.device!, mesh);
+    this.meshGrids.set(key, lease);
+    this.allocatedMeshBytes += bytes;
+    return lease;
+  }
+
+  private releaseMeshGrids(): void {
+    for (const lease of this.meshGrids.values()) lease.release();
+    this.meshGrids.clear();
+    this.allocatedMeshBytes = 0;
+  }
+
   private destroyTexture(texture: GPUTexture | null | undefined): void {
     if (!texture || this.destroyedTextures.has(texture)) return;
     if (this.statelessTextureLeases.has(texture)) {
@@ -4049,7 +4477,7 @@ class NativeShaderRuntime {
 
   private offscreen(mount: Mount): boolean {
     const rect = mount.target.getBoundingClientRect();
-    const dpr = mount.pixelRatio || Math.min(devicePixelRatio || 1, 2);
+    const dpr = mount.pixelRatio || Math.min(this.previewDevicePixelRatio(), 2);
     const halo = mount.outputExtent;
     const margins = {
       left: Math.max(
@@ -4194,6 +4622,7 @@ class NativeShaderRuntime {
         canvasBytes += surface.canvas.width * surface.canvas.height * 8;
     return (
       this.allocatedTextureBytes +
+      this.allocatedMeshBytes +
       this.allocatedUniformBytes +
       this.allocatedSimulationBytes +
       this.allocatedStatelessBytes +
@@ -5127,7 +5556,7 @@ class NativeShaderRuntime {
       typeof HTMLCanvasElement.prototype.transferControlToOffscreen ===
         "function" &&
       workerEntries.every(
-        ({ definition }) =>
+        ({ definition, instance, target }) =>
           !definition.simulation &&
           !definition.feedback &&
           !definition.statelessCompute &&
@@ -5136,6 +5565,10 @@ class NativeShaderRuntime {
           definition.passes.every(
             (pass) =>
               pass.kind === "render" && !pass.previousFrameReads?.length,
+          ) &&
+          nativeWorkerSupportsInputResources(
+            planNativeInputResources(definition, instance),
+            target instanceof SVGSVGElement,
           ),
       );
     if (workerCapable) {
@@ -5153,11 +5586,15 @@ class NativeShaderRuntime {
         this.workerScene ??= new NativeWorkerSceneHost(
           nativeWorkerSource,
           `${this.epoch}:${createNativeRuntimeEpoch()}`,
-          () => ({
-            playing: this.playing,
-            timeSeconds: this.currentTime(),
-            speed: 1,
-          }),
+          () => {
+            const sampledAtMs = performance.now();
+            return {
+              playing: this.playing,
+              timeSeconds: this.currentTime(sampledAtMs),
+              speed: 1,
+              sampledAtEpochMs: performance.timeOrigin + sampledAtMs,
+            };
+          },
           (_publication, message) => {
             this.workerRecoveryAttempts = 0;
             if (this.retiringWorkerScene) {
@@ -5174,17 +5611,18 @@ class NativeShaderRuntime {
               if (this.scenePresentation) this.releaseScenePresentation();
               this.workerScene?.setEntries(this.workerEntries);
             }
-            for (const committed of message.committedInstances) {
-              const entry = this.workerEntries.find(
-                (candidate) => candidate.instance.id === committed.instanceId,
-              );
-              if (entry)
-                this.postStatus(
-                  entry.instance.id,
-                  entry.instance.nodeId,
-                  "ready",
+            if (message.contentChanged)
+              for (const committed of message.committedInstances) {
+                const entry = this.workerEntries.find(
+                  (candidate) => candidate.instance.id === committed.instanceId,
                 );
-            }
+                if (entry)
+                  this.postStatus(
+                    entry.instance.id,
+                    entry.instance.nodeId,
+                    "ready",
+                  );
+              }
           },
           (error) => {
             const code =
@@ -5253,15 +5691,21 @@ class NativeShaderRuntime {
           () => {
             this.refreshPreviewViewport();
             return {
-              viewport: this.previewViewport ?? {
-                x: 0,
-                y: 0,
-                width: innerWidth,
-                height: innerHeight,
-              },
+              viewport: this.planPreviewAllocationViewport(MAX_PIXELS) ??
+                this.previewViewport ?? {
+                  x: 0,
+                  y: 0,
+                  width: innerWidth,
+                  height: innerHeight,
+                },
               pixelRatio: this.desiredScenePreviewPixelRatio(),
             };
           },
+          () => ({
+            frameRateTarget: this.previewStatus().frameRateTarget,
+            compact: this.previewPolicy.isOverviewCompact(),
+          }),
+          () => this.clockOrigin,
         );
         this.workerScene.setVisible(
           document.visibilityState !== "hidden" &&
@@ -6319,7 +6763,7 @@ class NativeShaderRuntime {
       return false;
     }
     const baseDensity = this.previewPolicy.status(
-      devicePixelRatio || 1,
+      this.previewDevicePixelRatio(),
     ).effectivePixelRatio;
     const desiredDensity = this.desiredScenePreviewPixelRatio();
     const groups = new Map<NativeScenePresentationElement, Mount[]>();
@@ -6403,23 +6847,26 @@ class NativeShaderRuntime {
         ),
       };
     });
-    const viewport = this.previewViewport ?? {
-      x: 0,
-      y: 0,
-      width: innerWidth,
-      height: innerHeight,
-    };
+    const allocationViewport = this.previewAllocationViewport ??
+      this.previewViewport ?? {
+        x: 0,
+        y: 0,
+        width: innerWidth,
+        height: innerHeight,
+      };
     const sceneDensity = this.previewViewport
       ? fitNativeRasterDensity({
-          width: viewport.width,
-          height: viewport.height,
+          width: allocationViewport.width,
+          height: allocationViewport.height,
           density: desiredDensity,
           maxDimension: MAX_DIMENSION,
           maxPixels: Math.min(MAX_PIXELS, Math.floor(MAX_RESOURCE_BYTES / 40)),
           pixelPadding: 1,
         })
       : desiredDensity;
-    const visible = nativePreviewPhysicalViewport(viewport, sceneDensity);
+    const sceneAllocation = this.usesStablePreviewAllocation()
+      ? nativePreviewStablePhysicalViewport(allocationViewport, sceneDensity)
+      : nativePreviewPhysicalViewport(allocationViewport, sceneDensity);
     const scene = this.scenePresentation;
     const hasCommittedScene =
       scene !== null &&
@@ -6434,7 +6881,8 @@ class NativeShaderRuntime {
       );
     const sceneBudgetSignature = JSON.stringify({
       requests,
-      viewport,
+      viewport: allocationViewport,
+      visibleViewport: this.previewViewport,
       sceneDensity,
       needsScene,
       fixedBytes,
@@ -6454,8 +6902,8 @@ class NativeShaderRuntime {
     const sceneRequest = needsScene
       ? {
           id: sceneRequestId,
-          width: viewport.width,
-          height: viewport.height,
+          width: allocationViewport.width,
+          height: allocationViewport.height,
           baseDensity: Math.min(desiredSceneDensity, 0.5),
           desiredDensity: desiredSceneDensity,
           bytesPerPixel: 40,
@@ -6475,7 +6923,7 @@ class NativeShaderRuntime {
       for (const entry of scene!.surface.sourceTextures.values())
         retainedSceneTextures.add(entry.texture);
       const replacement = nativePreviewPhysicalViewport(
-        viewport,
+        allocationViewport,
         desiredSceneDensity,
       );
       for (const [key, entry] of scene!.surface.isolationTextures)
@@ -6506,7 +6954,7 @@ class NativeShaderRuntime {
       : 0;
     const reservedBytes =
       retainedSceneBytes +
-      Math.min(MAX_PIXELS, visible.width * visible.height) * 8 +
+      Math.min(MAX_PIXELS, sceneAllocation.width * sceneAllocation.height) * 8 +
       33_554_432 +
       fixedBytes;
     const availableBytes = MAX_REALM_TEXTURE_BYTES - reservedBytes;
@@ -6630,7 +7078,7 @@ class NativeShaderRuntime {
           ...Object.values(outputInsets),
         ) * localScale;
       requestedRatio = nativePreviewTargetDensity({
-        baseDensity: this.previewPolicy.status(devicePixelRatio || 1)
+        baseDensity: this.previewPolicy.status(this.previewDevicePixelRatio())
           .effectivePixelRatio,
         displayScale: this.targetPreviewDisplayScale(targetMembers, localScale),
         viewport: this.previewViewport,
@@ -6695,7 +7143,6 @@ class NativeShaderRuntime {
       mount.instance.placement === "fill" && mount.isTopLayer
         ? (mount.fillPresentationExtent ?? planned.plan)
         : planned.plan;
-    const { left, top } = presentationExtent;
     mount.pixelRatio = dpr;
     mount.outputExtent = planned.plan;
     mount.captureInsets = captureInsets;
@@ -6727,44 +7174,11 @@ class NativeShaderRuntime {
             );
         }
       }
-      const geometry = planNativeOutputGeometry({
-        offsetLeft: targetLayout.offsetLeft,
-        offsetTop: targetLayout.offsetTop,
-        width: targetLayout.width,
-        height: targetLayout.height,
-        extent: presentationExtent,
-        transformOrigin: targetLayout.transformOrigin,
-      });
-      if (presentationExtent.expanded && !geometry)
+      if (!this.projectPresentationGeometry(mount, presentationExtent, dpr))
         throw new NativeSourceError(
           "effect-output-transform-unsupported",
           "Expanded output has an unsupported transform origin.",
         );
-      mount.canvas.style.left = `${geometry?.left ?? targetLayout.offsetLeft - left / dpr}px`;
-      mount.canvas.style.top = `${geometry?.top ?? targetLayout.offsetTop - top / dpr}px`;
-      mount.canvas.style.width = `${geometry?.width ?? targetLayout.width + (left + presentationExtent.right) / dpr}px`;
-      mount.canvas.style.height = `${geometry?.height ?? targetLayout.height + (top + presentationExtent.bottom) / dpr}px`;
-      mount.canvas.style.transform = targetLayout.transform;
-      mount.canvas.style.translate = targetLayout.translate;
-      mount.canvas.style.rotate = targetLayout.rotate;
-      mount.canvas.style.scale = targetLayout.scale;
-      mount.canvas.style.transformOrigin =
-        geometry?.transformOrigin ?? targetLayout.transformOrigin;
-      mount.canvas.style.borderRadius =
-        mount.instance.placement === "fill" || presentationExtent.expanded
-          ? "0"
-          : style.borderRadius;
-      if (mount.instance.placement === "fill")
-        mount.canvas.style.opacity =
-          mount.target.getAttribute("data-an-native-authored-opacity") ??
-          style.opacity;
-      else if (mount.instance.placement === "layer")
-        mount.canvas.style.opacity = mount.layerSourceOpacityDeferred
-          ? (mount.target.getAttribute("data-an-native-authored-opacity") ??
-            style.opacity)
-          : "";
-      mount.canvas.style.zIndex =
-        style.zIndex === "auto" ? "auto" : style.zIndex;
     }
     this.syncSceneSourceOpacity(mount);
     if (mount.width !== width || mount.height !== height) {
@@ -6837,6 +7251,7 @@ class NativeShaderRuntime {
     effect = false,
     effectTextureCount = 2,
     placement?: EffectInstance["placement"],
+    mesh = false,
   ): Promise<GPURenderPipeline> {
     const device = await this.ensureDevice();
     const deviceEpoch = this.deviceEpoch;
@@ -6855,7 +7270,7 @@ class NativeShaderRuntime {
         );
     }
     const constants = nativeRenderPlacementConstants(wgsl, placement);
-    const key = `${deviceEpoch}:${format}:${blend}:${effect}:${textureCount}:${JSON.stringify(constants)}:${wgsl}`;
+    const key = `${deviceEpoch}:${format}:${blend}:${effect}:${textureCount}:${mesh}:${JSON.stringify(constants)}:${wgsl}`;
     if (!this.pipelines.has(key)) this.ensureTextureBudget(524_288);
     return this.pipelines.getOrCreate(key, async () => {
       const module = device.createShaderModule({ code: wgsl });
@@ -6945,6 +7360,15 @@ class NativeShaderRuntime {
             ],
           },
           primitive: { topology: "triangle-list" },
+          ...(mesh
+            ? {
+                depthStencil: {
+                  format: "depth24plus" as const,
+                  depthWriteEnabled: true,
+                  depthCompare: "less" as const,
+                },
+              }
+            : {}),
         });
         if (this.device !== device || this.deviceEpoch !== deviceEpoch)
           throw new NativeSourceError(
@@ -6987,7 +7411,7 @@ class NativeShaderRuntime {
           "uniform-owner-unavailable",
           "The packed draw has no frame-owned render state.",
         );
-      const drawKey = `${owner}:${key}`;
+      const drawKey = `${owner}:${key}:uniform${bytes.byteLength}`;
       const occurrence = packed.occurrences.get(drawKey) ?? 0;
       packed.occurrences.set(drawKey, occurrence + 1);
       key = `${key}:${occurrence}`;
@@ -7344,6 +7768,15 @@ class NativeShaderRuntime {
   }
 
   private async fetchInputBlob(url: URL, signal: AbortSignal): Promise<Blob> {
+    if (isOpaquePublicAssetPreview()) {
+      const blob = await resolveOpaquePublicAssetBlob(url.href);
+      if (signal.aborted)
+        throw new NativeSourceError(
+          "input-asset-aborted",
+          "The input asset load was cancelled.",
+        );
+      return blob;
+    }
     const response = await fetch(url.href, {
       credentials: "same-origin",
       mode: "same-origin",
@@ -9074,7 +9507,9 @@ class NativeShaderRuntime {
       };
     }
     const uniform = (stepTime: number): GPUBuffer => {
-      const values = new Float32Array(136);
+      const values = new Float32Array(
+        8 + nativeEffectUniformFloats(definition),
+      );
       values.set(
         [mount.width, mount.height, 1 / mount.width, 1 / mount.height],
         0,
@@ -9313,7 +9748,9 @@ class NativeShaderRuntime {
         true,
       );
       assertSimulationDevice();
-      const trailData = new Float32Array(136);
+      const trailData = new Float32Array(
+        8 + nativeEffectUniformFloats(definition),
+      );
       trailData.set(
         [mount.width, mount.height, 1 / mount.width, 1 / mount.height],
         0,
@@ -9689,7 +10126,9 @@ class NativeShaderRuntime {
         return count;
       },
       uniforms: (_pass, _width, _height, stepTime, dt) => {
-        const data = new Float32Array(136);
+        const data = new Float32Array(
+          8 + nativeEffectUniformFloats(definition),
+        );
         data.set(
           [mount.width, mount.height, 1 / mount.width, 1 / mount.height],
           0,
@@ -10047,6 +10486,7 @@ class NativeShaderRuntime {
           device,
           compute.wgsl,
           resolve.wgsl,
+          nativeEffectUniformFloats(definition),
         ),
       );
       if (
@@ -10082,10 +10522,14 @@ class NativeShaderRuntime {
       };
       this.ensureCompositionBudget(
         budgetSurface,
-        plan.byteLength + 544 + (replace ? mount.width * mount.height * 8 : 0),
+        plan.byteLength +
+          (8 + nativeEffectUniformFloats(definition)) * 4 +
+          (replace ? mount.width * mount.height * 8 : 0),
       );
       this.ensureTextureBudget(
-        plan.byteLength + 544 + (replace ? mount.width * mount.height * 8 : 0),
+        plan.byteLength +
+          (8 + nativeEffectUniformFloats(definition)) * 4 +
+          (replace ? mount.width * mount.height * 8 : 0),
       );
       if (replace) {
         const prior = output;
@@ -10094,7 +10538,7 @@ class NativeShaderRuntime {
         if (prior && prior !== source && prior !== mount.outputTexture)
           this.textureRetirement.push(prior);
       }
-      const data = new Float32Array(136);
+      const data = new Float32Array(8 + nativeEffectUniformFloats(definition));
       data.set([mount.width, mount.height, 1 / mount.width, 1 / mount.height]);
       data.set(
         packNativeUniformClock({
@@ -11061,7 +11505,9 @@ class NativeShaderRuntime {
           usedTextures.add(texture);
         }
         const pipeline = pipelines.get(pass.id)!;
-        const data = new Float32Array(136);
+        const data = new Float32Array(
+          8 + nativeEffectUniformFloats(definition),
+        );
         data.set([width, height, 1 / width, 1 / height], 0);
         data.set(
           packNativeUniformClock({
@@ -12168,7 +12614,10 @@ class NativeShaderRuntime {
           "resource-size-unsupported",
           `Render output ${pass.output} exceeds the supported texture bounds.`,
         );
-      resourceBytes += width * height * (format === "rgba16float" ? 8 : 4);
+      resourceBytes +=
+        width *
+        height *
+        ((format === "rgba16float" ? 8 : 4) + (pass.mesh ? 4 : 0));
       if (resourceBytes > MAX_RESOURCE_BYTES)
         throw new NativeSourceError(
           "resource-budget-exceeded",
@@ -12199,6 +12648,7 @@ class NativeShaderRuntime {
           true,
           pass.reads.length,
           instance.placement,
+          pass.mesh !== undefined,
         );
       } catch (error) {
         if (error instanceof NativeShaderCompilationError)
@@ -12210,7 +12660,7 @@ class NativeShaderRuntime {
           );
         throw error;
       }
-      const data = new Float32Array(136);
+      const data = new Float32Array(8 + nativeEffectUniformFloats(definition));
       data.set([width, height, 1 / width, 1 / height], 0);
       data.set(
         packNativeUniformClock({ time, seed: instance.seed, pixelRatio: dpr }),
@@ -12239,6 +12689,10 @@ class NativeShaderRuntime {
         null,
         otherInputs.slice(1),
       );
+      const depth = pass.mesh
+        ? this.meshDepth(mount, `__mesh_depth:${pass.id}`, width, height)
+        : null;
+      const grid = pass.mesh ? this.meshGrid(pass.mesh) : null;
       const render = encoder.beginRenderPass({
         ...this.gpuTimestampWrites(encoder, `effect:${pass.id}`),
         colorAttachments: [
@@ -12249,10 +12703,23 @@ class NativeShaderRuntime {
             clearValue: { r: 0, g: 0, b: 0, a: 0 },
           },
         ],
+        ...(depth
+          ? {
+              depthStencilAttachment: {
+                view: depth.createView(),
+                depthLoadOp: "clear" as const,
+                depthStoreOp: "discard" as const,
+                depthClearValue: 1,
+              },
+            }
+          : {}),
       });
       render.setPipeline(pipeline);
       render.setBindGroup(0, bind);
-      render.draw(3);
+      if (grid) {
+        render.setIndexBuffer(grid.buffer, "uint32");
+        render.drawIndexed(grid.indexCount);
+      } else render.draw(3);
       render.end();
       resources.set(pass.output, output);
     }
@@ -15928,8 +16395,8 @@ class NativeShaderRuntime {
     }
   }
 
-  private currentTime(): number {
-    return this.timeOverride ?? (performance.now() - this.clockOrigin) / 1000;
+  private currentTime(nowMs = performance.now()): number {
+    return this.timeOverride ?? (nowMs - this.clockOrigin) / 1000;
   }
 
   private closeStatelessFrameScope(
@@ -16056,8 +16523,8 @@ class NativeShaderRuntime {
         this.colorPresented,
         this.dynamicRangePresented,
       ]) !== family.presentationFormat ||
-      this.previewPolicy.status(devicePixelRatio || 1).effectivePixelRatio !==
-        family.density ||
+      this.previewPolicy.status(this.previewDevicePixelRatio())
+        .effectivePixelRatio !== family.density ||
       this.compositionPixelRatio !== null ||
       this.exportInitialPixelRatio !== null ||
       this.compositionAbort ||
@@ -16233,7 +16700,7 @@ class NativeShaderRuntime {
         deviceEpoch: epoch,
         hostGeneration: this.previewHostGeneration,
         viewport: JSON.stringify(this.previewViewport),
-        density: this.previewPolicy.status(devicePixelRatio || 1)
+        density: this.previewPolicy.status(this.previewDevicePixelRatio())
           .effectivePixelRatio,
         presentationFormat: JSON.stringify([
           this.format,
@@ -21677,6 +22144,7 @@ class NativeShaderRuntime {
 
   private onMessage = (event: MessageEvent): void => {
     if (!event.data || typeof event.data !== "object") return;
+    const data = event.data as Record<string, unknown>;
     if (event.source !== window) {
       if (event.source !== window.parent) return;
       let inheritedOrigin: string;
@@ -21688,7 +22156,6 @@ class NativeShaderRuntime {
       }
       if (event.origin !== inheritedOrigin) return;
     }
-    const data = event.data as Record<string, unknown>;
     if (data.type === "native-shader-editor-preview-policy") {
       if (window.parent === window || event.source !== window.parent) return;
       if (
@@ -22407,10 +22874,19 @@ class NativeShaderRuntime {
         "visibilitychange",
         this.onPreviewHostChange,
       );
+      window.removeEventListener("resize", this.onPreviewHostChange);
       window.removeEventListener("pagehide", this.onPageHide);
       if (this.previewHostFramePending)
-        this.previewHostParent?.cancelAnimationFrame(this.previewHostFrame);
+        (this.previewHostRafHost ?? window).cancelAnimationFrame(
+          this.previewHostFrame,
+        );
+      if (this.opaquePreviewViewportTimer)
+        clearTimeout(this.opaquePreviewViewportTimer);
+      this.opaquePreviewViewportTimer = null;
+      this.opaquePreviewViewportPort?.close();
+      this.opaquePreviewViewportPort = null;
       this.previewHostFrame = 0;
+      this.previewHostRafHost = null;
       this.previewHostFramePending = false;
       this.previewHostParent?.removeEventListener(
         "scroll",
@@ -22447,6 +22923,7 @@ class NativeShaderRuntime {
   }
 
   private releaseDisposedResources(): void {
+    this.releaseMeshGrids();
     this.workerScene?.dispose();
     this.retiringWorkerScene?.dispose();
     this.workerScene = null;

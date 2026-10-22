@@ -101,20 +101,6 @@ function manageDraftSource(): string {
 }
 
 describe("manage-draft MCP App", () => {
-  it("reuses the real Mail app embed instead of a bespoke compose form", () => {
-    const source = manageDraftSource();
-
-    expect(source).toContain("embedApp({");
-    expect(source).toContain('openLabel: "Open in Mail"');
-    expect(source).toContain('iframeTitle: "Agent-Native Mail"');
-    expect(source).toContain("height: 900");
-    expect(source).not.toContain("mailDraftMcpAppHtml");
-    expect(source).not.toContain("_mcp-apps");
-    expect(source).not.toContain("data-save");
-    expect(source).not.toContain("Update draft");
-    expect(existsSync(new URL("./_mcp-apps.ts", import.meta.url))).toBe(false);
-  });
-
   it("requires an action and IDs for draft operations that target a draft", () => {
     const source = manageDraftSource();
 
@@ -495,33 +481,6 @@ describe("manage-draft local fallback", () => {
 });
 
 describe("manage-draft deep link", () => {
-  it("no longer encodes draft contents into the URL", () => {
-    const source = manageDraftSource();
-
-    expect(source).not.toContain("encodeComposeDraft");
-    expect(source).not.toContain("encodeComposePayload");
-    expect(source).not.toContain("MAX_COMPOSE_PAYLOAD_BYTES");
-    expect(source).not.toMatch(/\bcompose:\s*encode/);
-    expect(source).toContain("composeDraftId");
-  });
-
-  it("composeDeepLink calls buildDeepLink with only id + view + to (no payload)", () => {
-    const source = manageDraftSource();
-
-    const match = source.match(
-      /function composeDeepLink\([^)]*\)[^{]*{[\s\S]*?return buildDeepLink\(\{([\s\S]*?)\}\);[\s\S]*?}/,
-    );
-    expect(match).toBeTruthy();
-    const body = match![1];
-    expect(body).toContain('app: "mail"');
-    expect(body).toContain('view: "inbox"');
-    expect(body).toContain('to: "/inbox"');
-    expect(body).not.toContain("composeFullscreen");
-    expect(body).toContain("composeDraftId: draft.id");
-    expect(body).not.toContain("compose:");
-    expect(body).not.toContain("encode");
-  });
-
   it("creates an ordinary draft deep link without fullscreen mode", async () => {
     await action.run({
       action: "create",

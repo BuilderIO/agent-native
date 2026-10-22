@@ -39,6 +39,7 @@ vi.mock("@/components/ui/input", () => ({
 }));
 
 type NumericSliderHandlers = {
+  value?: number[];
   onValueChange?: (value: number[]) => void;
   onValueCommit?: (value: number[]) => void;
   onPointerCancel?: () => void;
@@ -129,14 +130,21 @@ vi.mock("./NativeShaderCatalogPreview", () => ({
   NativeShaderCatalogPreview: () => <div data-native-shader-preview />,
 }));
 
-vi.mock("./NativeShaderColorControls", () => ({
-  NativeShaderColorControls: () => <div data-native-shader-color-controls />,
-}));
+vi.mock("./NativeShaderColorControls", async (original) => {
+  const module = await original<typeof import("./NativeShaderColorControls")>();
+  return {
+    ...module,
+    NativeShaderColorControls: () => <div data-native-shader-color-controls />,
+  };
+});
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 import { LIQUID_GLASS_EFFECT } from "@shared/native-effect-liquid-glass-v3";
 import { NATIVE_EFFECT_LATEST_DEFINITIONS } from "@shared/native-effect-presets";
+import { PULSING_BORDER_EFFECT } from "@shared/native-effect-pulsing-border";
+import { PULSING_BORDER_V3_EFFECT } from "@shared/native-effect-pulsing-border-v3";
+import { PULSING_BORDER_V4_EFFECT } from "@shared/native-effect-pulsing-border-v4";
 import { hashEffectDefinition } from "@shared/native-effect-trust";
 import {
   applyNativeEffectToHtml,
@@ -146,7 +154,8 @@ import {
 
 import { runShaderSourceEdit } from "@/pages/design-editor/commands/shader-source-edit";
 
-import { isShaderWriteInFlight } from "./GlslShaderPanel";
+import { isShaderWriteInFlight } from "../shader-source-coordination";
+import { nativeCatalogPropertyKey } from "./native-catalog-display";
 import {
   NativeShaderEffectSection,
   NativeShaderPanel,
@@ -926,6 +935,483 @@ describe("NativeShaderPanel catalog", () => {
       host.querySelector('input[aria-label="editPanel.shaders.searchShaders"]'),
     ).toBeNull();
     expect(host.textContent).not.toMatch(/preset|radius/i);
+  });
+
+  it.each([
+    PULSING_BORDER_V3_EFFECT,
+    PULSING_BORDER_V4_EFFECT,
+    PULSING_BORDER_EFFECT,
+  ])(
+    "keeps Pulsing Border version $version groups and only exposes Glow spread from version 4",
+    async (definition) => {
+      const applied = applyNativeEffectToHtml(
+        '<html><body><div data-agent-native-node-id="shape"></div></body></html>',
+        { nodeId: "shape", definition, placement: "fill" },
+      );
+      expect(applied.errors).toEqual([]);
+      await act(async () => {
+        root.render(
+          <NativeShaderPanel
+            context={{
+              designId: "design-1",
+              fileId: "file-1",
+              content: applied.html,
+              nodeId: "shape",
+            }}
+            placement="fill"
+            showCatalog={false}
+          />,
+        );
+      });
+      const smokeGroup = [...host.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes(
+          "editPanel.shaders.nativeCatalog.properties.smoke",
+        ),
+      );
+      expect(smokeGroup?.getAttribute("aria-expanded")).toBe("false");
+      expect(
+        host.querySelector(
+          'input[aria-label="editPanel.shaders.nativeCatalog.properties.glowSpread"]',
+        ) !== null,
+      ).toBe(definition.version >= 4);
+    },
+  );
+
+  it("groups Folded Mesh controls and opens a group with the keyboard", async () => {
+    const definition = NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+      (item) => item.id === "an-native-folded-mesh",
+    );
+    expect(definition).toBeDefined();
+    expect(nativeCatalogPropertyKey(definition!, "Light")).toBe(
+      "editPanel.shaders.nativeCatalog.properties.light",
+    );
+    expect(nativeCatalogPropertyKey(definition!, "Noise band")).toBe(
+      "editPanel.shaders.nativeCatalog.properties.noiseBand",
+    );
+    expect(nativeCatalogPropertyKey(definition!, "Color attenuation")).toBe(
+      "editPanel.shaders.nativeCatalog.properties.colorAttenuation",
+    );
+    const applied = applyNativeEffectToHtml(
+      '<html><body><div data-agent-native-node-id="mesh"></div></body></html>',
+      { nodeId: "mesh", definition: definition!, placement: "fill" },
+    );
+    expect(applied.errors).toEqual([]);
+
+    await act(async () => {
+      root.render(
+        <NativeShaderPanel
+          context={{
+            designId: "design-1",
+            fileId: "file-1",
+            content: applied.html,
+            nodeId: "mesh",
+          }}
+          placement="fill"
+          showCatalog={false}
+        />,
+      );
+    });
+
+    const shape = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("nativeCatalog.groups.shape"),
+    );
+    const transform = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("nativeCatalog.groups.transform"),
+    );
+    expect(shape?.getAttribute("aria-expanded")).toBe("true");
+    expect(transform?.getAttribute("aria-expanded")).toBe("false");
+    expect(transform?.tagName).toBe("BUTTON");
+    expect(host.textContent).toContain(
+      "editPanel.shaders.nativeCatalog.properties.fill",
+    );
+    expect(
+      host.querySelector(
+        'input[aria-label="editPanel.shaders.nativeCatalog.properties.foldTightnessX"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      host.querySelector(
+        'input[aria-label="editPanel.shaders.nativeCatalog.properties.positionX"]',
+      ),
+    ).toBeNull();
+
+    transform!.focus();
+    await act(async () => {
+      transform!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+      transform!.click();
+    });
+    expect(transform?.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      host.querySelector(
+        'input[aria-label="editPanel.shaders.nativeCatalog.properties.positionX"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("edits record-array fields from the latest row draft and removes rows", async () => {
+    const definition = NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+      (item) => item.id === "an-native-folded-mesh",
+    );
+    expect(definition?.version).toBe(3);
+    const applied = applyNativeEffectToHtml(
+      '<html><body><div data-agent-native-node-id="mesh"></div></body></html>',
+      { nodeId: "mesh", definition: definition!, placement: "fill" },
+    );
+    expect(applied.errors).toEqual([]);
+
+    await act(async () => {
+      root.render(
+        <NativeShaderPanel
+          context={{
+            designId: "design-1",
+            fileId: "file-1",
+            content: applied.html,
+            nodeId: "mesh",
+          }}
+          placement="fill"
+          showCatalog={false}
+        />,
+      );
+    });
+    const surface = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("nativeCatalog.groups.surface"),
+    );
+    await act(async () => {
+      surface!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+      surface!.click();
+    });
+    const addButtons = [...host.querySelectorAll("button")].filter(
+      (button) => button.textContent === "editPanel.shaders.addRecordRow",
+    );
+    expect(addButtons).toHaveLength(2);
+    await act(async () => {
+      addButtons[0]!.click();
+      await Promise.resolve();
+    });
+
+    const positionX = numericSliders.get(
+      "editPanel.shaders.nativeCatalog.properties.positionX",
+    );
+    const positionY = numericSliders.get(
+      "editPanel.shaders.nativeCatalog.properties.positionY",
+    );
+    expect(positionX).toBeDefined();
+    expect(positionY).toBeDefined();
+    await act(async () => {
+      positionX!.onValueCommit!([25]);
+      positionY!.onValueCommit!([-50]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      numericSliders.get(
+        "editPanel.shaders.nativeCatalog.properties.positionX",
+      )!.onValueChange!([40]);
+      numericSliders.get(
+        "editPanel.shaders.nativeCatalog.properties.positionX",
+      )!.onPointerCancel!();
+      numericSliders.get(
+        "editPanel.shaders.nativeCatalog.properties.positionY",
+      )!.onValueCommit!([-20]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const writes = mockCallAction.mock.calls.filter(
+      ([name]) => name === "edit-native-shader",
+    );
+    expect(writes[writes.length - 1]?.[1].operation).toMatchObject({
+      kind: "set-instance",
+      params: {
+        lights: [{ positionX: 0.25, positionY: -0.2 }],
+      },
+    });
+
+    const remove = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.shaders.removeRecordRow"]',
+    );
+    expect(remove).not.toBeNull();
+    await act(async () => {
+      remove!.click();
+      await Promise.resolve();
+    });
+    const finalWrites = mockCallAction.mock.calls.filter(
+      ([name]) => name === "edit-native-shader",
+    );
+    const finalWrite = finalWrites[finalWrites.length - 1];
+    expect(finalWrite?.[1].operation).toMatchObject({
+      kind: "set-instance",
+      params: { lights: [] },
+    });
+  });
+
+  it("rolls back failed record adds and nested numeric commits", async () => {
+    const definition = NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+      (item) => item.id === "an-native-folded-mesh",
+    );
+    const applied = applyNativeEffectToHtml(
+      '<html><body><div data-agent-native-node-id="mesh"></div></body></html>',
+      { nodeId: "mesh", definition: definition!, placement: "fill" },
+    );
+    const context = {
+      designId: "design-1",
+      fileId: "file-1",
+      content: applied.html,
+      nodeId: "mesh",
+    };
+    await act(async () => {
+      root.render(
+        <NativeShaderPanel
+          context={context}
+          placement="fill"
+          showCatalog={false}
+        />,
+      );
+    });
+    const surface = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("nativeCatalog.groups.surface"),
+    );
+    await act(async () => {
+      surface!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+      surface!.click();
+    });
+    const addButton = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent === "editPanel.shaders.addRecordRow",
+    )!;
+    await act(async () => {
+      addButton.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      host.querySelectorAll(
+        'button[aria-label="editPanel.shaders.removeRecordRow"]',
+      ),
+    ).toHaveLength(1);
+
+    mockCallAction.mockImplementation((name: string) => {
+      if (name === "read-source-file")
+        return Promise.resolve({ content: "<html></html>", versionHash: "v1" });
+      if (name === "edit-native-shader")
+        return Promise.reject(new Error("save failed"));
+      throw new Error(`unexpected action: ${name}`);
+    });
+    await act(async () => {
+      numericSliders.get(
+        "editPanel.shaders.nativeCatalog.properties.positionX",
+      )!.onValueCommit!([60]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      numericSliders.get("editPanel.shaders.nativeCatalog.properties.positionX")
+        ?.value,
+    ).toEqual([0]);
+
+    await act(async () => {
+      [...host.querySelectorAll("button")]
+        .find(
+          (button) => button.textContent === "editPanel.shaders.addRecordRow",
+        )!
+        .click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      host.querySelectorAll(
+        'button[aria-label="editPanel.shaders.removeRecordRow"]',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps a newer intent visible and rolls it back to an older saved value", async () => {
+    const definition = NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+      (item) => item.id === "an-native-folded-mesh",
+    );
+    const applied = applyNativeEffectToHtml(
+      '<html><body><div data-agent-native-node-id="mesh"></div></body></html>',
+      { nodeId: "mesh", definition: definition!, placement: "fill" },
+    );
+    await act(async () => {
+      root.render(
+        <NativeShaderPanel
+          context={{
+            designId: "design-1",
+            fileId: "file-1",
+            content: applied.html,
+            nodeId: "mesh",
+          }}
+          placement="fill"
+          showCatalog={false}
+        />,
+      );
+    });
+    const surface = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("nativeCatalog.groups.surface"),
+    );
+    await act(async () => {
+      surface!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+      surface!.click();
+    });
+    await act(async () => {
+      [...host.querySelectorAll("button")]
+        .find(
+          (button) => button.textContent === "editPanel.shaders.addRecordRow",
+        )!
+        .click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const pendingWrites: Array<{
+      resolve: (response: { content: string; instanceIds: string[] }) => void;
+      reject: (error: Error) => void;
+    }> = [];
+    mockCallAction.mockImplementation((name: string) => {
+      if (name === "read-source-file")
+        return Promise.resolve({ content: "<html></html>", versionHash: "v1" });
+      if (name === "edit-native-shader")
+        return new Promise<{ content: string; instanceIds: string[] }>(
+          (resolve, reject) => pendingWrites.push({ resolve, reject }),
+        );
+      throw new Error(`unexpected action: ${name}`);
+    });
+
+    await act(async () => {
+      numericSliders.get(
+        "editPanel.shaders.nativeCatalog.properties.positionX",
+      )!.onValueCommit!([20]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      numericSliders.get(
+        "editPanel.shaders.nativeCatalog.properties.positionX",
+      )!.onValueCommit!([45]);
+      await Promise.resolve();
+    });
+    expect(pendingWrites).toHaveLength(1);
+
+    await act(async () => {
+      pendingWrites[0]!.resolve({
+        content: "<html></html>",
+        instanceIds: ["i1"],
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pendingWrites).toHaveLength(2);
+    expect(
+      numericSliders.get("editPanel.shaders.nativeCatalog.properties.positionX")
+        ?.value,
+    ).toEqual([45]);
+
+    await act(async () => {
+      pendingWrites[1]!.reject(new Error("save failed"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      numericSliders.get("editPanel.shaders.nativeCatalog.properties.positionX")
+        ?.value,
+    ).toEqual([20]);
+  });
+
+  it("replaces record rows when the saved array changes externally", async () => {
+    const definition = NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+      (item) => item.id === "an-native-folded-mesh",
+    );
+    expect(definition?.version).toBe(3);
+    const applied = applyNativeEffectToHtml(
+      '<html><body><div data-agent-native-node-id="mesh"></div></body></html>',
+      { nodeId: "mesh", definition: definition!, placement: "fill" },
+    );
+    expect(applied.errors).toEqual([]);
+    const instanceId = parseEffectsFromHtml(applied.html).document!
+      .instances[0]!.id;
+    const light = {
+      positionX: 0,
+      positionY: 0,
+      positionZ: 1,
+      directionX: 0,
+      directionY: 0,
+      directionZ: -1,
+      color: {
+        space: "srgb" as const,
+        components: [1, 1, 1] as [number, number, number],
+        alpha: 1,
+      },
+      intensity: 1,
+      amount: 0.5,
+      exponent: 8,
+    };
+    const firstUpdate = updateNativeInstanceInHtml(applied.html, instanceId, {
+      params: { lights: [light] },
+    });
+    const secondUpdate = updateNativeInstanceInHtml(
+      firstUpdate.html,
+      instanceId,
+      {
+        params: { lights: [light, { ...light, positionX: 1 }] },
+      },
+    );
+    expect(firstUpdate.errors).toEqual([]);
+    expect(secondUpdate.errors).toEqual([]);
+
+    const context = {
+      designId: "design-1",
+      fileId: "file-1",
+      content: firstUpdate.html,
+      nodeId: "mesh",
+    };
+    await act(async () => {
+      root.render(
+        <NativeShaderPanel
+          context={context}
+          placement="fill"
+          showCatalog={false}
+        />,
+      );
+    });
+    const surface = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("nativeCatalog.groups.surface"),
+    );
+    await act(async () => {
+      surface!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+      surface!.click();
+    });
+    expect(
+      host.querySelectorAll(
+        'button[aria-label="editPanel.shaders.removeRecordRow"]',
+      ),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      root.render(
+        <NativeShaderPanel
+          context={{ ...context, content: secondUpdate.html }}
+          placement="fill"
+          showCatalog={false}
+        />,
+      );
+    });
+    expect(
+      host.querySelectorAll(
+        'button[aria-label="editPanel.shaders.removeRecordRow"]',
+      ),
+    ).toHaveLength(2);
   });
 
   it("keeps placement editing for an existing Backdrop effect", async () => {

@@ -32,6 +32,7 @@ import {
   type ContentDatabaseFilterMode,
   type ContentDatabaseFilterOperator,
   type ContentDatabaseFormQuestion,
+  type ContentDatabaseItemLayout,
   type ContentDatabaseOpenPagesIn,
   type ContentDatabaseRowDensity,
   type ContentDatabaseSort,
@@ -46,12 +47,19 @@ import {
 } from "@shared/api";
 import { contentRecentHref } from "@shared/content-personal-navigation";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
-import { applyContentDatabaseTableQuery } from "@shared/database-query";
+import { contentDatabaseItemLayoutField } from "@shared/database-item-layout";
+import {
+  applyContentDatabaseTableQuery,
+  contentDatabaseFilterDateRangeValues,
+  contentDatabaseFilterOperatorNeedsValue,
+  contentDatabaseFilterOperatorsForType,
+} from "@shared/database-query";
 import {
   databaseTableColumnIds,
   databaseFrozenColumnIds,
   reorderDatabaseTableColumn,
 } from "@shared/database-table-columns";
+import { GITHUB_SOURCE_TYPE } from "@shared/github-source";
 import {
   type DocumentPropertyOptionColor,
   countWords,
@@ -70,6 +78,7 @@ import {
   IconArrowUp,
   IconAdjustmentsHorizontal,
   IconArrowsDiagonal,
+  IconBrandGithub,
   IconArrowsSort,
   IconCalendar,
   IconCalendarDue,
@@ -109,6 +118,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useCallback,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -296,8 +306,8 @@ import {
   useContentTableSelectionGutter,
 } from "./ContentTable";
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
+import { DatabaseCellComments } from "./database-cell-comments";
 import {
-  DatabaseCellCommentMarker,
   DatabaseItemCommentsContext,
   DatabaseRowCommentCount,
   type OpenDatabaseItemComments,
@@ -321,6 +331,10 @@ import {
 } from "./DatabaseViewSkeleton";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
+import type { GitHubCollectionPlace } from "./github-availability";
+import { GitHubSourcePanel, useGitHubSourcesRow } from "./GitHubSourcePanel";
+import { GitHubSourceStatusLine } from "./GitHubSourceStatusLine";
+import { DatabaseListRowsSetting } from "./ListItemLayout";
 import { DatabaseListView } from "./ListView";
 import {
   DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
@@ -1114,6 +1128,9 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editingListRowsViewId, setEditingListRowsViewId] = useState<
+    string | null
+  >(null);
   const settingsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [preserveSourceNavigationOnClose, setPreserveSourceNavigationOnClose] =
     useState(false);
@@ -1926,7 +1943,11 @@ function DatabaseTable({
   }
 
   // Opens the row with its Comments showing, from a count or a cell marker.
-  const previewItemComments: OpenDatabaseItemComments = (item, threadId) => {
+  const previewItemComments: OpenDatabaseItemComments = (
+    item,
+    threadId,
+    propertyId,
+  ) => {
     if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
@@ -1936,18 +1957,19 @@ function DatabaseTable({
         databaseId,
         document.id,
       );
-      runPreviewTransition(
-        () =>
-          void navigate(
-            threadId ? `${path}&comment=${encodeURIComponent(threadId)}` : path,
-          ),
-      );
+      const link = threadId
+        ? `${path}&comment=${encodeURIComponent(threadId)}`
+        : propertyId
+          ? `${path}&commentProperty=${encodeURIComponent(propertyId)}`
+          : path;
+      runPreviewTransition(() => void navigate(link));
       return;
     }
     const intent: PageCommentIntent = {
       key: ++previewCommentIntentSequenceRef.current,
       documentId: item.document.id,
       threadId,
+      propertyId,
     };
     if (item.document.id === previewDocumentId) {
       setPreviewCommentIntent(intent);
@@ -2531,6 +2553,10 @@ function DatabaseTable({
 
   function setFormQuestions(formQuestions: ContentDatabaseFormQuestion[]) {
     updateActiveView((view) => ({ ...view, formQuestions }));
+  }
+
+  function setItemLayout(itemLayout: ContentDatabaseItemLayout | null) {
+    updateActiveView((view) => ({ ...view, itemLayout }));
   }
 
   function setGroupCollapsed(groupId: string, collapsed: boolean) {
@@ -3483,6 +3509,39 @@ function DatabaseTable({
         );
       })}
 
+      <GitHubSourceStatusLine
+        source={
+          sources.find(
+            (candidate) => candidate.sourceType === GITHUB_SOURCE_TYPE,
+          ) ?? null
+        }
+        documentId={document.id}
+        canEdit={canEdit}
+        pageCount={totalItemCount}
+      />
+      {canEdit &&
+      databaseId &&
+      data &&
+      !data.database.systemRole &&
+      !source &&
+      sources.length === 0 &&
+      totalItemCount === 0 ? (
+        // One line for every source, so the list of them stays in Sources.
+        <div className="mb-2 text-xs" data-empty-collection-source-hint>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onClick={() => {
+              changeDatabaseSettingsPanel("source");
+              setSettingsOpen(true);
+            }}
+          >
+            <IconPlugConnected className="size-3.5" aria-hidden />
+            {dbText("emptyCollectionSourceHint")}
+          </button>
+        </div>
+      ) : null}
+
       {database.itemsFailed ? (
         <QueryErrorState
           compact
@@ -3542,8 +3601,15 @@ function DatabaseTable({
         <DatabaseListView
           properties={tableProperties}
           groupableProperties={orderedProperties}
+          layoutProperties={databaseListLayoutProperties(
+            orderedProperties,
+            activeView,
+          )}
           items={visibleItems}
+          databaseId={databaseId}
           databaseDocumentId={document.id}
+          itemLayout={activeView.itemLayout ?? null}
+          editingRows={editingListRowsViewId === activeView.id}
           canEdit={effectiveCanEdit}
           canCreateItems={canCreateItems}
           isLoading={isDatabaseViewLoading}
@@ -3561,6 +3627,10 @@ function DatabaseTable({
           onPreview={previewItemPage}
           onDeletedPreviewItem={handleDeletedPreviewItem}
           onOpenPage={openItemPage}
+          onItemLayoutChange={setItemLayout}
+          onEditingRowsChange={(editing) =>
+            setEditingListRowsViewId(editing ? activeView.id : null)
+          }
         />
       ) : activeView.type === "gallery" ? (
         <DatabaseGalleryView
@@ -3667,13 +3737,19 @@ function DatabaseTable({
           onOpenPage={openItemPage}
         />
       ) : (
-        <DatabaseItemCommentsContext.Provider value={previewItemComments}>
+        // The read-only ChatGPT widget can't read or write Comments.
+        <DatabaseItemCommentsContext.Provider
+          value={
+            document.mcpDirectoryWidgetReadOnly ? null : previewItemComments
+          }
+        >
           <DatabaseTableView
             startupAnchored={renderMode === "page"}
             columnOrderIds={activeView.tableColumnOrderIds ?? []}
             databaseId={databaseId}
             databaseSystemRole={data?.database.systemRole}
             newRowLabel={newDatabaseRowLabel}
+            canCreateItems={canCreateItems}
             properties={tableProperties}
             groupableProperties={orderedProperties}
             items={visibleItems}
@@ -3834,6 +3910,15 @@ function DatabaseTable({
         databaseId={databaseId}
         documentId={document.id}
         isFilesDatabase={document.database?.systemRole === "files"}
+        githubPlace={{
+          databaseId,
+          documentId: document.id,
+          spaceId: document.spaceId ?? undefined,
+          parentId: document.parentId,
+          systemRole: data?.database.systemRole ?? null,
+          pageCount: totalItemCount,
+          canEdit,
+        }}
         canEdit={canEdit}
         canManage={document.canManage === true}
         activeView={activeView}
@@ -3989,6 +4074,12 @@ function DatabaseTable({
         onWrapCellsChange={setWrapCells}
         onOpenPagesInChange={setOpenPagesIn}
         onFormQuestionsChange={setFormQuestions}
+        editingListRows={editingListRowsViewId === activeView.id}
+        onItemLayoutChange={setItemLayout}
+        onEditListRows={() => {
+          setEditingListRowsViewId(activeView.id);
+          closeDatabaseSettings();
+        }}
         onPropertyHiddenChange={setPropertyHiddenInActiveView}
         onPropertiesHiddenChange={setPropertiesHiddenInActiveView}
         onGroupByChange={(propertyId) =>
@@ -4116,6 +4207,7 @@ export function databaseNavigationState({
     | "tableColumnOrderIds"
     | "rowDensity"
     | "openPagesIn"
+    | "itemLayout"
   >;
   effectiveFrozenColumnIds?: string[];
   searchQuery?: string;
@@ -4230,6 +4322,8 @@ export function databaseNavigationState({
       activeView.openPagesIn === "full_page"
         ? activeView.openPagesIn
         : undefined,
+    databaseItemLayout:
+      activeView.type === "list" ? (activeView.itemLayout ?? null) : undefined,
     databaseVisibleItemCount: visibleItemCount,
     databaseTotalItemCount: totalItemCount,
     databaseVisibleItems: databaseVisibleItemSummaries(
@@ -5265,7 +5359,8 @@ function DatabaseItemPreview({
                   align="end"
                   data-database-preview-portal=""
                 >
-                  {canEdit && !isWorkspaceCatalog ? (
+                  {canEdit &&
+                  databaseItemCanDuplicate(item, isWorkspaceCatalog) ? (
                     <DropdownMenuItem
                       disabled={duplicateItem.isPending || transitionPending}
                       onSelect={(event) => {
@@ -5327,6 +5422,7 @@ function DatabaseTableView({
   databaseId,
   databaseSystemRole,
   newRowLabel,
+  canCreateItems,
   columnOrderIds,
   properties,
   groupableProperties,
@@ -5390,6 +5486,7 @@ function DatabaseTableView({
   databaseId: string;
   databaseSystemRole: string | null | undefined;
   newRowLabel: string;
+  canCreateItems: boolean;
   columnOrderIds: string[];
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
@@ -6271,6 +6368,7 @@ function DatabaseTableView({
                               rowDensity={rowDensity}
                               isCreating={isCreating}
                               newRowLabel={newRowLabel}
+                              canCreateItems={canCreateItems}
                               focusedTitleDocumentId={focusedTitleDocumentId}
                               collapsed={databaseGroupIsCollapsed(
                                 collapsedGroupIds,
@@ -6349,7 +6447,7 @@ function DatabaseTableView({
                             propertyValues={workspaceCreationPropertyValues}
                             actionColumnWidth={actionColumnWidth}
                           />
-                        ) : (
+                        ) : canCreateItems ? (
                           <NewDatabaseRow
                             label={newRowLabel}
                             properties={properties}
@@ -6360,7 +6458,7 @@ function DatabaseTableView({
                             onCreate={onCreateRow}
                             actionColumnWidth={actionColumnWidth}
                           />
-                        )
+                        ) : null
                       ) : null}
                       {cleanDefaultTable ? (
                         <DatabaseBlankDefaultRows
@@ -6753,8 +6851,8 @@ function DatabaseInlineSortControl({
           size="sm"
           variant="ghost"
           className={cn(
-            "relative h-7 max-w-[16rem] rounded border border-[#2383e2]/30 bg-[#2383e2]/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-[#2383e2]/15 focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
-            open && "border-[#2383e2]/40 bg-[#2383e2]/15",
+            "relative h-7 max-w-[16rem] rounded border border-database-chip/30 bg-database-chip/10 px-2 text-xs font-normal text-database-chip-foreground shadow-none hover:bg-database-chip/15 focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
+            open && "border-database-blue/40 bg-database-blue/15",
           )}
         >
           {sort.direction === "asc" ? (
@@ -6858,7 +6956,7 @@ function DatabaseInlineSortControl({
   );
 }
 
-function DatabaseAddFilterButton({
+export function DatabaseAddFilterButton({
   open,
   filters,
   properties,
@@ -6873,19 +6971,10 @@ function DatabaseAddFilterButton({
   onAddFilter: (key: "name" | (string & {}), label: string) => void;
   onAddAdvancedFilter: (key: "name" | (string & {}), label: string) => void;
 }) {
-  const excludedFilterKeys = useMemo(
-    () => new Set(filters.filter(isActiveFilter).map((filter) => filter.key)),
-    [filters],
+  const advancedFilterCandidate = databaseFilterRuleCandidate(
+    properties,
+    filters.filter(isActiveFilter),
   );
-  const advancedFilterCandidate =
-    databasePropertyPickerItems(properties, "", {
-      includeName: false,
-      excludeKeys: excludedFilterKeys,
-    })[0] ??
-    databasePropertyPickerItems(properties, "", {
-      includeName: true,
-      excludeKeys: excludedFilterKeys,
-    })[0];
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -6905,17 +6994,14 @@ function DatabaseAddFilterButton({
           <DatabasePropertyPickerMenuItems
             properties={properties}
             includeName
-            excludeKeys={excludedFilterKeys}
             placeholder={dbText("filterBy")}
             closeOnSelect
             onSelect={onAddFilter}
           />
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            disabled={!advancedFilterCandidate}
             onSelect={(event) => {
               event.preventDefault();
-              if (!advancedFilterCandidate) return;
               onAddAdvancedFilter(
                 advancedFilterCandidate.key,
                 advancedFilterCandidate.label,
@@ -7011,19 +7097,10 @@ function DatabaseAdvancedFilterGroupControl({
     ({ filter }) => !filter.parentFilterGroupId,
   );
   const nestedGroupEntries = advancedNestedFilterGroups(filterEntries);
-  const advancedKeys = useMemo(
-    () => new Set(advancedFilters.map((filter) => filter.key)),
-    [advancedFilters],
+  const addRuleCandidate = databaseFilterRuleCandidate(
+    properties,
+    advancedFilters,
   );
-  const addRuleCandidate =
-    databasePropertyPickerItems(properties, "", {
-      includeName: false,
-      excludeKeys: advancedKeys,
-    })[0] ??
-    databasePropertyPickerItems(properties, "", {
-      includeName: true,
-      excludeKeys: advancedKeys,
-    })[0];
 
   function updateFilterAt(index: number, next: Partial<DatabaseFilter>) {
     const nextFilters = [...filters];
@@ -7035,7 +7112,7 @@ function DatabaseAdvancedFilterGroupControl({
       filterGroupId: next.filterGroupId ?? currentFilter.filterGroupId,
       parentFilterGroupId:
         next.parentFilterGroupId ?? currentFilter.parentFilterGroupId,
-      value: filterOperatorNeedsValue(nextOperator)
+      value: contentDatabaseFilterOperatorNeedsValue(nextOperator)
         ? (next.value ?? currentFilter.value)
         : "",
     };
@@ -7092,8 +7169,8 @@ function DatabaseAdvancedFilterGroupControl({
           size="sm"
           variant="ghost"
           className={cn(
-            "relative h-7 rounded border border-[#2383e2]/30 bg-[#2383e2]/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-[#2383e2]/15 focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
-            open && "border-[#2383e2]/40 bg-[#2383e2]/15",
+            "relative h-7 rounded border border-database-chip/30 bg-database-chip/10 px-2 text-xs font-normal text-database-chip-foreground shadow-none hover:bg-database-chip/15 focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
+            open && "border-database-blue/40 bg-database-blue/15",
           )}
         >
           <IconFilter className="size-3.5 shrink-0" />
@@ -7158,10 +7235,8 @@ function DatabaseAdvancedFilterGroupControl({
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-56">
               <DropdownMenuItem
-                disabled={!addRuleCandidate}
                 onSelect={(event) => {
                   event.preventDefault();
-                  if (!addRuleCandidate) return;
                   addAdvancedRule(addRuleCandidate.key, addRuleCandidate.label);
                 }}
               >
@@ -7169,10 +7244,8 @@ function DatabaseAdvancedFilterGroupControl({
                 {dbText("addFilterRule")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled={!addRuleCandidate}
                 onSelect={(event) => {
                   event.preventDefault();
-                  if (!addRuleCandidate) return;
                   addNestedFilterGroup(
                     addRuleCandidate.key,
                     addRuleCandidate.label,
@@ -7344,7 +7417,7 @@ function DatabaseAdvancedFilterRuleRow({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {filterOperatorNeedsValue(filter.operator) ? (
+          {contentDatabaseFilterOperatorNeedsValue(filter.operator) ? (
             <div className="min-w-0 flex-[1.35] [&>div>div:first-child]:px-0 [&>input]:h-9 [&>input]:text-xs">
               <DatabaseFilterValueControl
                 documentId={documentId}
@@ -7415,19 +7488,10 @@ function DatabaseAdvancedNestedFilterGroup({
   onRemoveFilter: (index: number) => void;
   onRemoveGroup: () => void;
 }) {
-  const nestedKeys = useMemo(
-    () => new Set(group.entries.map(({ filter }) => filter.key)),
-    [group.entries],
+  const addRuleCandidate = databaseFilterRuleCandidate(
+    properties,
+    group.entries.map(({ filter }) => filter),
   );
-  const addRuleCandidate =
-    databasePropertyPickerItems(properties, "", {
-      includeName: false,
-      excludeKeys: nestedKeys,
-    })[0] ??
-    databasePropertyPickerItems(properties, "", {
-      includeName: true,
-      excludeKeys: nestedKeys,
-    })[0];
 
   return (
     <div className="flex items-start gap-2">
@@ -7506,10 +7570,8 @@ function DatabaseAdvancedNestedFilterGroup({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
             <DropdownMenuItem
-              disabled={!addRuleCandidate}
               onSelect={(event) => {
                 event.preventDefault();
-                if (!addRuleCandidate) return;
                 onAddNestedFilterRule(
                   group.id,
                   addRuleCandidate.key,
@@ -7581,7 +7643,7 @@ function DatabaseInlineFilterControl({
     nextFilters[filterIndex] = {
       ...currentFilter,
       ...next,
-      value: filterOperatorNeedsValue(nextOperator)
+      value: contentDatabaseFilterOperatorNeedsValue(nextOperator)
         ? (next.value ?? currentFilter.value)
         : "",
     };
@@ -7598,7 +7660,7 @@ function DatabaseInlineFilterControl({
   }
 
   const filterIsComplete =
-    !filterOperatorNeedsValue(filter.operator) ||
+    !contentDatabaseFilterOperatorNeedsValue(filter.operator) ||
     filter.value.trim().length > 0;
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -7608,10 +7670,10 @@ function DatabaseInlineFilterControl({
           size="sm"
           variant="ghost"
           className={cn(
-            "relative h-7 max-w-[16rem] rounded border border-border/70 bg-background px-2 text-xs font-normal text-foreground shadow-none hover:bg-muted focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25",
+            "relative h-7 max-w-[16rem] rounded border border-border/70 bg-background px-2 text-xs font-normal text-foreground shadow-none hover:bg-muted focus-visible:border-database-blue/40 focus-visible:ring-database-blue/25",
             filterIsComplete &&
-              "border-[#2383e2]/30 bg-[#2383e2]/10 text-[#0f5ea8] hover:bg-[#2383e2]/15 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
-            open && "border-[#2383e2]/40 bg-[#2383e2]/15",
+              "border-database-chip/30 bg-database-chip/10 text-database-chip-foreground hover:bg-database-chip/15 dark:border-database-chip/35 dark:bg-database-chip/15 dark:hover:bg-database-chip/20",
+            open && "border-database-blue/40 bg-database-blue/15",
             !filterIsComplete && "text-muted-foreground",
           )}
         >
@@ -7753,7 +7815,7 @@ function DatabaseInlineFilterControl({
             </DropdownMenu>
           </div>
 
-          {filterOperatorNeedsValue(filter.operator) ? (
+          {contentDatabaseFilterOperatorNeedsValue(filter.operator) ? (
             <DatabaseFilterValueControl
               autoFocus={!filter.value}
               documentId={documentId}
@@ -7803,7 +7865,8 @@ type SourceNavStep =
   | { kind: "addSource" }
   | { kind: "secondarySource"; sourceId: string; sourceName: string }
   | { kind: "keyConfirm"; candidate: PendingSourceCandidate }
-  | { kind: "fieldPicker"; sourceId: string; sourceName: string };
+  | { kind: "fieldPicker"; sourceId: string; sourceName: string }
+  | { kind: "github" };
 
 function sourceNavTitle(stack: SourceNavStep[]): string {
   const top = stack[stack.length - 1];
@@ -7814,6 +7877,7 @@ function sourceNavTitle(stack: SourceNavStep[]): string {
   if (top.kind === "secondarySource") return top.sourceName;
   if (top.kind === "keyConfirm") return dbText("matchExistingItemsToDetails");
   if (top.kind === "fieldPicker") return dbText("chooseFields");
+  if (top.kind === "github") return "GitHub";
   return top.model?.displayName ?? top.sourceName ?? "Builder";
 }
 
@@ -7860,6 +7924,7 @@ function DatabaseSettingsPanelSheet({
   databaseId,
   documentId,
   isFilesDatabase,
+  githubPlace,
   canEdit,
   canManage,
   activeView,
@@ -7887,6 +7952,9 @@ function DatabaseSettingsPanelSheet({
   onWrapCellsChange,
   onOpenPagesInChange,
   onFormQuestionsChange,
+  editingListRows,
+  onItemLayoutChange,
+  onEditListRows,
   onPropertyHiddenChange,
   onPropertiesHiddenChange,
   onGroupByChange,
@@ -7899,6 +7967,7 @@ function DatabaseSettingsPanelSheet({
   databaseId: string;
   documentId: string;
   isFilesDatabase: boolean;
+  githubPlace: GitHubCollectionPlace;
   canEdit: boolean;
   canManage: boolean;
   activeView: ContentDatabaseView;
@@ -7936,6 +8005,9 @@ function DatabaseSettingsPanelSheet({
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
   onFormQuestionsChange: (formQuestions: ContentDatabaseFormQuestion[]) => void;
+  editingListRows: boolean;
+  onItemLayoutChange: (itemLayout: ContentDatabaseItemLayout | null) => void;
+  onEditListRows: () => void;
   onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
   onGroupByChange: (propertyId: string | null) => void;
@@ -8069,6 +8141,7 @@ function DatabaseSettingsPanelSheet({
               databaseId={databaseId}
               documentId={documentId}
               isFilesDatabase={isFilesDatabase}
+              githubPlace={githubPlace}
               itemCount={items.length}
               canEdit={canEdit}
               canManage={canManage}
@@ -8097,10 +8170,14 @@ function DatabaseSettingsPanelSheet({
             <DatabaseSettingsLayoutPanel
               activeView={activeView}
               properties={properties}
+              items={items}
+              editingListRows={editingListRows}
               onViewTypeChange={onViewTypeChange}
               onWrapCellsChange={onWrapCellsChange}
               onOpenPagesInChange={onOpenPagesInChange}
               onFormQuestionsChange={onFormQuestionsChange}
+              onItemLayoutChange={onItemLayoutChange}
+              onEditListRows={onEditListRows}
             />
           ) : panel === "property_visibility" ? (
             <DatabaseSettingsPropertyVisibilityPanel
@@ -8477,6 +8554,7 @@ function DatabaseSettingsSourcePanel({
   databaseId,
   documentId,
   isFilesDatabase,
+  githubPlace,
   itemCount,
   canEdit,
   canManage,
@@ -8501,6 +8579,7 @@ function DatabaseSettingsSourcePanel({
   databaseId: string;
   documentId: string;
   isFilesDatabase: boolean;
+  githubPlace: GitHubCollectionPlace;
   itemCount: number;
   canEdit: boolean;
   canManage: boolean;
@@ -8587,6 +8666,8 @@ function DatabaseSettingsSourcePanel({
           navigate(`/local-files?databaseId=${databaseId}`)
         }
         showLocalFolder={isFilesDatabase}
+        githubPlace={githubPlace}
+        onOpenGitHubStep={() => onNavPush({ kind: "github" })}
         onOpenSecondary={(secondary) =>
           onNavPush({
             kind: "secondarySource",
@@ -8595,6 +8676,16 @@ function DatabaseSettingsSourcePanel({
           })
         }
         onAddSource={() => onNavPush({ kind: "addSource" })}
+      />
+    );
+  }
+
+  if (top.kind === "github") {
+    return (
+      <GitHubSourcePanel
+        place={githubPlace}
+        sources={sources.length > 0 ? sources : source ? [source] : []}
+        onUnlinked={() => onNavReplace([])}
       />
     );
   }
@@ -8644,7 +8735,12 @@ function DatabaseSettingsSourcePanel({
         canEdit={canEdit}
         pending={sourceActionPending}
         onAddDetails={() => {
-          if (!secondary || secondary.sourceType === "local-folder") return;
+          if (
+            !secondary ||
+            secondary.sourceType === "local-folder" ||
+            secondary.sourceType === "github"
+          )
+            return;
           onNavPush({
             kind: "keyConfirm",
             candidate: {
@@ -9025,7 +9121,7 @@ function DatabaseSettingsSourcePanel({
                     className={cn(
                       "min-w-0 rounded px-2 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
                       selected
-                        ? "bg-[#2383e2] text-white shadow-sm"
+                        ? "bg-database-blue text-database-blue-foreground shadow-sm"
                         : "text-muted-foreground hover:bg-background hover:text-foreground",
                     )}
                     onClick={() =>
@@ -9066,7 +9162,7 @@ function DatabaseSettingsSourcePanel({
                   className={cn(
                     "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded border",
                     liveWriteControl.allowPublicationTransitions
-                      ? "border-[#2383e2] bg-[#2383e2] text-white"
+                      ? "border-database-blue bg-database-blue text-database-blue-foreground"
                       : "border-muted-foreground/40 bg-background text-transparent",
                   )}
                 >
@@ -9164,6 +9260,7 @@ function DatabaseSettingsSourcePanel({
           source={selectedSource}
           canAddDetails={
             selectedSource.sourceType !== "local-folder" &&
+            selectedSource.sourceType !== "github" &&
             sources.some(
               (item) =>
                 item.id !== selectedSource.id && !sourceAddsDetails(item),
@@ -9172,7 +9269,11 @@ function DatabaseSettingsSourcePanel({
           canEdit={canEdit}
           pending={selectedSourceRoleControlPending}
           onAddDetails={() => {
-            if (selectedSource.sourceType === "local-folder") return;
+            if (
+              selectedSource.sourceType === "local-folder" ||
+              selectedSource.sourceType === "github"
+            )
+              return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {
@@ -9225,7 +9326,7 @@ function DatabaseSettingsSourcePanel({
   );
 }
 
-function SourcesListView({
+export function SourcesListView({
   source,
   sources,
   builderConfigured,
@@ -9235,6 +9336,8 @@ function SourcesListView({
   onOpenNotion,
   onOpenLocalFolder,
   showLocalFolder,
+  githubPlace,
+  onOpenGitHubStep,
   onOpenSecondary,
   onAddSource,
 }: {
@@ -9247,6 +9350,9 @@ function SourcesListView({
   onOpenNotion: () => void;
   onOpenLocalFolder: () => void;
   showLocalFolder: boolean;
+  githubPlace: GitHubCollectionPlace;
+  /** Opens the GitHub step: the linked folder, or why one can't link here. */
+  onOpenGitHubStep: () => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
@@ -9254,6 +9360,20 @@ function SourcesListView({
   const isBuilderSource = source?.sourceType === "builder-cms";
   const connectedSources =
     sources.length > 0 ? sources : source ? [source] : [];
+  const github = useGitHubSourcesRow(
+    githubPlace,
+    connectedSources,
+    onOpenGitHubStep,
+  );
+  const githubSource =
+    github.availability.kind === "linked"
+      ? github.availability.source
+      : undefined;
+  // A GitHub folder is the collection's whole content, so other apps
+  // explain that instead of leading to a refusal.
+  const lockedByGitHub = githubSource
+    ? dbText("githubRowUnavailableWhileLinked")
+    : undefined;
   return (
     <div className="grid min-w-0 gap-4">
       {connectedSources.length === 0 ? (
@@ -9271,30 +9391,51 @@ function SourcesListView({
               icon={
                 connected.sourceType === "builder-cms" ? (
                   <BuilderLogoMark className="size-4" />
+                ) : connected.sourceType === GITHUB_SOURCE_TYPE ? (
+                  <IconBrandGithub className="size-4" />
                 ) : (
                   <IconLayoutGrid className="size-4" />
                 )
               }
-              label={connected.sourceName}
-              value={sourceRoleLabel(connected, index)}
+              label={
+                connected.sourceType === GITHUB_SOURCE_TYPE
+                  ? "GitHub"
+                  : connected.sourceName
+              }
+              value={
+                connected.sourceType === GITHUB_SOURCE_TYPE
+                  ? undefined
+                  : sourceRoleLabel(connected, index)
+              }
+              description={
+                connected.sourceType === GITHUB_SOURCE_TYPE
+                  ? github.description
+                  : undefined
+              }
               onClick={
                 connected.metadata.federation?.role === "secondary"
                   ? () => onOpenSecondary(connected)
                   : connected.sourceType === "builder-cms"
                     ? () => onOpenBuilder(connected)
-                    : undefined
+                    : connected.sourceType === GITHUB_SOURCE_TYPE
+                      ? onOpenGitHubStep
+                      : undefined
               }
               disabled={
                 connected.metadata.federation?.role !== "secondary" &&
-                connected.sourceType !== "builder-cms"
+                connected.sourceType !== "builder-cms" &&
+                connected.sourceType !== GITHUB_SOURCE_TYPE
               }
             />
           ))}
-          <DatabaseSettingsRow
-            icon={<IconPlus className="size-4" />}
-            label={dbText("addAnotherSource")}
-            onClick={onAddSource}
-          />
+          {/* A GitHub folder is the collection's whole content, so nothing joins it. */}
+          {githubSource ? null : (
+            <DatabaseSettingsRow
+              icon={<IconPlus className="size-4" />}
+              label={dbText("addAnotherSource")}
+              onClick={onAddSource}
+            />
+          )}
         </div>
       )}
       <div className="grid min-w-0 gap-1.5">
@@ -9312,7 +9453,9 @@ function SourcesListView({
                 : undefined
           }
           badgeCount={reviewableCount}
-          onClick={onOpenBuilder}
+          description={lockedByGitHub}
+          muted={!!lockedByGitHub}
+          onClick={lockedByGitHub ? onOpenGitHubStep : () => onOpenBuilder()}
         />
         <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
@@ -9324,8 +9467,19 @@ function SourcesListView({
               ? dbText("connected")
               : undefined
           }
-          onClick={onOpenNotion}
+          description={lockedByGitHub}
+          muted={!!lockedByGitHub}
+          onClick={lockedByGitHub ? onOpenGitHubStep : onOpenNotion}
         />
+        {githubSource ? null : (
+          <DatabaseSettingsRow
+            icon={<IconBrandGithub className="size-4" />}
+            label="GitHub"
+            description={github.description}
+            muted={github.muted}
+            onClick={github.open}
+          />
+        )}
         {showLocalFolder ? (
           <DatabaseSettingsRow
             icon={<IconFolder className="size-4" />}
@@ -10422,7 +10576,7 @@ function SourceDetailsFieldPicker({
                   className={cn(
                     "flex size-4 shrink-0 items-center justify-center rounded border",
                     selected.has(field.id)
-                      ? "border-[#2383e2] bg-[#2383e2] text-white"
+                      ? "border-database-blue bg-database-blue text-database-blue-foreground"
                       : "border-muted-foreground/40 text-transparent",
                   )}
                 >
@@ -11006,37 +11160,70 @@ function DatabaseSettingsRow({
   icon,
   label,
   value,
+  description,
   badgeCount = 0,
   disabled = false,
+  muted = false,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   value?: string;
+  /** A second line that's always shown, like why the row can't be used. */
+  description?: string;
   badgeCount?: number;
   disabled?: boolean;
-  onClick?: () => void;
+  /**
+   * Looks unavailable but stays focusable and clickable, so its reason can
+   * still be opened by keyboard, touch and screen readers.
+   */
+  muted?: boolean;
+  onClick?: (button: HTMLButtonElement) => void;
 }) {
   const badgeLabel = formatCompactCountBadge(badgeCount);
+  const descriptionId = useId();
   return (
     <button
       type="button"
       disabled={disabled || !onClick}
+      aria-disabled={muted || undefined}
+      aria-describedby={description ? descriptionId : undefined}
       className={cn(
-        "flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        description ? "min-h-9 py-1.5" : "h-9",
         disabled || !onClick
           ? "cursor-default text-muted-foreground/60"
-          : "text-foreground hover:bg-muted",
+          : muted
+            ? "text-muted-foreground/60 hover:bg-muted"
+            : "text-foreground hover:bg-muted",
       )}
       onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
-        onClick?.();
+        onClick?.(event.currentTarget);
       }}
     >
-      <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+      <span
+        className={cn(
+          "flex size-5 shrink-0 items-center justify-center text-muted-foreground",
+          muted && "opacity-60",
+          description && "self-start",
+        )}
+      >
         {icon}
       </span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {description ? (
+        <span className="grid min-w-0 flex-1">
+          <span className="truncate">{label}</span>
+          <span
+            id={descriptionId}
+            className="break-words text-xs text-muted-foreground"
+          >
+            {description}
+          </span>
+        </span>
+      ) : (
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      )}
       {value ? (
         <span className="max-w-28 shrink-0 truncate text-xs text-muted-foreground">
           {value}
@@ -11082,7 +11269,7 @@ function DatabaseSettingsSwitch({
       <span
         className={cn(
           "relative h-5 w-9 rounded-full transition-colors",
-          checked ? "bg-[#2383e2]" : "bg-muted-foreground/25",
+          checked ? "bg-database-blue" : "bg-muted-foreground/25",
         )}
       >
         <span
@@ -11099,17 +11286,25 @@ function DatabaseSettingsSwitch({
 function DatabaseSettingsLayoutPanel({
   activeView,
   properties,
+  items,
+  editingListRows,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
   onFormQuestionsChange,
+  onItemLayoutChange,
+  onEditListRows,
 }: {
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
+  items: ContentDatabaseItem[];
+  editingListRows: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
   onFormQuestionsChange: (formQuestions: ContentDatabaseFormQuestion[]) => void;
+  onItemLayoutChange: (itemLayout: ContentDatabaseItemLayout | null) => void;
+  onEditListRows: () => void;
 }) {
   const wrapCells = activeView.wrapCells === true;
   const openPagesIn = activeView.openPagesIn ?? "preview";
@@ -11125,7 +11320,7 @@ function DatabaseSettingsLayoutPanel({
             className={cn(
               "flex h-16 flex-col items-center justify-center gap-1 rounded-md border text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               activeView.type === type
-                ? "border-[#2383e2] bg-[#2383e2]/5 text-[#2383e2]"
+                ? "border-database-blue bg-database-blue/5 text-database-blue"
                 : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
             onClick={() => onViewTypeChange(type)}
@@ -11152,6 +11347,18 @@ function DatabaseSettingsLayoutPanel({
           activeView={activeView}
           properties={properties}
           onChange={onFormQuestionsChange}
+        />
+      ) : null}
+      {activeView.type === "list" ? (
+        <DatabaseListRowsSetting
+          itemLayout={activeView.itemLayout ?? null}
+          properties={databaseListLayoutProperties(properties, activeView)}
+          visibleProperties={properties.filter((property) =>
+            isDatabasePropertyVisibleInView(property, items, activeView),
+          )}
+          editingOnList={editingListRows}
+          onChange={onItemLayoutChange}
+          onEditOnList={onEditListRows}
         />
       ) : null}
     </div>
@@ -11599,6 +11806,12 @@ type DatabasePropertyPickerOption = {
   type: DocumentPropertyType | "name";
 };
 
+const DATABASE_NAME_PICKER_OPTION: DatabasePropertyPickerOption = {
+  key: "name",
+  label: "Name",
+  type: "name",
+};
+
 export function databasePropertyPickerItems(
   properties: DocumentProperty[],
   query: string,
@@ -11609,9 +11822,7 @@ export function databasePropertyPickerItems(
 ): DatabasePropertyPickerOption[] {
   const normalizedQuery = query.trim().toLowerCase();
   const items: DatabasePropertyPickerOption[] = [
-    ...(includeName
-      ? [{ key: "name", label: "Name", type: "name" as const }]
-      : []),
+    ...(includeName ? [DATABASE_NAME_PICKER_OPTION] : []),
     ...properties.map((property) => ({
       key: property.definition.id,
       label: property.definition.name,
@@ -11624,6 +11835,23 @@ export function databasePropertyPickerItems(
     [item.key, item.label, item.type].some((value) =>
       String(value).toLowerCase().includes(normalizedQuery),
     ),
+  );
+}
+
+// Filters may repeat a property, so used properties are only deprioritized.
+// Excluding them would disable the add-rule actions once every one is used.
+export function databaseFilterRuleCandidate(
+  properties: DocumentProperty[],
+  filters: readonly DatabaseFilter[],
+): DatabasePropertyPickerOption {
+  const usedKeys = new Set(filters.map((filter) => filter.key));
+  const candidates = [
+    ...databasePropertyPickerItems(properties, "", { includeName: false }),
+    DATABASE_NAME_PICKER_OPTION,
+  ];
+  return (
+    candidates.find((candidate) => !usedKeys.has(candidate.key)) ??
+    candidates[0]
   );
 }
 
@@ -11683,7 +11911,6 @@ function DatabasePropertyPickerMenuItems({
   properties,
   selectedKey,
   includeName,
-  excludeKeys,
   placeholder,
   closeOnSelect,
   onSelect,
@@ -11691,7 +11918,6 @@ function DatabasePropertyPickerMenuItems({
   properties: DocumentProperty[];
   selectedKey?: string;
   includeName?: boolean;
-  excludeKeys?: ReadonlySet<string>;
   placeholder?: string;
   closeOnSelect?: boolean;
   onSelect: (key: string, label: string) => void;
@@ -11699,7 +11925,6 @@ function DatabasePropertyPickerMenuItems({
   const [query, setQuery] = useState("");
   const items = databasePropertyPickerItems(properties, query, {
     includeName,
-    excludeKeys,
   });
 
   return (
@@ -13703,6 +13928,7 @@ export function createDatabaseView(
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeClientDatabaseFormQuestions(values.formQuestions),
+    ...contentDatabaseItemLayoutField(values.itemLayout),
   };
 }
 
@@ -13972,6 +14198,7 @@ export function duplicateDatabaseView(
       rowDensity: view.rowDensity,
       openPagesIn: view.openPagesIn,
       formQuestions: view.formQuestions,
+      itemLayout: view.itemLayout,
     },
     view.type,
   );
@@ -14114,6 +14341,7 @@ function normalizeClientDatabaseView(
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
       openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
       formQuestions: normalizeClientDatabaseFormQuestions(value.formQuestions),
+      itemLayout: value.itemLayout,
     },
     type,
   );
@@ -14469,6 +14697,18 @@ export function isDatabasePropertyVisibleInView(
     isTablePropertyVisible(property, items) &&
     !(view.hiddenPropertyIds ?? []).includes(property.definition.id)
   );
+}
+
+/**
+ * The properties a list's custom rows can show: all but those hidden in this
+ * view. Always-hidden properties are left out by the row layout itself.
+ */
+function databaseListLayoutProperties(
+  properties: DocumentProperty[],
+  view: Pick<ContentDatabaseView, "hiddenPropertyIds">,
+) {
+  const hidden = new Set(view.hiddenPropertyIds ?? []);
+  return properties.filter((property) => !hidden.has(property.definition.id));
 }
 
 export function setDatabaseViewHiddenPropertyIds(
@@ -17270,7 +17510,7 @@ function isActiveFilter(
   filter: DatabaseFilter | null,
 ): filter is DatabaseFilter {
   if (!filter) return false;
-  if (filterOperatorNeedsValue(filter.operator)) {
+  if (contentDatabaseFilterOperatorNeedsValue(filter.operator)) {
     return databaseFilterSelectedValues(filter.value).length > 0;
   }
   return true;
@@ -17295,11 +17535,18 @@ export function databasePropertyValuesForNewItem(
     );
     if (!property?.editable) continue;
     if (isComputedPropertyType(property.definition.type)) continue;
-    if (propertyValues[property.definition.id] !== undefined) continue;
 
     const value = databaseFilterDefaultValueForNewItem(filter, property);
-    if (value !== undefined) {
+    if (value === undefined) continue;
+    const current = propertyValues[property.definition.id];
+    if (current === undefined) {
       propertyValues[property.definition.id] = value;
+    } else if (Array.isArray(current) && Array.isArray(value)) {
+      // "Tags contains A" and "Tags contains B" both have to match, so a
+      // new row gets every value; one value would drop it from the view.
+      propertyValues[property.definition.id] = [
+        ...new Set([...current, ...value]),
+      ];
     }
   }
 
@@ -17627,7 +17874,7 @@ function SortFieldIcon({
   return <Icon className="mr-2 size-4 text-muted-foreground" />;
 }
 
-function FilterMenu({
+export function FilterMenu({
   filters,
   properties,
   inlineOpen,
@@ -17646,19 +17893,10 @@ function FilterMenu({
 }) {
   const activeFilters = filters.filter(isActiveFilter);
   const active = activeFilters.length > 0 || inlineOpen;
-  const excludedFilterKeys = useMemo(
-    () => new Set(activeFilters.map((filter) => filter.key)),
-    [activeFilters],
+  const advancedFilterCandidate = databaseFilterRuleCandidate(
+    properties,
+    activeFilters,
   );
-  const advancedFilterCandidate =
-    databasePropertyPickerItems(properties, "", {
-      includeName: false,
-      excludeKeys: excludedFilterKeys,
-    })[0] ??
-    databasePropertyPickerItems(properties, "", {
-      includeName: true,
-      excludeKeys: excludedFilterKeys,
-    })[0];
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -17681,17 +17919,14 @@ function FilterMenu({
           <DatabasePropertyPickerMenuItems
             properties={properties}
             includeName
-            excludeKeys={excludedFilterKeys}
             placeholder={dbText("filterBy")}
             closeOnSelect
             onSelect={onAddFilter}
           />
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            disabled={!advancedFilterCandidate}
             onSelect={(event) => {
               event.preventDefault();
-              if (!advancedFilterCandidate) return;
               onAddAdvancedFilter(
                 advancedFilterCandidate.key,
                 advancedFilterCandidate.label,
@@ -17832,7 +18067,7 @@ function DatabaseFilterValueControl({
     return (
       <div className="overflow-hidden rounded-sm">
         <div className="px-1 pb-1">
-          <div className="flex min-h-9 flex-wrap items-center gap-1 rounded border border-input bg-background px-2 py-1 focus-within:border-[#2383e2] focus-within:ring-2 focus-within:ring-[#2383e2]/25">
+          <div className="flex min-h-9 flex-wrap items-center gap-1 rounded border border-input bg-background px-2 py-1 focus-within:border-database-blue focus-within:ring-2 focus-within:ring-database-blue/25">
             {showCompactOptionValueInput ? null : (
               <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
             )}
@@ -17954,7 +18189,7 @@ function DatabaseFilterValueControl({
       value={filter.value}
       placeholder={filterValuePlaceholder(filter.key, properties)}
       onChange={(event) => onValueChange(event.target.value)}
-      className="h-9 text-sm focus-visible:border-[#2383e2] focus-visible:ring-[#2383e2]/25"
+      className="h-9 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
     />
   );
 }
@@ -17982,6 +18217,8 @@ const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
   does_not_equal: "Is not",
   greater_than: "Greater than",
   less_than: "Less than",
+  greater_than_or_equal: "Greater than or equal to",
+  less_than_or_equal: "Less than or equal to",
   before: "Before",
   after: "After",
   between: "Between",
@@ -18020,50 +18257,10 @@ function databaseFilterOperatorInlineLabel(
 function filterOperatorsForKey(
   key: string,
   properties: DocumentProperty[],
-): FilterOperator[] {
-  const type = filterPropertyTypeForKey(key, properties);
-
-  if (type === "checkbox") {
-    return ["is_checked", "is_unchecked"];
-  }
-
-  if (
-    type === "select" ||
-    type === "status" ||
-    type === "multi_select" ||
-    type === "person"
-  ) {
-    return ["contains", "does_not_equal", "is_empty", "is_not_empty"];
-  }
-
-  if (type === "number") {
-    return [
-      "equals",
-      "does_not_equal",
-      "greater_than",
-      "less_than",
-      "is_empty",
-      "is_not_empty",
-    ];
-  }
-
-  if (
-    type === "date" ||
-    type === "created_time" ||
-    type === "last_edited_time"
-  ) {
-    return [
-      "equals",
-      "does_not_equal",
-      "before",
-      "after",
-      "between",
-      "is_empty",
-      "is_not_empty",
-    ];
-  }
-
-  return ["contains", "equals", "does_not_equal", "is_empty", "is_not_empty"];
+): readonly FilterOperator[] {
+  return contentDatabaseFilterOperatorsForType(
+    filterPropertyTypeForKey(key, properties),
+  );
 }
 
 function defaultFilterOperatorForKey(
@@ -18081,12 +18278,6 @@ function filterPropertyTypeForKey(
   return (
     properties.find((property) => property.definition.id === key)?.definition
       .type ?? "text"
-  );
-}
-
-function filterOperatorNeedsValue(operator: FilterOperator) {
-  return !["is_empty", "is_not_empty", "is_checked", "is_unchecked"].includes(
-    operator,
   );
 }
 
@@ -18127,7 +18318,7 @@ function DatabaseBetweenDateFilterValueControl({
   filter: DatabaseFilter;
   onValueChange: (value: string) => void;
 }) {
-  const [start, end] = databaseFilterDateRangeValues(filter.value);
+  const [start, end] = contentDatabaseFilterDateRangeValues(filter.value);
   const updateRange = (nextStart: string, nextEnd: string) => {
     onValueChange(databaseFilterEncodeDateRangeValues(nextStart, nextEnd));
   };
@@ -18139,7 +18330,7 @@ function DatabaseBetweenDateFilterValueControl({
         value={start}
         aria-label={`Start ${filter.label} filter date`}
         onChange={(event) => updateRange(event.target.value, end)}
-        className="h-9 text-sm focus-visible:border-[#2383e2] focus-visible:ring-[#2383e2]/25"
+        className="h-9 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
       />
       <span className="text-xs text-muted-foreground">to</span>
       <Input
@@ -18147,7 +18338,7 @@ function DatabaseBetweenDateFilterValueControl({
         value={end}
         aria-label={`End ${filter.label} filter date`}
         onChange={(event) => updateRange(start, event.target.value)}
-        className="h-9 text-sm focus-visible:border-[#2383e2] focus-visible:ring-[#2383e2]/25"
+        className="h-9 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
       />
     </div>
   );
@@ -18244,7 +18435,7 @@ function databaseFilterValueLabel(
   properties: DocumentProperty[],
 ) {
   if (filter.operator === "between") {
-    const [start, end] = databaseFilterDateRangeValues(filter.value);
+    const [start, end] = contentDatabaseFilterDateRangeValues(filter.value);
     if (start && end) return `${start} to ${end}`;
     return start || end || "Choose dates";
   }
@@ -18283,20 +18474,6 @@ function databaseFilterSelectedValues(value: string) {
   }
 }
 
-function databaseFilterDateRangeValues(value: string): [string, string] {
-  const trimmed = value.trim();
-  if (!trimmed) return ["", ""];
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!Array.isArray(parsed)) return [trimmed, ""];
-    const start = typeof parsed[0] === "string" ? parsed[0].trim() : "";
-    const end = typeof parsed[1] === "string" ? parsed[1].trim() : "";
-    return [start, end];
-  } catch {
-    return [trimmed, ""];
-  }
-}
-
 function databaseFilterEncodeDateRangeValues(start: string, end: string) {
   const normalizedStart = start.trim();
   const normalizedEnd = end.trim();
@@ -18329,17 +18506,62 @@ export function databaseInlineFilterLabel(
   filter: DatabaseFilter,
   properties: DocumentProperty[],
 ) {
-  if (!filterOperatorNeedsValue(filter.operator)) {
-    return `${filter.label}: ${databaseFilterOperatorLabel(
-      filter.operator,
-      filter.key,
-      properties,
-    )}`;
+  const operator = databaseFilterChipOperatorLabel(
+    filter.operator,
+    filter.key,
+    properties,
+  );
+  if (!contentDatabaseFilterOperatorNeedsValue(filter.operator)) {
+    return `${filter.label}: ${operator}`;
   }
   if (databaseFilterSelectedValues(filter.value).length === 0) {
     return filter.label;
   }
-  return `${filter.label}: ${databaseFilterValueLabel(filter, properties)}`;
+  const value = databaseFilterValueLabel(filter, properties);
+  return `${filter.label}: ${operator ? `${operator} ${value}` : value}`;
+}
+
+// Empty only for operators that read as a plain match ("Status: Done"). The
+// `never` default makes a new operator choose its wording; at runtime it
+// still catches unknown operators in saved views.
+function databaseFilterChipOperatorLabel(
+  operator: FilterOperator,
+  key: string,
+  properties: DocumentProperty[],
+): string {
+  const type = filterPropertyTypeForKey(key, properties);
+  switch (operator) {
+    case "contains":
+    case "between":
+      return "";
+    case "equals":
+      if (type === "number") return "=";
+      return databaseFilterOptionPropertyForKey(key, properties) ? "" : "is";
+    case "does_not_equal":
+      if (type === "number") return "≠";
+      return type === "multi_select" || type === "person"
+        ? "does not contain"
+        : "is not";
+    case "greater_than":
+      return ">";
+    case "less_than":
+      return "<";
+    case "greater_than_or_equal":
+      return "≥";
+    case "less_than_or_equal":
+      return "≤";
+    case "before":
+    case "after":
+    case "is_checked":
+    case "is_unchecked":
+    case "is_empty":
+    case "is_not_empty":
+      return databaseFilterOperatorInlineLabel(operator, key, properties);
+    default: {
+      const savedOperator: never = operator;
+      return databaseFilterOperatorInlineLabel(savedOperator, key, properties);
+    }
+  }
 }
 
 function databaseFilterPropertyForKey(
@@ -18424,6 +18646,7 @@ function DatabaseGroupedTableSection({
   rowDensity,
   isCreating,
   newRowLabel,
+  canCreateItems,
   focusedTitleDocumentId,
   collapsed,
   onCreateRow,
@@ -18453,6 +18676,7 @@ function DatabaseGroupedTableSection({
   rowDensity: DatabaseRowDensity;
   isCreating: boolean;
   newRowLabel: string;
+  canCreateItems: boolean;
   focusedTitleDocumentId: string | null;
   collapsed: boolean;
   onCreateRow: (
@@ -18538,7 +18762,7 @@ function DatabaseGroupedTableSection({
                     : {}),
                 }}
               />
-            ) : (
+            ) : canCreateItems ? (
               <NewDatabaseRow
                 label={newRowLabel}
                 properties={properties}
@@ -18548,7 +18772,7 @@ function DatabaseGroupedTableSection({
                 isPending={isCreating}
                 onCreate={(title) => onCreateRow(group, title)}
               />
-            )
+            ) : null
           ) : null}
         </>
       ) : null}
@@ -18718,7 +18942,7 @@ function DatabaseTableRow({
           <div
             key={property.definition.id}
             className={cn(
-              "flex min-w-0 hover:bg-muted/25",
+              "group/cell relative flex min-w-0 hover:bg-muted/25",
               databaseTableCellDensityClass(rowDensity),
               wrapCells ? "items-start" : "items-center",
             )}
@@ -18747,10 +18971,15 @@ function DatabaseTableRow({
             ) : (
               value
             )}
-            <DatabaseCellCommentMarker
+            <DatabaseCellComments
               item={item}
-              propertyId={itemProperty.definition.id}
-              propertyName={itemProperty.definition.name}
+              property={itemProperty}
+              rowSelected={selected}
+              besideEditButton={
+                canEdit &&
+                itemProperty.editable &&
+                itemProperty.definition.type === "relation"
+              }
             />
           </div>
         );
@@ -19024,6 +19253,10 @@ function RowNameCell({
   const [title, setTitle] = useState(item.document.title);
   const [editingTitle, setEditingTitle] = useState(false);
   const rowTitleInputRef = useRef<HTMLInputElement>(null);
+  // A row that follows a GitHub file takes its title from the file.
+  const canEditTitle =
+    item.document.source?.mode !== "github" &&
+    (canEdit || Boolean(onUpdateWidgetRowTitle));
 
   useEffect(() => {
     setTitle(item.document.title);
@@ -19032,9 +19265,9 @@ function RowNameCell({
 
   useEffect(() => {
     if (!startEditingTitle) return;
-    setEditingTitle(true);
+    if (canEditTitle) setEditingTitle(true);
     onTitleEditStarted();
-  }, [onTitleEditStarted, startEditingTitle]);
+  }, [canEditTitle, onTitleEditStarted, startEditingTitle]);
 
   useEffect(() => {
     if (!editingTitle) return;
@@ -19046,7 +19279,7 @@ function RowNameCell({
   }, [editingTitle]);
 
   async function saveTitle(nextTitle: string) {
-    if (!canEdit && !onUpdateWidgetRowTitle) return;
+    if (!canEditTitle) return;
     setEditingTitle(false);
     if (nextTitle === item.document.title) return;
     if (onUpdateWidgetRowTitle) {
@@ -19105,7 +19338,7 @@ function RowNameCell({
           fallback={workspaceCatalog ? "folder" : "page"}
         />
       </span>
-      {(canEdit || onUpdateWidgetRowTitle) && editingTitle ? (
+      {canEditTitle && editingTitle ? (
         <input
           ref={rowTitleInputRef}
           aria-label={`Inline title for ${item.document.title || "Untitled"}`}
@@ -19152,7 +19385,7 @@ function RowNameCell({
         </button>
       )}
       {!editingTitle ? <DatabaseRowCommentCount item={item} /> : null}
-      {(canEdit || onUpdateWidgetRowTitle) && !editingTitle ? (
+      {canEditTitle && !editingTitle ? (
         <button
           type="button"
           className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/name:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

@@ -1,0 +1,339 @@
+{
+  "scenarios": {
+    "a-spike-day-alerts-the-owners-with-suspects-and-a-reply-ends-it": {
+      "description": "Two services spike while three others stay under a floor or have no baseline. One alert names both spikes with the pull requests that merged in the last day, the owners are emailed too, the spike waits for a reply, checking every 15 minutes, and an owner's reply ends it with no escalation.",
+      "start": "2026-10-19T14:00:00.000Z",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "spikeDay",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "quietDay"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergedPullRequests",
+          "recording": "recent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "explain",
+          "recording": "causes"
+        },
+        {
+          "kind": "tick",
+          "label": "07:00, the daily run"
+        },
+        {
+          "kind": "tick",
+          "label": "15 minutes on, nobody has answered",
+          "at": "+15m"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "C0OWNERS",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+40m",
+          "author": "owner@example.test",
+          "text": "Known: the export backfill. Scaled on purpose."
+        },
+        {
+          "kind": "tick",
+          "label": "an owner has replied",
+          "at": "+45m"
+        }
+      ]
+    },
+    "silence-for-four-hours-escalates-once-and-a-bot-does-not-count": {
+      "description": "Nobody answers for four hours (a bot's message does not count as an answer): the first tick at or after the deadline posts one escalation message and finishes the spike; later ticks do nothing.",
+      "start": "2026-10-19T14:00:00.000Z",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "spikeDay",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "quietDay"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergedPullRequests",
+          "recording": "recent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "explain",
+          "recording": "causes"
+        },
+        {
+          "kind": "tick",
+          "label": "07:00, the daily run"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "C0OWNERS",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+1h",
+          "author": "deploy-bot",
+          "text": "Deploy finished.",
+          "bot": true
+        },
+        {
+          "kind": "tick",
+          "label": "the last check before the deadline",
+          "at": "+3h45m"
+        },
+        {
+          "kind": "tick",
+          "label": "four hours on, still no answer",
+          "at": "+4h"
+        },
+        {
+          "kind": "tick",
+          "label": "the next check",
+          "at": "+4h15m"
+        }
+      ]
+    },
+    "the-spike-waits-exactly-four-hours": {
+      "description": "After the alert the spike is parked with a deadline of exactly four hours and looked at again every 15 minutes.",
+      "start": "2026-10-19T14:00:00.000Z",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "spikeDay",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "quietDay"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergedPullRequests",
+          "recording": "recent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "explain",
+          "recording": "causes"
+        },
+        {
+          "kind": "tick",
+          "label": "07:00, the daily run"
+        },
+        {
+          "kind": "tick",
+          "label": "15 minutes on",
+          "at": "+15m"
+        }
+      ]
+    },
+    "a-quiet-day-sends-nothing-and-records-why": {
+      "description": "No service crosses both floors: nothing is sent, no pull request is looked up, no model call is made, and the run records that there were no spikes.",
+      "start": "2026-10-19T14:00:00.000Z",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "quietDay"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergedPullRequests",
+          "recording": "recent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "explain",
+          "recording": "causes"
+        },
+        {
+          "kind": "tick",
+          "label": "07:00, the daily run"
+        },
+        {
+          "kind": "tick",
+          "label": "15 minutes on",
+          "at": "+15m"
+        }
+      ]
+    },
+    "the-same-tick-delivered-twice-alerts-once": {
+      "description": "The scheduler delivers the 07:00 tick twice: the second finds nothing to do, so the owners are told once.",
+      "start": "2026-10-19T14:00:00.000Z",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "spikeDay",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "quietDay"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergedPullRequests",
+          "recording": "recent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "explain",
+          "recording": "causes"
+        },
+        {
+          "kind": "tick",
+          "label": "07:00, the daily run"
+        },
+        {
+          "kind": "tick",
+          "label": "the same tick, delivered again"
+        }
+      ]
+    },
+    "billing-costs-delivered-as-text-fail-instead-of-summing": {
+      "description": "The host maps BigQuery's text cells to item extras as they are, so a cost arrives as \"100\" not 100. The Summarize step refuses text, so every row fails and nothing is alerted: the run does not read this as a quiet day.",
+      "start": "2026-10-19T14:00:00.000Z",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "costsAsTheHostDeliversThem",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "quietDay"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergedPullRequests",
+          "recording": "recent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "explain",
+          "recording": "causes"
+        },
+        {
+          "kind": "tick",
+          "label": "07:00, the daily run"
+        }
+      ]
+    },
+    "billing-data-that-ends-before-yesterday-is-not-compared-as-yesterday": {
+      "description": "The export is late: its newest day is two days old and would look like a spike. Nothing is compared and nothing is sent, and the run records that the baseline is missing.",
+      "start": "2026-10-19T14:00:00.000Z",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "bigquery.billingQuery",
+          "recording": "dataEndsBeforeYesterday"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergedPullRequests",
+          "recording": "recent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "explain",
+          "recording": "causes"
+        },
+        {
+          "kind": "tick",
+          "label": "07:00, the daily run"
+        }
+      ]
+    }
+  }
+}

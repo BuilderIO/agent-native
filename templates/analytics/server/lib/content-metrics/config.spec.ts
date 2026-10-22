@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   contentCollectionConfigSchema,
   searchConsoleSiteSchema,
+  signupsConfigSchema,
+  signupsSettingsUpdateSchema,
 } from "./config";
 
 describe("searchConsoleSiteSchema", () => {
@@ -40,6 +42,22 @@ describe("searchConsoleSiteSchema", () => {
       '"agent-native.com" isn\'t a Search Console property. For a Domain property, use sc-domain:agent-native.com.',
     );
   });
+});
+
+describe("signup billing caps", () => {
+  it.each([signupsConfigSchema, signupsSettingsUpdateSchema])(
+    "accepts the runQuery maximum and rejects larger caps",
+    (schema) => {
+      expect(
+        schema.safeParse({ enabled: true, maxBytesBilled: 750_000_000_000 })
+          .success,
+      ).toBe(true);
+      expect(
+        schema.safeParse({ enabled: true, maxBytesBilled: 750_000_000_001 })
+          .success,
+      ).toBe(false);
+    },
+  );
 });
 
 it("normalizes Domain properties when reading stored config", () => {

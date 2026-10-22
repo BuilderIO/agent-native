@@ -2,6 +2,165 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "GitHub フォルダーをリンク",
+  githubNewCollectionTitle: "GitHub フォルダーから新しいコレクションを作成",
+  githubLinkDescription:
+    "フォルダー内のドキュメントは閲覧専用のページとしてここに表示され、GitHub でファイルが変わると自動で更新されます。",
+  githubNewCollectionDescription:
+    "Content がフォルダーと同じ名前のコレクションを作成します。フォルダー内のドキュメントは閲覧専用のページとしてそこに表示され、GitHub でファイルが変わると自動で更新されます。",
+  githubLinkUrlLabel: "GitHub フォルダーのリンク",
+  githubLinkUrlHelp:
+    "GitHub でフォルダーを開き、ブラウザーのアドレスをコピーしてください。",
+  githubLinkCheck: "フォルダーを確認",
+  githubLinkReading: "GitHub のフォルダーを読み込んでいます…",
+  githubConnectChecking: "GitHub との接続を確認しています…",
+  githubConnectPrompt:
+    "Content がフォルダーを読み込めるように、GitHub アカウントを接続してください。",
+  githubConnect: "GitHub を接続",
+  githubPreviewPagesOne: "1 ページ",
+  githubPreviewPages: "{{count}} ページ",
+  githubPreviewPagesUpTo: "最大 {{count}} ページ",
+  githubLinkMore: "他 {{count}} 件",
+  githubLinkNoFiles:
+    "このフォルダーには Markdown (.md) ファイルがないため、表示するものがありません。",
+  githubPreviewColumnsOne: "1 列",
+  githubPreviewColumns: "{{count}} 列",
+  githubLinkNoColumns:
+    "これらのファイルの先頭には詳細情報がないため、各ページにはタイトルだけが入ります。",
+  githubLinkNotShownOne: "1 個のファイルはまだ表示されません。",
+  githubLinkNotShown: "{{count}} 個のファイルはまだ表示されません。",
+  githubLinkPicturesWaiting:
+    "これらのファイルの画像は、ワークスペースの管理者がファイルストレージを設定するまで表示されません。",
+  githubShowDetails: "詳細を表示",
+  githubHideDetails: "詳細を非表示",
+  githubDetailsPages: "ページ",
+  githubDetailsColumns: "列",
+  githubDetailsColumnsSampled:
+    "{{total}} 個のファイルのうち最初の {{count}} 個から読み取りました。ほかのファイルで列が増えることがあります。",
+  githubDetailsNotShown: "まだ表示されないファイル",
+  githubDetailsFrom: "取得元",
+  githubDetailsBranchVersion: "ブランチ {{branch}} · バージョン {{commit}}",
+  githubYes: "はい",
+  githubNo: "いいえ",
+  githubSkipMdx: "MDX を使っているため、Content ではまだ表示できません",
+  githubSkipTooLarge: "大きすぎて Content で表示できません",
+  githubSkipNotText: "Content で読み込めるテキストファイルではありません",
+  githubLinkSubmitOne: "1 ページをリンク",
+  githubLinkSubmit: "{{count}} ページをリンク",
+  githubLinkSubmitUpTo: "最大 {{count}} ページをリンク",
+  githubLinking: "リンクしています…",
+  githubLinkingProgressOne: "GitHub から 1 ページを取り込んでいます…",
+  githubLinkingProgress: "GitHub から {{count}} ページを取り込んでいます…",
+  githubLinkedToastOne:
+    "リンクしました。{{folder}} の 1 ページが追加されました。",
+  githubLinkedToast:
+    "リンクしました。{{folder}} の {{count}} ページが追加されました。",
+  githubLinkedPartialToast:
+    "リンクしました。{{total}} ページのうち {{done}} ページが追加されました。残りは 1 分以内に届きます。",
+  githubLinkedSyncFailed:
+    "{{folder}} をリンクしましたが、まだページを取り込めていません。",
+  githubLinkInvalidUrl:
+    "これは GitHub フォルダーのリンクではありません。GitHub でフォルダーを開き、ブラウザーのアドレスをコピーしてください。",
+  githubLinkFileUrl: "これは 1 つのファイルへのリンクです。",
+  githubLinkUseFolder: "「{{folder}}」フォルダーを使う",
+  githubLinkRepositoryNotFound:
+    "「{{repo}}」を開けません。つづりを確認するか、お使いの GitHub アカウントから見られるか確かめてください。",
+  githubLinkBranchNotFound:
+    "{{repo}} に「{{branch}}」というブランチはありません。リンクを確認してください。",
+  githubLinkFolderNotFound:
+    "{{repo}} に「{{folder}}」というフォルダーはありません。リンクを確認してください。",
+  githubLinkForbidden:
+    "お使いの GitHub アカウントでは「{{repo}}」を開けません。所有者にアクセス権を依頼してください。",
+  githubLinkTooLarge:
+    "このフォルダーには {{max}} 個を超えるファイルがあります。中にある、より小さいフォルダーを選んでください。",
+  githubLinkUnavailable:
+    "GitHub から応答がありませんでした。1 分ほどしてからもう一度お試しください。",
+  githubLinkBlockedHasRows:
+    "このコレクションにはすでにページがあるため、GitHub フォルダーから取り込むことはできません。",
+  githubLinkBlockedLinked:
+    "このコレクションはすでに別のアプリからページを取り込んでいます。",
+  githubLinkBlockedSystem:
+    "このコレクションには GitHub フォルダーを表示できません。",
+  githubNewCollectionInstead: "GitHub から新しいコレクションを作成",
+  githubRowAvailable: "GitHub フォルダーのドキュメントをここに表示",
+  githubRowConnectFirst: "先に GitHub アカウントを接続してください",
+  githubRowEmptyOnly: "空のコレクションでのみ使えます",
+  githubRowOtherSource: "すでに {{source}} からページを取り込んでいます",
+  githubRowFiles: "「ファイル」では使えません",
+  githubRowSystem: "このコレクションでは使えません",
+  githubRowEditorsOnly: "編集者のみ",
+  githubRowLinked: "{{folder}} フォルダー · 更新：{{time}}",
+  githubRowLinkedNotUpdated: "{{folder}} フォルダー · まだ更新されていません",
+  githubRowUnavailableWhileLinked: "GitHub にリンクしている間は使えません",
+  githubExplainHasPagesOne:
+    "GitHub フォルダーのページはコレクション全体を占めるため、ページのないコレクションが必要です。このコレクションには 1 ページあります。",
+  githubExplainHasPages:
+    "GitHub フォルダーのページはコレクション全体を占めるため、ページのないコレクションが必要です。このコレクションには {{count}} ページあります。",
+  githubExplainOtherSource:
+    "コレクションのページの取り込み元は 1 か所だけです。このコレクションは {{source}} を使っています。",
+  githubExplainFiles:
+    "「ファイル」コレクションには GitHub フォルダーを表示できません。",
+  githubExplainSystem:
+    "このコレクションには GitHub フォルダーを表示できません。",
+  githubExplainEditorsOnly:
+    "GitHub フォルダーをリンクできるのは、このコレクションを編集できる人だけです。所有者に編集権限を依頼してください。",
+  githubExplainLinked:
+    "このコレクションのページは GitHub から取り込まれています。別のソースを使うには、フォルダーのリンクを解除してください。",
+  githubDetailFolder: "フォルダー",
+  githubDetailBranch: "ブランチ",
+  githubDetailVersion: "バージョン",
+  githubDetailUpdated: "最終更新",
+  githubCheckForUpdates: "更新を確認",
+  githubOpenFolder: "GitHub で開く",
+  githubUnlinkFolder: "フォルダーのリンクを解除…",
+  githubUnlinkTitle: "この GitHub フォルダーのリンクを解除しますか？",
+  githubUnlinkBodyOne:
+    "1 ページはここに残り、編集できる通常のページになります。GitHub での変更は今後反映されません。あとでこのフォルダーをもう一度リンクするには、新しいコレクションを使います。",
+  githubUnlinkBody:
+    "{{count}} ページはここに残り、編集できる通常のページになります。GitHub での変更は今後反映されません。あとでこのフォルダーをもう一度リンクするには、新しいコレクションを使います。",
+  githubUnlink: "リンクを解除",
+  githubUnlinking: "リンクを解除しています…",
+  githubUnlinkedToast:
+    "リンクを解除しました。ページはそのまま残り、編集できるようになりました。",
+  githubUnlinkFailed: "フォルダーのリンクを解除できませんでした",
+  githubFromFolder: "GitHub の {{folder}} フォルダーから",
+  githubFromRepo: "GitHub の {{repo}} から",
+  githubUpdatedAgo: "更新：{{time}}",
+  githubJustNow: "たった今",
+  githubNotUpdatedYet: "まだ更新されていません",
+  githubEditOnGitHub: "GitHub で編集",
+  githubDetails: "詳細",
+  githubNotShownOne: "1 個のファイルは表示されていません",
+  githubNotShown: "{{count}} 個のファイルは表示されていません",
+  githubNotShownHeading: "表示されていないファイル",
+  githubShowingAsOf: "{{time}}の時点のページを表示しています。",
+  githubSyncingProgress:
+    "変更を取り込んでいます：{{total}} 個中 {{done}} 個のファイル",
+  githubPicturesWaiting:
+    "一部の画像は、ワークスペースの管理者がファイルストレージを設定するまで表示されません。",
+  githubReconnect: "GitHub を再接続",
+  githubProblemConnection:
+    "更新が止まっています：GitHub にもう一度サインインする必要があります。",
+  githubProblemForbidden:
+    "更新が止まっています：お使いの GitHub アカウントでは現在このリポジトリを開けません。所有者にアクセス権を依頼してください。",
+  githubProblemRepositoryNotFound:
+    "更新が止まっています：リポジトリが移動されたか、名前が変更されたか、非公開になりました。",
+  githubProblemBranchNotFound:
+    "更新が止まっています：「{{branch}}」ブランチが GitHub からなくなりました。",
+  githubProblemFolderNotFound:
+    "更新が止まっています：「{{folder}}」フォルダーがそのブランチからなくなりました。",
+  githubProblemPaused: "更新を少しの間停止しています。自動的に再開されます。",
+  githubProblemTooLarge:
+    "更新が止まっています：フォルダーのファイルが {{max}} 個を超えました。",
+  githubProblemStorageUnavailable:
+    "ワークスペースの管理者がファイルストレージを設定するまで、画像は表示されません。",
+  githubAlreadyUpToDate: "最新の状態です。",
+  githubSyncedToastOne: "更新しました。1 ページが変更されました。",
+  githubSyncedToast: "更新しました。{{count}} ページが変更されました。",
+  githubSyncPartialToast:
+    "更新しています：これまでに {{total}} 個中 {{done}} 個のファイルが完了しました。",
+  githubSyncBusy: "すでに更新を確認しています。完了すると変更が表示されます。",
+  emptyCollectionSourceHint: "またはソースからページを取り込む",
   formChecked: "チェック済み",
   formChooseOption: "オプションを選択",
   formDescription:
@@ -23,6 +182,38 @@ const database = {
   formSubmitted: "回答を送信しました",
   formSubmittedDescription: "新しいコレクションページを作成しました。",
   formSubmitting: "送信中...",
+  listRows: "行",
+  listRowsDescription:
+    "プリセットを選ぶか、行の各部分に表示する内容を選びます。",
+  listRowsEdit: "行を編集",
+  listRowsDone: "完了",
+  listRowsEditOnList: "リスト上で編集",
+  listRowsEditHint: "行の任意の部分をクリックして変更します。",
+  listRowsPresetDefault: "デフォルト",
+  listRowsPresetChecklist: "チェックリスト",
+  listRowsPresetReminders: "リマインダー",
+  listRowsPresetTracker: "トラッカー",
+  listRowsPresetDigest: "ダイジェスト",
+  listRowsNeedsCheckbox: "チェックボックスのプロパティが必要です",
+  listRowsNeedsStatus: "ステータスのプロパティが必要です",
+  listRowsStart: "先頭",
+  listRowsTitle: "タイトル",
+  listRowsLine2: "2行目",
+  listRowsLine3: "3行目",
+  listRowsEnd: "末尾",
+  listRowsEndHint: "狭い画面ではタイトルの下に移動します。",
+  listRowsChangeSlot: "{{slot}}を変更",
+  listRowsAddSlot: "{{slot}}を追加",
+  listRowsPageIcon: "ページアイコン",
+  listRowsCheckbox: "チェックボックス",
+  listRowsStatus: "ステータス",
+  listRowsRegular: "標準",
+  listRowsMedium: "中",
+  listRowsBold: "太字",
+  listRowsNothing: "なし",
+  listRowsOneLine: "1行",
+  listRowsLineCount: "{{count}}行",
+  listRowsNoStatus: "ステータスなし",
   addARowTo: "行の追加先…",
   addASource: "ソースを追加",
   aField: "フィールド",
@@ -349,7 +540,7 @@ const databaseExactEnglish = {
   sortRowsBy: "排序行依据",
   startDate: "开始日期",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "此集合是本地的。连接来源以将其列映射到这些行。",
+    "別のアプリからこのコレクションにページを取り込みます。",
   thisPropertyHasNoOptionsYet: "此属性还没有选项。",
   thisSourceIsNoLongerConnected: "此来源已不再连接。",
 };
@@ -406,6 +597,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "表示のみ。このページは GitHub のファイルに連動し、push のたびに更新されます。",
+  githubSourceOpenFile: "GitHub で開く",
   textColor: "テキストの色",
   backgroundColor: "背景色",
   defaultColor: "デフォルト",
@@ -426,8 +620,8 @@ const editor = {
   registryBlockLoadError:
     "{{type}} ブロックを読み込めませんでした: {{message}}",
   registryBlockUnreadable: "保存されたブロックソースを読み取れません。",
-  blocksFieldRevisionConflict:
-    "このブロックフィールドは別の場所で変更されました。編集内容は保存されず、最新バージョンが表示されています。",
+  blocksFieldEditMovedToEnd:
+    "このブロックフィールドは別の場所でも変更されました。同じ箇所に入力したテキストはフィールドの末尾に移動しました。",
   reconcileConflict:
     "このページは別の場所で変更されました。編集内容はまだ保存されていません。",
   reconcileFailed:
@@ -515,6 +709,7 @@ const editor = {
     imageDownloadStarted: "画像のダウンロードが始まりました。",
     imageLinkHint: "ウェブ上のあらゆる画像を扱うことができます",
     imagePreview: "画像プレビュー",
+    imageUnavailable: "画像を表示できません",
     imageView: "イメージビュー",
     link: "リンク",
     loadingAssetsPicker: "アセットピッカーのロード",
@@ -980,6 +1175,7 @@ const comments = {
   commentOnProperty: "{{name}} にコメント",
   openPropertyComments_other: "{{name}} の未解決のコメント {{count}} 件",
   openRowComments_other: "{{title}} の未解決のコメント {{count}} 件",
+  openRow: "行を開く",
   suggestions: "提案",
   suggestionAdd: "追加",
   suggestionDelete: "削除",
@@ -1000,6 +1196,10 @@ const comments = {
   accepted: "承認済み",
   rejected: "却下済み",
   noFilteredComments: "一致するコメントはありません。",
+  tabFilter: "タブ",
+  allTabs: "すべてのタブ",
+  fieldRemoved: "{{name}}（削除済み）",
+  pageBody: "ページ本文",
 };
 
 const reviewDiscussions = {
@@ -1186,6 +1386,7 @@ const history = {
   historyGroupAgent: "エージェント実行",
   historyGroupHuman: "編集セッション",
   historyGroupLegacy: "以前の編集",
+  historyGroupGitHub: "GitHub から同期",
   historyGroupOperation: "操作",
   historyGroupRestore: "復元",
   historyLoadError: "バージョン履歴を読み込めませんでした。",
@@ -1414,6 +1615,7 @@ const overrides = {
     addBlockField: "フィールドを追加",
     blockFieldChanged: "前回の表示以降に変更されました",
     blockFieldTabs: "フィールド",
+    blockFieldOpenComments_other: "未解決のコメント {{count}} 件",
     blockFieldMenu: "{{name}} のオプション",
     blockFieldMenuScope: "このコレクションのすべての行で共通",
     blockFieldName: "フィールド名",

@@ -185,10 +185,8 @@ concurrency:
   # Beta and production lanes share the canonical production site queue so a
   # beta migration cannot race its production cutover. Design and Slides use
   # one production database, so they intentionally share one queue as well.
-  # Keep an accepted publisher alive and coalesce only pending beta children;
-  # manual validation must not evict a pending automatic publish. Production
-  # callers hand the current main source back to the beta workflow after their
-  # operation, so this shared queue remains the migration exclusion boundary.
+  # Keep every accepted publisher in FIFO order. Beta freshness checks prevent
+  # stale queued sources from publishing after a newer source reaches the queue.
   group: >-
     ${{ inputs.target == 'beta'
         && github.event_name == 'workflow_dispatch'
@@ -226,6 +224,7 @@ concurrency:
         && format('netlify-prebuilt-preview-{0}-{1}', inputs.caller, inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   deploy:
@@ -346,9 +345,9 @@ jobs:
           sparse-checkout: .github/actions/docs-source-freshness/action.yml
           sparse-checkout-cone-mode: false
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -689,10 +688,12 @@ jobs:
         if: inputs.migration_only != true && inputs.artifact_download != true
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
+          BUILD_BRANCH: ${{ inputs.target == 'beta' && inputs.build_context == 'branch-deploy' && 'main' || '' }}
           ARTIFACT_DOWNLOAD: ${{ inputs.artifact_download }}
           DEPLOY: ${{ inputs.deploy }}
           NETLIFY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.NETLIFY_AUTH_TOKEN || '' }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
+          NETLIFY_ACCOUNT_ID: builder-io
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations || (inputs.target == 'production' && (steps.target.outputs.source_template == 'mail' || steps.target.outputs.source_template == '@agent-native/docs')) }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
@@ -705,6 +706,9 @@ jobs:
           set -euo pipefail
           if [[ "$TARGET" != "preview" || "$DEPLOY" == "true" ]]; then
             : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          fi
+          if [[ "$BUILD_CONTEXT" == "branch-deploy" ]]; then
+            : "${BUILD_BRANCH:?Branch-deploy builds require an explicit branch}"
           fi
           # The Netlify CLI uses DEPLOY_ID=0 during local prebuilt builds. Use
           # the checked-out source revision so fixed auth assets get a new URL
@@ -774,13 +778,72 @@ jobs:
           if [[ ( "$TARGET" == "beta" || "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
-          build_args=(build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE")
           if [[ "$TARGET" == "preview" && "$DEPLOY" != "true" ]]; then
             # The PR build is intentionally secret-free. Offline mode keeps
             # Netlify CLI from querying site config with a deployment token.
-            build_args+=(--offline)
+            netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE" --offline
+          else
+            # Keep the site-scoped response private and reuse it if the
+            # Netlify database endpoint is unavailable for this site.
+            umask 077
+            build_environment_file="$(mktemp "$RUNNER_TEMP/netlify-build-environment.XXXXXX")"
+            database_response_file="$(mktemp "$RUNNER_TEMP/netlify-site-database.XXXXXX")"
+            database_error_file="$(mktemp "$RUNNER_TEMP/netlify-site-database-error.XXXXXX")"
+            trap 'rm -f "$build_environment_file" "$database_response_file" "$database_error_file"' EXIT
+            netlify api getEnvVars \
+              --data "{\"account_id\":\"$NETLIFY_ACCOUNT_ID\",\"site_id\":\"$NETLIFY_SITE_ID\",\"scope\":\"builds\"}" \
+              > "$build_environment_file"
+            if [[ "$TARGET" == "production" && "$BUILD_CONTEXT" == "production" ]]; then
+              case "$SOURCE_TEMPLATE" in
+                analytics|clips|plan|crm|chat|'@agent-native/docs') ;;
+                *)
+                  # Prefer the owner endpoint. Some production sites do not
+                  # expose a Netlify-managed database, but do have a scoped
+                  # production DATABASE_URL in their build environment.
+                  if netlify api getSiteDatabase \
+                    --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" \
+                    > "$database_response_file" 2> "$database_error_file"; then
+                    build_database_url="$(
+                      BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts \
+                        < "$database_response_file"
+                    )"
+                  else
+                    if ! grep -Eq '^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found[[:space:]]*$' \
+                      "$database_error_file" "$database_response_file"; then
+                      database_error_label="$(
+                        cat "$database_error_file" "$database_response_file" |
+                          node --experimental-strip-types scripts/netlify-api-error.ts
+                      )"
+                      echo "::error::Netlify could not resolve the production database for $NETLIFY_SITE_ID ($database_error_label)."
+                      exit 1
+                    fi
+                    echo "Netlify returned 404 for the site database endpoint; using the site-scoped production build variable."
+                    build_database_url="$(
+                      BUILD_CONTEXT=production node --experimental-strip-types scripts/netlify-migration-url.ts \
+                        < "$build_environment_file"
+                    )"
+                  fi
+                  if [[ -z "$build_database_url" ]]; then
+                    echo "::error::Netlify did not provide a PostgreSQL build URL for $NETLIFY_SITE_ID."
+                    exit 1
+                  fi
+                  echo "::add-mask::$build_database_url"
+                  export DATABASE_URL="$build_database_url"
+                  ;;
+              esac
+            fi
+            # Fetch the site context separately so a Netlify extensions API
+            # outage cannot block the local prebuilt build.
+            build_options=(
+              --env-file "$build_environment_file"
+              --context "$BUILD_CONTEXT"
+              --filter "$SOURCE_TEMPLATE"
+            )
+            if [[ "$BUILD_CONTEXT" == "branch-deploy" ]]; then
+              build_options+=(--branch "$BUILD_BRANCH")
+            fi
+            node --experimental-strip-types scripts/netlify-prebuilt-build.ts "${build_options[@]}"
           fi
-          netlify "${build_args[@]}"
           unset ANALYTICS_DATABASE_URL_SECRET
 
       - name: Verify paired client and publish artifacts
@@ -1131,15 +1194,41 @@ jobs:
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
           pnpm install --frozen-lockfile
 
-          migration_database_url="$(
-            netlify api getSiteDatabase \
-              --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" |
-              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
-          )"
+          umask 077
+          migration_environment_file="$(mktemp "$RUNNER_TEMP/netlify-crm-environment.XXXXXX")"
+          migration_response_file="$(mktemp "$RUNNER_TEMP/netlify-crm-database.XXXXXX")"
+          migration_error_file="$(mktemp "$RUNNER_TEMP/netlify-crm-database-error.XXXXXX")"
+          trap 'rm -f "$migration_environment_file" "$migration_response_file" "$migration_error_file"' EXIT
+          if netlify api getSiteDatabase \
+            --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" \
+            > "$migration_response_file" 2> "$migration_error_file"; then
+            migration_database_url="$(
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts \
+                < "$migration_response_file"
+            )"
+          else
+            if ! grep -Eq '^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found[[:space:]]*$' \
+              "$migration_error_file" "$migration_response_file"; then
+              migration_error_label="$(
+                cat "$migration_error_file" "$migration_response_file" |
+                  node --experimental-strip-types scripts/netlify-api-error.ts
+              )"
+              echo "::error::Netlify could not resolve the production database for $NETLIFY_SITE_ID ($migration_error_label)."
+              exit 1
+            fi
+            netlify api getEnvVars \
+              --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\",\"scope\":\"builds\"}" \
+              > "$migration_environment_file"
+            migration_database_url="$(
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts \
+                < "$migration_environment_file"
+            )"
+          fi
           if [[ -z "$migration_database_url" ]]; then
             echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
             exit 1
           fi
+          echo "::add-mask::$migration_database_url"
           export DATABASE_URL="$migration_database_url"
 
           for attempt in 1 2 3; do
@@ -1710,16 +1799,15 @@ jobs:
               exit 1
             fi
             case "$SOURCE_TEMPLATE" in
-              brain|factory)
-                echo "::warning::No exportable beta migration URL for $SOURCE_TEMPLATE; relying on the strict post-publish health, schema, and auth smoke check."
-                exit 0
-                ;;
               @agent-native/docs)
                 echo "No application database migration is required for the docs beta site."
                 exit 0
                 ;;
             esac
-            echo "::error::No beta PostgreSQL migration URL is available for $SOURCE_TEMPLATE."
+            # Fail closed: a publish that skips its migration serves new code
+            # against an old schema. Supply NETLIFY_PREVIEW_DATABASE_URL_<APP>
+            # or a production-context DATABASE_URL on the beta site.
+            echo "::error::No beta PostgreSQL migration URL is available for $SOURCE_TEMPLATE; refusing to publish without migrating its schema."
             exit 1
           fi
           export CONTEXT=production

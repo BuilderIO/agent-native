@@ -6,11 +6,31 @@ import {
   mergeThreadDataForClientSave,
 } from "../agent/thread-data-builder.js";
 import {
+  assertAgentChatRunProjectionUpdated,
   foldAgentChatRunCompletion,
   parseQueuedMessageForThread,
 } from "./agent-chat-plugin.js";
 
 describe("AgentKit thread history", () => {
+  it("fails completion when the durable thread projection update is rejected", () => {
+    expect(() =>
+      assertAgentChatRunProjectionUpdated(
+        false,
+        "thread-projection",
+        "run-projection",
+      ),
+    ).toThrow(
+      "Agent chat thread thread-projection could not save the projection for run run-projection.",
+    );
+    expect(() =>
+      assertAgentChatRunProjectionUpdated(
+        true,
+        "thread-projection",
+        "run-projection",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects queued messages with invalid run options", () => {
     const queued = {
       id: "queued-options",

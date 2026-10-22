@@ -1,0 +1,338 @@
+{
+  "scenarios": {
+    "an-external-call-gets-one-post-and-one-task-per-action-item": {
+      "description": "An external call is read, summarized, posted once to the calls channel, and each of its two action items becomes one HubSpot task; an internal call in the same window is dismissed without its transcript being fetched.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "externalAndInternal"
+        },
+        {
+          "kind": "serve",
+          "operation": "gong.transcript",
+          "recording": "calls"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "extract",
+          "recording": "twoActionItems"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "summaryOnly"
+        },
+        {
+          "kind": "tick",
+          "label": "30 minutes after the calls"
+        }
+      ]
+    },
+    "a-call-with-no-action-items-posts-and-creates-no-task": {
+      "description": "A check-in call with nothing asked of the team still gets its post, and no task is created.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "oneExternal"
+        },
+        {
+          "kind": "serve",
+          "operation": "gong.transcript",
+          "recording": "calls"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "extract",
+          "recording": "noActionItems"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "checkIn"
+        },
+        {
+          "kind": "tick",
+          "label": "30 minutes after the call"
+        }
+      ]
+    },
+    "a-transcript-that-cannot-be-read-fails-the-call-and-sends-nothing": {
+      "description": "Gong is down for the transcript: the read is retried within the tick, then the call fails with no post, no task and no model call. It is not offered again by the next window.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "oneExternal",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "gong.transcript",
+          "recording": "gongIsDown"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "tick",
+          "label": "30 minutes after the call, Gong is down"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "the next window"
+        }
+      ]
+    },
+    "an-empty-transcript-response-is-a-failure-not-an-empty-call": {
+      "description": "A transcript read that returns nothing at all is a failed lookup, never an empty transcript to summarize.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "oneExternal"
+        },
+        {
+          "kind": "serve",
+          "operation": "gong.transcript",
+          "recording": "empty"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "tick",
+          "label": "30 minutes after the call"
+        }
+      ]
+    },
+    "a-run-that-dies-while-creating-tasks-creates-no-task-twice": {
+      "description": "The process dies right after the first HubSpot task went out. The next tick reads the same window: the post is not repeated, the task that may exist is held for a person instead of being created again, and the other task is created.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "none",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "oneExternal"
+        },
+        {
+          "kind": "serve",
+          "operation": "gong.transcript",
+          "recording": "calls"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "diesAfterTheCall",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "extract",
+          "recording": "twoActionItems"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "summaryOnly"
+        },
+        {
+          "kind": "tick",
+          "label": "11:30, a quiet half hour"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "12:00, dies after the first task"
+        },
+        {
+          "kind": "restart"
+        },
+        {
+          "kind": "tick",
+          "at": "+60m",
+          "label": "12:30, the window reaches back to 11:30"
+        }
+      ],
+      "start": "2026-10-19T11:30:00.000Z"
+    },
+    "a-quiet-half-hour-calls-nothing": {
+      "description": "No calls in the window: no read, no model call, no message.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "none"
+        },
+        {
+          "kind": "tick",
+          "label": "30 minutes, no calls"
+        }
+      ]
+    },
+    "a-dry-run-creates-nothing": {
+      "description": "A dry run reads the transcript and has the model write, but posts nothing and creates no task.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "oneExternal"
+        },
+        {
+          "kind": "serve",
+          "operation": "gong.transcript",
+          "recording": "calls"
+        },
+        {
+          "kind": "ai",
+          "node": "extract",
+          "recording": "twoActionItems"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "summaryOnly"
+        },
+        {
+          "kind": "tick",
+          "mode": "dry",
+          "label": "dry run"
+        }
+      ]
+    },
+    "an-action-item-the-model-left-incomplete-fails-only-itself": {
+      "description": "The model returns an action item with no owner or due date: that one task fails loudly, the post is unaffected, and nothing half-filled is sent to HubSpot.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "oneExternal"
+        },
+        {
+          "kind": "serve",
+          "operation": "gong.transcript",
+          "recording": "calls"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "extract",
+          "recording": "malformedActionItem"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "pricingSheetOnly"
+        },
+        {
+          "kind": "tick",
+          "label": "30 minutes after the call"
+        }
+      ]
+    },
+    "a-post-that-quotes-the-transcript-is-sent-because-no-code-reads-the-text": {
+      "description": "What no code checks: the model writes a post that pastes transcript lines. The post node's model sees the whole item, transcript included, and the engine sends whatever text it returns. Kept as a scenario so the gap stays visible.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "gong.newCalls",
+          "recording": "oneExternal"
+        },
+        {
+          "kind": "serve",
+          "operation": "gong.transcript",
+          "recording": "calls"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "hubspot.createTask",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "extract",
+          "recording": "noActionItems"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "quotesTheTranscript"
+        },
+        {
+          "kind": "tick",
+          "label": "30 minutes after the call"
+        }
+      ]
+    }
+  }
+}

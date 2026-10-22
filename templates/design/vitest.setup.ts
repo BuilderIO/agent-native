@@ -4,5 +4,11 @@ import { vi } from "vitest";
 // tests independent of approval loading; the hook has focused coverage itself.
 vi.mock("@/components/design/use-native-shader-approvals", () => {
   const sync = () => {};
-  return { useNativeShaderApprovals: () => sync };
+  const approvedDefinitionHashes: readonly string[] = [];
+  return {
+    useNativeShaderApprovals: () => ({
+      syncFrame: sync,
+      approvedDefinitionHashes,
+    }),
+  };
 });

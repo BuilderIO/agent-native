@@ -8,7 +8,7 @@ import {
 } from "./native-effect-edits";
 import { LIQUID_GLASS_EFFECT } from "./native-effect-liquid-glass-v1";
 import { parseEffectsFromHtml, type EffectDocument } from "./native-effects";
-import { applyShaderToHtml, listShaderMounts } from "./shader-fills";
+import { listShaderMounts } from "./shader-fills";
 
 const source = `<!doctype html><html><body><div data-agent-native-node-id="hero" style="background-image:linear-gradient(red,blue);background-color:white">Foreground</div><div data-agent-native-node-id="sibling">Sibling</div></body></html>`;
 const definition = catalogShader({
@@ -349,24 +349,20 @@ describe("native Fill stacking edits", () => {
 
   it("clears legacy GLSL Fill on apply while preserving native Fill and legacy sibling mounts", () => {
     const first = apply();
-    const legacy = {
-      id: "legacy-fill",
-      name: "Legacy",
-      mode: "fill" as const,
-      glsl: "precision highp float;void main(){gl_FragColor=vec4(1.0);}",
-      uniforms: {},
-    };
-    const heroLegacy = applyShaderToHtml(first.html, {
-      nodeId: "hero",
-      def: legacy,
-    });
-    expect(heroLegacy.errors).toEqual([]);
-    const siblingLegacy = applyShaderToHtml(heroLegacy.html, {
-      nodeId: "sibling",
-      def: legacy,
-    });
-    expect(siblingLegacy.errors).toEqual([]);
-    const second = apply(siblingLegacy.html);
+    const legacySource = first.html
+      .replace(
+        'data-agent-native-node-id="hero"',
+        'data-agent-native-node-id="hero" data-an-shader-fill="legacy-fill"',
+      )
+      .replace(
+        'data-agent-native-node-id="sibling"',
+        'data-agent-native-node-id="sibling" data-an-shader-fill="legacy-fill"',
+      )
+      .replace(
+        "</body>",
+        '<script type="application/x-agent-native-shader" data-shader-id="legacy-fill" data-shader-name="Legacy" data-shader-mode="fill">precision highp float;void main(){gl_FragColor=vec4(1.0);}</script></body>',
+      );
+    const second = apply(legacySource);
     expect(second.document.instances).toHaveLength(2);
     expect(second.document.instances[0]).toEqual(first.document.instances[0]);
     expect(listShaderMounts(second.html).map((mount) => mount.nodeId)).toEqual([

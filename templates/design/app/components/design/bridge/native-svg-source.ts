@@ -826,6 +826,13 @@ export function serializeNativeSvgSource(
                 ? authoredSvgOpacity(original, style)
                 : style[key];
       if (
+        SVG_CSS_GEOMETRY.has(name) &&
+        value?.trim().toLowerCase() === "auto"
+      ) {
+        clone.removeAttribute(name);
+        continue;
+      }
+      if (
         name === "transform" &&
         ["linearGradient", "radialGradient"].includes(original.localName)
       ) {
@@ -835,6 +842,8 @@ export function serializeNativeSvgSource(
             "gradientTransform",
             localPaintReferences(value, ids),
           );
+      } else if (name === "transform" && (!value || value === "none")) {
+        clone.removeAttribute("transform");
       } else if (value)
         clone.setAttribute(name, localPaintReferences(value, ids));
     }

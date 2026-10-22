@@ -2,6 +2,7 @@
 /**
  * Materializes exported app skills from `BUILT_IN_APP_SKILLS` and the
  * dev-installed recap-cli package, which owns the visual-recap skill content.
+ * The turn-into-app skill is also copied into community templates that bundle it.
  *
  * Plan's on-disk copies live in two location families per skill:
  *   1. `templates/plan/.agents/skills/<name>/<relPath>`
@@ -41,6 +42,24 @@ import { BUILT_IN_APP_SKILLS } from "../packages/core/src/cli/skills.js";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
 const coreRequire = createRequire(join(rootDir, "packages/core/package.json"));
+const communityTemplateTurnIntoAppDirs = existsSync(
+  join(rootDir, "community-templates"),
+)
+  ? readdirSync(join(rootDir, "community-templates"), {
+      withFileTypes: true,
+    })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) =>
+        join(
+          "community-templates",
+          entry.name,
+          ".agents",
+          "skills",
+          "turn-into-app",
+        ),
+      )
+      .filter((dir) => existsSync(join(rootDir, dir, "SKILL.md")))
+  : [];
 const recapCli = await import(
   pathToFileURL(coreRequire.resolve("@agent-native/recap-cli")).href
 );
@@ -116,7 +135,10 @@ const GENERATED_SKILLS: GeneratedSkill[] = [
     skill: "turn-into-app",
     body: turnIntoAppEntry.skillMarkdown,
     references: turnIntoAppEntry.extraFiles?.["turn-into-app"] ?? {},
-    targetDirs: [join("skills", "turn-into-app")],
+    targetDirs: [
+      join("skills", "turn-into-app"),
+      ...communityTemplateTurnIntoAppDirs,
+    ],
   },
 ];
 
