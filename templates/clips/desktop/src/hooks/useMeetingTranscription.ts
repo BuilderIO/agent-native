@@ -1672,10 +1672,11 @@ export function useMeetingTranscription({
           sessionRef.current === session &&
           !legacyTick &&
           ((error instanceof ClipsActionError &&
-            (error.status === 404 ||
+            ((error.status === 404 && !error.code) ||
               error.code === "unknown_action" ||
               error.code === "action_not_found")) ||
             (error instanceof Error &&
+              (!(error instanceof ClipsActionError) || !error.code) &&
               /unknown action|action(?: .*?)? not found/i.test(error.message)))
         )
           legacy = true;

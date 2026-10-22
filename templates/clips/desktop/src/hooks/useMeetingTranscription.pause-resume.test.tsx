@@ -378,37 +378,44 @@ describe("meeting transcription pause and resume", () => {
     expect(mocks.legacyMeeting).toHaveBeenCalledTimes(initialReads);
   });
 
-  it("retries the new path after a transient failure without downgrading", async () => {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      await act(async () => {
-        root.render(createElement(Harness));
-        await settle();
-      });
-      await dispatch("meetings:start-transcription", {
-        meetingId: "meeting-1",
-      });
-      const initialReads = mocks.legacyMeeting.mock.calls.length;
-      mocks.getMeeting.mockRejectedValueOnce(
-        new ClipsActionError("Service unavailable", 503),
-      );
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5_000);
-        await settle();
-      });
-      mocks.getMeeting.mockResolvedValue({
-        meeting: { actualEnd: "2026-10-22T12:00:00Z", captureStopRevision: 1 },
-      });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5_000);
-        await settle();
-      });
-      expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
-      expect(mocks.legacyMeeting).toHaveBeenCalledTimes(initialReads);
-    } finally {
-      warning.mockRestore();
-    }
-  });
+  it.each([
+    new ClipsActionError("Service unavailable", 503),
+    new ClipsActionError("Meeting not found", 404, "meeting_not_found"),
+  ])(
+    "retries the new path after a recoverable failure without downgrading: %s",
+    async (failure) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await act(async () => {
+          root.render(createElement(Harness));
+          await settle();
+        });
+        await dispatch("meetings:start-transcription", {
+          meetingId: "meeting-1",
+        });
+        const initialReads = mocks.legacyMeeting.mock.calls.length;
+        mocks.getMeeting.mockRejectedValueOnce(failure);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_000);
+          await settle();
+        });
+        mocks.getMeeting.mockResolvedValue({
+          meeting: {
+            actualEnd: "2026-10-22T12:00:00Z",
+            captureStopRevision: 1,
+          },
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_000);
+          await settle();
+        });
+        expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
+        expect(mocks.legacyMeeting).toHaveBeenCalledTimes(initialReads);
+      } finally {
+        warning.mockRestore();
+      }
+    },
+  );
 
   it("logs unavailable capture state and retries without treating it as a meeting end", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
