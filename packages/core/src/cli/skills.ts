@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -3678,13 +3679,13 @@ function connectCommandFor(
 }
 
 // The skill and its MCP config are written before the sign-in starts, so
-// Ctrl+C there only skips the sign-in, and the install has succeeded. Exit
-// here rather than leave it to the spinner, which prints "Canceled" while the
-// device flow keeps polling.
+// Ctrl+C there skips only the sign-in: the install has succeeded, and any
+// other selected skills still install.
 function listenForSigintSignInSkip(skip: () => void): () => void {
   const onSigint = () => {
+    // Clears the device flow's "Waiting for approval…" line.
+    if (process.stdout.isTTY) process.stdout.write("\r\x1b[K");
     skip();
-    process.exit(0);
   };
   process.once("SIGINT", onSigint);
   return () => {
@@ -3743,7 +3744,12 @@ async function connectAfterEnsure(
     connectLog?.(authMessage);
     wroteAuthMessage = true;
   };
+  // Aborting stops the device flow's waits and requests, so runConnect
+  // returns instead of polling until the code expires.
+  const skipController = new AbortController();
+  const signInSkipped = () => skipController.signal.aborted;
   const writeConnectLog = (message: string) => {
+    if (signInSkipped()) return;
     clearSpinner();
     writeAuthMessage();
     connectLog?.(message);
@@ -3753,6 +3759,8 @@ async function connectAfterEnsure(
   const stopListeningForSkip = (
     options.listenForSignInSkip ?? listenForSigintSignInSkip
   )(() => {
+    if (signInSkipped()) return;
+    skipController.abort();
     clearSpinner();
     connectLog?.(
       `Sign-in skipped. ${installTarget.displayName} is installed; ` +
@@ -3766,6 +3774,12 @@ async function connectAfterEnsure(
     writeAuthMessage();
   }
   options.telemetry?.track("skills_cli connect started");
+  const exitCodeBeforeConnect = process.exitCode;
+  const skippedResult = () => {
+    // runConnect reports the aborted sign-in as a failure; skipping isn't one.
+    process.exitCode = exitCodeBeforeConnect;
+    return { connected: false, connectCommand };
+  };
   try {
     const connectArgs = [
       hostedUrl,
@@ -3781,15 +3795,25 @@ async function connectAfterEnsure(
         isInteractive: options.isInteractive,
         logOut: writeConnectLog,
         logErr: writeConnectLog,
+        fetchImpl: (input, init) =>
+          fetch(input, {
+            ...init,
+            signal: init?.signal
+              ? AbortSignal.any([init.signal, skipController.signal])
+              : skipController.signal,
+          }),
+        sleep: (ms) => delay(ms, undefined, { signal: skipController.signal }),
         withBrowserOpenSpinner: (message, openBrowser) =>
           runWithConnectSpinner(options, message, openBrowser),
       });
     }
+    if (signInSkipped()) return skippedResult();
     clearSpinner();
     writeAuthMessage();
     options.telemetry?.track("skills_cli connect completed");
     return { connected: true, connectCommand: "" };
   } catch (err: any) {
+    if (signInSkipped()) return skippedResult();
     clearSpinner();
     writeAuthMessage();
     options.telemetry?.track("skills_cli connect failed", {
