@@ -1422,6 +1422,168 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(isCurrent(discovery)).toBe(true);
   });
 
+  it.each([
+    { order: "retired-first", unreadable: false },
+    { order: "fresh-first", unreadable: false },
+    { order: "retired-first", unreadable: true },
+    { order: "fresh-first", unreadable: true },
+  ])(
+    "retires discovery across remount ($order, unreadable=$unreadable)",
+    async ({ order, unreadable }) => {
+      const retired = deferredResponse();
+      const fresh = deferredResponse();
+      const signals: AbortSignal[] = [];
+      const { mock: fallback } = makeFetchMock();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).endsWith("/awareness") && init?.method === "POST") {
+            signals.push(init.signal!);
+            // The transport can finish an answer despite cancellation.
+            return signals.length === 1 ? retired.promise : fresh.promise;
+          }
+          return fallback(input);
+        }),
+      );
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "hidden",
+      });
+      try {
+        let result: UseCollaborativeDocResult | undefined;
+        const probe = () => (
+          <Probe
+            docId="doc-discovery-remount"
+            user={{ name: "Local", email: "local@example.test", color: "c" }}
+            onResult={(next) => (result = next)}
+          />
+        );
+        const first = mount(probe());
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        const ydoc = result!.ydoc;
+        const previous = result!.discoverPeers();
+        act(() => first.unmount());
+        roots = roots.filter((candidate) => candidate !== first);
+        expect.soft(signals[0].aborted).toBe(true);
+        mount(probe());
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(result!.ydoc).toBe(ydoc);
+        const current = result!.discoverPeers();
+        const coalesced = result!.discoverPeers();
+        let settled = false;
+        void current.then(() => (settled = true));
+        expect.soft(current).not.toBe(previous);
+        expect.soft(coalesced).toBe(current);
+        expect.soft(signals).toHaveLength(2);
+        const peer = {
+          user: { name: "Current" },
+          reconciledRevision: "body:2:new",
+        };
+        const finishFresh = async () => {
+          await act(async () => {
+            fresh.resolve(
+              Response.json({
+                states: [{ clientId: 77, state: JSON.stringify(peer) }],
+              }),
+            );
+            await vi.advanceTimersByTimeAsync(0);
+          });
+        };
+        const finishRetired = async () => {
+          await act(async () => {
+            retired.resolve(
+              unreadable
+                ? new Response("{broken")
+                : Response.json({ states: [] }),
+            );
+            await previous;
+          });
+        };
+        if (order === "fresh-first") {
+          await finishFresh();
+          expect.soft(result!.awareness!.getStates().get(77)).toEqual(peer);
+          await finishRetired();
+        } else {
+          await finishRetired();
+          expect.soft(settled).toBe(false);
+          expect.soft(result!.discoverPeers()).toBe(current);
+          expect.soft(signals).toHaveLength(2);
+          await finishFresh();
+        }
+        const retiredResult = await previous;
+        const currentResult = await current;
+        expect.soft(result!.awareness!.getStates().get(77)).toEqual(peer);
+        expect(retiredResult).toEqual({ status: "unavailable" });
+        expect(currentResult).toMatchObject({ status: "ready" });
+        expect(isCurrent(currentResult)).toBe(true);
+        expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+        expect(signals).toHaveLength(2);
+        expect(signals[1].aborted).toBe(false);
+      } finally {
+        Reflect.deleteProperty(document, "visibilityState");
+      }
+    },
+  );
+
+  it("keeps discovery owned by remaining subscribers and retires its evidence on the last unmount", async () => {
+    const answer = deferredResponse();
+    const { mock: fallback } = makeFetchMock();
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith("/awareness") && init?.method === "POST") {
+          signals.push(init.signal!);
+          return answer.promise;
+        }
+        return fallback(input);
+      }),
+    );
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    try {
+      let result: UseCollaborativeDocResult | undefined;
+      const probe = () => (
+        <Probe
+          docId="doc-discovery-owners"
+          user={{ name: "Local", email: "local@example.test", color: "c" }}
+          onResult={(next) => (result = next)}
+        />
+      );
+      const first = mount(probe());
+      const second = mount(probe());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const discovering = result!.discoverPeers();
+      act(() => first.unmount());
+      roots = roots.filter((candidate) => candidate !== first);
+      expect(result!.discoverPeers()).toBe(discovering);
+      expect(signals).toHaveLength(1);
+      expect(signals[0].aborted).toBe(false);
+      let discovery: CollabPeerDiscoveryResult | null = null;
+      await act(async () => {
+        answer.resolve(Response.json({ states: [] }));
+        discovery = await discovering;
+      });
+      expect(isCurrent(discovery)).toBe(true);
+      act(() => second.unmount());
+      roots = roots.filter((candidate) => candidate !== second);
+      expect(isCurrent(discovery)).toBe(false);
+      await expect(result!.discoverPeers()).resolves.toEqual({
+        status: "unavailable",
+      });
+    } finally {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+  });
+
   it("reports discovery unavailable without a document", async () => {
     let result: UseCollaborativeDocResult | undefined;
     mount(<Probe docId={null} onResult={(next) => (result = next)} />);

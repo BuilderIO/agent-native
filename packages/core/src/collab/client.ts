@@ -74,8 +74,8 @@ export interface UseCollaborativeDocResult {
    * Every later answer or event replaces them as it arrives, an older or
    * partial one included, so a caller that must not lose a collaborator keeps
    * what it saw. Its `current()` turns false once a presence answer this
-   * client could not read arrives after the exchange was sent: that answer
-   * may name a collaborator the discovery did not.
+   * client could not read arrives after the exchange was sent, or its sync
+   * lifecycle ends: neither is evidence for the next lifecycle's join.
    */
   discoverPeers: () => Promise<CollabPeerDiscoveryResult>;
   /**
@@ -322,6 +322,7 @@ class CollabDocConnection {
   private stateVectorFetch: Promise<CollaborativeDocSyncResult> | null = null;
   private stateVectorAbortControllers = new Set<AbortController>();
   private peerDiscovery: Promise<CollabPeerDiscoveryResult> | null = null;
+  private peerDiscoveryAbortController: AbortController | null = null;
   private sseActive = false;
   private sseAwarenessCovered = false;
   private ssePollLive = false;
@@ -743,16 +744,15 @@ class CollabDocConnection {
   };
 
   discoverPeers = (): Promise<CollabPeerDiscoveryResult> => {
-    if (this.peerDiscovery) return this.peerDiscovery;
     if (
-      this.disposed ||
-      this.subscribers.size === 0 ||
+      !this.isPollCurrent(this.pollGeneration) ||
       this.snapshot.initialization.status !== "ready" ||
       !this.awareness.getLocalState()
     ) {
       return Promise.resolve({ status: "unavailable" });
     }
-    const request = this.performPeerDiscovery();
+    if (this.peerDiscovery) return this.peerDiscovery;
+    const request = this.performPeerDiscovery(this.pollGeneration);
     this.peerDiscovery = request;
     void request.finally(() => {
       if (this.peerDiscovery === request) this.peerDiscovery = null;
@@ -760,8 +760,12 @@ class CollabDocConnection {
     return request;
   };
 
-  private async performPeerDiscovery(): Promise<CollabPeerDiscoveryResult> {
+  private async performPeerDiscovery(
+    generation: number,
+  ): Promise<CollabPeerDiscoveryResult> {
+    const isCurrent = () => this.isPollCurrent(generation);
     const controller = new AbortController();
+    this.peerDiscoveryAbortController = controller;
     const timeout = setTimeout(
       () => controller.abort(),
       STATE_VECTOR_FETCH_TIMEOUT_MS,
@@ -770,15 +774,16 @@ class CollabDocConnection {
     try {
       const exchanged = await this.exchangeAwareness({
         signal: controller.signal,
+        isCurrent,
       });
-      return exchanged && !this.disposed
+      return exchanged && isCurrent()
         ? {
             status: "ready",
-            current: () => !this.disposed && this.awarenessGaps === gaps,
+            current: () => isCurrent() && this.awarenessGaps === gaps,
           }
         : { status: "unavailable" };
     } catch (error) {
-      if (this.disposed) return { status: "unavailable" };
+      if (!isCurrent()) return { status: "unavailable" };
       return {
         status: "failed",
         error:
@@ -788,6 +793,8 @@ class CollabDocConnection {
       };
     } finally {
       clearTimeout(timeout);
+      if (this.peerDiscoveryAbortController === controller)
+        this.peerDiscoveryAbortController = null;
     }
   }
 
@@ -1008,6 +1015,9 @@ class CollabDocConnection {
   }
 
   private stopSync(): void {
+    this.peerDiscovery = null;
+    this.peerDiscoveryAbortController?.abort();
+    this.peerDiscoveryAbortController = null;
     if (!this.syncActive) return;
     this.syncActive = false;
     this.pollGeneration++;

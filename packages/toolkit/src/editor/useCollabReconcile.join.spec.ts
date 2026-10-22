@@ -129,12 +129,17 @@ function makeTabs({
   joinsOnPeers = true,
   ids = { A: 1, B: 2, C: 3 },
   cRefusesStoredBody = false,
+  bRefusesStoredBody = false,
+  bMergesAgainstBase = true,
   compare = compareRevisions,
 }: {
   joinsOnPeers?: boolean;
   /** D, when it opens, defaults to the lowest id. */
   ids?: { A: number; B: number; C: number; D?: number };
   cRefusesStoredBody?: boolean;
+  bRefusesStoredBody?: boolean;
+  /** B leaves out `onBaseAwareReconcile`, so it applies a stored body whole. */
+  bMergesAgainstBase?: boolean;
   /** How the tabs order revisions; null passes no comparator. */
   compare?: ((first: string, second: string) => number | null) | null;
 } = {}) {
@@ -171,11 +176,16 @@ function makeTabs({
   awareness.D.setLocalState(peer("D"));
   awareness.B.getStates().set(ids.A, peer("A"));
 
-  // B's updates reach the server unless its delivery is held.
-  let deliveryHeld = false;
+  // B's updates reach the server unless its delivery is held or fails.
+  let bDelivery: "delivers" | "held" | "fails" | "rejects" = "delivers";
   const flush = {
-    B: () =>
-      deliveryHeld ? new Promise<boolean>(() => {}) : Promise.resolve(true),
+    B: vi.fn(() =>
+      bDelivery === "held"
+        ? new Promise<boolean>(() => {})
+        : bDelivery === "rejects"
+          ? Promise.reject(new Error("Failed to fetch"))
+          : Promise.resolve(bDelivery === "delivers"),
+    ),
     C: () => Promise.resolve(true),
     D: () => Promise.resolve(true),
   };
@@ -268,7 +278,10 @@ function makeTabs({
     const editor = useEditor({
       extensions: [
         ...createRichMarkdownExtensions({ dialect: "gfm", ydoc: docs[name] }),
-        ...(name === "C" && cRefusesStoredBody ? [REFUSES_STORED_BODY] : []),
+        ...((name === "C" && cRefusesStoredBody) ||
+        (name === "B" && bRefusesStoredBody)
+          ? [REFUSES_STORED_BODY]
+          : []),
       ],
       onUpdate: ({ editor: updated, transaction }) => {
         const result = results[name];
@@ -298,7 +311,10 @@ function makeTabs({
         : {}),
       initialAppliedUpdatedAt: null,
       overlapPolicy: "prefer-live",
-      onBaseAwareReconcile: baseAwareReconciles[name],
+      onBaseAwareReconcile:
+        name === "B" && !bMergesAgainstBase
+          ? undefined
+          : baseAwareReconciles[name],
       onRemoteSnapshotChange: remoteReports[name],
       editable: true,
     });
@@ -306,6 +322,8 @@ function makeTabs({
   }
   function Tabs({
     snapshot,
+    joinsB,
+    acknowledgedB,
     snapshotC = snapshot,
     withC,
     joinsC,
@@ -315,6 +333,8 @@ function makeTabs({
     snapshotD,
   }: {
     snapshot: Snapshot;
+    joinsB?: boolean;
+    acknowledgedB?: Acknowledgement;
     snapshotC?: Snapshot;
     withC: boolean;
     joinsC?: boolean;
@@ -327,7 +347,12 @@ function makeTabs({
     return React.createElement(
       React.Fragment,
       null,
-      React.createElement(Tab, { name: "B", snapshot }),
+      React.createElement(Tab, {
+        name: "B",
+        snapshot,
+        joins: joinsB,
+        acknowledged: acknowledgedB,
+      }),
       withC
         ? React.createElement(Tab, {
             name: "C",
@@ -361,10 +386,27 @@ function makeTabs({
       connected.delete(docs.C);
       edit(author);
     },
+    flush,
     /** B's later updates stay queued in B, as when its update request hangs. */
     holdBDelivery: () => {
-      deliveryHeld = true;
+      bDelivery = "held";
       connected.delete(docs.B);
+    },
+    /** B's later updates stay queued in B, and asking it to send them fails. */
+    failBDelivery: (how: "fails" | "rejects") => {
+      bDelivery = how;
+      connected.delete(docs.B);
+    },
+    /** B's connection sends what it queued on its own, as its backoff does. */
+    recoverBDelivery: () => {
+      for (const other of connected)
+        Y.applyUpdate(
+          other,
+          Y.encodeStateAsUpdate(docs.B, Y.encodeStateVector(other)),
+          "relay",
+        );
+      connected.add(docs.B);
+      bDelivery = "delivers";
     },
     failCatchUp: () => {
       catchUpStatus = "failed";
@@ -2304,6 +2346,279 @@ describe("useCollabReconcile: what finishes a join", () => {
       tabs.dispose();
     }
   });
+});
+
+// B leads and holds a newer stored body, but its connection cannot send the
+// updates behind it yet and sends them later on its own, which reruns nothing
+// in B.
+describe("useCollabReconcile: a report waiting on delivery", () => {
+  const LATER: Snapshot = {
+    value: AGENT_EDIT.value.replace(
+      "Bravo paragraph.",
+      "Bravo paragraph, edited again.",
+    ),
+    revision: "body:3:d",
+    updatedAt: "2024-01-01T00:00:12.000Z",
+  };
+  const reportsOf = (awareness: Awareness) => {
+    const reports: unknown[] = [];
+    awareness.on("change", () => {
+      const revision = heldRevision(awareness);
+      if (reports[reports.length - 1] !== revision) reports.push(revision);
+    });
+    return reports;
+  };
+  const renderB = (tabs: Tabs, snapshot: Snapshot, joinsB?: boolean) =>
+    root.render(
+      React.createElement(tabs.Tabs, { snapshot, joinsB, withC: false }),
+    );
+
+  it.each(["fails", "rejects"] as const)(
+    "reports the body it merged beside unsaved text once delivery that %s recovers, and the waiting tab finishes",
+    async (how) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
+        await act(async () => tabs.discoverPeers());
+        await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+
+        tabs.failBDelivery(how);
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: AGENT_EDIT,
+              withC: true,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(6_000));
+        expect(tabs.markdown("B")).toBe(`${SAVED}\n\n${CHARLIE}`);
+        expect(
+          heldRevision(tabs.awareness.B),
+          "B reported a merge the server does not have",
+        ).toBe(STORED.revision);
+        act(() =>
+          tabs.reportToC(2, tabs.awareness.B.getLocalState() as PeerState),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        expect(tabs.editors.C!.isEditable).toBe(false);
+
+        act(() => tabs.recoverBDelivery());
+        // C now has the merge, beside A's word, but nothing yet vouches for it.
+        expect(tabs.markdown("C")).toBe(`${SAVED}\n\n${CHARLIE}`);
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        await act(async () => vi.advanceTimersByTimeAsync(5_000));
+        act(() =>
+          tabs.reportToC(2, tabs.awareness.B.getLocalState() as PeerState),
+        );
+        await act(async () => tabs.discoverPeers());
+        await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+        expect(
+          tabs.results.C!.isJoinPending(),
+          "C stayed read-only after B's delivery recovered",
+        ).toBe(false);
+        expect(tabs.editors.C!.isEditable).toBe(true);
+        expect(tabs.joinFailed("C")).toBe(false);
+        expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+        for (const name of ["A", "B", "C"] as const)
+          expect(occurrences(tabs.markdown(name), CHARLIE)).toBe(1);
+        expect(heldRevision(tabs.awareness.B)).toBe(AGENT_EDIT.revision);
+        expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  it("reports only the newer body once one replaces a report waiting on delivery", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      act(() => renderB(tabs, STORED));
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(heldRevision(tabs.awareness.B)).toBe(STORED.revision);
+      const reports = reportsOf(tabs.awareness.B);
+
+      tabs.failBDelivery("fails");
+      act(() => renderB(tabs, AGENT_EDIT));
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.markdown("B")).toBe(AGENT_EDIT.value);
+      act(() => renderB(tabs, LATER));
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.markdown("B")).toBe(LATER.value);
+
+      act(() => tabs.recoverBDelivery());
+      await act(async () => vi.advanceTimersByTimeAsync(60_000));
+      expect(reports).toEqual([LATER.revision]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("leaves nothing scheduled once it unmounts with a replaced report waiting on delivery", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      act(() => renderB(tabs, STORED));
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      tabs.failBDelivery("fails");
+      act(() => renderB(tabs, AGENT_EDIT));
+      // Long enough that B has backed off, so the report LATER replaces would
+      // still be waiting when B unmounts.
+      await act(async () => vi.advanceTimersByTimeAsync(15_000));
+      act(() => renderB(tabs, LATER));
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.markdown("B")).toBe(LATER.value);
+
+      act(() => root.render(null));
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("drops a report waiting on delivery once it takes a newer body its doc does not hold", async () => {
+    const tabs = makeTabs({
+      ids: { A: 5, B: 2, C: 3 },
+      bRefusesStoredBody: true,
+      bMergesAgainstBase: false,
+    });
+    vi.useFakeTimers();
+    try {
+      act(() => renderB(tabs, STORED));
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(heldRevision(tabs.awareness.B)).toBe(STORED.revision);
+      const reports = reportsOf(tabs.awareness.B);
+
+      // The agent edit reaches B through the live doc, so B holds it as is.
+      act(() =>
+        tabs.editAsA((author) =>
+          author.commands.insertContentAt(author.state.doc.content.size, {
+            type: "paragraph",
+            content: [{ type: "text", text: CHARLIE }],
+          }),
+        ),
+      );
+      tabs.failBDelivery("fails");
+      act(() => renderB(tabs, AGENT_EDIT));
+      // Long enough that B has backed off, so its next ask comes after it
+      // takes the newer body.
+      await act(async () => vi.advanceTimersByTimeAsync(15_000));
+      act(() => renderB(tabs, LATER));
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.markdown("B"), "B's editor took the newer body").toBe(
+        AGENT_EDIT.value,
+      );
+
+      const asked = tabs.flush.B.mock.calls.length;
+      act(() => tabs.recoverBDelivery());
+      await act(async () => vi.advanceTimersByTimeAsync(60_000));
+      expect(reports).toEqual([]);
+      expect(tabs.flush.B).toHaveBeenCalledTimes(asked);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("publishes, once delivery recovers, a report StrictMode stopped as it mounted, and a joining tab keeps the doc", async () => {
+    const tabs = makeTabs();
+    const acknowledgedB = { ...ACKNOWLEDGED, sequence: 1 };
+    const strict = (withC: boolean) =>
+      root.render(
+        React.createElement(
+          React.StrictMode,
+          null,
+          React.createElement(tabs.Tabs, {
+            snapshot: ACKNOWLEDGED,
+            acknowledgedB,
+            snapshotC: STORED,
+            withC,
+          }),
+        ),
+      );
+    vi.useFakeTimers();
+    try {
+      // B mounts on its acknowledged save of A's word, which it cannot send.
+      act(() => tabs.typeAsA());
+      tabs.failBDelivery("fails");
+      act(() => strict(false));
+      await act(async () => vi.advanceTimersByTimeAsync(60_000));
+      expect(heldRevision(tabs.awareness.B)).toBeUndefined();
+      expect(
+        tabs.flush.B.mock.calls.length,
+        "B asked faster than its connection retries",
+      ).toBeLessThan(13);
+
+      act(() => tabs.recoverBDelivery());
+      await act(async () => vi.advanceTimersByTimeAsync(15_000));
+
+      // C opens on the body from before that save.
+      tabs.syncC();
+      act(() => strict(true));
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      expect(
+        tabs.results.C!.isJoinPending(),
+        "C waited on a report B never published",
+      ).toBe(false);
+      expect(tabs.editors.C!.isEditable).toBe(true);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(heldRevision(tabs.awareness.B)).toBe(ACKNOWLEDGED.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it.each([
+    ["unmounts", null],
+    ["stops reporting", false],
+  ] as const)(
+    "asks about delivery spaced out, and stops once it %s",
+    async (_, joinsB) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+      vi.useFakeTimers();
+      try {
+        act(() => renderB(tabs, STORED));
+        await act(async () => vi.advanceTimersByTimeAsync(3_000));
+        tabs.failBDelivery("fails");
+        act(() => renderB(tabs, AGENT_EDIT));
+        await act(async () => vi.advanceTimersByTimeAsync(3_000));
+        expect(tabs.markdown("B")).toBe(AGENT_EDIT.value);
+
+        const asked = tabs.flush.B.mock.calls.length;
+        await act(async () => vi.advanceTimersByTimeAsync(60_000));
+        const retries = tabs.flush.B.mock.calls.length - asked;
+        expect(
+          retries,
+          "B stopped asking while sending failed",
+        ).toBeGreaterThan(2);
+        expect(
+          retries,
+          "B asked faster than its connection retries",
+        ).toBeLessThan(13);
+        expect(heldRevision(tabs.awareness.B)).toBe(STORED.revision);
+
+        act(() =>
+          joinsB === null
+            ? root.render(null)
+            : renderB(tabs, AGENT_EDIT, joinsB),
+        );
+        const stopped = tabs.flush.B.mock.calls.length;
+        act(() => tabs.recoverBDelivery());
+        await act(async () => vi.advanceTimersByTimeAsync(60_000));
+        expect(tabs.flush.B).toHaveBeenCalledTimes(stopped);
+        expect(heldRevision(tabs.awareness.B)).toBe(STORED.revision);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
 });
 
 // C holds a body the live doc wrote and takes a newer one, C's user types, and

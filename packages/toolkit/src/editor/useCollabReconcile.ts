@@ -59,6 +59,9 @@ const PEER_SETTLE_MS = 2500;
 const LEAD_FAILOVER_MS = PEER_SETTLE_MS * 2;
 const CATCH_UP_ATTEMPTS = 3;
 const CATCH_UP_RETRY_MS = 2000;
+// Asking a connection whether it delivered sends what it queued at once, ahead
+// of its own backoff, so a report waiting on delivery backs off as far.
+const HELD_REVISION_RETRY_MAX_MS = 15_000;
 const JOIN_EVIDENCE_TIMEOUT_MS = 20_000;
 const JOIN_EVIDENCE_RETRY_MS = 500;
 function pushEmittedRing(ring: string[], value: string): void {
@@ -386,40 +389,86 @@ export function useCollabReconcile({
     flushCollabUpdates &&
     requestCollabSync,
   );
+  const heldRevisionTarget = joinsOnPeerEvidence ? awareness : null;
   const heldRevisionAwarenessRef = useRef<Awareness | null>(null);
-  heldRevisionAwarenessRef.current = joinsOnPeerEvidence ? awareness : null;
+  heldRevisionAwarenessRef.current = heldRevisionTarget;
   const flushCollabUpdatesRef = useRef(flushCollabUpdates);
   flushCollabUpdatesRef.current = flushCollabUpdates;
-  const pendingHeldRevisionRef = useRef<string | null>(null);
+  const pendingHeldRevisionRef = useRef<{
+    revision: string;
+    target: Awareness;
+    cancel: () => void;
+  } | null>(null);
   // A seed records the stored body as applied even when another client's seed
   // won with a different one, so this doc does not hold that body.
   const unheldSeedValueRef = useRef<string | null>(null);
   // A report goes out only once the server has the updates behind it: a joining
   // client that trusts a report fetches the doc from the server, and an update
-  // still queued in a tab that then closes would never reach it.
+  // still queued in a tab that then closes would never reach it. A connection
+  // that could not send them sends them later on its own, which reruns nothing
+  // here, so the report asks again until they are sent or a newer one
+  // replaces it.
   const publishHeldRevision = (revision: string) => {
     const target = heldRevisionAwarenessRef.current;
     const flush = flushCollabUpdatesRef.current;
-    if (!target || !flush || pendingHeldRevisionRef.current === revision)
+    if (
+      !target ||
+      !flush ||
+      pendingHeldRevisionRef.current?.revision === revision
+    )
       return;
-    pendingHeldRevisionRef.current = revision;
-    const publish = (delivered: boolean) => {
+    pendingHeldRevisionRef.current?.cancel();
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let retryMs = CATCH_UP_RETRY_MS;
+    const pending = { revision, target, cancel: () => clearTimeout(retry) };
+    pendingHeldRevisionRef.current = pending;
+    // Every base move replaces it, including one to a body the doc does not
+    // hold, which publishes nothing of its own.
+    const current = () => {
+      if (pendingHeldRevisionRef.current !== pending) return false;
       if (
-        !delivered ||
-        pendingHeldRevisionRef.current !== revision ||
-        heldRevisionAwarenessRef.current !== target
-      ) {
-        if (pendingHeldRevisionRef.current === revision)
-          pendingHeldRevisionRef.current = null;
+        heldRevisionAwarenessRef.current === target &&
+        authoritativeBaseRef.current?.revision === revision
+      )
+        return true;
+      pendingHeldRevisionRef.current = null;
+      return false;
+    };
+    const ask = () => {
+      if (current()) flush().then(publish, () => publish(false));
+    };
+    const publish = (delivered: boolean) => {
+      if (!current()) return;
+      if (!delivered) {
+        retry = setTimeout(ask, retryMs);
+        retryMs = Math.min(retryMs * 2, HELD_REVISION_RETRY_MAX_MS);
         return;
       }
       if (target.getLocalState()?.[HELD_REVISION_FIELD] !== revision)
         target.setLocalStateField(HELD_REVISION_FIELD, revision);
     };
-    flush().then(publish, () => publish(false));
+    ask();
   };
-  const withdrawHeldRevision = () => {
+  const retireHeldRevision = () => {
+    pendingHeldRevisionRef.current?.cancel();
     pendingHeldRevisionRef.current = null;
+  };
+  // React can stop this effect and start it again on a hook that stays mounted,
+  // as StrictMode does, and what published the report may not run again then.
+  const stoppedHeldRevisionRef =
+    useRef<typeof pendingHeldRevisionRef.current>(null);
+  useEffect(() => {
+    const stopped = stoppedHeldRevisionRef.current;
+    stoppedHeldRevisionRef.current = null;
+    if (stopped && stopped.target === heldRevisionTarget)
+      publishHeldRevision(stopped.revision);
+    return () => {
+      stoppedHeldRevisionRef.current = pendingHeldRevisionRef.current;
+      retireHeldRevision();
+    };
+  }, [heldRevisionTarget]);
+  const withdrawHeldRevision = () => {
+    retireHeldRevision();
     const target = heldRevisionAwarenessRef.current;
     if (target && target.getLocalState()?.[HELD_REVISION_FIELD] != null)
       target.setLocalStateField(HELD_REVISION_FIELD, null);
