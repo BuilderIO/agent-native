@@ -116,6 +116,13 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
             "Allows a mutating action to run concurrently with other same-turn tool calls.",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "When true (or when the predicate returns true), a rejected write is a known failure the model can correct and retry, instead of blocking the tool. See Retry-safe writes below.",
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -404,6 +411,35 @@ A network drop, a proxy's HTML error page, and a bare status line author no mess
 So the status is not cosmetic. A refusal sent as `404` costs one round trip. The same refusal sent as a `500`, or thrown bare, costs four round trips and four duplicate error reports.
 
 Agent callers never see the status. The agent runs `run()` in process, so it receives the message directly whatever the type, as `Error running <action>: <message>`. An `errorCode` other than the default `action_failed` is appended as `(errorCode: not_found)` so the model can branch on it without parsing prose. `details` follow on their own line as compact JSON, such as `Error details: {"importId":"imp_1"}`, so an id the model needs for its next call doesn't have to be written into the message. External agents over MCP get the same text, and the same details in `structuredContent.error`. A tool that advertises an output schema (`mcpOutputSchema: true`) returns the text only, since a client may check an error result against that schema too. Details are capped at 2,000 characters: past that, small top-level entries are kept and the rest are listed as omitted. Secrets in the message and details are redacted first, and the agent's own repeated-error breakers bound how many times it tries again.
+
+## Retry-safe writes {#retry-safe}
+
+By default, when a write action's own handler rejects — whether it throws or calls `fail()` — the agent loop records an unknown outcome and blocks that tool for the rest of the thread. The model sees the error, but it cannot call the same action again to fix its arguments.
+
+Set `retrySafe: true` (or a predicate of the input) when re-running after an error cannot duplicate or corrupt data: the action validates before it writes, or it sets an end state such as replace-by-id. A rejected call then stays a known failure. The model gets the error, corrects its arguments, and retries.
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. A rejected call leaves
+  // nothing behind, so the model can fix its args and try again.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+Do **not** set it when the action appends, sends, or charges after validation. Validating first is not enough on its own if a later step can already have taken effect before the rejection. A few further limits:
+
+- It covers **this action's own write**. Once a nested action it calls has entered its handler, a failure still records an unknown outcome.
+- It does not clear a thread that already recorded an unknown outcome. After you add `retrySafe`, start a **new thread** to pick up the change.
+- A deadline or abort after the action was invoked still blocks the tool. Only the action's own returned error is treated as a known, retryable failure.
 
 ## Keep the action surface small {#small-surface}
 
