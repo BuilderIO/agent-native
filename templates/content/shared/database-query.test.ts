@@ -575,6 +575,7 @@ function titleMatches(
     search: "",
     filters: [{ key: "name", label: "Name", operator, value }],
     sorts: [],
+    filterMode: "and",
   }).map((row) => row.document.id);
 }
 
@@ -676,6 +677,7 @@ function dateMatches(
       search: "",
       filters: [{ key: "date", label: "Date", operator, value }],
       sorts: [],
+      filterMode: "and",
     },
     { today: TODAY },
   ).map((row) => row.document.id);
@@ -881,6 +883,7 @@ describe("content database filter today", () => {
         { key: "date", label: "Date", operator: "equals", value: "today" },
       ],
       sorts: [],
+      filterMode: "and",
     }).map((row) => row.document.id);
     expect(ids).toEqual(["morning", "whole-day", "evening"]);
   });
