@@ -228,6 +228,7 @@ type DocumentListRow = Omit<
   | "content"
   | "collabBodyRevision"
   | "liveBodySwitchedAt"
+  | "liveCopyVersion"
   | "createdBy"
   | "updatedBy"
   | "creationRequestDigest"

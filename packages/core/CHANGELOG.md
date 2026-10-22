@@ -51,6 +51,23 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.216.0
+
+### Patch Changes
+
+- b28df00: Agent chat now validates durable queued submission receipts against the original session and message identity, preserves retry context after an unreadable acknowledgement, and prevents attachment payloads from being admitted under a mismatched receipt. Queued follow-ups keep their attachment references, drain at completed-turn boundaries, and expose terminal receipt states so mobile turns can settle when admission expires or is blocked.
+- b28df00: Preserve accepted inbox order, bounded retry behavior, effective run settings, and inline attachment identity when Agent-Native chat submissions are queued or promoted.
+- b28df00: Bound queued submission drain recovery retries and block receipts after the retry limit.
+- b28df00: Keep receipt-backed queue promotion under the durable inbox retry policy and report cancellation failures without marking queued mobile turns stopped.
+- Release all public npm packages with a patch version bump.
+- b28df00: Stopping a promoted queued chat message now cancels its submitted run durably, while stopping during promotion prevents that receipt from being submitted.
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies
+  - @agent-native/agentkit@0.216.0
+  - @agent-native/recap-cli@0.5.85
+
 ## 0.215.0
 
 ### Minor Changes
@@ -4332,26 +4349,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - d9b6279: Fix desktop Google sign-in against a local dev server. `X-Agent-Native-Desktop-Verifier` is now in the shared CORS allow-header list used by every preflight short-circuit (the Tauri dev renderer origin `http://localhost:1420` is answered by the dev server, which never reached the auth CORS handler that already allowed the header), and a localhost origin receives `Access-Control-Allow-Credentials` when `NODE_ENV === "development"` so the desktop app's credentialed calls work locally. Production credential rules are unchanged.
-
-## 0.168.9
-
-### Patch Changes
-
-- e5e6934: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
-- e5e6934: Cache 404 and 410 SSR shells with the same public CDN policy as 200 shells. They previously carried `no-cache`, so every dead link, stale bookmark, renamed slug and crawler miss re-invoked the render function — the same URL cost a full cold render on every request. Netlify runs one request per container, so those invocations drew from the account-wide concurrency pool other sites share. 5xx stays uncacheable, and 401/403 are deliberately excluded.
-- e5e6934: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
-
-  The callback returns an identical error page for a wrong client secret and a
-  stale authorization code, so a broken credential is invisible from outside
-  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
-  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
-  a transport failure is never reported as valid — plus whether the deploy
-  carries two credential pairs naming different Google clients.
-
-- e5e6934: Keep desktop app chat immediately available while app tabs load, and allow hosts to start fresh chat threads without restoring history on mount.
-- dd80d09: Keep the full workspace credential workflow reachable from the redesigned integrations catalog.
-- 127606d: Sync localized overview documentation with the current English guides.
-- e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
-- e5e6934: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

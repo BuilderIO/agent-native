@@ -3,6 +3,12 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-22
+
+### Fixed
+
+- Shader fills and effects render correctly on canvas elements created or updated in the editor.
+
 ## 2026-10-21
 
 ### Added

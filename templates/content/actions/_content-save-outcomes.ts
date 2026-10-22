@@ -13,6 +13,7 @@ export type ContentSaveOutcome =
   | "preserved_to_history"
   | "merged"
   | "merged_with_displaced_text"
+  | "live_copy_body"
   | "refused"
   | "applied"
   | "displaced_preserved"
@@ -63,6 +64,10 @@ const reasons = new Set([
   "stale_empty_body",
   "stale_builder_image",
   "recovery_base_changed",
+  "live_copy_save_held",
+  "live_copy_save_unheld",
+  "live_copy_save_noncanonical",
+  "live_copy_save_unchecked",
   "title_base_changed",
   "body_base_changed",
   "body_revision_cas_conflict",

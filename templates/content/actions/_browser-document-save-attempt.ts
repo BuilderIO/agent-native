@@ -4,13 +4,15 @@ import { ActionContractError } from "@agent-native/core";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import type { LiveCopyBodySave } from "../shared/api.js";
 
 export interface BrowserSaveAttemptConfirmation {
   attemptId: string;
-  result: "applied" | "replayed";
+  result: "applied" | "replayed" | "live_copy";
   revision: string;
   updatedAt: string;
   softDeletedDatabaseIds?: string[];
+  bodySave?: LiveCopyBodySave;
 }
 
 export interface BrowserSaveAttemptPreservation {
@@ -72,6 +74,7 @@ export function readBrowserSaveAttempt(
     reason?: unknown;
     checkpointId?: unknown;
     softDeletedDatabaseIds?: unknown;
+    bodySave?: unknown;
   };
   if (
     typeof result.revision !== "string" ||
@@ -119,6 +122,12 @@ export function readBrowserSaveAttempt(
       { errorCode: "BROWSER_SAVE_RECEIPT_INVALID", statusCode: 500 },
     );
   }
+  if (result.bodySave !== undefined && !isLiveCopyBodySave(result.bodySave)) {
+    throw new ActionContractError(
+      "The stored browser save receipt has an invalid live-copy body save.",
+      { errorCode: "BROWSER_SAVE_RECEIPT_INVALID", statusCode: 500 },
+    );
+  }
   return {
     attemptId: stored.attemptId,
     result: "replayed",
@@ -127,5 +136,18 @@ export function readBrowserSaveAttempt(
     softDeletedDatabaseIds: result.softDeletedDatabaseIds as
       | string[]
       | undefined,
+    ...(result.bodySave ? { bodySave: result.bodySave } : {}),
   };
+}
+
+function isLiveCopyBodySave(value: unknown): value is LiveCopyBodySave {
+  const save = value as Partial<LiveCopyBodySave> | null;
+  return (
+    typeof save === "object" &&
+    save !== null &&
+    save.status === "live_copy" &&
+    typeof save.matchesLiveCopy === "boolean" &&
+    Number.isSafeInteger(save.bodyRevision) &&
+    Number.isSafeInteger(save.collabVersion)
+  );
 }
