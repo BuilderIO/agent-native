@@ -1,10 +1,8 @@
 /**
- * Code-backed GLSL shader runtime — the self-contained engine behind shader
- * fills and shader effects.
+ * Saved GLSL shader runtime for existing fills and shader effects.
  *
  * This script is BOTH:
- *   1. injected into every editor canvas iframe (via
- *      SHADER_FILL_PREVIEW_BRIDGE_SCRIPT in DesignCanvas.tsx), and
+ *   1. injected into every editor canvas iframe by DesignCanvas.tsx, and
  *   2. embedded into persisted/exported screen HTML (via
  *      `ensureShaderRuntime()` in shared/shader-fills.ts) so standalone
  *      artifacts render their shaders without the editor.
@@ -13,7 +11,7 @@
  * rendered inside the editor (which injects it again) initializes only once.
  *
  * Persisted format it consumes (see shared/shader-fills.ts for the canonical
- * spec + serializers — keep the parsing here in sync):
+ * format — keep the parsing here in sync):
  *
  *   <script type="application/x-agent-native-shader"
  *           data-shader-id="an-shader-x" data-shader-name="Name"
@@ -66,7 +64,6 @@
     glsl: string;
     uniforms: Record<string, AnUniformDef>;
     domText?: string;
-    volatile?: boolean;
   }
 
   interface AnShaderMount {
@@ -78,34 +75,12 @@
     defId: string;
     mode: "fill" | "effect";
     values: Record<string, unknown>;
-    preview: boolean;
     visible: boolean;
   }
 
   interface AnShadersApi {
     version: number;
     scan: () => void;
-    applyPreview: (
-      target: { nodeId?: string; selector?: string },
-      def: {
-        id?: string;
-        name?: string;
-        glsl: string;
-        uniforms?: Record<string, AnUniformDef>;
-        values?: Record<string, unknown>;
-      },
-      mode?: string,
-    ) => boolean;
-    clearPreview: () => void;
-    setUniform: (
-      filter: { shaderId?: string; nodeId?: string; preview?: boolean },
-      name: string,
-      value: unknown,
-    ) => void;
-    updateShader: (
-      id: string,
-      patch: { glsl?: string; uniforms?: Record<string, AnUniformDef> },
-    ) => void;
   }
 
   const W = window as unknown as {
@@ -129,7 +104,6 @@
   const EFFECT_VALUES_ATTR = "data-an-shader-effect-uniforms";
   const ERROR_ATTR = "data-an-shader-error";
   const CANVAS_ATTR = "data-an-shader-canvas";
-  const PREVIEW_DEF_ID = "__an-shader-preview";
   const MAX_MOUNTS = 8;
   const VERT_SRC =
     "attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0.0,1.0);}";
@@ -214,7 +188,6 @@
       const text = s.textContent || "";
       const prev = registry[id];
       if (prev && prev.domText === text) continue;
-      if (prev && prev.volatile && prev.domText === undefined) continue;
       const parsed = parseBlock(text);
       registry[id] = {
         name: s.getAttribute("data-shader-name") || id,
@@ -317,17 +290,12 @@
     defId: string,
     mode: "fill" | "effect",
     overrides: Record<string, unknown> | null | undefined,
-    preview: boolean,
   ): AnShaderMount | null {
     const def = registry[defId];
     if (!def || !def.glsl) return null;
     for (let i = 0; i < mounts.length; i++) {
       const existing = mounts[i];
-      if (
-        existing.el === el &&
-        existing.preview === preview &&
-        existing.mode === mode
-      ) {
+      if (existing.el === el && existing.mode === mode) {
         if (existing.defId === defId) {
           existing.values = resolveValues(def, overrides);
           requestRender();
@@ -419,7 +387,6 @@
       defId: defId,
       mode: mode,
       values: resolveValues(def, overrides),
-      preview: preview,
       visible: true,
     };
     mounts.push(mount);
@@ -550,7 +517,6 @@
           fillId,
           "fill",
           parseOverrides(el, VALUES_ATTR),
-          false,
         );
         if (fillMount) seen.push(fillMount);
       }
@@ -560,14 +526,12 @@
           effectId,
           "effect",
           parseOverrides(el, EFFECT_VALUES_ATTR),
-          false,
         );
         if (effectMount) seen.push(effectMount);
       }
     }
     for (let k = mounts.length - 1; k >= 0; k--) {
       const mount = mounts[k];
-      if (mount.preview) continue;
       if (seen.indexOf(mount) === -1) unmount(mount);
     }
     startLoop();
@@ -581,115 +545,9 @@
     }, 100);
   }
 
-  function resolveTarget(target: {
-    nodeId?: string;
-    selector?: string;
-  }): HTMLElement | null {
-    if (target && target.selector) {
-      try {
-        const hit = document.querySelector(target.selector);
-        if (hit) return hit as HTMLElement;
-      } catch (_err) {
-        /* invalid selector */
-      }
-    }
-    if (target && target.nodeId) {
-      const byId = document.querySelector(
-        '[data-agent-native-node-id="' +
-          String(target.nodeId).replace(/"/g, '\\"') +
-          '"]',
-      );
-      if (byId) return byId as HTMLElement;
-    }
-    return null;
-  }
-
-  function applyPreview(
-    target: { nodeId?: string; selector?: string },
-    def: {
-      id?: string;
-      name?: string;
-      glsl: string;
-      uniforms?: Record<string, AnUniformDef>;
-      values?: Record<string, unknown>;
-    },
-    mode?: string,
-  ): boolean {
-    clearPreview();
-    const el = resolveTarget(target || {});
-    if (!el || !def || typeof def.glsl !== "string") return false;
-    const resolvedMode: "fill" | "effect" =
-      mode === "effect" ? "effect" : "fill";
-    registry[PREVIEW_DEF_ID] = {
-      name: (def.name || "Preview") + "",
-      mode: resolvedMode,
-      glsl: def.glsl,
-      uniforms: def.uniforms || {},
-      volatile: true,
-    };
-    const mount = ensureMount(
-      el,
-      PREVIEW_DEF_ID,
-      resolvedMode,
-      def.values || null,
-      true,
-    );
-    return !!mount;
-  }
-
-  function clearPreview(): void {
-    for (let i = mounts.length - 1; i >= 0; i--) {
-      if (mounts[i].preview) unmount(mounts[i]);
-    }
-    delete registry[PREVIEW_DEF_ID];
-  }
-
-  function setUniform(
-    filter: { shaderId?: string; nodeId?: string; preview?: boolean },
-    name: string,
-    value: unknown,
-  ): void {
-    const f = filter || {};
-    for (let i = 0; i < mounts.length; i++) {
-      const mount = mounts[i];
-      if (f.preview !== undefined && mount.preview !== !!f.preview) continue;
-      if (f.shaderId && mount.defId !== f.shaderId) continue;
-      if (f.nodeId) {
-        const nid = mount.el.getAttribute("data-agent-native-node-id");
-        if (nid !== f.nodeId) continue;
-      }
-      mount.values[name] = value;
-    }
-    requestRender();
-  }
-
-  function updateShader(
-    id: string,
-    patch: { glsl?: string; uniforms?: Record<string, AnUniformDef> },
-  ): void {
-    const def = registry[id];
-    if (!def || !patch) return;
-    let recompile = false;
-    if (typeof patch.glsl === "string" && patch.glsl !== def.glsl) {
-      def.glsl = patch.glsl;
-      recompile = true;
-    }
-    if (patch.uniforms && typeof patch.uniforms === "object") {
-      def.uniforms = patch.uniforms;
-    }
-    def.volatile = true;
-    if (recompile) invalidateMountsFor(id);
-    scan();
-    requestRender();
-  }
-
   W.__anShaders = {
     version: 1,
     scan: scan,
-    applyPreview: applyPreview,
-    clearPreview: clearPreview,
-    setUniform: setUniform,
-    updateShader: updateShader,
   };
 
   if (document.readyState === "loading") {

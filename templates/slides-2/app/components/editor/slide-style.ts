@@ -1,0 +1,243 @@
+import type { DesignSystemData } from "@shared/api";
+
+import type { InlineTextStyleKey } from "./rich-text-selection";
+
+export interface SlideStyleSnapshot {
+  mode?: "object";
+  selector: string;
+  label: string;
+  tagName: string;
+  textPreview: string;
+  isText: boolean;
+  isImage: boolean;
+  objectFit?: "cover" | "contain";
+  objectPosition?: string;
+  isAbsolute: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Clockwise degrees in [0, 360), or null when the object's transform is not readable. */
+  rotation: number | null;
+  slideWidth: number;
+  slideHeight: number;
+  color: string;
+  fontFamily: string;
+  backgroundColor: string;
+  fontSize: number;
+  fontWeight: string;
+  fontStyle: string;
+  textDecoration: string;
+  lineHeight: number;
+  textAlign: string;
+  opacity: number;
+  borderRadius: number;
+  borderWidth: number;
+  borderColor: string;
+  paddingX: number;
+  paddingY: number;
+  zIndex: number;
+  listKind: "bullet" | "ordered" | null;
+  textStyleScope?: "block" | "selection";
+  mixedTextStyles?: InlineTextStyleKey[];
+}
+
+export function haveSameSlideStyleControls(
+  current: SlideStyleSnapshot | null,
+  next: SlideStyleSnapshot,
+): boolean {
+  if (!current) return false;
+  const currentKeys = Object.keys(current) as (keyof SlideStyleSnapshot)[];
+  const nextKeys = Object.keys(next) as (keyof SlideStyleSnapshot)[];
+  if (currentKeys.length !== nextKeys.length) return false;
+
+  return currentKeys.every((key) => {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) return false;
+    // Text preview is published with the selection; the toolbar only needs style changes.
+    if (key === "textPreview") return true;
+    if (key === "mixedTextStyles") {
+      const previous = current.mixedTextStyles;
+      const upcoming = next.mixedTextStyles;
+      return previous === undefined
+        ? upcoming === undefined
+        : previous.length === upcoming?.length &&
+            previous.every((style, index) => style === upcoming[index]);
+    }
+    return Object.is(current[key], next[key]);
+  });
+}
+
+export type SlideStylePatch = Partial<{
+  color: string;
+  fontFamily: string;
+  backgroundColor: string;
+  fontSize: string;
+  fontWeight: string;
+  fontStyle: string;
+  textDecoration: string;
+  lineHeight: string;
+  textAlign: string;
+  opacity: string;
+  borderRadius: string;
+  borderWidth: string;
+  borderColor: string;
+  paddingLeft: string;
+  paddingRight: string;
+  paddingTop: string;
+  paddingBottom: string;
+  left: string;
+  top: string;
+  width: string;
+  height: string;
+  zIndex: string;
+  /** Degrees; set on the object's effective transform, not written as a `transform`. */
+  rotation: number;
+}>;
+
+const MULTI_STYLE_KEYS = [
+  "color",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "fontStyle",
+  "textDecoration",
+] as const satisfies readonly InlineTextStyleKey[];
+
+export function mergeSlideStyleSnapshots(
+  snapshots: readonly SlideStyleSnapshot[],
+): SlideStyleSnapshot | null {
+  const first = snapshots[0];
+  if (
+    !first ||
+    snapshots.some(
+      (snapshot) =>
+        snapshot.isText !== first.isText || snapshot.isImage !== first.isImage,
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    ...first,
+    isAbsolute: false,
+    mixedTextStyles: first.isText
+      ? MULTI_STYLE_KEYS.filter((key) =>
+          snapshots.some((snapshot) => snapshot[key] !== first[key]),
+        )
+      : [],
+  };
+}
+
+export function tokenPalette(
+  designSystem: DesignSystemData | undefined,
+  t: (key: string) => string,
+) {
+  const colors = designSystem?.colors;
+  const base = colors
+    ? [
+        {
+          label: t("styleInspector.primary"),
+          value: colors.primary,
+          color: colors.primary,
+        },
+        {
+          label: t("styleInspector.secondary"),
+          value: colors.secondary,
+          color: colors.secondary,
+        },
+        {
+          label: t("styleInspector.accent"),
+          value: colors.accent,
+          color: colors.accent,
+        },
+        {
+          label: t("styleInspector.surface"),
+          value: colors.surface,
+          color: colors.surface,
+        },
+        {
+          label: t("styleInspector.background"),
+          value: colors.background,
+          color: colors.background,
+        },
+        {
+          label: t("styleInspector.text"),
+          value: colors.text,
+          color: colors.text,
+        },
+        {
+          label: t("styleInspector.muted"),
+          value: colors.textMuted,
+          color: colors.textMuted,
+        },
+      ]
+    : [];
+
+  const presets: Array<[key: string, hex: string]> = [
+    ["white", "#ffffff"], // guard:allow-raw-color
+    ["black", "#000000"], // guard:allow-raw-color
+    ["slate", "#1f2937"], // guard:allow-raw-color
+    ["blue", "#609ff8"], // guard:allow-raw-color
+    ["cyan", "#22d3ee"], // guard:allow-raw-color
+    ["emerald", "#34d399"], // guard:allow-raw-color
+    ["amber", "#fbbf24"], // guard:allow-raw-color
+    ["rose", "#fb7185"], // guard:allow-raw-color
+  ];
+
+  return [
+    ...base,
+    ...presets.map(([key, hex]) => ({
+      label: t(`styleInspector.${key}`),
+      value: hex,
+      color: hex,
+    })),
+  ];
+}
+
+export { backgroundCssValue } from "@shared/slide-background";
+
+export function formatValue(value: number) {
+  return Number.isInteger(value)
+    ? String(value)
+    : String(Number(value.toFixed(2)));
+}
+
+export function resolveHorizontalAlignment(snapshot: SlideStyleSnapshot) {
+  if (snapshot.x <= 0) return "left";
+  const centered = (snapshot.slideWidth - snapshot.width) / 2;
+  return Math.abs(snapshot.x - centered) < 1 ? "center" : "right";
+}
+
+export function resolveVerticalAlignment(snapshot: SlideStyleSnapshot) {
+  if (snapshot.y <= 0) return "top";
+  const centered = (snapshot.slideHeight - snapshot.height) / 2;
+  return Math.abs(snapshot.y - centered) < 1 ? "middle" : "bottom";
+}
+
+export function horizontalAlignPatch(
+  snapshot: SlideStyleSnapshot,
+  alignment: string,
+): SlideStylePatch {
+  const available = Math.max(0, snapshot.slideWidth - snapshot.width);
+  const x =
+    alignment === "left"
+      ? 0
+      : alignment === "center"
+        ? available / 2
+        : available;
+  return { left: `${formatValue(x)}px` };
+}
+
+export function verticalAlignPatch(
+  snapshot: SlideStyleSnapshot,
+  alignment: string,
+): SlideStylePatch {
+  const available = Math.max(0, snapshot.slideHeight - snapshot.height);
+  const y =
+    alignment === "top"
+      ? 0
+      : alignment === "middle"
+        ? available / 2
+        : available;
+  return { top: `${formatValue(y)}px` };
+}

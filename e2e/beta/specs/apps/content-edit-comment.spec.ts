@@ -42,7 +42,7 @@ test("Content beta saves a page edit and comment", async ({ browser }) => {
       waitUntil: "domcontentloaded",
       timeout: 45_000,
     });
-    const editor = page.locator(".notion-editor.ProseMirror");
+    const editor = page.locator(".content-editor.ProseMirror");
     await expect(editor).toHaveAttribute("contenteditable", "true", {
       timeout: 60_000,
     });

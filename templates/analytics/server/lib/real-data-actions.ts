@@ -1,4 +1,11 @@
-export const REAL_DATA_REQUIRED_MARKER = "REAL_DATA_REQUIRED";
+import {
+  appendAgentChatContextToMessage,
+  splitAgentChatContextFromMessage,
+} from "@agent-native/core/shared";
+
+import { REAL_DATA_REQUIRED_MARKER } from "../../shared/real-data-marker.js";
+
+export { REAL_DATA_REQUIRED_MARKER };
 
 const INJECTED_CONTEXT_BLOCKS = [
   "current-screen",
@@ -73,6 +80,10 @@ function normalizeActionToolName(name: string): string {
 
 function isToolName(name: string, expected: string): boolean {
   return normalizeActionToolName(name) === expected;
+}
+
+function isDbtSemanticMetricActionName(name: string): boolean {
+  return isToolName(name, "query-dbt-semantic-metric");
 }
 
 let groundingActionNames: ReadonlySet<string> | null = null;
@@ -396,6 +407,127 @@ export function hasCatalogSearchAttempt(
   });
 }
 
+export function hasEmptyFindDataResult(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError || !isToolName(String(result.name ?? ""), "find-data")) {
+      return false;
+    }
+    const payload = tryParseJsonContent(String(result.content ?? ""));
+    return (
+      !!payload &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      Array.isArray((payload as Record<string, unknown>).results) &&
+      (payload as { results: unknown[] }).results.length === 0
+    );
+  });
+}
+
+function completeBigQuerySchemaSearchPayloads(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): Array<{ matches: number; search: string }> {
+  return (toolResults ?? []).flatMap((result) => {
+    if (
+      result.isError ||
+      !isToolName(String(result.name ?? ""), "search-bigquery-schema")
+    ) {
+      return [];
+    }
+    const payload = tryParseJsonContent(String(result.content ?? ""));
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return [];
+    }
+    const record = payload as Record<string, unknown>;
+    const schemaSearchHasErrors =
+      (record.errors !== undefined &&
+        (!Array.isArray(record.errors) || record.errors.length > 0)) ||
+      (record.errorCount !== undefined &&
+        (!Number.isSafeInteger(record.errorCount) || record.errorCount !== 0));
+    if (
+      record.mode !== "table-search" ||
+      typeof record.search !== "string" ||
+      !record.search.trim() ||
+      !Array.isArray(record.tables) ||
+      schemaSearchHasErrors ||
+      !Number.isSafeInteger(record.searched) ||
+      !Number.isSafeInteger(record.of) ||
+      record.truncated !== false ||
+      record.nextPage !== null
+    ) {
+      return [];
+    }
+    return [{ matches: record.of as number, search: record.search }];
+  });
+}
+
+export function hasCompleteBigQuerySchemaSearch(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return completeBigQuerySchemaSearchPayloads(toolResults).length > 0;
+}
+
+export function hasCompleteEmptyBigQuerySchemaSearch(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return completeBigQuerySchemaSearchPayloads(toolResults).some(
+    ({ matches }) => matches === 0,
+  );
+}
+
+export function hasCompleteBigQuerySchemaSearchMatches(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return completeBigQuerySchemaSearchPayloads(toolResults).some(
+    ({ matches }) => matches > 0,
+  );
+}
+
+export function looksLikeRosterSourceDiscoveryRequest(text: string): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const asksForRosterData =
+    /\b(?:find|list|show|count|pull|export|query|get|who|how many|current|historical|trend|compare)\b[^!?\n]{0,120}\b(?:user|users|member|members|membership|roster|people)\b|\b(?:users?|members?)\s+(?:by|per)\s+(?:org(?:anization)?|workspace)\b/i.test(
+      requestText,
+    );
+  const identifiesOrganizationMembership =
+    /\b(?:user|users|member|members|membership|roster|people)\b[^.!?\n]{0,100}\b(?:org(?:anization)?|workspace|role|membership|roster|by|per|count|list)\b|\b(?:org(?:anization)?|workspace)\b[^.!?\n]{0,80}\b(?:users?|members?|roster|membership)\b|\b(?:membership roles?|user roles?|user roster|(?:builder\.io|builder) users?)\b/i.test(
+      requestText,
+    );
+  return asksForRosterData && identifiesOrganizationMembership;
+}
+
+function claimsRosterSourceAbsence(text: string): boolean {
+  return /\b(?:there (?:is|are) no|no|none of|zero|not found|couldn't find|could not find|didn't find|did not find|doesn't exist|does not exist|isn't present|is not present)\b[^.!?\n]{0,120}\b(?:row[- ]grain|membership|roster|users?|members?|people|tables?|sources?|relations?|datasets?)\b/i.test(
+    text,
+  );
+}
+
+export function hasScopedRosterSourceAbsenceClaim(text: string): boolean {
+  return (
+    claimsRosterSourceAbsence(text) &&
+    /\b(?:in|within|across)\s+(?:the\s+)?(?:configured|connected|searched|inspected)\s+(?:bigquery\s+)?(?:project|schema|warehouse)\b/i.test(
+      text,
+    )
+  );
+}
+
+export function hasUnscopedRosterSourceAbsenceClaim(text: string): boolean {
+  return (
+    claimsRosterSourceAbsence(text) && !hasScopedRosterSourceAbsenceClaim(text)
+  );
+}
+
 function isCorpusSourceActionName(name: string): boolean {
   return CORPUS_SOURCE_ACTIONS.has(normalizeActionToolName(name));
 }
@@ -439,8 +571,40 @@ function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
   );
 }
 
+// The composer sends every context item in one block as a `## title` section,
+// so a request staged there shares the block with the page's own items. A
+// context that does not open with a section is one item an app sent whole, and
+// headings inside it (analysis instructions) are not item boundaries.
+function requestContextItems(context: string): string[] {
+  const items = context.startsWith("## ")
+    ? context.split(/\n\n(?=## )/)
+    : [context];
+  return items.filter((item) => item.includes(REAL_DATA_REQUIRED_MARKER));
+}
+
+// The app's context is the one block appendAgentChatContextToMessage writes,
+// which escapes context markup in the user's words. The splitter also lifts out
+// legacy unmarked `<context>` blocks, which here only a user typed, so a split
+// that did not find the writer's block leaves the whole text as the request.
+function splitAppChatContext(text: string): {
+  message: string;
+  context: string;
+} {
+  const split = splitAgentChatContextFromMessage(text);
+  const block = appendAgentChatContextToMessage("", split.context).trimStart();
+  return split.context && text.includes(block)
+    ? split
+    : { message: text, context: "" };
+}
+
 export function stripInjectedAnalyticsGuardContext(text: string): string {
-  let requestText = text;
+  // Chat context rides along on every message (on a dashboard page it names
+  // the open dashboard and says the user can edit it), so it says nothing about
+  // what this message asks. The New dashboard, panel editor, and analysis
+  // re-run dialogs are the exception: they send the request itself as context,
+  // marked REAL_DATA_REQUIRED.
+  const { message, context } = splitAppChatContext(text);
+  let requestText = [message, ...requestContextItems(context)].join("\n\n");
   for (const tag of INJECTED_CONTEXT_BLOCKS) {
     requestText = requestText.replace(
       new RegExp(`\\n*<${tag}>[\\s\\S]*?<\\/${tag}>`, "gi"),
@@ -1002,6 +1166,160 @@ function tryParseJsonContent(content: string): unknown {
   }
 }
 
+function hasAgentToolResultTruncationMarker(content: string): boolean {
+  return /\n\n\.\.\.\[truncated — full result was [^\r\n]+\]/.test(content);
+}
+
+const DBT_METRIC_STATUS_RECOVERY: Record<string, string> = {
+  ambiguous_metric:
+    "Inspect the dbt metric metadata and ask which exact metric the user means before retrying.",
+  connection_error:
+    "Repair the dbt workspace connection, then retry the metric query.",
+  connection_selection_required:
+    "Ask the user to select an available dbt workspace connection, then rerun the metric query.",
+  connection_unavailable:
+    "Refresh or reconnect the selected dbt workspace connection, then retry.",
+  deployment_not_ready:
+    "Wait for a successful dbt deployment run before querying this environment.",
+  empty_semantic_manifest:
+    "Report that this environment has no deployed semantic models or metrics; do not substitute a guessed metric.",
+  incomplete_result:
+    "Resume the same MetricFlow query with its continuation cursor until the result is complete.",
+  metadata_truncated:
+    "Continue the dbt metadata pagination before choosing or reporting a metric.",
+  no_metrics_available:
+    "Report that the connected environment has no available metrics; do not infer a numeric value.",
+  not_found:
+    "Confirm the exact metric name against dbt metadata, and do not substitute another metric without telling the user.",
+  pending:
+    "Resume the same MetricFlow query with its continuation cursor before reporting a value.",
+  permission_denied:
+    "Report the exact dbt permission issue and request the missing access; do not infer a value.",
+  provider_error:
+    "Inspect and correct the dbt provider error, then retry the same metric query.",
+};
+
+function dbtSemanticMetricFailure(result: {
+  name?: string;
+  isError?: boolean;
+  content?: string;
+}): string | null {
+  if (!isDbtSemanticMetricActionName(String(result.name ?? ""))) return null;
+  if (result.isError) {
+    return "The dbt Semantic Layer tool call failed before it returned a metric status. Retry the query after addressing the tool error; do not report a numeric value.";
+  }
+
+  const payload = tryParseJsonContent(String(result.content ?? ""));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return "The dbt Semantic Layer returned no structured metric status. Retry the query and do not report a numeric value until it returns rows.";
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (record.status === "success") {
+    if (Array.isArray(record.rows) && record.rows.length > 0) {
+      if (typeof record.nextPage === "string" && record.nextPage.length > 0) {
+        return "The dbt Semantic Layer returned another result page. Continue with the same metricName, queryId, and nextPage before reporting a complete result.";
+      }
+      if (record.truncated === true) {
+        return record.truncationReason === "query_row_cap"
+          ? "The dbt Semantic Layer hit its 1,000-row result cap without a continuation cursor. Narrow the metric query or report only the returned rows as partial; do not claim a complete total."
+          : "The dbt Semantic Layer marked this result as truncated without a continuation cursor. Narrow the query or report only the returned rows as partial; do not claim a complete total.";
+      }
+      return null;
+    }
+    return Array.isArray(record.rows)
+      ? "The dbt Semantic Layer query succeeded but returned no metric rows. This does not mean the metric is zero; verify the metric, date range, and filters, then report the empty result explicitly if it persists."
+      : "The dbt Semantic Layer reported success without a rows array. Retry or inspect the action result before reporting a numeric value.";
+  }
+
+  const status =
+    typeof record.status === "string" && record.status.trim()
+      ? record.status.trim()
+      : "missing_status";
+  const recovery =
+    DBT_METRIC_STATUS_RECOVERY[status] ??
+    "Inspect this dbt status, resolve the reported condition, and retry before reporting a numeric value.";
+  return `The dbt Semantic Layer returned status \`${status}\`, so it did not return a successful metric result. ${recovery}`;
+}
+
+function isSuccessfulDbtSemanticMetricResult(result: {
+  name?: string;
+  isError?: boolean;
+  content?: string;
+}): boolean {
+  return (
+    isDbtSemanticMetricActionName(String(result.name ?? "")) &&
+    isSuccessfulDbtMetricResult(result.content) &&
+    !dbtSemanticMetricFailure(result)
+  );
+}
+
+function isRecoveredDbtContinuation(
+  result: { name?: string; isError?: boolean; content?: string },
+  index: number,
+  results: Array<{ name?: string; isError?: boolean; content?: string }>,
+): boolean {
+  if (
+    !isDbtSemanticMetricActionName(String(result.name ?? "")) ||
+    result.isError
+  ) {
+    return false;
+  }
+  const payload = tryParseJsonContent(String(result.content ?? ""));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  const record = payload as Record<string, unknown>;
+  if (
+    record.status !== "pending" &&
+    record.status !== "provider_error" &&
+    !(record.status === "success" && typeof record.nextPage === "string")
+  ) {
+    return false;
+  }
+  if (
+    typeof record.queryId !== "string" ||
+    !record.queryId ||
+    typeof record.metricName !== "string" ||
+    typeof record.nextPage !== "string" ||
+    typeof record.querySpec !== "object" ||
+    record.querySpec === null ||
+    Array.isArray(record.querySpec)
+  ) {
+    return false;
+  }
+  const querySpec = JSON.stringify(record.querySpec);
+  return results.slice(index + 1).some((candidate) => {
+    if (
+      !isDbtSemanticMetricActionName(String(candidate.name ?? "")) ||
+      candidate.isError
+    ) {
+      return false;
+    }
+    const candidatePayload = tryParseJsonContent(
+      String(candidate.content ?? ""),
+    );
+    if (
+      !candidatePayload ||
+      typeof candidatePayload !== "object" ||
+      Array.isArray(candidatePayload)
+    ) {
+      return false;
+    }
+    const candidateRecord = candidatePayload as Record<string, unknown>;
+    return (
+      candidateRecord.status === "success" &&
+      candidateRecord.queryId === record.queryId &&
+      candidateRecord.metricName === record.metricName &&
+      JSON.stringify(candidateRecord.querySpec) === querySpec &&
+      Array.isArray(candidateRecord.rows) &&
+      candidateRecord.rows.length > 0 &&
+      candidateRecord.nextPage === undefined &&
+      candidateRecord.truncated !== true
+    );
+  });
+}
+
 function hasEvidencePayload(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
 
@@ -1066,6 +1384,7 @@ function valueHasIncompleteDataFlag(value: unknown, parentKey = ""): boolean {
       if (
         [
           "truncated",
+          "partial",
           "coveragetruncated",
           "hasmore",
           "has_more",
@@ -1128,6 +1447,12 @@ export function hasIncompleteDataEvidence(
     | undefined,
 ): boolean {
   return (toolResults ?? []).some((result) => {
+    if (
+      isDbtSemanticMetricActionName(String(result.name ?? "")) &&
+      dbtSemanticMetricFailure(result)
+    ) {
+      return false;
+    }
     if (!result.content && !result.isError) return false;
     const name = String(result.name ?? "");
     if (
@@ -1146,6 +1471,193 @@ export function hasIncompleteDataEvidence(
   });
 }
 
+export function hasPartialBigQueryResult(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (!isToolName(String(result.name ?? ""), "bigquery") || result.isError) {
+      return false;
+    }
+    const content = String(result.content ?? "");
+    if (hasAgentToolResultTruncationMarker(content)) return true;
+    const payload = tryParseJsonContent(content);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return false;
+    }
+    const record = payload as Record<string, unknown>;
+    return (
+      record.truncated === true ||
+      record.partial === true ||
+      (Array.isArray(record.warnings) && record.warnings.length > 0)
+    );
+  });
+}
+
+const BIGQUERY_COMPLETENESS_CLAIM =
+  /\b(?:(?:the\s+)?(?:returned|reported|overall|query|bigquery)\s+)?(?:total|result|count|number|figure|value|rows?|output|dataset)\s+(?:is|are|was|were|remains?|remain)\s+(?:still\s+)?(?:complete|full|exhaustive|comprehensive)\b|\b(?:complete|full|exhaustive|comprehensive)\s+(?:returned|reported|overall\s+)?(?:total|result|count|number|figure|value|rows?|output|dataset)\b|\b(?:all|every|the\s+entire)\s+(?:rows?|results?|records?)\s+(?:(?:are|were|is|was)\s+)?(?:included|present|accounted\s+for)\b/i;
+
+export function hasBigQueryPartialDisclosure(
+  text: string,
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  const relevantResults = (toolResults ?? []).flatMap((result) => {
+    if (!isToolName(String(result.name ?? ""), "bigquery") || result.isError) {
+      return [];
+    }
+    const content = String(result.content ?? "");
+    if (hasAgentToolResultTruncationMarker(content)) {
+      return [{ warnings: [], malformedWarnings: false }];
+    }
+    const payload = tryParseJsonContent(content);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return [];
+    }
+    const record = payload as Record<string, unknown>;
+    if (
+      record.truncated !== true &&
+      record.partial !== true &&
+      !(Array.isArray(record.warnings) && record.warnings.length > 0)
+    ) {
+      return [];
+    }
+    const hasWarningsField = Object.prototype.hasOwnProperty.call(
+      record,
+      "warnings",
+    );
+    if (!hasWarningsField) return [{ warnings: [], malformedWarnings: false }];
+    if (!Array.isArray(record.warnings)) {
+      return [{ warnings: [], malformedWarnings: true }];
+    }
+    const warnings: string[] = [];
+    let malformedWarnings = false;
+    for (const warning of record.warnings) {
+      if (!warning || typeof warning !== "object" || Array.isArray(warning)) {
+        malformedWarnings = true;
+        continue;
+      }
+      const message = (warning as Record<string, unknown>).message;
+      if (typeof message !== "string" || !message.trim()) {
+        malformedWarnings = true;
+        continue;
+      }
+      warnings.push(message);
+    }
+    return [{ warnings, malformedWarnings }];
+  });
+  if (relevantResults.length === 0) return true;
+  if (BIGQUERY_COMPLETENESS_CLAIM.test(text)) return false;
+
+  const mentionsPartialBigQueryResult =
+    /\bbigquery\b[^.!?\n]{0,120}\b(?:partial|truncated|incomplete)\b|\b(?:partial|truncated|incomplete)\b[^.!?\n]{0,120}\bbigquery\b/i.test(
+      text,
+    );
+  if (!mentionsPartialBigQueryResult) return false;
+
+  return relevantResults.every(({ warnings, malformedWarnings }) => {
+    if (malformedWarnings) return false;
+    if (warnings.length === 0) {
+      return (
+        /\b(?:the\s+)?(?:bigquery\s+)?(?:tool\s+)?(?:output|result)\s+(?:was\s+)?truncated\b/i.test(
+          text,
+        ) ||
+        /\b(?:may|might|could)\s+omit\b|\bonly\s+(?:the\s+)?returned\s+rows\b|\bnot\s+(?:a\s+)?complete\b|\b(?:row|result)\s+cap\b|\bremaining\s+rows\s+(?:were|are)\s+not\s+included\b/i.test(
+          text,
+        )
+      );
+    }
+    if (!/\bwarn(?:ing|ed|s)?\b/i.test(text)) return false;
+    const answerTokens = new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+    const warningStopWords = new Set([
+      "a",
+      "about",
+      "after",
+      "all",
+      "also",
+      "an",
+      "and",
+      "any",
+      "are",
+      "as",
+      "at",
+      "be",
+      "been",
+      "before",
+      "being",
+      "but",
+      "by",
+      "can",
+      "could",
+      "did",
+      "do",
+      "does",
+      "during",
+      "for",
+      "from",
+      "had",
+      "has",
+      "have",
+      "here",
+      "if",
+      "in",
+      "incomplete",
+      "into",
+      "is",
+      "it",
+      "its",
+      "may",
+      "might",
+      "not",
+      "of",
+      "on",
+      "or",
+      "partial",
+      "per",
+      "result",
+      "results",
+      "should",
+      "some",
+      "than",
+      "that",
+      "the",
+      "then",
+      "this",
+      "through",
+      "to",
+      "truncated",
+      "up",
+      "was",
+      "were",
+      "with",
+      "without",
+      "would",
+      "bigquery",
+      "returned",
+      "warning",
+      "warnings",
+      "warn",
+      "warned",
+      "query",
+      "data",
+    ]);
+    return warnings.every((warning) => {
+      const warningTokens = new Set(
+        warning
+          .toLowerCase()
+          .match(/[a-z0-9]+/g)
+          ?.filter((token) => !warningStopWords.has(token)) ?? [],
+      );
+      return (
+        warningTokens.size > 0 &&
+        [...warningTokens].every((token) => answerTokens.has(token))
+      );
+    });
+  });
+}
+
 const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
   /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
 
@@ -1155,7 +1667,7 @@ const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
 const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
 
 const EXPLICIT_PARTIAL_DISCLOSURE =
-  /\b(?:sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
+  /\b(?:partial\s+(?:results?|rows?|data)|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
 
 const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
   /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
@@ -1189,6 +1701,9 @@ export function hasDataQueryAttempt(
     | undefined,
 ): boolean {
   return (toolResults ?? []).some((result) => {
+    if (isDbtSemanticMetricActionName(String(result.name ?? ""))) {
+      return isSuccessfulDbtSemanticMetricResult(result);
+    }
     if (result.isError) return false;
     if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
@@ -1199,12 +1714,57 @@ export function hasDataQueryAttempt(
   });
 }
 
-function isFailedDataQueryAttempt(result: {
-  name?: string;
-  isError?: boolean;
-  content?: string;
-}): boolean {
+// A payload whose own status field says it succeeded. Structured failures and
+// timeouts come back as ordinary results, so the field is the only evidence.
+export function isSuccessfulPayload(
+  content: unknown,
+  statusKey: "status" | "query_status",
+): boolean {
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    (parsed as Record<string, unknown>)[statusKey] === "success"
+  );
+}
+
+// bigquery returns the raw query result on success (a rows array) and throws on
+// failure or timeout, so the result shape is the success evidence. Telemetry
+// fields such as query_status are not part of the tool result. An empty result
+// carries no figure to disclose, so it is not evidence either.
+export function isBigQueryRowsPayload(content: unknown): boolean {
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  if (parsed === null || typeof parsed !== "object") return false;
+  const rows = (parsed as { rows?: unknown }).rows;
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+// A dbt success with no rows has no figure to support an answer, so it is not
+// grounding evidence.
+export function isSuccessfulDbtMetricResult(content: unknown): boolean {
+  if (!isSuccessfulPayload(content, "status")) return false;
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  const rows = (parsed as { rows?: unknown } | null)?.rows;
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+function isFailedDataQueryAttempt(
+  result: { name?: string; isError?: boolean; content?: string },
+  index: number,
+  results: Array<{ name?: string; isError?: boolean; content?: string }>,
+): boolean {
   const name = String(result.name ?? "");
+  if (isDbtSemanticMetricActionName(name)) {
+    return (
+      dbtSemanticMetricFailure(result) !== null &&
+      !isRecoveredDbtContinuation(result, index, results)
+    );
+  }
+  if (isToolName(name, "query-agent-native-analytics")) {
+    return (
+      result.isError === true || isProviderErrorOnlyContent(result.content)
+    );
+  }
   const isDataQuery =
     isGroundingActionName(name) ||
     isMcpDataSourceTool(name) ||
@@ -1226,13 +1786,30 @@ export function failedDataQueryAttemptMessage(
     | Array<{ name?: string; isError?: boolean; content?: string }>
     | undefined,
 ): string | null {
-  const failed = (toolResults ?? []).find(isFailedDataQueryAttempt);
+  const results = toolResults ?? [];
+  const failed = results.find(isFailedDataQueryAttempt);
   if (!failed) return null;
   const name = String(failed.name ?? "data-source query");
+  const dbtFailure = dbtSemanticMetricFailure(failed);
+  if (dbtFailure) return `I did try \`${name}\`. ${dbtFailure}`;
   return (
     `I did try \`${name}\`, but it did not return a successful data result: ` +
     compactToolFailure(failed.content) +
     "\n\nI need to fix and rerun that query, or report that exact source error instead of giving numbers."
+  );
+}
+
+export function hasFailedDbtSemanticMetricQuery(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  const results = toolResults ?? [];
+  return results.some(
+    (result, index) =>
+      isDbtSemanticMetricActionName(String(result.name ?? "")) &&
+      dbtSemanticMetricFailure(result) !== null &&
+      !isRecoveredDbtContinuation(result, index, results),
   );
 }
 

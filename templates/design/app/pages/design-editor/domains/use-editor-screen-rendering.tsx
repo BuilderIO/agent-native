@@ -176,7 +176,6 @@ export function useEditorScreenRendering({
     lockedLayerIds,
     hiddenLayerIds,
     motionDockOpen,
-    shaderFillPreview,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
@@ -262,6 +261,8 @@ export function useEditorScreenRendering({
     canEditLiveScreen,
     designFusionUrl,
     motionTracksWire,
+    motionPathTargetNodeId,
+    motionPathTrackId,
     motionSelectedTarget,
     motionOriginEditing,
   } = editorLiveEditsAndPresence;
@@ -526,7 +527,7 @@ export function useEditorScreenRendering({
       if (patch.status !== "applied") {
         toast.error(
           codeLayerPatchMessage(
-            patch.reason,
+            patch.status === "failed" ? patch.reason : null,
             t("designEditor.patchProof.selectorMissing"),
           ),
         );
@@ -964,7 +965,8 @@ export function useEditorScreenRendering({
             motionDockOpen &&
             (canEditDesign || canEditLiveScreen(screen.id))
           }
-          motionPathTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+          motionPathTargetNodeId={motionPathTargetNodeId}
+          motionPathTrackId={motionPathTrackId}
           motionOriginEditingEnabled={
             screenIsActive &&
             motionOriginEditing &&
@@ -977,7 +979,6 @@ export function useEditorScreenRendering({
               ? handleMotionCanvasPathTracksChange
               : undefined
           }
-          shaderFillPreview={screenIsActive ? shaderFillPreview : null}
           gradientEditTarget={
             inScreenGradientEditTarget?.screenId === screen.id
               ? inScreenGradientEditTarget
@@ -1192,6 +1193,8 @@ export function useEditorScreenRendering({
       designFusionUrl,
       handleComponentSourceJump,
       motionTracksWire,
+      motionPathTargetNodeId,
+      motionPathTrackId,
       motionSelectedTarget,
       motionOriginEditing,
       motionDockOpen,
@@ -1199,7 +1202,6 @@ export function useEditorScreenRendering({
       motionDefaultEase,
       motionEasingVariables,
       motionDurationMs,
-      shaderFillPreview,
       inScreenGradientEditTarget,
       handleInScreenGradientEditChange,
       statePreviewTarget,

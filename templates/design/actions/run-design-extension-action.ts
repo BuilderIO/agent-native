@@ -4,7 +4,6 @@ import { z } from "zod";
 
 const FIRST_PARTY_IDS = [
   "design.asset-library",
-  "design.shader-fills",
   "design.token-auditor",
   "design.motion-presets",
 ] as const;
@@ -37,33 +36,6 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
     paramHint:
       'Delegate to the Assets app via call-agent with agent "assets" and a generation prompt.  Pass the returned assetUrl to insert-asset.',
     readOnly: false,
-  },
-
-  "design.shader-fills:catalog": {
-    action: "get-shader",
-    paramHint: "Call get-shader with an optional source context.",
-    readOnly: true,
-  },
-  "design.shader-fills:preview": {
-    action: "preview-shader-fill",
-    paramHint:
-      "Call preview-shader-fill with { descriptor: { preset, params?, colors?, speed? }, target? }.  Returns previewCss + bridgeMessage; no writes.",
-    readOnly: true,
-  },
-  "design.shader-fills:code-snippet": {
-    action: "apply-shader",
-    paramHint:
-      "Call apply-shader with { descriptor, surface?, target?, source? }.  Returns JSX import + snippet or HTML bridge mount for manual insertion.",
-    readOnly: true,
-  },
-  "design.shader-fills:apply": {
-    action: "apply-shader-fill",
-    paramHint:
-      "Call apply-shader-fill with { descriptor, target?, source?, surface? }.  NOTE: currently returns gated:true — all safety conditions are unmet.  Use preview or code-snippet instead.",
-    readOnly: false,
-    gated: true,
-    gateReason:
-      "apply-shader-fill is GATED until runtime rendering + source-write path + CSS fallback + diff proof are all in place.  It will return { ok: false, gated: true } today.",
   },
 
   "design.token-auditor:index": {
@@ -130,7 +102,6 @@ duplicating action logic.
 
 Supported first-party extensions (extensionId):
   design.asset-library   — browse / insert / generate assets.
-  design.shader-fills    — catalog / preview / code-snippet / apply (apply is GATED).
   design.token-auditor   — index / preview-edit / apply-edit / write-source.
   design.motion-presets  — preview / apply / write-source.
 

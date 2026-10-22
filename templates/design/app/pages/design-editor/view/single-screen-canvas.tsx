@@ -107,7 +107,6 @@ export function renderSingleScreenCanvas({
   const {
     pendingVisualStyleEdits,
     activeBreakpointWidthState,
-    shaderFillPreview,
     explicitOverviewScreenSelectionRef,
     setSelectedLayerIdsState,
   } = editorHistory;
@@ -165,6 +164,8 @@ export function renderSingleScreenCanvas({
     handleActiveRuntimeVerificationSnapshot,
     designFusionUrl,
     motionTracksWire,
+    motionPathTargetNodeId,
+    motionPathTrackId,
     motionSelectedTarget,
     motionOriginEditing,
     motionDefaultEase,
@@ -434,13 +435,13 @@ export function renderSingleScreenCanvas({
         previewHeightPx={
           responsiveInteractActive ? interactDeviceSize.height : undefined
         }
-        shaderFillPreview={shaderFillPreview}
         onComponentSourceJump={handleComponentSourceJump}
         motionTracks={motionTracksWire}
         motionDefaultEase={motionDefaultEase}
         motionDurationMs={motionDurationMs}
         motionPathEditingEnabled={motionDockOpen && canEditActiveVisualScreen}
-        motionPathTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+        motionPathTargetNodeId={motionPathTargetNodeId}
+        motionPathTrackId={motionPathTrackId}
         motionOriginEditingEnabled={
           motionDockOpen && motionOriginEditing && canEditActiveVisualScreen
         }

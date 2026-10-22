@@ -324,8 +324,7 @@ function sourceNodeIds(html: string, sourceNodeId: string): string[] {
   });
 }
 
-// fixme: fails in CI on current main: app reported http 409: POST /_agent-native/actions/update-file
-test.fixme("real component instances propagate, detach, and persist a variant", async ({
+test("real component instances propagate, detach, and persist a variant", async ({
   app,
   page,
   request,
@@ -515,6 +514,67 @@ test.fixme("real component instances propagate, detach, and persist a variant", 
   expect(tagForNode(html, detached.nodeId)).not.toContain(
     "data-agent-native-component",
   );
+});
+
+test("redoing a duplicated component while the undo's save is in flight reads no missing node", async ({
+  app,
+  page,
+  request,
+}) => {
+  const designId = await app.seed(fs.readFileSync(INLINE_FIXTURE, "utf8"));
+  await gotoEditor(page, designId);
+  await selectNodeById(page, "card-main");
+  const promoted = await action(request, "create-component", {
+    designId,
+    nodeId: "card-main",
+    name: "ReusableCard",
+  });
+  expect(promoted.persisted).toBe(true);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const mainTag = tagForNode(await source(request, designId), "card-main");
+  const componentId = mainTag
+    ? attributeValue(mainTag, "data-agent-native-component-id")
+    : undefined;
+  expect(componentId).toBeTruthy();
+
+  await selectNodeById(page, "card-main");
+  await page.keyboard.press("ControlOrMeta+d");
+  await expect
+    .poll(
+      async () =>
+        componentRoots(await source(request, designId), componentId!).length,
+    )
+    .toBe(2);
+  const referenceId = componentRoots(
+    await source(request, designId),
+    componentId!,
+  ).find((root) => !root.main)?.nodeId;
+  expect(referenceId).toBeTruthy();
+  await selectNodeById(page, referenceId!);
+
+  // Hold every save's response so the undo's save is still pending at redo.
+  await page.route("**/_agent-native/actions/update-file", async (route) => {
+    const response = await route.fetch();
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await route.fulfill({ response });
+  });
+  const copyDetails = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/get-component-details") &&
+      response.url().includes(encodeURIComponent(referenceId!)),
+    { timeout: 30_000 },
+  );
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect
+    .poll(
+      async () =>
+        componentRoots(await source(request, designId), componentId!).length,
+      { timeout: 20_000 },
+    )
+    .toBe(2);
+  expect((await copyDetails).status()).toBe(200);
+  await page.unroute("**/_agent-native/actions/update-file");
 });
 
 test("Design components preserve identity across inline and URL-backed React boundaries", async ({

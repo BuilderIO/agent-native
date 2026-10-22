@@ -115,6 +115,7 @@ jobs:
             && 'agent-native-production-site-design-slides'
             || format('agent-native-production-site-{0}', matrix.site) }}
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:

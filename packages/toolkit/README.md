@@ -170,6 +170,44 @@ The kit never fetches data, calls actions, resolves credentials, or persists
 edits. Eject it with `agent-native eject toolkit/data-grid --app <app>` when a
 product needs a deeper local visual or interaction change.
 
+## Sandboxed extension links
+
+When `linkNonce` is omitted, `buildAgentNativeExtensionHtml` keeps the
+source-checked window-message host bridge used by older callers. Its links keep
+their native behavior. `normalizeAgentNativeExtensionSandbox(sandbox)` keeps
+the legacy `allow-popups` behavior for `target="_blank"`; it still removes
+`allow-same-origin` and `allow-popups-to-escape-sandbox`.
+
+To route external links through a private host channel, pass the nonce returned
+by `useExternalExtensionLinks`. Nonce mode uses only its private MessagePort
+for host traffic and keeps popups disabled:
+
+```tsx
+import {
+  buildAgentNativeExtensionHtml,
+  useExternalExtensionLinks,
+} from "@agent-native/toolkit/app/extensions";
+import { useRef } from "react";
+
+const iframeRef = useRef<HTMLIFrameElement>(null);
+const linkNonce = useExternalExtensionLinks(iframeRef, extension.id);
+const srcDoc = linkNonce
+  ? buildAgentNativeExtensionHtml({
+      extensionId: extension.id,
+      content: extension.content,
+      linkNonce,
+    })
+  : undefined;
+
+return (
+  <iframe
+    ref={iframeRef}
+    srcDoc={srcDoc}
+    sandbox="allow-scripts allow-forms allow-downloads"
+  />
+);
+```
+
 ## Customize Or Take Ownership
 
 Use public props, slots, callbacks, stable classes, and local adapters first.

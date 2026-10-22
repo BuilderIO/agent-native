@@ -48,6 +48,8 @@ describe("applyKScaleStyleChanges", () => {
     expect(result.content).toMatch(/padding-left:\s*9\.6px/);
     expect(result.content).toMatch(/row-gap:\s*4\.8px/);
     expect(result.content).toMatch(/column-gap:\s*4\.8px/);
+    expect(result.content).not.toMatch(/[;"]\s*padding:\s*8px/);
+    expect(result.content).not.toMatch(/[;"]\s*gap:\s*4px/);
     expect(result.content).toMatch(/width:180px/);
     expect(result.content).toContain("flex:1 1 0%");
   });
@@ -176,7 +178,10 @@ describe("applyKScaleStyleChanges", () => {
           styles: { width: "72px" },
         },
       ]),
-    ).toMatchObject({ status: "failed", selector: expect.any(String) });
+    ).toEqual({
+      status: "unresolved",
+      selector: '[data-agent-native-node-id="missing"]',
+    });
   });
 
   it("rejects responsive vector endpoint writes before cleaning scoped source", () => {

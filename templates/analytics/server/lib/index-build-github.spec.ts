@@ -79,6 +79,17 @@ describe("buildDbtSourceIndexFromGitHub", () => {
     mocks.executeRequest.mockResolvedValue(headCommit());
   });
 
+  it("explains that a 404 can mean a missing repository or inaccessible authorization", async () => {
+    mocks.executeRequest.mockResolvedValue({
+      response: { ok: false, status: 404, json: { message: "Not Found" } },
+    });
+
+    await expect(buildDbtSourceIndexFromGitHub(REPO)).rejects.toThrow(
+      "GitHub could not find this repository or the current authorization cannot access it (HTTP 404)",
+    );
+    expect(mocks.listGitHubRepositoryFiles).not.toHaveBeenCalled();
+  });
+
   it("refuses a truncated tree before fetching or compiling anything", async () => {
     mocks.listGitHubRepositoryFiles.mockResolvedValue({
       entries: [],

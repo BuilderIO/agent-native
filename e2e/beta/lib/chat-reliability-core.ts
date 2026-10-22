@@ -192,24 +192,19 @@ export function threadDeepLink(
   return url.toString();
 }
 
-const PROMPT_PROBE_LENGTH = 40;
-
 function collapseWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
 /**
- * Whether the composer holds what was typed. The editor is rich text, so this
- * compares collapsed whitespace on the prompt's opening: enough to tell "typed"
- * from "swallowed by a re-mount".
+ * Whether the composer still holds the whole prompt. The editor is rich text,
+ * so compare collapsed whitespace rather than its rendered line breaks.
  */
 export function composerHoldsPrompt(
   composerText: string,
   prompt: string,
 ): boolean {
-  return collapseWhitespace(composerText).includes(
-    collapseWhitespace(prompt).slice(0, PROMPT_PROBE_LENGTH),
-  );
+  return collapseWhitespace(composerText) === collapseWhitespace(prompt);
 }
 
 export function tail(text: string, length: number): string {

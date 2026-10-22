@@ -5,6 +5,6 @@ export function loader() {
   return withSsrHtmlContentType(redirect("/dictate"));
 }
 
-export default function LegacyWisprRedirect() {
+export default function LegacyDictationRedirect() {
   return null;
 }

@@ -23,6 +23,7 @@ import {
   MAX_SANE_FRAME_DIMENSION_PX,
 } from "@shared/responsive-frame-layout";
 import { sourceContentHash } from "@shared/source-workspace";
+import type { QueryClient } from "@tanstack/react-query";
 import {
   useState,
   useEffect,
@@ -54,6 +55,7 @@ import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
   readPendingGeneration,
+  snapshotGenerationOutputBaseline,
 } from "@/lib/pending-generation";
 import { externalPreviewUrlForContent } from "@/pages/design-editor/preview-html";
 
@@ -263,6 +265,20 @@ export function acknowledgeFrameGeometryRestoreClaims(
   );
 }
 
+/**
+ * Call once a write's operations stop being rebased onto server reads: a read
+ * still in flight may have been served before the write and would undo it.
+ */
+export function discardDesignReadsInFlight(
+  queryClient: QueryClient,
+  designId: string,
+): void {
+  const queryKey = ["action", "get-design", { id: designId }];
+  if (queryClient.isFetching({ queryKey }) === 0) return;
+  void queryClient.cancelQueries({ queryKey });
+  void queryClient.invalidateQueries({ queryKey });
+}
+
 export function useEditorActiveScreenAndGeometry({
   editorCore,
   editorHistory,
@@ -326,6 +342,7 @@ export function useEditorActiveScreenAndGeometry({
     setGenerationIssue,
     setRetryablePrompt,
     generationOutputReadyRef,
+    generationOutputBaselineRef,
     clearGenerationCompleteTimer,
     staleToastShownRef,
     generationModelRef,
@@ -334,6 +351,7 @@ export function useEditorActiveScreenAndGeometry({
     resetAgentGenerating,
     trackAgentGeneration,
     design,
+    designDataReady,
     overviewDataReady,
     activeBreakpointStateVersion,
     designAccessRole,
@@ -384,6 +402,7 @@ export function useEditorActiveScreenAndGeometry({
     canvasZoom?: number;
     nonce: number;
     paddingScreenPx?: number;
+    revealOnly?: boolean;
   } | null>(null);
   const cameraCommandNonceRef = useRef(0);
   const screenZoomByIdRef = useRef<Map<string, number>>(new Map());
@@ -636,6 +655,7 @@ export function useEditorActiveScreenAndGeometry({
                 pendingFrameGeometryOperationsForUnloadRef.current,
                 revision,
               );
+            discardDesignReadsInFlight(queryClient, id);
             await acknowledgeFrameGeometryOutboxEntry(outboxEntry);
           } catch (error: unknown) {
             const restoreClaims = Array.isArray(
@@ -1188,10 +1208,15 @@ export function useEditorActiveScreenAndGeometry({
     [id, migrateMutation, updateDesignMutation, queryClient],
   );
 
-  generationOutputReadyRef.current = hasPendingGenerationOutput(
-    readPendingGeneration(id, { allowUntimestamped: true }),
-    files,
-  );
+  generationOutputReadyRef.current = designDataReady
+    ? hasPendingGenerationOutput(
+        readPendingGeneration(id, { allowUntimestamped: true }),
+        files,
+      )
+    : null;
+  generationOutputBaselineRef.current = designDataReady
+    ? snapshotGenerationOutputBaseline(files)
+    : undefined;
 
   useEffect(() => {
     if (!id) return;
@@ -1207,46 +1232,43 @@ export function useEditorActiveScreenAndGeometry({
     staleToastShownRef.current = false;
   }, [clearGenerationCompleteTimer, files, id, resetAgentGenerating]);
 
-  useEffect(
-    () =>
-      runResumePendingGeneration({
-        agentSubmit,
-        clearGenerationCompleteTimer,
-        creativeContextEnabled,
-        creativeContextLabLoading: creativeContextLab.isLoading,
-        creativeContextLabError: creativeContextLab.isError
-          ? t("designEditor.generationStoppedRetry")
-          : null,
-        design,
-        files,
-        generationModelRef,
-        imageAttachmentUnavailableMessage: t(
-          "promptDialog.imageAttachmentUnavailable",
-        ),
-        invalidCanvasDimensionsMessage: t(
-          "designEditor.invalidCanvasDimensions",
-        ),
-        id,
-        markGenerationStale,
-        setGenerationChatTabId,
-        setGenerationIssue,
-        setHasPendingGeneration,
-        trackAgentGeneration,
-      }),
-    [
-      id,
-      design,
-      files.length,
-      creativeContextEnabled,
-      creativeContextLab.isLoading,
-      creativeContextLab.isError,
+  useEffect(() => {
+    if (!designDataReady) return;
+    return runResumePendingGeneration({
       agentSubmit,
-      markGenerationStale,
-      trackAgentGeneration,
       clearGenerationCompleteTimer,
-      t,
-    ],
-  );
+      creativeContextEnabled,
+      creativeContextLabLoading: creativeContextLab.isLoading,
+      creativeContextLabError: creativeContextLab.isError
+        ? t("designEditor.generationStoppedRetry")
+        : null,
+      design,
+      files,
+      generationModelRef,
+      imageAttachmentUnavailableMessage: t(
+        "promptDialog.imageAttachmentUnavailable",
+      ),
+      invalidCanvasDimensionsMessage: t("designEditor.invalidCanvasDimensions"),
+      id,
+      markGenerationStale,
+      setGenerationChatTabId,
+      setGenerationIssue,
+      setHasPendingGeneration,
+    });
+  }, [
+    designDataReady,
+    id,
+    design,
+    files.length,
+    creativeContextEnabled,
+    creativeContextLab.isLoading,
+    creativeContextLab.isError,
+    agentSubmit,
+    markGenerationStale,
+    trackAgentGeneration,
+    clearGenerationCompleteTimer,
+    t,
+  ]);
 
   useEffect(() => {
     const handlePageHide = () => {
@@ -1722,10 +1744,13 @@ export function useEditorActiveScreenAndGeometry({
   const activeOverviewFrameWidth = overviewZoomBasisScreenId
     ? displayedCanvasFrameGeometryById[overviewZoomBasisScreenId]?.width
     : undefined;
-  const overviewZoomScale = getOverviewZoomScale({
-    frameWidth: activeOverviewFrameWidth,
-    sourceWidth: activeOverviewSourceWidth,
-  });
+  // With no screen to measure, the board's own pixels are the displayed zoom.
+  const overviewZoomScale = overviewZoomBasisScreenId
+    ? getOverviewZoomScale({
+        frameWidth: activeOverviewFrameWidth,
+        sourceWidth: activeOverviewSourceWidth,
+      })
+    : 1;
   const overviewZoomScaleRef = useRef(overviewZoomScale);
 
   useEffect(() => {

@@ -38,15 +38,24 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import type { RenderNestedColorPicker } from "../inspector/color-picker-nested";
 import {
-  GlslShaderEffectSection,
-  useScreenGlslShaders,
-  type GlslShaderPanelContext,
-} from "../inspector/GlslShaderPanel";
+  DesignColorPicker,
+  inferPaintType,
+} from "../inspector/DesignColorPicker";
 import {
   InspectorControlField,
   InspectorControlPopoverContent,
 } from "../inspector/InspectorControlPopover";
+import {
+  hasSelectedNativeEffects,
+  NativeShaderEffectSection,
+} from "../inspector/NativeShaderPanel";
+import {
+  SavedGlslEffectRow,
+  useHasSavedGlslEffect,
+} from "../inspector/saved-glsl-shader";
+import type { ShaderEditorContext } from "../shader-source-coordination";
 import type { ElementInfo } from "../types";
 import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
@@ -86,7 +95,7 @@ export interface ShadowLayer {
 // guard:allow-raw-color — authored shadows need a concrete CSS color fallback.
 const DEFAULT_DROP_SHADOW_COLOR = "rgba(0, 0, 0, 0.25)";
 
-function defaultDropShadowLayer(index: number): ShadowLayer {
+export function defaultDropShadowLayer(index: number): ShadowLayer {
   return {
     id: `shadow-${index}`,
     x: 0,
@@ -619,18 +628,41 @@ export function EffectsProperties({
   element,
   onStyleChange,
   onStylesChange,
-  glslShaderContext,
+  shaderContext,
   motionKeyframeContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  glslShaderContext?: GlslShaderPanelContext;
+  shaderContext?: ShaderEditorContext;
   motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
   const [shaderPickerOpen, setShaderPickerOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const openShaderPickerAfterMenuCloseRef = useRef(false);
+  const renderShaderColorPicker: RenderNestedColorPicker = (request) => (
+    <DesignColorPicker
+      open
+      anchorElement={request.anchor}
+      onOpenChange={(open) => {
+        if (!open) request.onClose();
+      }}
+      value={request.css}
+      paintType={
+        request.supportedPaintTypes ? inferPaintType(request.css, 100) : "solid"
+      }
+      supportedPaintTypes={request.supportedPaintTypes ?? ["solid"]}
+      maxGradientStops={request.maxGradientStops}
+      showReverseStops={request.showReverseStops}
+      onChange={request.onChange}
+      onChangeComplete={request.onCommit}
+      side="left"
+      restoreOnEscape
+      opaqueSrgb={request.opaqueSrgb}
+      disabled={request.disabled}
+    />
+  );
   const styles = element.computedStyles;
   const backdropFilterValue =
     styles.backdropFilter || styles.webkitBackdropFilter;
@@ -691,13 +723,11 @@ export function EffectsProperties({
     shadowLayers.length,
     reorderShadowLayers,
   );
-  const screenShaders = useScreenGlslShaders(glslShaderContext ?? {});
-  const hasShaderEffect = Boolean(
-    glslShaderContext?.nodeId &&
-    screenShaders.mounts.some(
-      (mount) =>
-        mount.nodeId === glslShaderContext.nodeId && mount.mode === "effect",
-    ),
+  const hasShaderEffect = useHasSavedGlslEffect(shaderContext);
+  const hasNativeEffect = hasSelectedNativeEffects(
+    shaderContext?.content,
+    shaderContext?.nodeId,
+    shaderContext?.selector,
   );
   const hasEffectsContent =
     effectsAreMixed ||
@@ -705,6 +735,7 @@ export function EffectsProperties({
     filterHasBlur ||
     backdropFilterHasBlur ||
     hasShaderEffect ||
+    hasNativeEffect ||
     shaderPickerOpen;
 
   return (
@@ -719,7 +750,13 @@ export function EffectsProperties({
           >
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
-          <DropdownMenu open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+          <DropdownMenu
+            open={addMenuOpen}
+            onOpenChange={(open) => {
+              if (open) openShaderPickerAfterMenuCloseRef.current = false;
+              setAddMenuOpen(open);
+            }}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
@@ -736,7 +773,16 @@ export function EffectsProperties({
               </TooltipTrigger>
               <TooltipContent>{t("editPanel.labels.addEffect")}</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="end" className="min-w-44">
+            <DropdownMenuContent
+              align="end"
+              className="min-w-44"
+              onCloseAutoFocus={(event) => {
+                if (!openShaderPickerAfterMenuCloseRef.current) return;
+                event.preventDefault();
+                openShaderPickerAfterMenuCloseRef.current = false;
+                setShaderPickerOpen(true);
+              }}
+            >
               <DropdownMenuItem
                 className="gap-2 !text-[11px]"
                 onSelect={addDropShadow}
@@ -758,11 +804,11 @@ export function EffectsProperties({
                 <IconBackground className="size-3.5" />
                 {"Background blur" /* i18n-ignore design effect type */}
               </DropdownMenuItem>
-              {glslShaderContext?.nodeId ? (
+              {shaderContext?.nodeId ? (
                 <DropdownMenuItem
                   className="gap-2 !text-[11px]"
                   onSelect={() => {
-                    setTimeout(() => setShaderPickerOpen(true), 0);
+                    openShaderPickerAfterMenuCloseRef.current = true;
                   }}
                 >
                   <IconWaveSine className="size-3.5" />
@@ -967,12 +1013,16 @@ export function EffectsProperties({
               ) : null}
             </>
           )}
-          {glslShaderContext?.nodeId ? (
-            <GlslShaderEffectSection
-              context={glslShaderContext}
-              pickerOpen={shaderPickerOpen}
-              onPickerOpenChange={setShaderPickerOpen}
-            />
+          {shaderContext?.nodeId ? (
+            <>
+              <SavedGlslEffectRow context={shaderContext} />
+              <NativeShaderEffectSection
+                context={shaderContext}
+                pickerOpen={shaderPickerOpen}
+                onPickerOpenChange={setShaderPickerOpen}
+                renderColorPicker={renderShaderColorPicker}
+              />
+            </>
           ) : null}
         </>
       ) : null}

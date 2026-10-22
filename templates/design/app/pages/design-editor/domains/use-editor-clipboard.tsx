@@ -9,6 +9,10 @@ import {
   buildCodeLayerProjection,
   type CodeLayerNode,
 } from "@shared/code-layer";
+import {
+  resolveSourceEquivalentSelector,
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+} from "@shared/source-equivalent-selector";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 
@@ -177,6 +181,7 @@ export function useEditorClipboard({
     activeBreakpointWidthStateRef,
     undoManagerRef,
     contentUndoStackRef,
+    localContentUndoStackRef,
     historyOrderRef,
     clearRedoStacks,
     captureCurrentSelection,
@@ -316,7 +321,9 @@ export function useEditorClipboard({
         );
         if (!preview) return preview;
         const { view, doc } = preview;
-        const target = doc.querySelector(selector);
+        const target = selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)
+          ? resolveSourceEquivalentSelector(doc, selector)
+          : doc.querySelector(selector);
         const renderOffset = positionCoordinateRenderOffsetForWindow(view);
         if (!target || !renderOffset) return null;
         return measurePreparedCloneVisualOffset(target, layerHtml, {
@@ -1406,6 +1413,9 @@ export function useEditorClipboard({
           explicitOverviewScreenSelectionRef.current = [];
         },
         lastDuplicateTransformRef,
+        contentHistorySelectionAfterRef,
+        contentUndoStackRef,
+        localContentUndoStackRef,
         overviewSelectedScreenIds,
         remapMotionTracksForClone,
         runtimeStructureInsertRevisionRef,
@@ -1433,6 +1443,7 @@ export function useEditorClipboard({
       getScreenContent,
       getSelectedLayerSnapshots,
       handleDuplicateScreen,
+      localContentUndoStackRef,
       overviewSelectedScreenIds,
       remapMotionTracksForClone,
       runtimeStructureInsertRevisionRef,
@@ -1541,6 +1552,7 @@ export function useEditorClipboard({
         codeLayerOwnerByNodeIdRef,
         contentHistorySelectionAfterRef,
         contentUndoStackRef,
+        localContentUndoStackRef,
         files,
         getFreshActiveContent,
         overviewSelectedScreenIds,
@@ -1560,6 +1572,7 @@ export function useEditorClipboard({
       canEditDesign,
       files,
       getFreshActiveContent,
+      localContentUndoStackRef,
       overviewSelectedScreenIds,
       selectedLayerIdsState,
       sendRuntimeLayerSemanticHandoff,

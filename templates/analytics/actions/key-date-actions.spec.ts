@@ -10,11 +10,18 @@ const mocks = vi.hoisted(() => ({
   deleteKeyDate: vi.fn(async () => ({ id: "date-1" })),
   dashboardAnnotationScope: vi.fn(),
 }));
+const reads = vi.hoisted(() => ({
+  readDashboardForPlacement: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
+  fail: (message: string, options: object) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 vi.mock("../server/lib/key-dates-store.js", () => mocks);
+vi.mock("../server/lib/dashboard-annotation-reads.js", () => reads);
 vi.mock("../server/lib/dashboard-annotation-scope.js", () => ({
   dashboardAnnotationScope: mocks.dashboardAnnotationScope,
 }));
@@ -62,6 +69,56 @@ describe("key-date actions", () => {
     expect(mocks.deleteKeyDate).toHaveBeenCalledWith(scope, "date-1");
   });
 
+  it("says when the dashboard on screen hides the new date's set", async () => {
+    reads.readDashboardForPlacement.mockResolvedValue({
+      config: {
+        panels: [{ id: "signups", title: "Signups", chartType: "line" }],
+        annotations: { hiddenKeyDateSets: ["launches"] },
+      },
+    });
+    mocks.saveKeyDate.mockResolvedValueOnce({
+      id: "date-1",
+      setId: "launches",
+    } as never);
+
+    const result = await actions.save.run({
+      setName: "Launches",
+      date: "2026-10-14",
+      label: "Product Hunt live",
+      dashboardId: "dash",
+    });
+
+    expect(mocks.saveKeyDate).toHaveBeenCalledWith(scope, {
+      setName: "Launches",
+      date: "2026-10-14",
+      label: "Product Hunt live",
+    });
+    expect(result.dashboard).toMatchObject({
+      dashboardId: "dash",
+      setShown: false,
+      hint: expect.stringContaining("hides the date's set"),
+    });
+  });
+
+  it("saves the date even when the dashboard on screen can't draw it", async () => {
+    reads.readDashboardForPlacement.mockResolvedValue({
+      unavailable: "Only SQL dashboards draw key dates and data notes.",
+    });
+
+    const result = await actions.save.run({
+      setName: "Launches",
+      date: "2026-10-14",
+      label: "Product Hunt live",
+      dashboardId: "explore",
+    });
+
+    expect(mocks.saveKeyDate).toHaveBeenCalled();
+    expect(result.dashboard).toEqual({
+      dashboardId: "explore",
+      hint: "Only SQL dashboards draw key dates and data notes.",
+    });
+  });
+
   describe("for a dashboard from another organization", () => {
     const owner = { email: "owner@example.test", orgId: "org-2" };
     const set = (id: string) => ({
@@ -80,13 +137,16 @@ describe("key-date actions", () => {
         },
       ],
     });
-    const shared = (canEdit: boolean) => {
+    const shared = (canEdit: boolean, chartType = "line") => {
       mocks.dashboardAnnotationScope.mockResolvedValue({
         scope: owner,
         editable: false,
         dashboard: {
           canEdit,
-          config: { annotations: { hiddenKeyDateSets: ["changes"] } },
+          config: {
+            panels: [{ id: "signups", title: "Signups", chartType }],
+            annotations: { hiddenKeyDateSets: ["changes"] },
+          },
         },
       });
       mocks.listKeyDateSets.mockResolvedValue([
@@ -105,6 +165,7 @@ describe("key-date actions", () => {
       expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
         "shared-dashboard",
         scope,
+        undefined,
       );
       expect(mocks.listKeyDateSets).toHaveBeenCalledWith(owner);
       expect(result).toEqual({
@@ -129,6 +190,26 @@ describe("key-date actions", () => {
       expect(JSON.stringify(result)).not.toContain("@example.test");
     });
 
+    it("lists a reviewed dashboard's sets through the Human Review check", async () => {
+      shared(false);
+
+      const result = await actions.list.run({
+        dashboardId: "shared-dashboard",
+        reviewPreview: true,
+        reviewOrgId: "org-2",
+      });
+
+      expect(mocks.dashboardAnnotationScope).toHaveBeenCalledWith(
+        "shared-dashboard",
+        scope,
+        { reviewOrgId: "org-2" },
+      );
+      expect(result.editable).toBe(false);
+      await expect(
+        actions.list.run({ reviewPreview: true, reviewOrgId: "org-2" }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it("keeps the sets it hides for a reader who can show them again", async () => {
       shared(true);
 
@@ -141,6 +222,16 @@ describe("key-date actions", () => {
         "changes",
       ]);
       expect(JSON.stringify(result)).not.toContain("@example.test");
+    });
+
+    it("lists no sets where no chart draws key dates, even for an editor", async () => {
+      for (const canEdit of [false, true]) {
+        shared(canEdit, "table");
+
+        await expect(
+          actions.list.run({ dashboardId: "shared-dashboard" }),
+        ).resolves.toEqual({ sets: [], editable: false });
+      }
     });
   });
 

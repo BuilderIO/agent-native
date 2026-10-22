@@ -144,10 +144,10 @@ Toda operação específica do Design é um arquivo TypeScript em `templates/des
 | `get-motion-timeline`    | Lê a linha do tempo de movimento de um elemento                  |
 | `apply-motion-edit`      | Adiciona ou edita um keyframe em uma linha do tempo de movimento |
 | `remove-motion-timeline` | Remove uma linha do tempo de movimento                           |
-| `apply-shader`           | Aplica um efeito de shader                                       |
-| `apply-shader-fill`      | Aplica um shader como preenchimento                              |
-| `preview-shader-fill`    | Pré-visualiza um preenchimento de shader antes de aplicá-lo      |
-| `get-shader`             | Lê os parâmetros atuais de um shader                             |
+| `get-shader`             | Consultar definições nativas e manifestos de efeitos salvos      |
+| `edit-native-shader`     | Aplicar, editar, aprovar ou remover efeitos nativos              |
+
+Os efeitos nativos WebGPU usam WGSL. A criação personalizada usa `edit-native-shader` com `define-definition`, depois `get-shader` para ler o `executionHash` salvo, `approve-definition` com esse `expectedExecutionHash` e `apply` com o ID e a versão exatos da definição. Cada edição exige `designId`, `fileId` e o `expectedVersionHash` atual. É necessário reler o hash após cada gravação. A validação do esquema na CPU não compila código GPU, portanto é preciso verificar a prévia do Design. Os efeitos GLSL salvos anteriormente continuam podendo ser renderizados e removidos.
 
 ### Qualidade {#quality}
 
@@ -195,16 +195,16 @@ Building](#full-app-building) abaixo.
 
 | Action                         | O que faz                                                                                      |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `create-fusion-app`            | Provisiona um branch do Builder Fusion e monta um aplicativo real a partir de um prompt        |
-| `sync-fusion-app`              | Consulta periodicamente o container de um branch de fusion em busca da URL de pré-visualização |
-| `add-fusion-screens`           | Adiciona telas a um design apoiado por fusion                                                  |
-| `queue-fusion-edit`            | Enfileira uma edição para o próprio agente de código do aplicativo                             |
-| `list-fusion-edits`            | Lista as edições de fusion enfileiradas e aplicadas                                            |
-| `apply-fusion-edits`           | Envia as edições enfileiradas para o agente de código do aplicativo                            |
-| `send-fusion-message`          | Envia uma mensagem para o agente de código do aplicativo de fusion                             |
-| `push-fusion-app`              | Faz push de um branch de fusion                                                                |
-| `deploy-fusion-app`            | Implanta um branch de fusion em uma URL real                                                   |
-| `get-fusion-deploy-status`     | Verifica o status de uma implantação                                                           |
+| `create-builder-app`           | Provisiona um branch do Builder Fusion e monta um aplicativo real a partir de um prompt        |
+| `sync-builder-app`             | Consulta periodicamente o container de um branch de fusion em busca da URL de pré-visualização |
+| `add-builder-screens`          | Adiciona telas a um design apoiado por fusion                                                  |
+| `queue-builder-edit`           | Enfileira uma edição para o próprio agente de código do aplicativo                             |
+| `list-builder-edits`           | Lista as edições de fusion enfileiradas e aplicadas                                            |
+| `apply-builder-edits`          | Envia as edições enfileiradas para o agente de código do aplicativo                            |
+| `send-builder-message`         | Envia uma mensagem para o agente de código do aplicativo de fusion                             |
+| `push-builder-app`             | Faz push de um branch de fusion                                                                |
+| `deploy-builder-app`           | Implanta um branch de fusion em uma URL real                                                   |
+| `get-builder-deploy-status`    | Verifica o status de uma implantação                                                           |
 | `create-design-branch`         | Cria um novo branch para um design apoiado por fusion                                          |
 | `get-design-branch-diff`       | Compara um branch de fusion com uma versão anterior                                            |
 | `deploy-design-preview`        | Implanta uma pré-visualização de um design apoiado por fusion                                  |

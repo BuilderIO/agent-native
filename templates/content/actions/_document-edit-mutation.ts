@@ -1,12 +1,10 @@
-import { createHash } from "node:crypto";
-
 import { ActionContractError } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { recordGenerationCreativeContext } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -20,7 +18,17 @@ import {
   recordDocumentBodyIntent,
 } from "../server/lib/document-body-intents.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+  parseDocumentRevisionToken,
+} from "../server/lib/document-revision.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+export {
+  documentContentHash,
+  documentRevisionToken,
+  parseDocumentRevisionToken,
+} from "../server/lib/document-revision.js";
 import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import {
@@ -35,30 +43,9 @@ import {
   boundedContentSaveReason,
   recordContentSaveOutcome,
 } from "./_content-save-outcomes.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 type Db = ReturnType<typeof getDb>;
-
-export function documentContentHash(content: string): string {
-  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
-}
-
-export function documentRevisionToken(
-  revision: number,
-  content: string,
-): string {
-  return `body:${revision}:${documentContentHash(content)}`;
-}
-
-export function parseDocumentRevisionToken(
-  value: string,
-): { revision: number; contentHash: string } | null {
-  const match = /^body:(0|[1-9]\d*):(sha256:[a-f0-9]{64})$/.exec(value);
-  if (!match) return null;
-  const revision = Number(match[1]);
-  return Number.isSafeInteger(revision)
-    ? { revision, contentHash: match[2]! }
-    : null;
-}
 
 function digest(value: unknown): string {
   return documentContentHash(JSON.stringify(value));
@@ -76,6 +63,18 @@ function conflict(
   });
 }
 
+// A page in Trash refuses edits the way get-document refuses to read it.
+export function assertEditableDocument<T extends { trashedAt: string | null }>(
+  document: T | undefined,
+): asserts document is T {
+  if (!document || document.trashedAt) {
+    throw new ActionContractError("Document not found.", {
+      errorCode: "DOCUMENT_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
+}
+
 function validateDocumentEditSnapshot(
   document: typeof schema.documents.$inferSelect | undefined,
   base: { revision: number; contentHash: string },
@@ -84,12 +83,7 @@ function validateDocumentEditSnapshot(
   initializeContent?: string,
   baseContent?: string,
 ) {
-  if (!document) {
-    throw new ActionContractError("Document not found.", {
-      errorCode: "DOCUMENT_NOT_FOUND",
-      statusCode: 404,
-    });
-  }
+  assertEditableDocument(document);
   const beforeContent = baseContent ?? document.content ?? "";
   const beforeHash = documentContentHash(beforeContent);
   if (
@@ -380,6 +374,7 @@ async function performDocumentBodyMutation(
       .select()
       .from(schema.documents)
       .where(eq(schema.documents.id, args.documentId));
+    assertEditableDocument(preflightDocument);
     const preflightHasCurrentBase =
       preflightDocument?.bodyRevision === base.revision &&
       documentContentHash(preflightDocument.content ?? "") === base.contentHash;
@@ -433,6 +428,8 @@ async function performDocumentBodyMutation(
         .select()
         .from(schema.documents)
         .where(eq(schema.documents.id, args.documentId));
+      assertEditableDocument(document);
+      assertSourceAllowsPageEdit(document);
       const hasCurrentBase =
         document?.bodyRevision === base.revision &&
         documentContentHash(document.content ?? "") === base.contentHash;
@@ -594,10 +591,16 @@ async function performDocumentBodyMutation(
               eq(schema.documents.id, document.id),
               eq(schema.documents.bodyRevision, document.bodyRevision),
               eq(schema.documents.content, document.content),
+              isNull(schema.documents.trashedAt),
             ),
           )
           .returning({ bodyRevision: schema.documents.bodyRevision });
         if (updated.length !== 1) {
+          const [current] = await tx
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, document.id));
+          assertEditableDocument(current);
           conflict(
             "STALE_BASE_REVISION",
             "The document changed while the edit was committing.",

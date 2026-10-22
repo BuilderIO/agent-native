@@ -53,4 +53,24 @@ describe("ActionQueryError", () => {
     });
     expect(onRetry).toHaveBeenCalledOnce();
   });
+
+  it("shows the query and safe HTTP diagnostic without exposing the message", () => {
+    act(() => {
+      root.render(
+        <ActionQueryError
+          error={Object.assign(new Error("secret database detail"), {
+            status: 401,
+            errorCode: "workspace_gateway_rejected",
+          })}
+          queryName="list-workspace-apps"
+          onRetry={() => {}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "list-workspace-apps · HTTP 401 · workspace_gateway_rejected",
+    );
+    expect(container.textContent).not.toContain("secret database detail");
+  });
 });

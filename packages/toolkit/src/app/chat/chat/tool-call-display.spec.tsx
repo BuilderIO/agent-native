@@ -179,8 +179,8 @@ describe("ToolCallDisplay native renderers", () => {
     vi.unstubAllGlobals();
   });
 
-  it("waits five minutes before showing the long-running hint", () => {
-    expect(TOOL_LONG_RUNNING_HINT_DELAY_MS).toBe(5 * 60_000);
+  it("shows the long-running hint after 30 seconds", () => {
+    expect(TOOL_LONG_RUNNING_HINT_DELAY_MS).toBe(30_000);
   });
 
   it("does not reopen storage setup for a restored tool result", () => {
@@ -1467,7 +1467,15 @@ describe("ToolCallDisplay native renderers", () => {
       );
 
       act(() => {
-        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS - 1);
+      });
+
+      expect(container.textContent).not.toContain(
+        "Still working. Large updates can take a minute or two.",
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(1);
       });
 
       expect(container.textContent).toContain(
@@ -2690,9 +2698,17 @@ describe("WorkedForSummary", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    builderHandoffMocks.useAgentChatContext.mockReturnValue({ items: [] });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    const render = root.render.bind(root);
+    root.render = (children: ReactNode) =>
+      render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          {children}
+        </AgentNativeI18nProvider>,
+      );
   });
 
   afterEach(() => {
@@ -2732,6 +2748,17 @@ describe("WorkedForSummary", () => {
               response: ["The query returned a 12% increase."],
             },
           }}
+          workedForRowLayout={{
+            chevronSize: 16,
+            iconGap: 4,
+            fontSize: 14,
+            lineHeight: 20,
+            paddingBlock: 12,
+            paddingInline: 12,
+          }}
+          formatWorkedForDuration={(durationMs) =>
+            `${durationMs / 1000} seconds`
+          }
         />,
       );
     });
@@ -2740,6 +2767,8 @@ describe("WorkedForSummary", () => {
       container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
     ).find((button) => button.textContent?.includes("Worked for"));
     expect(workedFor).not.toBeNull();
+    expect(workedFor?.style.fontSize).toBe("14px");
+    expect(workedFor?.textContent).toContain("Worked for 5 seconds");
     act(() => workedFor?.click());
 
     expect(container.textContent).not.toContain("This private thought");
@@ -2785,6 +2814,68 @@ describe("WorkedForSummary", () => {
     });
 
     expect(container.textContent).toContain("Worked for 5m");
+  });
+
+  it("keeps the disclosure chevron before the duration label", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={5_000}>
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    const button = container.querySelector("button[aria-expanded]");
+    expect(button?.children[0]?.tagName.toLowerCase()).toBe("svg");
+    expect(button?.children[1]?.textContent).toBe("Worked for 5s");
+    const buttonClasses = button?.className.split(/\s+/) ?? [];
+    expect(buttonClasses).toContain("gap-1");
+    expect(buttonClasses).toContain("p-3");
+    expect(buttonClasses).toContain("text-start");
+    expect(buttonClasses).not.toContain("text-left");
+    const chevron = button?.children[0];
+    expect(chevron?.getAttribute("class")?.split(/\s+/)).toContain(
+      "rtl:-scale-x-100",
+    );
+
+    act(() => button?.click());
+
+    expect(chevron?.getAttribute("class")?.split(/\s+/)).toContain(
+      "rtl:-rotate-90",
+    );
+  });
+
+  it("applies optional geometry to the completed-work disclosure row", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary
+          durationMs={5_000}
+          layout={{
+            chevronSize: 16,
+            iconGap: 4,
+            fontSize: 14,
+            lineHeight: 20,
+            paddingBlock: 12,
+            paddingInline: 12,
+          }}
+        >
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    const icon = button?.querySelector<SVGElement>("svg");
+    expect(button?.style.gap).toBe("4px");
+    expect(button?.style.fontSize).toBe("14px");
+    expect(button?.style.lineHeight).toBe("20px");
+    expect(button?.style.paddingBlock).toBe("12px");
+    expect(button?.style.paddingInline).toBe("12px");
+    expect(button?.style.fontFamily).toBe("inherit");
+    expect(icon?.style.width).toBe("16px");
+    expect(icon?.style.height).toBe("16px");
   });
 
   it("applies the running shimmer while the work summary is live", () => {

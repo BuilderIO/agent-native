@@ -63,7 +63,9 @@ export function containsVisualEditBridgeCredentials(value: unknown): boolean {
     if (Array.isArray(candidate)) return candidate.some(visit);
 
     return Object.entries(candidate).some(([key, nested]) => {
-      if (key === "bridgeToken" || key === "previewToken") return true;
+      if (key === "bridgeToken" || key === "previewToken") {
+        return nested !== undefined && nested !== null;
+      }
       return visit(nested);
     });
   };

@@ -93,6 +93,19 @@ export interface RequestRunContext {
   };
   /** Whether the pre-model reference prefetch and screen grounding reached the model. */
   contextStatus?: { prefetch?: ContextStatus; screen?: ContextStatus };
+  /** Current user text used to rank reachable workspace apps for this turn. */
+  appDiscoveryQuery?: string;
+  /** Privacy-safe app discovery result diagnostics for the current run. */
+  appDiscoverySelection?: {
+    status: "selected" | "no-match" | "unavailable" | "failed" | "timed_out";
+    directoryStatus:
+      | "available"
+      | "unavailable"
+      | "forbidden"
+      | "setup-required";
+    selectedIds: string[];
+    latencyMs: number;
+  };
   toolCalls?: Array<{ name: string; input: unknown }>;
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
   extensionContentReads?: Record<string, string>;
@@ -107,6 +120,8 @@ export interface RequestContext {
   isSyntheticTraffic?: boolean;
   mcpRequestId?: string;
   userEmail?: string;
+  /** Provenance for a cross-app identity; org-member grants only member-level org role. */
+  a2aIdentityAssurance?: "user" | "organization" | "org-member";
   /** Keep data-source credentials within the selected org, not the user. */
   credentialScope?: "org";
   /** Storage-only org selection; null prevents an active-org fallback. */
@@ -221,6 +236,37 @@ export function getVerifiedServiceIdentityFromEvent(
     return undefined;
   }
   return { userEmail: userEmail.trim(), orgId: orgId.trim() };
+}
+
+const VERIFIED_MCP_CREDENTIAL_EVENT_KEY = "__anVerifiedMcpCredential";
+
+/**
+ * The request authenticated with an MCP credential this app verified, so an
+ * action route records the call as MCP rather than as a person's HTTP call.
+ */
+export function markVerifiedMcpCredentialForEvent(
+  event: RequestContextEvent,
+  credential: { userEmail: string; oauthClientId?: string },
+): void {
+  const context = (event.context ??= {});
+  context[VERIFIED_MCP_CREDENTIAL_EVENT_KEY] = credential;
+}
+
+export function getVerifiedMcpCredentialFromEvent(
+  event: RequestContextEvent,
+): { userEmail: string; oauthClientId?: string } | undefined {
+  const credential = event.context?.[VERIFIED_MCP_CREDENTIAL_EVENT_KEY] as
+    | { userEmail?: unknown; oauthClientId?: unknown }
+    | undefined;
+  const userEmail = credential?.userEmail;
+  if (typeof userEmail !== "string" || !userEmail.trim()) return undefined;
+  const oauthClientId = credential?.oauthClientId;
+  return {
+    userEmail: userEmail.trim(),
+    ...(typeof oauthClientId === "string" && oauthClientId
+      ? { oauthClientId }
+      : {}),
+  };
 }
 
 export function markExplicitPersonalOrgScope(event: {
@@ -388,6 +434,15 @@ export function runWithRequestContext<T>(
     inheritedContext?.trackingScope !== undefined
   ) {
     context = { ...context, trackingScope: inheritedContext.trackingScope };
+  }
+  if (
+    context.a2aIdentityAssurance === undefined &&
+    inheritedContext?.a2aIdentityAssurance !== undefined
+  ) {
+    context = {
+      ...context,
+      a2aIdentityAssurance: inheritedContext.a2aIdentityAssurance,
+    };
   }
   const contextUserEmail = context.userEmail?.trim().toLowerCase();
   if (contextUserEmail) {

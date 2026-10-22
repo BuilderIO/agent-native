@@ -1,3 +1,5 @@
+import type { H3Event } from "h3";
+
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
@@ -35,6 +37,7 @@ async function isOrgMemberWithPolicy(
   options: {
     allowMissingOrganizationTable: boolean;
     requireOrganizationRecord: boolean;
+    requestEvent?: H3Event;
   },
 ): Promise<boolean> {
   const normalized = email.trim().toLowerCase();
@@ -85,35 +88,44 @@ async function isOrgMemberWithPolicy(
   const { validateFederatedOrganizationMembershipForCurrentRequest } =
     await import("./federation.js");
   const validation =
-    await validateFederatedOrganizationMembershipForCurrentRequest({
-      orgId,
-      email: normalized,
-    });
+    await validateFederatedOrganizationMembershipForCurrentRequest(
+      {
+        orgId,
+        email: normalized,
+      },
+      options.requestEvent,
+    );
   return validation.active;
 }
 
 export function isOrgMember(
   orgId: string,
   email: string,
-  options: { requireOrganizationMetadata?: boolean } = {},
+  options: {
+    requireOrganizationMetadata?: boolean;
+    requestEvent?: H3Event;
+  } = {},
 ): Promise<boolean> {
   return isOrgMemberWithPolicy(orgId, email, {
     allowMissingOrganizationTable: !options.requireOrganizationMetadata,
     requireOrganizationRecord: !!options.requireOrganizationMetadata,
+    requestEvent: options.requestEvent,
   });
 }
 
 /**
- * Checks membership for an A2A identity authenticated by an organization
- * secret. Unlike legacy callers, this requires readable organization metadata
- * as well as the membership row before the token subject can become an owner.
+ * Checks the live roster for an opted-in org-member A2A assertion. This proves
+ * membership in the asserted org; authorization still caps the identity at
+ * member regardless of the stored owner/admin role.
  */
 export function isOrgMemberForA2A(
   orgId: string,
   email: string,
+  requestEvent?: H3Event,
 ): Promise<boolean> {
   return isOrgMemberWithPolicy(orgId, email, {
     allowMissingOrganizationTable: false,
     requireOrganizationRecord: true,
+    requestEvent,
   });
 }

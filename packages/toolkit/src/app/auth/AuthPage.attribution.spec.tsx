@@ -129,6 +129,12 @@ async function recordBoth(
 
 describe("AuthPage attribution", () => {
   beforeEach(() => {
+    // Attribution storage depends on the visitor's time zone, so pin it.
+    const realOptions = new Intl.DateTimeFormat().resolvedOptions();
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      ...realOptions,
+      timeZone: "America/Los_Angeles",
+    });
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(

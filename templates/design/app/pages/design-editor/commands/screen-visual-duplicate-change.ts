@@ -134,7 +134,7 @@ export function runScreenVisualDuplicateChange(
   );
   const canEditScreen =
     canEditDesign ||
-    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
+    (isRunningAppSourceType(screenSourceType) && canEditLiveScreen?.(screenId));
   if (!canEditScreen) return false;
   if (isRunningAppSourceType(screenSourceType)) {
     recordPendingLiveStructureEdit(

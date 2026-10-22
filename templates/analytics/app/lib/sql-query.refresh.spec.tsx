@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   addBytesProcessed: vi.fn(),
+  recordQueryCost: vi.fn(),
   callAction: vi.fn(),
 }));
 
@@ -21,6 +22,7 @@ const ACCOUNT_SCOPE = "user-a:org-1";
 
 vi.mock("./cost-tracker", () => ({
   addBytesProcessed: mocks.addBytesProcessed,
+  recordQueryCost: mocks.recordQueryCost,
 }));
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -56,6 +58,7 @@ describe("useSqlQuery refresh", () => {
       defaultOptions: { queries: { retry: false } },
     });
     mocks.addBytesProcessed.mockReset();
+    mocks.recordQueryCost.mockReset();
     mocks.callAction.mockReset();
   });
 

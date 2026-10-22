@@ -1,5 +1,8 @@
 import type { CodeLayerProjection } from "@shared/code-layer";
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  pinFixedFlexSiblingsOfNode,
+} from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
@@ -18,7 +21,7 @@ import {
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
-} from "@/components/design/inspector/GlslShaderPanel";
+} from "@/components/design/shader-source-coordination";
 import type { ElementInfo } from "@/components/design/types";
 import {
   bridgeSourceIdForCodeLayerNode,
@@ -245,8 +248,7 @@ export function runCommitVisualStyles(
   });
   if (!activeFile || !canEditDesign) return;
   if (!canApplyContentEdit(activeFile.id)) return;
-  // Cross-pipeline write race guard (see GlslShaderPanel.tsx's module doc
-  // comment on withShaderWriteLock/waitForShaderWriteToSettle): a shader
+  // Cross-pipeline write race guard (see shader-source-coordination.ts): a shader
   // apply/remove/knob-commit for this same file goes through a completely
   // separate round trip (read-source-file -> apply-source-edit) than this
   // function's own commit, and both eventually rewrite the SAME Y.Doc —
@@ -620,8 +622,20 @@ export function runCommitVisualStyles(
             ...Object.fromEntries(entries),
           })
         : null;
+    const resizedNodeId =
+      activeBreakpointUpperBoundPx == null &&
+      entries.some(
+        ([property]) => property === "width" || property === "height",
+      )
+        ? targetNode?.dataAttributes["data-agent-native-node-id"]
+        : undefined;
+    const scopedContent =
+      resizedNodeId && !stylePatch.failed
+        ? pinFixedFlexSiblingsOfNode(stylePatch.content, resizedNodeId)
+        : stylePatch.content;
+    const siblingsPinned = scopedContent !== stylePatch.content;
     const commitResolution = resolveVisualStyleCommitContent({
-      scopedContent: stylePatch.content,
+      scopedContent,
       scopedFailure: stylePatch.failed,
       legacyFallbackContent,
       breakpointScoped: activeBreakpointUpperBoundPx != null,
@@ -824,7 +838,7 @@ export function runCommitVisualStyles(
       setPatchProof((prev) =>
         prev?.id === proofId ? { ...prev, status: "queued" } : prev,
       );
-      if (!runtimeStyleApplied) {
+      if (!runtimeStyleApplied || siblingsPinned) {
         setContentRenderRevision((revision) => revision + 1);
       }
     } else {
@@ -887,12 +901,15 @@ export function runCommitVisualStyles(
         syncCollab: !writeLiveDoc,
       });
       if (
-        shouldReplacePreviewAfterVisualStyleCommit({
-          runtimeApplied: options.runtimeApplied,
-          runtimeStyleApplied,
-        }) &&
+        (siblingsPinned ||
+          shouldReplacePreviewAfterVisualStyleCommit({
+            runtimeApplied: options.runtimeApplied,
+            runtimeStyleApplied,
+          })) &&
         previewContentReplaceNeedsRenderFallback(
-          replacePreviewContent(resolvedNextContent, selector),
+          replacePreviewContent(resolvedNextContent, selector, {
+            forceFullDocument: siblingsPinned,
+          }),
         )
       ) {
         setContentRenderRevision((revision) => revision + 1);

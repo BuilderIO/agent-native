@@ -1054,6 +1054,27 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.composerProps.isReferenceTarget).toBe(true);
   });
 
+  it("passes the worked-for row layout into the shared AgentKit root", async () => {
+    const layout = {
+      chevronSize: 12,
+      iconGap: 8,
+      fontSize: 13,
+      lineHeight: 16,
+      paddingBlock: 2,
+      paddingInline: 4,
+    };
+    const formatWorkedForDuration = (durationMs: number) =>
+      `${Math.round(durationMs / 1000)} seconds`;
+    await mount(
+      baseProps({ workedForRowLayout: layout, formatWorkedForDuration }),
+    );
+
+    expect(chatMocks.rootProps.workedForRowLayout).toEqual(layout);
+    expect(chatMocks.rootProps.formatWorkedForDuration).toBe(
+      formatWorkedForDuration,
+    );
+  });
+
   it("reports whether a composer can hold a prefill with its current context", async () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);
@@ -3271,6 +3292,24 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).not.toBeNull();
   });
 
+  it("forwards transcript layout options to the shared chat component", async () => {
+    const transcriptLayout = {
+      topInset: 5,
+      messageLaneWidth: 730,
+      messageLaneOffsetInline: -33,
+      messageGap: 12,
+      messageLineHeight: 20,
+      fontFamily: "IBM Plex Sans",
+      userBubbleLineHeight: 18,
+      userBubbleMaxWidth: 600,
+      userBubbleOffsetInline: 10,
+      userBubblePadding: { block: 8, inline: 13 },
+    };
+    await mount(baseProps({ transcriptLayout }));
+
+    expect(chatMocks.chatProps.transcriptLayout).toBe(transcriptLayout);
+  });
+
   it("anchors the composer at the bottom while restoring a persisted thread", async () => {
     await mount(
       baseProps({
@@ -3346,6 +3385,25 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.chatProps.hasRenderedMessages).toBe(true);
     expect(container.textContent).toContain("Existing conversation content");
     expect(container.querySelector(".agentkit-home-intro")).toBeNull();
+  });
+
+  it("renders the shared context banner slot alongside the existing composer slot", async () => {
+    await mount(
+      baseProps({
+        composerSlot: <div data-testid="legacy-composer-slot">Notice</div>,
+        composerContextBannerSlot: (
+          <div data-testid="composer-context-banner-slot">Add context</div>
+        ),
+      }),
+    );
+
+    const composer = container.querySelector(".agentkit-host-composer")!;
+    expect(
+      composer.querySelector('[data-testid="legacy-composer-slot"]'),
+    ).not.toBeNull();
+    expect(
+      composer.querySelector('[data-testid="composer-context-banner-slot"]'),
+    ).not.toBeNull();
   });
 
   it("puts the beginning revert before messages inside the scrollable transcript", async () => {

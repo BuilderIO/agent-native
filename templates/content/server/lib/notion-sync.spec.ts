@@ -2,13 +2,15 @@ import crypto from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { canonicalizeNfm } from "../../shared/nfm.js";
+import { canonicalizeNotionNfm } from "../../shared/nfm.js";
+
+/** A baseline as main hashed it: no prefix, over its own canonical form. */
+function legacyHashForTest(canonical: string): string {
+  return crypto.createHash("sha256").update(canonical).digest("hex");
+}
 
 function hashContentForTest(content: string | null | undefined): string {
-  return crypto
-    .createHash("sha256")
-    .update(canonicalizeNfm(content ?? ""))
-    .digest("hex");
+  return `v2:${legacyHashForTest(canonicalizeNotionNfm(content ?? ""))}`;
 }
 
 const testState = vi.hoisted(() => ({
@@ -889,6 +891,63 @@ describe("refreshDocumentSyncStatus", () => {
     expect(status.hasConflict).toBe(true);
     expect(testState.link?.state).toBe("conflict");
     expect(Boolean(testState.link?.hasConflict)).toBe(true);
+  });
+
+  it("lets timestamps decide when a baseline from the earlier canonical form no longer matches", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    // Main stored Notion's `a\_b` as `a\\_b`, and its baseline matches
+    // neither side now. Neither side has changed since.
+    testState.document = {
+      ...testState.document,
+      content: "a\\\\_b",
+      updatedAt: "2026-06-01T09:00:00.000Z",
+    };
+    testState.link.lastSyncedContentHash = legacyHashForTest("a\\\\\\_b");
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "a\\_b",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      { autoSync: true },
+    );
+
+    expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+    expect(status.localChanged).toBe(false);
+    expect(status.remoteChanged).toBe(false);
+    expect(status.hasConflict).toBe(false);
+    expect(testState.document.content).toBe("a\\\\_b");
+  });
+
+  it("still lets a baseline from the earlier canonical form that matches decide", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    testState.link.lastSyncedContentHash = legacyHashForTest("Local body");
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      { autoSync: true },
+    );
+
+    // The document's timestamp is past the last push, but its hash matches.
+    expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+    expect(status.localChanged).toBe(false);
   });
 
   it("proceeds with the pull when a stale claim (older than the staleness window) is held", async () => {

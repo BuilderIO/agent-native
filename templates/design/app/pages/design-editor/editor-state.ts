@@ -50,6 +50,7 @@ export type PersistedContentHostSyncOptions = {
   forcePreviewFullDocument: boolean;
   persist: false;
   shaderWriteCompletion?: true;
+  serverAccepted?: true;
   updatedAt?: string;
 };
 
@@ -63,6 +64,7 @@ export type PersistedContentHostSyncHandler = (
   fileId: string,
   content: string,
   updatedAt?: string,
+  beforeContent?: string,
 ) => void;
 
 export function getPersistedContentHostSyncOptions(args: {
@@ -70,6 +72,7 @@ export function getPersistedContentHostSyncOptions(args: {
   activeFileId: string | null | undefined;
   updatedAt?: string;
   shaderWriteCompletion?: true;
+  beforeContent?: string;
 }): PersistedContentHostSyncOptions {
   return {
     forcePreviewFullDocument:
@@ -77,7 +80,18 @@ export function getPersistedContentHostSyncOptions(args: {
       args.activeFileId !== undefined &&
       args.fileId === args.activeFileId,
     persist: false,
-    ...(args.shaderWriteCompletion ? { shaderWriteCompletion: true } : {}),
+    ...(args.shaderWriteCompletion
+      ? {
+          shaderWriteCompletion: true as const,
+          serverAccepted: true as const,
+          ...(args.beforeContent !== undefined
+            ? {
+                recordHistory: true as const,
+                historyBeforeContent: args.beforeContent,
+              }
+            : {}),
+        }
+      : {}),
     updatedAt: args.updatedAt,
   };
 }
@@ -87,7 +101,7 @@ export function createPersistedContentHostSyncHandler(args: {
   applyFileContentUpdateRef: { current: PersistedContentHostSyncWriter };
   shaderWriteCompletion?: true;
 }): PersistedContentHostSyncHandler {
-  return (fileId, content, updatedAt) => {
+  return (fileId, content, updatedAt, beforeContent) => {
     args.applyFileContentUpdateRef.current(
       fileId,
       content,
@@ -95,6 +109,7 @@ export function createPersistedContentHostSyncHandler(args: {
         fileId,
         activeFileId: args.activeFileIdRef.current,
         updatedAt,
+        beforeContent,
         shaderWriteCompletion: args.shaderWriteCompletion,
       }),
     );

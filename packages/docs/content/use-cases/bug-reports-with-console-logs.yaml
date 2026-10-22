@@ -1,0 +1,86 @@
+slug: bug-reports-with-console-logs
+job_id: job-bug-report
+app: clips
+audience: technical
+title: "Bug reports your engineers and coding agents can act on"
+subhead: "Record the bug once. With the Clips Chrome extension, console messages and request details from the tab you record come along with the video, so nobody has to ask you to open DevTools."
+meta_description: "Record a bug with its console messages and request details, then share one link an engineer or coding agent can use. Free, open-source Clips from Agent-Native."
+cta_label: "Record a clip"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://clips.agent-native.com"
+screenshot_alt: "The Clips library with recordings, and the recorder panel open with screen, camera, and microphone options and Library, Meetings, Dictate, and Settings tabs"
+old_way:
+  heading: "How most people do it today"
+  body: "You hit the bug, take a screenshot, and write the steps from memory. Then the reply comes back: can you send the console output? So you reopen DevTools, hunt for the right error, and paste it into the ticket. If a coding agent picks it up, it sees only what you pasted. It never sees the moment things broke."
+new_way:
+  heading: "How it works in Clips"
+  steps:
+    - "Record the bug in your browser and say what you expected as you go. Connect Builder or your own storage so the recording uploads and gets a share link."
+    - "Stop. Clips transcribes the recording. With the Chrome extension, it also saves console messages and basic per-request info from the tab you recorded, while you record."
+    - "Share the link. People watch the video. Your agent gets the transcript and timestamped images, and you can open the clip in Claude, Claude Code, or Codex from the clip page."
+todays_stack:
+  heading: "What one recording replaces"
+  items:
+    - text: "**A screen recorder, like Loom,** shows what happened on screen, but not the console messages behind it."
+    - text: "**Copying errors out of DevTools by hand** is slow, and it's easy to grab the wrong one."
+    - text: "**Pasting logs into your coding agent's chat** gives it only what you copied, never the moment things broke."
+  in_app: "Clips works with the coding agent you already use. The recording, the transcript, and, with the Chrome extension, the console messages and request details sit behind one link you can hand to Claude, Claude Code, or Codex."
+story: null
+faqs:
+  - q: "Do I need the Chrome extension to record a bug?"
+    a: "No. You can record in the Clips web app. Use the Chrome extension when you also want console messages and network diagnostics from the tab you're demonstrating."
+  - q: "What does the extension capture?"
+    a: "Console messages and basic information about each request, only from the tab you're recording and only while you record. It never captures request or response bodies, headers, or cookies."
+  - q: "Do I need to connect storage?"
+    a: "Clips needs somewhere to store recordings. Connect Builder or your own storage so recordings upload and get a share link. Without one, Clips offers the recording as a download."
+  - q: "Can an AI agent use my recording?"
+    a: "Compatible AI agents understand a recording through its transcript and timestamped images. They use the text and images rather than playing the video. Your agent needs to be able to open the linked content and read images to use both."
+  - q: "Who can open a shared recording?"
+    a: "Recordings use public links by default unless your organization changes that setting, and anyone with the link can open them. Private and organization access options are available. Private clips can be shared with agents through temporary links without making the recording public."
+  - q: "Is Clips free?"
+    a: "Yes. Clips is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Record your next bug"
+cta_band_subhead: "Capture the video, the console messages, and request details behind one link."
+updated: 2026-10-14
+internal:
+  job: "Bug report with console messages and request details, for an engineer or coding agent"
+  recurs_when: "Every bug"
+  first_session: "Record a bug in the browser, paste the link into an agent"
+  return_signal: "Second clip shared with an agent within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "bug report template (US 400/mo, KD 0); how to write a bug report (200, KD 2); bug report format (200); about 1,700/mo across 12 queries"
+  basis: "signal (Developer Recorder ad converts). The job phrase has no organic volume, so reach it through the article."
+  verify: "Redaction wording against the live Clips page. Whether storage-before-share is still required (Steve is testing a change)."
+frequency: per-project
+how_often_label: "Every bug"
+roles: [engineering, product]
+connects_to: ["Claude", "Claude Code", "Codex"]
+next_jobs:
+  [understand-what-your-coding-agent-changed, dictate-instead-of-typing]
+recipes:
+  - id: record-with-logs
+    title: "Record a bug with its logs"
+    when: "Use this when you can reproduce the bug in your browser."
+    steps:
+      - "Turn on the Clips Chrome extension."
+      - "Start recording and reproduce the bug, saying what you expected as you go."
+      - "Stop the recording."
+    result: "You'll have one link with the video, the transcript, the console messages, and request details."
+    tip: "Keep the extension pinned, so the next bug is one click."
+    how_often: "Every bug"
+  - id: hand-to-agent
+    title: "Hand the recording to your coding agent"
+    when: "Use this when you want your coding agent to investigate."
+    steps:
+      - "Open the clip page."
+      - "Use Copy agent prompt, or open the clip in Claude, Claude Code, or Codex."
+    result: "Your agent gets the transcript and timestamped images through the link."
+    how_often: "Every bug"
+  - id: find-old-bug
+    title: "Find a bug you recorded before"
+    when: "Use this when a bug comes back."
+    steps:
+      - "Search your library for something you said in the recording."
+      - "Open the clip to watch it again."
+    result: "You're back to the original recording and its transcript."
+    tip: "Keep bug recordings in a folder or team space, so your team can find them too."
+    how_often: "When bugs repeat"

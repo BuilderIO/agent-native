@@ -1,7 +1,7 @@
 //! macOS Accessibility (AX) bridge — read the focused UI element's text.
 //!
 //! This powers the personal-vocabulary auto-learn loop in
-//! `templates/clips/desktop/src/lib/personal-vocabulary.ts`. After a Wispr
+//! `templates/clips/desktop/src/lib/personal-vocabulary.ts`. After a
 //! dictation pastes text into whatever app the user is in, the JS polls
 //! `read_focused_field_text` every 200ms for ~10s. If the user edits a
 //! single word ("kublectl" -> "kubectl") we record the term/replacement

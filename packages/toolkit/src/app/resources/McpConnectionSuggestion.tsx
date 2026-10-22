@@ -36,6 +36,7 @@ export interface McpConnectionSuggestionProps {
   /** Offer a composer connection card when the user names a known provider. */
   requestedByUser?: boolean;
   integrations?: DefaultMcpIntegration[];
+  excludedIntegrationIds?: readonly string[];
   integrationId?: string;
   onConnected?: () => void | Promise<void>;
   onDismiss?: () => void | Promise<void>;
@@ -125,12 +126,21 @@ export function findMcpConnectionSuggestionIntegration({
   requestedByAgent = false,
   requestedByUser = false,
   integrations = getDefaultMcpIntegrations(),
+  excludedIntegrationIds,
   integrationId,
 }: McpConnectionSuggestionProps): DefaultMcpIntegration | null {
+  const excludedIds = new Set(
+    excludedIntegrationIds?.map((id) => id.trim().toLowerCase()) ?? [],
+  );
+  const availableIntegrations = integrations.filter(
+    (integration) =>
+      !excludedIds.has(integration.id.toLowerCase()) &&
+      !excludedIds.has(integration.provider.toLowerCase()),
+  );
   if (integrationId) {
     const normalized = integrationId.trim().toLowerCase();
     return (
-      integrations.find(
+      availableIntegrations.find(
         (integration) =>
           integration.id.toLowerCase() === normalized ||
           integration.provider.toLowerCase() === normalized,
@@ -140,7 +150,7 @@ export function findMcpConnectionSuggestionIntegration({
   const responseText = visibleUserAuthoredText(text);
   if (variant !== "response") {
     if (requestedByUser) {
-      return findMcpIntegrationForText(responseText, integrations);
+      return findMcpIntegrationForText(responseText, availableIntegrations);
     }
     if (requestedByAgent) {
       if (
@@ -159,10 +169,10 @@ export function findMcpConnectionSuggestionIntegration({
     isMcpConnectionFailureText(responseText)
   ) {
     return (
-      findMcpIntegrationForText(responseText, integrations) ??
+      findMcpIntegrationForText(responseText, availableIntegrations) ??
       findMcpIntegrationForText(
         visibleUserAuthoredText(contextText),
-        integrations,
+        availableIntegrations,
       )
     );
   }
@@ -201,6 +211,7 @@ export function McpConnectionSuggestion({
   requestedByAgent = false,
   requestedByUser = false,
   integrations: integrationOptions,
+  excludedIntegrationIds,
   integrationId,
   onConnected,
   onDismiss,
@@ -232,10 +243,12 @@ export function McpConnectionSuggestion({
         requestedByAgent,
         requestedByUser,
         integrations,
+        excludedIntegrationIds,
         integrationId,
       }),
     [
       contextText,
+      excludedIntegrationIds,
       integrationId,
       integrations,
       requestedByAgent,

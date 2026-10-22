@@ -20,7 +20,6 @@ import { normalizeTooltipText } from "@agent-native/toolkit/ui/tooltip";
 import {
   IconMessageCircle,
   IconMessageDots,
-  IconMessageReport,
   IconTerminal2,
   IconLayoutSidebarRightCollapse,
   IconLayoutGrid,
@@ -48,7 +47,6 @@ import { useLocation, useNavigate } from "react-router";
 
 import { resolveFeedbackUrl } from "../feedback/FeedbackButton.js";
 import { ErrorReportActions, FeedbackButton } from "../feedback/index.js";
-import { ReportProblemDialog } from "../feedback/ReportProblemDialog.js";
 import { RunsTrayMenuItem } from "../progress/index.js";
 import { ShareButton } from "../sharing/index.js";
 import {
@@ -443,6 +441,30 @@ export function shouldShowAgentPanelPageHeader(
   );
 }
 
+export function resolveAgentPanelPageHeaderActions({
+  showPageTitleMenu = true,
+  canShareActiveTab,
+}: {
+  showPageTitleMenu?: boolean;
+  canShareActiveTab: boolean;
+}) {
+  return { showPageTitleMenu, showShareAction: canShareActiveTab };
+}
+
+export type AgentPanelPageToolbarActions = Pick<
+  MultiTabAssistantChatHeaderCallbackProps,
+  "activeTabMessageCount" | "clearActiveTab" | "showHistory" | "toggleHistory"
+>;
+
+export function resolveAgentPanelPageToolbarSlot(
+  slot:
+    | React.ReactNode
+    | ((actions: AgentPanelPageToolbarActions) => React.ReactNode),
+  actions: AgentPanelPageToolbarActions,
+) {
+  return typeof slot === "function" ? slot(actions) : slot;
+}
+
 export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
   return cliTabs.length > 1;
 }
@@ -585,8 +607,13 @@ export interface AgentPanelProps extends Omit<
   showPageNewChatButton?: boolean;
   showPageHeader?: boolean;
   showPageHeaderWhenEmpty?: boolean;
+  /** Hide the default page title menu while keeping the shared page actions. */
+  showPageTitleMenu?: boolean;
   pageHeaderLeadingSlot?: React.ReactNode;
-  pageToolbarSlot?: React.ReactNode;
+  /** Render host page actions alongside Share, with the active chat controls. */
+  pageToolbarSlot?:
+    | React.ReactNode
+    | ((actions: AgentPanelPageToolbarActions) => React.ReactNode);
   onPageHeaderVisibilityChange?: (visible: boolean) => void;
   chatOnly?: boolean;
   agentPageHref?: string;
@@ -780,6 +807,7 @@ function AgentPanelInner({
   showPageNewChatButton = false,
   showPageHeader = false,
   showPageHeaderWhenEmpty = false,
+  showPageTitleMenu = true,
   pageHeaderLeadingSlot,
   pageToolbarSlot,
   onPageHeaderVisibilityChange,
@@ -1176,7 +1204,6 @@ function AgentPanelInner({
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [reportProblemOpen, setReportProblemOpen] = useState(false);
   const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
   const pendingHeaderOverlayRef = useRef<(() => void) | null>(null);
   const closeHeaderMenuForOverlay = useCallback(() => {
@@ -1320,10 +1347,6 @@ function AgentPanelInner({
             }
           />
         ) : null}
-        <ReportProblemDialog
-          open={reportProblemOpen}
-          onOpenChange={setReportProblemOpen}
-        />
         {mode === "chat" && (
           <IconTooltip
             content={
@@ -1560,19 +1583,6 @@ function AgentPanelInner({
                 {t("agentPanel.feedback")}
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem
-              onSelect={(event) =>
-                deferAgentPanelOverlayOpen(
-                  event,
-                  closeHeaderMenuForOverlay,
-                  () => setReportProblemOpen(true),
-                  pendingHeaderOverlayRef,
-                )
-              }
-            >
-              <IconMessageReport size={14} className="shrink-0" />
-              {t("agentChat.reportProblem.menuItem")}
-            </DropdownMenuItem>
             {((mode === "chat" && activeTabId) ||
               (mode === "cli" &&
                 (canUseCodeTools || renderCliTab) &&
@@ -1663,7 +1673,6 @@ function AgentPanelInner({
       feedbackOpen,
       feedbackEnabled,
       getChatThreadShareUrl,
-      reportProblemOpen,
       headerMenuOpen,
       isWideDrawer,
       mode,
@@ -1715,11 +1724,16 @@ function AgentPanelInner({
         showPageHeaderWhenEmpty,
         activeTabIsPersisted,
       );
-      const canShareActiveTab =
+      const canShareActiveTab = Boolean(
         activeTab &&
         (activeTabIsPersisted ||
           activeTabMessageCount > 0 ||
-          activeTab.status !== "idle");
+          activeTab.status !== "idle"),
+      );
+      const pageHeaderActions = resolveAgentPanelPageHeaderActions({
+        showPageTitleMenu,
+        canShareActiveTab,
+      });
       const showNewChatAction =
         showPageNewChatButton &&
         shouldShowAgentPanelPageNewChatButton(
@@ -1728,6 +1742,12 @@ function AgentPanelInner({
           activeTabMessageCount,
           activeTabIsPersisted,
         );
+      const toolbarSlot = resolveAgentPanelPageToolbarSlot(pageToolbarSlot, {
+        activeTabMessageCount,
+        clearActiveTab,
+        showHistory,
+        toggleHistory,
+      });
 
       return (
         <>
@@ -1751,62 +1771,64 @@ function AgentPanelInner({
                   <h1 className="truncate text-xs font-medium text-foreground">
                     {activeTab?.label || t("agentPanel.newChat")}
                   </h1>
-                  <DropdownMenu
-                    open={headerMenuOpen}
-                    onOpenChange={setHeaderMenuOpen}
-                  >
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        data-agent-page-title-menu=""
-                        aria-label={t("agentPanel.panelOptions")}
-                        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
-                      >
-                        <IconDotsVertical size={14} />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="start"
-                      sideOffset={5}
-                      className="w-44"
-                      onCloseAutoFocus={(event) => {
-                        consumeAgentPanelOverlayFocusRestore(
-                          pendingHeaderOverlayRef,
-                          event,
-                        );
-                      }}
+                  {pageHeaderActions.showPageTitleMenu ? (
+                    <DropdownMenu
+                      open={headerMenuOpen}
+                      onOpenChange={setHeaderMenuOpen}
                     >
-                      {toggleHistory ? (
-                        <DropdownMenuItem
-                          onSelect={(event) =>
-                            deferAgentPanelOverlayOpen(
-                              event,
-                              closeHeaderMenuForOverlay,
-                              toggleHistory,
-                              pendingHeaderOverlayRef,
-                            )
-                          }
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          data-agent-page-title-menu=""
+                          aria-label={t("agentPanel.panelOptions")}
+                          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
                         >
-                          <IconHistory size={14} className="shrink-0" />
-                          {showHistory
-                            ? t("agentPanel.hideChats")
-                            : t("agentPanel.allChats")}
-                        </DropdownMenuItem>
-                      ) : null}
-                      {activeTabMessageCount > 0 ? (
-                        <DropdownMenuItem onSelect={clearActiveTab}>
-                          <IconX size={14} className="shrink-0" />
-                          {t("agentPanel.clearChat")}
-                        </DropdownMenuItem>
-                      ) : null}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                          <IconDotsVertical size={14} />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        sideOffset={5}
+                        className="w-44"
+                        onCloseAutoFocus={(event) => {
+                          consumeAgentPanelOverlayFocusRestore(
+                            pendingHeaderOverlayRef,
+                            event,
+                          );
+                        }}
+                      >
+                        {toggleHistory ? (
+                          <DropdownMenuItem
+                            onSelect={(event) =>
+                              deferAgentPanelOverlayOpen(
+                                event,
+                                closeHeaderMenuForOverlay,
+                                toggleHistory,
+                                pendingHeaderOverlayRef,
+                              )
+                            }
+                          >
+                            <IconHistory size={14} className="shrink-0" />
+                            {showHistory
+                              ? t("agentPanel.hideChats")
+                              : t("agentPanel.allChats")}
+                          </DropdownMenuItem>
+                        ) : null}
+                        {activeTabMessageCount > 0 ? (
+                          <DropdownMenuItem onSelect={clearActiveTab}>
+                            <IconX size={14} className="shrink-0" />
+                            {t("agentPanel.clearChat")}
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : null}
                   {activeTab?.status === "running" ? (
                     <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/55 animate-pulse motion-reduce:animate-none" />
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  {canShareActiveTab ? (
+                  {pageHeaderActions.showShareAction && activeTab ? (
                     <ShareButton
                       resourceType="chat_thread"
                       resourceId={activeTab.id}
@@ -1819,7 +1841,7 @@ function AgentPanelInner({
                       triggerClassName="size-8 p-0 border-0 bg-transparent shadow-none hover:bg-accent/60"
                     />
                   ) : null}
-                  {pageToolbarSlot}
+                  {toolbarSlot}
                   {showNewChatAction ? (
                     <button
                       type="button"
@@ -1850,6 +1872,7 @@ function AgentPanelInner({
       pageToolbarSlot,
       pendingHeaderOverlayRef,
       setHeaderMenuOpen,
+      showPageTitleMenu,
       showPageNewChatButton,
       t,
     ],
