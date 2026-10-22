@@ -647,7 +647,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const tickLabels = Array.from(
       markup.matchAll(
-        /<text x="38" y="[^"]+"[^>]*text-anchor="end">([^<]+)<\/text>/g,
+        /<text(?=[^>]*data-value-axis-tick="true")[^>]*>([^<]+)<\/text>/g,
       ),
       (match) => match[1],
     );
@@ -677,7 +677,7 @@ describe("DataChartRenderer theme colors", () => {
     );
     const tickLabels = Array.from(
       markup.matchAll(
-        /<text x="38" y="[^"]+"[^>]*text-anchor="end">([^<]+)<\/text>/g,
+        /<text(?=[^>]*data-value-axis-tick="true")[^>]*>([^<]+)<\/text>/g,
       ),
       (match) => match[1],
     );
@@ -688,6 +688,40 @@ describe("DataChartRenderer theme colors", () => {
       "0.0000000000024",
       "0.0000000000036",
     ]);
+  });
+
+  it("keeps integer data labels compact while axis ticks retain interval precision", () => {
+    const markup = renderToStaticMarkup(
+      <DataChartRenderer
+        chart={{
+          type: "line",
+          xKey: "day",
+          series: [{ key: "value", label: "Value" }],
+          data: [
+            { day: "Monday", value: 0 },
+            { day: "Tuesday", value: 7 },
+          ],
+          showValueLabels: true,
+          valueAxisTickInterval: 0.5,
+        }}
+      />,
+    );
+    const axisLabels = Array.from(
+      markup.matchAll(
+        /<text(?=[^>]*data-value-axis-tick="true")[^>]*>([^<]+)<\/text>/g,
+      ),
+      (match) => match[1],
+    );
+    const valueLabels = Array.from(
+      markup.matchAll(
+        /<text(?=[^>]*data-value-label="true")[^>]*>([^<]+)<\/text>/g,
+      ),
+      (match) => match[1],
+    );
+
+    expect(axisLabels).toContain("7.0");
+    expect(valueLabels).toContain("7");
+    expect(valueLabels).not.toContain("7.0");
   });
 
   it("compacts wide vertical ticks while keeping them clear of the axis title", () => {

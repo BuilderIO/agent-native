@@ -245,7 +245,12 @@ describe("DataChartWidget display contract", () => {
     expect(primary?.classList.contains("border")).toBe(false);
     expect(explore?.classList.contains("border")).toBe(false);
     expect(explore?.classList.contains("size-7")).toBe(true);
-    expect(container.querySelector('[aria-label="Chart actions"]')).toBeNull();
+    const chartActions = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Chart actions"]',
+    );
+    expect(chartActions).not.toBeNull();
+    expect(chartActions?.classList.contains("size-7")).toBe(true);
+    expect(chartActions?.classList.contains("border")).toBe(false);
   });
 
   it("announces incomplete chart data and stays quiet for complete data", async () => {

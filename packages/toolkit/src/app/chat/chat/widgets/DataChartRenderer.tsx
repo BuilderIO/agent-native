@@ -43,6 +43,13 @@ function formatTick(value: number): string {
   return value.toFixed(1);
 }
 
+function formatValueLabel(value: number): string {
+  if (Number.isInteger(value)) {
+    return Math.abs(value) >= 1000 ? value.toLocaleString() : String(value);
+  }
+  return formatTick(value);
+}
+
 function formatAxisTick(
   value: number,
   interval: number,
@@ -158,7 +165,7 @@ function formatHorizontalValueLabel(
   fontSize: number,
   maxWidth: number,
 ): string {
-  const label = formatTick(value);
+  const label = formatValueLabel(value);
   return estimateTextWidth(label, fontSize) > maxWidth
     ? formatCompactTick(value, fontSize, maxWidth)
     : label;
@@ -517,6 +524,7 @@ function ChartBody({
             />
             {axisLabelIndexes.has(tick.index) ? (
               <text
+                data-value-axis-tick="true"
                 x={margin.left - VALUE_AXIS_TICK_LABEL_INSET}
                 y={Math.max(tick.y + 4, labelFontSize)}
                 fill={labelColor}
@@ -659,7 +667,7 @@ function ChartBody({
                   valueLabelFontSize,
                   horizontalTextWidthLimit,
                 )
-              : formatTick(value);
+              : formatValueLabel(value);
             const valueLabelWidth = estimateTextWidth(
               valueLabel,
               valueLabelFontSize,
@@ -683,6 +691,7 @@ function ChartBody({
                 />
                 {chart.showValueLabels ? (
                   <text
+                    data-value-label="true"
                     x={isHorizontalBar ? valueLabelX : x + width / 2}
                     y={
                       isHorizontalBar
@@ -771,6 +780,7 @@ function ChartBody({
                 return (
                   <text
                     key={`value-${index}`}
+                    data-value-label="true"
                     x={point.x}
                     y={lineValueLabelY(point.y, valueLabelFontSize, margin.top)}
                     fill={labelColor}
@@ -784,7 +794,7 @@ function ChartBody({
                           : "middle"
                     }
                   >
-                    {formatTick(point.value)}
+                    {formatValueLabel(point.value)}
                   </text>
                 );
               })

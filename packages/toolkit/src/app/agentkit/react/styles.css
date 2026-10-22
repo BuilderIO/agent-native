@@ -627,6 +627,8 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 .agentkit-transcript {
   grid-column: 1;
   grid-row: 2;
+  container-name: agentkit-transcript;
+  container-type: inline-size;
   inline-size: 100%;
   min-block-size: 0;
   overflow-y: auto;
@@ -687,7 +689,7 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   inset-inline-start: var(--agentkit-transcript-lane-offset-inline, 0px);
 }
 
-@media (max-width: 74.999rem) {
+@container agentkit-transcript (max-width: 74.999rem) {
   .agentkit-transcript-content[data-lane-offset-mode="responsive"] {
     inset-inline-start: clamp(
       calc(
