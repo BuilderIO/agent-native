@@ -1717,6 +1717,40 @@ describe("a browser save to a switched page's body", () => {
     });
   });
 
+  it("refuses a stale title that arrives with a live-copy body save after a rename", async () => {
+    await switchedPage("stale-title", "Hello there");
+    const loaded = await page("stale-title");
+    const titleAndTime = async () => {
+      const [row] = await getDb()
+        .select({
+          title: schema.documents.title,
+          updatedAt: schema.documents.updatedAt,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "stale-title"));
+      return row;
+    };
+    const { updatedAt } = await titleAndTime();
+    await browserSave("stale-title", loaded, "Hello there", {
+      title: "Renamed",
+      baseTitle: "stale-title",
+    });
+    const renamed = await titleAndTime();
+    expect(renamed.title).toBe("Renamed");
+
+    // A save checked by snapshot time carries the title the tab loaded and
+    // no baseTitle.
+    await expect(
+      browserSave("stale-title", loaded, "Hello there", {
+        title: "stale-title",
+        baseRevision: undefined,
+        baseUpdatedAt: updatedAt,
+        browserSaveAttemptId: "stale-title-old",
+      }),
+    ).resolves.toMatchObject({ conflict: true });
+    expect(await titleAndTime()).toEqual(renamed);
+  });
+
   it("keeps a recovery replay's receipt only for a body the live copy holds", async () => {
     await switchedPage("recovery", "Hello there");
     const loaded = await page("recovery");
