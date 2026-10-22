@@ -914,7 +914,7 @@ export function CommandMenu<TAppContext = unknown>({
     const renderedResults = usesDefaultResults ? dynamicResults : results;
     const hasDynamicItems =
       options?.hasSelectableItems ??
-      (usesDefaultResults
+      (usesDefaultResults && !activeAppPage
         ? (renderResultsHasItems?.(search) ?? hasCommandItems(renderedResults))
         : hasCommandItems(renderedResults));
     const hasResults = hasCommandResults || hasDynamicItems;

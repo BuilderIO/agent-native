@@ -1424,6 +1424,7 @@ describe("CommandMenu", () => {
   });
 
   it("shows an empty state when a nested page has no matching commands", () => {
+    const hasRootResults = vi.fn(() => true);
     renderAppCommands({
       groups: [
         {
@@ -1456,6 +1457,14 @@ describe("CommandMenu", () => {
           ],
         },
       ],
+      renderResults: () => (
+        <CommandMenu.Group heading="Root results">
+          <CommandMenu.Item onSelect={() => undefined}>
+            Root fallback
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+      ),
+      renderResultsHasItems: hasRootResults,
       emptyState: "No matching commands",
     });
 
@@ -1465,9 +1474,12 @@ describe("CommandMenu", () => {
     expect(parentRow).toBeTruthy();
     act(() => parentRow!.click());
     expect(document.body.textContent).toContain("Refresh data");
+    expect(document.body.textContent).not.toContain("Root fallback");
 
+    hasRootResults.mockClear();
     search("no-such-command");
 
+    expect(hasRootResults).not.toHaveBeenCalled();
     expect(document.querySelector('[role="status"]')?.textContent).toContain(
       "No matching commands",
     );
