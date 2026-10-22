@@ -92,6 +92,8 @@ describe("ComposerContextBanner", () => {
     )!;
 
     expect(button.textContent).toBe("Add context");
+    expect(button.classList).toContain("has-[>span>svg]:px-1.5");
+    expect(Array.from(button.querySelectorAll("svg"))).toEqual([actionIcon]);
     expect(actionIcon.parentElement?.getAttribute("aria-hidden")).toBe("true");
   });
 });
