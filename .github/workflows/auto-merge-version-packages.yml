@@ -208,7 +208,7 @@ jobs:
           done < "$files_dir/files.jsonl"
           node --experimental-strip-types scripts/verify-release-package-files.ts
 
-      - name: Verify community QR package pin
+      - name: Verify community QR template pins
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}

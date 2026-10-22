@@ -22,7 +22,7 @@ import {
 } from "./sync-community-qr-core-lock.ts";
 import {
   assertCompletePullRequestFiles,
-  assertCommunityQrPackagePinOnlyChange,
+  assertCommunityQrFilePinsSynced,
   decodeGitHubContentResponse,
   parseCompletePullRequestFiles,
 } from "./verify-community-qr-release-pin.ts";
@@ -544,75 +544,73 @@ importers:
     );
   });
 
-  it("accepts only the community QR package pin when it matches both manifest blobs", () => {
+  it("accepts all synchronized community QR template pins and rejects other catalog changes", () => {
     const basePackage = Buffer.from('{"name":"qr","version":"0.40.35"}\n');
     const headPackage = Buffer.from('{"name":"qr","version":"0.40.36"}\n');
-    const source = (packagePin: string) => `
+    const headReadme = Buffer.from("updated QR template docs\n");
+    const headAction = Buffer.from("updated QR action\n");
+    const source = (pins: Map<string, string>) => `
       templatePath: "templates/community/qr",
       files: [
-        {
-          path: "package.json",
-          blobSha: "${packagePin}",
-        },
-        {
-          path: "README.md",
-          blobSha: "${"b".repeat(40)}",
-        },
+        ${["package.json", "README.md", "actions/run.ts"]
+          .map(
+            (path) => `{
+          path: "${path}",
+          blobSha: "${pins.get(path)}",
+        }`,
+          )
+          .join(",\n        ")},
       ],
     },`;
-    const baseSource = source(gitBlobSha(basePackage));
-    const headSource = source(gitBlobSha(headPackage));
+    const baseSource = source(
+      new Map([
+        ["package.json", gitBlobSha(basePackage)],
+        ["README.md", "b".repeat(40)],
+        ["actions/run.ts", "d".repeat(40)],
+      ]),
+    );
+    const headFiles = new Map([
+      ["package.json", headPackage],
+      ["README.md", headReadme],
+      ["actions/run.ts", headAction],
+    ]);
+    const headPins = new Map(
+      [...headFiles].map(([path, content]) => [path, gitBlobSha(content)]),
+    );
+    const headSource = source(headPins);
 
     assert.doesNotThrow(() =>
-      assertCommunityQrPackagePinOnlyChange(
-        baseSource,
-        headSource,
-        basePackage,
-        headPackage,
-      ),
+      assertCommunityQrFilePinsSynced(baseSource, headSource, headPins),
     );
     assert.throws(
       () =>
-        assertCommunityQrPackagePinOnlyChange(
+        assertCommunityQrFilePinsSynced(
           baseSource,
-          source("c".repeat(40)),
-          basePackage,
-          headPackage,
+          source(new Map(headPins).set("package.json", "c".repeat(40))),
+          headPins,
         ),
-      /Head QR package.json blob pin does not match its manifest/,
+      /Head QR template blob pin does not match package.json/,
     );
     assert.throws(
       () =>
-        assertCommunityQrPackagePinOnlyChange(
-          baseSource.replace(gitBlobSha(basePackage), "a".repeat(40)),
+        assertCommunityQrFilePinsSynced(
+          baseSource,
           headSource,
-          basePackage,
-          headPackage,
+          new Map([...headPins].filter(([path]) => path !== "README.md")),
         ),
-      /Base QR package.json blob pin does not match its manifest/,
+      /Missing head QR template blob for README.md/,
     );
     assert.throws(
       () =>
-        assertCommunityQrPackagePinOnlyChange(
+        assertCommunityQrFilePinsSynced(
           baseSource,
           headSource.replace(
-            'path: "README.md"',
-            'path: "README.md",\n          description: "unexpected"',
+            'templatePath: "templates/community/qr",',
+            'templatePath: "templates/community/qr",\n      description: "unexpected",',
           ),
-          basePackage,
-          headPackage,
+          headPins,
         ),
-      /Community app catalog does not match the QR package.json blob pin update/,
-    );
-    assert.throws(
-      () =>
-        assertCommunityQrPackagePinOnlyChange(
-          baseSource,
-          baseSource,
-          basePackage,
-          headPackage,
-        ),
-      /Head QR package.json blob pin does not match its manifest/,
+      /Community app catalog does not match the synchronized QR template file pins/,
     );
   });
 
@@ -757,7 +755,7 @@ importers:
       (step) => step.name === "Verify release-only diff",
     );
     const qrPinGuard = autoMergeSteps.find(
-      (step) => step.name === "Verify community QR package pin",
+      (step) => step.name === "Verify community QR template pins",
     );
     const releasePrContext = autoMergeSteps.find(
       (step) => step.name === "Verify release PR identity and event-bound SHAs",

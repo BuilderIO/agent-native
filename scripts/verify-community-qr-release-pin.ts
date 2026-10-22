@@ -35,60 +35,100 @@ export function assertCompletePullRequestFiles(
   return files;
 }
 
-export function assertCommunityQrPackagePinOnlyChange(
+export function assertCommunityQrFilePinsSynced(
   baseSource: string,
   headSource: string,
-  basePackage: Buffer,
-  headPackage: Buffer,
+  headFileBlobShas: Map<string, string>,
 ): void {
-  const basePackagePin = communityQrPackagePin(baseSource);
-  const headPackagePin = communityQrPackagePin(headSource);
-  const expectedBasePin = gitBlobSha(basePackage);
-  const expectedHeadPin = gitBlobSha(headPackage);
-
-  if (basePackagePin !== expectedBasePin) {
-    throw new Error(
-      "Base QR package.json blob pin does not match its manifest.",
-    );
-  }
-  if (headPackagePin !== expectedHeadPin) {
-    throw new Error(
-      "Head QR package.json blob pin does not match its manifest.",
-    );
+  const basePins = communityQrFilePins(baseSource);
+  const headPins = communityQrFilePins(headSource);
+  const basePaths = basePins.map(({ path }) => path);
+  const headPaths = headPins.map(({ path }) => path);
+  if (JSON.stringify(basePaths) !== JSON.stringify(headPaths)) {
+    throw new Error("Community QR template file pins changed.");
   }
 
-  const expectedHeadSource = replaceCommunityQrPackagePin(
+  const expectedHeadPins = new Map<string, string>();
+  for (const { path } of headPins) {
+    const blobSha = headFileBlobShas.get(path);
+    if (!blobSha) {
+      throw new Error(`Missing head QR template blob for ${path}.`);
+    }
+    expectedHeadPins.set(path, blobSha);
+  }
+
+  for (const { path, blobSha } of headPins) {
+    if (blobSha !== expectedHeadPins.get(path)) {
+      throw new Error(`Head QR template blob pin does not match ${path}.`);
+    }
+  }
+
+  const expectedHeadSource = replaceCommunityQrFilePins(
     baseSource,
-    expectedHeadPin,
+    expectedHeadPins,
   );
   if (headSource !== expectedHeadSource) {
     throw new Error(
-      "Community app catalog does not match the QR package.json blob pin update.",
+      "Community app catalog does not match the synchronized QR template file pins.",
     );
   }
 }
 
-function communityQrPackagePin(source: string): string {
-  const marker = `templatePath: "${communityQrTemplatePath}"`;
-  const start = source.indexOf(marker);
-  if (start < 0 || source.indexOf(marker, start + marker.length) >= 0) {
-    throw new Error("Expected exactly one community QR template entry.");
+function communityQrFilePins(
+  source: string,
+): Array<{ path: string; blobSha: string }> {
+  const { block } = communityQrEntry(source);
+  const filesStart = block.indexOf("files: [");
+  const filesEnd = block.indexOf("\n      ],", filesStart);
+  if (filesStart < 0 || filesEnd < 0) {
+    throw new Error("Community QR template file list is incomplete.");
   }
 
-  const end = source.indexOf("\n    },", start);
-  if (end < 0) throw new Error("Community QR template entry is incomplete.");
-
-  const block = source.slice(start, end);
+  const files = block.slice(filesStart, filesEnd);
   const pins = [
-    ...block.matchAll(/path: "package\.json",\n\s+blobSha: "([a-f0-9]{40})"/g),
-  ];
-  if (pins.length !== 1) {
-    throw new Error("Expected exactly one community QR package.json blob pin.");
+    ...files.matchAll(
+      /\{\s*path: "([^"\n]+)",\s*blobSha: "([a-f0-9]{40})",\s*\}/g,
+    ),
+  ].map((match) => ({
+    path: match[1],
+    blobSha: match[2],
+  }));
+  if (
+    pins.length === 0 ||
+    [...files.matchAll(/\bpath:/g)].length !== pins.length ||
+    [...files.matchAll(/\bblobSha:/g)].length !== pins.length
+  ) {
+    throw new Error("Expected complete community QR template file pins.");
   }
-  return pins[0][1];
+
+  const paths = new Set<string>();
+  for (const { path } of pins) {
+    if (
+      !/^[A-Za-z0-9._/-]+$/.test(path) ||
+      path.startsWith("/") ||
+      path
+        .split("/")
+        .some((part) => part === "" || part === "." || part === "..") ||
+      paths.has(path)
+    ) {
+      throw new Error(
+        "Community QR template has an invalid or duplicate file path.",
+      );
+    }
+    paths.add(path);
+  }
+
+  if (!paths.has("package.json")) {
+    throw new Error("Expected a community QR package.json blob pin.");
+  }
+  return pins;
 }
 
-function replaceCommunityQrPackagePin(source: string, blobSha: string): string {
+function communityQrEntry(source: string): {
+  start: number;
+  end: number;
+  block: string;
+} {
   const marker = `templatePath: "${communityQrTemplatePath}"`;
   const start = source.indexOf(marker);
   if (start < 0 || source.indexOf(marker, start + marker.length) >= 0) {
@@ -98,18 +138,25 @@ function replaceCommunityQrPackagePin(source: string, blobSha: string): string {
   const end = source.indexOf("\n    },", start);
   if (end < 0) throw new Error("Community QR template entry is incomplete.");
 
-  const block = source.slice(start, end);
-  const pins = [
-    ...block.matchAll(/path: "package\.json",\n\s+blobSha: "([a-f0-9]{40})"/g),
-  ];
-  if (pins.length !== 1) {
-    throw new Error("Expected exactly one community QR package.json blob pin.");
-  }
+  return { start, end, block: source.slice(start, end) };
+}
 
-  const pin = pins[0];
-  const pinStart = start + (pin.index ?? 0);
-  const replacement = pin[0].replace(pin[1], blobSha);
-  return `${source.slice(0, pinStart)}${replacement}${source.slice(pinStart + pin[0].length)}`;
+function replaceCommunityQrFilePins(
+  source: string,
+  blobShas: Map<string, string>,
+): string {
+  const { start, end, block } = communityQrEntry(source);
+  const updatedBlock = block.replace(
+    /(path: "([^"\n]+)",\s*blobSha: ")[a-f0-9]{40}("\s*,)/g,
+    (_match, before: string, path: string, after: string) => {
+      const blobSha = blobShas.get(path);
+      if (!blobSha) {
+        throw new Error(`Missing synchronized QR template blob for ${path}.`);
+      }
+      return `${before}${blobSha}${after}`;
+    },
+  );
+  return `${source.slice(0, start)}${updatedBlock}${source.slice(end)}`;
 }
 
 function gh(args: string[]): string {
@@ -212,17 +259,17 @@ function main(): void {
 
   const baseSource = contentAt(communityAppsPath, baseSha).toString("utf8");
   const headSource = contentAt(communityAppsPath, headSha).toString("utf8");
-  const basePackage = contentAt(communityQrPackagePath, baseSha);
-  const headPackage = contentAt(communityQrPackagePath, headSha);
-
-  assertCommunityQrPackagePinOnlyChange(
-    baseSource,
-    headSource,
-    basePackage,
-    headPackage,
+  const headPins = communityQrFilePins(headSource);
+  const headFileBlobShas = new Map(
+    headPins.map(({ path }) => [
+      path,
+      gitBlobSha(contentAt(`${communityQrTemplatePath}/${path}`, headSha)),
+    ]),
   );
+
+  assertCommunityQrFilePinsSynced(baseSource, headSource, headFileBlobShas);
   console.log(
-    "Community app catalog contains only the matching QR package pin update.",
+    "Community app catalog contains only the synchronized QR template file pins.",
   );
 }
 
