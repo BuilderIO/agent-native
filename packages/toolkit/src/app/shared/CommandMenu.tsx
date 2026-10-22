@@ -1193,9 +1193,11 @@ export function CommandMenu<TAppContext = unknown>({
                 onValueChange={(value) => {
                   updateSearch(value);
                   selectionEnabledRef.current = false;
-                  if (initialSelection === "none") {
-                    setSelectedCommandValue(nextEmptySelectionValue());
-                  }
+                  setSelectedCommandValue(
+                    initialSelection === "none"
+                      ? nextEmptySelectionValue()
+                      : "",
+                  );
                 }}
                 onKeyDown={(event) => {
                   if (
