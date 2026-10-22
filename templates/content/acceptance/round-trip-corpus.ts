@@ -500,6 +500,82 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     canonical: "<details>\n<summary>S</summary>\n\tBody\n</details>",
   },
   {
+    id: "untabbed-callout-body",
+    origin: "agent",
+    markdown: "Hello\n<callout>\nOnly text\n</callout>",
+    canonical: "Hello\n<callout>\n\tOnly text\n</callout>",
+    renders: [
+      { selector: "[data-notion-callout-content] p", text: "Only text" },
+    ],
+  },
+  {
+    id: "untabbed-callout-body-with-attributes",
+    origin: "agent",
+    markdown:
+      '<callout icon="💡" color="blue_bg">\nFirst line\n- one\n- two\n</callout>',
+    canonical:
+      '<callout icon="💡" color="blue_bg">\n\tFirst line\n\t- one\n\t- two\n</callout>',
+  },
+  {
+    id: "callout-body-partly-tabbed",
+    origin: "agent",
+    markdown: '<callout icon="i">\n\tkept\nalso kept\n</callout>',
+    canonical: '<callout icon="i">\n\tkept\n\talso kept\n</callout>',
+  },
+  {
+    id: "untabbed-callout-code-block",
+    origin: "agent",
+    markdown: "<callout>\n```js\nconst a = 1;\n```\n</callout>",
+    canonical: "<callout>\n\t```js\n\tconst a = 1;\n\t```\n</callout>",
+  },
+  {
+    id: "untabbed-nested-callouts",
+    origin: "agent",
+    markdown: "<callout>\n<callout>\nInner\n</callout>\nOuter\n</callout>",
+    canonical:
+      "<callout>\n\t<callout>\n\t\tInner\n\t</callout>\n\tOuter\n</callout>",
+  },
+  {
+    id: "untabbed-columns",
+    origin: "agent",
+    markdown:
+      "<columns>\n<column>\nLeft\n</column>\n<column>\nRight\n</column>\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\tLeft\n\t</column>\n\t<column>\n\t\tRight\n\t</column>\n</columns>",
+  },
+  {
+    id: "column-body-partly-tabbed",
+    origin: "agent",
+    markdown:
+      "<columns>\n\t<column>\n\t\tkept\n\talso kept\n\t</column>\n</columns>",
+    canonical:
+      "<columns>\n\t<column>\n\t\tkept\n\t\talso kept\n\t</column>\n</columns>",
+  },
+  {
+    id: "untabbed-synced-block-body",
+    origin: "agent",
+    markdown:
+      '<synced_block url="https://www.notion.so/abc">\nShared text\n</synced_block>',
+    canonical:
+      '<synced_block url="https://www.notion.so/abc">\n\tShared text\n</synced_block>',
+  },
+  {
+    id: "math-block-open-at-callout-close",
+    origin: "agent",
+    markdown: "<callout>\n\t$$\n\tx = 1\n</callout>\nAfter\n$$",
+    canonical: "<callout>\n\t$$\n\tx = 1\n\t$$\n</callout>\nAfter\n$$\n\n$$",
+    note: "A block inside a container ends at the container's closing tag.",
+  },
+  {
+    id: "table-open-at-callout-close",
+    origin: "agent",
+    markdown:
+      "<callout>\n\t<table>\n\t<tr>\n\t<td>a</td>\n\t</tr>\n</callout>\nAfter\n\t</table>",
+    canonical:
+      "<callout>\n\t\\<table\\>\n\t\\<tr\\>\n\t\\<td\\>a\\</td\\>\n\t\\</tr\\>\n</callout>\nAfter\n\t\\</table\\>",
+    note: "A table without its closing tag inside the container stays as text.",
+  },
+  {
     id: "unclosed-container",
     origin: "agent",
     markdown: '<callout icon="x">\nHello',
@@ -948,23 +1024,6 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     losses: ["dropped-attribute"],
   },
   {
-    id: "refuse-callout-unindented-line",
-    origin: "agent",
-    markdown: '<callout icon="i">\n\tkept\nlost\n</callout>',
-    unrepresentable:
-      "A callout holds the lines indented under it, so an unindented line inside it is skipped.",
-    losses: ["dropped-source"],
-  },
-  {
-    id: "refuse-column-unindented-line",
-    origin: "agent",
-    markdown:
-      "<columns>\n\t<column>\n\t\tkept\n\tlost\n\t</column>\n</columns>",
-    unrepresentable:
-      "A column holds the lines indented under it, so an unindented line inside it is skipped.",
-    losses: ["dropped-source"],
-  },
-  {
     id: "refuse-mention-unquoted-attribute",
     origin: "agent",
     markdown: "<mention-page url=abc>Page</mention-page>",
@@ -991,6 +1050,13 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     markdown: "<columns>\n\tstray\n\t<column>\n\t\ta\n\t</column>\n</columns>",
     unrepresentable: "Columns hold only columns.",
     losses: ["dropped-source"],
+  },
+  {
+    id: "refuse-columns-math-block-open-at-close",
+    origin: "agent",
+    markdown: "<columns>\n\t$$\n</columns>\nAfter\n$$",
+    unrepresentable: "Columns hold only columns.",
+    losses: ["dropped-source", "invalid-structure"],
   },
   {
     id: "refuse-columns-empty",

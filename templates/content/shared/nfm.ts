@@ -2024,7 +2024,9 @@ function parseBlockSequence(
   return { nodes: out, end: i };
 }
 
-function parseDetailsBody(
+// A container's children sit one tab in from its tags, but agents also write
+// them at the tags' own indent; every line up to the closing tag is a child.
+function parseContainerBody(
   lines: string[],
   start: number,
   end: number,
@@ -3139,8 +3141,8 @@ function parseContainer(
   }
 
   // A container holds its children one tab in, so its indent bounds how many
-  // containers it is inside. Each level reads its body again, a details body
-  // with its whole subtree, so past this depth the opener reads as text,
+  // containers it is inside. Each level reads its body again, with its whole
+  // subtree, so past this depth the opener reads as text,
   // without the scan for its close: openers at many indents would each scan
   // the rest of the nesting.
   if (indent > MAX_CONTAINER_INDENT) {
@@ -3203,30 +3205,27 @@ function parseContainer(
         color: isColor(attrs.color) ? attrs.color : null,
         indent: 0,
       },
-      content: parseDetailsBody(lines, bodyStart, closeIdx, indent),
+      content: parseContainerBody(lines, bodyStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
   if (tagKey === "<callout") {
     const attrs = readContainerAttrs("callout", openLine, CALLOUT_ATTRS);
-    const childRes = parseBlockSequence(lines, childStart, indent + 1);
-    reportUnreadLines(lines, childRes.end, closeIdx);
     const node: PMNode = {
       type: "notionCallout",
       attrs: {
         icon: attrs.icon ?? "",
         color: isColor(attrs.color) ? attrs.color : null,
       },
-      content: childRes.nodes,
+      content: parseContainerBody(lines, childStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
   if (tagKey === "<columns>") {
-    const childRes = parseBlockSequence(lines, childStart, indent + 1);
-    reportUnreadLines(lines, childRes.end, closeIdx);
-    const columns = childRes.nodes.filter((n) => {
+    const children = parseContainerBody(lines, childStart, closeIdx, indent);
+    const columns = children.filter((n) => {
       if (n.type === "notionColumn") return true;
       reportLoss(
         "dropped-source",
@@ -3239,16 +3238,15 @@ function parseContainer(
   }
 
   if (tagKey === "<column>") {
-    const childRes = parseBlockSequence(lines, childStart, indent + 1);
-    reportUnreadLines(lines, childRes.end, closeIdx);
-    const node: PMNode = { type: "notionColumn", content: childRes.nodes };
+    const node: PMNode = {
+      type: "notionColumn",
+      content: parseContainerBody(lines, childStart, closeIdx, indent),
+    };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
   if (tagKey === "<synced_block" || tagKey === "<synced_block_reference") {
     const attrs = readContainerAttrs(tagKey.slice(1), openLine, SYNCED_ATTRS);
-    const childRes = parseBlockSequence(lines, childStart, indent + 1);
-    reportUnreadLines(lines, childRes.end, closeIdx);
     const node: PMNode = {
       type: "notionSyncedBlock",
       attrs: {
@@ -3256,7 +3254,7 @@ function parseContainer(
         url: attrs.url || null,
         notice: attrs.notice || null,
       },
-      content: childRes.nodes,
+      content: parseContainerBody(lines, childStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
@@ -3269,13 +3267,6 @@ function parseContainer(
     "unknown",
     withIndentAttr,
   );
-}
-
-// A container holds the lines indented under it; the parse skips a line that
-// is not, up to the closing tag.
-function reportUnreadLines(lines: string[], from: number, to: number): void {
-  for (let i = from; i < to; i++)
-    if (lines[i].trim()) reportLoss("dropped-source", lines[i].trim());
 }
 
 const DETAILS_ATTRS = new Set(["color", "open"]);

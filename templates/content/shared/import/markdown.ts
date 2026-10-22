@@ -1762,9 +1762,8 @@ const NFM_CONTAINER_OPEN_RE =
 const MAX_REPAIRED_NESTING = 16;
 
 /**
- * NFM nests a container's body one tab deeper than its tags, and the parser
- * drops an untabbed body. Hand-written and agent-written NFM often omits the
- * tab, so indent such a body before parsing instead of losing it.
+ * NFM nests a container's body one tab deeper than its tags. Hand-written and
+ * agent-written NFM often omits the tab, so indent such a body before parsing.
  */
 function indentContainerBodies(nfm: string, notes: ImportNoteBag): string {
   // `base` is the tabs added to the container's own tags; `shift` is the
