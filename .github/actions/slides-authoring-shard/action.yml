@@ -30,11 +30,42 @@ runs:
         esac
         for browser in $browsers; do
           if [ "$browser" = chromium ]; then
-            pnpm exec playwright install --only-shell --with-deps chromium
+            # Experiment: the runner image may already carry Chromium's system
+            # libraries, and --with-deps re-runs apt-get every job.
+            pnpm exec playwright install --only-shell chromium
           else
             pnpm exec playwright install --with-deps "$browser"
           fi
         done
+
+    # Every command below would otherwise boot its own scratch dev server, which
+    # took 90-160s each on a CI runner. run.ts reuses SLIDES_BASE_URL when set.
+    - name: Start one Slides dev server for the shard
+      shell: bash
+      run: |
+        log="$RUNNER_TEMP/slides-shared-server.log"
+        pnpm exec tsx scripts/claude-launch.ts \
+          --name slides-edit-fidelity --dir templates/slides \
+          --env AUTH_MODE=local --env AUTH_DISABLED=true \
+          -- dev --port 8099 --inspect=0 > "$log" 2>&1 &
+        echo "$!" > "$RUNNER_TEMP/slides-shared-server.pid"
+        for _ in $(seq 1 240); do
+          if ! kill -0 "$(cat "$RUNNER_TEMP/slides-shared-server.pid")" 2>/dev/null; then
+            echo "::error::Slides dev server exited before it was ready"
+            cat "$log"
+            exit 1
+          fi
+          status="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8099/ || true)"
+          if [ -n "$status" ] && [ "$status" -ge 100 ] && [ "$status" -lt 500 ]; then
+            echo "SLIDES_BASE_URL=http://localhost:8099" >> "$GITHUB_ENV"
+            echo "Slides dev server ready (HTTP $status)"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::Slides dev server did not answer within 240s"
+        cat "$log"
+        exit 1
 
     - name: Check IME Escape preserves inline slide text editing
       if: inputs.shard == 'chromium-authoring'
@@ -113,3 +144,14 @@ runs:
       run: >-
         pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
         --seed 16 --steps 80 --browser firefox
+
+    - name: Stop the shared Slides dev server
+      if: always()
+      shell: bash
+      run: |
+        if [ -f "$RUNNER_TEMP/slides-shared-server.pid" ]; then
+          kill "$(cat "$RUNNER_TEMP/slides-shared-server.pid")" 2>/dev/null || true
+        fi
+        if [ "${{ job.status }}" != success ] && [ -f "$RUNNER_TEMP/slides-shared-server.log" ]; then
+          tail -n 200 "$RUNNER_TEMP/slides-shared-server.log"
+        fi
