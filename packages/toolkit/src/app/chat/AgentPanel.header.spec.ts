@@ -169,6 +169,24 @@ describe("AgentPanel suggestion placement", () => {
   });
 });
 
+describe("AgentPanel page header sharing", () => {
+  it("lets hosts customize the shared share trigger content", () => {
+    const source = readSource("src/app/chat/AgentPanel.tsx", "utf8");
+    const shareActionStart = source.indexOf(
+      "pageHeaderActions.showShareAction && activeTab",
+    );
+    const toolbarStart = source.indexOf("{toolbarSlot}", shareActionStart);
+    const shareAction = source.slice(shareActionStart, toolbarStart);
+
+    expect(source).toContain("pageHeaderShareTriggerContent?: React.ReactNode");
+    expect(shareAction).toContain("<ShareButton");
+    expect(shareAction).toContain("pageHeaderShareTriggerContent ??");
+    expect(shareAction).toContain(
+      '<IconShare3 size={15} aria-hidden="true" />',
+    );
+  });
+});
+
 describe("resolveAgentPanelChatSurface", () => {
   it("uses the desktop surface only for explicitly marked local app previews", () => {
     expect(resolveAgentPanelChatSurface(undefined, true)).toBe("desktop");
