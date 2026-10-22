@@ -15,6 +15,7 @@ import {
   ranCallEmitsChange,
   type ActionExecutionOutcome,
 } from "../action.js";
+import { agentErrorDetails } from "../agent/action-error-details.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { extractAgentImagesFromActionResult } from "../agent/tool-result-images.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
@@ -163,6 +164,14 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     const { name, args, request, ctx } = call;
     const callableActions = fullCatalogRequested ? actions : advertisedActions;
 
+    // A directory profile may project results arbitrarily, so the derived
+    // contract is advertised and enforced on app catalogs only. It compiles
+    // before the action runs. A host may hold an error result to the same
+    // schema, so a contracted tool's errors carry no structuredContent.
+    const outputContract = directoryCatalog
+      ? undefined
+      : callableActions[name]?.mcpOutputContract;
+
     const errorText = (err: any) => {
       const projectedError =
         directoryCatalog && config.directoryProfile?.projectResult
@@ -189,13 +198,40 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       try {
         const errorCode = mcpActionErrorCode(err);
         const { errorType, errorMessage } = describeMcpError(err);
-        return toolCallError(
-          {
-            errorType: redactEmbedText(errorType),
-            errorMessage: redactEmbedText(errorMessage),
-          },
-          `${redactEmbedText(errorText(err))}${errorCode !== undefined ? ` (errorCode: ${redactEmbedText(errorCode)})` : ""}`,
-        );
+        const message = redactEmbedText(errorText(err));
+        // A directory profile decides what its catalog shows, and it
+        // projects only the message.
+        const details = directoryCatalog ? undefined : agentErrorDetails(err);
+        const detailsLine = details && redactEmbedText(details.line);
+        return {
+          ...toolCallError(
+            {
+              errorType: redactEmbedText(errorType),
+              errorMessage: redactEmbedText(errorMessage),
+            },
+            `${message}${errorCode !== undefined ? ` (errorCode: ${redactEmbedText(errorCode)})` : ""}${detailsLine ? `\n${detailsLine}` : ""}`,
+          ),
+          // Some clients hand the model structuredContent in place of the
+          // text, so it repeats the message rather than carrying details
+          // alone. Details the embed check hid in the text stay out of it.
+          ...(details && detailsLine === details.line && !outputContract
+            ? {
+                structuredContent: {
+                  error: {
+                    message,
+                    errorCode: err.errorCode,
+                    details: details.details,
+                    ...(details.omittedKeys
+                      ? {
+                          omittedKeys: details.omittedKeys,
+                          omittedKeyCount: details.omittedKeyCount,
+                        }
+                      : {}),
+                  },
+                },
+              }
+            : {}),
+        };
       } catch {
         return toolCallError({
           errorType: "error_unreadable",
@@ -204,12 +240,6 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       }
     };
 
-    // A directory profile may project results arbitrarily, so the derived
-    // contract is advertised and enforced on app catalogs only. It compiles
-    // before the action runs.
-    const outputContract = directoryCatalog
-      ? undefined
-      : callableActions[name]?.mcpOutputContract;
     let checkOutput: ReturnType<typeof mcpResponseOutputCheck> | undefined;
     try {
       checkOutput = outputContract
@@ -224,13 +254,11 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       args,
       // A tool the request leaves out is unknown here, as it is to tools/list.
       callable: isAdvertisable(name) ? callableActions : {},
-      actionRunContext: (clientAccepted) =>
-        mcpCallAttribution({
-          request,
-          envelope: ctx.mcpReq.envelope,
-          oauthClientId: effectiveIdentity?.oauthClientId,
-          clientAccepted,
-        }),
+      actionRunContext: mcpCallAttribution({
+        request,
+        envelope: ctx.mcpReq.envelope,
+        oauthClientId: effectiveIdentity?.oauthClientId,
+      }),
       approval: {
         state: () =>
           ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined,

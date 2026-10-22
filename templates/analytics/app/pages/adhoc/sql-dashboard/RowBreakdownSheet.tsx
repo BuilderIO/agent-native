@@ -1,5 +1,6 @@
 import {
   deleteClientAppState,
+  getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -96,6 +97,7 @@ export function RowBreakdownSheet({
   onSelectionChange: (selection: RowBreakdownSelection | null) => void;
 }) {
   const t = useT();
+  const stateKey = `${ROW_BREAKDOWN_STATE_KEY}:${getBrowserTabId()}`;
   const [column, setColumn] = useState(breakdowns[0].column);
   const activeColumn = breakdowns.some((item) => item.column === column)
     ? column
@@ -182,13 +184,13 @@ export function RowBreakdownSheet({
   useEffect(() => {
     if (clearedSincePageLoad) return;
     clearedSincePageLoad = true;
-    deleteClientAppState(ROW_BREAKDOWN_STATE_KEY).catch((error) => {
+    deleteClientAppState(stateKey).catch((error) => {
       console.warn(
         "[row-breakdown] Could not clear a breakdown left by the last page",
         error,
       );
     });
-  }, []);
+  }, [stateKey]);
   useEffect(() => {
     // Every table panel mounts this sheet closed; only one that was open
     // clears the state on close.
@@ -203,26 +205,34 @@ export function RowBreakdownSheet({
           breakdownColumn: activeColumn,
         }
       : null;
-    setClientAppState(ROW_BREAKDOWN_STATE_KEY, state).catch((error) => {
+    setClientAppState(stateKey, state).catch((error) => {
       console.warn(
         "[row-breakdown] Could not publish the open breakdown",
         error,
       );
     });
-  }, [open, dashboardId, panel.id, panel.title, rowName, activeColumn]);
+  }, [
+    open,
+    dashboardId,
+    panel.id,
+    panel.title,
+    rowName,
+    activeColumn,
+    stateKey,
+  ]);
   // A sheet that unmounts open (the dashboard closed, the panel was removed)
   // must not leave its row behind for view-screen to report elsewhere.
   useEffect(
     () => () => {
       if (!published.current) return;
-      setClientAppState(ROW_BREAKDOWN_STATE_KEY, null).catch((error) => {
+      setClientAppState(stateKey, null).catch((error) => {
         console.warn(
           "[row-breakdown] Could not clear the open breakdown",
           error,
         );
       });
     },
-    [],
+    [stateKey],
   );
 
   const valueColumns = columns.filter(

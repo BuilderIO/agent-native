@@ -1603,8 +1603,9 @@ describe("document editor layout", () => {
     expect(source).toContain("if (reconcileRecoveryStateRef.current) return;");
     expect(handler).toContain("retainActiveRecoveryDraft({");
     expect(source).toContain(
-      "void reconcileRetainRef.current(draft).catch(reportRetentionFailure)",
+      "void reconcileRetainRef.current(draft).catch(() => {",
     );
+    expect(source).toContain("if (owner.isActive()) reportRetentionFailure();");
     expect(source).toContain("<DocumentReconcileRecovery");
     expect(source).toContain("onKeepMine={handleResolveReconcile}");
     expect(source).toContain("const contentBase = reconcileBase");
@@ -2749,7 +2750,9 @@ describe("document editor layout", () => {
       "utf8",
     );
 
-    expect(source).toContain("pm?.focus({ preventScroll: true });");
+    expect(source).toMatch(
+      /visibleBlockFieldEditor\(e\.currentTarget\)\?\.focus\(\{\s*preventScroll: true,/,
+    );
     expect(source).toContain("scrollContainer.scrollTop = scrollTop;");
     expect(source).toContain("window.setTimeout(restoreScroll, 50);");
     expect(source).toContain(
@@ -2993,7 +2996,9 @@ describe("document editor layout", () => {
     expect(source).toContain("if (!primaryResult.value.contentPersisted)");
     expect(source).toContain("pendingPersistenceRef.current.size > 0");
     expect(source).toContain("onSessionChangeRef");
-    expect(source).toContain("documentLayoutRef.current?.querySelector");
+    expect(source).toContain(
+      "visibleBlockFieldEditor(documentLayoutRef.current)",
+    );
   });
 
   it("routes global Escape handling to the nearest nested page editor", () => {

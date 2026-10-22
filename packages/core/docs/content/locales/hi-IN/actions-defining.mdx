@@ -324,7 +324,7 @@ POST डिफ़ॉल्ट है, और `http: { method: "GET" }` इसे
 - **message**: वह text जो caller पढ़ता है। इसे किसी व्यक्ति के लिए लिखें, log के लिए नहीं।
 - **options.errorCode**: एक स्थिर, machine-readable code। डिफ़ॉल्ट `"action_failed"`।
 - **options.statusCode**: action route के लिए HTTP status। डिफ़ॉल्ट `400`।
-- **options.details**: caller के लिए सुरक्षित structured context। यहाँ कभी secrets या driver का raw output न रखें।
+- **options.details**: caller के लिए सुरक्षित structured context, जैसे वह id जो retry के लिए चाहिए। browser और एजेंट दोनों इसे पाते हैं। यहाँ कभी secrets या driver का raw output न रखें।
 
 सबसे सरल call को सिर्फ़ एक message चाहिए:
 
@@ -402,7 +402,7 @@ const reply = useActionMutation("reply-to-email", {
 
 तो status सजावट नहीं है। `404` के रूप में भेजा गया इनकार एक round trip लेता है। वही इनकार `500` के रूप में भेजा जाए, या सादा throw किया जाए, तो चार round trips और चार दोहरी error रिपोर्ट लगती हैं।
 
-एजेंट callers को status नहीं दिखता। एजेंट `run()` को in-process चलाता है, इसलिए type चाहे जो हो, उसे message सीधे `Error running <action>: <message>` के रूप में मिलता है। डिफ़ॉल्ट `action_failed` के अलावा कोई `errorCode` हो तो वह `(errorCode: not_found)` के रूप में जोड़ दिया जाता है, ताकि model गद्य पढ़े बिना उस पर branch कर सके। MCP के ज़रिए बाहरी एजेंट भी यही text पाते हैं। message में मौजूद secrets पहले हटा दिए जाते हैं, और दोहराई गई errors के लिए एजेंट के अपने breakers तय करते हैं कि वह कितनी बार दोबारा कोशिश करे।
+एजेंट callers को status नहीं दिखता। एजेंट `run()` को in-process चलाता है, इसलिए type चाहे जो हो, उसे message सीधे `Error running <action>: <message>` के रूप में मिलता है। डिफ़ॉल्ट `action_failed` के अलावा कोई `errorCode` हो तो वह `(errorCode: not_found)` के रूप में जोड़ दिया जाता है, ताकि model गद्य पढ़े बिना उस पर branch कर सके। `details` अपनी अलग line में compact JSON के रूप में आते हैं, जैसे `Error details: {"importId":"imp_1"}`, ताकि model को अपनी अगली call के लिए जिस id की ज़रूरत हो, उसे message में लिखना न पड़े। MCP के ज़रिए बाहरी एजेंट भी यही text पाते हैं, और `structuredContent.error` में यही details भी। जो tool output schema घोषित करता है (`mcpOutputSchema: true`), वह सिर्फ़ text लौटाता है, क्योंकि client error result को भी उसी schema से जाँच सकता है। Details 2,000 characters तक सीमित हैं: इससे आगे छोटी top-level entries रखी जाती हैं और बाकी को omitted के रूप में सूचीबद्ध किया जाता है। message और details में मौजूद secrets पहले हटा दिए जाते हैं, और दोहराई गई errors के लिए एजेंट के अपने breakers तय करते हैं कि वह कितनी बार दोबारा कोशिश करे।
 
 ## Action सतह को छोटा रखें {#small-surface}
 

@@ -452,6 +452,8 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
+  // Connection setup UI needs the workspace prerequisite even in minimal apps.
+  "get-managed-mcp-oauth-readiness",
   "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
@@ -545,6 +547,14 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     ],
     ["explain-access", () => import("../org/actions/explain-access.js")],
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
+    [
+      "list-organization-members",
+      () => import("../org/actions/list-organization-members.js"),
+    ],
+    [
+      "invite-organization-member",
+      () => import("../org/actions/invite-organization-member.js"),
+    ],
     [
       "get-agentkit-capabilities",
       () => import("../agent/actions/get-agentkit-capabilities.js"),
@@ -813,6 +823,10 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     [
       "get-auth-methods",
       () => import("../user-profile/actions/get-auth-methods.js"),
+    ],
+    [
+      "get-managed-mcp-oauth-readiness",
+      () => import("../mcp-client/actions/get-managed-mcp-oauth-readiness.js"),
     ],
     ["set-password", () => import("../user-profile/actions/set-password.js")],
     [

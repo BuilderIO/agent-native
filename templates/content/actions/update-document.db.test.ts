@@ -1,9 +1,12 @@
 import { parseIconValue } from "@agent-native/core/icons";
+import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createAuthoredContentBase } from "../app/components/editor/authored-content-base";
+import { expectedPreviewDraftIdentity } from "../shared/preview-draft-identity.js";
 
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
@@ -32,6 +35,7 @@ const EDITOR = "editor@example.com";
 const VIEWER = "viewer@example.com";
 
 beforeAll(async () => {
+  registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
   process.env.DATABASE_URL = "pglite:memory";
   console.info("Update test database target", {
     host: "embedded PGlite",
@@ -3542,6 +3546,14 @@ describe("update-document save outcome counts", () => {
         trigger: "reviewed" as const,
         choice: "save_separately" as const,
         documentId: id,
+        ...expectedPreviewDraftIdentity(
+          (
+            await getDb()
+              .select()
+              .from(schema.documentPreviewDrafts)
+              .where(eq(schema.documentPreviewDrafts.documentId, id))
+          )[0],
+        ),
         expectedDraftVersion: 1,
         expectedDraftTitle: "Recovered page",
         expectedDraftContent: "Recovered body",
@@ -3751,6 +3763,14 @@ describe("update-document save outcome counts", () => {
       trigger: "reviewed" as const,
       choice: "keep_mine" as const,
       documentId: id,
+      ...expectedPreviewDraftIdentity(
+        (
+          await getDb()
+            .select()
+            .from(schema.documentPreviewDrafts)
+            .where(eq(schema.documentPreviewDrafts.documentId, id))
+        )[0],
+      ),
       expectedDraftVersion: 1,
       expectedDraftTitle: "Page",
       expectedDraftContent: "Recovered body",

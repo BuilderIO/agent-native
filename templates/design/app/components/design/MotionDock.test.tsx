@@ -845,7 +845,7 @@ describe("Motion animation style menu", () => {
     expect(onCreateText).not.toHaveBeenCalled();
   });
 
-  it("offers Path trim only for SVG path targets", async () => {
+  it("lists Path as the last style, only for outline-drawing targets", async () => {
     const onCreateNativeStyle = vi.fn();
     await renderMenu(false, vi.fn(), vi.fn(), onCreateNativeStyle, true);
     await openMenu("Add animation");
@@ -855,16 +855,29 @@ describe("Motion animation style menu", () => {
       "Rotation",
       "Size",
       "Opacity",
+      "Path",
     ]);
-    await act(async () => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    });
-    await openMenu("More Motion");
-    expect(menuItemLabels()).toEqual(["Path"]);
+    expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
+      null,
+    );
     await selectMenuItem("Path");
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("Path");
+
+    await renderMenu(false, vi.fn(), vi.fn(), onCreateNativeStyle, false);
+    await openMenu("Add animation");
+    expect(menuItemLabels()).not.toContain("Path");
+  });
+
+  it("leaves Text out unless every selected layer is text", async () => {
+    await renderMenu(false, vi.fn(), vi.fn(), vi.fn());
+    await openMenu("Add animation");
+    expect(menuItemLabels()).toEqual([
+      "Position",
+      "Scale",
+      "Rotation",
+      "Size",
+      "Opacity",
+    ]);
   });
 
   it("offers Text in Add animation only for text layers", async () => {
@@ -886,6 +899,75 @@ describe("Motion animation style menu", () => {
     expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
       null,
     );
+  });
+});
+
+describe("Motion add button disabled states", () => {
+  async function renderDisabled(
+    props: Partial<Parameters<typeof AddTrackMenu>[0]>,
+  ) {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          persistPreference={false}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          catalog={{ messages: CATALOG_MESSAGES }}
+        >
+          <TooltipProvider delayDuration={0}>
+            {createElement(AddTrackMenu, {
+              selectedTarget: { nodeId: "box", label: "Box" },
+              onCreateNativeStyle: vi.fn(),
+              ...props,
+            })}
+          </TooltipProvider>
+        </AgentNativeI18nProvider>,
+      );
+    });
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add animation"]',
+    );
+    expect(trigger).not.toBeNull();
+    return trigger!;
+  }
+
+  async function hover(trigger: HTMLElement) {
+    await act(async () => {
+      trigger.parentElement!.dispatchEvent(
+        new MouseEvent("pointermove", { bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    return document.body.querySelector('[role="tooltip"]')?.textContent;
+  }
+
+  it("greys the button with the reason when the layer cannot take motion", async () => {
+    const trigger = await renderDisabled({
+      disabledReason: "Motion cannot be written here",
+    });
+    expect(trigger.disabled).toBe(true);
+    expect(await hover(trigger)).toBe("Motion cannot be written here");
+  });
+
+  it("greys the button with the same tip for a top-level frame", async () => {
+    const trigger = await renderDisabled({
+      disabledReason: "Top-level frames can't be animated",
+    });
+    expect(trigger.disabled).toBe(true);
+    expect(await hover(trigger)).toBe("Top-level frames can't be animated");
+  });
+
+  it("asks for a selection when nothing is selected", async () => {
+    const trigger = await renderDisabled({ selectedTarget: null });
+    expect(trigger.disabled).toBe(true);
+    expect(await hover(trigger)).toBe("Select an element on the canvas first");
+  });
+
+  it("greys the button without a tip when no styles are listed", async () => {
+    const trigger = await renderDisabled({ onCreateNativeStyle: undefined });
+    expect(trigger.disabled).toBe(true);
+    expect(trigger.parentElement?.hasAttribute("data-state")).toBe(false);
+    expect(await hover(trigger)).toBeUndefined();
   });
 });
 
@@ -1442,6 +1524,33 @@ describe("MotionDock — timeline body anatomy", () => {
     expect(markup).toContain('aria-label="Position animation span"');
     expect(markup).toContain('aria-valuetext="300ms – 800ms"');
     expect(markup).not.toContain("data-motion-keyframe");
+  });
+
+  it("selects a native style row that was added while the dock was closed", async () => {
+    await renderInteractive({ nativeStyles: [sampleNativeStyle] });
+    expect(
+      container
+        .querySelector("[data-motion-native-style-row]")
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("selects a native style row added while the dock is open", async () => {
+    await renderInteractive({ nativeStyles: [sampleNativeStyle] });
+    const added: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+      targetNodeId: "other",
+    };
+    await renderInteractive({ nativeStyles: [sampleNativeStyle, added] });
+    const rows = Array.from(
+      container.querySelectorAll("[data-motion-native-style-row]"),
+    );
+    expect(rows.map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "false",
+      "true",
+    ]);
   });
 
   it("shows native style visibility/removal actions and preserves source props", async () => {

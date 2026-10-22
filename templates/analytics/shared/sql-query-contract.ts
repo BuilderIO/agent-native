@@ -15,6 +15,8 @@ export interface SqlQueryExecutionMetadata {
    * rows came from a source without a generation, such as the raw events.
    */
   sourceGeneration?: SourceGenerationResult;
+  /** Which table first-party rows read `analytics_events` from, and why. */
+  eventsSource?: FirstPartyEventsSource;
 }
 
 /**
@@ -32,6 +34,25 @@ export function confirmedScanBytes(
     ? bytes
     : null;
 }
+
+/** Why first-party SQL read the raw event table instead of the events model. */
+export type FirstPartyEventsModelSkipReason =
+  | "not_configured"
+  | "raw_requested"
+  | "raw_projection"
+  | "reads_no_events"
+  | "reads_raw_only_columns"
+  | "reads_all_columns"
+  | "reads_http_response"
+  | "http_response_not_excluded"
+  | "reads_properties_as_text"
+  | "model_invalid_table_id"
+  | "model_not_found"
+  | "model_access_denied";
+
+export type FirstPartyEventsSource =
+  | { source: "model"; table: string }
+  | { source: "raw"; modelSkipped: FirstPartyEventsModelSkipReason };
 
 export interface SqlQueryRefusal {
   error: string;

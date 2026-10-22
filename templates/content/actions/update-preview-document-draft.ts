@@ -8,7 +8,7 @@ import { and, eq, exists, isNull, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { lockPreviewDocumentDraftSettlement } from "./_preview-document-draft-settlement.js";
+import { previewDraftGenerationRefusal } from "./_preview-document-draft-settlement.js";
 import { readPreviewDocumentDraft } from "./_preview-document-draft.js";
 
 const draftPayload = z
@@ -59,6 +59,7 @@ export default defineAction({
         operation: z.literal("delete"),
         documentId: z.string().min(1),
         expectedVersion: z.number().int().positive(),
+        expectedDraftId: z.string().min(1).optional(),
         expectedTitle: z.string().max(10_000),
         expectedContent: z.string().max(500_000),
         expectedBaseTitle: z.string().max(10_000).nullable().optional(),
@@ -100,11 +101,21 @@ export default defineAction({
     );
 
     if (args.operation === "delete") {
+      if (args.expectedDraftId === undefined)
+        return {
+          status: "conflict" as const,
+          draft: await readPreviewDocumentDraft(
+            userEmail,
+            orgId,
+            args.documentId,
+          ),
+        };
       const deleted = await db
         .delete(schema.documentPreviewDrafts)
         .where(
           and(
             ownerFilter,
+            eq(schema.documentPreviewDrafts.id, args.expectedDraftId),
             eq(schema.documentPreviewDrafts.version, args.expectedVersion),
             eq(schema.documentPreviewDrafts.title, args.expectedTitle),
             eq(schema.documentPreviewDrafts.content, args.expectedContent),
@@ -171,18 +182,16 @@ export default defineAction({
         args.draft.editorSessionId !== undefined &&
         args.draft.editGeneration !== undefined
       ) {
-        const settledGeneration = await lockPreviewDocumentDraftSettlement({
+        const refused = await previewDraftGenerationRefusal({
           db: tx,
           ownerEmail: userEmail,
           orgId,
           documentId: args.documentId,
           editorSessionId: args.draft.editorSessionId,
+          editGeneration: args.draft.editGeneration,
           now,
         });
-        if (
-          settledGeneration !== null &&
-          args.draft.editGeneration <= settledGeneration
-        ) {
+        if (refused) {
           return {
             status: "superseded" as const,
             draft: await readPreviewDocumentDraft(

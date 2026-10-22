@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BigQueryMaximumBytesBilledError } from "../server/lib/bigquery.js";
+
 const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
@@ -7,10 +9,8 @@ const mocks = vi.hoisted(() => ({
   unavailable: vi.fn(),
 }));
 
-vi.mock("@agent-native/core", () => ({
-  defineAction: (definition: unknown) => definition,
-}));
 vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: ({ to }: { to: string }) => `https://example.com${to}`,
   getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
@@ -49,6 +49,8 @@ function healthResult(status: "healthy" | "unavailable") {
     reasons: [],
     observedAt: "2026-10-06T12:00:00.000Z",
     metrics: {
+      coverage: { kind: "all_time" },
+      firstEventDateUnavailableReason: null,
       eventCount: 10,
       dailyRollupRows: 2,
       firstEventDate: "2026-10-05",
@@ -124,4 +126,39 @@ describe("get-first-party-analytics-health", () => {
     await expect(action.run({})).rejects.toThrow("no authenticated user");
     expect(mocks.getHealth).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [new BigQueryMaximumBytesBilledError(400), "maximum_bytes_billed"],
+    [new Error("database unavailable"), "health_read_failed"],
+  ] as const)(
+    "reports unavailable observations for %s",
+    async (error, reason) => {
+      const { unavailableFirstPartyAnalyticsHealth } = await vi.importActual<
+        typeof import("../server/lib/first-party-analytics-health.js")
+      >("../server/lib/first-party-analytics-health.js");
+      mocks.unavailable.mockImplementation(
+        unavailableFirstPartyAnalyticsHealth,
+      );
+      mocks.getHealth.mockRejectedValueOnce(error);
+      const result = await action.run({});
+      expect(
+        await action.outputSchema!["~standard"].validate(result),
+      ).toMatchObject({
+        value: {
+          status: "unavailable",
+          metrics: {
+            coverage: { kind: "unavailable", reason },
+            eventCount: null,
+            dailyRollupRows: null,
+            slowQueryCount24h: null,
+            timeoutCount24h: null,
+            errorCount24h: null,
+            maxQueryDurationMs24h: null,
+          },
+          delivery: null,
+        },
+      });
+      expect(mocks.unavailable).toHaveBeenCalledWith(reason);
+    },
+  );
 });

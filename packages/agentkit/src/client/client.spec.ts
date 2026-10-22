@@ -7565,6 +7565,65 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("fingerprints attachment submissions without Web Crypto", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id, threadId, text, attachments }) => ({
+        message: {
+          id: id ?? "queued-attachment-no-subtle",
+          threadId,
+          text,
+          createdAt: "2026-10-19T00:00:00.000Z",
+          attachments,
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { attachments: true, messageQueue: true },
+        queueMessage,
+      },
+    });
+    const cryptoWithoutSubtle = new Proxy(globalThis.crypto, {
+      get(target, property) {
+        if (property === "subtle") return undefined;
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+    vi.stubGlobal("crypto", cryptoWithoutSubtle);
+    try {
+      await client.queueMessage({
+        threadId: "thread-1",
+        text: "Summarize this file",
+        attachments: [
+          {
+            type: "file",
+            name: "notes.txt",
+            mediaType: "text/plain",
+            url: "https://storage.example.test/notes.txt",
+          },
+        ],
+      });
+
+      expect(queueMessage.mock.calls[0]?.[0].submissionPayload).toMatchObject({
+        attachments: [
+          {
+            fingerprint:
+              "419ac18a5ea3f22931081d756439137b705c6565a8d787b372467fa1622e3a33",
+          },
+        ],
+      });
+    } finally {
+      try {
+        await client.shutdown();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+  });
+
   it("keeps a queued send parked through a stale snapshot while append is pending", async () => {
     const append = Promise.withResolvers<{ message: AgentQueuedMessage }>();
     const queuedAt = "2026-10-01T00:00:00.000Z";
@@ -8098,7 +8157,11 @@ describe("AgentKitClient", () => {
       }),
     );
     const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
-      throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+      throw Object.assign(new Error("Queued message was already submitted"), {
+        code: "queued_message_already_submitted",
+        status: 409,
+        submittedRunId: "run-submitted",
+      });
     });
     const subscribedRunIds: string[] = [];
     const onLocalSubmit = vi.fn();
@@ -8164,7 +8227,11 @@ describe("AgentKitClient", () => {
     const subscriptionStarted = Promise.withResolvers<void>();
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
       async () => {
-        throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+        throw Object.assign(new Error("Queued message was already submitted"), {
+          code: "queued_message_already_submitted",
+          status: 409,
+          submittedRunId: "run-submitted",
+        });
       },
     );
     const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
@@ -8300,7 +8367,11 @@ describe("AgentKitClient", () => {
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
       async ({ id }) => {
         submittedMessageId = id;
-        throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+        throw Object.assign(new Error("Queued message was already submitted"), {
+          code: "queued_message_already_submitted",
+          status: 409,
+          submittedRunId: "run-submitted",
+        });
       },
     );
     const client = new AgentKitClient({
@@ -10512,7 +10583,11 @@ describe("AgentKitClient", () => {
       },
     };
     const steerQueuedMessage = vi.fn(async () => {
-      throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+      throw Object.assign(new Error("Queued message was already submitted"), {
+        code: "queued_message_already_submitted",
+        status: 409,
+        submittedRunId: "run-submitted",
+      });
     });
     const subscribedRunIds: string[] = [];
     const client = new AgentKitClient({

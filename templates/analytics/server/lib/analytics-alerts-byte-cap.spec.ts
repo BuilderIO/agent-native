@@ -108,7 +108,7 @@ describe("analytics alert byte cap", () => {
       expect(mocks.query).toHaveBeenCalledWith(
         expect.stringContaining("event_date >="),
         { userEmail: "owner@example.test", orgId: "org" },
-        { maxBytesBilled: 50_000_000_000 },
+        { eventsSource: "raw", maxBytesBilled: 50_000_000_000 },
       );
       expect(mocks.query.mock.calls[0][0]).toContain(
         "2026-10-15T00:05:00.000Z",

@@ -30,7 +30,7 @@ export const ACTION_HEADERS = {
   "X-Agent-Native-Build-Id": "development",
 };
 
-export const EDITOR = ".notion-editor.ProseMirror";
+export const EDITOR = ".content-editor.ProseMirror";
 
 const SAVE_PATH = "/_agent-native/actions/update-document";
 const SESSION_PATH = "/_agent-native/auth/session";
@@ -52,6 +52,16 @@ export const RECOVERY_UI = [
   "Your edits were saved to Version History",
   "Something went wrong",
 ];
+
+/**
+ * Actions that need approval run over HTTP only for the signed-in app UI, which
+ * proves itself with this capability cookie. A spec that calls one directly
+ * mints it first, as the app's client does before its writes.
+ */
+export async function presentUiCapability(page: Page): Promise<void> {
+  const response = await page.request.get("/_agent-native/ui-capability");
+  expect(response.ok(), `ui-capability (${response.status()})`).toBe(true);
+}
 
 export async function postAction<T = Record<string, unknown>>(
   page: Page,

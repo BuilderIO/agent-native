@@ -51,10 +51,12 @@ export async function noteJobFrontmatterWrite(
       `[recurring-jobs] "${write.path}" lost frontmatter fields (${dropped.join(", ")}) in ${write.writer}`,
       callers,
     );
-    const [{ recordOrgAdminAuditEvent }, requestContext] = await Promise.all([
-      import("../audit/org-admin.js"),
-      import("../server/request-context.js"),
-    ]);
+    const [{ recordOrgAdminAuditEvent }, { auditAttribution }, requestContext] =
+      await Promise.all([
+        import("../audit/org-admin.js"),
+        import("../audit/attribution.js"),
+        import("../server/request-context.js"),
+      ]);
     const run = requestContext.getRequestRunContext();
     const userEmail = requestContext.getRequestUserEmail();
     const listed = dropped.slice(0, SUMMARY_KEYS).join(", ");
@@ -65,9 +67,11 @@ export async function noteJobFrontmatterWrite(
       summary: `Job file ${write.path} lost ${dropped.length} frontmatter field(s): ${listed}${dropped.length > SUMMARY_KEYS ? ", ..." : ""}`,
       userEmail,
       orgId: write.orgId,
-      caller: run?.threadId ? "tool" : userEmail ? "http" : "automation",
-      threadId: run?.threadId,
-      runId: run?.runId,
+      attribution: auditAttribution({
+        caller: run?.threadId ? "tool" : userEmail ? "http" : "automation",
+        threadId: run?.threadId,
+        runId: run?.runId,
+      }),
       args: {
         path: write.path,
         owner: write.owner,

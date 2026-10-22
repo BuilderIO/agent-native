@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { A2AIdentityVerificationUnavailableError } from "../a2a/server.js";
@@ -13,6 +13,7 @@ import {
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 const mockMarkerLanded = vi.hoisted(() => vi.fn(() => true));
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
+const mockResolveOrgScopeForEmail = vi.hoisted(() => vi.fn());
 const mockResolveOrgByDomain = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
 const mockGetOrgContext = vi.hoisted(() =>
@@ -88,8 +89,12 @@ vi.mock("./action-change.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  hasOrgScopeResolutionUnavailable: (event: any) =>
+    event.context?.__anOrgScopeResolutionUnavailable === true,
   resolveOrgIdForEmail: (...args: unknown[]) =>
     mockResolveOrgIdForEmail(...args),
+  resolveOrgScopeForEmail: (...args: unknown[]) =>
+    mockResolveOrgScopeForEmail(...args),
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
   resolveOrgByDomain: (...args: unknown[]) => mockResolveOrgByDomain(...args),
   isFederationMembershipValidatedForEvent: () => false,
@@ -140,6 +145,8 @@ describe("mountActionRoutes", () => {
     mockMarkerLanded.mockReset();
     mockMarkerLanded.mockReturnValue(true);
     mockResolveOrgIdForEmail.mockReset();
+    mockResolveOrgScopeForEmail.mockReset();
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
     mockResolveOrgByDomain.mockReset();
     mockResolveOrgByDomain.mockResolvedValue({
       orgId: "receiver-org",
@@ -424,6 +431,155 @@ describe("mountActionRoutes", () => {
     });
     expect(event._status).toBe(403);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  describe("approval on the HTTP action route", () => {
+    type Caller =
+      | "proven UI"
+      | "frontend header without UI proof"
+      | "plain HTTP"
+      | "MCP OAuth bearer"
+      | "org service token"
+      | "a2a";
+    type Gate =
+      | "needsApproval true"
+      | "predicate false"
+      | "predicate throws"
+      | "no needsApproval";
+    type Outcome = "runs" | "ui-capability" | "approval-required";
+
+    const gates: Record<Gate, Record<string, unknown>> = {
+      "needsApproval true": { needsApproval: true },
+      "predicate false": { needsApproval: () => false },
+      "predicate throws": {
+        needsApproval: () => {
+          throw new Error("cannot decide");
+        },
+      },
+      "no needsApproval": {},
+    };
+
+    const refusedBy: Record<Caller, Outcome> = {
+      "proven UI": "runs",
+      "frontend header without UI proof": "ui-capability",
+      "plain HTTP": "approval-required",
+      "MCP OAuth bearer": "approval-required",
+      "org service token": "approval-required",
+      a2a: "approval-required",
+    };
+
+    const labelled: Record<Caller, string> = {
+      "proven UI": "frontend",
+      "frontend header without UI proof": "frontend",
+      "plain HTTP": "http",
+      "MCP OAuth bearer": "mcp",
+      "org service token": "mcp",
+      a2a: "a2a",
+    };
+
+    function expectedOutcome(caller: Caller, gate: Gate): Outcome {
+      if (gate === "predicate false" || gate === "no needsApproval") {
+        return "runs";
+      }
+      return refusedBy[caller];
+    }
+
+    const matrix = (Object.keys(refusedBy) as Caller[]).flatMap((caller) =>
+      (Object.keys(gates) as Gate[]).map(
+        (gate) => [caller, gate, expectedOutcome(caller, gate)] as const,
+      ),
+    );
+
+    beforeEach(() => {
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+    });
+
+    async function callAs(caller: Caller, gate: Gate) {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async (_args: unknown, ctx: any) => ({
+        ran: true,
+        caller: ctx?.caller,
+      }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      const owner = "owner@example.com";
+      if (caller === "proven UI")
+        mockHasUiActionCapability.mockReturnValue(true);
+
+      mountActionRoutes(
+        nitroApp,
+        { "revoke-thing": { run, ...gates[gate] } as any },
+        {
+          getOwnerFromEvent: async () => owner,
+          ...(caller === "a2a"
+            ? {
+                actionRouteAuth: {
+                  resolveCaller: async () => ({ owner, anonymous: false }),
+                },
+              }
+            : {}),
+        },
+      );
+
+      const context: Record<string, unknown> = {};
+      if (caller === "MCP OAuth bearer" || caller === "org service token") {
+        context.__anVerifiedMcpCredential = { userEmail: owner };
+      }
+      if (caller === "org service token") {
+        context.__anVerifiedServiceIdentity = {
+          userEmail: owner,
+          orgId: "org-1",
+        };
+      }
+      // Every caller but plain HTTP claims to be the browser app; only the
+      // proven UI is.
+      const event: any = {
+        _method: "POST",
+        _headers: {
+          host: "app.example.com",
+          "sec-fetch-site": "same-origin",
+          ...(caller === "plain HTTP"
+            ? {}
+            : { "x-agent-native-frontend": "1" }),
+        },
+        context,
+        req: { json: async () => ({ id: "thing-1" }) },
+      };
+      const result = await mounted[0]!.handler(event);
+      return { result, run, status: event._status };
+    }
+
+    it.each(matrix)("%s, %s: %s", async (caller, gate, outcome) => {
+      const { result, run, status } = await callAs(caller, gate);
+
+      if (outcome === "runs") {
+        expect(result).toEqual({ ran: true, caller: labelled[caller] });
+        expect(run).toHaveBeenCalledTimes(1);
+        return;
+      }
+      expect(run).not.toHaveBeenCalled();
+      if (outcome === "ui-capability") {
+        expect(status).toBe(403);
+        expect(result).toMatchObject({ errorCode: "ui_capability_required" });
+        return;
+      }
+      expect(status).toBe(409);
+      expect(result).toMatchObject({ errorCode: "approval_required" });
+      expect(result.error).toContain('"revoke-thing" requires human approval');
+    });
+
+    it("tells a service identity it can never approve", async () => {
+      const { result } = await callAs(
+        "org service token",
+        "needsApproval true",
+      );
+
+      expect(result.error).toContain("a service identity can never give it");
+    });
   });
 
   it.each(["GET", "HEAD", "OPTIONS"] as const)(
@@ -5387,15 +5543,12 @@ describe("mountActionRoutes", () => {
           "set-workspace-app-access": setWorkspaceAppAccess as any,
         },
         {
-          actionRouteAuth: {
-            resolveCaller: async () => ({
-              owner: "owner@example.com",
-              anonymous: false,
-              orgId: "org-1",
-            }),
-          },
+          getOwnerFromEvent: async () => "owner@example.com",
+          resolveOrgId: async () => "org-1",
         },
       );
+      // Changing app access needs approval, which the signed-in app gives.
+      mockHasUiActionCapability.mockReturnValue(true);
       const handlerFor = (name: string) =>
         mounted.find(({ path }) => path === `/_agent-native/actions/${name}`)!
           .handler;
@@ -5425,7 +5578,7 @@ describe("mountActionRoutes", () => {
       await expect(
         handlerFor("set-workspace-app-access")({
           _method: "POST",
-          _headers: {},
+          _headers: { "x-agent-native-frontend": "1" },
           context: {},
           req: {
             url: "http://app.test/_agent-native/actions/set-workspace-app-access",
@@ -5663,6 +5816,165 @@ describe("mountActionRoutes", () => {
     expect(mockResolveOrgIdForEmail).toHaveBeenCalledWith("steve@example.com");
     expect(received.ctx.orgId).toBe("org-stored-active");
     expect(received.requestOrgId).toBe("org-stored-active");
+  });
+
+  it("marks a confirmed personal cookie scope when no org is resolved", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    mountActionRoutes(
+      nitroApp,
+      {
+        "do-thing": {
+          run: vi.fn(async (_params, ctx) => {
+            received = { ctx, requestContext: getRequestContext() };
+            return { ok: true };
+          }),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(mockResolveOrgScopeForEmail).toHaveBeenCalledWith(
+      "steve@example.com",
+    );
+    expect(received.ctx.orgId).toBeNull();
+    expect(received.requestContext.orgScope).toBe("personal");
+  });
+
+  it("does not mark unavailable org resolution as personal scope", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    mountActionRoutes(
+      nitroApp,
+      {
+        "do-thing": {
+          run: vi.fn(async (_params, ctx) => {
+            received = { ctx, requestContext: getRequestContext() };
+            return { ok: true };
+          }),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      context: { __anOrgScopeResolutionUnavailable: true },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBeNull();
+    expect(received.requestContext.orgScope).toBeUndefined();
+  });
+
+  it("keeps an unresolved cookie scope unknown", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    mountActionRoutes(
+      nitroApp,
+      {
+        "do-thing": {
+          run: vi.fn(async (_params, ctx) => {
+            received = { ctx, requestContext: getRequestContext() };
+            return { ok: true };
+          }),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBeNull();
+    expect(received.requestContext.orgScope).toBeUndefined();
+  });
+
+  it("preserves organization scope resolved for a cookie session", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    mockResolveOrgScopeForEmail.mockResolvedValue({
+      status: "organization",
+      orgId: "org-membership",
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    mountActionRoutes(
+      nitroApp,
+      {
+        "do-thing": {
+          run: vi.fn(async (_params, ctx) => {
+            received = { ctx, requestContext: getRequestContext() };
+            return { ok: true };
+          }),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBe("org-membership");
+    expect(received.requestContext.orgScope).toBeUndefined();
   });
 
   it("keeps an explicit Personal selection personal", async () => {

@@ -2,9 +2,18 @@ import { writeSync } from "node:fs";
 
 import postgres from "postgres";
 
+import {
+  ensureChatThreadTables,
+  getThread,
+  markQueuedSubmissionSubmitted,
+  updateThreadData,
+  type QueuedMessage,
+  type QueuedSubmissionActor,
+} from "../chat-threads/store.js";
 import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
+import { abortRunAtSafeBoundaryDurably } from "./run-manager.js";
 import {
   beginAgentExecutionStep,
   claimTurnExecutionLease,
@@ -15,6 +24,11 @@ import {
   markAgentExecutionStepDispatched,
   type AgentExecutionStepIntent,
 } from "./run-store.js";
+import {
+  applySubmittedUserMessage,
+  buildUserMessage,
+  extractThreadMeta,
+} from "./thread-data-builder.js";
 
 function executor(sql: postgres.Sql): DbExec {
   return {
@@ -61,6 +75,8 @@ function waitForContinue(): Promise<void> {
   });
 }
 
+let databaseBackendPid: number | undefined;
+
 async function main(): Promise<void> {
   const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL; // config-ok: isolated integration-test database selector, not app runtime config
   if (!databaseUrl) throw new Error("AGENT_RUN_POSTGRES_TEST_URL is required");
@@ -83,6 +99,96 @@ async function main(): Promise<void> {
           ),
         );
         process.stdout.write(JSON.stringify({ status: "unexpected-write" }));
+        return;
+      }
+      if (mode === "queue-submit") {
+        await withMigrationRuntime(() => ensureChatThreadTables());
+        const input = JSON.parse(extra ?? "null") as {
+          message: QueuedMessage;
+          claimId: string;
+          actor: QueuedSubmissionActor;
+        };
+        const thread = await getThread(threadId);
+        if (!thread)
+          throw new Error(`Missing queued-message thread ${threadId}`);
+        const userMessage = buildUserMessage({
+          text: input.message.text,
+          runId,
+          queuedMessageId: input.message.id,
+        });
+        let submissionFailure: string | undefined;
+        let pauseBeforeWrite = true;
+        const updated = await updateThreadData(
+          threadId,
+          "{}",
+          thread.title,
+          thread.preview,
+          thread.messageCount,
+          {
+            transformThreadData: (threadData) => {
+              const result = applySubmittedUserMessage(
+                JSON.parse(threadData || "{}"),
+                userMessage,
+                {
+                  id: input.message.id,
+                  claimId: input.claimId,
+                  now: Date.now(),
+                },
+              );
+              if (!("repo" in result)) {
+                submissionFailure = result.status;
+                return threadData;
+              }
+              const meta = extractThreadMeta(result.repo);
+              return {
+                threadData: JSON.stringify(result.repo),
+                preview: meta.preview || thread.preview,
+              };
+            },
+            beforeUpdate: async () => {
+              if (pauseBeforeWrite) {
+                pauseBeforeWrite = false;
+                writeSync(1, `${JSON.stringify({ ready: true })}\n`);
+                await waitForContinue();
+              }
+              return !submissionFailure;
+            },
+            afterUpdate: async (tx) => {
+              if (submissionFailure) return;
+              await markQueuedSubmissionSubmitted(tx, {
+                threadId,
+                messageId: input.message.id,
+                runId,
+                actor: input.actor,
+                message: input.message,
+              });
+            },
+          },
+        );
+        writeSync(
+          1,
+          JSON.stringify({
+            status: submissionFailure ?? "submitted",
+            updated,
+          }),
+        );
+        return;
+      }
+
+      if (mode === "durable-abort") {
+        const [{ pid }] = await sql`SELECT pg_backend_pid() AS pid`;
+        databaseBackendPid = Number(pid);
+        const aborted = await abortRunAtSafeBoundaryDurably(
+          runId,
+          stepId ?? "user",
+        );
+        process.stdout.write(
+          JSON.stringify({
+            aborted,
+            processId: process.pid,
+            databaseBackendPid,
+          }),
+        );
         return;
       }
 
@@ -162,6 +268,13 @@ main().catch((error) => {
     error && typeof error === "object" && "code" in error
       ? String((error as { code?: unknown }).code)
       : undefined;
-  process.stdout.write(JSON.stringify({ error: String(error), code }));
+  process.stdout.write(
+    JSON.stringify({
+      error: String(error),
+      code,
+      processId: process.pid,
+      databaseBackendPid,
+    }),
+  );
   process.exitCode = code === "turn_execution_lease_busy" ? 3 : 1;
 });

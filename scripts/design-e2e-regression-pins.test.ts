@@ -151,7 +151,7 @@ const REQUIRED_CORE_COVERAGE = [
     title: "Line Height Enter returns a real Text-tool range to the editor",
   },
   {
-    shard: "inspector-4b",
+    shard: "inspector-1a",
     file: "text-range-visibility.spec.ts",
     title:
       "multi-selected text leaves share inspector styles, edits save to both, and one undo restores both",
@@ -267,7 +267,7 @@ const REQUIRED_CORE_COVERAGE = [
       "Cmd+V of SVG markup while a frame is selected appends the SVG as the frame's topmost child, drawn above its siblings, and selects it",
   },
   {
-    shard: "inspector-4a",
+    shard: "inspector-3a",
     file: "pasted-svg-image-inspector.spec.ts",
     title: "stroke gradient edits stay on the selected nested pasted-SVG shape",
   },
@@ -373,7 +373,7 @@ const REQUIRED_CORE_COVERAGE = [
       "an open pasted SVG continues from its endpoint and closes without adding a fill",
   },
   {
-    shard: "inspector-4b",
+    shard: "inspector-1b",
     file: "vector-live-edit-acceptance.spec.ts",
     title:
       "closing an edited pasted SVG restores authored fill opacity through history and reload",

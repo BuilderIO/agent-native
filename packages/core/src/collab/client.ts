@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
@@ -33,6 +33,8 @@ export interface UseCollaborativeDocOptions {
   requestSource?: string;
   user?: CollabUser;
   activityResource?: { resourceType: string; resourceId: string };
+  /** Application events received alongside document updates on the existing transport. */
+  onEvent?: (event: SyncEvent) => void;
 }
 
 export type CollabInitializationErrorCategory =
@@ -237,6 +239,7 @@ interface CollabDocSubscription {
   pauseWhenHidden: boolean;
   requestSource?: string;
   onSnapshot: (snapshot: CollabDocSnapshot) => void;
+  onEvent: (event: SyncEvent) => void;
 }
 
 const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
@@ -920,6 +923,9 @@ class CollabDocConnection {
   }
 
   private handleSharedEvent(change: SyncEvent): void {
+    if (change.source !== "collab") {
+      for (const sub of this.subscribers.values()) sub.onEvent(change);
+    }
     if (
       change.source === "collab" &&
       change.docId === this.docId &&
@@ -1121,6 +1127,9 @@ class CollabDocConnection {
       const hadGap = versionGap > POLL_RING_BUFFER_SIZE;
 
       for (const evt of events) {
+        if (evt.source !== "collab") {
+          for (const sub of this.subscribers.values()) sub.onEvent(evt);
+        }
         if (evt.source === "collab" && evt.docId === this.docId && evt.update) {
           if (this.requestSource && evt.requestSource === this.requestSource) {
             continue;
@@ -1357,7 +1366,10 @@ export function useCollaborativeDoc(
     requestSource,
     user,
     activityResource,
+    onEvent,
   } = options;
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
   useEffect(() => {
     if (!docId || !activityResource) return;
     return registerCollabActivityResource(activityResource);
@@ -1404,6 +1416,7 @@ export function useCollaborativeDoc(
       pauseWhenHidden,
       requestSource,
       onSnapshot: setSnapshot,
+      onEvent: (event) => onEventRef.current?.(event),
     });
     setSnapshot(conn.snapshot);
     return () => {

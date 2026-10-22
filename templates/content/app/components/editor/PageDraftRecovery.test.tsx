@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 import type { Document } from "@shared/api";
+import { expectedPreviewDraftIdentity } from "@shared/preview-draft-identity";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   draft: null as null | {
+    id: string;
     title: string;
     content: string;
     version: number;
@@ -55,6 +57,7 @@ vi.mock("@/hooks/use-documents", () => ({
   useUpdatePreviewDocumentDraft: () => ({ mutateAsync: state.remove }),
 }));
 vi.mock("./page-draft-journal", () => ({
+  liveDraftWriterIds: async () => new Set<string>(),
   readPageDraftJournal: () => null,
   listPageDraftJournal: () => [],
   sweepLegacyRetainedPageDraftMarkers: () => undefined,
@@ -117,7 +120,9 @@ describe("Page draft recovery", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
     state.draft = null;
-    state.refetch.mockResolvedValue(undefined);
+    state.refetch.mockImplementation(async () => ({
+      data: { draft: state.draft },
+    }));
     state.verify.mockResolvedValue(undefined);
     state.update.mockResolvedValue({
       ...page,
@@ -140,6 +145,7 @@ describe("Page draft recovery", () => {
     "distinguishes automatic recovery from an explicit reviewed override (identified=%s)",
     async (identified) => {
       state.draft = {
+        id: "selected-draft",
         title: "Builder row",
         baseTitle: "Builder row",
         content: "Chosen separate body",
@@ -179,6 +185,7 @@ describe("Page draft recovery", () => {
 
   it("automatically restores body-only edits while retaining the peer title", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Before rename",
       baseTitle: "Before rename",
       content: "Draft body",
@@ -210,6 +217,7 @@ describe("Page draft recovery", () => {
     "keeps unknown legacy title lineage visible (%s)",
     async (baseTitle) => {
       state.draft = {
+        id: "selected-draft",
         title: "Legacy title",
         baseTitle,
         content: "Legacy body",
@@ -243,6 +251,7 @@ describe("Page draft recovery", () => {
 
   it("resumes automatic recovery when a known newer generation replaces an unknown draft", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Legacy",
       baseTitle: null,
       content: "Legacy body",
@@ -270,6 +279,7 @@ describe("Page draft recovery", () => {
     expect(state.resolve).toHaveBeenCalledWith(
       expect.objectContaining({
         choice: "keep_mine",
+        ...expectedPreviewDraftIdentity(state.draft!),
         expectedDraftVersion: 2,
         expectedDraftBaseTitle: "Before rename",
       }),
@@ -281,6 +291,7 @@ describe("Page draft recovery", () => {
 
   it("shows a typed unknown claim refusal without offering a guessed overwrite", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Draft",
       baseTitle: "Saved",
       content: "Draft body",
@@ -312,6 +323,7 @@ describe("Page draft recovery", () => {
     await act(async () => render());
     expect(container.querySelector("textarea")).not.toBeNull();
     state.draft = {
+      id: "selected-draft",
       title: "Draft",
       baseTitle: "Saved",
       content: "Draft body",
@@ -330,6 +342,7 @@ describe("Page draft recovery", () => {
 
   it("restores an identified draft against its matching canonical base", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Draft",
       baseTitle: "Saved",
       content: "Draft body",
@@ -344,6 +357,7 @@ describe("Page draft recovery", () => {
     expect(state.resolve).toHaveBeenCalledWith(
       expect.objectContaining({
         choice: "keep_mine",
+        ...expectedPreviewDraftIdentity(state.draft!),
         expectedDraftVersion: 3,
         expectedDraftBaseTitle: "Saved",
         expectedDocumentTitle: "Saved",
@@ -356,6 +370,7 @@ describe("Page draft recovery", () => {
 
   it("keeps an identified draft pending when its write requires preservation", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Draft",
       baseTitle: "Saved",
       content: "Draft body",
@@ -382,6 +397,7 @@ describe("Page draft recovery", () => {
 
   it("does not reopen recovery when Use saved already superseded the draft generation", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Draft",
       baseTitle: "Saved",
       content: "Discarded draft body",
@@ -415,6 +431,7 @@ describe("Page draft recovery", () => {
 
   it("preserves an unrebased newer-base draft in History without showing a conflict", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Draft",
       baseTitle: "Saved",
       content: "Draft body",
@@ -430,6 +447,7 @@ describe("Page draft recovery", () => {
       choice: "use_saved",
       trigger: "automatic",
       documentId: "page",
+      ...expectedPreviewDraftIdentity(state.draft!),
       expectedDraftVersion: 3,
       expectedDraftTitle: "Draft",
       expectedDraftContent: "Draft body",
@@ -452,6 +470,7 @@ describe("Page draft recovery", () => {
     "preserves a draft in History when it %s",
     async (_case, baseContentHash) => {
       state.draft = {
+        id: "selected-draft",
         title: "Draft",
         baseTitle: "Saved",
         content: "Draft body",
@@ -476,6 +495,7 @@ describe("Page draft recovery", () => {
 
   it("resolves a held draft through the automatic server permission boundary", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Saved",
       baseTitle: "Saved",
       content: "Saved body",
@@ -490,6 +510,7 @@ describe("Page draft recovery", () => {
       expect.objectContaining({
         choice: "keep_mine",
         trigger: "automatic",
+        ...expectedPreviewDraftIdentity(state.draft!),
         expectedDraftVersion: 3,
       }),
     );
@@ -502,6 +523,7 @@ describe("Page draft recovery", () => {
 
   it("keeps a held draft visible when the server requires a recovery choice", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Saved",
       baseTitle: "Saved",
       content: "Saved body",
@@ -529,6 +551,7 @@ describe("Page draft recovery", () => {
 
   it("preserves a draft when automatic archival sees an unreviewed version that holds its text", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Saved",
       baseTitle: "Saved",
       content: "Draft body",
@@ -570,6 +593,7 @@ describe("Page draft recovery", () => {
 
   it("moves a legacy draft to History without blocking the editor", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Legacy draft",
       baseTitle: "Saved",
       content: "Legacy body",
@@ -584,6 +608,7 @@ describe("Page draft recovery", () => {
       choice: "use_saved",
       trigger: "automatic",
       documentId: "page",
+      ...expectedPreviewDraftIdentity(state.draft!),
       expectedDraftVersion: 7,
       expectedDraftTitle: "Legacy draft",
       expectedDraftContent: "Legacy body",
@@ -597,6 +622,7 @@ describe("Page draft recovery", () => {
 
   it("keeps a failed legacy draft pending", async () => {
     state.draft = {
+      id: "selected-draft",
       title: "Legacy draft",
       baseTitle: "Saved",
       content: "Legacy body",

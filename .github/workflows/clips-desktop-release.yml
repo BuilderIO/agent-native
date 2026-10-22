@@ -324,6 +324,31 @@ jobs:
           fs.writeFileSync(cargoPath, updatedCargo);
           NODE
 
+      - name: Install NASM for x86_64 ffmpeg sidecar
+        if: runner.os == 'macOS'
+        shell: bash
+        run: if ! command -v nasm >/dev/null 2>&1; then brew install nasm; fi
+
+      - name: Prepare macOS ffmpeg sidecars
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        shell: bash
+        run: |
+          CLIPS_FFMPEG_TARGET_TRIPLE=aarch64-apple-darwin pnpm run prepare:ffmpeg
+          CLIPS_FFMPEG_TARGET_TRIPLE=x86_64-apple-darwin pnpm run prepare:ffmpeg
+
+      - name: Create universal macOS ffmpeg sidecar
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}/src-tauri
+        shell: bash
+        run: |
+          lipo -create \
+            binaries/ffmpeg-aarch64-apple-darwin \
+            binaries/ffmpeg-x86_64-apple-darwin \
+            -output binaries/ffmpeg-universal-apple-darwin
+          chmod +x binaries/ffmpeg-universal-apple-darwin
+          lipo binaries/ffmpeg-universal-apple-darwin -verify_arch arm64 x86_64
+
       - name: Build and release (tauri-action)
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:

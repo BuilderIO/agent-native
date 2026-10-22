@@ -4,6 +4,7 @@ import {
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -132,7 +133,7 @@ export function runTextContentChange(
 ): TextCommitStatus {
   if (!canEditDesign && !canEditLiveScreen) return "refused";
   if (!activeFile) return "refused";
-  if (activeCanvasSourceType === "localhost") {
+  if (isRunningAppSourceType(activeCanvasSourceType)) {
     recordPendingLiveTextEdit(
       activeFile.id,
       selector,

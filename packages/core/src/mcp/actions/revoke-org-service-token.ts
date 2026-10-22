@@ -13,11 +13,15 @@ import { requireServiceTokenCaller } from "./service-token-access.js";
 
 export default defineAction({
   description:
-    "Revoke one of your organization's service tokens by id (get ids from list-org-service-tokens). The token stops working immediately. Org owner/admin only. Idempotent.",
+    "Revoke one of your organization's service tokens by id (get ids from list-org-service-tokens). The token stops working immediately. Every call needs the user's approval. Org owner/admin only. Idempotent.",
   schema: z.object({
     id: z.string().min(1).describe("Service token id to revoke"),
   }),
   toolCallable: false,
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args, ctx) => {
     const caller = await requireServiceTokenCaller({
       userEmail: ctx?.userEmail,

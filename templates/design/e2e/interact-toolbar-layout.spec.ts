@@ -105,7 +105,7 @@ async function enterInteractAndSampleImmediately(
       )
       .toBe(true);
   }
-  await expect(screenShell.locator("[data-frame-full-view]")).toBeHidden();
+  await expect(screenShell.locator("[data-frame-full-view]")).toHaveCount(0);
   // Interact loads the page afresh, with only its own bridges, so the preview
   // is a new iframe. The screen still has exactly one.
   await expect(previewIframe).toHaveCount(1);

@@ -4,12 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   completeProgressRunMock,
+  getCurrentTurnRunEventsMock,
   getProgressRunMock,
   hasNotificationWithMetadataMock,
   insertNotificationMock,
   revokeTaskExecutionLeaseMock,
 } = vi.hoisted(() => ({
   completeProgressRunMock: vi.fn(),
+  getCurrentTurnRunEventsMock: vi.fn(),
   getProgressRunMock: vi.fn(),
   hasNotificationWithMetadataMock: vi.fn(),
   insertNotificationMock: vi.fn(),
@@ -34,6 +36,7 @@ let failTaskProjectionFor: {
 let beforeNextAppStateCas: (() => void) | null = null;
 let afterContinuationRequeueCommit: ((taskId: string) => Promise<void>) | null =
   null;
+let afterNextAttemptCommit: (() => Promise<void>) | null = null;
 let transactionTail: Promise<void> = Promise.resolve();
 const transactionContext = new AsyncLocalStorage<{ aborted: boolean }>();
 function affected(n: number) {
@@ -353,6 +356,11 @@ const queueDb = {
     } finally {
       releaseTransaction();
     }
+    if (afterNextAttemptCommit) {
+      const afterCommit = afterNextAttemptCommit;
+      afterNextAttemptCommit = null;
+      await afterCommit();
+    }
     const requeuedRow = queueRows.find(
       (row) => row.status === "queued" && row.continuation_count > 0,
     );
@@ -385,10 +393,10 @@ type MockRequestContext = {
   run?: { allowedActionNames?: readonly string[] };
 };
 const requestContexts: MockRequestContext[] = [];
-let activeRequestContext: MockRequestContext | undefined;
+const requestContextStorage = new AsyncLocalStorage<MockRequestContext>();
 
 function requireMockRequestContext(): void {
-  if (!activeRequestContext?.userEmail) {
+  if (!requestContextStorage.getStore()?.userEmail) {
     throw new Error("missing mock request context");
   }
 }
@@ -508,16 +516,25 @@ const runAgentLoopMock = vi.fn();
 const instrumentAgentLoopMock = vi.fn();
 const getObservabilityConfigMock = vi.fn();
 const abortRunMock = vi.fn();
+const abortRunDurablyMock = vi.fn();
 const getActiveRunForThreadAsyncMock = vi.fn(async () => null as any);
 const getRunMock = vi.fn();
 const subscribeToRunMock = vi.fn();
 const persistedRunEventIds: string[] = [];
 const persistedTerminalRunEventIds: string[] = [];
+const persistedRunEvents: Array<{
+  threadId: string;
+  turnId: string;
+  runId: string;
+  seq: number;
+  event: any;
+}> = [];
 let heldToolStartEventWrite: Promise<void> | null = null;
 let persistedToolStartEventWrites = 0;
 let failNextExecutionLeaseClaim = false;
 const startRunWork: Promise<void>[] = [];
 const activeRunMocks = new Map<string, any>();
+const activeRunAbortControllers = new Map<string, AbortController>();
 vi.mock("../agent/run-manager.js", () => ({
   startRun: (
     runId: string,
@@ -526,12 +543,13 @@ vi.mock("../agent/run-manager.js", () => ({
     onComplete?: (run: any) => Promise<void>,
     options?: any,
   ) => {
+    const turnId = options?.turnId ?? runId;
     if (options?.executionLease && failNextExecutionLeaseClaim) {
       failNextExecutionLeaseClaim = false;
       return {
         runId,
         threadId,
-        turnId: options?.turnId ?? runId,
+        turnId,
         events: [],
         status: "aborted",
         abortReason: "execution-lease-busy",
@@ -564,6 +582,7 @@ vi.mock("../agent/run-manager.js", () => ({
           return write;
         }
         if (options?.persistEvent) {
+          const runEvent = events.at(-1)!;
           const write = options
             .persistEvent(async () => {}, {
               terminal: false,
@@ -571,6 +590,12 @@ vi.mock("../agent/run-manager.js", () => ({
             })
             .then(() => {
               persistedRunEventIds.push(runId);
+              persistedRunEvents.push({
+                threadId,
+                turnId,
+                runId,
+                ...runEvent,
+              });
             });
           pendingEventWrites.push(write);
           return write;
@@ -582,14 +607,11 @@ vi.mock("../agent/run-manager.js", () => ({
           await Promise.all(pendingEventWrites);
         },
       };
-      const signal = {
-        aborted: false,
-        addEventListener() {},
-        removeEventListener() {},
-      };
+      const abortController = new AbortController();
+      activeRunAbortControllers.set(runId, abortController);
       let status: "completed" | "errored" = "completed";
       try {
-        await runFn(send, signal, control);
+        await runFn(send, abortController.signal, control);
       } catch {
         status = "errored";
       }
@@ -597,26 +619,50 @@ vi.mock("../agent/run-manager.js", () => ({
       const run = {
         runId,
         threadId,
-        turnId: options?.turnId ?? runId,
+        turnId,
         events,
         status,
         subscribers: new Set(),
-        abort: new AbortController(),
+        abort: abortController,
         startedAt: Date.now(),
       };
       activeRunMocks.set(runId, run);
       try {
         if (onComplete) await onComplete(run);
         if (options?.persistEvent) {
+          const terminalEvent = [...events]
+            .reverse()
+            .find(({ event }) =>
+              [
+                "done",
+                "error",
+                "missing_api_key",
+                "loop_limit",
+                "auto_continue",
+              ].includes(event?.type),
+            )?.event ?? { type: "done" };
           await options.persistEvent(async () => {}, {
             terminal: true,
-            eventData: '{"type":"done"}',
+            eventData: JSON.stringify(terminalEvent),
           });
           persistedRunEventIds.push(runId);
           persistedTerminalRunEventIds.push(runId);
+          if (
+            terminalEvent.type === "auto_continue" ||
+            terminalEvent.type === "loop_limit"
+          ) {
+            persistedRunEvents.push({
+              threadId,
+              turnId,
+              runId,
+              seq: 1_000_000_000,
+              event: terminalEvent,
+            });
+          }
         }
       } finally {
         activeRunMocks.delete(runId);
+        activeRunAbortControllers.delete(runId);
       }
     })();
     startRunWork.push(work);
@@ -632,7 +678,11 @@ vi.mock("../agent/run-manager.js", () => ({
       finalized: work,
     };
   },
-  abortRun: abortRunMock,
+  abortRun: (...args: any[]) => {
+    abortRunMock(...args);
+    activeRunAbortControllers.get(String(args[0]))?.abort(args[1]);
+  },
+  abortRunDurably: abortRunDurablyMock,
   getActiveRunForThreadAsync: getActiveRunForThreadAsyncMock,
   getRun: getRunMock,
   subscribeToRun: subscribeToRunMock,
@@ -640,8 +690,10 @@ vi.mock("../agent/run-manager.js", () => ({
 
 const getRunEventsSinceMock = vi.fn(async () => []);
 vi.mock("../agent/run-store.js", () => ({
+  CHECKPOINT_TERMINAL_EVENT_SEQ: 1_000_000_000,
   ensureRunTables: vi.fn(async () => undefined),
   getRunEventsSince: getRunEventsSinceMock,
+  getCurrentTurnRunEventsForThread: getCurrentTurnRunEventsMock,
   lockTaskExecutionLease: vi.fn(async () => undefined),
   revokeTaskExecutionLease: revokeTaskExecutionLeaseMock,
 }));
@@ -737,26 +789,12 @@ vi.mock("../org/context.js", () => ({
 }));
 
 vi.mock("./request-context.js", () => ({
-  getRequestUserEmail: () => activeRequestContext?.userEmail,
-  getRequestOrgId: () => activeRequestContext?.orgId,
-  getRequestRunContext: () => activeRequestContext?.run,
+  getRequestUserEmail: () => requestContextStorage.getStore()?.userEmail,
+  getRequestOrgId: () => requestContextStorage.getStore()?.orgId,
+  getRequestRunContext: () => requestContextStorage.getStore()?.run,
   runWithRequestContext: (ctx: any, fn: () => any) => {
-    const previous = activeRequestContext;
-    activeRequestContext = ctx;
     requestContexts.push(ctx);
-    try {
-      const result = fn();
-      if (result && typeof result.then === "function") {
-        return result.finally(() => {
-          activeRequestContext = previous;
-        });
-      }
-      activeRequestContext = previous;
-      return result;
-    } catch (err) {
-      activeRequestContext = previous;
-      throw err;
-    }
+    return requestContextStorage.run(ctx, fn);
   },
 }));
 
@@ -842,12 +880,12 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     failTaskProjectionFor = null;
     beforeNextAppStateCas = null;
     afterContinuationRequeueCommit = null;
+    afterNextAttemptCommit = null;
     transactionTail = Promise.resolve();
     appState.clear();
     threadData.clear();
     dispatches.length = 0;
     requestContexts.length = 0;
-    activeRequestContext = undefined;
     activeRunMocks.clear();
     queue._agentTeamRunQueueForTests.resetInit();
     runAgentLoopMock.mockReset();
@@ -862,16 +900,32 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       (runId: string) => activeRunMocks.get(runId) ?? null,
     );
     abortRunMock.mockReset();
+    abortRunDurablyMock
+      .mockReset()
+      .mockImplementation(async (...args: any[]) => {
+        abortRunMock(...args);
+        return true;
+      });
     getActiveRunForThreadAsyncMock.mockReset();
     getActiveRunForThreadAsyncMock.mockResolvedValue(null);
     persistedRunEventIds.length = 0;
     persistedTerminalRunEventIds.length = 0;
+    persistedRunEvents.length = 0;
     heldToolStartEventWrite = null;
     persistedToolStartEventWrites = 0;
     failNextExecutionLeaseClaim = false;
     subscribeToRunMock.mockReset();
     getRunEventsSinceMock.mockReset();
     getRunEventsSinceMock.mockResolvedValue([]);
+    getCurrentTurnRunEventsMock.mockReset();
+    getCurrentTurnRunEventsMock.mockImplementation(
+      async (threadId: string, turnId: string) =>
+        persistedRunEvents
+          .filter(
+            (event) => event.threadId === threadId && event.turnId === turnId,
+          )
+          .map(({ runId, seq, event }) => ({ runId, seq, event })),
+    );
     revokeTaskExecutionLeaseMock.mockReset();
     revokeTaskExecutionLeaseMock.mockResolvedValue(undefined);
     completeProgressRunMock.mockReset();
@@ -1270,6 +1324,51 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     });
     expect(abortRunMock).not.toHaveBeenCalled();
     expect(completeProgressRunMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a legacy Stop retryable when run abort persistence fails", async () => {
+    const taskId = "legacy-stop-abort-persistence-failure";
+    appState.set(`agent-task:${taskId}`, {
+      taskId,
+      threadId: "thread-1",
+      runId: `run-task-${taskId}`,
+      parentThreadId: "parent-thread",
+      ownerEmail: OWNER,
+      description: "legacy task",
+      status: "running",
+      preview: "",
+      summary: "",
+      currentStep: "Working",
+      createdAt: Date.now(),
+    });
+    abortRunDurablyMock.mockRejectedValueOnce(
+      new Error("run abort persistence failed"),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+      ),
+    ).rejects.toThrow("run abort persistence failed");
+
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "running",
+      stopRequestedAt: expect.any(Number),
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(abortRunDurablyMock).toHaveBeenCalledTimes(2);
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      terminalProgressStatus: "cancelled",
+    });
+    expect(appState.get(`agent-task:${taskId}`)).not.toHaveProperty(
+      "stopRequestedAt",
+    );
   });
 
   it("does not let a legacy completion overwrite a concurrent stop", async () => {
@@ -1800,7 +1899,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     let observedAllowedActionNames: readonly string[] | undefined;
     runAgentLoopMock.mockImplementation(async () => {
       observedAllowedActionNames =
-        activeRequestContext?.run?.allowedActionNames;
+        requestContextStorage.getStore()?.run?.allowedActionNames;
     });
     await seedTask("surface-context", undefined, ["allowed"]);
 
@@ -2801,8 +2900,511 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       ok: true,
     });
 
-    expect(abortRunMock).toHaveBeenCalledWith("run-task-t6-a0-c0", "user");
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t6-a0-c0", "user", {
+      allowNotStarted: true,
+    });
     expect((await queue.getAgentTeamRunDispatchState("t6"))?.status).toBe(
+      "failed",
+    );
+  });
+
+  it("does not start from a stale task snapshot when Stop lands during config", async () => {
+    const taskId = "stop-during-config";
+    await seedTask(taskId);
+
+    let markConfigStarted!: () => void;
+    let releaseConfig!: () => void;
+    let markAbortStarted!: () => void;
+    let releaseAbort!: () => void;
+    const configStarted = new Promise<void>((resolve) => {
+      markConfigStarted = resolve;
+    });
+    const configGate = new Promise<void>((resolve) => {
+      releaseConfig = resolve;
+    });
+    const abortStarted = new Promise<void>((resolve) => {
+      markAbortStarted = resolve;
+    });
+    const abortGate = new Promise<void>((resolve) => {
+      releaseAbort = resolve;
+    });
+
+    abortRunDurablyMock.mockImplementationOnce(
+      async (runId, reason, options) => {
+        expect(options).toEqual({ allowNotStarted: true });
+        expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+          status: "running",
+          stopRequestedAt: expect.any(Number),
+          stopRequestedRunId: runId,
+          stopRequestedReason: reason,
+        });
+        markAbortStarted();
+        await abortGate;
+        return false;
+      },
+    );
+
+    const processing = processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => {
+        markConfigStarted();
+        await configGate;
+        return resolveConfig();
+      },
+    });
+    let stopping: Promise<unknown> | undefined;
+
+    try {
+      await configStarted;
+      stopping = runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+      );
+      await abortStarted;
+
+      releaseConfig();
+      await expect(processing).resolves.toEqual({
+        ok: true,
+        skipped: "stop-requested",
+      });
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+        status: "running",
+        stopRequestedAt: expect.any(Number),
+      });
+
+      releaseAbort();
+      await expect(stopping).resolves.toEqual({ ok: true });
+    } finally {
+      releaseConfig();
+      releaseAbort();
+      await Promise.allSettled([processing, ...(stopping ? [stopping] : [])]);
+    }
+
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      terminalProgressStatus: "cancelled",
+    });
+  });
+
+  it("preserves Stop intent when config fails after Stop lands", async () => {
+    const taskId = "stop-during-config-failure";
+    await seedTask(taskId);
+
+    let markConfigStarted!: () => void;
+    let releaseConfig!: () => void;
+    let markAbortStarted!: () => void;
+    let releaseAbort!: () => void;
+    const configStarted = new Promise<void>((resolve) => {
+      markConfigStarted = resolve;
+    });
+    const configGate = new Promise<void>((resolve) => {
+      releaseConfig = resolve;
+    });
+    const abortStarted = new Promise<void>((resolve) => {
+      markAbortStarted = resolve;
+    });
+    const abortGate = new Promise<void>((resolve) => {
+      releaseAbort = resolve;
+    });
+
+    abortRunDurablyMock.mockImplementationOnce(
+      async (runId, reason, options) => {
+        expect(options).toEqual({ allowNotStarted: true });
+        expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+          status: "running",
+          stopRequestedAt: expect.any(Number),
+          stopRequestedRunId: runId,
+          stopRequestedReason: reason,
+        });
+        markAbortStarted();
+        await abortGate;
+        return false;
+      },
+    );
+
+    const processing = processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => {
+        markConfigStarted();
+        await configGate;
+        throw new Error("config unavailable");
+      },
+    });
+    let stopping: Promise<unknown> | undefined;
+
+    try {
+      await configStarted;
+      stopping = runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+      );
+      await abortStarted;
+
+      releaseConfig();
+      await expect(processing).resolves.toEqual({
+        ok: true,
+        skipped: "stop-requested",
+      });
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+        status: "running",
+        stopRequestedAt: expect.any(Number),
+      });
+
+      releaseAbort();
+      await expect(stopping).resolves.toEqual({ ok: true });
+    } finally {
+      releaseConfig();
+      releaseAbort();
+      await Promise.allSettled([processing, ...(stopping ? [stopping] : [])]);
+    }
+
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      terminalProgressStatus: "cancelled",
+    });
+  });
+
+  it("rechecks Stop intent after run registration and before model dispatch", async () => {
+    const taskId = "stop-before-run-registration";
+    await seedTask(taskId);
+    abortRunDurablyMock.mockResolvedValueOnce(false);
+    afterNextAttemptCommit = async () => {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+        ),
+      ).resolves.toEqual({ ok: true });
+    };
+
+    await expect(
+      processAgentTeamRun({
+        taskId,
+        mode: "start",
+        resolveConfig: async () => resolveConfig(),
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(abortRunDurablyMock).toHaveBeenCalledWith(
+      `run-task-${taskId}-a1-c0`,
+      "user",
+      { allowNotStarted: true },
+    );
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      terminalProgressStatus: "cancelled",
+    });
+    expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
+      "failed",
+    );
+  });
+
+  it("orders model dispatch before a Stop committed at the dispatch boundary", async () => {
+    const taskId = "stop-versus-model-dispatch-boundary";
+    await seedTask(taskId);
+    const order: string[] = [];
+    const engine = {
+      ...resolveConfig().engine,
+      stream: vi.fn(() => {
+        order.push("model-dispatch");
+        expect(transactionContext.getStore()).toMatchObject({ aborted: false });
+        return {};
+      }),
+    } as any;
+
+    runAgentLoopMock.mockImplementation(async (loopOpts: any) => {
+      afterNextAttemptCommit = async () => {
+        order.push("stop-committed");
+        await expect(
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+          ),
+        ).resolves.toEqual({ ok: true });
+      };
+      const result = await loopOpts.beforeModelDispatch?.(() =>
+        loopOpts.engine.stream({}),
+      );
+      expect(result?.started).toBe(true);
+    });
+
+    await expect(
+      processAgentTeamRun({
+        taskId,
+        mode: "start",
+        resolveConfig: async () => ({ ...resolveConfig(), engine }),
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(order).toEqual(["model-dispatch", "stop-committed"]);
+    expect(engine.stream).toHaveBeenCalledOnce();
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      terminalProgressStatus: "cancelled",
+    });
+  });
+
+  it("rechecks Stop after async setup immediately before a model request", async () => {
+    const taskId = "stop-during-observability-setup";
+    await seedTask(taskId);
+
+    let releaseObservability!: () => void;
+    let markObservabilityStarted!: () => void;
+    const observabilityStarted = new Promise<void>((resolve) => {
+      markObservabilityStarted = resolve;
+    });
+    const observabilityGate = new Promise<void>((resolve) => {
+      releaseObservability = resolve;
+    });
+    getObservabilityConfigMock.mockImplementationOnce(async () => {
+      markObservabilityStarted();
+      await observabilityGate;
+      return { enabled: true };
+    });
+
+    const engine = { ...resolveConfig().engine, stream: vi.fn() } as any;
+    runAgentLoopMock.mockImplementation(async (loopOpts: any) => {
+      await loopOpts.beforeModelDispatch?.(() => loopOpts.engine.stream({}));
+    });
+    // The stop is persisted by another worker and cannot abort this process's
+    // in-memory signal; the model-boundary check must observe the SQL marker.
+    abortRunDurablyMock.mockImplementationOnce(async () => true);
+
+    const processing = processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => ({ ...resolveConfig(), engine }),
+    });
+    let stopping: Promise<unknown> | undefined;
+
+    try {
+      await observabilityStarted;
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+
+      stopping = runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+      );
+      await expect(stopping).resolves.toEqual({ ok: true });
+      expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+        status: "errored",
+        summary: "Task stopped.",
+        terminalProgressStatus: "cancelled",
+      });
+
+      releaseObservability();
+      await expect(processing).resolves.toMatchObject({ ok: true });
+      expect(runAgentLoopMock).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+      expect(abortRunMock).toHaveBeenCalledWith(
+        `run-task-${taskId}-a1-c0`,
+        "user",
+      );
+    } finally {
+      releaseObservability();
+      await Promise.allSettled([processing, ...(stopping ? [stopping] : [])]);
+    }
+  });
+
+  it("keeps Stop authoritative when the run finalizer races its abort", async () => {
+    const taskId = "stop-finalizer-race";
+    await seedTask(taskId);
+
+    let releaseLoop!: () => void;
+    let resolveLoopStarted!: () => void;
+    const loopStarted = new Promise<void>((resolve) => {
+      resolveLoopStarted = resolve;
+    });
+    const loopGate = new Promise<void>((resolve) => {
+      releaseLoop = resolve;
+    });
+    let sendProgress: ((event: any) => Promise<void>) | undefined;
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      sendProgress = opts.send;
+      resolveLoopStarted();
+      await loopGate;
+    });
+
+    const processing = processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    try {
+      await loopStarted;
+      abortRunDurablyMock.mockImplementationOnce(async (runId, reason) => {
+        expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+          status: "running",
+          stopRequestedAt: expect.any(Number),
+        });
+        if (!sendProgress) throw new Error("the agent loop did not start");
+        await sendProgress({ type: "text", text: "late progress" });
+        await vi.waitFor(() => {
+          expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+            preview: "late progress",
+            stopRequestedAt: expect.any(Number),
+            stopRequestedRunId: runId,
+            stopRequestedReason: reason,
+          });
+        });
+        abortRunMock(runId, reason);
+        releaseLoop();
+
+        const worker = startRunWork.at(-1);
+        if (!worker) throw new Error("the run worker did not start");
+        await worker;
+
+        expect(appState.get(`agent-task:${taskId}`).status).toBe("running");
+        expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
+          "running",
+        );
+        return true;
+      });
+
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+        ),
+      ).resolves.toEqual({ ok: true });
+      await processing;
+    } finally {
+      releaseLoop();
+      await Promise.allSettled(startRunWork);
+    }
+
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      summary: "Task stopped.",
+      terminalProgressStatus: "cancelled",
+    });
+    expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
+      "failed",
+    );
+    expect(abortRunMock).toHaveBeenCalledWith(
+      `run-task-${taskId}-a1-c0`,
+      "user",
+    );
+  });
+
+  it("keeps Stop retryable when run abort persistence fails", async () => {
+    await seedTask("stop-abort-persistence-failure");
+    abortRunDurablyMock.mockRejectedValueOnce(
+      new Error("run abort persistence failed"),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-stop-abort-persistence-failure"),
+      ),
+    ).rejects.toThrow("run abort persistence failed");
+
+    expect(abortRunDurablyMock).toHaveBeenCalledWith(
+      "run-task-stop-abort-persistence-failure-a0-c0",
+      "user",
+      { allowNotStarted: true },
+    );
+    expect(
+      (
+        await queue.getAgentTeamRunDispatchState(
+          "stop-abort-persistence-failure",
+        )
+      )?.status,
+    ).toBe("queued");
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun("run-task-stop-abort-persistence-failure"),
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(abortRunDurablyMock).toHaveBeenCalledTimes(2);
+    expect(
+      (
+        await queue.getAgentTeamRunDispatchState(
+          "stop-abort-persistence-failure",
+        )
+      )?.status,
+    ).toBe("failed");
+  });
+
+  it("reconciles persisted Stop intent before a reclaimed attempt starts", async () => {
+    const taskId = "stop-intent-reclaimed-attempt";
+    await seedTask(taskId);
+
+    let releaseLoop!: () => void;
+    let resolveLoopStarted!: () => void;
+    const loopStarted = new Promise<void>((resolve) => {
+      resolveLoopStarted = resolve;
+    });
+    const loopGate = new Promise<void>((resolve) => {
+      releaseLoop = resolve;
+    });
+    runAgentLoopMock.mockImplementation(async () => {
+      resolveLoopStarted();
+      await loopGate;
+    });
+
+    const firstAttempt = processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    try {
+      await loopStarted;
+      abortRunDurablyMock.mockRejectedValueOnce(
+        new Error("run abort persistence failed"),
+      );
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+        ),
+      ).rejects.toThrow("run abort persistence failed");
+
+      expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+        status: "running",
+        stopRequestedAt: expect.any(Number),
+        stopRequestedRunId: `run-task-${taskId}-a1-c0`,
+        stopRequestedReason: "user",
+      });
+
+      const dispatch = queueRows.find((row) => row.task_id === taskId);
+      if (!dispatch) throw new Error("the agent team run was not enqueued");
+      dispatch.updated_at = 0;
+      abortRunDurablyMock.mockImplementationOnce(async (runId, reason) => {
+        abortRunMock(runId, reason);
+        releaseLoop();
+        return true;
+      });
+
+      await expect(
+        processAgentTeamRun({
+          taskId,
+          mode: "start",
+          resolveConfig: async () => resolveConfig(),
+        }),
+      ).resolves.toEqual({ ok: true, skipped: "stop-reconciled" });
+      await firstAttempt;
+    } finally {
+      releaseLoop();
+      await Promise.allSettled(startRunWork);
+    }
+
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    expect(abortRunDurablyMock).toHaveBeenLastCalledWith(
+      `run-task-${taskId}-a1-c0`,
+      "user",
+      { allowNotStarted: true },
+    );
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      summary: "Task stopped.",
+      terminalProgressStatus: "cancelled",
+    });
+    expect(appState.get(`agent-task:${taskId}`)).not.toHaveProperty(
+      "stopRequestedAt",
+    );
+    expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
       "failed",
     );
   });
@@ -2823,7 +3425,9 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       ok: true,
     });
 
-    expect(abortRunMock).toHaveBeenCalledWith("run-task-t7-a0-c3", "user");
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t7-a0-c3", "user", {
+      allowNotStarted: true,
+    });
     expect((await queue.getAgentTeamRunDispatchState("t7"))?.status).toBe(
       "failed",
     );
@@ -2858,6 +3462,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(abortRunMock).toHaveBeenCalledWith(
       "run-task-stop-after-reclaim-a1-c0",
       "user",
+      { allowNotStarted: true },
     );
   });
 
@@ -2881,7 +3486,9 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       ok: true,
     });
 
-    expect(abortRunMock).toHaveBeenCalledWith("run-task-t8-a0-c1", "user");
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t8-a0-c1", "user", {
+      allowNotStarted: true,
+    });
     expect((await queue.getAgentTeamRunDispatchState("t8"))?.status).toBe(
       "failed",
     );
@@ -2906,6 +3513,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(abortRunMock).toHaveBeenCalledWith(
       "run-task-task-ending-c1-a0-c0",
       "user",
+      { allowNotStarted: true },
     );
   });
 
@@ -3215,7 +3823,9 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       await runWithRequestContext({ userEmail: OWNER }, () =>
         stopAgentTeamBackgroundRun("run-task-remote-stop-heartbeat"),
       );
-      expect(abortRunMock).toHaveBeenCalledWith(runId, "user");
+      expect(abortRunMock).toHaveBeenCalledWith(runId, "user", {
+        allowNotStarted: true,
+      });
       expect(appState.get("agent-task:remote-stop-heartbeat")).toMatchObject({
         summary: "Task stopped.",
         terminalProgressStatus: "cancelled",

@@ -204,12 +204,15 @@ function serializeInlineAtom(node: PMNode): string {
 
 function serializeInline(nodes: PMNode[] | undefined): string {
   if (!nodes || !nodes.length) return "";
-  return nodes.map(serializeInlineNode).join("");
+  return nodes
+    .map((node, index) => serializeInlineNode(node, index === 0))
+    .join("");
 }
 
 function serializeInlineTextNode(
   node: PMNode,
   collectOffsets: boolean,
+  startsLine: boolean,
 ): {
   source: string;
   textOffsets: number[] | null;
@@ -254,7 +257,6 @@ function serializeInlineTextNode(
       }
     }
   }
-
   const wrap = (prefix: string, suffix: string) => {
     out = prefix + out + suffix;
     if (textOffsets)
@@ -279,7 +281,16 @@ function serializeInlineTextNode(
 
   const span = markOf(node, "notionSpan");
   const plainUnderline = !!markOf(node, "underline");
-  if (span || plainUnderline) {
+  // Neutral spans keep literal whitespace out of NFM's indentation/blank-line
+  // grammar. Plain text needs one only where that grammar applies: at the
+  // start of a line. It's checked after the markers are added, since code
+  // backticks or emphasis asterisks already keep a line from starting with
+  // whitespace. A span can't hold a raw newline (it would cross lines and fail
+  // to parse back), so text containing one is left as it was.
+  const leadingWhitespace =
+    !out.includes("\n") && (out.startsWith("\t") || /^\s+$/.test(out));
+  const protectsWhitespace = (!!span || startsLine) && leadingWhitespace;
+  if (span || plainUnderline || protectsWhitespace) {
     const a = span?.attrs || {};
     const underlined =
       a.underline === "true" || a.underline === true || plainUnderline;
@@ -292,7 +303,7 @@ function serializeInlineTextNode(
       ["bg_color", foregroundColor ? backgroundColor : null],
       ["underline", underlined ? "true" : null],
     ]);
-    if (attrStr) wrap(`<span${attrStr}>`, "</span>");
+    if (attrStr || protectsWhitespace) wrap(`<span${attrStr}>`, "</span>");
   }
 
   const link = markOf(node, "link");
@@ -302,20 +313,23 @@ function serializeInlineTextNode(
   return { source: out, textOffsets };
 }
 
-export function serializeInlineTextNodeWithOffsets(node: PMNode): {
+export function serializeInlineTextNodeWithOffsets(
+  node: PMNode,
+  startsLine = false,
+): {
   source: string;
   textOffsets: number[];
 } | null {
-  const serialized = serializeInlineTextNode(node, true);
+  const serialized = serializeInlineTextNode(node, true, startsLine);
   return serialized?.textOffsets
     ? { source: serialized.source, textOffsets: serialized.textOffsets }
     : null;
 }
 
-export function serializeInlineNode(node: PMNode): string {
+export function serializeInlineNode(node: PMNode, startsLine = false): string {
   if (node.type === "hardBreak") return "<br>";
   if (node.type === "notionInlineAtom") return serializeInlineAtom(node);
-  const textNode = serializeInlineTextNode(node, false);
+  const textNode = serializeInlineTextNode(node, false, startsLine);
   if (textNode) return textNode.source;
   return node.text ? escapeInlineText(node.text) : "";
 }

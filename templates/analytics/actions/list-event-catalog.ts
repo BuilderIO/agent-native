@@ -49,7 +49,7 @@ async function dataDictionaryDescriptions(
 
 export default defineAction({
   description:
-    "List the events Analytics has received, with each event's app, volume in the range, last-seen time, sample property keys, and Data Dictionary description. Flags apps that send only automatic events and events that stopped firing. Keeps the 1,000 most recently seen events, sorted by volume, and sets truncated when more exist; app flags still count every event in the range. Reads Analytics' own index. Requires the Sessions triage Lab.",
+    "List the events Analytics has received, with each event's app, volume in the range, last-seen time, sample property keys, and Data Dictionary description. Flags apps that send only automatic events and events that stopped firing. Keeps the 1,000 most recently seen events, sorted by volume, and sets truncated when more exist; app flags still count every event in the range. Reads Analytics' own index; Postgres-only, never queries BigQuery. Requires the Sessions triage Lab.",
   schema: z.object({
     from: sessionEventBoundSchema
       .optional()

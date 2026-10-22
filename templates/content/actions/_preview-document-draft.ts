@@ -11,6 +11,7 @@ export async function readPreviewDocumentDraft(
 ) {
   const [draft] = await db
     .select({
+      id: schema.documentPreviewDrafts.id,
       documentId: schema.documentPreviewDrafts.documentId,
       title: schema.documentPreviewDrafts.title,
       baseTitle: schema.documentPreviewDrafts.baseTitle,

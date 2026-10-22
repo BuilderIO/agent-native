@@ -73,6 +73,16 @@ jobs:
         with:
           targets: ${{ matrix.rust-targets }}
 
+      # The shared-main macOS smoke test runs cargo test before JavaScript
+      # dependencies are installed. Tauri's build script still validates the
+      # configured externalBin, so stage the native sidecar before that test.
+      - name: Prepare native macOS ffmpeg sidecar
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        env:
+          CLIPS_FFMPEG_TARGET_TRIPLE: aarch64-apple-darwin
+        run: node scripts/prepare-ffmpeg-sidecar.ts
+
       - name: Link Apple compiler runtime for Rust
         if: runner.os == 'macOS'
         shell: bash
@@ -109,6 +119,29 @@ jobs:
       - name: Build frontend
         working-directory: ${{ env.TAURI_APP_PATH }}
         run: pnpm run build
+
+      - name: Install NASM for x86_64 ffmpeg sidecar
+        if: runner.os == 'macOS'
+        shell: bash
+        run: if ! command -v nasm >/dev/null 2>&1; then brew install nasm; fi
+
+      - name: Prepare macOS ffmpeg sidecars
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        shell: bash
+        run: CLIPS_FFMPEG_TARGET_TRIPLE=x86_64-apple-darwin pnpm run prepare:ffmpeg
+
+      - name: Create universal macOS ffmpeg sidecar
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}/src-tauri
+        shell: bash
+        run: |
+          lipo -create \
+            binaries/ffmpeg-aarch64-apple-darwin \
+            binaries/ffmpeg-x86_64-apple-darwin \
+            -output binaries/ffmpeg-universal-apple-darwin
+          chmod +x binaries/ffmpeg-universal-apple-darwin
+          lipo binaries/ffmpeg-universal-apple-darwin -verify_arch arm64 x86_64
 
       - name: Build Tauri app (no signing, no publish)
         working-directory: ${{ env.TAURI_APP_PATH }}

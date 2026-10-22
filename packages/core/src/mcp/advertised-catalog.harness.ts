@@ -76,6 +76,7 @@ export const SURFACES: readonly Surface[] = [
 
 export interface SurfaceCatalog {
   surface: Surface;
+  config: MCPConfig;
   /** `tools/list` as a client reads it, per catalog mode. */
   catalogs: { default: AdvertisedTool[]; full: AdvertisedTool[] };
   /** What `ActionEntry` declares for each tool this surface can advertise. */
@@ -270,7 +271,7 @@ function createCloseHooks() {
   };
 }
 
-async function listAdvertised(
+export async function listAdvertised(
   config: MCPConfig,
   request: { fullCatalog: boolean; fullSurface: boolean },
 ): Promise<{ tools: AdvertisedTool[]; instructions: string }> {
@@ -450,6 +451,7 @@ export async function loadAppCatalogs(
           if (surfaces.length === 0) instructions = defaultCatalog.instructions;
           surfaces.push({
             surface,
+            config,
             catalogs: {
               default: defaultCatalog.tools,
               full: fullCatalog.tools,

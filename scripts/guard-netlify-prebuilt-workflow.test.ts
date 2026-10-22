@@ -2754,7 +2754,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.doesNotMatch(String(docsSmoke.run), /\/_agent-native\/health/);
   });
 
-  it("gives the beta branch-deploy build release and warm-runtime ownership", () => {
+  it("keeps beta keep-warm opt-in while preserving beta runtime ownership", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",
       "utf8",
@@ -2789,11 +2789,26 @@ describe("production Netlify site concurrency guard", () => {
       );
     }
     for (const flag of [
-      "AGENT_NATIVE_ENABLE_KEEP_WARM=1",
       "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1",
       "AGENT_NATIVE_HOSTED_HARNESS=true",
     ]) {
       assert.match(beta, new RegExp(`export ${flag.replace(/[=]/g, "\\=")}`));
+    }
+    assert.doesNotMatch(beta, /export AGENT_NATIVE_ENABLE_KEEP_WARM\b/);
+  });
+
+  it("does not opt starter Netlify configs into keep-warm", () => {
+    for (const templateRoot of ["templates", "community-templates"]) {
+      for (const entry of readdirSync(templateRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const netlifyConfig = join(templateRoot, entry.name, "netlify.toml");
+        if (!existsSync(netlifyConfig)) continue;
+        assert.doesNotMatch(
+          readFileSync(netlifyConfig, "utf8"),
+          /^\s*AGENT_NATIVE_ENABLE_KEEP_WARM\s*=/m,
+          netlifyConfig,
+        );
+      }
     }
   });
 

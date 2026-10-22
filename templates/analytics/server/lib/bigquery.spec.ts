@@ -28,6 +28,7 @@ const {
   BigQueryQueryTimeoutError,
   dryRunQuery,
   dryRunQuerySchema,
+  renderCurrentDateLiterals,
   runQuery,
 } = await import("./bigquery");
 
@@ -1006,6 +1007,18 @@ describe("runQuery cancellation", () => {
     expect(failure).toBeInstanceOf(BigQueryDryRunPreparationError);
     expect((failure as Error).message).not.toContain(privateDetail.message);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(failure).toMatchObject({ notConfigured: false });
+  });
+
+  it("marks missing credentials as not configured", async () => {
+    getBigQueryAccessToken.mockRejectedValueOnce(
+      new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured"),
+    );
+    vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>());
+
+    await expect(
+      dryRunQuerySchema("SELECT 1", { wrapPreparationErrors: true }),
+    ).rejects.toMatchObject({ notConfigured: true });
   });
 
   it("forwards abort signals to token setup without wrapping aborts", async () => {
@@ -1200,12 +1213,373 @@ describe("runQuery cancellation", () => {
     await runQuery("SELECT CURRENT_DATE() AS day");
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
-      "agent-native-utc-date:2026-09-08",
+    const submitted = (call: number) =>
+      JSON.parse(String(fetchMock.mock.calls[call]?.[1]?.body)).configuration
+        .query.query;
+    expect(submitted(0)).toBe("SELECT DATE '2026-09-08' AS day");
+    expect(submitted(2)).toBe("SELECT DATE '2026-09-09' AS day");
+  });
+
+  it("serves a repeated current-date query from the app cache within the day", async () => {
+    useCacheDatabase();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-08T10:00:00Z"));
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
     );
-    expect(String(fetchMock.mock.calls[2]?.[1]?.body)).toContain(
-      "agent-native-utc-date:2026-09-09",
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runQuery("SELECT CURRENT_DATE() AS day");
+    vi.setSystemTime(new Date("2026-09-08T18:00:00Z"));
+    const second = await runQuery("SELECT CURRENT_DATE() AS day");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(second.cached).toBe(true);
+  });
+
+  it.each([
+    [
+      "CONCAT('U', 'TC')",
+      "2026-09-08T23:59:00Z",
+      "2026-09-09T00:01:00Z",
+      "2026-09-08",
+      "2026-09-09",
+    ],
+    [
+      "CONCAT('America/', 'Los_Angeles')",
+      "2026-10-17T06:59:00Z",
+      "2026-10-17T07:01:00Z",
+      "2026-10-16",
+      "2026-10-17",
+    ],
+  ])(
+    "does not reuse an unresolved current-date query across midnight in %s",
+    async (zone, before, after, firstDay, secondDay) => {
+      const cache = useCacheDatabase();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(before));
+      const response = (day: string) =>
+        jsonResponse({
+          jobComplete: true,
+          schema: { fields: [{ name: "day", type: "DATE" }] },
+          rows: [{ f: [{ v: day }] }],
+          totalBytesProcessed: "0",
+        });
+      const fetchMock = mockQueryJobs(response(firstDay), response(secondDay));
+      vi.stubGlobal("fetch", fetchMock);
+      const sql = `SELECT CURRENT_DATE(${zone}) AS day`;
+
+      await expect(runQuery(sql)).resolves.toMatchObject({
+        rows: [{ day: firstDay }],
+        cached: false,
+      });
+      vi.setSystemTime(new Date(after));
+      await expect(runQuery(sql)).resolves.toMatchObject({
+        rows: [{ day: secondDay }],
+        cached: false,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      for (const call of [0, 2]) {
+        expect(
+          JSON.parse(String(fetchMock.mock.calls[call]?.[1]?.body))
+            .configuration.query.query,
+        ).toBe(sql);
+      }
+      expect(execute).not.toHaveBeenCalled();
+      expect(cache.size).toBe(0);
+    },
+  );
+
+  it("caches current-date text in strings, comments and qualified identifiers", async () => {
+    useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
     );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql =
+      "SELECT 'CURRENT_DATE(zone)' AS label, t.current_date FROM t -- CURRENT_DATE(zone)";
+
+    await runQuery(sql);
+    await expect(runQuery(sql)).resolves.toMatchObject({ cached: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])(
+    "falls back to provider date evaluation when credentials cross midnight (forceRefresh=%s)",
+    async (forceRefresh) => {
+      const cache = useCacheDatabase();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-08T23:59:00Z"));
+      getBigQueryAccessToken.mockImplementationOnce(async () => {
+        vi.setSystemTime(new Date("2026-09-09T00:01:00Z"));
+        return "test-access-token";
+      });
+      const fetchMock = mockQueryJobs(
+        jsonResponse({
+          jobComplete: true,
+          schema: { fields: [{ name: "day", type: "DATE" }] },
+          rows: [{ f: [{ v: "2026-09-09" }] }],
+          totalBytesProcessed: "0",
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const sql = "SELECT CURRENT_DATE() AS day";
+
+      await expect(runQuery(sql, { forceRefresh })).resolves.toMatchObject({
+        rows: [{ day: "2026-09-09" }],
+        cached: false,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const query = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+        .configuration.query;
+      expect(query.query).toBe(sql);
+      expect(getBigQueryAccessToken).toHaveBeenCalledTimes(2);
+      if (forceRefresh) expect(query.useQueryCache).toBe(false);
+      for (const entry of cache.values()) {
+        expect(entry.refreshInProgress).toBe(false);
+        expect(entry.result).toBe("{}");
+      }
+    },
+  );
+
+  it("does not retry an aborted query when credentials cross midnight", async () => {
+    const cache = useCacheDatabase();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-08T23:59:00Z"));
+    const controller = new AbortController();
+    const reason = new Error("Caller stopped the query");
+    getBigQueryAccessToken.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date("2026-09-09T00:01:00Z"));
+      controller.abort(reason);
+      return "test-access-token";
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runQuery("SELECT CURRENT_DATE() AS day", { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(getBigQueryAccessToken).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    for (const entry of cache.values())
+      expect(entry.refreshInProgress).toBe(false);
+  });
+
+  it.each(["L1", "L2"])(
+    "does not return a previous-day %s hit when cache coordination crosses midnight",
+    async (level) => {
+      const cache = useCacheDatabase();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-08T23:59:00Z"));
+      const response = (day: string) =>
+        jsonResponse({
+          jobComplete: true,
+          schema: { fields: [{ name: "day", type: "DATE" }] },
+          rows: [{ f: [{ v: day }] }],
+          totalBytesProcessed: "0",
+        });
+      const fetchMock = mockQueryJobs(
+        response("2026-09-08"),
+        response("2026-09-09"),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const sql = "SELECT CURRENT_DATE() AS day";
+      await runQuery(sql);
+      if (level === "L2")
+        for (const entry of cache.values()) entry.generation++;
+      const originalExecute = execute.getMockImplementation()!;
+      execute.mockClear();
+      execute.mockImplementation(async (input) => {
+        const result = await originalExecute(input);
+        if (
+          input.sql.startsWith(
+            level === "L1" ? "SELECT generation, fence_token" : "SELECT result",
+          )
+        ) {
+          vi.setSystemTime(new Date("2026-09-09T00:01:00Z"));
+        }
+        return result;
+      });
+
+      await expect(runQuery(sql)).resolves.toMatchObject({
+        rows: [{ day: "2026-09-09" }],
+        cached: false,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(
+        JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)).configuration
+          .query.query,
+      ).toBe(sql);
+      expect(
+        execute.mock.calls.every(([input]) => input.sql.startsWith("SELECT")),
+      ).toBe(true);
+      for (const entry of cache.values())
+        expect(JSON.parse(entry.result).rows).toEqual([{ day: "2026-09-08" }]);
+    },
+  );
+
+  it.each([
+    [
+      "SELECT CURRENT_DATE() AS current_date",
+      "SELECT DATE '2026-09-08' AS current_date",
+    ],
+    [
+      "WITH current_date AS (SELECT CURRENT_DATE() AS day) SELECT day FROM current_date",
+      "WITH current_date AS (SELECT DATE '2026-09-08' AS day) SELECT day FROM current_date",
+    ],
+  ])(
+    "reuses the same-day app cache for identifiers in %s",
+    async (sql, submittedSql) => {
+      useCacheDatabase();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-08T10:00:00Z"));
+      const fetchMock = mockQueryJobs(
+        jsonResponse({
+          jobComplete: true,
+          schema: { fields: [] },
+          rows: [],
+          totalBytesProcessed: "0",
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await runQuery(sql);
+      vi.setSystemTime(new Date("2026-09-08T18:00:00Z"));
+      await expect(runQuery(sql)).resolves.toMatchObject({ cached: true });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(
+        JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).configuration
+          .query.query,
+      ).toBe(submittedSql);
+    },
+  );
+
+  it("reuses bare CURRENT_DATE within a UTC day and refreshes its app cache at midnight", async () => {
+    const cache = useCacheDatabase();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-08T23:58:00Z"));
+    const response = (day: string) =>
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "day", type: "DATE" }] },
+        rows: [{ f: [{ v: day }] }],
+        totalBytesProcessed: "0",
+      });
+    const fetchMock = mockQueryJobs(
+      response("2026-09-08"),
+      response("2026-09-09"),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT CURRENT_DATE AS day";
+
+    await runQuery(sql);
+    vi.setSystemTime(new Date("2026-09-08T23:59:00Z"));
+    await expect(runQuery(sql)).resolves.toMatchObject({
+      rows: [{ day: "2026-09-08" }],
+      cached: true,
+    });
+    vi.setSystemTime(new Date("2026-09-09T00:01:00Z"));
+    await expect(runQuery(sql)).resolves.toMatchObject({
+      rows: [{ day: "2026-09-09" }],
+      cached: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    for (const call of [0, 2])
+      expect(
+        JSON.parse(String(fetchMock.mock.calls[call]?.[1]?.body)).configuration
+          .query.query,
+      ).toBe(sql);
+    expect(cache.size).toBe(2);
+  });
+
+  it("bypasses the app cache after a delayed bare-date UTC rollover", async () => {
+    const cache = useCacheDatabase();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-08T23:59:00Z"));
+    getBigQueryAccessToken.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date("2026-09-09T00:01:00Z"));
+      return "test-access-token";
+    });
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT CURRENT_DATE AS day";
+
+    await expect(runQuery(sql)).resolves.toMatchObject({ cached: false });
+    expect(getBigQueryAccessToken).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).configuration.query
+        .query,
+    ).toBe(sql);
+    for (const entry of cache.values()) {
+      expect(entry.refreshInProgress).toBe(false);
+      expect(entry.result).toBe("{}");
+    }
+  });
+
+  describe("renderCurrentDateLiterals", () => {
+    const now = new Date("2026-10-17T02:30:00Z");
+
+    it("renders explicit current-date calls and preserves bare names", () => {
+      expect(
+        renderCurrentDateLiterals(
+          "SELECT * FROM t WHERE event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) AND event_date <= current_date",
+          now,
+        ),
+      ).toBe(
+        "SELECT * FROM t WHERE event_date >= DATE_SUB(DATE '2026-10-17', INTERVAL 7 DAY) AND event_date <= current_date",
+      );
+    });
+
+    it.each([
+      [
+        "SELECT CURRENT_DATE() AS current_date",
+        "SELECT DATE '2026-10-17' AS current_date",
+      ],
+      [
+        "WITH current_date AS (SELECT CURRENT_DATE() AS day) SELECT day FROM current_date",
+        "WITH current_date AS (SELECT DATE '2026-10-17' AS day) SELECT day FROM current_date",
+      ],
+    ])("preserves aliases and CTE names in %s", (sql, expected) => {
+      expect(renderCurrentDateLiterals(sql, now)).toBe(expected);
+    });
+
+    it("evaluates a literal time zone argument", () => {
+      expect(
+        renderCurrentDateLiterals(
+          "SELECT CURRENT_DATE('America/Los_Angeles') AS pt, CURRENT_DATE(\"UTC\") AS utc",
+          now,
+        ),
+      ).toBe("SELECT DATE '2026-10-16' AS pt, DATE '2026-10-17' AS utc");
+    });
+
+    it("leaves strings, comments, qualified columns and dynamic zones alone", () => {
+      const sql = [
+        "SELECT 'CURRENT_DATE()' AS label, t.current_date,",
+        "CURRENT_DATE(zone_column), CURRENT_DATE('Not/AZone')",
+        "-- CURRENT_DATE()",
+        "FROM t",
+      ].join("\n");
+      expect(renderCurrentDateLiterals(sql, now)).toBe(sql);
+    });
   });
 
   it("bypasses result caches on forced refresh and replaces the cached result", async () => {

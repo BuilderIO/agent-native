@@ -239,7 +239,6 @@ export function renderOverviewCanvas({
   } = editorLayerModels;
   const { canvasBackground } = editorScreenInspector;
   const {
-    fullViewScreenIds,
     editableLiveScreenIds,
     gradientEditTarget,
     handleBoardElementMarqueeSelect,
@@ -313,7 +312,6 @@ export function renderOverviewCanvas({
         exportPreviewScreenId={exportPreviewScreenId}
         hiddenScreenIds={hiddenLayerIds}
         lockedScreenIds={lockedLayerIds}
-        fullViewScreenIds={fullViewScreenIds}
         pixelGridEnabled={pixelGrid}
         snapToPixelGrid={snapToPixelGrid}
         showRulers={rulers}

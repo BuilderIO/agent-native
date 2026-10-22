@@ -2942,6 +2942,8 @@ export async function createMCPServerForRequest(
       connectorNames.size > 0 ||
       automaticConnectorPolicyActive);
   const writesAreAskAppOnly = externalAgentWritesAreAskAppOnly(config);
+  const preserveCompactActions =
+    config.connectorCatalog === undefined && !automaticConnectorPolicyActive;
   const advertisedActionsBeforeToolSearchScope = appCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name]) => !denyNames.has(name)),
@@ -2960,7 +2962,15 @@ export async function createMCPServerForRequest(
             Object.entries(visibleActions).filter(([name, entry]) => {
               if (denyNames.has(name)) return false;
               if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
-              if (!connectorNames.has(name)) return false;
+              if (
+                !connectorNames.has(name) &&
+                !(
+                  preserveCompactActions &&
+                  isActionAdvertisedInCompactMcpAppCatalog(name, entry, config)
+                )
+              ) {
+                return false;
+              }
               if (writesAreAskAppOnly && !isMcpReadOnlyTool(entry)) {
                 return false;
               }
@@ -3045,14 +3055,31 @@ export async function createMCPServerForRequest(
       : {}),
   });
 
+  // A verified user's MCP token names them by email. Browser sessions also
+  // carry the Better Auth user id, and per-user gates such as Clips' hosted
+  // storage key on it, so a tool call resolves it the same way.
+  let callerAuthUserId: Promise<string | undefined> | undefined;
+  function resolveCallerAuthUserId(): Promise<string | undefined> {
+    if (!hasVerifiedMcpUserIdentity(effectiveIdentity)) {
+      return Promise.resolve(undefined);
+    }
+    const email = effectiveIdentity.userEmail;
+    callerAuthUserId ??= import("../server/better-auth-instance.js").then(
+      ({ findBetterAuthUserIdForEmail }) => findBetterAuthUserIdForEmail(email),
+    );
+    return callerAuthUserId;
+  }
+
   async function withCallerContext<T>(
     fn: () => Promise<T>,
     mcpRequestId?: string,
+    authUserId?: string,
   ): Promise<T> {
     const orgId = await orgIdPromise;
     return runWithRequestContext(
       {
         userEmail: effectiveIdentity?.userEmail,
+        ...(authUserId ? { authUserId } : {}),
         orgId,
         ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
         ...(effectiveIdentity?.orgId === null
@@ -3065,6 +3092,13 @@ export async function createMCPServerForRequest(
       },
       fn,
     ) as Promise<T>;
+  }
+
+  async function withToolCallContext<T>(
+    fn: () => Promise<T>,
+    mcpRequestId?: string,
+  ): Promise<T> {
+    return withCallerContext(fn, mcpRequestId, await resolveCallerAuthUserId());
   }
 
   const actionCallContext: McpActionCallContext = {
@@ -3381,7 +3415,7 @@ export async function createMCPServerForRequest(
             : requestMeta?.mcpRetryToken
               ? `stateless:${requestMeta.mcpRetryToken}`
               : undefined;
-      const result = await withCallerContext(async () => {
+      const result = await withToolCallContext(async () => {
         const { name, arguments: args } = request.params;
 
         try {

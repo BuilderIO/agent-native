@@ -16,10 +16,12 @@ import { approvalKeyWithArguments } from "./approval-key.js";
 import * as journalSeed from "./engine/tool-call-journal-seed.js";
 import type {
   AgentEngine,
+  BeforeModelDispatch,
   EngineContentPart,
   EngineEvent,
   EngineMessage,
 } from "./engine/types.js";
+import { startModelDispatch } from "./engine/types.js";
 import {
   actionsToEngineTools,
   AGENT_INTERNAL_CONTINUE_PROMPT,
@@ -546,6 +548,32 @@ describe("runAgentLoop — gates follow the validated arguments", () => {
     }
   });
 
+  it("records the run a call refused for invalid arguments was declined in", async () => {
+    audit.mockClear();
+    const rename = defineAction({
+      description: "Rename the draft.",
+      schema: z.object({ title: z.string() }),
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+    await runOneCall({ "rename-draft": rename }, "rename-draft", {
+      runId: "run-1",
+      turnId: "turn-1",
+      networkProtocol: "a2a",
+      networkId: "task-1",
+    });
+    expect(audit).toHaveBeenCalledTimes(1);
+    expect(audit.mock.calls[0]![0]).toMatchObject({
+      status: "error",
+      attribution: {
+        caller: "tool",
+        runId: "run-1",
+        turnId: "turn-1",
+        networkProtocol: "a2a",
+        networkId: "task-1",
+      },
+    });
+  });
+
   it("replays a committed failure on a continued turn instead of running it again", async () => {
     const counter = { writes: 0 };
     const actions = { "publish-draft": countingPublish(counter, false) };
@@ -630,6 +658,59 @@ describe("runAgentLoop — gates follow the validated arguments", () => {
 });
 
 describe("runAgentLoop — one prepared invocation", () => {
+  it("rechecks cancellation immediately before dispatching a model request", async () => {
+    const controller = new AbortController();
+    const providerDispatch = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: (options) => ({
+        async *[Symbol.asyncIterator]() {
+          const result = await startModelDispatch(options, providerDispatch);
+          if (!result.started) return;
+          yield { type: "stop", reason: "end_turn" };
+        },
+      }),
+    };
+    const beforeModelDispatch: BeforeModelDispatch = vi.fn(
+      async <T>(_dispatch: () => T) => {
+        controller.abort();
+        return { started: false };
+      },
+    );
+    const onOutcome = vi.fn();
+
+    const usage = await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "Test app.",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: vi.fn(),
+      signal: controller.signal,
+      beforeModelDispatch,
+      onOutcome,
+    });
+
+    expect(beforeModelDispatch).toHaveBeenCalledOnce();
+    expect(providerDispatch).not.toHaveBeenCalled();
+    expect(usage.llmCalls).toBeUndefined();
+    expect(onOutcome).toHaveBeenCalledWith({
+      state: "canceled",
+      message: "Agent run was aborted.",
+    });
+  });
+
   // The raw call `{}` asks for nothing; the default it validates to writes.
   function defaultedApprovalPublish(counter: { writes: number }) {
     return defineAction({

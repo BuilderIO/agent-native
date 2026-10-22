@@ -31,6 +31,7 @@ const nanoid = (): string =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
+import { routeAuditAttribution } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
@@ -163,7 +164,10 @@ function normalizeWorkspaceAppDefaultVisibility(
   );
 }
 
-function getInviteAppUrl(event: H3Event): string {
+// Agent calls have no event, so they get the configured app URL. Do not fall
+// back to the request context's `requestOrigin`: some paths fill it from an
+// unchecked x-forwarded-host, which would put a caller-chosen host in the email.
+function getInviteAppUrl(event?: H3Event): string {
   return getAppProductionUrl(event);
 }
 
@@ -689,7 +693,7 @@ function assertCanInviteRole(
   }
 }
 
-interface SingleInviteResult {
+export interface SingleInviteResult {
   id: string;
   email: string;
   role: "member" | "admin";
@@ -703,11 +707,11 @@ interface SingleInviteFailure {
   error: string;
 }
 
-async function inviteOne(
+export async function inviteOne(
   ctx: { orgId: string; orgName: string | null; email: string },
   rawEmail: string,
   role: "member" | "admin",
-  event: H3Event,
+  event?: H3Event,
   appId?: string,
   appRoles?: string[],
 ): Promise<SingleInviteResult> {
@@ -875,6 +879,7 @@ export const createInvitationHandler = defineEventHandler(
             inv.appRoles,
           );
           succeeded.push(result);
+          await auditInvitation(event, ctx, result);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           failed.push({ email: lower, error: message });
@@ -898,9 +903,27 @@ export const createInvitationHandler = defineEventHandler(
       body?.appId,
       body?.appRoles,
     );
+    await auditInvitation(event, ctx, result);
     return result;
   },
 );
+
+function auditInvitation(
+  event: H3Event,
+  ctx: { orgId: string | null; email: string },
+  invite: SingleInviteResult,
+): Promise<void> {
+  return recordOrgAdminAuditEvent({
+    action: "invite-organization-member",
+    targetType: "org-invitation",
+    targetId: invite.email,
+    summary: `Invited ${invite.email} as ${invite.role}`,
+    userEmail: ctx.email,
+    orgId: ctx.orgId,
+    args: { email: invite.email, role: invite.role },
+    attribution: routeAuditAttribution(event),
+  });
+}
 
 export const listInvitationsHandler = defineEventHandler(
   async (event: H3Event) => {
@@ -1329,6 +1352,7 @@ export const changeMemberRoleHandler = defineEventHandler(
       userEmail: ctx.email,
       orgId: ctx.orgId,
       args: { email: memberEmailLower, previousRole: currentRole, role },
+      attribution: routeAuditAttribution(event),
     });
 
     return { email: memberEmailLower, role };

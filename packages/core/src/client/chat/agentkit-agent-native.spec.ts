@@ -298,6 +298,46 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it("keeps an accepted submission receipt without loading its active run", async () => {
+    const fetcher = vi.fn(async () =>
+      json(
+        {
+          data: {
+            code: "queued_message_already_submitted",
+            activeRunId: "run-active",
+            submittedRunId: "run-submitted",
+          },
+        },
+        409,
+      ),
+    ) as typeof fetch;
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher,
+    });
+
+    await expect(
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Reconnect to the accepted turn" }],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      activeRunId: "run-active",
+      submittedRunId: "run-submitted",
+      status: 409,
+    });
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    await transport.dispose();
+  });
+
   it.each(["HTTP 503", "network rejection"] as const)(
     "retries capability discovery after a transient %s failure",
     async (failure) => {

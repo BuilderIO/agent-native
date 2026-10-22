@@ -42,6 +42,7 @@ import type {
 import { commentPropertyTarget } from "@shared/comment-property-target";
 import { LIVE_BODY_SHADOW_FLAG } from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
+import { expectedPreviewDraftIdentity } from "@shared/preview-draft-identity";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import {
   SuggestionFormattingMappingError,
@@ -189,6 +190,11 @@ import {
   flushBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
 import {
+  blockFieldVisit,
+  visibleBlockFieldEditor,
+  type BlockFieldVisit,
+} from "./blockFieldTabs";
+import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
 } from "./body-hydration";
@@ -233,7 +239,10 @@ import {
   pendingSaveRetrySnapshot,
 } from "./document-save-retry";
 import { DocumentAccessScreen } from "./DocumentAccessScreen";
-import { DocumentBlockFields } from "./DocumentBlockFields";
+import {
+  DocumentBlockFields,
+  type PrimaryBlockFieldTab,
+} from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
@@ -257,7 +266,6 @@ import {
 } from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
-  clearPageDraftJournal,
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
   writePageDraftJournal,
@@ -278,6 +286,10 @@ import {
   PropertyCommentsContext,
   type PropertyCommentsValue,
 } from "./property-comments";
+import {
+  useRecoveryAttemptOwner,
+  type RecoveryAttempt,
+} from "./recovery-attempt";
 import {
   createSuggestionAutosave,
   markSuggestionAutosaveSaved,
@@ -441,12 +453,14 @@ export interface PageEditorSession {
 
 /**
  * Opens the Page with its Comments showing: one thread when `threadId` is
- * set, otherwise the list. A new `key` asks again.
+ * set, a new comment on the Property `propertyId` names, otherwise the list.
+ * A new `key` asks again.
  */
 export interface PageCommentIntent {
   key: number;
   documentId: string;
   threadId?: string | null;
+  propertyId?: string;
 }
 
 export interface PageEditorSurfaceProps extends DocumentEditorProps {
@@ -2488,6 +2502,12 @@ function PageEditorSessionBody({
   });
   const queryClient = useQueryClient();
   const { session } = useSession();
+  const recoveryScopeKey = JSON.stringify([
+    session?.email?.trim().toLowerCase() ?? null,
+    session?.orgId ?? null,
+    documentId,
+  ]);
+  const beginRecoveryAttempt = useRecoveryAttemptOwner(recoveryScopeKey);
   const lastLocationScope = filesRootHintScope(session?.email, session?.orgId);
   useEffect(() => {
     if (host !== "page" || document.database?.systemRole) return;
@@ -2780,6 +2800,24 @@ function PageEditorSessionBody({
     },
     [],
   );
+  // Page comments anchor in the primary field, so they wait while another
+  // field's tab is open and opening one brings that tab back.
+  const [primaryBlockFieldHidden, setPrimaryBlockFieldHidden] = useState(false);
+  const showPrimaryBlockFieldRef = useRef<() => void>(() => {});
+  const handlePrimaryFieldTabChange = useCallback(
+    (tab: PrimaryBlockFieldTab) => {
+      setPrimaryBlockFieldHidden(!tab.open);
+      showPrimaryBlockFieldRef.current = tab.show;
+    },
+    [],
+  );
+  // A tab switch rewrites `?field=` in place; it isn't a new visit.
+  const blockFieldVisitRef = useRef<BlockFieldVisit | null>(null);
+  blockFieldVisitRef.current = blockFieldVisit(
+    blockFieldVisitRef.current,
+    location,
+  );
+  const visit = blockFieldVisitRef.current;
   const databaseFieldScope = document.databaseMembership
     ? pageEditorSessionKey({
         documentId,
@@ -3013,6 +3051,7 @@ function PageEditorSessionBody({
     Promise.resolve(),
   );
   const recoveryDraftRef = useRef<{
+    id: string;
     version: number;
     title: string;
     content: string;
@@ -3055,6 +3094,7 @@ function PageEditorSessionBody({
   useRegisterLiveEditorSession(editorSessionIdRef.current);
   localContentRef.current = localContent;
   const reconcileRecovery = useDocumentReconcileRecovery({
+    scopeKey: recoveryScopeKey,
     save: (draft, base) => reconcileSaveRef.current(draft, base),
     retain: (draft) => reconcileRetainRef.current(draft),
     getDraft: () => localContentRef.current,
@@ -3074,7 +3114,10 @@ function PageEditorSessionBody({
   } = reconcileRecovery;
   const retainActiveRecoveryDraft = useCallback(
     (draft: ReconcileRecoveryDraft) => {
-      void reconcileRetainRef.current(draft).catch(reportRetentionFailure);
+      const owner = beginRecoveryAttempt();
+      void reconcileRetainRef.current(draft).catch(() => {
+        if (owner.isActive()) reportRetentionFailure();
+      });
     },
     [reportRetentionFailure],
   );
@@ -3320,24 +3363,11 @@ function PageEditorSessionBody({
     [isLinkedLocalSourceDocument, isLocalFileDocument, journalScope, t],
   );
   const clearConfirmedDraftJournal = useCallback(
-    (
-      saved: Document & {
-        bodyIntentOutcome?: { status: "applied" | "displaced-preserved" };
-      },
-      editGeneration: number,
-    ) => {
+    (editGeneration: number) => {
       const scope = journalScope();
       if (!scope) return;
       try {
-        if (saved.bodyIntentOutcome) {
-          clearPageDraftJournalGeneration(scope, editGeneration);
-        } else {
-          clearPageDraftJournal(scope, {
-            editGeneration,
-            title: saved.title,
-            content: saved.content,
-          });
-        }
+        clearPageDraftJournalGeneration(scope, editGeneration);
       } catch {
         if (!recoveryWriteErrorShownRef.current) {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
@@ -3389,6 +3419,7 @@ function PageEditorSessionBody({
     activityResource: { resourceType: "document", resourceId: documentId },
     requestSource: TAB_ID,
     user: currentUser,
+    onEvent: handleFlushRequestEvent,
   });
   collabAwarenessRef.current = awareness;
   collabClientIdRef.current = ydoc?.clientID ?? null;
@@ -4329,17 +4360,13 @@ function PageEditorSessionBody({
             : null,
         });
       }
-      if (
-        contentEditVersionRef.current === contentEditVersion &&
-        contentObservationEpochRef.current === contentObservationEpoch
-      ) {
+      // Text another writer added while this save was in flight is theirs to
+      // save, so it holds back neither the confirmation nor the journal clear.
+      // An entry kept for it outlives this tab's edits, and the next tab to
+      // open the page replays it as a save of its own.
+      if (contentEditVersionRef.current === contentEditVersion) {
         confirmedContentEditVersionRef.current = contentEditVersion;
-        if (
-          saved.title === localTitleRef.current &&
-          saved.content === localContentRef.current
-        ) {
-          clearConfirmedDraftJournal(saved, editorEditGeneration);
-        }
+        clearConfirmedDraftJournal(editorEditGeneration);
       }
 
       if (autoSync) {
@@ -4390,30 +4417,35 @@ function PageEditorSessionBody({
       contentBase: DocumentContentBase,
       supersedable: boolean,
       baseTitle: string | null,
+      owner: RecoveryAttempt,
     ) => {
       // The hash is awaited, so take the base as it was when this draft was
       // written; a save can move the watermark meanwhile.
       const base = { ...contentBase };
-      const baseContentHash = await documentContentHash(base.content);
+      const baseContentHash = await owner.step(() =>
+        documentContentHash(base.content),
+      );
       const current = recoveryDraftRef.current;
-      const result = await updatePreviewDocumentDraftRef.current({
-        operation: "upsert",
-        documentId,
-        expectedVersion: current?.version ?? null,
-        draft: {
-          title,
-          content,
-          baseTitle,
-          baseDocumentUpdatedAt: base.updatedAt,
-          baseContentHash,
-          loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-            base.content,
-          ),
-          deferredReason,
-          editorSessionId,
-          editGeneration,
-        },
-      });
+      const result = await owner.step(() =>
+        updatePreviewDocumentDraftRef.current({
+          operation: "upsert",
+          documentId,
+          expectedVersion: current?.version ?? null,
+          draft: {
+            title,
+            content,
+            baseTitle,
+            baseDocumentUpdatedAt: base.updatedAt,
+            baseContentHash,
+            loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+              base.content,
+            ),
+            deferredReason,
+            editorSessionId,
+            editGeneration,
+          },
+        }),
+      );
       if (
         result.status === "saved" &&
         result.draft?.title === title &&
@@ -4421,6 +4453,7 @@ function PageEditorSessionBody({
         result.draft.content === content
       ) {
         recoveryDraftRef.current = {
+          id: result.draft.id,
           version: result.draft.version,
           title,
           content,
@@ -4441,6 +4474,7 @@ function PageEditorSessionBody({
         result.draft.content === content
       ) {
         recoveryDraftRef.current = {
+          id: result.draft.id,
           version: result.draft.version,
           title,
           content,
@@ -4484,8 +4518,10 @@ function PageEditorSessionBody({
         baseTitle === undefined
           ? (originatingJournal?.snapshot.baseTitle ?? null)
           : baseTitle;
-      return enqueueDocumentSave(recoveryDraftRetentionQueueRef, () =>
-        retainRecoveryDraft(
+      const owner = beginRecoveryAttempt();
+      return enqueueDocumentSave(recoveryDraftRetentionQueueRef, () => {
+        owner.assertActive();
+        return retainRecoveryDraft(
           title,
           content,
           deferredReason,
@@ -4494,8 +4530,9 @@ function PageEditorSessionBody({
           capturedBase,
           supersedable,
           capturedTitleBase,
-        ),
-      );
+          owner,
+        );
+      });
     },
     [journalScope, retainRecoveryDraft],
   );
@@ -4505,7 +4542,9 @@ function PageEditorSessionBody({
       persistedContent: string,
       persistedBy?: { editorSessionId: string; editGeneration: number },
     ) => {
+      const owner = beginRecoveryAttempt();
       const clear = async () => {
+        owner.assertActive();
         const current = recoveryDraftRef.current;
         if (
           !current ||
@@ -4520,16 +4559,19 @@ function PageEditorSessionBody({
         ) {
           return;
         }
-        const result = await updatePreviewDocumentDraftRef.current({
-          operation: "delete",
-          documentId,
-          expectedVersion: current.version,
-          expectedTitle: current.title,
-          expectedContent: current.content,
-          expectedBaseTitle: current.baseTitle,
-          expectedEditorSessionId: current.editorSessionId ?? undefined,
-          expectedEditGeneration: current.editGeneration ?? undefined,
-        });
+        const result = await owner.step(() =>
+          updatePreviewDocumentDraftRef.current({
+            operation: "delete",
+            expectedDraftId: current.id,
+            documentId,
+            expectedVersion: current.version,
+            expectedTitle: current.title,
+            expectedContent: current.content,
+            expectedBaseTitle: current.baseTitle,
+            expectedEditorSessionId: current.editorSessionId ?? undefined,
+            expectedEditGeneration: current.editGeneration ?? undefined,
+          }),
+        );
         if (result.status !== "deleted" && result.draft !== null) {
           throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
         }
@@ -7084,9 +7126,9 @@ function PageEditorSessionBody({
       const saved = await resolveReconcile(base);
       if (saved)
         requestAnimationFrame(() => {
-          documentLayoutRef.current
-            ?.querySelector<HTMLElement>(".ProseMirror")
-            ?.focus({ preventScroll: true });
+          visibleBlockFieldEditor(documentLayoutRef.current)?.focus({
+            preventScroll: true,
+          });
         });
       return saved;
     },
@@ -7098,38 +7140,48 @@ function PageEditorSessionBody({
       choice: "use_saved" | "save_separately",
       base: ReconcileSaveBase,
     ) => {
+      const owner = beginRecoveryAttempt();
       let resolvedUrlPath: string | undefined;
-      const resolved = await resolveReconcileChoice(
-        base,
-        async (recovery, reviewedBase) => {
-          await queueRecoveryDraftRetention(
-            recovery.localTitle,
-            recovery.localDraft,
-            documentReconcileConflict?.reason === "conflict"
-              ? "conflict"
-              : null,
-            editorSessionIdRef.current!,
-            editorEditGenerationRef.current,
+      const resolved = await owner.step(() =>
+        resolveReconcileChoice(base, async (recovery, reviewedBase) => {
+          owner.assertActive();
+          await owner.step(() =>
+            queueRecoveryDraftRetention(
+              recovery.localTitle,
+              recovery.localDraft,
+              documentReconcileConflict?.reason === "conflict"
+                ? "conflict"
+                : null,
+              editorSessionIdRef.current!,
+              editorEditGenerationRef.current,
+            ),
           );
           const draft = recoveryDraftRef.current;
-          if (!draft || !reviewedBase.updatedAt) return false;
-          const result = await resolvePreviewDocumentDraft.mutateAsync({
-            choice,
-            trigger: "reviewed",
-            documentId,
-            expectedDraftVersion: draft.version,
-            expectedDraftTitle: draft.title,
-            expectedDraftContent: draft.content,
-            expectedDraftBaseTitle: draft.baseTitle,
-            expectedDocumentTitle: reviewedBase.title,
-            expectedDocumentUpdatedAt: reviewedBase.updatedAt,
-          });
-          if (result.status === "document_conflict") {
-            await queryClient.refetchQueries(documentQueryFilter(documentId));
+          const updatedAt = reviewedBase.updatedAt;
+          if (!draft || !updatedAt) return false;
+          const result = await owner.step(() =>
+            resolvePreviewDocumentDraft.mutateAsync({
+              choice,
+              trigger: "reviewed",
+              documentId,
+              ...expectedPreviewDraftIdentity(draft),
+              expectedDraftVersion: draft.version,
+              expectedDraftTitle: draft.title,
+              expectedDraftContent: draft.content,
+              expectedDraftBaseTitle: draft.baseTitle,
+              expectedDocumentTitle: reviewedBase.title,
+              expectedDocumentUpdatedAt: updatedAt,
+            }),
+          );
+          if (result.status !== "resolved") {
+            await owner.step(() =>
+              queryClient.refetchQueries(documentQueryFilter(documentId)),
+            );
             return false;
           }
           if (
-            recoveryDraftRef.current?.version === draft.version &&
+            recoveryDraftRef.current?.id === draft.id &&
+            recoveryDraftRef.current.version === draft.version &&
             recoveryDraftRef.current.title === draft.title &&
             recoveryDraftRef.current.content === draft.content
           ) {
@@ -7137,7 +7189,7 @@ function PageEditorSessionBody({
           }
           resolvedUrlPath = result.urlPath;
           return true;
-        },
+        }),
       );
       if (!resolved) return false;
       if (choice === "save_separately" && resolvedUrlPath) {
@@ -7150,7 +7202,9 @@ function PageEditorSessionBody({
         localContentRef.current = base.content;
         setLocalTitle(base.title ?? document.title);
         setLocalContent(base.content);
-        await queryClient.refetchQueries(documentQueryFilter(documentId));
+        await owner.step(() =>
+          queryClient.refetchQueries(documentQueryFilter(documentId)),
+        );
         toast.success(t("editor.previewDraftSavedToHistory"));
       }
       return true;
@@ -7175,9 +7229,9 @@ function PageEditorSessionBody({
 
   const focusEditorAfterRecoveryReview = useCallback(() => {
     requestAnimationFrame(() => {
-      documentLayoutRef.current
-        ?.querySelector<HTMLElement>(".ProseMirror")
-        ?.focus({ preventScroll: true });
+      visibleBlockFieldEditor(documentLayoutRef.current)?.focus({
+        preventScroll: true,
+      });
     });
   }, []);
 
@@ -7313,10 +7367,12 @@ function PageEditorSessionBody({
   }, [bodyThreads, commentAi.freshResolutions]);
   const pagePropertiesDatabaseId =
     databaseId ?? document.databaseMembership?.databaseId ?? null;
-  // The same read the Page's Properties make, so it costs no request.
+  // The same read the Page's Properties make, so it costs no request. A
+  // read-only widget shows no comments and may not make this read.
   const pagePropertiesQuery = useDocumentProperties(
     document.databaseMembership && !isLocalFileDocument ? documentId : null,
     pagePropertiesDatabaseId,
+    { enabled: !mcpDirectoryWidgetReadOnly },
   );
   const pageProperties = documentPropertiesResponseMatchesScope(
     documentId,
@@ -7325,6 +7381,7 @@ function PageEditorSessionBody({
   )
     ? pagePropertiesQuery.data.properties
     : undefined;
+  const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -7433,6 +7490,7 @@ function PageEditorSessionBody({
     !showCommentsHistoryDrawer &&
     utilityPanel === "comments" &&
     !hasInlineCommentSpace &&
+    !primaryBlockFieldHidden &&
     (!!pendingComment || !!selectedThreadId);
   // A panel without a docked rail opens over the page. Only a phone gets
   // the modal Sheet: wider, the Sheet would cover a docked agent panel.
@@ -7571,7 +7629,7 @@ function PageEditorSessionBody({
         `[data-suggestion-id="${escaped}"]`,
       );
       const pageTarget = Array.from(targets).find((target) =>
-        target.closest(".notion-editor"),
+        target.closest(".content-editor"),
       );
       if (pageTarget) {
         const rect = pageTarget.getBoundingClientRect();
@@ -7708,6 +7766,7 @@ function PageEditorSessionBody({
     ],
   );
   const handledCommentDeepLinkRef = useRef<string | null>(null);
+  const handledPropertyCommentLinkRef = useRef<string | null>(null);
 
   const startPropertyComment = useCallback(
     (property: DocumentProperty) => {
@@ -7781,7 +7840,7 @@ function PageEditorSessionBody({
 
   useEffect(() => {
     const suggestionId = new URLSearchParams(location.search).get("suggestion");
-    const key = `${documentId}:${location.key}:${location.search}`;
+    const key = `${documentId}:${visit.key}:${visit.search}`;
     if (!suggestionId) {
       appliedSuggestionLinkRef.current = null;
       return;
@@ -7815,8 +7874,8 @@ function PageEditorSessionBody({
     setFocusSuggestionId(suggestion.id);
   }, [
     documentId,
-    location.key,
     location.search,
+    visit,
     suggestionsQuery.data,
     savedSuggestions,
     clearCommentFocus,
@@ -7844,6 +7903,40 @@ function PageEditorSessionBody({
     activateCommentThread(threadId, true);
   }, [activateCommentThread, documentId, location.search, threads]);
 
+  // A Collection that opens rows as full pages links here to start a comment
+  // on one Property, as the row's peek does on a touch screen.
+  useEffect(() => {
+    const propertyId = new URLSearchParams(location.search).get(
+      "commentProperty",
+    );
+    if (!propertyId) {
+      handledPropertyCommentLinkRef.current = null;
+      return;
+    }
+    const linkKey = `${documentId}:${propertyId}`;
+    // Wait for the Properties; a failed read opens the list instead.
+    if (
+      handledPropertyCommentLinkRef.current === linkKey ||
+      (!pageProperties && !pagePropertiesFailed)
+    ) {
+      return;
+    }
+    handledPropertyCommentLinkRef.current = linkKey;
+    const property = pageProperties?.find(
+      (candidate) => candidate.definition.id === propertyId,
+    );
+    if (property && canComment) startPropertyComment(property);
+    else handleUtilityPanelChange("comments");
+  }, [
+    canComment,
+    documentId,
+    handleUtilityPanelChange,
+    location.search,
+    pageProperties,
+    pagePropertiesFailed,
+    startPropertyComment,
+  ]);
+
   const handledCommentIntentRef = useRef<number | null>(null);
   useEffect(() => {
     if (
@@ -7851,7 +7944,7 @@ function PageEditorSessionBody({
       handledCommentIntentRef.current === commentIntent.key
     )
       return;
-    const threadId = commentIntent.threadId;
+    const { threadId, propertyId } = commentIntent;
     if (threadId) {
       // Wait for the thread; a thread that is gone opens the list instead.
       if (!threads) return;
@@ -7860,16 +7953,38 @@ function PageEditorSessionBody({
         activateCommentThread(threadId);
         return;
       }
+    } else if (propertyId) {
+      // Wait for the Properties; one that is gone, or a failed read, opens
+      // the list instead.
+      if (!pageProperties && !pagePropertiesFailed) return;
+      handledCommentIntentRef.current = commentIntent.key;
+      const property = pageProperties?.find(
+        (candidate) => candidate.definition.id === propertyId,
+      );
+      if (property && canComment) {
+        startPropertyComment(property);
+        return;
+      }
     }
     handledCommentIntentRef.current = commentIntent.key;
     handleUtilityPanelChange("comments");
   }, [
     activateCommentThread,
+    canComment,
     commentIntent,
     documentId,
     handleUtilityPanelChange,
+    pageProperties,
+    pagePropertiesFailed,
+    startPropertyComment,
     threads,
   ]);
+
+  useEffect(() => {
+    if (selectedThreadId || selectedSuggestionId || focusSuggestionId) {
+      showPrimaryBlockFieldRef.current();
+    }
+  }, [focusSuggestionId, selectedSuggestionId, selectedThreadId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -9099,10 +9214,9 @@ function PageEditorSessionBody({
                       if (!editorCanEdit || isSuggesting) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        const pm = documentLayoutRef.current?.querySelector(
-                          ".ProseMirror",
-                        ) as HTMLElement | null;
-                        pm?.focus();
+                        visibleBlockFieldEditor(
+                          documentLayoutRef.current,
+                        )?.focus();
                       }
                     }}
                     aria-label={t("editor.documentTitle")}
@@ -9169,10 +9283,9 @@ function PageEditorSessionBody({
                           }
                           pendingPaddingScrollRestoreRef.current = null;
                         };
-                        const pm = e.currentTarget.querySelector(
-                          ".ProseMirror",
-                        ) as HTMLElement | null;
-                        pm?.focus({ preventScroll: true });
+                        visibleBlockFieldEditor(e.currentTarget)?.focus({
+                          preventScroll: true,
+                        });
                         restoreScroll();
                         if (scrollContainer && scrollTop !== undefined) {
                           pendingPaddingScrollRestoreRef.current =
@@ -9311,7 +9424,7 @@ function PageEditorSessionBody({
                             action="VisualEditor"
                           >
                             <VisualEditor
-                              visitKey={location.key}
+                              visitKey={visit.key}
                               editorMountMode={
                                 isSuggesting
                                   ? "suggesting"
@@ -9530,6 +9643,10 @@ function PageEditorSessionBody({
                               handlePrimaryFieldAvailabilityChange
                             }
                             primaryEditor={primaryEditor}
+                            primaryContent={exportContent}
+                            onPrimaryFieldTabChange={
+                              handlePrimaryFieldTabChange
+                            }
                             pageProperties={document.properties}
                             onAdditionalContentChange={
                               handleAdditionalBlockContentChange
@@ -9559,22 +9676,24 @@ function PageEditorSessionBody({
 
               {showDesktopRightRail ? (
                 showInlineComments ? (
-                  <aside
-                    ref={commentLaneRef}
-                    className="absolute right-0 top-0 w-80"
-                    aria-label={t("comments.title")}
-                    data-comments-flow-lane
-                  >
-                    <div
-                      style={{
-                        transform: `translateX(${commentLaneOffset}px)`,
-                      }}
+                  primaryBlockFieldHidden ? null : (
+                    <aside
+                      ref={commentLaneRef}
+                      className="absolute right-0 top-0 w-80"
+                      aria-label={t("comments.title")}
+                      data-comments-flow-lane
                     >
-                      <div className="relative min-h-full translate-x-4">
-                        {renderCommentsSidebar()}
+                      <div
+                        style={{
+                          transform: `translateX(${commentLaneOffset}px)`,
+                        }}
+                      >
+                        <div className="relative min-h-full translate-x-4">
+                          {renderCommentsSidebar()}
+                        </div>
                       </div>
-                    </div>
-                  </aside>
+                    </aside>
+                  )
                 ) : (
                   <aside className="w-80 shrink-0 border-s border-border">
                     {utilityPanelContent}

@@ -1,6 +1,7 @@
 import { captureClientException } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import type { RecordingEmbedProvider } from "@shared/embed-provider";
 import {
   isLoomEmbedUrl,
   LOOM_START_MS_QUERY_PARAM,
@@ -61,12 +62,10 @@ import {
   type PlaybackComment,
 } from "./playback-comment-overlay";
 import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
-import type {
-  ReactionHandler,
-  ReactionHandlerResult,
-  ReactionSummary,
-} from "./reactions-tray";
+import type { ReactionHandler } from "./reactions-tray";
 import { timelineMarkerMs } from "./scrubber-position";
+import { useOptimisticReactions } from "./use-optimistic-reactions";
+import { YouTubeEmbedPlayer } from "./youtube-embed-player";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -174,6 +173,14 @@ type WebkitFullscreenVideo = HTMLVideoElement & {
   webkitExitFullscreen?: () => void;
 };
 
+export interface PlayerPlaybackState {
+  paused: boolean;
+  currentMs: number;
+  durationMs: number;
+  volume: number;
+  speed: number;
+}
+
 export interface VideoPlayerHandle {
   video: HTMLVideoElement | null;
   container: HTMLDivElement | null;
@@ -181,6 +188,9 @@ export interface VideoPlayerHandle {
   pause: () => void;
   seek: (ms: number) => void;
   getCurrentOriginalMs: () => number;
+  /** Null while no playable media is mounted, such as a Loom embed. */
+  readPlayback: () => PlayerPlaybackState | null;
+  setVolume: (volume: number) => void;
   /** Steps one frame while paused; the first press during playback pauses. */
   stepFrame: (direction: 1 | -1, repeat?: boolean) => void;
   setSpeed: (rate: number) => void;
@@ -195,7 +205,7 @@ export interface VideoPlayerProps {
   videoUrl: string | null | undefined;
   mediaVersion?: string | number | null;
   videoFormat?: "webm" | "mp4" | null;
-  embedProvider?: "loom" | null;
+  embedProvider?: RecordingEmbedProvider | null;
   durationMs: number;
   thumbnailUrl?: string | null;
   defaultSpeed?: number;
@@ -218,6 +228,8 @@ export interface VideoPlayerProps {
   } | null;
   onCtaClick?: (ctaId: string) => void;
   onTimeUpdate?: (currentMs: number, totalMs: number) => void;
+  /** Reports the duration an embedded player measured, when Clips has none. */
+  onDurationChange?: (durationMs: number) => void;
   onPlay?: () => void;
   onPause?: () => void;
   onSeek?: (ms: number) => void;
@@ -244,6 +256,16 @@ export interface VideoPlayerProps {
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(props, ref) {
+    return props.embedProvider === "youtube" ? (
+      <YouTubeEmbedPlayer key={props.videoUrl} ref={ref} {...props} />
+    ) : (
+      <NativeVideoPlayer ref={ref} {...props} />
+    );
+  },
+);
+
+const NativeVideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
+  function NativeVideoPlayer(props, ref) {
     const t = useT();
     const {
       videoUrl,
@@ -335,10 +357,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
     currentMsRef.current = currentMs;
     isPlayingRef.current = isPlaying;
-    const [optimisticReactions, setOptimisticReactions] = useState<
-      ReactionSummary[]
-    >([]);
-    const optimisticReactionIdRef = useRef(0);
     const [loomStartMs, setLoomStartMs] = useState<number | null>(null);
     const [volume, setVolume] = useState(1);
     const [muted, setMuted] = useState(() => !!autoPlay);
@@ -424,6 +442,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [shouldRefreshAutoThumbnail, setShouldRefreshAutoThumbnail] =
       useState(false);
     const excludedRanges = useMemo(() => getExcludedRanges(edits), [edits]);
+    const getReactionMs = useCallback(() => currentMsRef.current, []);
+    const { optimisticReactions, handleReact } = useOptimisticReactions({
+      reactions,
+      onReact,
+      getCurrentMs: getReactionMs,
+    });
     const scrubberTimeline = useMemo(() => {
       return {
         durationMs: effectiveDuration(resolvedDurationMs, edits),
@@ -485,64 +509,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       resolvedDurationMs,
     ]);
 
-    useEffect(() => {
-      if (!optimisticReactions.length || !reactions?.length) return;
-      setOptimisticReactions((current) => {
-        const next = current.filter(
-          (optimistic) =>
-            !reactions.some(
-              (persisted) =>
-                persisted.emoji === optimistic.emoji &&
-                Math.abs(
-                  persisted.videoTimestampMs - optimistic.videoTimestampMs,
-                ) < 1000,
-            ),
-        );
-        return next.length === current.length ? current : next;
-      });
-    }, [optimisticReactions.length, reactions]);
-
-    const handleReact = useCallback<ReactionHandler>(
-      (emoji) => {
-        const optimistic = {
-          id: `optimistic-reaction-${++optimisticReactionIdRef.current}`,
-          emoji,
-          videoTimestampMs: currentMsRef.current,
-        };
-        setOptimisticReactions((current) => [...current, optimistic]);
-
-        const removeOptimistic = () => {
-          setOptimisticReactions((current) =>
-            current.filter((reaction) => reaction.id !== optimistic.id),
-          );
-        };
-
-        let result: ReactionHandlerResult | undefined;
-        try {
-          result = onReact?.(emoji);
-        } catch {
-          removeOptimistic();
-          return false;
-        }
-
-        if (result && typeof result === "object" && "then" in result) {
-          return Promise.resolve(result).then(
-            (saved) => {
-              if (saved === false) removeOptimistic();
-              return saved !== false;
-            },
-            () => {
-              removeOptimistic();
-              return false;
-            },
-          );
-        }
-
-        if (result === false) removeOptimistic();
-        return result !== false;
-      },
-      [onReact],
-    );
     const activeVideoSourceIdentity = useMemo(
       () => videoSourceIdentity(activeVideoSrc),
       [activeVideoSrc],
@@ -1158,6 +1124,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               ? Math.floor(v.currentTime * 1000)
               : currentMsRef.current;
           return liveOriginalMs;
+        },
+        readPlayback: () => {
+          const v = videoRef.current;
+          if (!v) return null;
+          return {
+            paused: v.paused,
+            currentMs: v.currentTime * 1000,
+            durationMs: (v.duration || v.currentTime) * 1000,
+            volume: v.volume,
+            speed: v.playbackRate,
+          };
+        },
+        setVolume: (volume) => {
+          if (videoRef.current) videoRef.current.volume = volume;
         },
         stepFrame,
         setSpeed: applySpeed,

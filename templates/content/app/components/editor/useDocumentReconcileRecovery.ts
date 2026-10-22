@@ -6,6 +6,11 @@ import {
   type MutableRefObject,
 } from "react";
 
+import {
+  useRecoveryAttemptOwner,
+  type RecoveryAttempt,
+} from "./recovery-attempt";
+
 export interface ReconcileSaveBase {
   title: string;
   content: string;
@@ -25,6 +30,24 @@ export interface ReconcileRecoveryDraft {
   localTitle: string;
 }
 
+// After typing overtakes an automatic save, the next one waits for a pause,
+// as the editor's autosave does, but never longer than the cap.
+const AUTOMATIC_SAVE_IDLE_MS = 1_000;
+const AUTOMATIC_SAVE_MAX_WAIT_MS = 5_000;
+
+async function untilTypingPauses(getIdentity: () => string): Promise<void> {
+  const deadline = Date.now() + AUTOMATIC_SAVE_MAX_WAIT_MS;
+  let identity = getIdentity();
+  for (;;) {
+    const wait = Math.min(AUTOMATIC_SAVE_IDLE_MS, deadline - Date.now());
+    if (wait <= 0) return;
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    const next = getIdentity();
+    if (next === identity) return;
+    identity = next;
+  }
+}
+
 interface AutomaticSave {
   generation: number;
   newerBase: ReconcileSaveBase | null;
@@ -38,6 +61,7 @@ export function useDocumentReconcileRecovery({
   getTitle,
   getSaveIdentity = getDraft,
   stateRef,
+  scopeKey = null,
 }: {
   save: (
     draft: ReconcileRecoveryDraft,
@@ -48,7 +72,9 @@ export function useDocumentReconcileRecovery({
   getTitle?: () => string;
   getSaveIdentity?: () => string;
   stateRef?: MutableRefObject<DocumentReconcileRecoveryState | null>;
+  scopeKey?: string | null;
 }) {
+  const beginAttempt = useRecoveryAttemptOwner(scopeKey);
   const [state, setState] = useState<DocumentReconcileRecoveryState | null>(
     null,
   );
@@ -74,9 +100,21 @@ export function useDocumentReconcileRecovery({
     [],
   );
 
-  const retainLatest = useCallback(async () => {
-    if (callbacks.current.retain) await callbacks.current.retain(latestDraft());
-  }, [latestDraft]);
+  const retainLatest = useCallback(
+    async (owner: RecoveryAttempt) => {
+      if (callbacks.current.retain)
+        await owner.step(() => callbacks.current.retain!(latestDraft()));
+    },
+    [latestDraft],
+  );
+
+  useEffect(() => {
+    generation.current += 1;
+    inFlight.current = false;
+    automaticSave.current = null;
+    current.current = null;
+    setState(null);
+  }, [scopeKey]);
 
   useEffect(
     () => () => {
@@ -125,6 +163,7 @@ export function useDocumentReconcileRecovery({
   const resolve = useCallback(
     async (base: ReconcileSaveBase): Promise<boolean> => {
       if (!current.current || inFlight.current) return false;
+      const owner = beginAttempt();
       inFlight.current = true;
       const started = generation.current;
       publish({ ...current.current, saving: true });
@@ -133,13 +172,15 @@ export function useDocumentReconcileRecovery({
         while (generation.current === started) {
           const identity = callbacks.current.getSaveIdentity();
           const draft = latestDraft();
-          const persisted = await callbacks.current.save(draft, saveBase);
+          const persisted = await owner.step(() =>
+            callbacks.current.save(draft, saveBase),
+          );
           if (generation.current !== started) {
-            await retainLatest();
+            await retainLatest(owner);
             return false;
           }
           if (!persisted) {
-            await retainLatest();
+            await retainLatest(owner);
             publish({
               reason: "conflict",
               localDraft: callbacks.current.getDraft(),
@@ -154,15 +195,17 @@ export function useDocumentReconcileRecovery({
           }
           saveBase = undefined;
         }
-        await retainLatest();
+        await retainLatest(owner);
         return false;
       } catch {
+        if (!owner.isActive()) return false;
         if (generation.current === started) {
           try {
-            await retainLatest();
+            await retainLatest(owner);
           } catch {
             // The visible recovery state remains the final fallback.
           }
+          if (!owner.isActive()) return false;
           publish({
             reason: "save-failed",
             localDraft: callbacks.current.getDraft(),
@@ -172,9 +215,11 @@ export function useDocumentReconcileRecovery({
         }
         return false;
       } finally {
-        inFlight.current = false;
-        if (current.current?.saving)
-          publish({ ...current.current, saving: false });
+        if (owner.isActive()) {
+          inFlight.current = false;
+          if (current.current?.saving)
+            publish({ ...current.current, saving: false });
+        }
       }
     },
     [current, latestDraft, publish, retainLatest],
@@ -186,11 +231,11 @@ export function useDocumentReconcileRecovery({
       initialDraft: ReconcileRecoveryDraft,
       base: ReconcileSaveBase,
     ): Promise<boolean> => {
+      const owner = beginAttempt();
       inFlight.current = true;
       const started = run.generation;
       let saveBase: ReconcileSaveBase | undefined = base;
       let draft = initialDraft;
-      let attempts = 0;
       let refused = false;
       try {
         while (generation.current === started && !current.current) {
@@ -201,9 +246,8 @@ export function useDocumentReconcileRecovery({
             draft = latestDraft();
             saveBase = run.newerBase;
             run.newerBase = null;
-            attempts = 0;
-          } else if (refused || attempts === 3) {
-            await retainLatest();
+          } else if (refused) {
+            await retainLatest(owner);
             // A newer merge can hand its page over while the draft is retained.
             if (run.newerBase) continue;
             if (generation.current === started && !current.current) {
@@ -211,28 +255,37 @@ export function useDocumentReconcileRecovery({
             }
             return false;
           }
-          attempts += 1;
           const identity = callbacks.current.getSaveIdentity();
-          const persisted = await callbacks.current.save(draft, saveBase);
+          const persisted = await owner.step(() =>
+            callbacks.current.save(draft, saveBase),
+          );
           if (generation.current !== started || current.current) {
-            await retainLatest();
+            await retainLatest(owner);
             return false;
           }
           if (persisted && callbacks.current.getSaveIdentity() === identity)
             return true;
+          // A save that landed while typing continued is not a retry: counting
+          // those turns steady typing in another tab into a conflict notice.
           refused = !persisted;
+          if (persisted)
+            await owner.step(() =>
+              untilTypingPauses(() => callbacks.current.getSaveIdentity()),
+            );
           draft = latestDraft();
           saveBase = undefined;
         }
-        await retainLatest();
+        await retainLatest(owner);
         return false;
       } catch {
+        if (!owner.isActive()) return false;
         if (generation.current === started && !current.current) {
           try {
-            await retainLatest();
+            await retainLatest(owner);
           } catch {
             // The visible recovery state remains the final fallback.
           }
+          if (!owner.isActive()) return false;
           publish({
             reason: "save-failed",
             ...latestDraft(),
@@ -241,8 +294,10 @@ export function useDocumentReconcileRecovery({
         }
         return false;
       } finally {
-        inFlight.current = false;
-        if (automaticSave.current === run) automaticSave.current = null;
+        if (owner.isActive()) {
+          inFlight.current = false;
+          if (automaticSave.current === run) automaticSave.current = null;
+        }
       }
     },
     [current, latestDraft, publish, retainLatest],
@@ -253,6 +308,7 @@ export function useDocumentReconcileRecovery({
       initialDraft: ReconcileRecoveryDraft,
       base: ReconcileSaveBase,
     ): Promise<boolean> => {
+      const owner = beginAttempt();
       const running = automaticSave.current;
       if (
         running &&
@@ -275,8 +331,9 @@ export function useDocumentReconcileRecovery({
         });
         try {
           if (callbacks.current.retain)
-            await callbacks.current.retain(initialDraft);
+            await owner.step(() => callbacks.current.retain!(initialDraft));
         } catch {
+          if (!owner.isActive()) return false;
           const latest = current.current;
           if (latest)
             publish({ ...latest, reason: "save-failed", saving: false });
@@ -303,21 +360,24 @@ export function useDocumentReconcileRecovery({
         base: ReconcileSaveBase,
       ) => Promise<boolean>,
     ): Promise<boolean> => {
+      const owner = beginAttempt();
       const snapshot = current.current;
       if (!snapshot || inFlight.current) return false;
       inFlight.current = true;
       const started = generation.current;
       publish({ ...snapshot, saving: true });
       try {
-        const resolved = await action(
-          {
-            localDraft: snapshot.localDraft,
-            localTitle: snapshot.localTitle,
-          },
-          base,
+        const resolved = await owner.step(() =>
+          action(
+            {
+              localDraft: snapshot.localDraft,
+              localTitle: snapshot.localTitle,
+            },
+            base,
+          ),
         );
         if (!resolved || generation.current !== started) {
-          await retainLatest();
+          await retainLatest(owner);
           return false;
         }
         const latest = current.current;
@@ -326,27 +386,31 @@ export function useDocumentReconcileRecovery({
           latest.localDraft !== snapshot.localDraft ||
           latest.localTitle !== snapshot.localTitle
         ) {
-          await retainLatest();
+          await retainLatest(owner);
           return false;
         }
         publish(null);
         return true;
       } catch {
+        if (!owner.isActive()) return false;
         if (generation.current === started) {
           try {
-            await retainLatest();
+            await retainLatest(owner);
           } catch {
             // The visible recovery state remains the final fallback.
           }
+          if (!owner.isActive()) return false;
           const latest = current.current;
           if (latest)
             publish({ ...latest, reason: "save-failed", saving: false });
         }
         return false;
       } finally {
-        inFlight.current = false;
-        if (current.current?.saving)
-          publish({ ...current.current, saving: false });
+        if (owner.isActive()) {
+          inFlight.current = false;
+          if (current.current?.saving)
+            publish({ ...current.current, saving: false });
+        }
       }
     },
     [current, publish, retainLatest],

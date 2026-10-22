@@ -416,6 +416,28 @@ describe("app, date range, and paging", () => {
     });
   });
 
+  it("keeps a row whose text carries a NUL", async () => {
+    await insertAuditEvent({
+      ...makeEvent({
+        id: "nul",
+        caller: "mcp",
+        targetId: "form\u00001",
+        summary: "Renamed to a\u0000b",
+      }),
+      reportedClientName: "evil\u0000client",
+      approval: "mcp-client-accepted",
+    });
+
+    expect(
+      await getAuditEventById("nul", { userEmail: "alice@x.com" }),
+    ).toMatchObject({
+      targetId: "form�1",
+      summary: "Renamed to a�b",
+      reportedClientName: "evil�client",
+      approval: "mcp-client-accepted",
+    });
+  });
+
   it("lists the apps the scope can read, without other tenants' apps", async () => {
     await insertAuditEvent({ ...makeEvent({ id: "m" }), app: "mail" });
     await insertAuditEvent({ ...makeEvent({ id: "m2" }), app: "mail" });

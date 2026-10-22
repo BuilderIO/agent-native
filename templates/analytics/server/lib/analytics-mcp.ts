@@ -4,6 +4,7 @@ import type { AgentChatMcpOptions } from "@agent-native/core/server";
 // framework's cross-app builtins. `mcp-action-contract.spec.ts` serves this
 // config through the real MCP handler and pins the resulting tools/list.
 export const ANALYTICS_MCP = {
+  connectorCatalog: [],
   externalAgents: { writes: "allowlisted" },
   keyToolNames: [
     "list-sql-dashboards",

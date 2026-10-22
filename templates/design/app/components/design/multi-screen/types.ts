@@ -181,7 +181,6 @@ export interface MultiScreenCanvasProps {
   selectedPenPathNodeId?: string | null;
   hiddenScreenIds?: ReadonlySet<string> | readonly string[];
   lockedScreenIds?: ReadonlySet<string> | readonly string[];
-  fullViewScreenIds?: string[];
   pendingReviewScreenIds?: ReadonlySet<string> | readonly string[];
   onReviewPendingScreen?: (screenId: string) => void;
   interactMode?: boolean;

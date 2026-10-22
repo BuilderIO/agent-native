@@ -139,6 +139,12 @@ const ADVERTISED_ONLY_CONDITIONALLY: Record<string, Record<string, string>> = {
       "export-coding-handoff",
       "export-design-as-figma-svg",
     ),
+    ...prose(
+      "Builder app tools: they act only on designs backed by a Builder app, so the default catalog leaves them out",
+      "send-builder-message",
+      "apply-builder-edits",
+      "queue-builder-edit",
+    ),
   },
   forms: prose(
     "Forms declares no connector tier, so its default catalog is builtins only; owners to advertise or reword",

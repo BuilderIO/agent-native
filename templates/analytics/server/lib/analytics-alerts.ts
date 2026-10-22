@@ -153,6 +153,13 @@ const DEFAULT_AGENT_CHAT_STUCK_ALERT_WINDOW_MINUTES = 10;
 const DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES = 60;
 const DEFAULT_ALERT_SCOPE_PAGE_SIZE = 500;
 const BIGQUERY_ALERT_PAGE_SIZE = 5_000;
+
+// Alerts watch the last few minutes, which an hourly events model has not
+// built yet.
+const ALERT_QUERY_OPTIONS = {
+  eventsSource: "raw",
+  maxBytesBilled: ANALYTICS_ALERT_MAX_BYTES_BILLED,
+} as const;
 const ALERT_RULE_DEFAULTS_KEY = "analytics-alert-rule-defaults";
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
@@ -1178,7 +1185,7 @@ export async function evaluateBigQueryAnalyticsAlertBatch(
       queryFirstPartyAnalytics(
         query,
         { userEmail: first.ownerEmail, orgId: first.orgId },
-        { maxBytesBilled: ANALYTICS_ALERT_MAX_BYTES_BILLED },
+        ALERT_QUERY_OPTIONS,
       ),
   );
   if (result.truncated || result.rows.length !== 1) {
@@ -1543,7 +1550,7 @@ async function loadCandidateEvents(
           const result = await queryFirstPartyAnalytics(
             buildBigQueryAlertQuery(rule, windowStart, windowEnd, cursor),
             { userEmail: rule.ownerEmail, orgId: rule.orgId },
-            { maxBytesBilled: ANALYTICS_ALERT_MAX_BYTES_BILLED },
+            ALERT_QUERY_OPTIONS,
           );
           if (result.truncated) {
             throw new Error(

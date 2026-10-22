@@ -7,18 +7,16 @@ export interface McpCallAttributionInput {
   /** `ctx.mcpReq.envelope`: the reserved `_meta` keys the SDK lifted out. */
   envelope: unknown;
   oauthClientId: string | undefined;
-  /** The call consumed a grant after the MCP client accepted its elicitation. */
-  clientAccepted: boolean;
 }
 
 /**
- * The client and approval facts the audit trail records for one MCP
- * `tools/call`. Only `oauthClientId` comes from a credential this server
- * issued. The name and version are whatever the client sent as `clientInfo`.
+ * The client facts the audit trail records for one MCP `tools/call`. Only
+ * `oauthClientId` comes from a credential this server issued. The name and
+ * version are whatever the client sent as `clientInfo`.
  */
 export function mcpCallAttribution(
   input: McpCallAttributionInput,
-): Pick<ActionRunContext, "mcpClient" | "mcpClientAccepted"> {
+): Pick<ActionRunContext, "mcpClient"> {
   // 2026-07-28 requests carry clientInfo in the envelope, which the SDK
   // removes from the `_meta` the handler sees. Older requests leave it there.
   const lifted = readClientInfoFromRequest({
@@ -38,8 +36,5 @@ export function mcpCallAttribution(
     ...(info.clientVersion ? { version: info.clientVersion } : {}),
     ...(input.oauthClientId ? { oauthClientId: input.oauthClientId } : {}),
   };
-  return {
-    ...(Object.keys(mcpClient).length > 0 ? { mcpClient } : {}),
-    ...(input.clientAccepted ? { mcpClientAccepted: true as const } : {}),
-  };
+  return Object.keys(mcpClient).length > 0 ? { mcpClient } : {};
 }

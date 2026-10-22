@@ -38,27 +38,38 @@ export async function assertAutomaticPreviewDraftGeneration(input: {
       },
     );
   }
-  const source = { ...input, editorSessionId: input.editorSessionId };
-  const settled = await lockPreviewDocumentDraftSettlement(source);
-  const discarded = await readDiscardedPreviewDraftGeneration(source);
-  if (
-    (settled !== null && input.editGeneration <= settled) ||
-    (discarded !== null && input.editGeneration <= discarded)
-  ) {
+  const reason = await previewDraftGenerationRefusal({
+    ...input,
+    editorSessionId: input.editorSessionId,
+    editGeneration: input.editGeneration,
+  });
+  if (reason) {
     throw new ActionContractError(
       "This editor generation requires a reviewed recovery choice.",
       {
         errorCode: "PREVIEW_DRAFT_AUTOMATIC_RECOVERY_REFUSED",
         statusCode: 409,
-        details: {
-          reason:
-            discarded !== null && input.editGeneration <= discarded
-              ? "discarded"
-              : "settled",
-        },
+        details: { reason },
       },
     );
   }
+}
+
+export async function previewDraftGenerationRefusal(input: {
+  db: ContentDb;
+  ownerEmail: string;
+  orgId: string;
+  documentId: string;
+  editorSessionId: string;
+  editGeneration: number;
+  now: string;
+}) {
+  const settled = await lockPreviewDocumentDraftSettlement(input);
+  const discarded = await readDiscardedPreviewDraftGeneration(input);
+  if (discarded !== null && input.editGeneration <= discarded)
+    return "discarded" as const;
+  if (input.editGeneration <= settled) return "settled" as const;
+  return null;
 }
 
 export type PreviewDraftEditIdentity = {
@@ -168,7 +179,16 @@ export async function lockPreviewDocumentDraftSettlement(input: {
       ),
     )
     .for("update");
-  return readSettledPreviewDraftGeneration(input);
+  const settled = await readSettledPreviewDraftGeneration(input);
+  if (settled === null)
+    throw new ActionContractError(
+      "The editor generation fence could not be read.",
+      {
+        errorCode: "PREVIEW_DRAFT_SETTLEMENT_MISSING",
+        statusCode: 500,
+      },
+    );
+  return settled;
 }
 
 export async function fencePreviewDocumentDraftGeneration(input: {
@@ -210,6 +230,7 @@ export async function settlePreviewDocumentDraft(input: {
   editorSessionId: string;
   editGeneration: number;
   discarded?: boolean;
+  draftSnapshot?: { id: string; version: number };
   now: string;
 }) {
   await lockPreviewDocumentDraftSettlement(input);
@@ -252,6 +273,15 @@ export async function settlePreviewDocumentDraft(input: {
         eq(schema.documentPreviewDrafts.documentId, input.documentId),
         eq(schema.documentPreviewDrafts.editorSessionId, input.editorSessionId),
         lte(schema.documentPreviewDrafts.editGeneration, input.editGeneration),
+        ...(input.draftSnapshot === undefined
+          ? []
+          : [
+              eq(schema.documentPreviewDrafts.id, input.draftSnapshot.id),
+              eq(
+                schema.documentPreviewDrafts.version,
+                input.draftSnapshot.version,
+              ),
+            ]),
       ),
     );
 }

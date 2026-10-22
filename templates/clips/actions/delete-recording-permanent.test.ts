@@ -162,6 +162,9 @@ vi.mock("../server/db/index.js", () => ({
     recordingTranscripts: {
       recordingId: "recordingTranscripts.recordingId",
     },
+    recordingTranscriptVersions: {
+      recordingId: "recordingTranscriptVersions.recordingId",
+    },
     recordingBrowserDiagnostics: mockDiagnosticsTable,
     recordingBugReports: { recordingId: "recordingBugReports.recordingId" },
     recordingTags: { recordingId: "recordingTags.recordingId" },
@@ -268,6 +271,10 @@ describe("delete-recording-permanent", () => {
       { protectedUrls: new Set() },
     );
     expect(mockDb.transaction).toHaveBeenCalled();
+    // Replaced transcripts go with the recording, never left readable.
+    expect(mockDbDelete).toHaveBeenCalledWith({
+      recordingId: "recordingTranscriptVersions.recordingId",
+    });
     expect(mockDbDelete.mock.invocationCallOrder[0]).toBeLessThan(
       mockDeleteRecordingMediaObjects.mock.invocationCallOrder[0],
     );

@@ -29,6 +29,7 @@ import { defineEventHandler, getHeader, readBody, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
 
 import { actionCallEmitsChange } from "../action-call-classification.js";
+import { runActionInvocation } from "../action-invocation.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -313,7 +314,7 @@ export function mountDevActionForwardRoute(
             caller: "cli",
             actionName: name,
           };
-          const result = await entry.run(params, ctx);
+          const result = await runActionInvocation(entry, params, ctx);
           if (actionCallEmitsChange(entry, params, false)) {
             await notifyActionChange({ actionName: name }).catch(() => {});
           }

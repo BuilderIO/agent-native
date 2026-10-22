@@ -543,7 +543,7 @@ async function interactRoundTrip(page: Page, screenId: string) {
   await expect(
     page.locator('[role="treeitem"][aria-selected="true"]'),
   ).toHaveCount(0);
-  await shell.locator("[data-frame-full-view]").click();
+  await shell.locator("[data-frame-title]").first().dblclick();
   await page
     .locator('[data-design-top-bar] [data-design-mode="interact"]')
     .click();

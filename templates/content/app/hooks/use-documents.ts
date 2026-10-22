@@ -1022,6 +1022,7 @@ export function startPageOpenCompanionReads(
 }
 
 export interface PreviewDocumentDraftRecord {
+  id: string;
   documentId: string;
   title: string;
   baseTitle: string | null;
@@ -1153,6 +1154,7 @@ export function useUpdatePreviewDocumentDraft() {
         operation: "delete";
         documentId: string;
         expectedVersion: number;
+        expectedDraftId: string;
         expectedTitle: string;
         expectedContent: string;
         expectedBaseTitle?: string | null;
@@ -1186,6 +1188,9 @@ export function useResolvePreviewDocumentDraft() {
       choice: "keep_mine" | "use_saved" | "save_separately";
       trigger: "automatic" | "reviewed";
       documentId: string;
+      expectedDraftId: string;
+      expectedDraftEditorSessionId: string | null;
+      expectedDraftEditGeneration: number | null;
       expectedDraftVersion: number;
       expectedDraftTitle: string;
       expectedDraftBaseTitle?: string | null;

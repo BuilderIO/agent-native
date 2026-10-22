@@ -1,6 +1,7 @@
 import { isBoardFile } from "@shared/board-file";
 import { parseCssColorExtended } from "@shared/color-utils";
 import { normalizedDesignFileType } from "@shared/design-files";
+import { cloneNativeEffectsForNodes } from "@shared/native-effect-cloning";
 import {
   isClosedPathData,
   serializePenNodes,
@@ -154,7 +155,7 @@ export function reassignDuplicatedNodeIds(content: string): string {
   }
   const rewriteReference = (id: string): string =>
     rewrittenReferences.get(id) ?? id;
-  return withNewNodeIds
+  const rewrittenContent = withNewNodeIds
     .replace(
       /\bid=(['"])([^'"]*)\1/g,
       (_match, quote: string, id: string) =>
@@ -164,6 +165,9 @@ export function reassignDuplicatedNodeIds(content: string): string {
       /url\(#([^)]*)\)/g,
       (_match, id: string) => `url(#${rewriteReference(id)})`,
     );
+  return cloneNativeEffectsForNodes(content, rewrittenContent, nodeIdMap, {
+    wholeDocument: true,
+  });
 }
 
 export function defaultTextLayerName(text: string | undefined): string {

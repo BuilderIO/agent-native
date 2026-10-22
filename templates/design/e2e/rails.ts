@@ -60,6 +60,9 @@ export class App {
       });
     }
     page.on("load", () => {
+      // Vite's dev optimizer can reload one route while recovering stale deps.
+      if (new URL(page.url()).searchParams.has("__an_vite_dev_recovery"))
+        return;
       if (expectedLoads > 0) {
         expectedLoads -= 1;
         return;
