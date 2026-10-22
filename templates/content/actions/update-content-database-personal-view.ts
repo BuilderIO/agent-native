@@ -8,7 +8,7 @@ import {
   applyContentPersonalNavigationPatch,
   contentPersonalNavigationPatchSchema,
 } from "../shared/content-personal-navigation-patch.js";
-import { contentDatabaseDateFilterValueError } from "../shared/database-query.js";
+import { contentDatabaseChangedDateFilterValueError } from "../shared/database-query.js";
 import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
 import {
   assertContentDatabaseViewerAccess,
@@ -19,6 +19,7 @@ import {
   personalDatabaseViewSettingKey,
   personalViewOverridesSchema,
 } from "./_content-database-personal-view.js";
+import { parseDatabaseViewConfig } from "./_property-utils.js";
 import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
 export function personalSidebarOrderItemIds(
@@ -227,17 +228,28 @@ export default defineAction({
           definition.type as DocumentPropertyType,
         ]),
       );
-      for (const filter of requested.views.flatMap((view) => view.filters)) {
-        const type = typeById.get(filter.key);
-        const dateError =
-          type && contentDatabaseDateFilterValueError(filter, type);
-        if (dateError) {
-          fail(dateError, { statusCode: 400, errorCode: "invalid_filter" });
-        }
-      }
+      const [database] = await db
+        .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+      const sharedConfig = parseDatabaseViewConfig(database?.viewConfigJson);
       const { value } = await mutateSetting(async (tx, current) => {
         const currentOverrides =
           current === null ? null : personalViewOverridesSchema.parse(current);
+        // Filters copied from the shared View or saved here before pass, so
+        // an old unreadable date doesn't block other changes.
+        const dateError = contentDatabaseChangedDateFilterValueError(
+          requested.views.flatMap((view) => view.filters),
+          [
+            ...sharedConfig.filters,
+            ...sharedConfig.views.flatMap((view) => view.filters),
+            ...(currentOverrides?.views.flatMap((view) => view.filters) ?? []),
+          ],
+          (key) => typeById.get(key),
+        );
+        if (dateError) {
+          fail(dateError, { statusCode: 400, errorCode: "invalid_filter" });
+        }
         const requestedItemIds = [
           ...new Set([
             ...personalSidebarOrderItemIds(requested),

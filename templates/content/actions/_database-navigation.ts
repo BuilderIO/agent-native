@@ -131,6 +131,14 @@ function activeNavigationFilter(filter: ContentDatabaseFilter) {
   );
 }
 
+// Every character String.prototype.trim() removes. Postgres' btrim() removes
+// only spaces unless it is given the characters to remove.
+const TRIMMED_CHARACTERS = String.fromCharCode(
+  ...Array.from({ length: 0x10000 }, (_, code) => code).filter(
+    (code) => !String.fromCharCode(code).trim(),
+  ),
+);
+
 function textFilterSql(
   expression: SQL<string | null>,
   filter: ContentDatabaseFilter,
@@ -138,7 +146,8 @@ function textFilterSql(
   const values = selectedFilterValues(filter.value).map((value) =>
     value.toLowerCase(),
   );
-  const normalized = sql<string>`lower(coalesce(${expression}, ''))`;
+  // Trimmed and lowercased, as the shared evaluator compares values.
+  const normalized = sql<string>`lower(btrim(coalesce(${expression}, ''), ${TRIMMED_CHARACTERS}))`;
   if (filter.operator === "is_empty") return sql`${normalized} = ''`;
   if (filter.operator === "is_not_empty") return sql`${normalized} <> ''`;
   if (filter.operator === "equals") return sql`${normalized} = ${values[0]}`;
@@ -148,12 +157,10 @@ function textFilterSql(
     return sql`position(${values[0]} in ${normalized}) > 0`;
   if (filter.operator === "does_not_contain")
     return sql`position(${values[0]} in ${normalized}) = 0`;
-  // The shared evaluator trims a value before matching its ends.
-  const trimmed = sql<string>`btrim(${normalized})`;
   if (filter.operator === "starts_with")
-    return sql`left(${trimmed}, char_length(${values[0]})) = ${values[0]}`;
+    return sql`left(${normalized}, char_length(${values[0]})) = ${values[0]}`;
   if (filter.operator === "ends_with")
-    return sql`right(${trimmed}, char_length(${values[0]})) = ${values[0]}`;
+    return sql`right(${normalized}, char_length(${values[0]})) = ${values[0]}`;
   return undefined;
 }
 

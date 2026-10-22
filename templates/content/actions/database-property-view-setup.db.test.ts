@@ -627,6 +627,88 @@ describe("ordinary property and table-view setup", () => {
         errorCode: "invalid_filter",
       });
     }
+
+    // Every save path checks only the filters it adds or changes, so a date
+    // saved before these checks doesn't block other edits.
+    const stale = { ...filters[1]!, value: "soon" };
+    const unreadable = { ...filters[1]!, value: "2026-02-30" };
+    const withDefaultFilters = async (nextFilters: typeof filters) => {
+      const { database } = await asOwner(() =>
+        readDatabase.run({ databaseId: created.database.id }),
+      );
+      return {
+        ...database.viewConfig,
+        views: database.viewConfig.views.map((view) =>
+          view.id === "default" ? { ...view, filters: nextFilters } : view,
+        ),
+      };
+    };
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify(await withDefaultFilters([stale])),
+      })
+      .where(eq(schema.contentDatabases.id, created.database.id));
+
+    await expect(
+      asOwner(async () =>
+        updateView.run({
+          operation: "update",
+          target,
+          ...(await revisions()),
+          idempotencyKey: "keep-stale-date-update",
+          viewId: "default",
+          patch: { filters: [stale, filters[0]!] },
+        }),
+      ),
+    ).resolves.toMatchObject({ value: { filters: [stale, filters[0]] } });
+
+    const replace = async (
+      idempotencyKey: string,
+      nextFilters: typeof filters,
+    ) => {
+      const viewConfig = await withDefaultFilters(nextFilters);
+      return asOwner(async () =>
+        updateView.run({
+          operation: "replace",
+          target,
+          ...(await revisions()),
+          idempotencyKey,
+          viewConfig,
+        } as never),
+      );
+    };
+    await expect(
+      replace("keep-stale-date-replace", [stale]),
+    ).resolves.toMatchObject({ receipt: { outcome: "updated" } });
+    await expect(
+      replace("add-unreadable-date-replace", [stale, unreadable]),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+
+    // Files views still save through the legacy { databaseId, viewConfig } form.
+    const legacySave = async (nextFilters: typeof filters) => {
+      const viewConfig = await withDefaultFilters(nextFilters);
+      return asOwner(() =>
+        updateView.run({
+          databaseId: created.database.id,
+          viewConfig,
+        } as never),
+      );
+    };
+    await expect(legacySave([stale, filters[0]!])).resolves.toBeDefined();
+    await expect(legacySave([stale, unreadable])).rejects.toMatchObject({
+      errorCode: "invalid_filter",
+    });
+
+    await expect(savePersonal(stale)).resolves.toMatchObject({
+      overrides: { views: [{ filters: [stale] }] },
+    });
+    const { database: final } = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id }),
+    );
+    expect(
+      final.viewConfig.views.find((view) => view.id === "default")?.filters,
+    ).toEqual([stale, filters[0]]);
   });
 
   it("sets a list view's row layout from a preset and slot patches", async () => {

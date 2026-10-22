@@ -197,8 +197,10 @@ token, not a date: it is resolved each time the view is read, in the caller's
 time zone (the browser's, or the `x-user-timezone` request header on the
 server, falling back to the server's zone). `update-content-database-view`
 and `update-content-database-personal-view` reject an unknown `is_within`
-token and a date they cannot read, such as `2026-02-30`; an empty value or an
-unfinished `between` end still saves.
+token and a date they cannot read, such as `2026-02-30`, in every form they
+accept; an empty value or an unfinished `between` end still saves. Only filters
+a save adds or changes are checked, so a view still holding an unreadable date
+from before these checks saves with other edits.
 
 When either the filter value or a row's value has no time, they are compared
 by calendar day. A value without a time covers its whole day and is compared

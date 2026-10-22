@@ -261,25 +261,64 @@ export function contentDatabaseFilterToday(
 }
 
 function dayInTimeZone(date: Date, timeZone: string | undefined) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timeZone && isKnownTimeZone(timeZone) ? timeZone : undefined,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
+  const parts = (
+    (timeZone ? zoneFormatters(timeZone)?.day : undefined) ??
+    new Intl.DateTimeFormat("en-CA", DAY_FORMAT)
+  ).formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((candidate) => candidate.type === type)?.value;
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-function isKnownTimeZone(timeZone: string) {
+const DAY_FORMAT = {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+} as const satisfies Intl.DateTimeFormatOptions;
+
+const CLOCK_FORMAT = {
+  hourCycle: "h23",
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+} as const satisfies Intl.DateTimeFormatOptions;
+
+type ZoneFormatters = {
+  day: Intl.DateTimeFormat;
+  clock: Intl.DateTimeFormat;
+};
+
+// Building a formatter costs far more than using one, and a table query
+// compares every row, so each zone's formatters are built once. Zone names
+// arrive in request headers, so the cache is emptied rather than left to grow.
+const zoneFormatterCache = new Map<string, ZoneFormatters | null>();
+
+/** The formatters for `timeZone`, or null when this runtime doesn't know it. */
+function zoneFormatters(timeZone: string) {
+  const cached = zoneFormatterCache.get(timeZone);
+  if (cached !== undefined) return cached;
+  let formatters: ZoneFormatters | null;
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
-    return true;
+    formatters = {
+      day: new Intl.DateTimeFormat("en-CA", { ...DAY_FORMAT, timeZone }),
+      clock: new Intl.DateTimeFormat("en-US", { ...CLOCK_FORMAT, timeZone }),
+    };
   } catch (error) {
-    if (error instanceof RangeError) return false;
-    throw error;
+    if (!(error instanceof RangeError)) throw error;
+    formatters = null;
   }
+  if (zoneFormatterCache.size >= 100) zoneFormatterCache.clear();
+  zoneFormatterCache.set(timeZone, formatters);
+  return formatters;
+}
+
+/** `timeZone` when this runtime knows it, otherwise this machine's zone. */
+function knownTimeZone(timeZone: string | undefined) {
+  if (timeZone && zoneFormatters(timeZone)) return timeZone;
+  return new Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
 // An ISO date and time: minutes, optional seconds and fraction, and an
@@ -332,37 +371,27 @@ export function contentDatabaseFilterInstant(value: string, timeZone?: string) {
     const ms = (Number(hours) * 60 + Number(minutes)) * 60 * 1000;
     return sign === "+" ? asUtc - ms : asUtc + ms;
   }
-  if (!timeZone || !isKnownTimeZone(timeZone)) {
-    return new Date(...fields).getTime();
-  }
+  const clock = timeZone && zoneFormatters(timeZone)?.clock;
+  if (!clock) return new Date(...fields).getTime();
   // The zone's offsets a day either side; a real zone changes at most once
   // between them. A candidate is right when the zone's clock reads the wall
   // time at that moment.
-  const before = asUtc - timeZoneOffset(asUtc - DAY_MS, timeZone);
-  const after = asUtc - timeZoneOffset(asUtc + DAY_MS, timeZone);
+  const before = asUtc - timeZoneOffset(asUtc - DAY_MS, clock);
+  const after = asUtc - timeZoneOffset(asUtc + DAY_MS, clock);
   const valid = [before, after].filter(
-    (time) => time + timeZoneOffset(time, timeZone) === asUtc,
+    (time) => time + timeZoneOffset(time, clock) === asUtc,
   );
   // Neither is right inside a skipped hour: keep the offset from before it,
   // which moves the time forward.
   return valid.length > 0 ? Math.min(...valid) : before;
 }
 
-/** How far `timeZone`'s clock is ahead of UTC at `time`, in milliseconds. */
-function timeZoneOffset(time: number, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-  }).formatToParts(time);
+/** How far a zone's clock is ahead of UTC at `time`, in milliseconds. */
+function timeZoneOffset(time: number, clock: Intl.DateTimeFormat) {
+  const parts = clock.formatToParts(time);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((candidate) => candidate.type === type)?.value);
-  const clock = Date.UTC(
+  const reading = Date.UTC(
     part("year"),
     part("month") - 1,
     part("day"),
@@ -370,7 +399,7 @@ function timeZoneOffset(time: number, timeZone: string) {
     part("minute"),
     part("second"),
   );
-  return clock - Math.floor(time / 1000) * 1000;
+  return reading - Math.floor(time / 1000) * 1000;
 }
 
 /**
@@ -459,6 +488,31 @@ export function contentDatabaseDateFilterValueError(
 }
 
 /**
+ * The first `contentDatabaseDateFilterValueError` among the filters a save adds
+ * or changes. A filter already in `savedFilters` passes, so a view still
+ * holding a date saved before these checks can be saved with other changes.
+ * `typeOfKey` gives a filter key's property type; filters without one pass.
+ */
+export function contentDatabaseChangedDateFilterValueError(
+  filters: readonly ContentDatabaseFilter[],
+  savedFilters: readonly ContentDatabaseFilter[],
+  typeOfKey: (key: string) => DocumentPropertyType | undefined,
+) {
+  const saved = new Set(savedFilters.map(filterValueIdentity));
+  for (const filter of filters) {
+    const type = typeOfKey(filter.key);
+    if (!type || saved.has(filterValueIdentity(filter))) continue;
+    const error = contentDatabaseDateFilterValueError(filter, type);
+    if (error) return error;
+  }
+  return null;
+}
+
+function filterValueIdentity(filter: ContentDatabaseFilter) {
+  return JSON.stringify([filter.key, filter.operator, filter.value]);
+}
+
+/**
  * How a date filter compares a row's date once relative values are resolved
  * against `today`. A value without a time covers its whole day, so it is
  * compared with the row's calendar day, the date the row's value is written
@@ -540,7 +594,9 @@ export function applyContentDatabaseTableQuery(
   const filterTree = query.filters.some(isActiveFilter)
     ? contentDatabaseFilterTree(query.filters, query.filterMode)
     : null;
-  const { timeZone } = options;
+  // Looked up on the first date comparison. A missing or unknown zone becomes
+  // this machine's by name, so its formatters are cached as well.
+  let timeZone: string | undefined;
   let today = options.today;
   const dateChecks = new Map<
     ContentDatabaseFilter,
@@ -550,6 +606,7 @@ export function applyContentDatabaseTableQuery(
     current: string,
     filter: ContentDatabaseDateComparisonFilter,
   ) => {
+    timeZone ??= knownTimeZone(options.timeZone);
     if (!dateChecks.has(filter)) {
       today ??= contentDatabaseFilterToday(timeZone);
       dateChecks.set(

@@ -1825,7 +1825,7 @@ describe("Files navigation text and date filters", () => {
     },
     {
       id: "date-filter-oct-22-end",
-      title: "Gamma",
+      title: "\tGamma\n",
       createdAt: "2026-10-22T23:59:59.999Z",
     },
     {
@@ -1835,7 +1835,7 @@ describe("Files navigation text and date filters", () => {
     },
     {
       id: "date-filter-oct-29",
-      title: "Delta",
+      title: "Delta\u00a0",
       createdAt: "2026-10-29T12:00:00.000Z",
     },
     {
@@ -1964,6 +1964,10 @@ describe("Files navigation text and date filters", () => {
       [name("starts_with", "alpha"), ids("oct-14", "oct-21")],
       [name("starts_with", "BETA "), ids("oct-22-start", "oct-22-evening")],
       [name("ends_with", "launch"), ids("oct-14", "oct-23", "oct-30")],
+      // Titles are trimmed of tabs, newlines and no-break spaces too.
+      [name("starts_with", "gamma"), ids("oct-22-end", "oct-23")],
+      [name("ends_with", "delta"), ids("oct-29")],
+      [name("equals", "gamma"), ids("oct-22-end")],
     ];
     for (const [filter, rows] of expected) {
       expect(await navigatedIds(filter, "UTC")).toEqual(rows);

@@ -27,7 +27,7 @@ import {
   startingContentDatabaseItemLayout,
 } from "../shared/database-item-layout.js";
 import {
-  contentDatabaseDateFilterValueError,
+  contentDatabaseChangedDateFilterValueError,
   contentDatabaseFilterOperatorsForType,
 } from "../shared/database-query.js";
 import {
@@ -246,6 +246,7 @@ function validateTablePatch(
     | z.infer<typeof updateViewPatchSchema>
     | z.infer<typeof boundedTablePatchSchema>,
   definitions: readonly (typeof schema.documentPropertyDefinitions.$inferSelect)[],
+  savedFilters: readonly ContentDatabaseFilter[] = [],
 ) {
   const typeById = new Map(
     definitions.map((definition) => [
@@ -321,8 +322,6 @@ function validateTablePatch(
         400,
       );
     }
-    const dateError = contentDatabaseDateFilterValueError(filter, type);
-    if (dateError) setupError("INVALID_VIEW_REFERENCE", dateError, 400);
     if (filter.filterGroupMode && !filter.filterGroupId) {
       setupError(
         "INVALID_VIEW_REFERENCE",
@@ -338,6 +337,12 @@ function validateTablePatch(
       );
     }
   }
+  const dateError = contentDatabaseChangedDateFilterValueError(
+    patch.filters ?? [],
+    savedFilters,
+    (key) => typeById.get(key),
+  );
+  if (dateError) setupError("INVALID_VIEW_REFERENCE", dateError, 400);
 }
 
 type PropertyDefinitionRow =
@@ -682,7 +687,11 @@ export async function runUpdateContentDatabaseView(
               400,
             );
           }
-          validateTablePatch(input.patch, context.definitions);
+          validateTablePatch(
+            input.patch,
+            context.definitions,
+            existing.filters,
+          );
         } else {
           setupError(
             "UNSUPPORTED_SCHEMA_CHANGE",
@@ -782,6 +791,12 @@ export async function runReplaceContentDatabaseViews(input: {
         ? rawConfig.views
         : [];
       const desired = parseDatabaseViewConfig(JSON.stringify(input.viewConfig));
+      const dateError = viewConfigDateFilterError(
+        desired,
+        parseDatabaseViewConfig(context.database.viewConfigJson),
+        context.definitions,
+      );
+      if (dateError) setupError("INVALID_VIEW_REFERENCE", dateError, 400);
       const views = desired.views.map((view) => {
         const saved = currentRawViews.find(
           (candidate) =>
@@ -838,6 +853,32 @@ export async function runReplaceContentDatabaseViews(input: {
       };
     },
   });
+}
+
+/**
+ * The first unreadable date among the filters `next` adds or changes from
+ * `saved`, across every view and the config's own filters.
+ */
+export function viewConfigDateFilterError(
+  next: ContentDatabaseViewConfig,
+  saved: ContentDatabaseViewConfig,
+  definitions: readonly { id: string; type: string }[],
+) {
+  const typeById = new Map(
+    definitions.map((definition) => [
+      definition.id,
+      definition.type as DocumentPropertyType,
+    ]),
+  );
+  const filters = (config: ContentDatabaseViewConfig) => [
+    ...config.filters,
+    ...config.views.flatMap((view) => view.filters),
+  ];
+  return contentDatabaseChangedDateFilterValueError(
+    filters(next),
+    filters(saved),
+    (key) => typeById.get(key),
+  );
 }
 
 export function filterIsCompatible(
