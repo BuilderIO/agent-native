@@ -84,8 +84,8 @@ export function BlockActionsMenu({
     };
   }, [editor]);
 
-  // The switches show the table as it is, including a collaborator's change,
-  // and the menu goes when its block does.
+  // The switches show the table as it is, and the menu goes when its block
+  // does. The drag handle closes it when a collaborator changes the block.
   useEffect(() => {
     if (!request) return;
     const redraw = () => {

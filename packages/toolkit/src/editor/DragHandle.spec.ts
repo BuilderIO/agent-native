@@ -900,12 +900,13 @@ describe("DragHandle app menu", () => {
     deliver();
 
     const requests: DragHandleMenuRequest[] = [];
+    const close = vi.fn();
     const mounted = mountEditor(
       "",
       {
         openMenu: (request) => {
           requests.push(request);
-          return () => {};
+          return close;
         },
       },
       undefined,
@@ -913,7 +914,7 @@ describe("DragHandle app menu", () => {
       undefined,
       [starterKit, Collaboration.configure({ document: local })],
     );
-    return { ...mounted, deliver, peer, requests };
+    return { ...mounted, close, deliver, peer, requests };
   }
 
   it("finds no block once a peer deletes it, though the next block takes its element", () => {
@@ -947,23 +948,112 @@ describe("DragHandle app menu", () => {
     }
   });
 
-  it("keeps its block when a peer changes it", () => {
+  it("keeps its block when a peer changes another", () => {
+    const { close, deliver, editor, handle, peer, requests } =
+      mountCollaborative("<p>First</p><p>Second</p>");
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+
+      peer.commands.insertContentAt(0, "<p>Zero</p>");
+      peer.commands.insertContentAt(peer.state.doc.content.size - 1, " edited");
+      deliver();
+
+      expect(request.getBlock()?.node.textContent).toBe("First");
+      expect(request.getBlock()?.pos).toBe(editor.state.doc.child(0).nodeSize);
+      expect(close).not.toHaveBeenCalled();
+    } finally {
+      editor.destroy();
+      peer.destroy();
+    }
+  });
+
+  // y-tiptap writes a peer's edit by rewriting elements in place, so after
+  // these the menu block's element holds another block.
+  it.each([
+    {
+      change: "changes it",
+      edit: (peer: Editor) =>
+        peer.view.dispatch(
+          peer.state.tr.setNodeMarkup(0, undefined, { level: 2 }),
+        ),
+    },
+    {
+      change: "moves it below the others",
+      edit: (peer: Editor) => {
+        const first = peer.state.doc.child(0);
+        const tr = peer.state.tr.delete(0, first.nodeSize);
+        peer.view.dispatch(tr.insert(tr.doc.content.size, first));
+      },
+    },
+    {
+      change: "deletes it and edits the next block in one edit",
+      edit: (peer: Editor) => {
+        const tr = peer.state.tr.delete(0, peer.state.doc.child(0).nodeSize);
+        peer.view.dispatch(
+          tr.insertText(" edited", tr.doc.child(0).nodeSize - 1),
+        );
+      },
+    },
+  ])("lets go of its block once a peer $change", ({ edit }) => {
+    const { close, deliver, editor, handle, peer, requests } =
+      mountCollaborative("<h1>First</h1><h1>Second</h1><h1>Third</h1>");
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+
+      edit(peer);
+      deliver();
+      const after = editor.state.doc.toJSON();
+
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(handle.getAttribute("aria-expanded")).toBe("false");
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      request.duplicate();
+      expect(editor.state.doc.toJSON()).toEqual(after);
+    } finally {
+      editor.destroy();
+      peer.destroy();
+    }
+  });
+
+  it("acts on the copy whose menu is open, not the block it copies", () => {
     const { deliver, editor, handle, peer, requests } = mountCollaborative(
       "<h1>First</h1><p>Second</p>",
     );
 
     try {
       clickHandle(handle);
-      const [request] = requests;
+      requests[0].duplicate();
+      requests[0].onClose();
+      const copyPos = editor.state.doc.child(0).nodeSize;
+      const at = (pos: number, top: number) =>
+        setRect(
+          editor.view.nodeDOM(pos) as HTMLElement,
+          makeRect({ left: 24, top, width: 640, height: 24 }),
+        );
+      at(copyPos, 40);
+      at(copyPos * 2, 80);
+      hoverAt(32, 52);
+      clickHandle(handle);
+      const request = requests[1];
 
-      peer.view.dispatch(
-        peer.state.tr.setNodeMarkup(0, undefined, { level: 2 }),
+      expect(request.getBlock()?.pos).toBe(copyPos);
+      editor.view.dispatch(
+        editor.state.tr.setNodeMarkup(copyPos, undefined, { level: 2 }),
       );
-      deliver();
-
-      expect(editor.state.doc.child(0).attrs.level).toBe(2);
       expect(request.getBlock()?.node.attrs.level).toBe(2);
-      expect(request.getBlock()?.pos).toBe(0);
+      deliver();
+      expect(peer.state.doc.child(0).attrs.level).toBe(1);
+      expect(peer.state.doc.child(1).attrs.level).toBe(2);
+
+      request.remove();
+      expect(editor.state.doc.childCount).toBe(2);
+      expect(editor.state.doc.child(0).attrs.level).toBe(1);
+      expect(childText(editor, 1)).toBe("Second");
     } finally {
       editor.destroy();
       peer.destroy();
