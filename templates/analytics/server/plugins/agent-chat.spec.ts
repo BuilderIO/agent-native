@@ -704,6 +704,9 @@ describe("Analytics agent Plan mode policy", () => {
     expect(dataQueryingSkill).toContain(
       "search `find-data` for the exact name once and retry on `not_found`",
     );
+    expect(readMarkdown("../../actions/bigquery.ts")).toContain(
+      "For an owner-defined dbt metric question, even unnamed, follow the dbt path in `data-querying/SKILL.md` first.",
+    );
   });
 
   it("routes internal usage and sibling-app questions without user-supplied SQL", () => {
