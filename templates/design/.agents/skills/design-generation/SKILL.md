@@ -2,8 +2,8 @@
 name: design-generation
 description: >-
   Generate or refine Design web prototypes and fixed promotional artwork. Use
-  for screens, variants, ads, social graphics, flyers, posters, or banners.
-  For HubSpot email requests, read hubspot-email instead.
+  when creating screens, variants, ads, social graphics, flyers, posters, or
+  banners. For HubSpot email requests, read hubspot-email instead.
 ---
 
 # Design Generation
