@@ -1042,6 +1042,7 @@ interface ResolvedMcpAppResource {
   title?: string;
   description?: string;
   html: ActionMcpAppResourceConfig["html"];
+  requestOrigin?: string;
   mimeType: typeof MCP_APP_MIME_TYPE;
   _meta?: Record<string, unknown>;
 }
@@ -2074,34 +2075,33 @@ function getMcpAppResourceUri(
 
 function expandRequestOriginSources(
   sources: string[] | undefined,
-  requestMeta?: MCPRequestMeta,
+  requestOrigin?: string,
 ): string[] | undefined {
   if (!sources) return undefined;
-  const origin = requestMeta?.origin;
   return sources.flatMap((source) =>
-    source === MCP_APP_REQUEST_ORIGIN_CSP_SOURCE && origin
-      ? [origin]
+    source === MCP_APP_REQUEST_ORIGIN_CSP_SOURCE && requestOrigin
+      ? [requestOrigin]
       : [source],
   );
 }
 
 function openAiWidgetCsp(
   cspConfig: ActionMcpAppCsp | undefined,
-  requestMeta?: MCPRequestMeta,
+  requestOrigin?: string,
 ): Record<string, string[]> | undefined {
   if (!cspConfig) return undefined;
   const csp: Record<string, string[]> = {};
   const connectDomains = expandRequestOriginSources(
     cspConfig.connectDomains,
-    requestMeta,
+    requestOrigin,
   );
   const resourceDomains = expandRequestOriginSources(
     cspConfig.resourceDomains,
-    requestMeta,
+    requestOrigin,
   );
   const frameDomains = expandRequestOriginSources(
     cspConfig.frameDomains,
-    requestMeta,
+    requestOrigin,
   );
   if (connectDomains?.length) csp.connect_domains = connectDomains;
   if (resourceDomains?.length) csp.resource_domains = resourceDomains;
@@ -2112,7 +2112,7 @@ function openAiWidgetCsp(
 function mcpAppUiMeta(
   resource: ActionMcpAppResourceConfig,
   resolvedCsp: ActionMcpAppCsp | undefined,
-  requestMeta?: MCPRequestMeta,
+  requestOrigin?: string,
   description?: string,
   widgetDomain?: string,
   directoryMode = false,
@@ -2144,21 +2144,21 @@ function mcpAppUiMeta(
       ...csp,
       connectDomains: expandRequestOriginSources(
         resolvedCsp.connectDomains,
-        requestMeta,
+        requestOrigin,
       ),
       resourceDomains: expandRequestOriginSources(
         resolvedCsp.resourceDomains,
-        requestMeta,
+        requestOrigin,
       ),
       frameDomains: expandRequestOriginSources(
         resolvedCsp.frameDomains,
-        requestMeta,
+        requestOrigin,
       ),
       ...(!directoryMode
         ? {
             baseUriDomains: expandRequestOriginSources(
               resolvedCsp.baseUriDomains,
-              requestMeta,
+              requestOrigin,
             ),
           }
         : {}),
@@ -2175,7 +2175,7 @@ function mcpAppUiMeta(
     originString(resource.domain) ??
     originString(ui.domain) ??
     originString(existingUi.domain) ??
-    originString(requestMeta?.origin);
+    originString(requestOrigin);
   if (typeof resource.prefersBorder === "boolean") {
     ui.prefersBorder = resource.prefersBorder;
   }
@@ -2189,7 +2189,7 @@ function mcpAppUiMeta(
   ) {
     base["openai/widgetPrefersBorder"] = resource.prefersBorder;
   }
-  const openAiCsp = openAiWidgetCsp(resolvedCsp, requestMeta);
+  const openAiCsp = openAiWidgetCsp(resolvedCsp, requestOrigin);
   if (directoryMode) {
     const directoryCsp = { ...(openAiCsp ?? {}) };
     const redirectDomain = originString(widgetDomain);
@@ -2226,7 +2226,7 @@ async function resolveMcpAppCsp(
     : resource.csp;
 }
 
-async function resolveMcpAppResource(
+export async function resolveMcpAppResourceSafely(
   config: MCPConfig,
   actionName: string,
   entry: ActionEntry,
@@ -2244,41 +2244,36 @@ async function resolveMcpAppResource(
   }
   const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
-  const description = resource.description ?? entry.tool.description;
-  const resolvedCsp = await resolveMcpAppCsp(resource, {
-    actionName,
-    appId: config.appId,
-    requestOrigin: requestMeta?.origin,
-    catalogMode: config.catalogMode,
-  });
-  const resourceMeta = mcpAppUiMeta(
-    resource,
-    resolvedCsp,
-    requestMeta,
-    description,
-    config.catalogMode === "directory" ? config.widgetDomain : undefined,
-    config.catalogMode === "directory",
-  );
-  return {
-    uri: resolvedUri.uri,
-    ...(resolvedUri.legacyUris ? { legacyUris: resolvedUri.legacyUris } : {}),
-    name: resource.name?.trim() || actionName,
-    ...(resource.title ? { title: resource.title } : {}),
-    ...(description ? { description } : {}),
-    html: resource.html,
-    mimeType: resource.mimeType ?? MCP_APP_MIME_TYPE,
-    ...(resourceMeta ? { _meta: resourceMeta } : {}),
-  };
-}
-
-export async function resolveMcpAppResourceSafely(
-  config: MCPConfig,
-  actionName: string,
-  entry: ActionEntry,
-  requestMeta?: MCPRequestMeta,
-): Promise<ResolvedMcpAppResource | null> {
+  const requestOrigin = requestMeta?.resolveEmbedRequestOrigin
+    ? requestMeta.resolveEmbedRequestOrigin()
+    : requestMeta?.origin;
   try {
-    return await resolveMcpAppResource(config, actionName, entry, requestMeta);
+    const description = resource.description ?? entry.tool.description;
+    const resolvedCsp = await resolveMcpAppCsp(resource, {
+      actionName,
+      appId: config.appId,
+      requestOrigin,
+      catalogMode: config.catalogMode,
+    });
+    const resourceMeta = mcpAppUiMeta(
+      resource,
+      resolvedCsp,
+      requestOrigin,
+      description,
+      config.catalogMode === "directory" ? config.widgetDomain : undefined,
+      config.catalogMode === "directory",
+    );
+    return {
+      uri: resolvedUri.uri,
+      ...(resolvedUri.legacyUris ? { legacyUris: resolvedUri.legacyUris } : {}),
+      name: resource.name?.trim() || actionName,
+      ...(resource.title ? { title: resource.title } : {}),
+      ...(description ? { description } : {}),
+      html: resource.html,
+      requestOrigin,
+      mimeType: resource.mimeType ?? MCP_APP_MIME_TYPE,
+      ...(resourceMeta ? { _meta: resourceMeta } : {}),
+    };
   } catch (error) {
     console.warn(
       `[mcp] Skipping MCP App resource for action "${actionName}" because its metadata could not be resolved: ${describeThrownForLog(error)}`,
@@ -2383,13 +2378,12 @@ function renderMcpAppHtml(
   resource: ResolvedMcpAppResource,
   actionName: string,
   config: MCPConfig,
-  requestMeta?: MCPRequestMeta,
 ): string {
   if (typeof resource.html === "function") {
     return resource.html({
       actionName,
       appId: config.appId,
-      requestOrigin: requestMeta?.origin,
+      requestOrigin: resource.requestOrigin,
       catalogMode: config.catalogMode,
       startToolName:
         config.catalogMode === "directory" &&
@@ -3207,17 +3201,16 @@ export async function createMCPServerForRequest(
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
           .map(async ([name, entry]) => {
             const hasLink = typeof entry.link === "function";
-            const mcpAppResource = mcpAppWidgetsEnabledForIdentity(
-              config,
-              effectiveIdentity,
-            )
-              ? await resolveMcpAppResourceSafely(
-                  config,
-                  name,
-                  entry,
-                  requestMeta,
-                )
-              : null;
+            const mcpAppResource =
+              requestMeta?.inlineMcpApps === true &&
+              mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
+                ? await resolveMcpAppResourceSafely(
+                    config,
+                    name,
+                    entry,
+                    requestMeta,
+                  )
+                : null;
             const rawToolMeta =
               (entry.tool as any)._meta &&
               typeof (entry.tool as any)._meta === "object" &&
@@ -3727,7 +3720,6 @@ export async function createMCPServerForRequest(
                     found.resource,
                     found.actionName,
                     config,
-                    requestMeta,
                   ),
                   ...(found.resource._meta
                     ? { _meta: found.resource._meta }

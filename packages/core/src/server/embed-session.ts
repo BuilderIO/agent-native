@@ -663,8 +663,13 @@ function requestUrl(event: H3Event): URL | null {
   return event.url ?? null;
 }
 
-function requestHostname(event: H3Event): string {
-  return new URL(resolveEmbedRequestOrigin(event)).hostname;
+function requestHostname(event: H3Event): string | null {
+  try {
+    return new URL(resolveEmbedRequestOrigin(event)).hostname;
+  } catch {
+    // coercion-ok: invalid authority cannot authenticate an embed session.
+    return null;
+  }
 }
 
 function normalizedHostname(
@@ -1361,7 +1366,7 @@ export async function resolveEmbedSessionTokenForHost(
 export async function isExpiredMcpDirectoryWidgetSessionRequest(
   event: H3Event,
 ): Promise<boolean> {
-  const hostname = requestHostname(event) ?? "";
+  let hostname: string | undefined;
   const tokens = [
     queryToken(event),
     bearerToken(event),
@@ -1372,7 +1377,13 @@ export async function isExpiredMcpDirectoryWidgetSessionRequest(
     if (
       !verified.ok ||
       !verified.claims.sessionId ||
-      !isMcpDirectoryWidgetCapabilityScope(verified.claims.scope) ||
+      !isMcpDirectoryWidgetCapabilityScope(verified.claims.scope)
+    ) {
+      continue;
+    }
+    hostname ??= requestHostname(event) ?? undefined;
+    if (!hostname) return false;
+    if (
       !embedTokenMatchesHostname(hostname, verified.claims) ||
       !embedSessionAllowsRequest(event, verified.claims)
     ) {
@@ -1870,12 +1881,16 @@ function queryToken(event: H3Event): string | undefined {
 export async function resolveEmbedSessionFromRequest(
   event: H3Event,
 ): Promise<ResolvedEmbedSession | null> {
-  const hostname = requestHostname(event) ?? "";
   const candidates = [
     { token: queryToken(event), source: "query" },
     { token: bearerToken(event), source: "bearer" },
     { token: getCookie(event, EMBED_SESSION_COOKIE), source: "cookie" },
-  ];
+  ].filter(
+    ({ token }) => verifyEmbedSessionToken(token, { allowExpired: true }).ok,
+  );
+  if (!candidates.length) return null;
+  const hostname = requestHostname(event);
+  if (!hostname) return null;
   for (const candidate of candidates) {
     const claims = await resolveEmbedSessionTokenForHost(
       candidate.token,
@@ -1944,20 +1959,24 @@ export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {
   const cookie = verifyEmbedSessionToken(
     getCookie(event, EMBED_SESSION_COOKIE),
   );
-  if (!cookie.ok || !embedTokenMatchesRequestAudience(event, cookie.claims)) {
+  if (!cookie.ok || !embedSessionAllowsRequest(event, cookie.claims)) {
     return false;
   }
-  return embedSessionAllowsRequest(event, cookie.claims);
+  const hostname = requestHostname(event);
+  return (
+    hostname === null || embedTokenMatchesHostname(hostname, cookie.claims)
+  );
 }
 
 export function hasLiveEmbedCapabilityCookie(event: H3Event): boolean {
   const cookie = verifyEmbedSessionToken(
     getCookie(event, EMBED_SESSION_COOKIE),
   );
+  if (!cookie.ok || !isEmbedCapabilityScope(cookie.claims.scope)) return false;
+  const hostname = requestHostname(event);
+  // Invalid authority cannot establish that a live capability cookie is unrelated.
   return (
-    cookie.ok &&
-    isEmbedCapabilityScope(cookie.claims.scope) &&
-    embedTokenMatchesRequestAudience(event, cookie.claims)
+    hostname === null || embedTokenMatchesHostname(hostname, cookie.claims)
   );
 }
 

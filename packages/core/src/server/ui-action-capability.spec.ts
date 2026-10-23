@@ -364,7 +364,7 @@ describe("UI action capability", () => {
           },
         }),
       );
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(403);
       expect(response.headers.get("set-cookie")).toBeNull();
     },
   );

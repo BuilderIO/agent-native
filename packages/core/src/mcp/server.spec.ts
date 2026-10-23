@@ -24,6 +24,7 @@ import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { resolveEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
   EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
@@ -2406,6 +2407,107 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       vi.unstubAllEnvs();
     });
 
+    async function expectWidgetResourceOrigin(
+      sourceEvent: any,
+      expectedOrigin: string,
+    ) {
+      const cspOrigins: Array<string | undefined> = [];
+      const widgetConfig = scopedWidgetConfig({
+        ...config,
+        actions: {
+          "echo-thing": {
+            ...config.actions["echo-thing"],
+            mcpApp: {
+              resource: {
+                ...config.actions["echo-thing"].mcpApp.resource,
+                csp: ({ requestOrigin }) => {
+                  cspOrigins.push(requestOrigin);
+                  return {
+                    connectDomains: [
+                      "$requestOrigin",
+                      "https://api.example.com",
+                    ],
+                    resourceDomains: ["$requestOrigin"],
+                    frameDomains: ["$requestOrigin"],
+                    baseUriDomains: ["$requestOrigin"],
+                  };
+                },
+              },
+            },
+          },
+        },
+      });
+      const expectedCsp = {
+        connect_domains: [expectedOrigin, "https://api.example.com"],
+        resource_domains: [expectedOrigin],
+        frame_domains: [expectedOrigin],
+      };
+      for (const method of [
+        "tools/list",
+        "resources/list",
+        "resources/templates/list",
+        "resources/read",
+        "tools/call",
+      ]) {
+        const event = makeWebEvent({
+          node: Boolean(sourceEvent.node),
+          ip: sourceEvent._ip,
+          headers: {
+            ...sourceEvent._headers,
+            "x-agent-native-mcp-full-catalog": "1",
+          },
+          body: {
+            jsonrpc: "2.0",
+            id: 142,
+            method,
+            params:
+              method === "resources/read"
+                ? { uri: "ui://mail/echo-thing/shell-v65" }
+                : method === "tools/call"
+                  ? { name: "echo-thing", arguments: { value: "hello" } }
+                  : {},
+          },
+        });
+        event.url = new URL(sourceEvent.url);
+        event.req.runtime = sourceEvent.req.runtime;
+        event.req.ip = sourceEvent.req.ip;
+        const response = await handleMcpRequest(event, widgetConfig);
+        expect(response).toBeInstanceOf(Response);
+        const out = await readWebResponse(response as Response);
+        expect(out.error).toBeUndefined();
+        expect(out.result.isError).not.toBe(true);
+        const item =
+          method === "tools/list"
+            ? out.result.tools.find((tool: any) => tool.name === "echo-thing")
+            : method === "resources/list"
+              ? out.result.resources[0]
+              : method === "resources/templates/list"
+                ? out.result.resourceTemplates[0]
+                : method === "resources/read"
+                  ? out.result.contents[0]
+                  : out.result;
+        expect(item._meta["openai/widgetCSP"]).toEqual(expectedCsp);
+        expect(JSON.stringify(item._meta["openai/widgetCSP"])).not.toContain(
+          "attacker.example",
+        );
+        if (method.startsWith("resources/")) {
+          expect(item._meta.ui.csp).toEqual({
+            connectDomains: [expectedOrigin, "https://api.example.com"],
+            resourceDomains: [expectedOrigin],
+            frameDomains: [expectedOrigin],
+            baseUriDomains: [expectedOrigin],
+          });
+          expect(item._meta.ui.domain).toBeUndefined();
+          expect(item._meta["openai/widgetDomain"]).toBe(expectedOrigin);
+        }
+        if (method === "resources/read") {
+          expect(item.text).toContain(`data-origin="${expectedOrigin}"`);
+          expect(item.text).not.toContain("attacker.example");
+        }
+      }
+      expect(cspOrigins).toEqual(Array(5).fill(expectedOrigin));
+    }
+
     it.each([false, true])(
       "uses the raw request origin for widget tickets despite untrusted forwarded headers (Node: %s)",
       async (node) => {
@@ -2468,6 +2570,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           }),
         ).resolves.toBeNull();
         expect(startUrl.hostname).not.toBe("attacker.example");
+        await expectWidgetResourceOrigin(event, startUrl.origin);
       },
     );
 
@@ -2573,6 +2676,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             { audienceHost: "attacker.example" },
           ),
         ).resolves.toBeNull();
+        await expectWidgetResourceOrigin(event, startUrl.origin);
       },
     );
 
@@ -2655,6 +2759,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           new URL(renewal.result._meta["agent-native/embedStart"].startUrl)
             .origin,
         ).toBe("https://workspace.example.test");
+        await expectWidgetResourceOrigin(event, startUrl.origin);
       },
     );
 
@@ -10482,6 +10587,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "honors an explicit false inline signal in the %s catalog",
       async (catalog) => {
         const run = vi.fn(async () => ({ ready: true }));
+        const event = makeWebEvent({
+          headers: { "x-forwarded-host": "mail.agent-native.com/path" },
+        });
+        const resolveWidgetOrigin = vi.fn(() =>
+          resolveEmbedRequestOrigin(event),
+        );
         const server = await createMCPServerForRequest(
           {
             ...config,
@@ -10501,6 +10612,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           {
             inlineMcpApps: false,
             fullCatalog: catalog === "full",
+            resolveEmbedRequestOrigin: resolveWidgetOrigin,
           },
         );
         const [clientTransport, serverTransport] =
@@ -10524,6 +10636,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             }),
           ).toMatchObject({ isError: true });
           expect(run).not.toHaveBeenCalled();
+          expect(resolveWidgetOrigin).not.toHaveBeenCalled();
         } finally {
           await Promise.all([client.close(), server.close()]);
         }
